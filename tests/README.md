@@ -1939,7 +1939,7 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_rf2o_retry_laser_tf_patch_exists_and_is_wired` | `patches/0001-retry-laser-tf.patch` exists, skips scans until the laser TF lookup succeeds, and is listed in the rf2o node type's `colcon_source.patches`. |
 | `test_rf2o_odom_relay_declares_numpy` | `rf2o_odom_relay/pyproject.toml` lists `numpy` in `[project].dependencies` (numpy guard, parsed with `tomllib`). |
 | `test_launcher_sources_the_colcon_workspace_after_ros` | The launcher template sources the colcon `install/setup.bash` after `/opt/ros/jazzy/setup.bash`, and `resolve_and_deploy.yml` passes `colcon_source`. |
-| `test_nav2_keepout_filter_sits_right_before_inflation` | Global plugins are `static_layer, obstacle_layer, keepout_filter, inflation_layer`, local `obstacle_layer, tof_voxel_layer, keepout_filter, inflation_layer`; the keepout filter index is the inflation index minus 1 and it is not in `filters`. |
+| `test_nav2_keepout_filter_sits_right_before_inflation` | Global plugins are `static_layer, obstacle_layer, keepout_filter, inflation_layer`, local `obstacle_layer, depth_voxel_layer, ground_voxel_layer, keepout_filter, ground_cost_filter, inflation_layer`; the keepout filter index is the inflation index minus 1 and it is not in `filters`. |
 | `test_nav2_keepout_filter_settings` | `keepout_filter` in both costmaps: `KeepoutFilter` plugin, enabled, info topic equal to the `costmap_zones` default, `transform_tolerance` 0.2, `override_lethal_cost` true, `lethal_override_cost` 252. |
 | `test_nav2_speed_filter_only_in_local_costmap` | Local `filters` is `[speed_filter]` (`SpeedFilter`, info topic equal to the `costmap_zones` default, `/speed_limit`, tolerance 0.2); global costmap has no speed filter. |
 | `test_nav2_keepout_docs_describe_lethal_override_correctly` | The nav2_params comments and the README zones section say 252 is written only while the robot is inside a zone (not that zone cells are blocked at 252) and that 1.3.10 gives live mask updates. |
@@ -2316,7 +2316,7 @@ Keeps the ground estimation docs consistent with the shipped config and the repo
 
 ### Ground estimation epic: other tests
 
-- Root tests: `test_ground_estimator_readme.py`, `test_ground_estimator_deploy.py` and `test_nav_ground_voxel_layer.py` (described in their sections); changed: `test_nav_stack_config.py` (ground layers in the local costmap only), `test_nav_tof_voxel_layer.py` and `test_nav_tof_collision.py` (the fixed bands and the collision monitor stay unchanged), `test_d435_obstacle_wiring.py` (ground topics), `test_monitoring_dashboards.py` (ground_estimator_cpp panel), `test_node_cpu_compare.py` (the `nav2_bringup_ground_layer` entry), `test_node_metrics_wiring.py`, `test_cpp_node_deploy.py`, `test_unit_cgroups.py`.
+- Root tests: `test_ground_estimator_readme.py`, `test_ground_estimator_deploy.py` and `test_nav_ground_voxel_layer.py` (described in their sections); changed: `test_nav_stack_config.py` (ground layers in the local costmap only), `test_nav_depth_voxel_layer.py` (then `test_nav_tof_voxel_layer.py`) and `test_nav_tof_collision.py` (the fixed bands and the collision monitor stay unchanged), `test_d435_obstacle_wiring.py` (ground topics), `test_monitoring_dashboards.py` (ground_estimator_cpp panel), `test_node_cpu_compare.py` (the `nav2_bringup_ground_layer` entry), `test_node_metrics_wiring.py`, `test_cpp_node_deploy.py`, `test_unit_cgroups.py`.
 - ground_estimator_cpp gtests (`nodes/ground_estimator_cpp/test`): `test_plane_fit.cpp` (`PlaneFit.*`: level, pitched, wall, table, box, depth bias, deterministic seed), `test_tracker.cpp` (`GravityUp.*`, `ChoosePrior.*`, `Tracker.*`, `Slope.*`, `Angles.*`: IMU prior, hold, motion in odom, smoothing, slope levels), `test_segmentation.cpp` (`Segmentation.*`: bands, box, drop-off, 3 cm sill, range, overhang, cloud round trip), `test_edges.cpp` (`Edges.*`: drop-off, step plate, ramp, box, hull, clustering cap, median edge step of a spread box top and a noisy 3 cm sill, sparse 14 deg mat ramp slope over 30 seeds through the cell median with aligned and misaligned cells, dense 25 deg ramp, flat 5 cm box top, unknown slope below the bin support or with bins in one line), `test_traversability.cpp` (`Traversability.*`: thresholds are warnings, sill/drop/ramp both sides, box, colour sheet and plate), `test_colour.cpp` (`Colour.*`: Lab, red sheet, floor model, labelled message layout), `test_config.cpp` (`Config.*`: defaults, derived topics, one third max step, shipped yaml, rejected keys, robustness key ranges, `GuidanceDefaults`/`RejectsGuidanceRanges`/`RejectsGuidanceCrossKeyViolations`/`RejectsUnknownGuidanceKeys`, max slope against the tilt_guard error limits), `test_state.cpp` (`GroundState.*`, `WarningAreas.*`: key order, shapes, rounding, fixtures), `test_node.cpp` (`NodeTest.*`: level floor with box, 10 cm drop, 3 cm sill, 6 deg ramp, missing transform, plane hold, IMU prior).
 - costmap_zones: `nodes/costmap_zones/tests/test_ground_warnings.py` (warning areas to the speed and ground cost masks) and `test_node.py`.
 - mcp_server: `nodes/mcp_server/tests/test_ground_summary.py` (`/ground/state` contract, region conversion, summary mapping), `test_floor_guard_ground.py` (opt-in floor_guard with the ground plane).
@@ -2993,54 +2993,59 @@ Static checks of the plane-relative `ground_voxel_layer` and the `ground_cost_fi
 
 | Test | Covers |
 |---|---|
-| `test_local_plugin_order_puts_ground_cost_filter_between_keepout_and_inflation` | Local plugins are exactly `obstacle_layer, tof_voxel_layer, ground_voxel_layer, keepout_filter, ground_cost_filter, inflation_layer`. |
+| `test_local_plugin_order_puts_ground_cost_filter_between_keepout_and_inflation` | Local plugins are exactly `obstacle_layer, depth_voxel_layer, ground_voxel_layer, keepout_filter, ground_cost_filter, inflation_layer`. |
 | `test_ground_cost_filter_is_a_keepout_filter_on_the_ground_cost_info_topic` | `ground_cost_filter` is a KeepoutFilter on `/costmap_filter_info/ground_cost`, enabled, `override_lethal_cost` false, not in `filters`. |
 | `test_ground_cost_filter_info_topic_equals_the_costmap_zones_default` | The info topic equals the costmap_zones `ground_cost_info_topic` default. |
 | `test_ground_warning_mask_cost_stays_below_inscribed` | The costmap_zones `ground_warning_mask_value` times 254 / 100 is below INSCRIBED 253 (passable). |
 | `test_local_costmap_keeps_exactly_one_speed_filter` | One SpeedFilter on `/costmap_filter_info/speed`; the slow-down uses the shared speed mask. |
-| `test_ground_layer_settings_equal_the_tof_layer_settings` | Every layer setting equals `tof_voxel_layer`. |
+| `test_ground_layer_settings_equal_the_tof_layer_settings` | Every layer setting except `enabled` equals `depth_voxel_layer`. |
 | `test_ground_layer_sources_topics_and_pass_through_limits` | Sources `ground_obstacle_mark, ground_drop_mark, ground_clear`; topics equal the ground_estimator_cpp `output_namespace` (client.yml and package config) plus `/obstacle_points` / `/drop_points`; limits -1.5 / 1.5 and the buffer settings. |
-| `test_ground_clear_equals_the_tof_clear_frustum` | `ground_clear` equals `tof_clear` on `/tof/points_filtered`. |
+| `test_ground_clear_equals_the_tof_clear_frustum` | `ground_clear` equals `depth_clear` on `/head/d435/points_filtered`. |
 | `test_global_costmap_is_untouched` | Global plugins unchanged; no STVL and no ground topic. |
 | `test_collision_monitor_sources_are_unchanged_and_free_of_ground_topics` | Monitor sources `scan, tof_obstacles, tof_cliff`, CliffStop on `tof_cliff` only, no `/ground/` topic. |
-| `test_tof_voxel_layer_is_pinned` | `tof_voxel_layer` sources and bands unchanged. |
+| `test_tof_voxel_layer_is_pinned` | `depth_voxel_layer` sources (`depth_mark depth_cliff_mark depth_clear`) and bands unchanged. |
 | `test_ground_values_are_commented_with_their_reasons` | Layer and filter values carry comments; the header names the runtime switch, the fixed bands and D-A1. |
 | `test_readme_documents_the_ground_layer` | The README section names the topics, pass-through limits, what stays on the fixed bands, the obstacle vs warning rule, the slow-down mechanism, the runtime switch and the four switch-over criteria. |
 | `test_readme_ground_section_has_no_parking_wording` | The section defers nothing. |
 | `test_tests_readme_documents_this_file` | This section lists every test of the file. |
 
-### test_nav_tof_voxel_layer.py
+### test_nav_d435_inputs.py
 
-Static checks of the head ToF spatio-temporal voxel layer (`tof_voxel_layer`, STVL) in the Nav2 local costmap and of its lidar separation (U5). Reads `nav2_params.yaml`, `client.yml`, the d435_obstacle_cloud and laser_filter params and the READMEs.
+Nav2 head inputs on the RealSense D435 (design D6): the lidar-only state of 2026-10-24 ends with the D435 switch-over.
 
 | Test | Covers |
 |---|---|
-| `test_local_costmap_has_the_tof_layer_after_the_lidar_layer` | Local plugins are exactly `obstacle_layer, tof_voxel_layer, ground_voxel_layer, keepout_filter, ground_cost_filter, inflation_layer`. |
-| `test_tof_voxel_layer_settings` | Every layer value and type: STVL plugin, enabled, `voxel_decay` 15.0, `decay_model` 0, `voxel_size` 0.05, `track_unknown_space` false, `mark_threshold` 0, `update_footprint_enabled` false, `combination_method` 1, `publish_voxel_map` false, `transform_tolerance` 0.3, `mapping_mode` false, `observation_sources`. |
+| `test_depth_voxel_layer_reads_the_d435_cloud` | `depth_voxel_layer` is in the local plugins and enabled, its sources are `depth_mark depth_cliff_mark depth_clear` and each reads `/head/d435/points_filtered` (laser_filter `cloud_filtered_topic`), the layer block carries no "disabled (user 2026-10-24): lidar-only" comment, and no line of nav2_params.yaml names a `/tof` topic or `tof_voxel_layer`. |
+| `test_lidar_only_pin_is_retired` | The lidar-only pin file is deleted, not tracked by git, and no longer named in this README. |
+| `test_tests_readme_documents_this_file` | This section lists every test of the file. |
+
+### test_nav_depth_voxel_layer.py
+
+Static checks of the head D435 spatio-temporal voxel layer (`depth_voxel_layer`, STVL) in the Nav2 local costmap and of its lidar separation (U5). Reads `nav2_params.yaml`, `client.yml`, the d435_obstacle_cloud and laser_filter params and the READMEs. Re-derived from the ToF layer test: frustum from the D435 min-Z 0.15 m and inside the 87 x 58 deg depth FOV minus its datasheet tolerance; ranges and height bands kept (D435 RMS error under 2 % at 2 m), as the module docstring explains.
+
+| Test | Covers |
+|---|---|
+| `test_local_costmap_has_the_depth_layer_after_the_lidar_layer` | Local plugins are exactly `obstacle_layer, depth_voxel_layer, ground_voxel_layer, keepout_filter, ground_cost_filter, inflation_layer`. |
+| `test_depth_voxel_layer_settings` | Every layer value and type: STVL plugin, enabled true, `voxel_decay` 15.0, `decay_model` 0, `voxel_size` 0.05, `track_unknown_space` false, `mark_threshold` 0, `update_footprint_enabled` false, `combination_method` 1, `publish_voxel_map` false, `transform_tolerance` 0.3, `mapping_mode` false, `observation_sources`. |
 | `test_stvl_footprint_clearing_is_disabled` | `update_footprint_enabled` is false and its comment names `setConvexPolygonCost` (convex fill erases obstacles in the H notches). |
-| `test_tof_sources_settings` | `tof_mark`, `tof_cliff_mark` and `tof_clear` values and types (PointCloud2 on `/tof/points_filtered`, height bands, range, buffer settings, frustum). |
-| `test_mark_and_clear_sources_are_split` | The two mark sources mark and never clear, `tof_clear` clears and never marks, frustum model 0. |
+| `test_depth_sources_settings` | `depth_mark`, `depth_cliff_mark` and `depth_clear` values and types (PointCloud2 on `/head/d435/points_filtered`, height bands, range, buffer settings, frustum `min_z` 0.15, `max_z` 3.0, 1.45 x 0.98 rad). |
+| `test_mark_and_clear_sources_are_split` | The two mark sources mark and never clear, `depth_clear` clears and never marks, frustum model 0. |
 | `test_obstacle_band_is_above_the_floor_and_below_the_robot` | 0 < `min_obstacle_height` < `max_obstacle_height` <= 0.6 m robot height. |
-| `test_mcp_tof_obstacle_band_equals_tof_mark` | `TOF_OBSTACLE_BAND_M` in mcp_server `perception.py` (read with ast, no import) equals the `tof_mark` (`min_obstacle_height`, `max_obstacle_height`) band, so the agent fixed-band summary matches the costmap. |
+| `test_mcp_obstacle_band_equals_depth_mark` | `TOF_OBSTACLE_BAND_M` in mcp_server `perception.py` (read with ast, no import) equals the `depth_mark` (`min_obstacle_height`, `max_obstacle_height`) band, so the agent fixed-band summary matches the costmap. |
 | `test_cliff_band_is_strictly_below_the_floor_noise` | Cliff band ends strictly below -0.05 m. |
 | `test_bands_do_not_overlap` | The cliff band ends below the obstacle band start. |
 | `test_ranges_stay_inside_the_cloud_max_depth` | `max_z` and both `obstacle_range` <= d435_obstacle_cloud `max_depth`; `min_z` >= its `min_depth`. |
-| `test_clearing_fov_is_inside_the_tof_fov` | Clearing FOV angles are below the ToF horizontal/vertical FOV (70 deg diagonal, 240 x 180). |
-| `test_tof_fov_constants_match_the_design` | The FOV constants give 58.5 x 45.6 deg. |
-| `test_disabled_tof_layer_is_off_the_d435_laser_filter_output` | laser_filter's `cloud_filtered_topic` is the D435 `/head/d435/points_filtered`, so the layer whose sources still read `/tof/points_filtered` stays disabled. |
+| `test_clearing_fov_is_inside_the_d435_fov` | Clearing FOV angles are below the smallest D435 depth FOV (87 - 3 x 58 - 1 deg). |
+| `test_depth_layer_reads_the_d435_laser_filter_output` | laser_filter's `cloud_filtered_topic` is `/head/d435/points_filtered`, every layer source reads it, and the layer is enabled. |
 | `test_lidar_obstacle_layer_keeps_the_scan_source` | Both costmaps keep the enabled ObstacleLayer with the single `/scan_filtered` LaserScan source (marking and clearing). |
 | `test_no_stvl_source_uses_the_lidar` | No STVL source reads `/scan_filtered`, a scan topic or a LaserScan. |
-| `test_global_costmap_has_no_tof_voxels` | Global plugins unchanged; no STVL plugin and no ToF topic there (user decision Q3). |
-| `test_only_one_stvl_layer_in_the_local_costmap` | The STVL layers of the local costmap are exactly `tof_voxel_layer, ground_voxel_layer`. |
-| `test_layer_values_are_commented_with_their_reason` | Key values carry a comment naming their reason (decay, notches, max, TF, floor, robot height, max_depth, 70 deg FOV, collision monitor). |
+| `test_global_costmap_has_no_depth_voxels` | Global plugins unchanged; no STVL plugin and no D435 topic there (user decision Q3). |
+| `test_only_one_stvl_layer_in_the_local_costmap` | The STVL layers of the local costmap are exactly `depth_voxel_layer, ground_voxel_layer`. |
+| `test_layer_values_are_commented_with_their_reason` | Key values carry a comment naming their reason (decay, notches, max, TF, floor, robot height, max_depth, 87 deg and 58 deg FOV, D435 min-Z, collision monitor). |
 | `test_nav2_bringup_installs_stvl` | nav2_bringup `apt_packages` lists `ros-jazzy-spatio-temporal-voxel-layer` with a comment. |
-| `test_readme_documents_the_tof_obstacle_layer` | The nav2_bringup README "ToF obstacle layer" section names the pipeline, layer settings, the U5 separation, local-only and the no-returns cliff limitation. |
-| `test_readme_tof_section_has_no_parking_wording` | The nav2_bringup README "ToF obstacle layer" section states what the values are and how to check them, with no wording that defers the values to a later change. |
+| `test_readme_documents_the_depth_obstacle_layer` | The nav2_bringup README "D435 obstacle layer" section names the D435 pipeline, layer settings, the 87 x 58 deg FOV, the U5 separation, local-only and the no-returns cliff limitation, and no `/tof`, `tof_obstacle_cloud`, `tof_voxel_layer` or Arducam. |
+| `test_readme_depth_section_has_no_parking_wording` | The nav2_bringup README "D435 obstacle layer" section states what the values are and how to check them, with no wording that defers the values to a later change. |
 | `test_tests_readme_documents_this_file` | This section lists every test of the file. |
-
-### test_nav_lidar_only.py
-
-Lidar-only path planning (user 2026-10-24): no enabled costmap layer (local or global) reads a /tof, /ground or /head_rgbd topic or the ground cost filter, the head layers and filter are defined but `enabled: false`, enabled collision-monitor polygons use only enabled lidar sources (StopBox `["scan"]`, CliffStop and the two ToF sources disabled), and every disabled line carries the "disabled (user 2026-10-24)" comment. The ToF voxel, ToF collision, ground layer and stack config tests were updated to the disabled state.
 
 ### test_nav_tof_collision.py
 
@@ -3049,8 +3054,8 @@ Static checks of the collision_monitor ToF sources `tof_obstacles` / `tof_cliff`
 | Test | Covers |
 |---|---|
 | `test_observation_sources_are_scan_and_the_two_tof_sources` | `observation_sources` is exactly `scan, tof_obstacles, tof_cliff`. |
-| `test_tof_source_settings` | Both ToF sources: `pointcloud` on `/tof/points_filtered`, bands 0.10-0.6 m and -1.0 to -0.10 m, `min_range` 0.0, enabled (values and types). |
-| `test_tof_source_band_equals_the_stvl_mark_band` | `tof_obstacles` band equals the STVL `tof_mark` band, `tof_cliff` equals `tof_cliff_mark`, same topic. |
+| `test_tof_source_settings` | Both ToF sources: `pointcloud` on `/head/d435/points_filtered`, bands 0.10-0.6 m and -1.0 to -0.10 m, `min_range` 0.0, enabled (values and types). |
+| `test_tof_source_band_equals_the_stvl_mark_band` | `tof_obstacles` band equals the STVL `depth_mark` band, `tof_cliff` equals `depth_cliff_mark`, same topic. |
 | `test_no_collision_monitor_source_reads_a_ground_topic` | No collision_monitor source topic starts with `/ground/` (D-A1). |
 | `test_scan_source_is_unchanged` | U5: `scan` stays `type: scan` on `/scan_filtered`, enabled. |
 | `test_polygons_include_cliffstop` | `polygons` is exactly `StopBox, ArmStop, CliffStop`. |
@@ -3400,7 +3405,7 @@ Static pins for `docs/runbooks/head-remount-floor-check.md`, the robot runbook a
 | `test_pan_direction_check` | +0.3 rad turns the head left (CCW), user confirms. |
 | `test_rezero_and_recalibration_reference_their_runbooks` | Links to servo-torque-neutral and head-rgbd-fusion; plane bias +-10 mm and the 40 mm limit. |
 | `test_floor_thresholds_and_scraper_workflow` | +-1 cm, 0.6 deg, 60 s, topic_scraper_collect.py, ground_temporal_cells. |
-| `test_costmap_band_equals_nav2_tof_mark` | The 0.10 band equals nav2_params.yaml tof_mark; 30 s clear check. |
+| `test_costmap_band_equals_nav2_tof_mark` | The 0.10 band equals nav2_params.yaml depth_mark (depth_voxel_layer); 30 s clear check. |
 | `test_temporal_defaults_match_ground_estimator_config` | Quoted cell size, window and min frames equal config/ground_estimator.yaml. |
 | `test_every_scripts_path_exists` | Every `scripts/` path (and `docs/` path) named exists. |
 | `test_results_section_has_a_check_table` | The Results table rows. |

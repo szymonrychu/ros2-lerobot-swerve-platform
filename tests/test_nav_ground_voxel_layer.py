@@ -1,7 +1,7 @@
 """Static invariants of the ground voxel layer and the ground cost filter in the Nav2 local costmap (D8, D13, D15).
 
 The ground estimator (nodes/ground_estimator_cpp) publishes plane-relative obstacle and drop points; the local costmap
-marks them in `ground_voxel_layer` next to the fixed-band `tof_voxel_layer`, and `ground_cost_filter` costs the
+marks them in `ground_voxel_layer` next to the fixed-band `depth_voxel_layer`, and `ground_cost_filter` costs the
 costmap_zones ground warning mask. The collision monitor and CliffStop keep the fixed ToF bands. No ROS is needed: the
 YAML is read directly.
 """
@@ -23,11 +23,11 @@ COSTMAP_ZONES_CONFIG = REPO_ROOT / "nodes" / "costmap_zones" / "costmap_zones" /
 
 STVL_PLUGIN = "spatio_temporal_voxel_layer/SpatioTemporalVoxelLayer"
 LAYER = "ground_voxel_layer"
-TOF_LAYER = "tof_voxel_layer"
+TOF_LAYER = "depth_voxel_layer"
 FILTER = "ground_cost_filter"
 LOCAL_PLUGINS = [
     "obstacle_layer",
-    "tof_voxel_layer",
+    "depth_voxel_layer",
     "ground_voxel_layer",
     "keepout_filter",
     "ground_cost_filter",
@@ -228,9 +228,9 @@ def test_ground_layer_sources_topics_and_pass_through_limits() -> None:
 def test_ground_clear_equals_the_tof_clear_frustum() -> None:
     local = costmap_params("local_costmap")
     clear = local[LAYER]["ground_clear"]
-    assert clear["topic"] == "/tof/points_filtered"
+    assert clear["topic"] == "/head/d435/points_filtered"
     for key in CLEAR_KEYS:
-        assert clear[key] == local[TOF_LAYER]["tof_clear"][key], key
+        assert clear[key] == local[TOF_LAYER]["depth_clear"][key], key
 
 
 def test_global_costmap_is_untouched() -> None:
@@ -252,9 +252,9 @@ def test_collision_monitor_sources_are_unchanged_and_free_of_ground_topics() -> 
 
 def test_tof_voxel_layer_is_pinned() -> None:
     layer = costmap_params("local_costmap")[TOF_LAYER]
-    assert layer["observation_sources"] == "tof_mark tof_cliff_mark tof_clear"
-    assert (layer["tof_mark"]["min_obstacle_height"], layer["tof_mark"]["max_obstacle_height"]) == (0.10, 0.6)
-    assert (layer["tof_cliff_mark"]["min_obstacle_height"], layer["tof_cliff_mark"]["max_obstacle_height"]) == (
+    assert layer["observation_sources"] == "depth_mark depth_cliff_mark depth_clear"
+    assert (layer["depth_mark"]["min_obstacle_height"], layer["depth_mark"]["max_obstacle_height"]) == (0.10, 0.6)
+    assert (layer["depth_cliff_mark"]["min_obstacle_height"], layer["depth_cliff_mark"]["max_obstacle_height"]) == (
         -1.0,
         -0.10,
     )
@@ -299,8 +299,8 @@ def test_readme_documents_the_ground_layer() -> None:
         "10 cm drop",
         "5 min",
         "CPU",
-        "tof_mark",
-        "tof_cliff_mark",
+        "depth_mark",
+        "depth_cliff_mark",
     ):
         assert phrase in section, phrase
 

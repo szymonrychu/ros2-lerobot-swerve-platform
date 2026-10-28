@@ -189,13 +189,13 @@ local_costmap:
       footprint: "[[0.3225, -0.0674], [0.322, -0.0391], [0.2585, -0.0074], [0.1, -0.0116], [0.1, 0.0974], [0.1171, 0.0803], [0.1319, 0.0742], [0.1186, 0.061], [0.11, 0.04], [0.1186, 0.019], [0.129, 0.0086], [0.1426, 0.003], [0.1574, 0.003], [0.171, 0.0086], [0.1814, 0.019], [0.187, 0.0326], [0.187, 0.0474], [0.1814, 0.061], [0.1696, 0.0727], [0.1879, 0.0803], [0.2055, 0.0979], [0.215, 0.1209], [0.215, 0.1457], [0.2055, 0.1687], [0.1879, 0.1863], [0.1649, 0.1958], [0.1401, 0.1958], [0.1171, 0.1863], [0.0995, 0.1687], [0.0921, 0.1508], [-0.0921, 0.1508], [-0.0995, 0.1687], [-0.1171, 0.1863], [-0.1401, 0.1958], [-0.1649, 0.1958], [-0.1879, 0.1863], [-0.2055, 0.1687], [-0.215, 0.1457], [-0.215, 0.1209], [-0.2055, 0.0979], [-0.1879, 0.0803], [-0.1649, 0.0708], [-0.15, 0.0708], [-0.15, -0.0708], [-0.1649, -0.0708], [-0.1879, -0.0803], [-0.2055, -0.0979], [-0.215, -0.1209], [-0.215, -0.1457], [-0.2055, -0.1687], [-0.1879, -0.1863], [-0.1649, -0.1958], [-0.1401, -0.1958], [-0.1171, -0.1863], [-0.0995, -0.1687], [-0.0921, -0.1508], [0.0921, -0.1508], [0.0995, -0.1687], [0.1171, -0.1863], [0.1401, -0.1958], [0.1649, -0.1958], [0.1879, -0.1863], [0.2055, -0.1687], [0.215, -0.1457], [0.215, -0.1209], [0.2055, -0.0979], [0.1997, -0.0922], [0.2574, -0.0896]]"
       footprint_padding: 0.0
       # <<< gen_nav_footprint: footprint
-      # The ToF voxel layer sits right after the lidar layer (both raw obstacles, combined by max) and below the
-      # keepout filter and inflation, so ToF obstacles are inflated like lidar ones. The plane-relative
-      # ground_voxel_layer runs alongside the fixed-band tof_voxel_layer (design D8: both stay in force; the fixed bands are retired only
+      # The D435 voxel layer sits right after the lidar layer (both raw obstacles, combined by max) and below the
+      # keepout filter and inflation, so D435 obstacles are inflated like lidar ones. The plane-relative
+      # ground_voxel_layer runs alongside the fixed-band depth_voxel_layer (design D8: both stay in force; the fixed bands are retired only
       # when the switch-over criteria in nodes/nav2_bringup/README.md, "Ground layer (plane-relative ToF marks)", pass; runtime switch:
       # `ros2 param set /local_costmap/local_costmap ground_voxel_layer.enabled false`). ground_cost_filter is a layer
       # right below inflation like keepout_filter, so the ground warning cost is inflated and seen by Smac / MPPI.
-      plugins: ["obstacle_layer", "tof_voxel_layer", "ground_voxel_layer", "keepout_filter", "ground_cost_filter", "inflation_layer"]
+      plugins: ["obstacle_layer", "depth_voxel_layer", "ground_voxel_layer", "keepout_filter", "ground_cost_filter", "inflation_layer"]
       # Keepout zones (nodes/costmap_zones) are a plugin, not a `filters` entry: filters run after every layer
       # including inflation, so a filter would not be inflated. As a layer right below inflation the lethal zone cost
       # spreads like a real obstacle, which Smac's centre-cost shortcut relies on. The info topic is absolute
@@ -255,20 +255,23 @@ local_costmap:
           raytrace_min_range: 0.0
           obstacle_max_range: 2.5
           obstacle_min_range: 0.0
-      # Head ToF 3D obstacles and cliffs (nodes/nav2_bringup/README.md, "ToF obstacle layer"): the self-filtered
-      # cloud /tof/points_filtered (tof_obstacle_cloud point_cloud_xyz -> laser_filter) in a spatio-temporal voxel
-      # grid. Local costmap only (user decision Q3; the global costmap keeps static + lidar). Heights are in the
-      # costmap global frame (odom), where the floor is z = 0. A separate grid from the lidar obstacle_layer: ToF
-      # clearing only decays ToF voxels and lidar raytracing never clears them (U5). STVL is not used for the lidar.
-      tof_voxel_layer:
+      # Head D435 3D obstacles and cliffs (nodes/nav2_bringup/README.md, "D435 obstacle layer"; design D6): the
+      # self-filtered cloud /head/d435/points_filtered (d435_obstacle_cloud point_cloud_xyz -> laser_filter) in a
+      # spatio-temporal voxel grid. Local costmap only (user decision Q3; the global costmap keeps static + lidar).
+      # Heights are in the costmap global frame (odom), where the floor is z = 0. A separate grid from the lidar
+      # obstacle_layer: depth clearing only decays depth voxels and lidar raytracing never clears them (U5). STVL is not
+      # used for the lidar.
+      depth_voxel_layer:
         plugin: "spatio_temporal_voxel_layer/SpatioTemporalVoxelLayer"
-        enabled: false   # disabled (user 2026-10-24): lidar-only path planning until the RealSense D435 replaces the head ToF; re-enable/replace here
-        # Voxel decay: a voxel the ToF no longer sees clears 15 s after its last mark (decay_model 0 = linear), so
-        # obstacles behind the robot or outside the narrow head view still count for a short manoeuvre.
+        # On since the D435 replaced the head ToF (design D6); runtime switch without a redeploy:
+        # `ros2 param set /local_costmap/local_costmap depth_voxel_layer.enabled false`.
+        enabled: true
+        # Voxel decay: a voxel the D435 no longer sees clears 15 s after its last mark (decay_model 0 = linear), so
+        # obstacles behind the robot or outside the head view still count for a short manoeuvre.
         voxel_decay: 15.0
         # 0 = linear decay over voxel_decay seconds.
         decay_model: 0
-        # 5 cm voxels: the tof_obstacle_cloud voxel_size, no finer detail exists in the cloud.
+        # 5 cm voxels: the d435_obstacle_cloud voxel_size, no finer detail exists in the cloud.
         voxel_size: 0.05
         # Unknown space is not tracked: the lidar layer and the global costmap own unknown/free.
         track_unknown_space: false
@@ -277,7 +280,7 @@ local_costmap:
         # STVL clears the footprint with setConvexPolygonCost, convex like the ObstacleLayer footprint clearing, and
         # would erase obstacles in the H notches; laser_filter already removes the robot's own points from the cloud.
         update_footprint_enabled: false
-        # 1 = max with the layers below: ToF cells never lower a lidar or keepout cost.
+        # 1 = max with the layers below: depth cells never lower a lidar or keepout cost.
         combination_method: 1
         # The 3D voxel grid is not published (CPU and DDS bandwidth on the Pi 5); the merged costmap shows the cells.
         publish_voxel_map: false
@@ -285,44 +288,46 @@ local_costmap:
         transform_tolerance: 0.3
         # Navigation mode: voxels decay; mapping_mode keeps them forever.
         mapping_mode: false
-        observation_sources: tof_mark tof_cliff_mark tof_clear
+        observation_sources: depth_mark depth_cliff_mark depth_clear
         # Obstacles: points between just above the floor and the robot's height.
-        tof_mark:
+        depth_mark:
           data_type: PointCloud2
-          topic: /tof/points_filtered
+          topic: /head/d435/points_filtered
           marking: true
           clearing: false
-          # 10 cm above the floor (z = 0 in odom): floor noise after the head remount put ~7 % of floor points
-          # above 6 cm per frame and the 15 s voxel decay unions them; with the z-depth fix 10 cm leaves ~1.3 % of
-          # floor cells over 10 frames. Still sees obstacles of 10 cm and taller that the lidar plane passes over.
+          # 10 cm above the floor (z = 0 in odom), unchanged from the ToF band: the D435 depth RMS error is under 2 %
+          # at 2 m (Intel datasheet), about 4 cm at the obstacle_range, so floor noise stays below 10 cm and the 15 s
+          # decay does not union floor points into false obstacles. Still sees obstacles of 10 cm and taller that the
+          # lidar plane passes over.
           min_obstacle_height: 0.10
           # Robot height with the head: overhangs higher than the robot are not obstacles.
           max_obstacle_height: 0.6
-          # 2 m, inside the tof_obstacle_cloud max_depth (3 m) where ToF depth error is still small.
+          # 2 m, inside the d435_obstacle_cloud max_depth (3 m): the D435 depth error grows with the square of the
+          # distance, so 2 m keeps it under the 10 cm bands.
           obstacle_range: 2.0
           # Voxel filter: one point per voxel into the grid (bounded CPU per update).
           filter: voxel
-          # 0: a voxel needs no minimum point count (the cloud is already decimated to 2700 points).
+          # 0: a voxel needs no minimum point count (the cloud is already decimated to at most 14400 points).
           voxel_min_points: 0
           # 0.0: use only the latest cloud per costmap update; persistence comes from voxel_decay.
           observation_persistence: 0.0
           # Drop the buffered cloud after it is applied so a stale cloud is never re-marked.
           clear_after_reading: true
-          # 0.0: a ToF dropout does not mark the costmap "not current"; the collision monitor handles outages.
+          # 0.0: a D435 dropout does not mark the costmap "not current"; the collision monitor handles outages.
           expected_update_rate: 0.0
           # Point clouds carry no inf returns (point_cloud_xyz drops invalid pixels).
           inf_is_valid: false
         # Cliffs: below-floor points (the lower floor behind a step or a hole) mark the edge.
-        tof_cliff_mark:
+        depth_cliff_mark:
           data_type: PointCloud2
-          topic: /tof/points_filtered
+          topic: /head/d435/points_filtered
           marking: true
           clearing: false
-          # Down to 1 m below the floor (z = 0 in odom): stairs and drop-offs the ToF sees beyond the edge.
+          # Down to 1 m below the floor (z = 0 in odom): stairs and drop-offs the D435 sees beyond the edge.
           min_obstacle_height: -1.0
-          # 10 cm below the floor: well outside ToF floor noise (no false cliffs), a 15 cm step still marks.
+          # 10 cm below the floor: well outside the D435 floor noise (no false cliffs), a 15 cm step still marks.
           max_obstacle_height: -0.10
-          # Same 2 m range as tof_mark, inside the cloud max_depth.
+          # Same 2 m range as depth_mark, inside the cloud max_depth.
           obstacle_range: 2.0
           filter: voxel
           voxel_min_points: 0
@@ -330,54 +335,54 @@ local_costmap:
           clear_after_reading: true
           expected_update_rate: 0.0
           inf_is_valid: false
-        # Frustum clearing: decays ToF voxels inside the ToF view that the current cloud no longer marks.
-        tof_clear:
+        # Frustum clearing: decays depth voxels inside the D435 view that the current cloud no longer marks.
+        depth_clear:
           data_type: PointCloud2
-          topic: /tof/points_filtered
+          topic: /head/d435/points_filtered
           marking: false
           clearing: true
           # 0 = depth camera frustum model.
           model_type: 0
-          # Frustum from the cloud min_depth (0.2 m) ...
-          min_z: 0.2
-          # ... to the cloud max_depth (3 m): no clearing beyond where the ToF can return points.
+          # Frustum from the cloud min_depth (0.15 m, the D435 min-Z at 640x360) ...
+          min_z: 0.15
+          # ... to the cloud max_depth (3 m): no clearing beyond where the cloud has points.
           max_z: 3.0
-          # 1.0 rad (57.3 deg), under the ToF's 58.5 deg horizontal FOV (70 deg diagonal at 4:3): clearing never
-          # reaches outside the real view.
-          horizontal_fov_angle: 1.0
-          # 0.78 rad (44.7 deg), under the ToF's 45.6 deg vertical FOV (70 deg diagonal at 4:3).
-          vertical_fov_angle: 0.78
+          # 1.45 rad (83.1 deg), under the D435 87 deg horizontal depth FOV minus its 3 deg tolerance (84 deg, Intel
+          # datasheet): clearing never reaches outside the real view.
+          horizontal_fov_angle: 1.45
+          # 0.98 rad (56.1 deg), under the D435 58 deg vertical depth FOV minus its 1 deg tolerance (57 deg).
+          vertical_fov_angle: 0.98
           # 1.0: voxels inside the frustum decay faster, so a moved obstacle clears quickly while in view.
           decay_acceleration: 1.0
       # Plane-relative ground marks (design D8, D13; nodes/ground_estimator_cpp), alongside the fixed bands (those of
-      # tof_voxel_layer above): the estimator fits the floor plane and already applied the plane-relative bands, so the
+      # depth_voxel_layer above): the estimator fits the floor plane and already applied the plane-relative bands, so the
       # layer only marks what it publishes: obstacles above the plane and drop-offs below it. A separate STVL grid, so
       # disabling it at runtime (`ros2 param set /local_costmap/local_costmap ground_voxel_layer.enabled false`) leaves
       # the fixed bands untouched. Switch-over criteria: nodes/nav2_bringup/README.md. The collision monitor and
-      # CliffStop keep the 10 Hz ToF bands (user decision D-A1); the global costmap has no ground layer.
+      # CliffStop keep the fixed depth bands (user decision D-A1); the global costmap has no ground layer.
       ground_voxel_layer:
         plugin: "spatio_temporal_voxel_layer/SpatioTemporalVoxelLayer"
         # Off since 2026-10-22: live, the 15 s decay piled the estimator's flickering lethal points into dozens of false
         # lethal cells and Nav2 found no path. Turn it on (both mark, combined by max) once the live ground acceptance
         # passes; runtime: `ros2 param set /local_costmap/local_costmap ground_voxel_layer.enabled true`.
         enabled: false   # disabled (user 2026-10-24): lidar-only path planning until the RealSense D435 replaces the head ToF; re-enable/replace here
-        # Same decay as tof_voxel_layer: a voxel the estimator no longer publishes clears 15 s after its last mark.
+        # Same decay as depth_voxel_layer: a voxel the estimator no longer publishes clears 15 s after its last mark.
         voxel_decay: 15.0
         # 0 = linear decay over voxel_decay seconds.
         decay_model: 0
-        # 5 cm voxels: the cloud voxel size of the ToF pipeline.
+        # 5 cm voxels: the cloud voxel size of the D435 pipeline (d435_obstacle_cloud).
         voxel_size: 0.05
         # Unknown space is not tracked: the lidar layer and the global costmap own unknown/free.
         track_unknown_space: false
         # 0: one point marks a voxel (the estimator already filtered by plane distance and clusters).
         mark_threshold: 0
-        # STVL footprint clearing is a convex fill and would erase obstacles in the H notches (as tof_voxel_layer).
+        # STVL footprint clearing is a convex fill and would erase obstacles in the H notches (as depth_voxel_layer).
         update_footprint_enabled: false
         # 1 = max with the layers below: ground cells never lower a lidar or keepout cost.
         combination_method: 1
         # The 3D voxel grid is not published (CPU and DDS bandwidth on the Pi 5).
         publish_voxel_map: false
-        # TF lookup tolerance at the cloud stamp, same as tof_voxel_layer.
+        # TF lookup tolerance at the cloud stamp, same as depth_voxel_layer.
         transform_tolerance: 0.3
         # Navigation mode: voxels decay.
         mapping_mode: false
@@ -392,7 +397,7 @@ local_costmap:
           min_obstacle_height: -1.5
           # Pass-through limit, symmetric to the minimum (the estimator keeps points up to its own band top).
           max_obstacle_height: 1.5
-          # 2 m, inside the tof_obstacle_cloud max_depth (3 m) where ToF depth error is still small.
+          # 2 m, inside the d435_obstacle_cloud max_depth (3 m), as for depth_mark.
           obstacle_range: 2.0
           # Voxel filter: one point per voxel into the grid (bounded CPU per update).
           filter: voxel
@@ -425,23 +430,23 @@ local_costmap:
           clear_after_reading: true
           expected_update_rate: 0.0
           inf_is_valid: false
-        # Frustum clearing on the filtered ToF cloud (the estimator input): decays ground voxels inside the ToF view
-        # that the estimator no longer marks, same frustum as tof_clear.
+        # Frustum clearing on the filtered D435 cloud (the estimator input): decays ground voxels inside the D435 view
+        # that the estimator no longer marks, same frustum as depth_clear.
         ground_clear:
           data_type: PointCloud2
-          topic: /tof/points_filtered
+          topic: /head/d435/points_filtered
           marking: false
           clearing: true
           # 0 = depth camera frustum model.
           model_type: 0
-          # Frustum from the cloud min_depth (0.2 m) ...
-          min_z: 0.2
+          # Frustum from the cloud min_depth (0.15 m, the D435 min-Z) ...
+          min_z: 0.15
           # ... to the cloud max_depth (3 m).
           max_z: 3.0
-          # 1.0 rad, under the ToF's 58.5 deg horizontal FOV: clearing never reaches outside the real view.
-          horizontal_fov_angle: 1.0
-          # 0.78 rad, under the ToF's 45.6 deg vertical FOV.
-          vertical_fov_angle: 0.78
+          # 1.45 rad, under the D435 87 deg horizontal depth FOV minus its 3 deg tolerance: never outside the view.
+          horizontal_fov_angle: 1.45
+          # 0.98 rad, under the D435 58 deg vertical depth FOV minus its 1 deg tolerance.
+          vertical_fov_angle: 0.98
           # 1.0: voxels inside the frustum decay faster, so a removed obstacle clears quickly while in view.
           decay_acceleration: 1.0
       inflation_layer:
@@ -842,9 +847,9 @@ collision_monitor:
         direction_end_angle: -1.5708
       # <<< gen_nav_footprint: cliffstop
     # scan: the lidar keeps guarding 360 deg / ~12 m (U5); the ToF adds 3D detail inside its narrow head view.
-    # tof_obstacles / tof_cliff: the head ToF cloud (laser_filter output). Heights compare in base_link after the TF
+    # tof_obstacles / tof_cliff: the head D435 cloud /head/d435/points_filtered (laser_filter output). Heights compare in base_link after the TF
     # lookup (nav2_collision_monitor pointcloud.cpp), so the negative cliff band works; both bands equal the local
-    # costmap STVL bands (tof_mark, tof_cliff_mark): 10 cm over the floor to the 0.6 m robot height, and 10 cm to 1 m
+    # costmap STVL bands (depth_mark, depth_cliff_mark): 10 cm over the floor to the 0.6 m robot height, and 10 cm to 1 m
     # below the floor. Both ToF sources keep the node source_timeout (1.0 s, no per-source override): an enabled source
     # with no cloud for 1 s, or no head TF at the cloud stamp, is an "invalid source" and the monitor publishes a STOP
     # (collision_monitor_node.cpp 1.3.13), so a ToF or head-TF outage stops motion (fail-safe, user decision
@@ -860,14 +865,14 @@ collision_monitor:
       enabled: true
     tof_obstacles:
       type: "pointcloud"
-      topic: "/tof/points_filtered"
+      topic: "/head/d435/points_filtered"
       min_height: 0.10
       max_height: 0.6
       min_range: 0.0
       enabled: false   # disabled (user 2026-10-24): lidar-only path planning until the RealSense D435 replaces the head ToF; re-enable/replace here
     tof_cliff:
       type: "pointcloud"
-      topic: "/tof/points_filtered"
+      topic: "/head/d435/points_filtered"
       min_height: -1.0
       max_height: -0.10
       min_range: 0.0

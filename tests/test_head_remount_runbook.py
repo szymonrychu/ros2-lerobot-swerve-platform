@@ -99,8 +99,8 @@ def test_floor_thresholds_and_scraper_workflow() -> None:
 def test_costmap_band_equals_nav2_tof_mark() -> None:
     """Part of test_runbook_values_equal_the_shipped_config."""
     params = yaml.safe_load(NAV2_PARAMS.read_text())
-    layer = params["local_costmap"]["local_costmap"]["ros__parameters"]["tof_voxel_layer"]
-    band = layer["tof_mark"]["min_obstacle_height"]
+    layer = params["local_costmap"]["local_costmap"]["ros__parameters"]["depth_voxel_layer"]
+    band = layer["depth_mark"]["min_obstacle_height"]
     assert band == 0.10
     costmap = section("Costmap")
     assert f"{band:.2f}" in costmap and "10 cm" in costmap

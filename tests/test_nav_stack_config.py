@@ -775,7 +775,7 @@ def costmap_zones_defaults() -> dict[str, str]:
             "local_costmap",
             [
                 "obstacle_layer",
-                "tof_voxel_layer",
+                "depth_voxel_layer",
                 "ground_voxel_layer",
                 "keepout_filter",
                 "ground_cost_filter",
