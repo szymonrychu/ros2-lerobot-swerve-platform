@@ -1,4 +1,5 @@
-# Device permissions and USB power for the Intel RealSense D435 (plain D435, USB PID 8086:0b07; no IMU, so no IIO/HID rules).
+# Device permissions and USB power for the Intel RealSense D435 (plain D435, USB PID 8086:0b07, and 8086:0adb in firmware
+# update / recovery mode; no IMU, so no IIO/HID rules).
 # Applied by the realsense_d435 node deploy, not by the base playbook.
 - name: Install the RealSense D435 udev rule
   ansible.builtin.copy:
@@ -8,6 +9,8 @@
       SUBSYSTEMS=="usb", ATTRS{idVendor}=="8086", ATTRS{idProduct}=="0b07", MODE="0666", GROUP="video"
       SUBSYSTEMS=="usb", ATTRS{idVendor}=="8086", ATTRS{idProduct}=="0b07", ATTR{power/autosuspend}="-1"
       SUBSYSTEMS=="usb", ATTRS{idVendor}=="8086", ATTRS{idProduct}=="0b07", ATTR{power/control}="on"
+      # Firmware update / recovery mode (rs-fw-update switches the camera to it): access without root
+      SUBSYSTEMS=="usb", ATTRS{idVendor}=="8086", ATTRS{idProduct}=="0adb", MODE="0666", GROUP="video"
     owner: root
     group: root
     mode: "0644"

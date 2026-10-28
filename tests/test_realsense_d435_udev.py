@@ -61,18 +61,31 @@ def walk(node: Any) -> list[dict[str, Any]]:
 
 
 def test_rule_matches_the_d435_product_id() -> None:
-    """The rule matches 8086:0b07 only, opens the device and turns autosuspend off."""
+    """The rule matches 8086:0b07 and its update mode 8086:0adb, opens both and turns autosuspend off on 0b07."""
     content = task_for(RULE_PATH)["ansible.builtin.copy"]["content"]
     lines = [x for x in content.splitlines() if x and not x.startswith("#")]
     assert lines
     for line in lines:
         assert 'ATTRS{idVendor}=="8086"' in line
-        assert 'ATTRS{idProduct}=="0b07"' in line
+        assert 'ATTRS{idProduct}=="0b07"' in line or 'ATTRS{idProduct}=="0adb"' in line
     assert "0b3a" not in content
     assert 'MODE="0666", GROUP="video"' in content
     assert 'ATTR{power/autosuspend}="-1"' in content
     assert 'ATTR{power/control}="on"' in content
     assert "iio" not in content
+
+
+def test_rule_opens_the_firmware_update_mode() -> None:
+    """rs-fw-update switches the camera to 8086:0adb (update mode); the rule opens it, so a flash needs no root.
+
+    Bring-up 2026-10-28: without it the flash stopped at `access failed for 8086:adb` and the camera stayed in update
+    mode until `sudo rs-fw-update -r`.
+    """
+    content = task_for(RULE_PATH)["ansible.builtin.copy"]["content"]
+    update_lines = [x for x in content.splitlines() if 'ATTRS{idProduct}=="0adb"' in x and not x.startswith("#")]
+    assert update_lines == [
+        'SUBSYSTEMS=="usb", ATTRS{idVendor}=="8086", ATTRS{idProduct}=="0adb", MODE="0666", GROUP="video"'
+    ]
 
 
 def test_d435i_rules_are_gone() -> None:
