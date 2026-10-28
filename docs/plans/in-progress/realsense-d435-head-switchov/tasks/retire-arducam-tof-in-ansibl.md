@@ -1,11 +1,11 @@
 ---
 title: Retire arducam_tof in Ansible
-status: in-progress
+status: todo
 repo: ros2-lerobot-sverve-platform
 value: The ToF stops running on the robot once nothing reads it.
 files: [ansible/group_vars/client.yml, tests/test_old_sensors_retired.py, tests/test_node_metrics_wiring.py, tests/test_cpu_budget_runbook.py, tests/test_head_remount_runbook.py, tests/README.md]
 verify: "uv run pytest tests/test_old_sensors_retired.py tests/test_unit_cgroups.py tests/test_node_metrics_wiring.py tests/test_cpu_budget_runbook.py tests/test_head_remount_runbook.py -q && uv run poe lint && uv run poe test-ansible"
-depends_on: [d435-obstacle-cloud-node, laser-filter-on-the-d435-clo, head-rgb-d-build-deps-cleanu, ground-recorder-on-d435-topi, web-ui-head-tab-config-on-d4, calibration-config-on-d435, ground-estimator-on-d435-inp]
+depends_on: [mcp-depth-summary-on-d435-cl, d435-obstacle-cloud-node, laser-filter-on-the-d435-clo, head-rgb-d-build-deps-cleanu, ground-recorder-on-d435-topi, web-ui-head-tab-config-on-d4, calibration-config-on-d435, ground-estimator-on-d435-inp]
 model: opus
 review: ""
 verified_head: ""
@@ -61,3 +61,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-28 todo: 2026-10-28: blocked on mcp-depth-summary-on-d435-cl (mcp_server reads /tof/points_filtered); dependency added
