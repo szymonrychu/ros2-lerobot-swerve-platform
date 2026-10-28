@@ -1,6 +1,6 @@
 ---
 title: Enable RGB-D and ground nodes
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: Ground estimation and the RGB-D stage run again on the robot.
 files: [ansible/group_vars/client.yml, tests/test_head_rgbd_deploy.py, tests/test_ground_estimator_deploy.py, tests/test_cpp_cutover.py, tests/test_map3d_uplink_config.py, tests/test_unit_cgroups.py, tests/README.md]
@@ -8,15 +8,15 @@ verify: "uv run pytest tests/test_head_rgbd_deploy.py tests/test_ground_estimato
 depends_on: [head-rgb-d-build-deps-cleanu, ground-estimator-on-d435-inp, laser-filter-on-the-d435-clo, d435-live-bring-up-and-topic]
 model: opus
 review: ""
-verified_head: ""
+verified_head: ff6a33f3
 points: 3
 expected_minutes: 34
 expected_tokens: 2250000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 3
+actual_minutes: 34
+actual_tokens: 5804882
+actual_roles: "impl 26, review 8"
+actual_role_tokens: "impl 5401683, review 403199"
 ---
 
 # Enable RGB-D and ground nodes
@@ -77,3 +77,5 @@ Context the implementer needs: pitfalls, existing code to reuse, decisions alrea
 - 2026-10-28 amended: user 2026-10-28: enable ground estimation now; gripper camera disabled for memory instead of waiting for its retirement
 
 - 2026-10-28 amended: ToF retire blocked on MCP re-point; disable arducam_tof for memory instead
+
+- 2026-10-28 done
