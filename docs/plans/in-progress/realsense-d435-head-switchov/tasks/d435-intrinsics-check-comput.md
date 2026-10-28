@@ -64,3 +64,4 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+- 2026-10-28: delivered together with calibration-config-on-d435 (option A, the capture change cascades into store/app/compute/fixtures); review it on the same commit range against its own ACs.

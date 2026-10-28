@@ -66,3 +66,4 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+- 2026-10-28: calibration-config-on-d435 made only the minimal frontend changes the new fixtures need; the RGB-D section redesign is here.

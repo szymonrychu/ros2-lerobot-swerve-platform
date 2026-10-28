@@ -68,3 +68,4 @@ What is true and observable when the task is done.
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
 
 - 2026-10-27 amended: normalise_amplitude and the extrinsics test leave here; the config fields move to the stereo retirement
+- 2026-10-28: shared/ros2_common/head_rgbd_calibration/poses.py imports detect_tof and is unused once capture drops PoseCounter (calibration-config-on-d435): retire poses.py and its tests here too.
