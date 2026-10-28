@@ -4,9 +4,11 @@ import ast
 import importlib.util
 import json
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from types import ModuleType
 
+import numpy as np
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -45,7 +47,7 @@ def test_constants(ut: ModuleType) -> None:
     assert ut.HEAD_CHAIN_FILE == "head_chain.json"
     assert ut.TOF_JOINT_FILE == "tof_joint.json"
     assert ut.APPLIED_MARKER_FILE == "applied.json"
-    assert ut.HEAD_CHAIN_JOINTS == ("head_mount_joint", "head_pan", "head_tilt", "head_camera_joint")
+    assert ut.HEAD_CHAIN_JOINTS == ("head_mount_joint", "head_pan", "head_tilt", "d435_joint")
 
 
 def test_head_chain_json_round_trip(ut: ModuleType) -> None:
@@ -62,7 +64,7 @@ def test_head_chain_json_round_trip(ut: ModuleType) -> None:
     assert ut.parse_head_chain(data) == origins
 
 
-@pytest.mark.parametrize("joint", ["head_mount_joint", "head_tilt", "head_camera_joint"])
+@pytest.mark.parametrize("joint", ["head_mount_joint", "head_tilt", "d435_joint"])
 def test_each_chain_joint_rewritten_only(ut: ModuleType, urdf_text: str, joint: str) -> None:
     out = ut.rewrite_joint_origin(urdf_text, joint, ut.Origin((1.0, 2.0, 3.0), (0.1, 0.2, 0.3)), "n1")
     assert f"<!-- {joint} calibrated: n1 -->" in out
@@ -95,12 +97,12 @@ def write_chain(tmp_path: Path, joints: dict) -> None:
 
 
 def test_apply_overrides_chain_then_tof(ut: ModuleType, urdf_text: str, tmp_path: Path) -> None:
-    write_chain(tmp_path, {"head_tilt": valid_joint(), "head_camera_joint": valid_joint((0.5, 0.6, 0.7))})
+    write_chain(tmp_path, {"head_tilt": valid_joint(), "d435_joint": valid_joint((0.5, 0.6, 0.7))})
     (tmp_path / "tof_joint.json").write_text(json.dumps({"xyz": [9, 8, 7], "rpy": [0, 0, 0], "note": "tof"}))
     out, warnings = ut.apply_overrides(urdf_text, tmp_path)
     assert warnings == []
     assert "<!-- head_tilt calibrated: chain -->" in out
-    assert "<!-- head_camera_joint calibrated: chain -->" in out
+    assert "<!-- d435_joint calibrated: chain -->" in out
     assert "<!-- tof_joint calibrated: tof -->" in out
     assert 'xyz="9.000000000 8.000000000 7.000000000"' in out
     assert 'xyz="0.500000000 0.600000000 0.700000000"' in out
@@ -169,3 +171,41 @@ def test_urdf_text_imports_only_stdlib() -> None:
             assert node.level == 0
             modules.add((node.module or "").split(".")[0])
     assert modules <= set(sys.stdlib_module_names)
+
+
+D435_FRAMES = ("d435_color_optical_frame", "d435_depth_optical_frame")
+
+
+def rpy_matrix(rpy: tuple[float, float, float]) -> np.ndarray:
+    """Rotation matrix of a URDF rpy (extrinsic x, y, z)."""
+    r, p, y = rpy
+    rx = np.array([[1, 0, 0], [0, np.cos(r), -np.sin(r)], [0, np.sin(r), np.cos(r)]])
+    ry = np.array([[np.cos(p), 0, np.sin(p)], [0, 1, 0], [-np.sin(p), 0, np.cos(p)]])
+    rz = np.array([[np.cos(y), -np.sin(y), 0], [np.sin(y), np.cos(y), 0], [0, 0, 1]])
+    return rz @ ry @ rx
+
+
+def frame_pose(urdf: str, frame: str, root: str = "head_link") -> np.ndarray:
+    """4x4 pose of a fixed-joint frame relative to root, composing the URDF origins up the parent chain."""
+    joints = {j.find("child").get("link"): j for j in ET.fromstring(urdf).findall("joint")}
+    pose = np.eye(4)
+    while frame != root:
+        joint = joints[frame]
+        origin = joint.find("origin")
+        local = np.eye(4)
+        local[:3, :3] = rpy_matrix(tuple(float(v) for v in origin.get("rpy").split()))
+        local[:3, 3] = [float(v) for v in origin.get("xyz").split()]
+        pose = local @ pose
+        frame = joint.find("parent").get("link")
+    return pose
+
+
+def test_override_moves_the_d435_frames(ut: ModuleType, urdf_text: str, tmp_path: Path) -> None:
+    write_chain(tmp_path, {"d435_joint": valid_joint((0.05, -0.03, 0.04), (0.0, 0.1, 0.0))})
+    out, warnings = ut.apply_overrides(urdf_text, tmp_path)
+    assert warnings == []
+    assert "<!-- d435_joint calibrated: chain -->" in out
+    for frame in D435_FRAMES:
+        before, after = frame_pose(urdf_text, frame), frame_pose(out, frame)
+        assert not np.allclose(before[:3, 3], after[:3, 3]), frame
+        assert not np.allclose(before[:3, :3], after[:3, :3]), frame

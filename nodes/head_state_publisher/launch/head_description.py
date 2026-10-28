@@ -22,6 +22,8 @@ def robot_description(urdf_path: Path, applied_dir: Path, urdf_text_path: Path) 
     Returns:
         The URDF text; unchanged when urdf_text cannot be loaded. Each unusable override file is skipped with a warning.
     """
+    # head_chain.json overrides head_mount_joint, head_pan, head_tilt and d435_joint (the D435 mount, design D4);
+    # an existing tof_joint.json still applies to the old ToF frames until they are retired.
     urdf = urdf_path.read_text()
     try:
         spec = importlib.util.spec_from_file_location(URDF_TEXT_MODULE, urdf_text_path)

@@ -15,7 +15,7 @@ NUMBER_FORMAT = "{:.9f}"
 HEAD_CHAIN_FILE = "head_chain.json"
 TOF_JOINT_FILE = "tof_joint.json"
 APPLIED_MARKER_FILE = "applied.json"
-HEAD_CHAIN_JOINTS = ("head_mount_joint", "head_pan", "head_tilt", "head_camera_joint")
+HEAD_CHAIN_JOINTS = ("head_mount_joint", "head_pan", "head_tilt", "d435_joint")
 
 
 @dataclass(frozen=True)

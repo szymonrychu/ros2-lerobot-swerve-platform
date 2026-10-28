@@ -18,9 +18,9 @@ URDF_TEXT = REPO_ROOT / "shared" / "ros2_common" / "head_rgbd_calibration" / "ur
 CHAIN_XYZ = {
     "head_mount_joint": "0.111 0.222 0.333",
     "head_tilt": "0.0 0.0 0.0444",
-    "head_camera_joint": "0.05 -0.025 0.06",
+    "d435_joint": "0.05 -0.025 0.06",
 }
-CHAIN_RPY = {"head_mount_joint": "0.01 0.02 0.0", "head_tilt": "0.0 0.0 0.0", "head_camera_joint": "0.0 0.03 0.0"}
+CHAIN_RPY = {"head_mount_joint": "0.01 0.02 0.0", "head_tilt": "0.0 0.0 0.0", "d435_joint": "0.0 0.03 0.0"}
 TOF = {"xyz": [0.01, 0.02, 0.03], "rpy": [0.1, 0.2, 0.3], "note": "tof"}
 
 
