@@ -1,9 +1,9 @@
-"""Static invariants of the ground voxel layer and the ground cost filter in the Nav2 local costmap (D8, D13, D15).
+"""Static invariants of the ground voxel layer and the ground cost filter in the Nav2 local costmap (D8, D13, D15, D6).
 
-The ground estimator (nodes/ground_estimator_cpp) publishes plane-relative obstacle and drop points; the local costmap
-marks them in `ground_voxel_layer` next to the fixed-band `depth_voxel_layer`, and `ground_cost_filter` costs the
-costmap_zones ground warning mask. The collision monitor and CliffStop keep the fixed ToF bands. No ROS is needed: the
-YAML is read directly.
+The ground estimator (nodes/ground_estimator_cpp) publishes plane-relative obstacle and drop points from the D435
+cloud; the local costmap marks them in `ground_voxel_layer` next to the fixed-band `depth_voxel_layer`, and
+`ground_cost_filter` costs the costmap_zones ground warning mask. Both are enabled since the D435 replaced the head ToF
+(design D6). The collision monitor and CliffStop keep the fixed D435 bands. No ROS is needed: the YAML is read directly.
 """
 
 import ast
@@ -23,7 +23,7 @@ COSTMAP_ZONES_CONFIG = REPO_ROOT / "nodes" / "costmap_zones" / "costmap_zones" /
 
 STVL_PLUGIN = "spatio_temporal_voxel_layer/SpatioTemporalVoxelLayer"
 LAYER = "ground_voxel_layer"
-TOF_LAYER = "depth_voxel_layer"
+DEPTH_LAYER = "depth_voxel_layer"
 FILTER = "ground_cost_filter"
 LOCAL_PLUGINS = [
     "obstacle_layer",
@@ -37,7 +37,7 @@ GLOBAL_PLUGINS = ["static_layer", "obstacle_layer", "keepout_filter", "inflation
 GROUND_SOURCES = ["ground_obstacle_mark", "ground_drop_mark", "ground_clear"]
 INSCRIBED_COST = 253
 LETHAL_COST = 254
-README_HEADING = "## Ground layer (plane-relative ToF marks)"
+README_HEADING = "## Ground layer (plane-relative D435 marks)"
 PARKING_PHRASES = ("to tune", "starting value", "later", "follow-up", "todo", "phase 2", "out of scope")
 LAYER_KEYS = (
     "plugin",
@@ -166,7 +166,7 @@ def test_local_plugin_order_puts_ground_cost_filter_between_keepout_and_inflatio
 def test_ground_cost_filter_is_a_keepout_filter_on_the_ground_cost_info_topic() -> None:
     block = costmap_params("local_costmap")[FILTER]
     assert block["plugin"] == "nav2_costmap_2d::KeepoutFilter"
-    assert block["enabled"] is False
+    assert block["enabled"] is True
     assert block["filter_info_topic"] == "/costmap_filter_info/ground_cost"
     assert block["transform_tolerance"] == 0.2
     assert block["override_lethal_cost"] is False
@@ -200,17 +200,35 @@ def test_local_costmap_keeps_exactly_one_speed_filter() -> None:
     assert speed_filters == ["speed_filter"]
 
 
-def test_ground_layer_settings_equal_the_tof_layer_settings() -> None:
+def test_ground_layer_settings_equal_the_depth_layer_settings() -> None:
     local = costmap_params("local_costmap")
     ground = local[LAYER]
     assert ground["plugin"] == STVL_PLUGIN
-    # Off by default since 2026-10-22: live, its 15 s decay piled up the estimator's flickering lethal points into
-    # dozens of false lethal cells that left Nav2 no path; back on once the live ground acceptance passes.
-    assert ground["enabled"] is False
-    for key in (k for k in LAYER_KEYS if k != "enabled"):
-        assert type(ground[key]) is type(local[TOF_LAYER][key]), key
-        assert ground[key] == local[TOF_LAYER][key], key
+    for key in LAYER_KEYS:
+        assert type(ground[key]) is type(local[DEPTH_LAYER][key]), key
+        assert ground[key] == local[DEPTH_LAYER][key], key
     assert ground["voxel_decay"] == 15.0 and ground["voxel_size"] == 0.05 and ground["combination_method"] == 1
+
+
+def test_ground_layer_and_keepout_are_enabled() -> None:
+    """The ground voxel layer marks the /ground/* clouds and clears on the D435 cloud, and the ground KeepoutFilter
+    costs the warning mask: both are enabled in the local costmap (design D6), with a runtime switch comment."""
+    local = costmap_params("local_costmap")
+    assert {LAYER, FILTER} <= set(local["plugins"])
+    assert local[LAYER]["enabled"] is True
+    assert local[FILTER]["enabled"] is True
+    assert local[DEPTH_LAYER]["enabled"] is True
+    namespace = ground_output_namespace()
+    assert namespace == "/ground"
+    assert {local[LAYER][name]["topic"] for name in ("ground_obstacle_mark", "ground_drop_mark")} == {
+        f"{namespace}/obstacle_points",
+        f"{namespace}/drop_points",
+    }
+    assert local[LAYER]["ground_clear"]["topic"] == local[DEPTH_LAYER]["depth_clear"]["topic"]
+    for key in (LAYER, FILTER):
+        text = block_text(key)
+        assert "lidar-only" not in text, key
+        assert f"ros2 param set /local_costmap/local_costmap {key}.enabled false" in text, key
 
 
 def test_ground_layer_sources_topics_and_pass_through_limits() -> None:
@@ -225,12 +243,12 @@ def test_ground_layer_sources_topics_and_pass_through_limits() -> None:
             assert source[key] == value, f"{name}.{key}"
 
 
-def test_ground_clear_equals_the_tof_clear_frustum() -> None:
+def test_ground_clear_equals_the_depth_clear_frustum() -> None:
     local = costmap_params("local_costmap")
     clear = local[LAYER]["ground_clear"]
     assert clear["topic"] == "/head/d435/points_filtered"
     for key in CLEAR_KEYS:
-        assert clear[key] == local[TOF_LAYER]["depth_clear"][key], key
+        assert clear[key] == local[DEPTH_LAYER]["depth_clear"][key], key
 
 
 def test_global_costmap_is_untouched() -> None:
@@ -250,8 +268,8 @@ def test_collision_monitor_sources_are_unchanged_and_free_of_ground_topics() -> 
     assert "/ground/" not in yaml.dump(monitor)
 
 
-def test_tof_voxel_layer_is_pinned() -> None:
-    layer = costmap_params("local_costmap")[TOF_LAYER]
+def test_depth_voxel_layer_is_pinned() -> None:
+    layer = costmap_params("local_costmap")[DEPTH_LAYER]
     assert layer["observation_sources"] == "depth_mark depth_cliff_mark depth_clear"
     assert (layer["depth_mark"]["min_obstacle_height"], layer["depth_mark"]["max_obstacle_height"]) == (0.10, 0.6)
     assert (layer["depth_cliff_mark"]["min_obstacle_height"], layer["depth_cliff_mark"]["max_obstacle_height"]) == (

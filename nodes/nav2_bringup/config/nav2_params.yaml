@@ -192,7 +192,7 @@ local_costmap:
       # The D435 voxel layer sits right after the lidar layer (both raw obstacles, combined by max) and below the
       # keepout filter and inflation, so D435 obstacles are inflated like lidar ones. The plane-relative
       # ground_voxel_layer runs alongside the fixed-band depth_voxel_layer (design D8: both stay in force; the fixed bands are retired only
-      # when the switch-over criteria in nodes/nav2_bringup/README.md, "Ground layer (plane-relative ToF marks)", pass; runtime switch:
+      # when the switch-over criteria in nodes/nav2_bringup/README.md, "Ground layer (plane-relative D435 marks)", pass; runtime switch:
       # `ros2 param set /local_costmap/local_costmap ground_voxel_layer.enabled false`). ground_cost_filter is a layer
       # right below inflation like keepout_filter, so the ground warning cost is inflated and seen by Smac / MPPI.
       plugins: ["obstacle_layer", "depth_voxel_layer", "ground_voxel_layer", "keepout_filter", "ground_cost_filter", "inflation_layer"]
@@ -220,8 +220,9 @@ local_costmap:
       # which controller_server honours (slow-down, not a stop). Local costmap only (the global planner has no notion).
       ground_cost_filter:
         plugin: "nav2_costmap_2d::KeepoutFilter"
-        # Warning areas cost something when on; runtime: `ros2 param set /local_costmap/local_costmap ground_cost_filter.enabled true`.
-        enabled: false   # disabled (user 2026-10-24): lidar-only path planning until the RealSense D435 replaces the head ToF; re-enable/replace here
+        # On since the D435 replaced the head ToF (design D6): the warning areas the ground estimator finds cost the local
+        # costmap; runtime switch: `ros2 param set /local_costmap/local_costmap ground_cost_filter.enabled false`.
+        enabled: true
         # Absolute topic (costmap_zones publishes it latched): a relative name would resolve under the costmap namespace.
         filter_info_topic: /costmap_filter_info/ground_cost
         # Same TF tolerance as keepout_filter.
@@ -362,10 +363,12 @@ local_costmap:
       # CliffStop keep the fixed depth bands (user decision D-A1); the global costmap has no ground layer.
       ground_voxel_layer:
         plugin: "spatio_temporal_voxel_layer/SpatioTemporalVoxelLayer"
-        # Off since 2026-10-22: live, the 15 s decay piled the estimator's flickering lethal points into dozens of false
-        # lethal cells and Nav2 found no path. Turn it on (both mark, combined by max) once the live ground acceptance
-        # passes; runtime: `ros2 param set /local_costmap/local_costmap ground_voxel_layer.enabled true`.
-        enabled: false   # disabled (user 2026-10-24): lidar-only path planning until the RealSense D435 replaces the head ToF; re-enable/replace here
+        # On since the D435 replaced the head ToF (design D6): steps, drops and steep ramps the ground estimator finds on
+        # the D435 cloud are planned around, next to the fixed bands (both mark, combined by max). On the ToF (2026-10-22)
+        # the 15 s decay piled the estimator's flickering lethal points into false lethal cells and Nav2 found no path;
+        # if that shows on the D435, switch it off without a redeploy:
+        # `ros2 param set /local_costmap/local_costmap ground_voxel_layer.enabled false`.
+        enabled: true
         # Same decay as depth_voxel_layer: a voxel the estimator no longer publishes clears 15 s after its last mark.
         voxel_decay: 15.0
         # 0 = linear decay over voxel_decay seconds.

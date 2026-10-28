@@ -32,12 +32,16 @@ ends with the D435 switch-over (design D6). The head 3D input is the D435 cloud:
 - Collision monitor: the sources `depth_obstacles` and `depth_cliff` are enabled on `/head/d435/points_filtered`;
   `StopBox` reads `scan` and `depth_obstacles`, `CliffStop` is enabled on `depth_cliff` (see
   [Collision monitor](#collision-monitor)).
-- No line of `config/nav2_params.yaml` names a `/tof` topic: the disabled `ground_voxel_layer` clears on
-  `/head/d435/points_filtered` too.
-- Still disabled with the "disabled (user 2026-10-24)" comment: `ground_voxel_layer` and `ground_cost_filter`.
+- Ground: `ground_voxel_layer` and `ground_cost_filter` are enabled. The layer marks `/ground/obstacle_points` and
+  `/ground/drop_points` (ground_estimator_cpp on the D435 cloud) and clears on `/head/d435/points_filtered` with the
+  `depth_clear` frustum; the filter costs the ground warning areas (see
+  [Ground layer](#ground-layer-plane-relative-d435-marks)).
+- No line of `config/nav2_params.yaml` names a `/tof` topic or keeps the "disabled (user 2026-10-24): lidar-only"
+  comment.
 
 Runtime switch without a redeploy: `ros2 param set /local_costmap/local_costmap depth_voxel_layer.enabled false` (and
-`true` to put it back). `tests/test_nav_d435_inputs.py` pins the D435 inputs.
+`true` to put it back; the same for `ground_voxel_layer` and `ground_cost_filter`). `tests/test_nav_d435_inputs.py` pins
+the D435 inputs.
 
 ## Servers configured in `config/nav2_params.yaml`
 
@@ -426,11 +430,13 @@ noise out of both bands, and 0.6 m is the robot height. Post-deploy check: on an
 down, the local costmap shows no `depth_voxel_layer` cells; a box at least 10 cm tall placed 1 m ahead shows up as
 lethal cells within one D435 frame and clears within 15 s once the box is removed.
 
-## Ground layer (plane-relative ToF marks)
+## Ground layer (plane-relative D435 marks)
 
 The fixed bands of the D435 obstacle layer assume a flat floor at odom z = 0. `nodes/ground_estimator_cpp` fits the real
 floor plane from `/head/d435/points_filtered` (IMU prior) and publishes plane-relative clouds. The local costmap marks them in
-a second spatio-temporal voxel layer, `ground_voxel_layer`, alongside the fixed bands. Layer order: `obstacle_layer,
+a second spatio-temporal voxel layer, `ground_voxel_layer`, alongside the fixed bands. Both `ground_voxel_layer` and
+`ground_cost_filter` are enabled since the D435 replaced the head ToF (design D6), so path planning goes around the
+steps, drops and steep ramps the estimator finds and costs its warning areas. Layer order: `obstacle_layer,
 depth_voxel_layer, ground_voxel_layer, keepout_filter, ground_cost_filter, inflation_layer`. The global costmap is
 unchanged (`static_layer, obstacle_layer, keepout_filter, inflation_layer`, no STVL, no ground topic).
 

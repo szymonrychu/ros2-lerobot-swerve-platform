@@ -3016,7 +3016,7 @@ Docs guard for the driving-agent skills suite.
 
 ### test_nav_ground_voxel_layer.py
 
-Static checks of the plane-relative `ground_voxel_layer` and the `ground_cost_filter` in the Nav2 local costmap (design D8, D13, D15), the unchanged global costmap, collision monitor and CliffStop, and the README section. Reads `nav2_params.yaml`, `client.yml`, the ground_estimator_cpp config, the costmap_zones config and the READMEs.
+Static checks of the plane-relative `ground_voxel_layer` and the `ground_cost_filter` in the Nav2 local costmap (design D8, D13, D15; both enabled on the D435, design D6), the unchanged global costmap, collision monitor and CliffStop, and the README section. Reads `nav2_params.yaml`, `client.yml`, the ground_estimator_cpp config, the costmap_zones config and the READMEs.
 
 | Test | Covers |
 |---|---|
@@ -3025,12 +3025,13 @@ Static checks of the plane-relative `ground_voxel_layer` and the `ground_cost_fi
 | `test_ground_cost_filter_info_topic_equals_the_costmap_zones_default` | The info topic equals the costmap_zones `ground_cost_info_topic` default. |
 | `test_ground_warning_mask_cost_stays_below_inscribed` | The costmap_zones `ground_warning_mask_value` times 254 / 100 is below INSCRIBED 253 (passable). |
 | `test_local_costmap_keeps_exactly_one_speed_filter` | One SpeedFilter on `/costmap_filter_info/speed`; the slow-down uses the shared speed mask. |
-| `test_ground_layer_settings_equal_the_tof_layer_settings` | Every layer setting except `enabled` equals `depth_voxel_layer`. |
+| `test_ground_layer_settings_equal_the_depth_layer_settings` | Every layer setting, `enabled` included, equals `depth_voxel_layer` (decay 15 s, 5 cm voxels, `combination_method` 1). |
+| `test_ground_layer_and_keepout_are_enabled` | `ground_voxel_layer` and `ground_cost_filter` are in the local plugins and enabled (as `depth_voxel_layer`); the marks read `/ground/obstacle_points` and `/ground/drop_points` (the ground_estimator_cpp `output_namespace`), `ground_clear` reads the `depth_clear` topic; neither block carries a lidar-only comment and each names its `enabled false` runtime switch. |
 | `test_ground_layer_sources_topics_and_pass_through_limits` | Sources `ground_obstacle_mark, ground_drop_mark, ground_clear`; topics equal the ground_estimator_cpp `output_namespace` (client.yml and package config) plus `/obstacle_points` / `/drop_points`; limits -1.5 / 1.5 and the buffer settings. |
-| `test_ground_clear_equals_the_tof_clear_frustum` | `ground_clear` equals `depth_clear` on `/head/d435/points_filtered`. |
+| `test_ground_clear_equals_the_depth_clear_frustum` | `ground_clear` equals `depth_clear` on `/head/d435/points_filtered`. |
 | `test_global_costmap_is_untouched` | Global plugins unchanged; no STVL and no ground topic. |
 | `test_collision_monitor_sources_are_unchanged_and_free_of_ground_topics` | Monitor sources `scan, depth_obstacles, depth_cliff`, CliffStop on `depth_cliff` only, no `/ground/` topic. |
-| `test_tof_voxel_layer_is_pinned` | `depth_voxel_layer` sources (`depth_mark depth_cliff_mark depth_clear`) and bands unchanged. |
+| `test_depth_voxel_layer_is_pinned` | `depth_voxel_layer` sources (`depth_mark depth_cliff_mark depth_clear`) and bands unchanged. |
 | `test_ground_values_are_commented_with_their_reasons` | Layer and filter values carry comments; the header names the runtime switch, the fixed bands and D-A1. |
 | `test_readme_documents_the_ground_layer` | The README section names the topics, pass-through limits, what stays on the fixed bands, the obstacle vs warning rule, the slow-down mechanism, the runtime switch and the four switch-over criteria. |
 | `test_readme_ground_section_has_no_parking_wording` | The section defers nothing. |
@@ -3044,6 +3045,7 @@ Nav2 head inputs on the RealSense D435 (design D6): the lidar-only state of 2026
 |---|---|
 | `test_depth_voxel_layer_reads_the_d435_cloud` | `depth_voxel_layer` is in the local plugins and enabled, its sources are `depth_mark depth_cliff_mark depth_clear` and each reads `/head/d435/points_filtered` (laser_filter `cloud_filtered_topic`), the layer block carries no "disabled (user 2026-10-24): lidar-only" comment, and no line of nav2_params.yaml names a `/tof` topic or `tof_voxel_layer`. |
 | `test_collision_sources_read_the_d435_cloud` | The collision monitor sources are `scan, depth_obstacles, depth_cliff`; both D435 sources are enabled `pointcloud` sources on `/head/d435/points_filtered`; StopBox (enabled) reads `scan, depth_obstacles`, CliffStop is enabled on `depth_cliff`; no line of nav2_params.yaml names `tof_obstacles` or `tof_cliff`. |
+| `test_no_line_keeps_the_lidar_only_comment` | No line of nav2_params.yaml keeps the "disabled (user 2026-10-24)" or lidar-only comment; the nav2_bringup README D435 inputs section lists no layer as still disabled and states `ground_voxel_layer` and `ground_cost_filter` are enabled. |
 | `test_lidar_only_pin_is_retired` | The lidar-only pin file is deleted, not tracked by git, and no longer named in this README. |
 | `test_tests_readme_documents_this_file` | This section lists every test of the file. |
 

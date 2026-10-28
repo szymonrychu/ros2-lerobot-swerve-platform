@@ -3,8 +3,9 @@
 The head 3D input of the local costmap is the self-filtered D435 cloud (d435_obstacle_cloud point_cloud_xyz ->
 laser_filter): `depth_voxel_layer` is enabled and every one of its sources reads `/head/d435/points_filtered`. The
 collision monitor reads the same cloud: StopBox checks `scan` and `depth_obstacles`, CliffStop is enabled on
-`depth_cliff`. No line of nav2_params.yaml names a `/tof` topic any more. No ROS is available on the dev machine, so
-the YAML is read directly.
+`depth_cliff`. `ground_voxel_layer` and `ground_cost_filter` are enabled on the ground estimator outputs. No line of
+nav2_params.yaml names a `/tof` topic or keeps the lidar-only disable comment any more. No ROS is available on the dev
+machine, so the YAML is read directly.
 """
 
 import subprocess
@@ -15,12 +16,15 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 NAV2_PARAMS = REPO_ROOT / "nodes" / "nav2_bringup" / "config" / "nav2_params.yaml"
+NAV2_README = REPO_ROOT / "nodes" / "nav2_bringup" / "README.md"
 LASER_FILTER_PARAMS = REPO_ROOT / "nodes" / "laser_filter" / "config" / "footprint_filter.yaml"
 TESTS_README = REPO_ROOT / "tests" / "README.md"
 LIDAR_ONLY_TEST = "tests/test_nav_lidar_only.py"
 D435_TOPIC = "/head/d435/points_filtered"
 LAYER = "depth_voxel_layer"
 LIDAR_ONLY_COMMENT = "disabled (user 2026-10-24): lidar-only"
+LIDAR_ONLY_MARKER = "disabled (user 2026-10-24)"
+README_INPUTS_HEADING = "## D435 inputs"
 DEPTH_COLLISION_SOURCES = ("depth_obstacles", "depth_cliff")
 
 
@@ -97,6 +101,20 @@ def test_collision_sources_read_the_d435_cloud() -> None:
         assert stale not in text, [line.strip() for line in text.splitlines() if stale in line]
 
 
+def test_no_line_keeps_the_lidar_only_comment() -> None:
+    """Every line commented `disabled (user 2026-10-24): lidar-only ...` is re-enabled (design D6): no line of
+    nav2_params.yaml keeps the comment, and the nav2_bringup README D435 inputs section no longer lists a layer as still
+    disabled; it states the ground layer and the ground keepout filter are enabled."""
+    lines = NAV2_PARAMS.read_text().splitlines()
+    stale = [line.strip() for line in lines if LIDAR_ONLY_MARKER in line or "lidar-only" in line]
+    assert not stale, stale
+    readme = NAV2_README.read_text()
+    assert README_INPUTS_HEADING in readme
+    section = readme.split(README_INPUTS_HEADING, 1)[1].split("\n## ", 1)[0]
+    assert "Still disabled" not in section
+    assert "`ground_voxel_layer` and `ground_cost_filter` are enabled" in section
+
+
 def test_lidar_only_pin_is_retired() -> None:
     """tests/test_nav_lidar_only.py pinned the lidar-only state that ends with the D435 inputs: it is deleted, not
     tracked by git, and no longer documented in tests/README.md."""
@@ -115,6 +133,7 @@ def test_tests_readme_documents_this_file() -> None:
     for name in (
         "test_depth_voxel_layer_reads_the_d435_cloud",
         "test_collision_sources_read_the_d435_cloud",
+        "test_no_line_keeps_the_lidar_only_comment",
         "test_lidar_only_pin_is_retired",
         "test_tests_readme_documents_this_file",
     ):
