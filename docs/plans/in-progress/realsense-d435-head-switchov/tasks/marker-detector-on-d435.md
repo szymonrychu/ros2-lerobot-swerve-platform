@@ -1,6 +1,6 @@
 ---
 title: Marker detector on D435
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Printed markers are still found and posed, now from the D435."
 files: [nodes/marker_detector/marker_detector/config.py, nodes/marker_detector/marker_detector/tof_plane.py, nodes/marker_detector/marker_detector/depth_plane.py, nodes/marker_detector/marker_detector/pipeline.py, nodes/marker_detector/tests/test_tof_plane.py, nodes/marker_detector/tests/test_depth_plane.py, nodes/marker_detector/tests/test_config.py, ansible/group_vars/client.yml]
@@ -8,15 +8,15 @@ verify: "cd nodes/marker_detector && uv run --frozen pytest tests -q && uv run p
 depends_on: [shared-d435-camera-geometry, head-rgb-d-node-on-d435-alig]
 model: opus
 review: ""
-verified_head: ""
+verified_head: 64f830e9
 points: 3
 expected_minutes: 34
 expected_tokens: 2250000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 3
+actual_minutes: 13
+actual_tokens: 2885018
+actual_roles: "impl 9, review 4"
+actual_role_tokens: "impl 2706305, review 178713"
 ---
 
 # Marker detector on D435
@@ -65,3 +65,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-28 done
