@@ -1065,7 +1065,7 @@ def test_web_ui_has_map_nav_tab() -> None:
         "map_save_path": MAP_BASE,
         # Merged 3D view: local costmap, swerve base and the interactive arm on the client-local topics.
         "local_costmap_topic": "/local_costmap/costmap",
-        "obstacle_cloud_topic": "/tof/points_filtered",
+        "obstacle_cloud_topic": "/head/d435/points_filtered",
         "scan_points_topic": "/scan_filtered",
         # 3D map (map3d_manager / rtabmap_mapping) layer and lidar-wall settings.
         "map3d_cloud_topic": "/map3d/cloud",

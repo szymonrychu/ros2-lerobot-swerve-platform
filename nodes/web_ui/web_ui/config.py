@@ -81,7 +81,7 @@ MAP_NAV_DEFAULTS: dict[str, str] = {
     "navigate_action": "/navigate_to_pose",
     "footprint_topic": "/local_costmap/published_footprint",
     "local_costmap_topic": "/local_costmap/costmap",
-    "obstacle_cloud_topic": "/tof/points_filtered",
+    "obstacle_cloud_topic": "/head/d435/points_filtered",
     "scan_points_topic": "/scan_filtered",
     "map3d_cloud_topic": "/map3d/cloud",
     "map3d_status_topic": "/map3d/status",
@@ -343,7 +343,7 @@ class TabConfig(BaseModel):
     map_reset_service: str | None = None  # map_nav: slam_toolbox/srv/Reset service cleared by "Reset map"
     navigate_action: str | None = None  # map_nav: Nav2 NavigateToPose action whose goals "Stop" cancels
     local_costmap_topic: str | None = None  # map_nav: Nav2 local costmap (nav_msgs/OccupancyGrid, odom frame)
-    obstacle_cloud_topic: str | None = None  # map_nav: sensor_msgs/PointCloud2 ToF obstacle cloud (3D obstacles layer)
+    obstacle_cloud_topic: str | None = None  # map_nav: sensor_msgs/PointCloud2 D435 obstacle cloud (3D obstacles layer)
     scan_points_topic: str | None = None  # map_nav: sensor_msgs/LaserScan lidar points shown with the obstacle cloud
     map3d_cloud_topic: str | None = None  # map_nav: sensor_msgs/PointCloud2 RTAB-Map 3D map (on demand)
     map3d_status_topic: str | None = None  # map_nav: std_msgs/String JSON map3d manager status

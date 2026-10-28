@@ -1,4 +1,4 @@
-"""Tests for the map_nav "3D obstacles" layer backend: ToF cloud and lidar points serialisers, config and bridge."""
+"""Tests for the map_nav "3D obstacles" layer backend: D435 cloud and lidar points serialisers, config and bridge."""
 
 from __future__ import annotations
 
@@ -15,13 +15,15 @@ from web_ui.config import MAP_NAV_TOPIC_ROLES, AppConfig, TabConfig
 from web_ui.msg_serializer import serialize_point_cloud, serialize_scan_points
 
 FLOAT32 = 7  # sensor_msgs/PointField.FLOAT32
+D435_CLOUD = "/head/d435/points_filtered"  # laser_filter self-filtered D435 obstacle cloud
+D435_FRAME = "d435_depth_optical_frame"
 
 
 def stamp(sec: int = 5, nanosec: int = 500_000_000) -> SimpleNamespace:
     return SimpleNamespace(sec=sec, nanosec=nanosec)
 
 
-def make_cloud(points: list[tuple[float, float, float]], frame: str = "tof_link", extra: bool = True) -> Any:
+def make_cloud(points: list[tuple[float, float, float]], frame: str = D435_FRAME, extra: bool = True) -> Any:
     """PointCloud2-like message: x y z float32 (+ an intensity field) with point_step 16."""
     arr = np.zeros(len(points), dtype=[("x", "<f4"), ("y", "<f4"), ("z", "<f4"), ("i", "<f4")])
     for i, (x, y, z) in enumerate(points):
@@ -56,7 +58,7 @@ def make_scan(ranges: list[float], frame: str = "laser", rmin: float = 0.1, rmax
 
 def test_cloud_serialises_flat_xyz_rounded_to_mm() -> None:
     data = serialize_point_cloud(make_cloud([(1.23456, -0.5, 0.0004), (2.0, 3.0, 4.0)]))
-    assert data["frame"] == "tof_link"
+    assert data["frame"] == D435_FRAME
     assert data["stamp"] == pytest.approx(5.5)
     assert data["points"] == [1.235, -0.5, 0.0, 2.0, 3.0, 4.0]
 
@@ -69,7 +71,7 @@ def test_cloud_drops_non_finite_points() -> None:
 def test_empty_cloud_gives_empty_points() -> None:
     data = serialize_point_cloud(make_cloud([]))
     assert data["points"] == []
-    assert data["frame"] == "tof_link"
+    assert data["frame"] == D435_FRAME
 
 
 def test_cloud_downsampled_evenly_to_cap() -> None:
@@ -111,12 +113,12 @@ def test_scan_points_capped_and_empty() -> None:
 
 def test_config_defaults_and_roles() -> None:
     tab = TabConfig(id="m", type="map_nav", label="Map")
-    assert tab.obstacle_cloud_topic == "/tof/points_filtered"
+    assert tab.obstacle_cloud_topic == D435_CLOUD
     assert tab.scan_points_topic == "/scan_filtered"
     assert ("obstacle_cloud_topic", "cloud") in MAP_NAV_TOPIC_ROLES
     assert ("scan_points_topic", "scan_points") in MAP_NAV_TOPIC_ROLES
     roles = AppConfig(tabs=[tab]).topic_roles()
-    assert roles["/tof/points_filtered"] == "cloud"
+    assert roles[D435_CLOUD] == "cloud"
     assert roles["/scan_filtered"] == "scan_points"
 
 
@@ -126,7 +128,7 @@ def test_config_overrides_and_not_defaulted_elsewhere() -> None:
     assert roles["/c"] == "cloud" and roles["/s"] == "scan_points"
     poi = TabConfig(id="p", type="poi", label="P")
     assert poi.obstacle_cloud_topic is None and poi.scan_points_topic is None
-    assert "/tof/points_filtered" not in AppConfig(tabs=[poi]).topic_roles()
+    assert D435_CLOUD not in AppConfig(tabs=[poi]).topic_roles()
 
 
 def make_bridge(tf_buffer: Any) -> Any:
@@ -150,7 +152,7 @@ def make_bridge(tf_buffer: Any) -> Any:
 def tf_to_map() -> SimpleNamespace:
     return SimpleNamespace(
         header=SimpleNamespace(frame_id="map", stamp=stamp()),
-        child_frame_id="tof_link",
+        child_frame_id=D435_FRAME,
         transform=SimpleNamespace(
             translation=SimpleNamespace(x=1.0, y=2.0, z=0.5),
             rotation=SimpleNamespace(x=0.0, y=0.0, z=0.0, w=1.0),
@@ -171,7 +173,7 @@ def test_bridge_sends_nothing_when_map_tf_unknown() -> None:
     tf_buffer = MagicMock()
     tf_buffer.lookup_transform.side_effect = TransformException("no tf")
     node = make_bridge(tf_buffer)
-    cb = node._make_callback("/tof/points_filtered", serialize_point_cloud, "cloud")
+    cb = node._make_callback(D435_CLOUD, serialize_point_cloud, "cloud")
     cb(make_cloud([(1, 1, 1)]))
     assert node.flush_dirty() == []
     assert node._latest == {}
@@ -190,7 +192,7 @@ def test_bridge_counts_frame_pose_drops_by_role_and_reason() -> None:
     counter = FRAME_POSE_DROPS.labels(role="scan_points", reason="ExtrapolationException")
     before = counter._value.get()
     cb = node._make_callback("/scan_filtered", serialize_scan_points, "scan_points")
-    cb(make_scan([1.0, 2.0], frame="tof_link"))
+    cb(make_scan([1.0, 2.0], frame=D435_FRAME))
     assert node.flush_dirty() == []
     assert counter._value.get() == before + 1
 
@@ -200,19 +202,34 @@ def test_bridge_attaches_frame_pose_when_tf_known() -> None:
     tf_buffer.lookup_transform.return_value = tf_to_map()
     node = make_bridge(tf_buffer)
     cb = node._make_callback("/scan_filtered", serialize_scan_points, "scan_points")
-    cb(make_scan([1.0, 2.0], frame="tof_link"))
+    cb(make_scan([1.0, 2.0], frame=D435_FRAME))
     envelope = node.flush_dirty()[0]
     assert envelope["topic"] == "/scan_filtered"
     pose = envelope["data"]["frame_pose"]
     assert pose == {"x": 1.0, "y": 2.0, "z": 0.5, "qx": 0.0, "qy": 0.0, "qz": 0.0, "qw": 1.0}
-    assert envelope["data"]["frame"] == "tof_link"
-    assert tf_buffer.lookup_transform.call_args.args[:2] == ("map", "tof_link")
+    assert envelope["data"]["frame"] == D435_FRAME
+    assert tf_buffer.lookup_transform.call_args.args[:2] == ("map", D435_FRAME)
+
+
+def test_d435_cloud_gets_a_frame_pose() -> None:
+    """The D435 obstacle cloud reaches the browser in its optical frame with that frame's pose in map from TF."""
+    tf_buffer = MagicMock()
+    tf_buffer.lookup_transform.return_value = tf_to_map()
+    node = make_bridge(tf_buffer)
+    cb = node._make_callback(D435_CLOUD, serialize_point_cloud, "cloud")
+    cb(make_cloud([(0.5, -0.25, 1.5)]))
+    envelope = node.flush_dirty()[0]
+    assert envelope["topic"] == D435_CLOUD
+    assert envelope["data"]["frame"] == D435_FRAME
+    assert envelope["data"]["points"] == [0.5, -0.25, 1.5]
+    assert envelope["data"]["frame_pose"] == {"x": 1.0, "y": 2.0, "z": 0.5, "qx": 0.0, "qy": 0.0, "qz": 0.0, "qw": 1.0}
+    assert tf_buffer.lookup_transform.call_args.args[:2] == ("map", D435_FRAME)
 
 
 def test_bridge_without_tf_tracking_sends_nothing() -> None:
     node = make_bridge(None)
     node._robot_pose_frames = None
-    cb = node._make_callback("/tof/points_filtered", serialize_point_cloud, "cloud")
+    cb = node._make_callback(D435_CLOUD, serialize_point_cloud, "cloud")
     cb(make_cloud([(1, 1, 1)]))
     assert node.flush_dirty() == []
 
@@ -242,7 +259,7 @@ def test_extrapolation_is_held_and_published_on_retry() -> None:
 
     node, tf_buffer, cb = pending_bridge(ExtrapolationException("future"))
     before = drops("scan_points", "ExtrapolationException")
-    cb(make_scan([1.0, 2.0], frame="tof_link"))
+    cb(make_scan([1.0, 2.0], frame=D435_FRAME))
     assert node.flush_dirty() == []
     tf_buffer.lookup_transform.side_effect = None
     tf_buffer.lookup_transform.return_value = tf_to_map()
@@ -259,9 +276,9 @@ def test_newer_message_supersedes_pending() -> None:
 
     node, tf_buffer, cb = pending_bridge(ExtrapolationException("future"))
     before = drops("scan_points", "superseded")
-    cb(make_scan([1.0], frame="tof_link"))
+    cb(make_scan([1.0], frame=D435_FRAME))
     node.flush_dirty()
-    cb(make_scan([5.0, 6.0], frame="tof_link"))
+    cb(make_scan([5.0, 6.0], frame=D435_FRAME))
     node.flush_dirty()
     assert drops("scan_points", "superseded") == before + 1
     tf_buffer.lookup_transform.side_effect = None
@@ -279,7 +296,7 @@ def test_pending_older_than_wait_is_dropped_and_counted() -> None:
 
     node, _, cb = pending_bridge(ExtrapolationException("future"))
     before = drops("scan_points", "ExtrapolationException")
-    cb(make_scan([1.0], frame="tof_link"))
+    cb(make_scan([1.0], frame=D435_FRAME))
     node.flush_dirty()
     first = node._frame_pose_pending["/scan_filtered"].first_attempt
     node.retry_frame_poses(now=first + FRAME_POSE_WAIT_S / 2)
@@ -296,7 +313,7 @@ def test_lookup_exception_still_drops_immediately() -> None:
 
     node, _, cb = pending_bridge(LookupException("no frame"))
     before = drops("scan_points", "LookupException")
-    cb(make_scan([1.0], frame="tof_link"))
+    cb(make_scan([1.0], frame=D435_FRAME))
     assert node.flush_dirty() == []
     assert node._frame_pose_pending == {}
     assert drops("scan_points", "LookupException") == before + 1
@@ -306,7 +323,7 @@ def test_retry_runs_from_apply_demand_timer() -> None:
     from tf2_ros import ExtrapolationException
 
     node, tf_buffer, cb = pending_bridge(ExtrapolationException("future"))
-    cb(make_scan([1.0], frame="tof_link"))
+    cb(make_scan([1.0], frame=D435_FRAME))
     node.flush_dirty()
     tf_buffer.lookup_transform.side_effect = None
     tf_buffer.lookup_transform.return_value = tf_to_map()

@@ -9,6 +9,7 @@ import yaml
 from pydantic import ValidationError
 
 from web_ui.config import (
+    MAP_NAV_DEFAULTS,
     VALID_TAB_TYPES,
     AppConfig,
     CalibrationConfig,
@@ -482,6 +483,23 @@ def test_client_head_tab_reads_the_d435() -> None:
     }
     assert cfg.depth_ranges() == {D435_DEPTH: 4.0, RGBD_DEPTH: 4.0}
     assert not [v for v in head.model_dump().values() if isinstance(v, str) and v.startswith("/tof/")]
+
+
+D435_OBSTACLE_CLOUD = "/head/d435/points_filtered"
+LASER_FILTER_YAML = Path(__file__).resolve().parents[3] / "nodes" / "laser_filter" / "config" / "footprint_filter.yaml"
+
+
+def test_obstacle_cloud_topic_is_the_d435_cloud() -> None:
+    """The map tab obstacle cloud is the laser_filter D435 cloud: the default, default.yaml and the deployed value."""
+    assert MAP_NAV_DEFAULTS["obstacle_cloud_topic"] == D435_OBSTACLE_CLOUD
+    assert TabConfig(id="m", type="map_nav", label="Map").obstacle_cloud_topic == D435_OBSTACLE_CLOUD
+    assert yaml.safe_load(LASER_FILTER_YAML.read_text())["cloud_filtered_topic"] == D435_OBSTACLE_CLOUD
+    shipped = load_config(Path(__file__).resolve().parents[1] / "config" / "default.yaml")
+    for cfg in (shipped, client_web_ui_config()):
+        tab = next(t for t in cfg.tabs if t.type == "map_nav")
+        assert tab.obstacle_cloud_topic == D435_OBSTACLE_CLOUD
+        assert cfg.topic_roles()[D435_OBSTACLE_CLOUD] == "cloud"
+        assert not [t for t in cfg.topic_roles() if t.startswith("/tof/")]
 
 
 # ---------------------------------------------------------------- calibration

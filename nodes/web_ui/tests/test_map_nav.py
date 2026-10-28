@@ -204,7 +204,7 @@ def test_topic_roles_from_map_nav_tabs() -> None:
         "/goal_pose": "goal",
         "/local_costmap/published_footprint": "footprint",
         "/local_costmap/costmap": "costmap",
-        "/tof/points_filtered": "cloud",
+        "/head/d435/points_filtered": "cloud",
         "/scan_filtered": "scan_points",
         "/map3d/cloud": "map3d_cloud",
         "/map3d/status": "map3d_status",
