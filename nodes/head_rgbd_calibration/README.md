@@ -82,13 +82,15 @@ a capture runs (design D4) and publishes nothing.
 
 ### Still capture (head_arm sessions)
 
-`CaptureController.start_still_session(session_id)` opens a `head_arm` session and subscribes the mapping RGB stream,
-`topics.head_joint_states` and `topics.arm_joint_states` (refused while an RGB-D capture runs). `capture_still(arm_pose,
-tier, head_offset)` blocks (sequencer thread) until the last `still.window_s` of frames differ by at most
-`still.rgb_mad` and all seven joints moved less than `still.joint_still_rad`, detects `fit.board` in the newest frame,
-and stores it with the head and arm samples nearest its stamp (within `still.max_joint_dt_s`). The outcome reason is
-`stored`, `no board`, `joints stale`, `not still within <t> s` or `refused: <store message>`; a missing joint means no
-pose, never a zero. `stop()` destroys every subscription. `fit.board` must equal `board`.
+`CaptureController.start_still_session(session_id)` opens a `head_arm` session and subscribes the D435 colour stream,
+its camera_info `topics.rgb_info`, `topics.head_joint_states` and `topics.arm_joint_states` (refused while an RGB-D
+capture runs). `still_camera_info()` is the latest colour camera_info of the running session (None before the first).
+`capture_still(arm_pose, tier, head_offset)` blocks (sequencer thread) until the last `still.window_s` of frames differ
+by at most `still.rgb_mad` and all seven joints moved less than `still.joint_still_rad`, detects `fit.board` in the
+newest frame, and stores it with the head and arm samples nearest its stamp (within `still.max_joint_dt_s`) and the
+latest factory colour camera_info. The outcome reason is `stored`, `no board`, `no colour camera_info`, `joints stale`,
+`not still within <t> s` or `refused: <store message>`; a missing joint means no pose, never a zero. `stop()` destroys
+every subscription. `fit.board` must equal `board`.
 
 ## Config keys
 
@@ -121,7 +123,7 @@ keys are rejected.
 | `arm_sequence.tier0_poses` / `tier1_poses` / `tier2_poses` | 10 / 9 / 14 poses | Tier 0 moves only wrist_roll (within `max_roll_delta_rad` 1.2), tier 1 also wrist_flex (`max_flex_delta_rad` 0.4), tier 2 also elbow_flex, shoulder_lift, shoulder_pan (`max_big_delta_rad` 0.35). Load errors name the tier, pose and joint |
 | `arm_sequence.speed_scale`, `settle_s`, `confirm_timeout_s` | 0.1 (<= 0.3), 1.0, 600 | Arm speed (slow for the fragile board mount; `move_arm_joints` has no acceleration option, its quintic peak acceleration scales with the speed squared), wait after a move, unanswered confirm timeout |
 | `arm_sequence.head_offsets_deg` | `[[0, 0], [10, 0], [-10, 0], [0, 6]]` | (pan, tilt) offsets added to the aimed head angles, one view each |
-| `arm_sequence.pose_check`, `provisional_margin_m` | core defaults, 0.05 | FK pose check settings; the board keeps `margin_m + provisional_margin_m` while the mount is the shipped hand-measured start |
+| `arm_sequence.pose_check`, `provisional_margin_m` | core defaults, 0.05 | FK pose check settings; the board keeps `margin_m + provisional_margin_m` while the mount is the shipped hand-measured start; every view keeps each board corner `d435_min_z_m + d435_min_z_margin_m` (0.15 + 0.05 m) deep from `camera_frame` |
 | `arm_sequence.park_pose`, `park_board_sag_margin_m`, `board_record_max_age_s` | the parked arm (`scripts/gen_nav_footprint.yaml` `parked_arm_joints`), 0.01, 7200 | Park with the board on (design D63): the arm moves to `park_pose` only after the path from the measured joints passes the pose check with the board outline and `park_board_sag_margin_m` added to the board floor, body and head clearances (the live run showed the board about 4 mm below FK under its 214 g) |
 
 ## Compute
@@ -305,7 +307,7 @@ stops capture, kills a running compute child and destroys the node.
 
 - `tests/test_config.py` - config defaults equal the shipped YAML, unknown keys rejected, the `floor` defaults and the
   pan/tilt range checks, the `arm_sequence` defaults and its validation errors naming the tier, pose and joint.
-- `tests/test_sequencer.py` - the sequence over a fake mcp_server, including Park with the board on (checked even when no load is reported, then the internal admin park; the board record offered only fresh and for a stored session, the stated-on Park, a stale record plus a non-board load refused): path-checked then moved at speed 0.1 and released with `park_calibration_board`, refused with the named rule when the sag margin eats the clearance, the fitted mount hook, another carried object and a load without this sequence's board still refused, a failed move keeps holding.
+- `tests/test_sequencer.py` - the sequence over a fake mcp_server: views inside the D435 min-Z or outside the colour FOV skipped with the reason and a pose with no usable view not visited (`test_poses_inside_min_z_are_skipped`), the wait for the colour camera_info; including Park with the board on (checked even when no load is reported, then the internal admin park; the board record offered only fresh and for a stored session, the stated-on Park, a stale record plus a non-board load refused): path-checked then moved at speed 0.1 and released with `park_calibration_board`, refused with the named rule when the sag margin eats the clearance, the fitted mount hook, another carried object and a load without this sequence's board still refused, a failed move keeps holding.
 - `tests/test_arm_pose_set.py` - the shipped arm pose set on the shipped and the applied (floor fit 2026-10-22) head
   URDF: tier rules, short transits, every pose and transit (home -> base -> tiers -> base) safe by `PoseChecker` with
   the board margin `margin_m + provisional_margin_m` (`test_every_pose_and_transit_is_safe`) and with the mount
@@ -330,7 +332,7 @@ stops capture, kills a running compute child and destroys the node.
   `test_error_result_has_empty_pose_lists`).
 - `tests/test_robot_client.py` - the tool helpers' names and arguments, structured data, the move timeout, tool errors, unreachable (also inside an exception group), a missing token file, the token never in any text, `release_arm(keep_position)`, and the board-park admin route (own transport and token file, bearer header, missing token file).
 - `tests/test_head_arm_api.py` - the `/api/head-arm/*` routes over a fake sequencer: state and sessions bodies against the contract fixtures, the confirms (base, park, big joints), 409 for busy and wrong-phase requests, sequencer errors mapped to 400, only head_arm sessions listed, compute and apply, a failed result not applicable, an rgbd session 400 on the result routes, unknown ids 404.
-- `tests/test_head_arm_results.py` - compute writes `result.json`, `report.md` and (passed only) `head_chain.json`, fitted joints merged over the applied chain, the pan axis, missing intrinsics and size mismatch as error results, a failed limit writes no chain, floor values from the applied record (also the legacy record, and none failing the cross-check), apply writes the applied chain and the record with `source` and `floor`, a failed result refused, `latest_board_mount`, `head_arm_session_exists`.
+- `tests/test_head_arm_results.py` - compute writes `result.json`, `report.md` and (passed only) `head_chain.json`, fitted joints merged over the applied chain, the pan axis, the d435_joint fitted from the stills' camera_info in `camera_frame` with no `tof_joint.json` (`test_result_fits_the_d435_joint`), a still without camera_info, stills with different camera_info and a session without stills as error results, a failed limit writes no chain, floor values from the applied record (also the legacy record, and none failing the cross-check), apply writes the applied chain and the record with `source` and `floor`, a failed result refused, `latest_board_mount`, `head_arm_session_exists`.
 - `tests/test_floor_api.py`, `tests/test_floor_results.py` - the floor fit routes and results, including that a floor compute keeps the applied `head_pan` origin and that apply writes `source: floor`.
 - `tests/test_runtime_deps.py` - `httpx`, imported at runtime by the robot client, is a runtime dependency in `pyproject.toml`.
 - `tests/contract.py`, `tests/fixtures/api/*.json` - structural match of a real API body against a literal fixture (helpers and data, not tests).
@@ -391,21 +393,24 @@ A session has a `kind` in `session.json`: `rgbd` (the RGB-D capture, default for
 A `head_arm` session holds still RGB views only. Each pose directory has `rgb.jpg` (as received), `rgb_thumb.jpg` (corners
 drawn) and `pose.json` with the stamps (`rgb`, `joints`), the detected corner ids and points, the measured `joints` (all
 seven: `head_pan`, `head_tilt` and the five arm joints, never defaults), `arm_pose` (index into the whole scripted set),
-`tier` and `head_offset`. `SessionStore.add_still_pose` refuses a session of the other kind, a missing joint, a tier
-other than 0/1/2, a negative index and an image size other than the session's; `load_arm_board_views` turns the poses
-into `ArmBoardView`s (view id = pose id). Results live in `results/<rid>/` as for the other kinds.
+`tier`, `head_offset` and the factory colour `camera_info` (width, height, distortion_model, d, k, p).
+`SessionStore.add_still_pose` refuses a session of the other kind, a missing joint, a tier other than 0/1/2, a negative
+index, a camera_info for another image size and an image size other than the session's; `load_arm_board_views` turns
+the poses into `ArmBoardView`s (view id = pose id) and `load_arm_camera_infos` returns the camera_info per pose id. Results live in `results/<rid>/` as for the other kinds.
 
 ### Still capture
 
 `CaptureController.start_still_session` and `capture_still` are described under "Still capture (head_arm sessions)"
-above. Topics: the mapping RGB stream `topics.rgb` (BEST_EFFORT, depth `qos.rgb_depth`) and the measured joints
+above. Topics: the D435 colour stream `topics.rgb` (BEST_EFFORT, depth `qos.rgb_depth`), its camera_info
+`topics.rgb_info` (RELIABLE, depth 1) and the measured joints
 `topics.head_joint_states` (`/head/joint_states`) and `topics.arm_joint_states` (`/follower/joint_states`), both with
 the same BEST_EFFORT profile. The still rule: a frame is stored only when the last `still.window_s` (0.6 s) of frames
 differ by at most `still.rgb_mad` (2.0 grey levels, flicker-free difference) and every one of the seven joints moved
 less than `still.joint_still_rad` (0.002 rad) over the window, with the head and arm samples within
 `still.max_joint_dt_s` (0.1 s) of the frame stamp; after `still.timeout_s` (6 s) the view is skipped. A frame without a
-detected board is skipped (`no board`), and a view whose joints are missing or stale is skipped (`joints stale`). Nothing
-is filled with zeros: no joint sample means no view.
+detected board is skipped (`no board`), a frame before the first colour camera_info is skipped (`no colour camera_info`),
+and a view whose joints are missing or stale is skipped (`joints stale`). Nothing is filled with zeros: no joint sample
+means no view.
 
 ### Robot client and token
 
@@ -430,7 +435,8 @@ the state): `idle`, `moving_to_base`, `waiting_board`, `capturing`, `waiting_big
    with this move).
 2. Phase `waiting_board`: the user clips the board to the gripper and presses Board attached
    (`POST .../sequence/board-attached`). The board record is written (see "The board record").
-3. Phase `capturing`: a still session is started; tier 0 then tier 1 run.
+3. Phase `capturing`: a still session is started and the sequence waits up to `still.timeout_s` for its first colour
+   camera_info (none fails the sequence, holding); tier 0 then tier 1 run.
 4. Phase `waiting_big_joints`: tier 2 moves `elbow_flex`, `shoulder_lift` and `shoulder_pan`, so the user must allow it
    (`POST .../sequence/big-joints {"confirm": true}`) or skip it (`false`, or no body).
 5. Tier 2 (if allowed), then phase `returning_to_base` back to the base pose, and the worker ends.
@@ -440,13 +446,18 @@ pose and joint): tier 0 moves `wrist_roll` only (10 poses, within `max_roll_delt
 (9 poses, `max_flex_delta_rad` 0.4), tier 2 also the big joints (14 poses, `max_big_delta_rad` 0.35). Poses are measured
 joint angles, the `move_arm_joints` space (`urdf = measured + fit.joint_offsets_rad`).
 
-For every pose: the path from the measured joints (`get_arm_state`) to the pose is checked by `PoseChecker.check_path`
-and a refusal stops before anything moves (the named rules are quoted); then `move_arm_joints` at
-`arm_sequence.speed_scale` (0.1, at most 0.3); then the board centre from arm FK is passed to `aim_head` on the applied
-head chain and one view is taken per `arm_sequence.head_offsets_deg` entry (default `[0,0]`, `[10,0]`, `[-10,0]`, `[0,6]`
-deg added to the aimed pan/tilt). A head target outside the head URDF limits is skipped and counted with its reason; a
-head move that does not converge is skipped; each view waits `settle_s` and then the still rule above. The state carries
-`captured` and `skipped` (reason -> count).
+For every pose: the board centre from arm FK is passed to `aim_head` on the applied head chain (in `camera_frame`) and
+one view is planned per `arm_sequence.head_offsets_deg` entry (default `[0,0]`, `[10,0]`, `[-10,0]`, `[0,6]` deg added
+to the aimed pan/tilt). A view is skipped and counted with its reason when its head target is outside the head URDF
+limits, when a ChArUco corner is nearer than 0.20 m along the optical axis of `camera_frame` (`inside D435 min-Z`: the
+D435 min-Z of 0.15 m at 640x360 plus 0.05 m, `pose_check.d435_min_z_m` and `d435_min_z_margin_m`), or when a corner
+projects outside the colour image of the session's camera_info (`outside colour FOV`; `PoseChecker.check_view`). A pose
+whose every view is skipped at its target joints is not visited. Otherwise the path from the measured joints
+(`get_arm_state`) to the pose is checked by `PoseChecker.check_path` and a refusal stops before anything moves (the
+named rules are quoted); then `move_arm_joints` at `arm_sequence.speed_scale` (0.1, at most 0.3); then the views are
+planned again at the measured joints and each one that is not skipped is taken. A head move that does not converge is
+skipped; each view waits `settle_s` and then the still rule above. The state carries `captured` and `skipped`
+(reason -> count). The tier and big-joint confirm structure is unchanged by these skips.
 
 Safety and the holding exits: nothing moves without its confirm, enforced in the routes and again in the sequencer.
 Every exit of the sequence (done, stop, tool error, exception, unanswered confirm after `confirm_timeout_s` 600 s)
@@ -460,16 +471,19 @@ refused while `holding`: press Park first.
 `tests/test_arm_pose_set.py` proves the shipped set before it can reach the robot: tier rules, short transits between
 poses, every pose and every transit (home -> base -> tiers -> base) safe by `PoseChecker` with the provisional board
 margin and with the mount shifted +-1 cm / turned +-5 deg, on the shipped and the applied head URDF and with the widened
--30..+45 deg tilt range; the board in view (at least 12 corners for 3 of 4 head offsets); enough pan and tilt span for the
-limits; and a passing synthetic fit on the set. The sequencer re-checks every move from the measured joints at run
+-30..+45 deg tilt range; the board in view of the nominal D435 colour camera (at least 12 corners for 3 of 4 head
+offsets); no view inside the D435 min-Z, and the views the colour FOV rule keeps still meeting the fit's coverage limits
+in every tier; enough pan and tilt span for the limits; and a passing synthetic fit on the set. The sequencer re-checks every move from the measured joints at run
 time, so a robot that is not where the test assumed is still refused. The tests of the sequence over a fake mcp_server
 are `tests/test_sequencer.py`.
 
 ### Compute and apply
 
-`POST /api/head-arm/sessions/{sid}/compute` (`head_arm_results.compute_head_arm`, synchronous) fits the session. Inputs:
-the stored views, the applied `head_camera_calibration.yaml` (intrinsics and image size; no applied calibration, or a
-different image size, gives an error result), the head URDF with the applied overrides as the start chain
+`POST /api/head-arm/sessions/{sid}/compute` (`head_arm_results.compute_head_arm`, synchronous) fits the session in
+`camera_frame` (`d435_color_optical_frame`; d435_joint x, z, roll and yaw are fitted, its y and pitch kept). Inputs: the
+stored views, the D435 factory colour intrinsics from the camera_info stored with the stills
+(`CameraIntrinsics.from_camera_info`; a still without one, or stills with different ones, give an error result), the
+head URDF with the applied overrides as the start chain
 (`floor_results.base_urdf`), the arm URDF, `fit` and, as the cross-check, the floor values of the floor result named by
 the `head_chain.floor` reference in `applied/applied.json` (none gives a failed `floor_cross_check`). The result
 directory `results/<rid>/` holds:

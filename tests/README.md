@@ -129,7 +129,7 @@ Head-from-arm fit config, board corner geometry and view types (`shared/ros2_com
 
 ### `test_arm_pose_check.py`
 
-FK pose check of the arm with the board on the gripper (`shared/ros2_common/head_rgbd_calibration/arm_pose_check.py`) against the robot body, head envelope and board outline.
+FK pose check of the arm with the board on the gripper (`shared/ros2_common/head_rgbd_calibration/arm_pose_check.py`) against the robot body, head envelope and board outline, and the D435 view check (min-Z, colour FOV). The head envelope test checks the D435 depth and colour optical frames, which have no visual.
 
 | Test | Description |
 |------|-------------|
@@ -140,6 +140,8 @@ FK pose check of the arm with the board on the gripper (`shared/ros2_common/head
 | `test_stretched_arm_and_limits` | A stretched shoulder/elbow pose is refused by `stretched_shoulder_lift_max_rad`, also when offsets keep it inside the URDF limits. |
 | `test_path_check_catches_mid_path_contact` | `check_path` finds contact in the middle of a move whose start and target poses are both clear. |
 | `test_board_margin_applies_to_board_rules_only` | The board margin applies to `board_*` rules only; the base rules keep `margin_m`. |
+| `test_board_beyond_d435_min_z` | `check_view` names `inside D435 min-Z` (nearest corner depth, 150 mm min-Z + 50 mm margin) for a board fronto-parallel to the D435 colour camera at 0.19 m and 0.199 m, not at 0.201 m or 0.45 m; the depth is taken at the view's head pose; a board behind the camera is inside min-Z and outside the FOV; the margin is the config. |
+| `test_board_outside_the_colour_fov` | `check_view` names `outside colour FOV` with the count of ChArUco corners outside the nominal 640x360 D435 colour image for a board 0.25 m to the side or with the head turned 30 deg away, whatever the arm pose; another camera frame is honoured. |
 
 ### `test_head_floor_fit.py`
 

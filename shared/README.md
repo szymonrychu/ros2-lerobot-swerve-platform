@@ -322,6 +322,13 @@ Distances are signed (negative = penetration). Rules (`PoseCheckConfig`, m and r
 | `link_clearance` | The upper arm, forearm and wrist capsules (`link_radius_m` 0.025) keep `margin_m` (0.03) from the body and the head; the upper arm is exempt from the crossbar it stands on. |
 | `board_link_clearance` | The board keeps `board_margin_m` from the upper arm and forearm capsules. |
 
+`check_view(joints, pan_rad, tilt_rad, intrinsics, camera_frame="d435_color_optical_frame")` checks one view of the
+board by the head camera at a head pan/tilt (the applied head chain): every ChArUco corner keeps
+`d435_min_z_m + d435_min_z_margin_m` (0.15 + 0.05 m, the D435 depth min-Z at 640x360 plus a margin) of depth along the
+optical axis (`inside D435 min-Z`), and lies in front of the camera and projects inside the image of `intrinsics` (a
+`CameraIntrinsics`, from the colour camera_info; `outside colour FOV`). It returns "<rule>: <detail>" entries, empty
+for a usable view. The corners are on the printed face the camera sees; the 4 mm board thickness lies behind it.
+
 `board_margin_m` defaults to `margin_m`; the sequencer passes `margin_m + provisional_margin_m` while the board mount is
 the hand-measured start value, because the mount uncertainty moves the board and not the arm links.
 
