@@ -1,6 +1,6 @@
 ---
 title: Calibration library D435 frames
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The floor and head-from-arm fits calibrate the D435 mount through the pan/tilt chain.
 files: [shared/ros2_common/head_rgbd_calibration/floor_fit.py, shared/ros2_common/head_rgbd_calibration/head_arm_fit.py, tests/head_floor_synthetic.py, tests/head_arm_synthetic.py, tests/test_head_floor_fit.py, tests/test_head_arm_fit.py, tests/test_head_arm_calib_chain.py]
@@ -8,15 +8,15 @@ verify: "uv run pytest tests/test_head_floor_fit.py tests/test_head_arm_fit.py t
 depends_on: [head-chain-overrides-on-d435]
 model: opus
 review: ""
-verified_head: ""
+verified_head: ed519e2f
 points: 5
 expected_minutes: 57
 expected_tokens: 3750000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 5
+actual_minutes: 59
+actual_tokens: 20378529
+actual_roles: "impl 43, review 16"
+actual_role_tokens: "impl 19867765, review 510764"
 ---
 
 # Calibration library D435 frames
@@ -63,3 +63,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-28 done
