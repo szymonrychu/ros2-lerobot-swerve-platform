@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 from pydantic import ValidationError
 
 from web_ui.config import (
@@ -364,12 +365,31 @@ tabs:
   - id: head
     type: head
     label: Head
-    rgb_camera_topic: /head_camera/image_raw/compressed
-    tof_depth_topic: /tof/depth/image_raw
-    tof_amplitude_topic: /tof/amplitude/image_raw
-    tof_range_m: 3.0
+    rgb_camera_topic: /head/d435/color/image_raw/compressed
+    depth_topic: /head/d435/depth/image_rect_raw
+    depth_range_m: 3.0
 overlays: []
 """
+D435_RGB = "/head/d435/color/image_raw/compressed"
+D435_DEPTH = "/head/d435/depth/image_rect_raw"
+RGBD_RGB = "/head_rgbd/rgb/image_raw/compressed"
+RGBD_DEPTH = "/head_rgbd/depth/image_raw"
+CLIENT_YML = Path(__file__).resolve().parents[3] / "ansible" / "group_vars" / "client.yml"
+D435_TOPICS_YAML = (
+    Path(__file__).resolve().parents[3] / "nodes" / "bridges" / "realsense_d435" / "config" / "topics.yaml"
+)
+RETIRED_TOF_KEYS = ("tof_depth_topic", "tof_amplitude_topic", "tof_range_m")
+
+
+def client_web_ui_config() -> AppConfig:
+    """Validate the deployed web_ui config block of ansible/group_vars/client.yml.
+
+    Returns:
+        AppConfig: The deployed web_ui config.
+    """
+    nodes = yaml.safe_load(CLIENT_YML.read_text())["ros2_nodes"]
+    node = next(n for n in nodes if n["name"] == "web_ui")
+    return AppConfig.model_validate(yaml.safe_load(node["config"]))
 
 
 def test_head_tab_type_is_valid() -> None:
@@ -378,60 +398,90 @@ def test_head_tab_type_is_valid() -> None:
 
 
 def test_head_tab_fields_load_and_are_subscribed(tmp_path: Path) -> None:
-    """The three head topics load and reach all_subscribed_topics()."""
+    """The head RGB and depth topics load and reach all_subscribed_topics()."""
     p = tmp_path / "cfg.yaml"
     p.write_text(HEAD_TAB_YAML)
     cfg = load_config(p)
     tab = cfg.tabs[0]
-    assert tab.rgb_camera_topic == "/head_camera/image_raw/compressed"
-    assert tab.tof_depth_topic == "/tof/depth/image_raw"
-    assert tab.tof_amplitude_topic == "/tof/amplitude/image_raw"
-    assert tab.tof_range_m == 3.0
+    assert tab.rgb_camera_topic == D435_RGB
+    assert tab.depth_topic == D435_DEPTH
+    assert tab.depth_range_m == 3.0
     topics = cfg.all_subscribed_topics()
-    for topic in (tab.rgb_camera_topic, tab.tof_depth_topic, tab.tof_amplitude_topic):
+    for topic in (tab.rgb_camera_topic, tab.depth_topic):
         assert topic in topics
 
 
 def test_head_tab_topics_default_to_none_and_range_to_4m() -> None:
-    """Unset head topics are None and tof_range_m defaults to 4.0."""
+    """Unset head topics are None and depth_range_m defaults to 4.0."""
     tab = TabConfig(id="h", type="head", label="Head")
     assert tab.rgb_camera_topic is None
-    assert tab.tof_depth_topic is None
-    assert tab.tof_amplitude_topic is None
-    assert tab.tof_range_m == 4.0
+    assert tab.depth_topic is None
+    assert tab.depth_range_m == 4.0
 
 
 @pytest.mark.parametrize("bad", [0, -1.5])
 def test_head_tab_rejects_non_positive_range(bad: float) -> None:
-    """tof_range_m must be positive."""
+    """depth_range_m must be positive."""
     with pytest.raises(ValidationError):
-        TabConfig(id="h", type="head", label="Head", tof_range_m=bad)
+        TabConfig(id="h", type="head", label="Head", depth_range_m=bad)
+
+
+def test_head_tab_depth_keys_replace_tof_keys(tmp_path: Path) -> None:
+    """depth_topic and depth_range_m are the head tab keys; the ToF keys are not fields and are rejected as unknown."""
+    assert {"depth_topic", "depth_range_m"} <= set(TabConfig.model_fields)
+    assert not set(RETIRED_TOF_KEYS) & set(TabConfig.model_fields)
+    for key, value in (
+        ("tof_depth_topic", "/tof/depth/image_raw"),
+        ("tof_amplitude_topic", "/tof/amplitude/image_raw"),
+        ("tof_range_m", "4.0"),
+    ):
+        p = tmp_path / f"{key}.yaml"
+        p.write_text(HEAD_TAB_YAML.replace("    depth_range_m", f"    {key}: {value}\n    depth_range_m"))
+        with pytest.raises(ValidationError, match=key):
+            load_config(p)
 
 
 def test_head_topic_roles_and_ranges(tmp_path: Path) -> None:
-    """Head topics get head roles; the depth topic carries its range."""
+    """Head topics get head roles; the depth topic carries its depth_range_m."""
     p = tmp_path / "cfg.yaml"
     p.write_text(HEAD_TAB_YAML)
     cfg = load_config(p)
-    assert cfg.topic_roles() == {
-        "/head_camera/image_raw/compressed": "head_rgb",
-        "/tof/depth/image_raw": "head_depth",
-        "/tof/amplitude/image_raw": "head_amplitude",
-    }
-    assert cfg.tof_ranges() == {"/tof/depth/image_raw": 3.0}
+    assert cfg.topic_roles() == {D435_RGB: "head_rgb", D435_DEPTH: "head_depth"}
+    assert cfg.depth_ranges() == {D435_DEPTH: 3.0}
 
 
-def test_head_tab_has_no_fused_depth_topic(tmp_path: Path) -> None:
-    """fused_depth_topic is not a field; a YAML key of that name is ignored (not subscribed, no role)."""
+def test_head_tab_rejects_fused_depth_topic(tmp_path: Path) -> None:
+    """fused_depth_topic is not a field; a YAML key of that name is rejected as unknown, never subscribed."""
     assert "fused_depth_topic" not in TabConfig.model_fields
     p = tmp_path / "cfg.yaml"
     p.write_text(
-        HEAD_TAB_YAML.replace("    tof_range_m", "    fused_depth_topic: /stereo/depth/fused\n    tof_range_m")
+        HEAD_TAB_YAML.replace("    depth_range_m", "    fused_depth_topic: /stereo/depth/fused\n    depth_range_m")
     )
-    cfg = load_config(p)
-    assert "/stereo/depth/fused" not in cfg.all_subscribed_topics()
-    assert "/stereo/depth/fused" not in cfg.topic_roles()
-    assert "/stereo/depth/fused" not in cfg.tof_ranges()
+    with pytest.raises(ValidationError, match="fused_depth_topic"):
+        load_config(p)
+
+
+def test_client_head_tab_reads_the_d435() -> None:
+    """The deployed head tab reads the D435 colour and depth (live pinned topics) and the /head_rgbd pair."""
+    cfg = client_web_ui_config()
+    head = next(t for t in cfg.tabs if t.type == "head")
+    assert head.rgb_camera_topic == D435_RGB
+    assert head.depth_topic == D435_DEPTH
+    assert (head.rgbd_rgb_topic, head.rgbd_depth_topic) == (RGBD_RGB, RGBD_DEPTH)
+    assert head.depth_range_m == 4.0
+    live = yaml.safe_load(D435_TOPICS_YAML.read_text())["topics"]
+    assert live[D435_RGB]["type"] == "sensor_msgs/msg/CompressedImage"
+    assert live[D435_DEPTH]["type"] == "sensor_msgs/msg/Image"
+    assert live[D435_RGB].get("published", True) and live[D435_DEPTH].get("published", True)
+    roles = cfg.topic_roles()
+    assert {t: roles[t] for t in (D435_RGB, D435_DEPTH, RGBD_RGB, RGBD_DEPTH)} == {
+        D435_RGB: "head_rgb",
+        D435_DEPTH: "head_depth",
+        RGBD_RGB: "head_rgbd_rgb",
+        RGBD_DEPTH: "head_rgbd_depth",
+    }
+    assert cfg.depth_ranges() == {D435_DEPTH: 4.0, RGBD_DEPTH: 4.0}
+    assert not [v for v in head.model_dump().values() if isinstance(v, str) and v.startswith("/tof/")]
 
 
 # ---------------------------------------------------------------- calibration
@@ -460,19 +510,21 @@ def test_calibration_rejections(bad: dict) -> None:
         AppConfig.model_validate({"calibration": bad})
 
 
-def test_default_head_tab_subscribes_the_tof_topics() -> None:
-    """The shipped default head tab subscribes exactly the two ToF topics (head_depth, head_amplitude) and the RGB-D pair."""
+def test_default_head_tab_subscribes_the_d435_topics() -> None:
+    """The shipped default head tab subscribes the D435 colour (head_rgb), D435 depth (head_depth) and the RGB-D pair."""
     cfg = load_config(Path(__file__).resolve().parents[1] / "config" / "default.yaml")
     head = next(t for t in cfg.tabs if t.type == "head")
     roles = cfg.topic_roles()
-    head_roles = {topic: role for topic, role in roles.items() if role in {"head_depth", "head_amplitude"}}
-    assert head_roles == {"/tof/depth/image_raw": "head_depth", "/tof/amplitude/image_raw": "head_amplitude"}
-    assert head.rgb_camera_topic == "/head_camera/image_raw/compressed"
-    assert set(cfg.tof_ranges()) == {"/tof/depth/image_raw", "/head_rgbd/depth/image_raw"}
-    assert head.rgbd_rgb_topic == "/head_rgbd/rgb/image_raw/compressed"
-    assert head.rgbd_depth_topic == "/head_rgbd/depth/image_raw"
-    assert roles["/head_rgbd/depth/image_raw"] == "head_rgbd_depth"
-    assert roles["/head_rgbd/rgb/image_raw/compressed"] == "head_rgbd_rgb"
+    head_roles = {topic: role for topic, role in roles.items() if role.startswith("head_")}
+    assert head_roles == {
+        D435_RGB: "head_rgb",
+        D435_DEPTH: "head_depth",
+        RGBD_RGB: "head_rgbd_rgb",
+        RGBD_DEPTH: "head_rgbd_depth",
+    }
+    assert (head.rgb_camera_topic, head.depth_topic) == (D435_RGB, D435_DEPTH)
+    assert (head.rgbd_rgb_topic, head.rgbd_depth_topic) == (RGBD_RGB, RGBD_DEPTH)
+    assert cfg.depth_ranges() == {D435_DEPTH: 4.0, RGBD_DEPTH: 4.0}
 
 
 AGENT_CHAT_TAB = {"id": "agent", "type": "agent_chat", "label": "Agent", "agent_url": "http://127.0.0.1:18300"}

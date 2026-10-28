@@ -44,7 +44,7 @@ tabs:
     label: Head
     rgbd_rgb_topic: {RGBD_RGB}
     rgbd_depth_topic: {RGBD_DEPTH}
-    tof_range_m: 3.0
+    depth_range_m: 3.0
   - id: map
     type: map_nav
     label: Map
@@ -66,7 +66,7 @@ def depth_msg(width: int = 288, height: int = 162, fill_mm: int = 1500, step_ext
     arr[1, 2] = 4321
     return named(
         "Image",
-        header=SimpleNamespace(stamp=STAMP, frame_id="head_camera_optical_frame"),
+        header=SimpleNamespace(stamp=STAMP, frame_id="d435_color_optical_frame"),
         encoding="16UC1",
         is_bigendian=False,
         width=width,
@@ -92,7 +92,7 @@ def test_tab_config_keeps_the_rgbd_keys(tmp_path: Path) -> None:
 
 
 def test_rgbd_topics_get_roles_ranges_and_subscriptions(tmp_path: Path) -> None:
-    """The head RGB-D topics use the head roles, the depth topic carries tof_range_m, the cloud its own role."""
+    """The head RGB-D topics use the head roles, the depth topic carries depth_range_m, the cloud its own role."""
     assert {"rgbd_rgb_topic", "rgbd_depth_topic"} <= set(GENERIC_TOPIC_ATTRS)
     assert ("rgbd_cloud_topic", RGBD_CLOUD_ROLE) in MAP_NAV_TOPIC_ROLES
     p = tmp_path / "cfg.yaml"
@@ -101,7 +101,7 @@ def test_rgbd_topics_get_roles_ranges_and_subscriptions(tmp_path: Path) -> None:
     expected = {RGBD_RGB: HEAD_RGBD_RGB_ROLE, RGBD_DEPTH: HEAD_RGBD_DEPTH_ROLE, RGBD_CLOUD: RGBD_CLOUD_ROLE}
     roles = cfg.topic_roles()
     assert {t: roles[t] for t in expected} == expected
-    assert cfg.tof_ranges() == {RGBD_DEPTH: 3.0}
+    assert cfg.depth_ranges() == {RGBD_DEPTH: 3.0}
     assert {RGBD_RGB, RGBD_DEPTH, RGBD_CLOUD} <= set(cfg.all_subscribed_topics())
 
 
@@ -149,7 +149,7 @@ def test_registered_depth_is_full_size_raw_with_stamp() -> None:
     out = serialize_registered_depth(depth_msg())
     assert (out["width"], out["height"]) == (288, 162)
     assert out["stamp"] == pytest.approx(STAMP_S)
-    assert out["frame_id"] == "head_camera_optical_frame"
+    assert out["frame_id"] == "d435_color_optical_frame"
     raw = np.frombuffer(base64.b64decode(out["depth_raw_b64"]), dtype="<u2").reshape(162, 288)
     assert raw[0, 0] == 0
     assert raw[1, 2] == 4321
@@ -175,8 +175,8 @@ def test_registered_depth_rejects_other_encodings_and_truncated_data() -> None:
 
 
 def test_head_depth_roles_serialise_the_stamp() -> None:
-    """The ToF preview payload carries the stamp; the rgbd depth spec serialises the raw registered depth."""
-    assert msg_to_dict(depth_msg(), tof_range_m=3.0)["stamp"] == pytest.approx(STAMP_S)
+    """The depth preview payload carries the stamp; the rgbd depth spec serialises the raw registered depth."""
+    assert msg_to_dict(depth_msg(), depth_range_m=3.0)["stamp"] == pytest.approx(STAMP_S)
     serializer = subscription_spec(RGBD_DEPTH, HEAD_RGBD_DEPTH_ROLE, 3.0)[2]
     out = serializer(depth_msg())
     assert out["stamp"] == pytest.approx(STAMP_S)
@@ -194,10 +194,10 @@ def test_compressed_rgb_payload_carries_the_same_stamp_as_depth() -> None:
 def test_rgbd_cloud_keeps_colours_frame_stamp_and_its_own_cap() -> None:
     serializer = ROLE_SPECS[RGBD_CLOUD_ROLE][2]
     msg = make_cloud(
-        [(1.0, 2.0, 0.5), (-1.0, 0.0, 1.0)], colors=[(255, 0, 10), (1, 2, 3)], frame="head_camera_optical_frame"
+        [(1.0, 2.0, 0.5), (-1.0, 0.0, 1.0)], colors=[(255, 0, 10), (1, 2, 3)], frame="d435_color_optical_frame"
     )
     out = serializer(msg)
-    assert out["frame"] == "head_camera_optical_frame"  # what attach_frame_pose looks up
+    assert out["frame"] == "d435_color_optical_frame"  # what attach_frame_pose looks up
     assert out["stamp"] == pytest.approx(5.5)
     assert out["count"] == 2
     colors = {tuple(p): tuple(c) for p, c in zip(decode_points(out).tolist(), decode_colors(out).tolist(), strict=True)}

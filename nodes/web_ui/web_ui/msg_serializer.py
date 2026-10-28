@@ -53,7 +53,7 @@ COSTMAP_LETHAL_RGBA: tuple[int, int, int, int] = (230, 0, 0, 240)
 PATH_MAX_POINTS = 500
 
 
-def msg_to_dict(msg: Any, topic: str = "", tof_range_m: float | None = None) -> dict[str, Any]:
+def msg_to_dict(msg: Any, topic: str = "", depth_range_m: float | None = None) -> dict[str, Any]:
     """Convert a ROS2 message object to a JSON-serializable dict.
 
     Handles nested messages, arrays, and Image/CameraInfo types with special encoding.
@@ -63,8 +63,8 @@ def msg_to_dict(msg: Any, topic: str = "", tof_range_m: float | None = None) -> 
     Args:
         msg: ROS2 message object (rclpy message).
         topic: ROS2 topic string the message arrived on.
-        tof_range_m: Head tab ToF range in metres; when set a 16UC1 depth Image gets the greyscale preview over
-            [0, tof_range_m] instead of the red-green colormap.
+        depth_range_m: Head tab depth range in metres; when set a 16UC1 depth Image gets the greyscale preview over
+            [0, depth_range_m] instead of the red-green colormap.
 
     Returns:
         dict[str, Any]: JSON-serializable representation.
@@ -73,7 +73,7 @@ def msg_to_dict(msg: Any, topic: str = "", tof_range_m: float | None = None) -> 
     if msg_type == "CameraInfo":
         return _serialize_camera_info(msg)
     if msg_type in ("Image", "CompressedImage"):
-        return {**_serialize_image(msg, tof_range_m), "stamp": stamp_to_seconds(msg.header.stamp)}
+        return {**_serialize_image(msg, depth_range_m), "stamp": stamp_to_seconds(msg.header.stamp)}
     return _serialize_msg(msg)
 
 
@@ -177,19 +177,19 @@ def is_jpeg(image_format: str, data: bytes) -> bool:
     return ("jpeg" in fmt or "jpg" in fmt) and "compresseddepth" not in fmt and data[:2] == b"\xff\xd8"
 
 
-def _serialize_image(msg: Any, tof_range_m: float | None = None) -> dict[str, Any]:
+def _serialize_image(msg: Any, depth_range_m: float | None = None) -> dict[str, Any]:
     """Serialize Image or CompressedImage message to a dict with JPEG base64.
 
     For 16UC1 depth images: returns red-green colormap preview JPEG and downscaled
     raw uint16 bytes for 3D mesh construction.
-    For rgb8/bgr8 Image: returns full-res JPEG. For mono8/mono16 Image (ToF amplitude): returns a greyscale JPEG,
+    For rgb8/bgr8 Image: returns full-res JPEG. For mono8/mono16 Image: returns a greyscale JPEG,
     mono16 scaled so the brightest value of the frame is white. Any other encoding returns an error dict.
     For CompressedImage in JPEG format: the bytes are passed through unchanged (no decode, no re-encode).
     Other CompressedImage formats are decoded and re-encoded to JPEG.
 
     Args:
         msg: Image or CompressedImage ROS2 message.
-        tof_range_m: Depth range in metres for the greyscale depth preview, or None for the red-green colormap.
+        depth_range_m: Depth range in metres for the greyscale depth preview, or None for the red-green colormap.
 
     Returns:
         dict[str, Any]: Dict with image data keys, or {"jpeg_b64": None, "error": ...} when the frame is undecodable.
@@ -197,7 +197,7 @@ def _serialize_image(msg: Any, tof_range_m: float | None = None) -> dict[str, An
     try:
         msg_type = type(msg).__name__
         if msg_type == "Image" and msg.encoding.lower() == "16uc1":
-            return _serialize_depth_image(msg, tof_range_m)
+            return _serialize_depth_image(msg, depth_range_m)
 
         img = None
         jpeg_bytes: bytes | None = None
@@ -238,18 +238,18 @@ def _serialize_image(msg: Any, tof_range_m: float | None = None) -> dict[str, An
         return {"jpeg_b64": None, "error": str(exc)}
 
 
-def _serialize_depth_image(msg: Any, tof_range_m: float | None = None) -> dict[str, Any]:
+def _serialize_depth_image(msg: Any, depth_range_m: float | None = None) -> dict[str, Any]:
     """Serialize a 16UC1 depth Image to a preview + downscaled raw bytes.
 
     Produces:
     - depth_preview_b64: Full-resolution JPEG. Red-green colormap (close=red, far=green) by default; with
-      tof_range_m greyscale over [0, tof_range_m] (near bright, far dark, 0 = invalid black).
+      depth_range_m greyscale over [0, depth_range_m] (near bright, far dark, 0 = invalid black).
     - depth_b64: 160x120 downscaled uint16 LE raw bytes, base64-encoded.
     - depth_width, depth_height: Dimensions of depth_b64 grid (always 160, 120).
 
     Args:
         msg: sensor_msgs/Image with encoding '16UC1' (millimetres, 0 = invalid).
-        tof_range_m: Greyscale preview range in metres, or None for the red-green colormap.
+        depth_range_m: Greyscale preview range in metres, or None for the red-green colormap.
 
     Returns:
         dict[str, Any]: Dict with depth_preview_b64, depth_b64, depth_width, depth_height.
@@ -261,8 +261,8 @@ def _serialize_depth_image(msg: Any, tof_range_m: float | None = None) -> dict[s
         # --- Preview (full resolution) ---
         depth_f = depth.astype(np.float32)
         valid = depth > 0
-        if tof_range_m is not None:
-            near_is_bright = np.clip(1.0 - depth_f / (tof_range_m * 1000.0), 0.0, 1.0)
+        if depth_range_m is not None:
+            near_is_bright = np.clip(1.0 - depth_f / (depth_range_m * 1000.0), 0.0, 1.0)
             preview = np.where(valid, near_is_bright * 255, 0).astype(np.uint8)
         else:
             normalized = np.clip((depth_f - _DEPTH_MIN_MM) / (_DEPTH_MAX_MM - _DEPTH_MIN_MM), 0.0, 1.0)

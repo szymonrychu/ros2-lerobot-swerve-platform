@@ -85,7 +85,7 @@ def test_stale_stereo_rect_topics_are_gone_and_live_head_topics_remain() -> None
         assert subscription_spec(stale, None) is None
     assert subscription_spec("/head_camera/image_raw/compressed", None)[0] is CompressedImage
     assert subscription_spec("/overview_camera/image_raw/compressed", None) is None
-    assert subscription_spec("/tof/depth/image_raw", "head_depth")[0] is Image
+    assert subscription_spec("/head/d435/depth/image_rect_raw", "head_depth")[0] is Image
 
 
 def test_head_camera_resolves_and_overview_camera_is_gone() -> None:
@@ -110,14 +110,14 @@ def test_odom_topic_is_an_odometry_subscription() -> None:
 
 
 def test_head_roles_pick_message_types_for_arbitrary_topic_names() -> None:
-    """head roles subscribe RGB as CompressedImage and ToF depth and amplitude as Image on any topic name."""
+    """head roles subscribe RGB as CompressedImage and depth as Image on any topic name; there is no amplitude role."""
     from sensor_msgs.msg import CompressedImage, Image
 
-    from web_ui.bridge import subscription_spec
+    from web_ui.bridge import HEAD_ROLES, ROLE_SPECS, subscription_spec
 
     assert subscription_spec("/any/rgb", "head_rgb")[0] is CompressedImage
     assert subscription_spec("/any/depth", "head_depth", 2.0)[0] is Image
-    assert subscription_spec("/any/amp", "head_amplitude")[0] is Image
+    assert "head_amplitude" not in HEAD_ROLES | set(ROLE_SPECS)
 
 
 def test_bridge_subscribes_head_topics() -> None:
@@ -139,16 +139,15 @@ def test_bridge_subscribes_head_topics() -> None:
         patch.object(BridgeNode, "create_client", create=True),
     ):
         node = BridgeNode(
-            topics=["/h/rgb", "/h/depth", "/h/amp"],
+            topics=["/h/rgb", "/h/depth"],
             allowed_publish_topics=set(),
-            topic_roles={"/h/rgb": "head_rgb", "/h/depth": "head_depth", "/h/amp": "head_amplitude"},
-            tof_ranges={"/h/depth": 2.5},
+            topic_roles={"/h/rgb": "head_rgb", "/h/depth": "head_depth"},
+            depth_ranges={"/h/depth": 2.5},
         )
-        assert not {"/h/rgb", "/h/depth", "/h/amp"} & {t for _, t in created}  # on demand only
+        assert not {"/h/rgb", "/h/depth"} & {t for _, t in created}  # on demand only
         demand(node, None)
     assert (CompressedImage, "/h/rgb") in created
     assert (Image, "/h/depth") in created
-    assert (Image, "/h/amp") in created
 
 
 def _make_preview_node():
@@ -160,17 +159,17 @@ def _make_preview_node():
     return node
 
 
-def _amplitude_msg():
-    """Return a mono8 Image message."""
+def _depth_msg():
+    """Return a 16UC1 depth Image message (mm)."""
     import numpy as np
     from sensor_msgs.msg import Image
 
     msg = Image()
-    msg.encoding = "mono8"
+    msg.encoding = "16UC1"
     msg.width = 8
     msg.height = 4
-    msg.step = 8
-    msg.data = np.full((4, 8), 100, dtype=np.uint8).tobytes()
+    msg.step = 16
+    msg.data = np.full((4, 8), 1000, dtype=np.uint16).tobytes()
     return msg
 
 
@@ -183,28 +182,28 @@ def test_head_previews_are_rate_limited_per_topic() -> None:
 
     def serializer(msg):
         calls.append(1)
-        return {"jpeg_b64": "x"}
+        return {"depth_preview_b64": "x"}
 
-    cb = node._make_callback("/h/amp", serializer, "head_amplitude")
+    cb = node._make_callback("/h/depth", serializer, "head_depth")
     with patch("web_ui.bridge.time.monotonic") as clock:
         clock.return_value = 100.0
-        cb(_amplitude_msg())
+        cb(_depth_msg())
         clock.return_value = 100.0 + bridge.HEAD_PREVIEW_MIN_INTERVAL_S / 2
-        cb(_amplitude_msg())
+        cb(_depth_msg())
         node.flush_dirty()
         assert len(calls) == 1
         clock.return_value = 100.0 + bridge.HEAD_PREVIEW_MIN_INTERVAL_S * 1.1
-        cb(_amplitude_msg())
+        cb(_depth_msg())
         node.flush_dirty()
     assert len(calls) == 2
 
 
 def test_head_preview_with_decode_error_is_dropped() -> None:
-    """A 32FC1 amplitude frame is logged and not stored (no placeholder frame)."""
+    """A 32FC1 frame on the head depth role is logged and not stored (no placeholder frame)."""
     from web_ui.bridge import subscription_spec
 
     node = _make_preview_node()
-    _, _, serializer = subscription_spec("/h/amp", "head_amplitude")
+    _, _, serializer = subscription_spec("/h/depth", "head_depth", 4.0)
     msg = MagicMock()
     msg.__class__.__name__ = "Image"
     msg.encoding = "32FC1"
@@ -212,5 +211,5 @@ def test_head_preview_with_decode_error_is_dropped() -> None:
     msg.height = 2
     msg.step = 8
     msg.data = bytes(16)
-    node._make_callback("/h/amp", serializer, "head_amplitude")(msg)
+    node._make_callback("/h/depth", serializer, "head_depth")(msg)
     assert node.flush_dirty() == []

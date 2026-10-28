@@ -63,7 +63,6 @@ from .config import (
     GRASP_RESULT_ROLE,
     GROUND_CLOUD_ROLE,
     GROUND_STATE_ROLE,
-    HEAD_AMPLITUDE_ROLE,
     HEAD_DEPTH_ROLE,
     HEAD_RGB_ROLE,
     HEAD_RGBD_DEPTH_ROLE,
@@ -161,15 +160,13 @@ TOPIC_TYPE_HINTS: dict[str, type] = {
     "/head_camera/image_raw/compressed": CompressedImage,
 }
 
-# Minimum seconds between two serialised previews of one head topic (ToF drivers publish at 30 Hz; the browser
-# gets at most this rate, and the Pi skips the JPEG encode of the frames in between).
+# Minimum seconds between two serialised previews of one head topic (the browser gets at most this rate, and the Pi
+# skips the JPEG encode of the frames in between).
 HEAD_PREVIEW_MIN_INTERVAL_S = 0.1
 # Head RGB-D cloud sent to a browser: at most this many points, voxel edge (m) it starts from.
 RGBD_CLOUD_MAX_POINTS = 20000
 RGBD_CLOUD_VOXEL_M = 0.02
-HEAD_ROLES: frozenset[str] = frozenset(
-    {HEAD_RGB_ROLE, HEAD_DEPTH_ROLE, HEAD_AMPLITUDE_ROLE, HEAD_RGBD_DEPTH_ROLE, HEAD_RGBD_RGB_ROLE}
-)
+HEAD_ROLES: frozenset[str] = frozenset({HEAD_RGB_ROLE, HEAD_DEPTH_ROLE, HEAD_RGBD_DEPTH_ROLE, HEAD_RGBD_RGB_ROLE})
 # Head roles gated on the message header stamp: both RGB-D streams carry identical stamps, so both keep the same sets.
 HEAD_STAMP_GATED_ROLES: frozenset[str] = frozenset({HEAD_RGBD_DEPTH_ROLE, HEAD_RGBD_RGB_ROLE})
 
@@ -341,12 +338,11 @@ HEAD_ROLE_MSG_TYPES: dict[str, type] = {
     HEAD_RGB_ROLE: CompressedImage,
     HEAD_RGBD_RGB_ROLE: CompressedImage,
     HEAD_DEPTH_ROLE: Image,
-    HEAD_AMPLITUDE_ROLE: Image,
     HEAD_RGBD_DEPTH_ROLE: Image,
 }
 
 
-def head_spec(topic: str, role: str, tof_range_m: float | None) -> tuple[type, Any, Serializer]:
+def head_spec(topic: str, role: str, depth_range_m: float | None) -> tuple[type, Any, Serializer]:
     """Subscription spec of a head tab topic; works for any topic name.
 
     The serializer raises when the frame cannot be decoded (unsupported encoding, corrupt data), so the bridge
@@ -354,18 +350,18 @@ def head_spec(topic: str, role: str, tof_range_m: float | None) -> tuple[type, A
 
     Args:
         topic (str): ROS2 topic name.
-        role (str): HEAD_RGB_ROLE, HEAD_DEPTH_ROLE or HEAD_AMPLITUDE_ROLE.
-        tof_range_m (float | None): Depth range of the greyscale preview (HEAD_DEPTH_ROLE only).
+        role (str): HEAD_RGB_ROLE, HEAD_DEPTH_ROLE, HEAD_RGBD_RGB_ROLE or HEAD_RGBD_DEPTH_ROLE.
+        depth_range_m (float | None): Depth range of the greyscale preview (HEAD_DEPTH_ROLE only).
 
     Returns:
         tuple[type, Any, Serializer]: (msg class, QoS profile, serializer).
     """
-    depth_range = tof_range_m if role == HEAD_DEPTH_ROLE else None
+    depth_range = depth_range_m if role == HEAD_DEPTH_ROLE else None
     if role == HEAD_RGBD_DEPTH_ROLE:
         return (HEAD_ROLE_MSG_TYPES[role], SENSOR_SUB_QOS, serialize_registered_depth)
 
     def serializer(msg: Any) -> dict[str, Any]:
-        data = msg_to_dict(msg, topic=topic, tof_range_m=depth_range)
+        data = msg_to_dict(msg, topic=topic, depth_range_m=depth_range)
         if "error" in data:
             raise ValueError(data["error"])
         return data
@@ -374,7 +370,7 @@ def head_spec(topic: str, role: str, tof_range_m: float | None) -> tuple[type, A
 
 
 def subscription_spec(
-    topic: str, role: str | None, tof_range_m: float | None = None, map3d_limit: tuple[int, float] | None = None
+    topic: str, role: str | None, depth_range_m: float | None = None, map3d_limit: tuple[int, float] | None = None
 ) -> tuple[type, Any, Serializer] | None:
     """Choose message class, QoS and serializer for a topic.
 
@@ -384,14 +380,14 @@ def subscription_spec(
     Args:
         topic (str): ROS2 topic name.
         role (str | None): map_nav role (a ROLE_SPECS key), a head role or None.
-        tof_range_m (float | None): Depth range in metres of a head depth topic's greyscale preview.
+        depth_range_m (float | None): Depth range in metres of a head depth topic's greyscale preview.
         map3d_limit (tuple[int, float] | None): (max_points, voxel_m) of a "map3d_cloud" topic, None for the defaults.
 
     Returns:
         tuple[type, Any, Serializer] | None: (msg class, QoS profile or depth, serializer), or None if unknown.
     """
     if role in HEAD_ROLES:
-        return head_spec(topic, role, tof_range_m)
+        return head_spec(topic, role, depth_range_m)
     if role == "map3d_cloud" and map3d_limit is not None:
         max_points, voxel_m = map3d_limit
         return (PointCloud2, SENSOR_SUB_QOS, lambda msg: serialize_map3d_cloud(msg, max_points, voxel_m))
@@ -446,7 +442,7 @@ class BridgeNode(Node):
         allowed_publish_topics: set[str],
         publish_topic_types: dict[str, str] | None = None,
         topic_roles: dict[str, str] | None = None,
-        tof_ranges: dict[str, float] | None = None,
+        depth_ranges: dict[str, float] | None = None,
         robot_pose_frames: tuple[str, str] | None = None,
         frame_id_defaults: dict[str, str] | None = None,
         pose_rate_hz: float = 20.0,
@@ -479,7 +475,7 @@ class BridgeNode(Node):
             publish_topic_types (dict[str, str] | None): Message type string per allowlisted topic whose type is known
                 up front; their publishers are created at start so DDS discovery completes before the first command.
             topic_roles (dict[str, str] | None): map_nav topic -> role ("map", "path", "goal"), head topic -> head role.
-            tof_ranges (dict[str, float] | None): head depth topic -> range (m) of its greyscale preview.
+            depth_ranges (dict[str, float] | None): head depth topic -> range (m) of its greyscale preview.
             map3d_limits (dict[str, tuple[int, float]] | None): 3D map cloud topic -> (max_points, voxel_m).
             ground_stale_s (dict[str, float] | None): Ground state topic -> age in seconds after which it is stale.
             ground_recorder (GroundRecorderConfig | None): Settings of the ground recorder (needs the TF buffer), or None
@@ -624,7 +620,7 @@ class BridgeNode(Node):
             if role == GRASP_RESULT_ROLE:
                 self.subscribe_always_on(String, topic, self.on_grasp_result, DEFAULT_SUB_QOS_DEPTH)
                 continue
-            spec = subscription_spec(topic, role, (tof_ranges or {}).get(topic), (map3d_limits or {}).get(topic))
+            spec = subscription_spec(topic, role, (depth_ranges or {}).get(topic), (map3d_limits or {}).get(topic))
             if spec is None:
                 self.get_logger().warning(f"Unknown msg type for topic {topic!r} - skipping")
                 continue

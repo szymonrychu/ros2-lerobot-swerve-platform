@@ -49,7 +49,7 @@ def main() -> None:
         allowed_publish_topics=set(config.publish_topics()),
         publish_topic_types=config.publish_topic_types(),
         topic_roles=config.topic_roles(),
-        tof_ranges=config.tof_ranges(),
+        depth_ranges=config.depth_ranges(),
         map3d_limits=config.map3d_limits(),
         robot_pose_frames=config.robot_pose_frames(),
         frame_id_defaults=config.frame_id_defaults(),

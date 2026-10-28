@@ -1185,7 +1185,6 @@ def test_client_yml_web_ui_tabs_validate_and_head_matches_default() -> None:
     head = next(t for t in shipped.tabs if t.type == "head")
     default_head = next(t for t in load_config(DEFAULT_YAML).tabs if t.type == "head")
     assert [t.id for t in shipped.tabs].index("head") == [t.id for t in shipped.tabs].index("arm") + 1
-    assert head.tof_depth_topic == default_head.tof_depth_topic == "/tof/depth/image_raw"
-    assert head.tof_amplitude_topic == default_head.tof_amplitude_topic == "/tof/amplitude/image_raw"
-    assert head.rgb_camera_topic == default_head.rgb_camera_topic == "/head_camera/image_raw/compressed"
-    assert head.tof_range_m == 4.0
+    assert head.depth_topic == default_head.depth_topic == "/head/d435/depth/image_rect_raw"
+    assert head.rgb_camera_topic == default_head.rgb_camera_topic == "/head/d435/color/image_raw/compressed"
+    assert head.depth_range_m == default_head.depth_range_m == 4.0

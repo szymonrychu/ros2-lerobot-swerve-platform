@@ -49,8 +49,8 @@ AGENT_CHAT_TAB_TYPE = "agent_chat"
 AGENT_RETROS_TAB_TYPE = "agent_retros"  # reads retrospectives through the agent_chat tab's agent_url
 ARM_TAB_TYPE = "arm"
 HEAD_TAB_TYPE = "head"
-# Default ToF depth range (metres) of a head tab's greyscale depth preview: near is bright, this far is black.
-DEFAULT_TOF_RANGE_M = 4.0
+# Default depth range (metres) of a head tab's greyscale depth preview: near is bright, this far is black.
+DEFAULT_DEPTH_RANGE_M = 4.0
 # Default claude_agent API base URL proxied by the agent_chat tab (claude_agent http_port in client.yml).
 DEFAULT_AGENT_URL = "http://127.0.0.1:18300"
 
@@ -152,7 +152,6 @@ ACTIVE_SOURCE_ROLE = "active_source"
 GPS_STATUS_ROLE = "gps_status"
 HEAD_RGB_ROLE = "head_rgb"
 HEAD_DEPTH_ROLE = "head_depth"
-HEAD_AMPLITUDE_ROLE = "head_amplitude"
 HEAD_RGBD_RGB_ROLE = "head_rgbd_rgb"  # RGB of head_rgbd_cpp: gated on the header stamp like the depth
 HEAD_RGBD_DEPTH_ROLE = "head_rgbd_depth"  # registered depth of head_rgbd_cpp: raw full-size uint16 mm, stamped
 RGBD_CLOUD_ROLE = "rgbd_cloud"  # coloured point cloud of head_rgbd_cpp, drawn in the map frame
@@ -176,8 +175,6 @@ GENERIC_TOPIC_ATTRS: tuple[str, ...] = (
     "depth_topic",
     "camera_info_topic",
     "rgb_camera_topic",
-    "tof_depth_topic",
-    "tof_amplitude_topic",
     "rgbd_rgb_topic",
     "rgbd_depth_topic",
 )
@@ -274,6 +271,8 @@ class CameraMount(BaseModel):
 
 
 class TabConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     id: str
     type: str
     label: str
@@ -326,15 +325,13 @@ class TabConfig(BaseModel):
     zoom_result_topic: str | None = None  # head: std_msgs/String JSON zoom result (matched by request_id)
     zoom_image_topic: str | None = None  # head: sensor_msgs/CompressedImage zoom crop (paired with the result by stamp)
     zoom_timeout_s: float = Field(default=DEFAULT_ZOOM_TIMEOUT_S, gt=0)  # head: seconds to wait for a zoom crop
-    tof_depth_topic: str | None = None  # head: sensor_msgs/Image 16UC1 (mm, 0 = invalid) ToF depth
-    tof_amplitude_topic: str | None = None  # head: sensor_msgs/Image mono8 or mono16 ToF amplitude
     rgbd_rgb_topic: str | None = None  # head: sensor_msgs/CompressedImage RGB of head_rgbd_cpp (RGB-D view)
     rgbd_depth_topic: str | None = None  # head: sensor_msgs/Image 16UC1 mm depth registered into rgbd_rgb_topic
-    tof_range_m: float = Field(
-        default=DEFAULT_TOF_RANGE_M, gt=0
+    depth_range_m: float = Field(
+        default=DEFAULT_DEPTH_RANGE_M, gt=0
     )  # head: depth shown in the greyscale preview (m); near is bright, this far or beyond is black
     color_topic: str | None = None
-    depth_topic: str | None = None
+    depth_topic: str | None = None  # head: sensor_msgs/Image 16UC1 (mm, 0 = invalid) D435 depth for the preview
     camera_info_topic: str | None = None
     map_topic: str | None = None  # map_nav: nav_msgs/OccupancyGrid (latched SLAM map)
     global_plan_topic: str | None = None  # map_nav: nav_msgs/Path from the planner
@@ -754,16 +751,16 @@ class AppConfig(BaseModel):
         """
         return [tab for tab in self.tabs if tab.type == HEAD_TAB_TYPE]
 
-    def tof_ranges(self) -> dict[str, float]:
+    def depth_ranges(self) -> dict[str, float]:
         """Map each head tab's depth topics to the depth range of their greyscale previews.
 
         Returns:
-            dict[str, float]: Depth topic -> tof_range_m in metres.
+            dict[str, float]: Depth topic -> depth_range_m in metres.
         """
         return {
-            topic: tab.tof_range_m
+            topic: tab.depth_range_m
             for tab in self.head_tabs()
-            for topic in (tab.tof_depth_topic, tab.rgbd_depth_topic)
+            for topic in (tab.depth_topic, tab.rgbd_depth_topic)
             if topic
         }
 
@@ -878,7 +875,7 @@ class AppConfig(BaseModel):
         """Map each map_nav topic to its bridge subscription role.
 
         Roles are "map" and "costmap" (OccupancyGrid), "cloud" and "map3d_cloud" (PointCloud2) and "scan_points" (LaserScan), "map3d_status" and "map3d_result" (std_msgs/String JSON), "path" (Path), "goal" (PoseStamped), "footprint"
-        (PolygonStamped), "gps" (NavSatFix), "poi_list", "poi_photos", "poi_result" and "grasp_result" (std_msgs/String JSON), "active_source" (arm tab, std_msgs/String), "head_rgb" and "head_rgbd_rgb" (CompressedImage), "head_depth", "head_rgbd_depth" and "head_amplitude" (Image) of head tabs, "rgbd_cloud" and "ground_cloud" (PointCloud2), "ground_state" (std_msgs/String JSON) and "battery" (BatteryState) and "gps_status" (std_msgs/String JSON); the bridge derives message types from these instead of
+        (PolygonStamped), "gps" (NavSatFix), "poi_list", "poi_photos", "poi_result" and "grasp_result" (std_msgs/String JSON), "active_source" (arm tab, std_msgs/String), "head_rgb" and "head_rgbd_rgb" (CompressedImage), "head_depth" and "head_rgbd_depth" (Image) of head tabs, "rgbd_cloud" and "ground_cloud" (PointCloud2), "ground_state" (std_msgs/String JSON) and "battery" (BatteryState) and "gps_status" (std_msgs/String JSON); the bridge derives message types from these instead of
         TOPIC_TYPE_HINTS.
 
         Returns:
@@ -895,8 +892,7 @@ class AppConfig(BaseModel):
         for tab in self.head_tabs():
             for topic, role in (
                 (tab.rgb_camera_topic, HEAD_RGB_ROLE),
-                (tab.tof_depth_topic, HEAD_DEPTH_ROLE),
-                (tab.tof_amplitude_topic, HEAD_AMPLITUDE_ROLE),
+                (tab.depth_topic, HEAD_DEPTH_ROLE),
                 (tab.rgbd_rgb_topic, HEAD_RGBD_RGB_ROLE),
                 (tab.rgbd_depth_topic, HEAD_RGBD_DEPTH_ROLE),
             ):

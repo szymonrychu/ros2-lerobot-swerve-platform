@@ -115,25 +115,24 @@ tabs:
     arm_urdf: so101_arm.urdf
     arm_joint_states_topic: /follower/joint_states
 
-  # Head tab: head RGB from the Camera Module 3 (mounted with the ToF on the pan/tilt head) plus the Arducam ToF
-  # (arducam_tof on CSI cam1): depth is 16UC1 mm, amplitude is mono16. /tof/camera_info is published but not consumed by
-  # the Head tab.
+  # Head tab: the RealSense D435 on the pan/tilt head (realsense_d435, live topics pinned in
+  # nodes/bridges/realsense_d435/config/topics.yaml): colour plus a greyscale preview of its 16UC1 mm depth.
   - id: head
     type: head
     label: "Head"
-    # Head RGB camera: Camera Module 3 on the pan/tilt head (head_camera_cpp).
-    rgb_camera_topic: /head_camera/image_raw/compressed
+    # D435 colour stream (JPEG transport).
+    rgb_camera_topic: /head/d435/color/image_raw/compressed
     # Click-to-zoom: head_camera_cpp autofocused full-resolution crop (command, result, image).
     zoom_command_topic: /head_camera/zoom/command
     zoom_result_topic: /head_camera/zoom/result
     zoom_image_topic: /head_camera/zoom/image
-    tof_depth_topic: /tof/depth/image_raw
-    tof_amplitude_topic: /tof/amplitude/image_raw
-    # RGB-D view (on demand, only while selected): head_rgbd_cpp RGB with the ToF depth registered into it, paired by header
+    # D435 depth preview (on demand): 16UC1 mm, near is bright, depth_range_m or beyond is black, invalid 0 is black.
+    depth_topic: /head/d435/depth/image_rect_raw
+    # RGB-D view (on demand, only while selected): head_rgbd_cpp RGB with the D435 depth aligned to it, paired by header
     # stamp and shown as a colormap overlay with a hover depth readout (nodes/head_rgbd_cpp/README.md "Topics").
     rgbd_rgb_topic: /head_rgbd/rgb/image_raw/compressed
     rgbd_depth_topic: /head_rgbd/depth/image_raw
-    tof_range_m: 4.0
+    depth_range_m: 4.0
     # Pan/tilt control: commands (sensor_msgs/JointState head_pan, head_tilt rad) are refused outside the ranges.
     # Same limits as the head servo group (client.yml) and nodes/web_ui/urdf/head.urdf; home is inside both.
     head_command_topic: /head/joint_commands
