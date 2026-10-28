@@ -3070,12 +3070,13 @@ Static checks of the `d435_obstacle_cloud` deployment (config-only rtabmap_util 
 
 ### test_d435_obstacle_wiring.py
 
-Cross-file topic chain of the head D435 obstacle cloud (design D5): d435_obstacle_cloud (`/head/d435/points`, `d435_depth_optical_frame`) -> laser_filter self filter (`/head/d435/points_filtered`) -> ground_estimator_cpp. The Nav2, web_ui and mcp_server consumers of the filtered cloud are pinned by their own tests. Reads the YAML only.
+Cross-file topic chain of the head D435 obstacle cloud (design D5): d435_obstacle_cloud (`/head/d435/points`, `d435_depth_optical_frame`) -> laser_filter self filter (`/head/d435/points_filtered`) -> ground_estimator_cpp. The Nav2, web_ui and mcp_server consumers are re-pointed task by task and pin their D435 topic in their own tests. Reads the YAML only.
 
 | Test | Covers |
 |---|---|
 | `test_d435_cloud_feeds_the_self_filter` | The `cloud` remap of the d435_obstacle_cloud launch command and laser_filter `cloud_topic` are `/head/d435/points`; laser_filter `cloud_filtered_topic` is `/head/d435/points_filtered`; both nodes are present in client.yml. |
 | `test_ground_estimator_input_is_the_laser_filter_output` | The ground_estimator_cpp `cloud_topic` equals laser_filter `cloud_filtered_topic`. |
+| `test_every_consumer_reads_a_self_filtered_cloud` | Every collision_monitor pointcloud source, local costmap STVL source (not `/ground/`), web_ui map_nav `obstacle_cloud_topic` (client.yml and default.yaml) and mcp_server cloud topic (client.yml and config default) reads laser_filter `cloud_filtered_topic` or the retired `/tof/points_filtered`, never a raw cloud; each family has at least one topic. |
 | `test_slam_toolbox_publishes_map_to_odom` | slam_toolbox `transform_publish_period` > 0 with map and odom frames. |
 | `test_no_other_client_node_publishes_map_to_odom` | No other client node sets `publish_tf: true` (but the EKF, odom -> base_link), the static TF publisher has no map parent or odom child, d435_obstacle_cloud has no TF argument. |
 | `test_chain_nodes_and_tests_are_in_the_tests_readme` | d435_obstacle_cloud, laser_filter and the chain test files (`test_d435_obstacle_cloud_config.py`, this file) have a section here. |

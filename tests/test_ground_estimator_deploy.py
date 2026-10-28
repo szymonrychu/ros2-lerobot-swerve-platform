@@ -15,6 +15,7 @@ CLIENT_PLAYBOOK = REPO_ROOT / "ansible" / "playbooks" / "deploy_nodes_client.yml
 CLIENT_VARS = REPO_ROOT / "ansible" / "group_vars" / "client.yml"
 NODE_DIR = REPO_ROOT / "nodes" / "ground_estimator_cpp"
 DEFAULTS = NODE_DIR / "config" / "ground_estimator.yaml"
+LASER_FILTER_CONFIG = REPO_ROOT / "nodes" / "laser_filter" / "config" / "footprint_filter.yaml"
 NAME = "ground_estimator_cpp"
 WORKSPACE = "/opt/ros2-ws"
 METRICS_PORT = 19119
@@ -173,9 +174,11 @@ def test_client_playbook_step_order() -> None:
 
 def test_topics_match_their_producers() -> None:
     ground = entry_config(NAME)
-    # The D435 obstacle cloud, after the laser_filter self filter (the `_filtered` suffix of that filter).
+    # The D435 obstacle cloud, after the laser_filter self filter.
     d435 = d435_cloud_remaps()
-    assert ground["cloud_topic"] == d435["cloud"] + "_filtered"
+    laser_filter = yaml.safe_load(LASER_FILTER_CONFIG.read_text())
+    assert laser_filter["cloud_topic"] == d435["cloud"]
+    assert ground["cloud_topic"] == laser_filter["cloud_filtered_topic"]
     assert ground["imu_topic"] == entry_config("bno055_imu")["topic"]
     assert ground["rgbd_cloud_topic"] == entry_config("head_rgbd_cpp")["output_namespace"] + "/points"
     head_ns = entry_config("head_rgbd_cpp")["output_namespace"]
