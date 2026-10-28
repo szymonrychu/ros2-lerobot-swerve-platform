@@ -204,7 +204,7 @@ The head RGB-D calibration core. It never imports `scripts`, `rosbags`, `subproc
 - `views`: `ArmBoardView` (one still view of the gripper board: view id, arm pose index, tier, the seven measured joints, the board `Detection`, the head offset index) and `require_joints`; see "Head from arm fit" below.
 - `head_arm_fit`: the head-from-arm head chain fit, `aim_head` and the report; see "Head from arm fit" below.
 - `arm_pose_check`: the FK safety check of arm poses and joint paths with the board on the gripper (numpy, no ROS). `PoseChecker(...)` evaluates `urdf = measured + offset` FK placed in base_link by `arm_in_robot_base`; `check_pose(joints, gripper_rad, rolling)` returns named rule violations (body collisions, head envelope, board margin, roll rules, stretched arm, joint limits) and `check_path(start, target, gripper_rad)` samples the path between two poses. The body is `BodyConfig` (boxes and vertical cylinders, equal to the client.yml mcp_server `body` block), configured through `PoseCheckConfig`; `head_envelope(head_urdf, cfg)` gives the vertical cylinder containing the head at every pan/tilt. Distances are signed (negative = penetration). Tests: `tests/test_arm_pose_check.py`.
-- `floor_fit`: the floor-plane head chain fit (numpy and scipy, no ROS). `predicted_floor(chain, pan, tilt, origins)` gives the floor (base_link z = 0) in `tof_optical_frame` as (unit normal toward the sensor, sensor height); `fit_plane(points, prior, cfg, rng)` gates finite points by range and by `candidate_band_m` around the prior plane, runs RANSAC and an SVD refit and returns a `PlaneFit(normal, height_m, inliers, candidates, rms_m)` or None; `fit_head_chain_floor(observations, urdf_text, cfg)` fits `head_mount_joint` z, roll, pitch and the `head_tilt` origin pitch (tilt zero) and roll from `FloorObservation(pose, pan_rad, tilt_rad, plane)` with a Huber `least_squares`, every other origin component kept at the URDF value (the RGB-ToF extrinsic stays rigid), and returns a `FloorFitResult` (`passed`, `failed_limits`, `params` value/sigma/urdf for `mount_z_m`, `mount_roll_deg`, `mount_pitch_deg`, `tilt_zero_deg`, `tilt_roll_deg`, the pose-mean `height_rms_mm` / `normal_rms_deg` the RMS limits apply to, the per-observation `observation_height_rms_mm` / `observation_normal_rms_deg`, per-pose pose-mean and per-observation residuals, the new `origins`, `to_json()` with non-finite numbers as null). `pose_mean_errors` gives one pose's mean height error and the angle between its mean observed and predicted normals. Fewer than `min_observations` skips the solver.
+- `floor_fit`: the floor-plane head chain fit (numpy and scipy, no ROS). `predicted_floor(chain, pan, tilt, origins, sensor_frame)` gives the floor (base_link z = 0) in the depth sensor frame (`sensor_frame`, default `d435_depth_optical_frame`, the frame of `/head/d435/points`) as (unit normal toward the sensor, sensor height); `fit_plane(points, prior, cfg, rng)` gates finite points by range and by `candidate_band_m` around the prior plane, runs RANSAC and an SVD refit and returns a `PlaneFit(normal, height_m, inliers, candidates, rms_m)` or None; `fit_head_chain_floor(observations, urdf_text, cfg, sensor_frame)` fits `head_mount_joint` z, roll, pitch and the `head_tilt` origin pitch (tilt zero) and roll from `FloorObservation(pose, pan_rad, tilt_rad, plane)` with a Huber `least_squares`, every other origin component kept at the URDF value (d435_joint and the D435 optical joints included), and returns a `FloorFitResult` (`passed`, `failed_limits`, `params` value/sigma/urdf for `mount_z_m`, `mount_roll_deg`, `mount_pitch_deg`, `tilt_zero_deg`, `tilt_roll_deg`, the pose-mean `height_rms_mm` / `normal_rms_deg` the RMS limits apply to, the per-observation `observation_height_rms_mm` / `observation_normal_rms_deg`, per-pose pose-mean and per-observation residuals, the new `origins`, `to_json()` with non-finite numbers as null). `pose_mean_errors` gives one pose's mean height error and the angle between its mean observed and predicted normals. Fewer than `min_observations` skips the solver.
 - `urdf_text`: `rewrite_joint_origin`, `rewrite_tof_joint`, `Origin`, `format_vec`, and the override pieces: the `head_chain.json` format `{"joints": {head_mount_joint|head_pan|head_tilt|d435_joint: {"xyz": [3], "rpy": [3]}}, "note", "session", "result"}` (`parse_head_chain`, `head_chain_json`) and `apply_overrides(urdf_text, applied_dir)`, the one applier that applies `head_chain.json` then `tof_joint.json` and returns the text plus one warning per unreadable or invalid file. A `head_chain.json` naming the pre-D435 `head_camera_joint` is skipped whole with a warning that the fit predates the D435 (re-run head-from-arm calibration). It must stay standard-library only (no numpy, scipy or package-relative imports): the head_state_publisher launch loads it by file path on the system Python.
 
 Imported by the head_rgbd_calibration node.
@@ -227,8 +227,8 @@ was taken at. `require_joints(view)` raises `ValueError` naming the view and eve
 
 For each detected board corner the model chains: board corner -> board pose in `gripper_link` (fitted, 6 DOF) -> arm FK
 at the measured joints plus `joint_offsets_rad` (`urdf = measured + offset`) -> arm root in robot `base_link`
-(`base_in_base_link`) -> the inverse of the `head_camera_optical_frame` pose of the head chain at the measured pan/tilt
--> `cv2.projectPoints` with the head camera intrinsics. The residual is the pixel distance to the detected corner,
+(`base_in_base_link`) -> the inverse of the `camera_frame` pose (default `d435_color_optical_frame`) of the head chain at
+the measured pan/tilt -> `cv2.projectPoints` with the D435 colour intrinsics (the factory camera_info). The residual is the pixel distance to the detected corner,
 under a Huber loss (`huber_f_scale_px`).
 
 Free parameters (`fit_head_from_arm`):
@@ -243,8 +243,8 @@ Free parameters (`fit_head_from_arm`):
   `solvePnP` seeded from the configured `board_mount` and mapped through the start chain into `gripper_link`, median
   translation and mean rotation.
 
-Fixed: every other head origin component (`head_pan` rpy and z, `head_tilt` z, `head_camera_joint`, the optical
-joints), the arm URDF, the joint offsets, the arm gauge (`base_in_base_link`) and the intrinsics. The pan zero is folded
+Fixed: every other head origin component (`head_pan` rpy and z, `head_tilt` z, `d435_joint`, the D435 colour and
+optical joints), the arm URDF, the joint offsets, the arm gauge (`base_in_base_link`) and the intrinsics. The pan zero is folded
 into `mount_yaw_deg` (the result's `PAN_ZERO_NOTE`): a pan scale or zero offset is degenerate with the mount yaw and
 the axis shift, so it is not a parameter.
 
@@ -287,8 +287,8 @@ coverage, the largest correlation, the limit table).
 
 ### `aim_head`
 
-`aim_head(chain, point_base)` returns the (pan, tilt) in radians (+ tilt is down) that put a base_link point on the
-optical axis of `head_camera_optical_frame`, solved numerically on the given chain (the camera is off the pan and tilt
+`aim_head(chain, point_base, camera_frame)` returns the (pan, tilt) in radians (+ tilt is down) that put a base_link
+point on the optical axis of `camera_frame` (default `d435_color_optical_frame`), solved numerically on the given chain (the camera is off the pan and tilt
 axes), clamped to the chain's `head_pan` and `head_tilt` limits (the tilt range of the head URDF is -30..+45 deg). The
 node's sequence uses it with the applied head chain and the board centre from arm FK to aim the head at the board.
 

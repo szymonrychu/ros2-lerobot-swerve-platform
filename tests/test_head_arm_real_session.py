@@ -30,6 +30,9 @@ FLOOR_PAN_AXIS_TOLERANCE_M = 0.0005
 PRIOR_RMS_PX = 2.93
 FLOOR_DISAGREEMENT = ["floor_delta:mount_roll_deg", "floor_delta:mount_pitch_deg", "floor_delta:tilt_zero_deg"]
 URDF_DIR = REPO_ROOT / "nodes" / "web_ui" / "urdf"
+# The session was recorded with the retired head RGB camera and the floor sweep with the retired ToF.
+SESSION_CAMERA_FRAME = "head_camera_optical_frame"
+SESSION_DEPTH_FRAME = "tof_optical_frame"
 FOLDS = 5
 # The live result r-20261023-075643 (fixed pan axis): rms 12.2 px, held-out 9.4 px.
 LIVE_RMS_PX = 12.2
@@ -103,6 +106,7 @@ def run_fit(doc: dict, views: list[ArmBoardView], cfg: HeadArmFitConfig) -> Head
         (URDF_DIR / "so101_arm.urdf").read_text(),
         cfg,
         doc["floor"],
+        camera_frame=SESSION_CAMERA_FRAME,
     )
 
 
@@ -171,8 +175,8 @@ def test_floor_values_do_not_depend_on_pan_axis(pan_axis_fit: HeadArmFit, sessio
     moved = rewrite_joint_origin(base, "head_pan", pan_axis_fit.origins["head_pan"], "pan axis")
     moved = rewrite_joint_origin(moved, "head_tilt", tilt, "pan axis")
     cfg = FloorFitConfig()
-    fixed = fit_head_chain_floor(observations, base, cfg)
-    free = fit_head_chain_floor(observations, moved, cfg)
+    fixed = fit_head_chain_floor(observations, base, cfg, sensor_frame=SESSION_DEPTH_FRAME)
+    free = fit_head_chain_floor(observations, moved, cfg, sensor_frame=SESSION_DEPTH_FRAME)
     assert fixed.passed and free.passed
     for name in FLOOR_PARAMS:
         tolerance = FLOOR_PAN_AXIS_TOLERANCE_M if name.endswith("_m") else FLOOR_PAN_AXIS_TOLERANCE_DEG

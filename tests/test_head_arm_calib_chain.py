@@ -12,8 +12,8 @@ from ros2_common.head_rgbd_calibration.chain import (
 )
 
 URDF_DIR = Path(__file__).resolve().parents[1] / "nodes" / "web_ui" / "urdf"
-OPTICAL_RPY = (-1.5708, 0.0, -1.5708)
-CAMERA = "head_camera_optical_frame"
+OPTICAL_RPY = (-1.5707963, 0.0, -1.5707963)
+CAMERA = "d435_color_optical_frame"
 ZERO_HEAD = {"head_pan": 0.0, "head_tilt": 0.0}
 DEFAULT_GAUGE = {"x": 0.0592, "y": -0.05, "z": 0.100, "yaw": 0.0}
 
@@ -32,11 +32,12 @@ def translate(x: float, y: float, z: float) -> np.ndarray:
     return pose_from_xyz_rpy((x, y, z), (0.0, 0.0, 0.0))
 
 
-def test_head_camera_pose_at_zero_matches_urdf_origins(head: UrdfChain) -> None:
+def test_d435_colour_pose_at_zero_matches_urdf_origins(head: UrdfChain) -> None:
     expected = (
         translate(0.15, 0.10, 0.31)
         @ translate(0, 0, 0.04)
-        @ translate(0.02, -0.025, 0)
+        @ translate(0.02, 0, 0)
+        @ translate(0, -0.015, 0)
         @ pose_from_xyz_rpy((0, 0, 0), OPTICAL_RPY)
     )
     np.testing.assert_allclose(head.transform(CAMERA, ZERO_HEAD), expected, atol=1e-12)
@@ -44,8 +45,9 @@ def test_head_camera_pose_at_zero_matches_urdf_origins(head: UrdfChain) -> None:
         "head_mount_joint",
         "head_pan",
         "head_tilt",
-        "head_camera_joint",
-        "head_camera_optical_joint",
+        "d435_joint",
+        "d435_color_joint",
+        "d435_color_optical_joint",
     ]
 
 

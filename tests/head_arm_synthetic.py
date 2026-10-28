@@ -1,4 +1,5 @@
-"""Synthetic head-from-arm scenes: the gripper board seen by the head camera through a known (truth) head chain.
+"""Synthetic head-from-arm scenes: the gripper board seen by the D435 colour camera (`CAMERA_FRAME`, head.urdf)
+through a known (truth) head chain.
 
 The arm is exact (the measured joints plus `cfg.joint_offsets_rad` through the arm URDF and `cfg.base_in_base_link`),
 the head is aimed at the true board centre with `aim_head` on the truth chain plus each head offset, and the ChArUco
@@ -16,7 +17,6 @@ from ros2_common.head_rgbd_calibration.chain import UrdfChain, arm_in_robot_base
 from ros2_common.head_rgbd_calibration.charuco import MIN_CORNERS, Detection, board_corners_3d
 from ros2_common.head_rgbd_calibration.config import BoardMountConfig, HeadArmFitConfig
 from ros2_common.head_rgbd_calibration.head_arm_fit import (
-    CAMERA_FRAME,
     GRIPPER_LINK,
     MOUNT_JOINT,
     PAN_JOINT,
@@ -28,6 +28,7 @@ from ros2_common.head_rgbd_calibration.urdf_text import Origin, rewrite_joint_or
 from ros2_common.head_rgbd_calibration.views import ArmBoardView
 
 URDF_DIR = Path(__file__).resolve().parents[1] / "nodes" / "web_ui" / "urdf"
+CAMERA_FRAME = "d435_color_optical_frame"
 APPLIED_NOTE = "floor fit 2026-10-22"
 # The applied floor-fit chain of 2026-10-22 (floor_fit.PARAM_NAMES, m and deg): the start chain of every scene.
 APPLIED_FLOOR = {
@@ -61,7 +62,7 @@ TOOL_AXIS = (0.0, 0.0, -1.0)  # tool direction in gripper_link (gripper_frame_jo
 BOARD_OUTER_HEIGHT_M = 0.21
 BOARD_EDGE_ABOVE_AXIS_M = 0.015
 MIN_FACING_COS = 0.2
-# Board centre about 0.37 m in front of the head camera, lifted to about the camera height, clear of the body.
+# Board centre about 0.37 m in front of the D435 colour camera, lifted to about the camera height, clear of the body.
 BASE_ARM_POSE = {
     "shoulder_pan": 0.0,
     "shoulder_lift": 0.5,
@@ -405,7 +406,7 @@ def arm_board_scene(
     for pose_index, joints in enumerate(arm_poses):
         board_in_base = base @ arm.transform(GRIPPER_LINK, joints, offsets=cfg.joint_offsets_rad) @ truth.board_pose()
         centre = (board_in_base @ np.append(board_centre(cfg.board), 1.0))[:3]
-        pan0, tilt0 = aim_head(truth_head, centre)
+        pan0, tilt0 = aim_head(truth_head, centre, CAMERA_FRAME)
         for k, (dpan, dtilt) in enumerate(head_offsets_deg):
             pan = float(np.clip(pan0 + math.radians(dpan), *pan_limits))
             tilt = float(np.clip(tilt0 + math.radians(dtilt), *tilt_limits))

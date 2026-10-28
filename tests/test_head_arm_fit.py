@@ -14,7 +14,6 @@ import pytest
 from ros2_common.head_rgbd_calibration.chain import UrdfChain, arm_in_robot_base, pose_from_xyz_rpy
 from ros2_common.head_rgbd_calibration.config import HeadArmFitConfig
 from ros2_common.head_rgbd_calibration.head_arm_fit import (
-    CAMERA_FRAME,
     PAN_AXIS_PARAMS,
     PARAM_NAMES,
     HeadArmFit,
@@ -31,6 +30,7 @@ from ros2_common.head_rgbd_calibration.urdf_text import Origin
 
 from tests.head_arm_synthetic import (
     APPLIED_FLOOR,
+    CAMERA_FRAME,
     DEFAULT_HEAD_OFFSETS_DEG,
     SYNTH_ARM_POSES,
     SYNTH_CAMERA_MATRIX,
@@ -59,6 +59,8 @@ FLOOR_OFFSET_DEG = 2.0
 PAN_AXIS_SHIFT_M = (-0.030, -0.010)
 FIXED_PAN_MISFIT_PX = 2.0
 ALL_NAMES = (*PARAM_NAMES, *PAN_AXIS_PARAMS)
+D435_FRAMES = ("d435_color_optical_frame", "d435_depth_optical_frame")
+CHECK_HEAD_ANGLES = ((0.0, 0.0), (0.4, 0.2), (-0.4, -0.2))
 
 
 def truth(
@@ -118,6 +120,35 @@ def test_recovers_perturbed_head_chain_with_noise(noisy_fit: HeadArmFit) -> None
     assert noisy_fit.holdout_board_mm < 2.0
     assert noisy_fit.failed_limits == []
     assert noisy_fit.passed
+
+
+def test_recovers_the_d435_mount_from_board_views(pan_axis_views: list) -> None:
+    """Board views in the D435 colour camera: the fitted chain puts the D435 colour and depth frames where the truth
+    chain does at every head angle; d435_joint itself keeps the head URDF value (D32)."""
+    result = fit_head_from_arm(
+        pan_axis_views,
+        SYNTH_CAMERA_MATRIX,
+        SYNTH_DIST,
+        HEAD_URDF,
+        ARM_URDF,
+        synth_fit_config(),
+        APPLIED_FLOOR,
+        camera_frame=CAMERA_FRAME,
+    )
+    assert result.passed, result.failed_limits
+    assert "d435_joint" not in result.origins
+    chain = UrdfChain.from_text(HEAD_URDF)
+    fitted = {name: (o.xyz, o.rpy) for name, o in result.origins.items()}
+    real = {name: (o.xyz, o.rpy) for name, o in truth(SYNTH_TRUTH_DELTAS, pan_axis_m=PAN_AXIS_SHIFT_M).origins.items()}
+    for pan, tilt in CHECK_HEAD_ANGLES:
+        angles = {"head_pan": pan, "head_tilt": tilt}
+        for frame in D435_FRAMES:
+            got, want = chain.transform(frame, angles, fitted), chain.transform(frame, angles, real)
+            assert np.linalg.norm(got[:3, 3] - want[:3, 3]) * 1000.0 < TOLERANCE_MM, (frame, pan, tilt)
+            turn = math.degrees(np.linalg.norm(cv2.Rodrigues(got[:3, :3].T @ want[:3, :3])[0]))
+            assert turn < TOLERANCE_DEG, (frame, pan, tilt)
+    # The D435 colour frame is the default camera frame.
+    assert fit(pan_axis_views).params == result.params
 
 
 def test_fit_reports_coverage_and_holdout(noisy_fit: HeadArmFit, noisy_views: list) -> None:
@@ -220,8 +251,8 @@ def test_fixed_components_stay_at_urdf(noisy_fit: HeadArmFit) -> None:
     for joint in model:
         assert model[joint].xyz == pytest.approx(noisy_fit.origins[joint].xyz, abs=1e-12), joint
         assert model[joint].rpy == pytest.approx(noisy_fit.origins[joint].rpy, abs=1e-12), joint
-    # head_camera_joint and the optical joint are not overridden: the model uses the URDF for them.
-    assert "head_camera_joint" not in model
+    # d435_joint and the D435 optical joints are not overridden: the model uses the URDF for them.
+    assert "d435_joint" not in model
 
 
 def test_fixed_pan_axis_keeps_mount_and_tilt_only() -> None:

@@ -24,7 +24,7 @@ URDF forward-kinematics chain (`shared/ros2_common/head_rgbd_calibration/chain.p
 
 | Test | Description |
 |------|-------------|
-| `test_head_camera_pose_at_zero_matches_urdf_origins` | Camera optical frame at pan = tilt = 0 equals the hand-computed product of the URDF origins; `joint_names` lists root to link. |
+| `test_d435_colour_pose_at_zero_matches_urdf_origins` | `d435_color_optical_frame` at pan = tilt = 0 equals the hand-computed product of the URDF origins (mount, tilt, d435_joint, d435_color_joint, optical); `joint_names` lists root to link. |
 | `test_pan_left_and_tilt_down_signs` | Pan +0.5 turns the camera CCW about +z; tilt + gives the optical z axis a negative z component. |
 | `test_origin_override_and_offsets` | An origin override moves only that joint's translation; offsets add to the measured angle. |
 | `test_offsets_add_to_measured` | Angle = measured + offset. |
@@ -40,11 +40,12 @@ URDF forward-kinematics chain (`shared/ros2_common/head_rgbd_calibration/chain.p
 
 Head-from-arm fit (`shared/ros2_common/head_rgbd_calibration/head_arm_fit.py`, design D31-D35) on synthetic scenes from
 `tests/head_arm_synthetic.py`: the applied floor-fit chain of 2026-10-22 moved by known amounts, 24 arm poses, four
-head offsets, 0.3 px noise.
+head offsets, 0.3 px noise, the board seen in the D435 colour camera (`d435_color_optical_frame`).
 
 | Test | Description |
 |------|-------------|
 | `test_recovers_perturbed_head_chain_with_noise` | Every fitted parameter (pan axis included) within 1.5 mm / 0.15 deg and 3 sigma of the truth; rms, held-out and board errors small; passes. |
+| `test_recovers_the_d435_mount_from_board_views` | Views in the D435 colour camera (pan axis moved): the fit (explicit `camera_frame` and the default alike) passes and puts `d435_color_optical_frame` and `d435_depth_optical_frame` within 1.5 mm / 0.15 deg of the truth at three head angles; d435_joint is not overridden. |
 | `test_fit_reports_coverage_and_holdout` | Hold-out of every fifth arm pose, view counts, spans, floor deltas, the largest correlation below `max_correlation`, JSON origins (mount, pan, tilt) and `offset_rms_px` per head offset. |
 | `test_noiseless_recovery_exact` | Without noise every parameter and the board mount are exact. |
 | `test_pan_zero_folds_into_mount_yaw` | A 1 deg head_pan yaw lands in `mount_yaw_deg` (D33). |
@@ -52,7 +53,7 @@ head offsets, 0.3 px noise.
 | `test_floor_cross_check_limits` | A floor value 2 deg off fails its `floor_delta`; no floor fails `floor_cross_check`. |
 | `test_floor_prior_weight_pulls` | A floor prior pulls the tilt zero toward the floor value. |
 | `test_noisy_views_fail_a_sigma_limit` | 3 px noise fails a sigma limit. |
-| `test_fixed_components_stay_at_urdf` | The head_pan origin carries the pan axis x, y (z and rpy kept), head_tilt xyz moves back by the same shift, `head_origins` reproduces the fitted origins, head_camera_joint is not overridden. |
+| `test_fixed_components_stay_at_urdf` | The head_pan origin carries the pan axis x, y (z and rpy kept), head_tilt xyz moves back by the same shift, `head_origins` reproduces the fitted origins, d435_joint is not overridden. |
 | `test_fixed_pan_axis_keeps_mount_and_tilt_only` | `fit_pan_axis: false` fits the eight mount/tilt parameters and writes head_mount_joint and head_tilt only. |
 | `test_pan_axis_parameters_move_the_axis_not_the_head` | The pan axis parameters leave the camera pose at pan 0 unchanged and make the head turn about the moved axis. |
 | `test_pan_axis_fit_recovers_moved_pan_axis` | A pan axis 30 mm behind and 10 mm right of the URDF value is recovered (with the rest of the chain), every head offset fits below 0.5 px, the result passes. |
@@ -71,7 +72,9 @@ head offsets, 0.3 px noise.
 The head-from-arm fit on the real session calib-20261023-074418 (`tests/fixtures/head_arm/calib-20261023-074418.json`:
 corner detections and measured joints of the 113 views, the applied intrinsics, head_chain.json, floor values and board
 mount start) and the floor sweep floor-20261022-064337 (`tests/fixtures/head_arm/floor-20261022-064337.json`: its
-per-cloud floor planes and the applied tof_joint). Pins the diagnosis and the evidence behind the `fit.limits` values.
+per-cloud floor planes and the applied tof_joint). The session was recorded with the retired head RGB camera and ToF, so
+the fits run with `camera_frame=head_camera_optical_frame` and `sensor_frame=tof_optical_frame`. Pins the diagnosis and
+the evidence behind the `fit.limits` values.
 
 | Test | Description |
 |------|-------------|
@@ -123,6 +126,7 @@ Floor-plane head chain fit (`shared/ros2_common/head_rgbd_calibration/floor_fit.
 | `test_fit_plane_defaults_fit_a_noisy_tof_cloud` | 700 points, 600 on a floor with 2 cm Gaussian noise plus outliers: the default `FloorPlaneConfig` fits and recovers the height within 1 cm; the old 1.5 cm / 300 settings give None. |
 | `test_fit_plane_recovers_plane_and_refuses_sparse_cloud` | Three poses, 5 mm noise, 20 % wall outliers: height within 2 mm, normal within 0.1 deg, inlier RMS about the noise; 100 floor points (also padded with NaN), points beyond `max_range_m`, and a cloud whose inlier ratio is below `min_inlier_ratio` give None. |
 | `test_fit_recovers_perturbed_chain` | Pan -60..60 step 30 x tilt 12/20/28 deg, 5 clouds per pose, 5 mm noise: each parameter within 2 mm or 0.15 deg, `passed`, fixed components (mount x, y, yaw, tilt xyz, yaw) exactly the URDF values, the fitted tilt roll within 0.15 deg of the URDF 0, per-pose pose-mean and per-observation residuals, strict-JSON `to_json`. |
+| `test_recovers_the_chain_from_d435_depth_planes` | Planes fitted in `d435_depth_optical_frame` (explicit `sensor_frame`): every parameter within 2 mm or 0.15 deg, `passed`; the default sensor frame gives the same fit; raising d435_joint 50 mm raises the predicted sensor height by 50 mm. |
 | `test_tilt_roll_is_recovered` | A truth chain with a +1.2 deg head_tilt roll, synthetic clouds: `tilt_roll_deg` recovered within 3 sigma (sigma under `max_sigma_deg`), written into the `head_tilt` origin roll with the tilt zero as pitch, the mount roll and tilt zero still recovered; a `max_sigma_deg` under the tilt roll sigma refuses the result. |
 | `test_limits_use_pose_mean_residuals` | Per-cloud normals 1.2 deg off in symmetric directions and heights scattered 15 mm RMS with zero pose mean: the per-observation RMS exceeds both limits and is reported, the pose-mean RMS is near 0 and the fit passes; pose means 1.5 deg off (random axis per pose) fail `max_normal_rms_deg`, pose means +-24 mm off fail `max_height_rms_mm`. |
 | `test_floor_sweep_defaults` | The node `FloorSweepConfig` (loaded from `nodes/head_rgbd_calibration/head_rgbd_calibration/config.py`) and the shipped node YAML: `clouds_per_pose` 10, `min_clouds_per_pose` 5; the minimum defaults to half of `clouds_per_pose` rounded up (3 for 5, 1 for 1, also for null), an explicit value is kept, 0 or more than `clouds_per_pose` is rejected. |
@@ -131,7 +135,7 @@ Floor-plane head chain fit (`shared/ros2_common/head_rgbd_calibration/floor_fit.
 
 ### `head_floor_synthetic.py`
 
-Shared helper module (no tests) for `test_head_floor_fit.py`: `synthetic_clouds(urdf_text, truth_origins, grid, noise_m, outlier_ratio, rng, clouds_per_pose, rays)` returns `SyntheticCloud(pose, pan_rad, tilt_rad, points)`: floor points (base_link z = 0) inside the ToF field of view (60 x 45 deg, 0.3-1.8 m) seen through the truth chain, plus points of a vertical wall 1.2 m ahead as outliers, with Gaussian noise, in `tof_optical_frame`.
+Shared helper module (no tests) for `test_head_floor_fit.py`: `synthetic_clouds(urdf_text, truth_origins, grid, noise_m, outlier_ratio, rng, clouds_per_pose, rays)` returns `SyntheticCloud(pose, pan_rad, tilt_rad, points)`: floor points (base_link z = 0) inside the D435 depth field of view (87 x 58 deg, 0.3-1.8 m) seen through the truth chain, plus points of a vertical wall 1.2 m ahead as outliers, with Gaussian noise, in `d435_depth_optical_frame` (`SENSOR_FRAME`).
 
 ### `test_master2master_config.py`
 

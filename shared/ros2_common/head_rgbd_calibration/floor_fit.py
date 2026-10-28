@@ -1,8 +1,9 @@
-"""Floor-plane head chain fit: the ToF floor plane over a pan/tilt sweep gives the head mount z, roll, pitch and the
-head_tilt origin pitch (tilt zero) and roll (design D2-D4).
+"""Floor-plane head chain fit: the floor plane of the head depth sensor over a pan/tilt sweep gives the head mount z,
+roll, pitch and the head_tilt origin pitch (tilt zero) and roll (design D2-D4).
 
-Frames: the floor is base_link z = 0 and the robot stands level on it; planes are expressed in `tof_optical_frame`
-(z forward, x right, y down) with the unit normal pointing from the floor toward the sensor, so a plane is
+Frames: the floor is base_link z = 0 and the robot stands level on it; planes are expressed in the depth sensor's
+optical frame `sensor_frame` of the head URDF (default `d435_depth_optical_frame`, the frame of /head/d435/points; z
+forward, x right, y down) with the unit normal pointing from the floor toward the sensor, so a plane is
 `normal . p = -height_m` with `height_m` the sensor origin's distance above it. numpy and scipy only, no ROS.
 """
 
@@ -17,7 +18,7 @@ from ros2_common.head_rgbd_calibration.chain import UrdfChain, XyzRpy
 from ros2_common.head_rgbd_calibration.config import FloorFitConfig, FloorPlaneConfig
 from ros2_common.head_rgbd_calibration.urdf_text import Origin
 
-TOF_FRAME = "tof_optical_frame"
+D435_DEPTH_FRAME = "d435_depth_optical_frame"
 PAN_JOINT = "head_pan"
 TILT_JOINT = "head_tilt"
 MOUNT_JOINT = "head_mount_joint"
@@ -33,7 +34,7 @@ INT_POSE_KEYS = ("pose", "observations")
 
 @dataclass(frozen=True)
 class PlaneFit:
-    """A floor plane in tof_optical_frame.
+    """A floor plane in the depth sensor frame.
 
     Attributes:
         normal: Unit normal (3,) pointing from the floor toward the sensor.
@@ -147,20 +148,22 @@ def predicted_floor(
     pan_rad: float,
     tilt_rad: float,
     origins: Mapping[str, Origin | XyzRpy] | None,
+    sensor_frame: str = D435_DEPTH_FRAME,
 ) -> tuple[np.ndarray, float]:
-    """The floor (base_link z = 0) as the chain predicts it in tof_optical_frame.
+    """The floor (base_link z = 0) as the chain predicts it in the depth sensor frame.
 
     Args:
         chain: Head URDF chain rooted at base_link.
         pan_rad: Measured head_pan angle (rad).
         tilt_rad: Measured head_tilt angle (rad), + is down.
         origins: Per-joint origin replacement (`Origin` or (xyz, rpy)); None keeps the URDF.
+        sensor_frame: Optical frame of the depth sensor in the head URDF.
 
     Returns:
         tuple[np.ndarray, float]: Unit floor normal toward the sensor (3,) and the sensor height above the floor (m).
     """
     overrides = {name: as_xyz_rpy(o) for name, o in (origins or {}).items()}
-    pose = chain.transform(TOF_FRAME, {PAN_JOINT: pan_rad, TILT_JOINT: tilt_rad}, overrides)
+    pose = chain.transform(sensor_frame, {PAN_JOINT: pan_rad, TILT_JOINT: tilt_rad}, overrides)
     return pose[:3, :3].T @ FLOOR_UP, float(pose[2, 3])
 
 
@@ -187,10 +190,10 @@ def fit_plane(
     cfg: FloorPlaneConfig,
     rng: np.random.Generator,
 ) -> PlaneFit | None:
-    """Floor plane of one ToF cloud: gate around the prior, RANSAC over 3-point samples, SVD refit of the inliers.
+    """Floor plane of one depth cloud: gate around the prior, RANSAC over 3-point samples, SVD refit of the inliers.
 
     Args:
-        points: (N, 3) points in tof_optical_frame; non-finite rows are dropped.
+        points: (N, 3) points in the depth sensor frame; non-finite rows are dropped.
         prior: (normal, height) of the plane the current chain predicts (`predicted_floor`).
         cfg: Plane fit settings.
         rng: Random generator for the RANSAC samples.
@@ -270,7 +273,10 @@ def chain_origins(chain: UrdfChain, x: np.ndarray) -> dict[str, Origin]:
 
 
 def observation_errors(
-    chain: UrdfChain, observations: list[FloorObservation], origins: dict[str, Origin]
+    chain: UrdfChain,
+    observations: list[FloorObservation],
+    origins: dict[str, Origin],
+    sensor_frame: str = D435_DEPTH_FRAME,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Per observation: normal error (n_obs - n_pred), height error (m) and normal angle error (deg).
 
@@ -278,6 +284,7 @@ def observation_errors(
         chain: Head URDF chain.
         observations: Floor observations.
         origins: Origins to predict with.
+        sensor_frame: Optical frame of the depth sensor the planes are in.
 
     Returns:
         tuple: (M, 3) normal differences, (M,) height differences h_obs - h_pred, (M,) angles in degrees.
@@ -286,7 +293,7 @@ def observation_errors(
     dh = np.zeros(len(observations))
     angle = np.zeros(len(observations))
     for i, obs in enumerate(observations):
-        n_pred, h_pred = predicted_floor(chain, obs.pan_rad, obs.tilt_rad, origins)
+        n_pred, h_pred = predicted_floor(chain, obs.pan_rad, obs.tilt_rad, origins, sensor_frame)
         n_obs = obs.plane.normal / np.linalg.norm(obs.plane.normal)
         dn[i] = n_obs - n_pred
         dh[i] = obs.plane.height_m - h_pred
@@ -295,11 +302,17 @@ def observation_errors(
 
 
 def pose_mean_errors(
-    chain: UrdfChain, observations: list[FloorObservation], origins: dict[str, Origin], idx: list[int], dh: np.ndarray
+    chain: UrdfChain,
+    observations: list[FloorObservation],
+    origins: dict[str, Origin],
+    idx: list[int],
+    dh: np.ndarray,
+    sensor_frame: str = D435_DEPTH_FRAME,
 ) -> tuple[float, float]:
     """Pose-mean residuals of one pose: the mean height error and the angle between the mean normals.
 
-    Averaging a pose's observations removes the per-cloud plane scatter (structured ToF noise) that no chain explains.
+    Averaging a pose's observations removes the per-cloud plane scatter (structured depth noise) that no chain
+    explains.
 
     Args:
         chain: Head URDF chain.
@@ -307,6 +320,7 @@ def pose_mean_errors(
         origins: Origins to predict with.
         idx: Indices of the pose's observations (at least one).
         dh: (M,) height errors h_obs - h_pred of every observation (m).
+        sensor_frame: Optical frame of the depth sensor the planes are in.
 
     Returns:
         tuple[float, float]: Mean height error (m) and the angle (deg) between the normalised mean observed and mean
@@ -314,7 +328,11 @@ def pose_mean_errors(
     """
     n_obs = np.mean([observations[i].plane.normal / np.linalg.norm(observations[i].plane.normal) for i in idx], axis=0)
     n_pred = np.mean(
-        [predicted_floor(chain, observations[i].pan_rad, observations[i].tilt_rad, origins)[0] for i in idx], axis=0
+        [
+            predicted_floor(chain, observations[i].pan_rad, observations[i].tilt_rad, origins, sensor_frame)[0]
+            for i in idx
+        ],
+        axis=0,
     )
     cos = float(n_obs @ n_pred) / float(np.linalg.norm(n_obs) * np.linalg.norm(n_pred))
     return float(np.mean(dh[idx])), math.degrees(math.acos(float(np.clip(cos, -1.0, 1.0))))
@@ -325,20 +343,27 @@ def rms(values: np.ndarray | list[float]) -> float:
     return float(np.sqrt(np.mean(np.square(values)))) if len(values) else math.nan
 
 
-def fit_head_chain_floor(observations: list[FloorObservation], urdf_text: str, cfg: FloorFitConfig) -> FloorFitResult:
+def fit_head_chain_floor(
+    observations: list[FloorObservation],
+    urdf_text: str,
+    cfg: FloorFitConfig,
+    sensor_frame: str = D435_DEPTH_FRAME,
+) -> FloorFitResult:
     """Fit the head mount z, roll, pitch and the head_tilt origin pitch (tilt zero) and roll (design D3, D4).
 
     Every other origin component of every joint stays at its value in `urdf_text` (the repo URDF with the applied
-    overrides); the RGB-ToF extrinsic stays rigid. Residuals per observation are the two tangent components of
-    `n_obs - n_pred` over `sigma_normal_deg` and the height error over `sigma_height_mm`, minimised with a Huber loss
-    from the URDF values; sigma per parameter is `sqrt(diag((J^T J)^-1 * s^2))` with `s^2 = 2 * cost / (m - n)`.
-    The height and normal RMS limits apply to the pose-mean residuals (`pose_mean_errors`); the per-observation RMS
-    is reported next to them. With fewer than `min_observations` the solver is not called.
+    overrides), the depth sensor mount (d435_joint) and its optical joints included. Residuals per observation are
+    the two tangent components of `n_obs - n_pred` over `sigma_normal_deg` and the height error over
+    `sigma_height_mm`, minimised with a Huber loss from the URDF values; sigma per parameter is
+    `sqrt(diag((J^T J)^-1 * s^2))` with `s^2 = 2 * cost / (m - n)`. The height and normal RMS limits apply to the
+    pose-mean residuals (`pose_mean_errors`); the per-observation RMS is reported next to them. With fewer than
+    `min_observations` the solver is not called.
 
     Args:
-        observations: Floor observations of the sweep.
+        observations: Floor observations of the sweep, planes in `sensor_frame`.
         urdf_text: Head URDF text (base_link root) with the applied overrides.
         cfg: Fit settings and limits.
+        sensor_frame: Optical frame of the depth sensor in the head URDF (default the D435 depth frame).
 
     Returns:
         FloorFitResult: Fitted values, sigma, residuals and every failed limit.
@@ -366,7 +391,7 @@ def fit_head_chain_floor(observations: list[FloorObservation], urdf_text: str, c
         bases = [tangent_basis(o.plane.normal / np.linalg.norm(o.plane.normal)) for o in observations]
 
         def residuals(params: np.ndarray) -> np.ndarray:
-            dn, dh, _ = observation_errors(chain, observations, chain_origins(chain, params))
+            dn, dh, _ = observation_errors(chain, observations, chain_origins(chain, params), sensor_frame)
             tangent = np.einsum("mij,mj->mi", np.asarray(bases), dn) / sigma_n
             return np.column_stack([tangent, dh * MM_PER_M / cfg.sigma_height_mm]).ravel()
 
@@ -381,11 +406,11 @@ def fit_head_chain_floor(observations: list[FloorObservation], urdf_text: str, c
                 sigma = np.full(len(x0), math.inf)
 
     origins = chain_origins(chain, x)
-    _, dh, angle = observation_errors(chain, observations, origins)
+    _, dh, angle = observation_errors(chain, observations, origins, sensor_frame)
     poses = []
     for pose in sorted({o.pose for o in observations}):
         idx = [i for i, o in enumerate(observations) if o.pose == pose]
-        mean_dh, mean_angle = pose_mean_errors(chain, observations, origins, idx, dh)
+        mean_dh, mean_angle = pose_mean_errors(chain, observations, origins, idx, dh, sensor_frame)
         poses.append(
             {
                 "pose": pose,

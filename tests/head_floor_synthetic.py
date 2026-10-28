@@ -1,8 +1,8 @@
-"""Synthetic ToF floor clouds seen through a known head chain, for the floor-plane head chain fit tests.
+"""Synthetic D435 depth floor clouds seen through a known head chain, for the floor-plane head chain fit tests.
 
-Floor points (base_link z = 0) inside the ToF field of view, plus points of a vertical wall in front of the head as
-outliers, are expressed in `tof_optical_frame` of a perturbed (truth) chain while the reported pan/tilt are the
-commanded grid angles, so a fit started from the URDF has to recover the perturbation.
+Floor points (base_link z = 0) inside the D435 depth field of view, plus points of a vertical wall in front of the head
+as outliers, are expressed in `d435_depth_optical_frame` of a perturbed (truth) chain while the reported pan/tilt are
+the commanded grid angles, so a fit started from the URDF has to recover the perturbation.
 """
 
 from dataclasses import dataclass
@@ -11,9 +11,10 @@ import numpy as np
 from ros2_common.head_rgbd_calibration.chain import UrdfChain
 from ros2_common.head_rgbd_calibration.urdf_text import Origin
 
-TOF_FRAME = "tof_optical_frame"
-FOV_H_DEG = 60.0
-FOV_V_DEG = 45.0
+SENSOR_FRAME = "d435_depth_optical_frame"
+# D435 depth field of view at 16:9 (datasheet Table 3-49, docs/research/2026-10-27-d435-docs.md 4.3).
+FOV_H_DEG = 87.0
+FOV_V_DEG = 58.0
 MIN_RANGE_M = 0.3
 MAX_RANGE_M = 1.8
 RAYS = (60, 45)
@@ -24,7 +25,7 @@ WALL_SAMPLE_BATCH = 4000
 
 @dataclass(frozen=True)
 class SyntheticCloud:
-    """One ToF cloud: the pose index, the reported head angles (rad) and the (N, 3) points in tof_optical_frame."""
+    """One depth cloud: the pose index, the reported head angles (rad) and the (N, 3) points in SENSOR_FRAME."""
 
     pose: int
     pan_rad: float
@@ -33,7 +34,7 @@ class SyntheticCloud:
 
 
 def ray_grid(rays: tuple[int, int] = RAYS) -> np.ndarray:
-    """Unit ray directions of a regular grid over the ToF field of view (optical: x right, y down, z forward).
+    """Unit ray directions of a regular grid over the depth field of view (optical: x right, y down, z forward).
 
     Args:
         rays: (columns, rows) of the grid.
@@ -49,14 +50,14 @@ def ray_grid(rays: tuple[int, int] = RAYS) -> np.ndarray:
 
 
 def random_rays(count: int, rng: np.random.Generator) -> np.ndarray:
-    """Uniformly random unit ray directions inside the ToF field of view.
+    """Uniformly random unit ray directions inside the depth field of view.
 
     Args:
         count: Number of rays.
         rng: Random generator.
 
     Returns:
-        np.ndarray: (count, 3) unit vectors in tof_optical_frame.
+        np.ndarray: (count, 3) unit vectors in the depth optical frame.
     """
     ax = np.radians(rng.uniform(-FOV_H_DEG / 2, FOV_H_DEG / 2, count))
     ay = np.radians(rng.uniform(-FOV_V_DEG / 2, FOV_V_DEG / 2, count))
@@ -65,7 +66,7 @@ def random_rays(count: int, rng: np.random.Generator) -> np.ndarray:
 
 
 def sensor_pose(chain: UrdfChain, pan_rad: float, tilt_rad: float, origins: dict[str, Origin]) -> np.ndarray:
-    """Pose of tof_optical_frame in base_link for the given head angles and origin overrides.
+    """Pose of SENSOR_FRAME in base_link for the given head angles and origin overrides.
 
     Args:
         chain: Parsed head URDF.
@@ -77,18 +78,18 @@ def sensor_pose(chain: UrdfChain, pan_rad: float, tilt_rad: float, origins: dict
         np.ndarray: 4x4 pose.
     """
     overrides = {name: (o.xyz, o.rpy) for name, o in origins.items()}
-    return chain.transform(TOF_FRAME, {"head_pan": pan_rad, "head_tilt": tilt_rad}, overrides)
+    return chain.transform(SENSOR_FRAME, {"head_pan": pan_rad, "head_tilt": tilt_rad}, overrides)
 
 
 def floor_points(pose: np.ndarray, dirs: np.ndarray) -> np.ndarray:
-    """Intersections of the rays with the floor (base_link z = 0) within the ToF range.
+    """Intersections of the rays with the floor (base_link z = 0) within the depth range.
 
     Args:
-        pose: 4x4 pose of tof_optical_frame in base_link.
-        dirs: (N, 3) unit ray directions in tof_optical_frame.
+        pose: 4x4 pose of the depth optical frame in base_link.
+        dirs: (N, 3) unit ray directions in the depth optical frame.
 
     Returns:
-        np.ndarray: (M, 3) floor points in tof_optical_frame.
+        np.ndarray: (M, 3) floor points in the depth optical frame.
     """
     down = dirs @ pose[:3, :3].T[:, 2]
     with np.errstate(divide="ignore", invalid="ignore"):
@@ -101,12 +102,12 @@ def wall_points(pose: np.ndarray, count: int, rng: np.random.Generator) -> np.nd
     """Points of a vertical wall WALL_DISTANCE_M ahead of the sensor (along its horizontal heading), above the floor.
 
     Args:
-        pose: 4x4 pose of tof_optical_frame in base_link.
+        pose: 4x4 pose of the depth optical frame in base_link.
         count: Number of points wanted.
         rng: Random generator.
 
     Returns:
-        np.ndarray: (count, 3) wall points in tof_optical_frame.
+        np.ndarray: (count, 3) wall points in the depth optical frame.
 
     Raises:
         ValueError: The wall is not in view often enough to give `count` points.
@@ -145,7 +146,7 @@ def synthetic_clouds(
     clouds_per_pose: int = 1,
     rays: tuple[int, int] = RAYS,
 ) -> list[SyntheticCloud]:
-    """ToF clouds of a flat floor (and a wall) seen through the truth chain at each grid pose.
+    """Depth clouds of a flat floor (and a wall) seen through the truth chain at each grid pose.
 
     Args:
         urdf_text: Head URDF text (base_link root).

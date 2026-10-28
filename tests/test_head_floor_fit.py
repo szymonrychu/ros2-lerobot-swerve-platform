@@ -23,7 +23,7 @@ from ros2_common.head_rgbd_calibration.floor_fit import (
 from ros2_common.head_rgbd_calibration.urdf_text import Origin
 from scipy.spatial.transform import Rotation
 
-from tests.head_floor_synthetic import synthetic_clouds
+from tests.head_floor_synthetic import SENSOR_FRAME, synthetic_clouds
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 URDF_PATH = REPO_ROOT / "nodes" / "web_ui" / "urdf" / "head.urdf"
@@ -33,6 +33,8 @@ NODE_CONFIG_YAML = NODE_DIR / "config" / "head_rgbd_calibration.yaml"
 NODE_CONFIG_MODULE = "head_rgbd_calibration_node_config"
 MOUNT = "head_mount_joint"
 TILT = "head_tilt"
+D435_JOINT = "d435_joint"
+D435_RAISE_M = 0.05
 TRUTH_DZ_M = 0.03
 TRUTH_ROLL_DEG = 1.5
 TRUTH_PITCH_DEG = -3.0
@@ -253,6 +255,37 @@ def test_fit_recovers_perturbed_chain(urdf_text: str, chain: UrdfChain, truth: d
     assert data["origins"][MOUNT]["xyz"] == list(mount.xyz)
     assert data["origins"][TILT]["rpy"] == list(tilt.rpy)
     assert set(data) >= {"passed", "failed_limits", "params", "height_rms_mm", "normal_rms_deg", "poses", "origins"}
+
+
+def test_recovers_the_chain_from_d435_depth_planes(urdf_text: str, chain: UrdfChain, truth: dict[str, Origin]) -> None:
+    cfg = FloorFitConfig()
+    rng = np.random.default_rng(13)
+    clouds = synthetic_clouds(urdf_text, truth, GRID, NOISE_M, OUTLIER_RATIO, rng, clouds_per_pose=5)
+    observations = []
+    for cloud in clouds:
+        prior = predicted_floor(chain, cloud.pan_rad, cloud.tilt_rad, None, sensor_frame=SENSOR_FRAME)
+        plane = fit_plane(cloud.points, prior, cfg.plane, rng)
+        assert plane is not None
+        observations.append(FloorObservation(cloud.pose, cloud.pan_rad, cloud.tilt_rad, plane))
+
+    result = fit_head_chain_floor(observations, urdf_text, cfg, sensor_frame=SENSOR_FRAME)
+
+    assert result.passed, result.failed_limits
+    (_, _, mz), (mr, mp, _) = chain.origin(MOUNT)
+    tp = chain.origin(TILT)[1][1]
+    p = result.params
+    assert abs(p["mount_z_m"]["value"] - (mz + TRUTH_DZ_M)) < 0.002
+    assert abs(p["mount_roll_deg"]["value"] - (np.degrees(mr) + TRUTH_ROLL_DEG)) < 0.15
+    assert abs(p["mount_pitch_deg"]["value"] - (np.degrees(mp) + TRUTH_PITCH_DEG)) < 0.15
+    assert abs(p["tilt_zero_deg"]["value"] - (np.degrees(tp) + TRUTH_TILT_ZERO_DEG)) < 0.15
+    # The D435 depth frame is the default sensor frame of the plane prediction and of the fit.
+    assert fit_head_chain_floor(observations, urdf_text, cfg).params == p
+    # The planes are predicted through d435_joint: raising the D435 on the head raises the predicted sensor height.
+    (dx, dy, dz), d_rpy = chain.origin(D435_JOINT)
+    raised = {D435_JOINT: Origin((dx, dy, dz + D435_RAISE_M), d_rpy)}
+    _, height = predicted_floor(chain, 0.0, 0.0, None)
+    _, raised_height = predicted_floor(chain, 0.0, 0.0, raised)
+    assert raised_height - height == pytest.approx(D435_RAISE_M, abs=1e-9)
 
 
 def test_pan_span_limit_guards_degenerate_grid(urdf_text: str, chain: UrdfChain, truth: dict[str, Origin]) -> None:

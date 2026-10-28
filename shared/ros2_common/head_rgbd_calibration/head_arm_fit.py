@@ -1,17 +1,17 @@
 """Head-from-arm head chain fit: the ChArUco board clipped to the gripper, moved by the trusted arm and seen by the
-head camera, gives the head mount x, y, z, roll, pitch, yaw, the head_tilt origin pitch (tilt zero) and roll (design
-D31-D35) and, with `fit_pan_axis`, the head pan axis position relative to the head.
+D435 colour camera, gives the head mount x, y, z, roll, pitch, yaw, the head_tilt origin pitch (tilt zero) and roll
+(design D31-D35) and, with `fit_pan_axis`, the head pan axis position relative to the head.
 
 Model per view: board corner -> board pose in gripper_link (fitted, 6 DOF) -> arm FK (measured joints plus the joint
-offsets) -> arm root in robot base_link (`base_in_base_link`) -> inverse of the head_camera_optical_frame pose of the
-head chain at the measured pan/tilt with the fitted origins -> `cv2.projectPoints` with the head camera intrinsics.
-The pan zero is folded into `mount_yaw_deg` (D33). The pan axis parameters move the head_pan origin x, y in
-head_pan_base and the head_tilt origin back by the same shift, so the head stays where it is at pan 0 and only the
-axis it turns about moves: the 2026-10-23 session put that axis 38 mm behind the head URDF value, which the
-fixed-axis model could not absorb (13 px at the +-10 deg pan offsets). The head_pan rpy and z, head_tilt z,
-head_camera_joint and the optical joints keep the head URDF values (D32; the pan axis direction relative to the head
-is the tilt roll and zero already, and a pan scale factor is degenerate with the axis shift). numpy, scipy and OpenCV
-only, no ROS.
+offsets) -> arm root in robot base_link (`base_in_base_link`) -> inverse of the `camera_frame` pose (default
+`d435_color_optical_frame`) of the head chain at the measured pan/tilt with the fitted origins -> `cv2.projectPoints`
+with the D435 colour intrinsics (the factory camera_info). The pan zero is folded into `mount_yaw_deg` (D33). The pan
+axis parameters move the head_pan origin x, y in head_pan_base and the head_tilt origin back by the same shift, so the
+head stays where it is at pan 0 and only the axis it turns about moves: the 2026-10-23 session put that axis 38 mm
+behind the head URDF value, which the fixed-axis model could not absorb (13 px at the +-10 deg pan offsets). The
+head_pan rpy and z, head_tilt z, d435_joint and the D435 colour and optical joints keep the head URDF values (D32; the
+pan axis direction relative to the head is the tilt roll and zero already, and a pan scale factor is degenerate with
+the axis shift). numpy, scipy and OpenCV only, no ROS.
 """
 
 import math
@@ -31,7 +31,7 @@ from ros2_common.head_rgbd_calibration.floor_fit import MOUNT_JOINT, PAN_JOINT, 
 from ros2_common.head_rgbd_calibration.urdf_text import Origin
 from ros2_common.head_rgbd_calibration.views import ArmBoardView, require_joints
 
-CAMERA_FRAME = "head_camera_optical_frame"
+D435_COLOR_FRAME = "d435_color_optical_frame"
 GRIPPER_LINK = "gripper_link"
 PARAM_NAMES = (
     "mount_x_m",
@@ -281,24 +281,28 @@ def board_centre(board: BoardConfig) -> np.ndarray:
 
 
 def camera_pose(
-    chain: UrdfChain, joints: Mapping[str, float], origins: Mapping[str, Origin] | None = None
+    chain: UrdfChain,
+    joints: Mapping[str, float],
+    origins: Mapping[str, Origin] | None = None,
+    camera_frame: str = D435_COLOR_FRAME,
 ) -> np.ndarray:
-    """Pose of head_camera_optical_frame in base_link at the measured head angles.
+    """Pose of the camera's optical frame (default the D435 colour camera) in base_link at the measured head angles.
 
     Args:
         chain: Head URDF chain.
         joints: Joint angles (rad); head_pan and head_tilt are read.
         origins: Per-joint origin replacement; None keeps the URDF.
+        camera_frame: Optical frame of the camera in the head URDF.
 
     Returns:
         np.ndarray: 4x4 pose.
     """
     overrides = {name: as_xyz_rpy(o) for name, o in (origins or {}).items()}
-    return chain.transform(CAMERA_FRAME, {PAN_JOINT: joints[PAN_JOINT], TILT_JOINT: joints[TILT_JOINT]}, overrides)
+    return chain.transform(camera_frame, {PAN_JOINT: joints[PAN_JOINT], TILT_JOINT: joints[TILT_JOINT]}, overrides)
 
 
-def aim_head(chain: UrdfChain, point_base: np.ndarray) -> tuple[float, float]:
-    """Head angles that put a point on the optical axis of head_camera_optical_frame.
+def aim_head(chain: UrdfChain, point_base: np.ndarray, camera_frame: str = D435_COLOR_FRAME) -> tuple[float, float]:
+    """Head angles that put a point on the optical axis of the camera (default the D435 colour camera).
 
     Solved numerically on `chain` (the camera is off the pan and tilt axes), then clamped to the chain's head_pan and
     head_tilt limits.
@@ -306,6 +310,7 @@ def aim_head(chain: UrdfChain, point_base: np.ndarray) -> tuple[float, float]:
     Args:
         chain: Head URDF chain (with any overrides already in it).
         point_base: (3,) point in robot base_link (m).
+        camera_frame: Optical frame of the camera in the head URDF.
 
     Returns:
         tuple[float, float]: (pan, tilt) in rad, + tilt is down.
@@ -313,10 +318,12 @@ def aim_head(chain: UrdfChain, point_base: np.ndarray) -> tuple[float, float]:
     target = np.append(np.asarray(point_base, dtype=float).reshape(3), 1.0)
 
     def residual(angles: np.ndarray) -> np.ndarray:
-        local = np.linalg.solve(camera_pose(chain, {PAN_JOINT: angles[0], TILT_JOINT: angles[1]}), target)
+        local = np.linalg.solve(
+            camera_pose(chain, {PAN_JOINT: angles[0], TILT_JOINT: angles[1]}, camera_frame=camera_frame), target
+        )
         return np.array([math.atan2(local[0], local[2]), math.atan2(local[1], local[2])])
 
-    delta = target[:3] - camera_pose(chain, {PAN_JOINT: 0.0, TILT_JOINT: 0.0})[:3, 3]
+    delta = target[:3] - camera_pose(chain, {PAN_JOINT: 0.0, TILT_JOINT: 0.0}, camera_frame=camera_frame)[:3, 3]
     start = np.array([math.atan2(delta[1], delta[0]), math.atan2(-delta[2], math.hypot(delta[0], delta[1]))])
     pan, tilt = least_squares(
         residual, start, method="lm", xtol=AIM_TOLERANCE, ftol=AIM_TOLERANCE, gtol=AIM_TOLERANCE
@@ -398,6 +405,7 @@ def initial_board_mount(
     camera_matrix: np.ndarray,
     dist: np.ndarray,
     nominal: np.ndarray,
+    camera_frame: str = D435_COLOR_FRAME,
 ) -> np.ndarray:
     """Board mount start: each view's solvePnP (seeded from `nominal`) mapped through the start head chain and the arm
     FK into gripper_link; median translation and mean rotation.
@@ -412,6 +420,7 @@ def initial_board_mount(
         camera_matrix: 3x3 intrinsics.
         dist: Distortion coefficients.
         nominal: 4x4 configured board mount start (`cfg.board_mount`).
+        camera_frame: Optical frame of the camera in the head URDF.
 
     Returns:
         np.ndarray: 4x4 board pose in gripper_link; `nominal` when no view solves.
@@ -419,7 +428,7 @@ def initial_board_mount(
     rotations = []
     translations = []
     for view, gripper, obj, img in zip(views, grippers, objects, images, strict=True):
-        camera = camera_pose(chain, view.joints, origins)
+        camera = camera_pose(chain, view.joints, origins, camera_frame)
         board = board_pnp(obj, img, camera_matrix, dist, np.linalg.solve(camera, gripper @ nominal))
         if board is None:
             continue
@@ -445,6 +454,7 @@ def corner_errors(
     images: list[np.ndarray],
     camera_matrix: np.ndarray,
     dist: np.ndarray,
+    camera_frame: str = D435_COLOR_FRAME,
 ) -> list[np.ndarray]:
     """Projected minus detected corners of each view.
 
@@ -459,6 +469,7 @@ def corner_errors(
         images: (N, 2) detected corners per view.
         camera_matrix: 3x3 intrinsics.
         dist: Distortion coefficients.
+        camera_frame: Optical frame of the camera in the head URDF.
 
     Returns:
         list[np.ndarray]: (N, 2) pixel errors per view.
@@ -467,7 +478,7 @@ def corner_errors(
     mount = board_mount_pose(mount_start, x[len(names) :])
     errors = []
     for view, gripper, obj, img in zip(views, grippers, objects, images, strict=True):
-        board = np.linalg.solve(camera_pose(chain, view.joints, origins), gripper @ mount)
+        board = np.linalg.solve(camera_pose(chain, view.joints, origins, camera_frame), gripper @ mount)
         rvec = cv2.Rodrigues(board[:3, :3])[0]
         projected = cv2.projectPoints(obj, rvec, board[:3, 3], camera_matrix, dist)[0].reshape(-1, 2)
         errors.append(projected - img)
@@ -532,12 +543,13 @@ def fit_head_from_arm(
     arm_urdf: str,
     cfg: HeadArmFitConfig,
     floor: dict[str, float] | None,
+    camera_frame: str = D435_COLOR_FRAME,
 ) -> HeadArmFit:
-    """Fit the head chain from views of the gripper board (design D31-D35).
+    """Fit the head chain from views of the gripper board in the D435 colour camera (design D31-D35, D10).
 
     Free: the eight `PARAM_NAMES`, the two `PAN_AXIS_PARAMS` with `cfg.fit_pan_axis`, and the 6-DOF board mount in
-    gripper_link. Every other head origin component, the arm, the joint offsets, the gauge and the intrinsics are
-    fixed. Every `limits.holdout_every`-th distinct arm pose (sorted)
+    gripper_link. Every other head origin component (d435_joint and the D435 optical joints included), the arm, the
+    joint offsets, the gauge and the intrinsics are fixed. Every `limits.holdout_every`-th distinct arm pose (sorted)
     is held out with all its views. One Huber least squares over the fit views' corner residuals (px); with
     `cfg.floor_prior_weight > 0` and a floor, one residual per floor parameter
     `floor_prior_weight * (value - floor[name]) / unit` (1 mm, 0.1 deg). Sigma from `(J^T J)^-1 * sum(r^2) / (m - n)`
@@ -545,13 +557,14 @@ def fit_head_from_arm(
 
     Args:
         views: Views of the board with all seven measured joints.
-        camera_matrix: 3x3 head camera intrinsics.
-        dist: Head camera distortion coefficients.
+        camera_matrix: 3x3 intrinsics of the camera (the D435 colour factory camera_info).
+        dist: Distortion coefficients of the camera.
         head_urdf: Head URDF text with the applied chain (the start values).
         arm_urdf: Arm URDF text.
         cfg: Fit config.
         floor: Applied floor-fit values per `floor_fit.PARAM_NAMES` entry (m or deg); None when there is none, which
             fails `floor_cross_check`.
+        camera_frame: Optical frame of the camera in the head URDF (default the D435 colour frame).
 
     Returns:
         HeadArmFit: Fitted chain, uncertainties, validation and every failed limit.
@@ -591,10 +604,11 @@ def fit_head_from_arm(
     names = fit_param_names(cfg)
     x_start = head_vector(chain, names)
     nominal = pose_from_xyz_rpy(cfg.board_mount.xyz_init, cfg.board_mount.rpy_init)
-    mount_start = initial_board_mount(chain, head_origins(chain, x_start, names), *fit_set, k, d, nominal)
+    mount_start = initial_board_mount(chain, head_origins(chain, x_start, names), *fit_set, k, d, nominal, camera_frame)
 
     def corner_residuals(x: np.ndarray) -> np.ndarray:
-        return np.concatenate([e.ravel() for e in corner_errors(chain, x, names, mount_start, *fit_set, k, d)])
+        errors = corner_errors(chain, x, names, mount_start, *fit_set, k, d, camera_frame)
+        return np.concatenate([e.ravel() for e in errors])
 
     floor_values = floor or {}
     prior = list(FLOOR_PARAMS) if floor_values and cfg.floor_prior_weight > 0 else []
@@ -634,11 +648,11 @@ def fit_head_from_arm(
 
     origins = head_origins(chain, solution[: len(names)], names)
     mount = board_mount_pose(mount_start, solution[len(names) :])
-    errors = corner_errors(chain, solution, names, mount_start, views, grippers, objects, images, k, d)
+    errors = corner_errors(chain, solution, names, mount_start, views, grippers, objects, images, k, d, camera_frame)
     centre = np.append(board_centre(cfg.board), 1.0)
     board_mm = []
     for i in hold_idx:
-        camera = camera_pose(chain, views[i].joints, origins)
+        camera = camera_pose(chain, views[i].joints, origins, camera_frame)
         from_arm = grippers[i] @ mount
         board = board_pnp(objects[i], images[i], k, d, np.linalg.solve(camera, from_arm))
         if board is None:
