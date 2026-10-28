@@ -3,10 +3,9 @@
 The 2026-10-22 16:30:35 "invalid source" stop (nodes/nav2_bringup/README.md, "Invalid source stop during the final
 turn") must not be cured by weakening the fail-safe (user decision 2026-10-18): the node `source_timeout` stays 1.0 s
 with no per-source override, and every source a polygon reads stays enabled, so an enabled source with no fresh data
-for 1 s stops the robot. The pin holds for any source (lidar, ToF, the RealSense D435 that replaces the head ToF): the
-only polygon allowed to name a disabled source is one that is itself disabled and reads disabled sources only (CliffStop
-under the 2026-10-24 lidar-only decision, pinned by tests/test_nav_lidar_only.py). No ROS is available on the dev
-machine, so the shipped YAML is read directly.
+for 1 s stops the robot. The pin holds for any source (the lidar `scan` and the head D435 `depth_obstacles` /
+`depth_cliff`): the only polygon allowed to name a disabled source is one that is itself disabled and reads disabled
+sources only. No ROS is available on the dev machine, so the shipped YAML is read directly.
 """
 
 from pathlib import Path

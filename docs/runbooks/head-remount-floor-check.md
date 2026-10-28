@@ -74,7 +74,7 @@ Run one collection each for `/ground/state`, `/ground/obstacle_points` and `/gro
 ## Costmap
 
 The local costmap `depth_voxel_layer` marks points from 0.10 m (10 cm) above the floor (`depth_mark` in `nav2_params.yaml`,
-the collision monitor `tof_obstacles` band is the same).
+the collision monitor `depth_obstacles` band is the same).
 
 - Empty floor: the local costmap stays clear for 30 s (web UI local costmap or `/local_costmap/costmap`).
 - The ChArUco board and a basket still get marked where taller than 10 cm; a board lying flat under 10 cm may stay unmarked.

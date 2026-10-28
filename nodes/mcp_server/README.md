@@ -101,8 +101,9 @@ and `mcp_server.log` (Loki keeps no data before 2026-10-27, so nothing more was 
 logs only "Robot to stop due to StopBox polygon", never the sub-polygon or the points, so the sub-polygon below
 follows from the command Nav2 or mcp_server sent at that moment and the nav2 `VelocityPolygon` selection (holonomic:
 speed magnitude, direction `atan2(vy, vx)`, first match in `velocity_polygons` order). On 2026-10-22 StopBox read
-`scan` and `tof_obstacles` (the head ToF obstacle band; lidar only since 2026-10-24, nodes/nav2_bringup/README.md
-"Lidar-only"), so the points that tripped it may be lidar or ToF points; the polygons are unchanged since. `rotate` comes first and matches
+`scan` and the head ToF obstacle band (the source now named `depth_obstacles`, on the D435 cloud since the switch-over;
+nodes/nav2_bringup/README.md "Collision monitor"), so the points that tripped it may be lidar or ToF points; the
+polygons are unchanged since. `rotate` comes first and matches
 every command with a linear speed of at most 5 mm/s, a zero twist included: on 2026-10-22 it was the bounding box of the footprint +
 2 cm (front edge x 0.3425 m, sides y +-0.2158 m), which missed the corners of the rotation sweep (circumscribed radius
 0.3295 m). Since 2026-10-27 `rotate` is the 32-sided polygon with edges tangent to the circle of circumscribed radius +

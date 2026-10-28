@@ -69,7 +69,7 @@ the local costmap, then drive at the prop with a nav goal. Obstacle rule: max st
 - 3 cm drop: a warning area, slow-down while crossing, non-lethal cost cells, the robot drives over it.
 - 5 cm drop: lethal `ground_drop_mark` cells, the planner routes around.
 - 10 cm drop at 1 m: a drop region with height within 2 cm and edge distance within 5 cm of the tape measure,
-  `ground_drop_mark` cells, CliffStop behaves unchanged (still driven by `tof_cliff`).
+  `ground_drop_mark` cells, CliffStop behaves unchanged (still driven by `depth_cliff`).
 - box: obstacle points and `ground_obstacle_mark` cells.
 - 13 deg ramp: a warning with slope within 1 deg of the measured angle, driven over slowly.
 - ramp steeper than 15 deg: an obstacle, lethal mark, planner routes around.
