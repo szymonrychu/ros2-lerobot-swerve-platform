@@ -1,6 +1,6 @@
 ---
 title: Retire RGB-D registration and motion code
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The ToF-only registration and motion code no longer has to be built, tested or understood."
 files: [nodes/head_rgbd_cpp/src/core/registration.cpp, nodes/head_rgbd_cpp/include/head_rgbd_cpp/registration.hpp, nodes/head_rgbd_cpp/test/core/test_registration.cpp, nodes/head_rgbd_cpp/src/core/motion.cpp, nodes/head_rgbd_cpp/include/head_rgbd_cpp/motion.hpp, nodes/head_rgbd_cpp/test/core/test_motion.cpp, tests/test_tof_paths_retired.py, tests/README.md]
@@ -8,15 +8,15 @@ verify: "uv run pytest tests/test_tof_paths_retired.py -q && uv run poe lint && 
 depends_on: [head-rgb-d-node-on-d435-alig]
 model: opus
 review: ""
-verified_head: ""
+verified_head: 5cfa106c
 points: 2
 expected_minutes: 23
 expected_tokens: 1500000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 2
+actual_minutes: 12
+actual_tokens: 1355248
+actual_roles: "impl 8, review 4"
+actual_role_tokens: "impl 1139249, review 215999"
 ---
 
 # Retire RGB-D registration and motion code
@@ -62,3 +62,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-28 done
