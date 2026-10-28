@@ -65,10 +65,15 @@ def truth_origins(chain: UrdfChain) -> dict[str, Origin]:
     }
 
 
-def write_observations(state: Path, sid: str, per_pose: int = PER_POSE) -> None:
-    """observations.json whose planes are the truth floor seen from the perturbed chain, with small height noise."""
+def write_observations(
+    state: Path, sid: str, per_pose: int = PER_POSE, applied: dict[str, Origin] | None = None
+) -> None:
+    """observations.json whose planes are the truth floor seen from the perturbed chain, with small height noise.
+
+    `applied` are the applied head chain origins the fit starts from (the D435 depth frame sits behind d435_joint, so
+    an applied d435_joint is part of the truth the planes are seen through)."""
     chain = UrdfChain.from_text(URDF_PATH.read_text())
-    truth = truth_origins(chain)
+    truth = {**(applied or {}), **truth_origins(chain)}
     rng = np.random.default_rng(3)
     observations = []
     pose = 0
@@ -156,12 +161,11 @@ def test_compute_keeps_applied_pan_axis(cfg: NodeConfig, state: Path) -> None:
 
 
 def test_compute_writes_result_and_head_chain(cfg: NodeConfig, state: Path) -> None:
-    write_observations(state, SID)
+    camera = Origin(tuple(CAMERA_XYZ), tuple(CAMERA_RPY))
+    write_observations(state, SID, applied={CAMERA: camera})
     applied = state / "applied"
     applied.mkdir()
-    (applied / "head_chain.json").write_text(
-        head_chain_json({CAMERA: Origin(tuple(CAMERA_XYZ), tuple(CAMERA_RPY))}, "earlier", "calib-1", "r-1")
-    )
+    (applied / "head_chain.json").write_text(head_chain_json({CAMERA: camera}, "earlier", "calib-1", "r-1"))
     result = compute_floor(cfg, SID, NOW)
     assert result["passed"] is True, result["failed_limits"]
     assert result["id"] == "r-20261021-123000"
