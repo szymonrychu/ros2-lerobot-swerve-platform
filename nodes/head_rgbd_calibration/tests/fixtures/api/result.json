@@ -37,7 +37,10 @@
     "tof_zero_distortion_rms_px": 0.3,
     "plane_max_bias_mm": 40.0,
     "plane_max_spread_mm": 50.0,
-    "min_views": 12
+    "min_views": 12,
+    "intrinsics_max_rms_px": 0.5,
+    "intrinsics_max_focal_diff_pct": 1.0,
+    "intrinsics_max_principal_diff_px": 5.0
   },
   "report": "# Head RGB-D calibration\n"
 }

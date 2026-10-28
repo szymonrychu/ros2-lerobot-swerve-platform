@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-STALE = re.compile(r"color_small|colorSmall|ColorSmall|image_rect")
+STALE = re.compile(r"color_small|colorSmall|ColorSmall|image_rect(?!_raw)")  # the D435 topics image_rect_raw are real
 
 
 def test_frontend_sources_have_no_color_small() -> None:
@@ -27,7 +27,7 @@ def test_readmes_have_no_stale_names_or_typos() -> None:
     assert "color_small" not in text
     tests_readme = (ROOT.parents[1] / "tests" / "README.md").read_text()
     assert "color_small_b64" not in tests_readme
-    assert "image_rect" not in tests_readme
+    assert not STALE.search(tests_readme)
 
 
 def test_msg_serializer_has_no_double_period() -> None:

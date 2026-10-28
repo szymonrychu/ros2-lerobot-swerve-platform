@@ -39,7 +39,7 @@ SID = "floor-20261021-120000"
 NOW = datetime(2026, 10, 21, 12, 30, 0, tzinfo=UTC)
 MOUNT = "head_mount_joint"
 TILT = "head_tilt"
-CAMERA = "head_camera_joint"
+CAMERA = "d435_joint"
 PAN = "head_pan"
 TRUTH_DZ_M = 0.03
 TRUTH_ROLL_DEG = 1.5
