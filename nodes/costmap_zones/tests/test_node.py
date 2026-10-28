@@ -343,7 +343,7 @@ GROUND_POLYGON = [[1.2, 0.2], [1.8, 0.2], [1.8, 0.8], [1.2, 0.8]]
 
 
 def ground_area(polygon: list[list[float]]) -> dict[str, Any]:
-    return {"kind": "ramp", "polygon": polygon, "height_m": 0.02, "slope_deg": 5.0, "source": "tof"}
+    return {"kind": "ramp", "polygon": polygon, "height_m": 0.02, "slope_deg": 5.0, "source": "depth"}
 
 
 def ground(*areas: dict[str, Any]) -> String:

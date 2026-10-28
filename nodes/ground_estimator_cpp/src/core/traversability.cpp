@@ -122,7 +122,7 @@ Traversability apply_rule(
         const bool ramp = c.slope_known && c.slope_deg >= RAMP_MIN_SLOPE_DEG;
         const char * kind = ramp ? "ramp" : (c.kind == "drop" ? "drop" : "step");
         append(c.kind == "drop" ? out.warning_below : out.warning_above, c.points);
-        out.warnings.push_back(area_of(c, kind, "tof"));
+        out.warnings.push_back(area_of(c, kind, "depth"));
       }
     }
   }

@@ -30,7 +30,7 @@ class GroundArea(BaseModel):
         polygon: Vertices [x, y] in the message frame, m (at least 3).
         height_m: Edge step height, m; null: not measured (kind no_return).
         slope_deg: Surface slope, deg; null: not measured (kind no_return).
-        source: Sensor that produced it (tof, colour, ...).
+        source: Sensor that produced it (depth, colour, ...).
     """
 
     model_config = ConfigDict(extra="forbid")

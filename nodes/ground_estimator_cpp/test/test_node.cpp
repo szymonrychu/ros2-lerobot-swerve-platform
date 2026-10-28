@@ -1205,7 +1205,7 @@ TEST_F(NodeTest, ThreeCentimetreSillIsAStepWarningInTheMapFrame)
   ASSERT_EQ((*doc)["areas"].size(), 1u) << doc->dump();
   const auto & area = (*doc)["areas"][0];
   EXPECT_EQ(area["kind"], "step");
-  EXPECT_EQ(area["source"], "tof");
+  EXPECT_EQ(area["source"], "depth");
   EXPECT_NEAR(area["height_m"].get<double>(), 0.03, 0.01);
   // The sill centre (1.075, 0) in base_link, through map <- odom <- base_link.
   const Eigen::Vector3d expected = MAP_T_ODOM * ODOM_T_BASE * Eigen::Vector3d(1.075, 0.0, 0.0);
@@ -1699,12 +1699,12 @@ TEST_F(NodeTest, ThreeCentimetreSillIsAStepWarningEveryFrameAndNeverLethal)
     EXPECT_EQ(f.drop, 0u) << "frame " << i;
     if (i >= warm_up) {
       ASSERT_FALSE(f.warnings.is_null()) << "frame " << i;
-      EXPECT_TRUE(has_kind(f.warnings["areas"], "step", "tof")) << "frame " << i << ": " << f.warnings.dump();
+      EXPECT_TRUE(has_kind(f.warnings["areas"], "step", "depth")) << "frame " << i << ": " << f.warnings.dump();
     }
   }
   const auto state = state_after(ns_of(stamp_of(last_stamp_s_)), [](const json & d) { return !d["plane"].is_null(); });
   ASSERT_TRUE(state.has_value());
-  EXPECT_TRUE(has_kind((*state)["warnings"], "step", "tof")) << state->dump();
+  EXPECT_TRUE(has_kind((*state)["warnings"], "step", "depth")) << state->dump();
   EXPECT_GT(metric("ground_stable_warning_cells").value_or(0.0), 0.0);
   EXPECT_EQ(metric("ground_stable_lethal_cells").value_or(-1.0), 0.0);
 }

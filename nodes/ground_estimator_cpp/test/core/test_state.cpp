@@ -63,7 +63,7 @@ WarningArea ramp_area()
   area.polygon = {{0.5, -0.2}, {0.9, -0.2}, {0.9, 0.31234}, {0.5, 0.3}};
   area.height_m = 0.0123456;
   area.slope_deg = 5.55555;
-  area.source = "tof";
+  area.source = "depth";
   return area;
 }
 
@@ -281,7 +281,7 @@ TEST(GroundState, WarningsCarryTheirShape)
   const json & w = warnings[0];
   EXPECT_EQ(keys_in_order(w.dump()), (std::vector<std::string>{"kind", "polygon", "height_m", "slope_deg", "source"}));
   EXPECT_EQ(w.at("kind"), "ramp");
-  EXPECT_EQ(w.at("source"), "tof");
+  EXPECT_EQ(w.at("source"), "depth");
   ASSERT_EQ(w.at("polygon").size(), 4u);
   EXPECT_EQ(w.at("polygon")[2], json::array({0.9, 0.3123}));
   EXPECT_DOUBLE_EQ(as_double(w.at("height_m")), 0.0123);

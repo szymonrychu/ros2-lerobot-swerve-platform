@@ -491,7 +491,7 @@ inline double box_warning_share(const std::vector<ReplayFrame> & frames)
   return share_of_frames(frames, [](const ReplayFrame & f) {
     for (const auto & a : areas_of(f)) {
       const Eigen::Vector2d c = centroid_in_base(a, f.base_T_warnings);
-      const bool tof_step = a["kind"] == "step" && a["source"] == "tof";
+      const bool tof_step = a["kind"] == "step" && a["source"] == "depth";
       if (tof_step && c.x() >= GRIPPER_X_MAX && BOX_LETHAL_ROI.contains(c.x(), c.y())) {
         return true;
       }

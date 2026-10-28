@@ -293,7 +293,7 @@ json area(const std::string & kind, double cx, double cy)
     {"polygon", json::array({{cx - h, cy - h}, {cx + h, cy - h}, {cx + h, cy + h}, {cx - h, cy + h}})},
     {"height_m", 0.03},
     {"slope_deg", 5.0},
-    {"source", "tof"}};
+    {"source", "depth"}};
 }
 
 // A warm-up frame and one frame after it carrying an obstacle (or drop) point at (x, y).

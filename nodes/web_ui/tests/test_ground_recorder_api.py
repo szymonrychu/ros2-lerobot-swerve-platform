@@ -381,7 +381,7 @@ def test_unmatched_halves_beyond_capacity_are_dropped(ros: FakeRos, clock: Clock
     start(node)
     for i in range(MATCH_CAPACITY + 3):
         ros.callback("/tof/amplitude/image_raw")(image_msg(STAMP + i, np.full((2, 3), 1), "mono16", "tof_optical"))
-    assert node.ground_recording_info("scene")["dropped"]["tof"] == {"unmatched": 3}
+    assert node.ground_recording_info("scene")["dropped"]["depth"] == {"unmatched": 3}
 
 
 def test_undecodable_messages_are_dropped_and_counted(ros: FakeRos, clock: Clock, tmp_path: Path) -> None:  # noqa: F811
@@ -393,7 +393,7 @@ def test_undecodable_messages_are_dropped_and_counted(ros: FakeRos, clock: Clock
     bad_cloud.fields = []
     ros.callback("/tof/points_filtered")(bad_cloud)
     info = node.ground_recording_info("scene")
-    assert info["dropped"]["tof"] == {"decode": 1}
+    assert info["dropped"]["depth"] == {"decode": 1}
     assert info["dropped"]["cloud"] == {"decode": 1}
     assert info["counts"]["cloud"] == 0
 

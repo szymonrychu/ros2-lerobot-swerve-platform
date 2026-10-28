@@ -41,7 +41,7 @@ class Clock:
 
 
 def area(polygon: list[list[float]] = AREA_POLYGON, kind: str = "ramp") -> dict[str, Any]:
-    return {"kind": kind, "polygon": polygon, "height_m": 0.02, "slope_deg": 5.0, "source": "tof"}
+    return {"kind": kind, "polygon": polygon, "height_m": 0.02, "slope_deg": 5.0, "source": "depth"}
 
 
 def warning(*areas: dict[str, Any], frame: str = "map") -> String:

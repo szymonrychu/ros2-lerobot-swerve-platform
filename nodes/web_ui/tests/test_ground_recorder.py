@@ -124,9 +124,9 @@ def test_mismatched_frame_size_dropped(tmp_path: Path) -> None:
     rec.add_tof_frame(2 * NS, np.zeros((5, 5), np.uint16), np.zeros((5, 5), np.uint16), POSE)
     rec.add_tof_frame(2 * NS, np.zeros((3, 4), np.uint16), np.zeros((3, 5), np.uint16), POSE)
     rec.add_pair(3 * NS, b"x", np.zeros((9, 9), np.uint16), POSE, POSE)
-    assert rec.counts()["tof"] == 1
+    assert rec.counts()["depth"] == 1
     assert rec.counts()["pair"] == 2
-    assert rec.dropped()["tof"]["size"] == 2
+    assert rec.dropped()["depth"]["size"] == 2
     assert rec.dropped()["pair"]["size"] == 1
     a = load(rec, tmp_path)
     assert a[gr.KEY_TOF_DEPTH_MM].shape == (1, 3, 4)

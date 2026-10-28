@@ -64,7 +64,7 @@ below the tracked floor plane), so they stay correct on a slope or a tilted base
 | `obstacle_points` | points of the last obstacle cloud | count |
 | `drop_points` | points of the last drop cloud | count |
 | `regions` | step, threshold, drop and ramp regions: `name`, `kind`, `class` (`obstacle` or `warning`), `height_m`, `frame`, `edge {point, direction, side}`, `distance_m`, `points` | m |
-| `warnings` | warning areas: `kind` (`step`, `drop`, `ramp`, `colour` or `no_return`), `polygon` (base_link, m), `height_m` and `slope_deg` (null when not measured, always for `no_return`), `source` (`tof`, `colour` or `rgb`) | m, degrees |
+| `warnings` | warning areas: `kind` (`step`, `drop`, `ramp`, `colour` or `no_return`), `polygon` (base_link, m), `height_m` and `slope_deg` (null when not measured, always for `no_return`), `source` (`depth` for the head depth camera (D435), `colour` or `rgb`) | m, degrees |
 | `colour` | `{model_ok, floor_samples, mismatch_ratio, stamp_ns}` of the last labelled RGB-D cloud; null when colour is disabled or no cloud was labelled | ratio |
 
 ## Labels

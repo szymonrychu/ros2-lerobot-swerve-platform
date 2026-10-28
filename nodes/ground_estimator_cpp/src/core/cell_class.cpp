@@ -14,7 +14,7 @@ namespace
 
 constexpr const char * KIND_STEP = "step";
 constexpr const char * KIND_DROP = "drop";
-constexpr const char * SOURCE_TOF = "tof";
+constexpr const char * SOURCE_DEPTH = "depth";
 constexpr const char * SOURCE_COLOUR = "colour";
 constexpr double CENTROID_MIN_AREA = 1e-12;
 
@@ -266,7 +266,7 @@ void CellClassFilter::end_frame()
       Record rec;
       rec.kind = drop ? KIND_DROP : KIND_STEP;
       rec.height_m = median(drop ? obs.drop_z : obs.obstacle_z);
-      rec.source = SOURCE_TOF;
+      rec.source = SOURCE_DEPTH;
       cell.record = rec;
     } else if (obs.area) {
       cell.record = obs.area;
@@ -274,7 +274,7 @@ void CellClassFilter::end_frame()
       Record rec;
       rec.kind = KIND_STEP;
       rec.height_m = median(obs.warning_z);
-      rec.source = SOURCE_TOF;
+      rec.source = SOURCE_DEPTH;
       cell.record = rec;
     }
   }
@@ -351,8 +351,8 @@ std::vector<CellKey> CellClassFilter::blocking_cells() const
 {
   std::vector<CellKey> out;
   for (const auto & [key, cell] : cells_) {
-    const bool tof_warning = cell.stable == CellClass::warning && cell.record && cell.record->source == SOURCE_TOF;
-    if (is_lethal(cell.stable) || tof_warning) {
+    const bool depth_warning = cell.stable == CellClass::warning && cell.record && cell.record->source == SOURCE_DEPTH;
+    if (is_lethal(cell.stable) || depth_warning) {
       out.push_back(key);
     }
   }
@@ -425,7 +425,7 @@ void CellClassFilter::update_areas()
     std::map<std::string, int> kinds;
     std::vector<double> heights;
     std::vector<double> slopes;
-    bool tof = false;
+    bool depth = false;
     for (const Key & key : footprint) {
       const std::optional<Record> & rec = cells_.at(key).record;
       if (!rec) {
@@ -438,7 +438,7 @@ void CellClassFilter::update_areas()
       if (rec->slope_deg) {
         slopes.push_back(*rec->slope_deg);
       }
-      tof = tof || rec->source == SOURCE_TOF;
+      depth = depth || rec->source == SOURCE_DEPTH;
     }
     area.polygon = cell_outline(footprint, cell_size_m_);
     int best = 0;
@@ -451,7 +451,7 @@ void CellClassFilter::update_areas()
     }
     area.height_m = heights.empty() ? std::nullopt : std::optional<double>(median(heights));
     area.slope_deg = slopes.empty() ? std::nullopt : std::optional<double>(median(slopes));
-    area.source = tof ? SOURCE_TOF : SOURCE_COLOUR;
+    area.source = depth ? SOURCE_DEPTH : SOURCE_COLOUR;
 
     // Kind persistence: the previous area sharing most cells keeps its published kind until another kind has most of
     // the cells for area_kind_frames consecutive frames.

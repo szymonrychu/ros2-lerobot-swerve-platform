@@ -44,7 +44,7 @@ Cloud points_at(const Eigen::Vector2d & xy, float z)
 // An axis-aligned rectangle polygon, counter-clockwise.
 Polygon rect(double x0, double y0, double x1, double y1) { return {{x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}}; }
 
-WarningArea area_of(const Polygon & polygon, const std::string & kind = "step", const std::string & source = "tof")
+WarningArea area_of(const Polygon & polygon, const std::string & kind = "step", const std::string & source = "depth")
 {
   WarningArea a;
   a.kind = kind;
@@ -231,7 +231,7 @@ TEST(CellClass, TwoSeparateBlocksGiveTwoAreasInKeyOrder)
   EXPECT_EQ(areas[0].source, "colour");
   expect_polygon_eq(areas[1].polygon, far);
   EXPECT_EQ(areas[1].kind, "ramp");
-  EXPECT_EQ(areas[1].source, "tof");
+  EXPECT_EQ(areas[1].source, "depth");
 }
 
 TEST(CellClass, DiagonalNeighboursAreOneArea)
@@ -250,7 +250,7 @@ TEST(CellClass, AreaAttributesAreTheCellMajorityAndMedians)
   WarningArea a = area_of(rect(0.0, 0.0, 0.2, 0.1), "step", "colour");  // cells (0, 0), (1, 0)
   a.height_m = 0.02;
   a.slope_deg = 2.0;
-  WarningArea b = area_of(rect(0.2, 0.0, 0.3, 0.1), "ramp", "tof");  // cell (2, 0)
+  WarningArea b = area_of(rect(0.2, 0.0, 0.3, 0.1), "ramp", "depth");  // cell (2, 0)
   b.height_m = 0.05;
   b.slope_deg = 11.0;
   area_frame(f, {a, b});
@@ -261,7 +261,7 @@ TEST(CellClass, AreaAttributesAreTheCellMajorityAndMedians)
   EXPECT_DOUBLE_EQ(*areas[0].height_m, 0.02);
   ASSERT_TRUE(areas[0].slope_deg.has_value());
   EXPECT_DOUBLE_EQ(*areas[0].slope_deg, 2.0);
-  EXPECT_EQ(areas[0].source, "tof");
+  EXPECT_EQ(areas[0].source, "depth");
 
   // A 1:1 tie of kinds picks the lexicographically smallest; even counts take the mean of the middle values.
   CellClassFilter g(disabled(), CELL_M);
