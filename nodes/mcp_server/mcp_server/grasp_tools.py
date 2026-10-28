@@ -961,7 +961,7 @@ def jaw_crop_jpeg(ctx: ToolContext) -> tuple[bytes, int, int, CropInfo]:
     settings = config.grasp_check
     max_px = min(settings.image_px, config.limits.max_image_px)
     try:
-        setup = camera_setup(config, "gripper")
+        setup = camera_setup(config, "gripper", source=robot)
         calibrated: tuple[int, int] | None = (setup.intrinsics.width, setup.intrinsics.height)
         reason = ""
     except ValueError as exc:  # not calibrated: no projection, the full frame is the image

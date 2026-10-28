@@ -385,10 +385,13 @@ def zoom_metadata(frame: CameraZoomFrame) -> dict[str, Any]:
     return meta
 
 
-def camera_image_scale(config: McpServerConfig, camera: str, width: int, height: int) -> dict[str, Any]:
+def camera_image_scale(
+    robot: RobotApi, config: McpServerConfig, camera: str, width: int, height: int
+) -> dict[str, Any]:
     """get_camera_image metadata relating the picture's size to the calibrated size the camera tools use.
 
     Args:
+        robot (RobotApi): Robot (the latest CameraInfo of a camera_info_topic camera).
         config (McpServerConfig): Node configuration (camera intrinsics).
         camera (str): Camera name.
         width (int): Picture width (px).
@@ -398,7 +401,7 @@ def camera_image_scale(config: McpServerConfig, camera: str, width: int, height:
         dict[str, Any]: {calibrated_image {width, height} | None, scale_to_calibrated | None, pixel_note}.
     """
     try:
-        intr = camera_setup(config, camera, need_mount=False).intrinsics
+        intr = camera_setup(config, camera, need_mount=False, source=robot).intrinsics
     except ValueError:
         return {
             "calibrated_image": None,
@@ -939,7 +942,7 @@ def register_core_tools(ctx: ToolContext) -> None:
         with tool_errors():
             size = config.limits.default_camera_px if max_px is None else max_px
             frame = robot.camera_image(camera, min(size, config.limits.max_image_px))
-        meta = frame.model_dump(mode="json") | camera_image_scale(config, camera, frame.width, frame.height)
+        meta = frame.model_dump(mode="json") | camera_image_scale(robot, config, camera, frame.width, frame.height)
         meta["lookup_id"] = lookup_tools.record_lookup(
             ctx, "get_camera_image", camera, frame.jpeg, frame.width, frame.height
         )

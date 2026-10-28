@@ -15,6 +15,7 @@ from .approach import CostGrid, PathInfo
 from .arm import ArmController
 from .base_dock import DockGoal, DockResult
 from .base_motion import DriveOutcome, SpinOutcome
+from .camera_scene import CameraInfoData
 from .config import McpServerConfig
 from .frontiers import FrontierTracker, MapGrid
 from .head import HeadController
@@ -110,6 +111,11 @@ class RobotApi(Protocol):
 
     def camera_image(self, camera: str, max_px: int) -> CameraFrame:
         """One fresh camera frame."""
+        ...
+
+    def camera_info(self, camera: str) -> CameraInfoData | None:
+        """Latest CameraInfo of a camera with a camera_info_topic (subscribed on demand); None without one or before
+        a first message."""
         ...
 
     def camera_zoom(self, camera: str, u: float, v: float, zoom: int, max_px: int) -> CameraZoomFrame:

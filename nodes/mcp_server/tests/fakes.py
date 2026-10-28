@@ -16,6 +16,7 @@ from mcp_server import config as mcp_config
 from mcp_server.approach import CostGrid, PathInfo
 from mcp_server.arm import JointSample
 from mcp_server.base_dock import DockGoal, DockResult
+from mcp_server.camera_scene import CameraInfoData
 from mcp_server.frontiers import MapGrid
 from mcp_server.map_client import MapRequests
 from mcp_server.models import BasePose, CameraZoomFrame, GroundState, Map3dCloud, PathPlan, RobotError, TofPoints
@@ -283,6 +284,9 @@ class PerceptionFakeMixin:
         self.photo_commands: list[tuple[str, dict]] = []
         self.photo_error: Exception | None = None
         self.base_resets = 0
+        # camera_info: the latest CameraInfo per camera (absent = none received) and every camera asked for.
+        self.camera_infos: dict[str, CameraInfoData] = {}
+        self.camera_info_calls: list[str] = []
         # camera_zoom: every call (camera, u, v, zoom, max_px) and the scripted answer (a frame or an error to raise).
         self.zoom_calls: list[tuple[str, float, float, int, int]] = []
         self.zoom_result: CameraZoomFrame | Exception = CameraZoomFrame(
@@ -449,6 +453,10 @@ class PerceptionFakeMixin:
 
     def map3d_status(self) -> dict | None:
         return self.map3d_status_msg
+
+    def camera_info(self, camera: str) -> CameraInfoData | None:
+        self.camera_info_calls.append(camera)
+        return self.camera_infos.get(camera)
 
     def camera_zoom(self, camera: str, u: float, v: float, zoom: int, max_px: int) -> CameraZoomFrame:
         self.zoom_calls.append((camera, u, v, zoom, max_px))

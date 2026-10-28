@@ -38,7 +38,7 @@ from rclpy.time import Time
 from ros2_common.battery import BatteryGuard
 from ros2_common.maps import MapResult, MapStatus
 from scipy.spatial.transform import Rotation
-from sensor_msgs.msg import BatteryState, CompressedImage, Imu, JointState, LaserScan, PointCloud2
+from sensor_msgs.msg import BatteryState, CameraInfo, CompressedImage, Imu, JointState, LaserScan, PointCloud2
 from std_msgs.msg import Bool, String
 from std_srvs.srv import Trigger
 from tf2_msgs.msg import TFMessage
@@ -63,6 +63,7 @@ from .base_motion import (
     run_translate,
     straight_move,
 )
+from .camera_scene import CameraInfoData
 from .config import McpServerConfig
 from .control import ControlManager, LeaderActivity, NavGoalRegistry
 from .feeds import FeedsSpinner
@@ -130,6 +131,7 @@ from .zoom_client import ZoomRequests
 NODE_NAME = "mcp_server"
 FEEDS_NODE_NAME = "mcp_server_feeds"
 GROUND_DEFAULT_AGE: Any = object()  # sentinel: use timeouts.ground_state_stale_s
+CAMERA_INFO_KEY = "camera_info_{camera}"  # cache key of a camera's latest CameraInfo
 # Best effort subscribers match both reliable and best-effort publishers.
 SENSOR_QOS = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST, depth=1)
 # slam_toolbox publishes /map reliable + transient_local (latched).
@@ -745,6 +747,21 @@ class RosRobot:
                 config.timeouts.image_timeout_s,
             )
             for name, topic in self.camera_topics.items()
+        }
+        # On-demand CameraInfo of each camera whose intrinsics come from a camera_info_topic (the D435 factory
+        # calibration); the latest message is kept until the subscription is reaped.
+        self.camera_info_topics = {
+            name: cam.intrinsics.camera_info_topic
+            for name, cam in (("gripper", config.cameras.gripper), ("front", config.cameras.front))
+            if cam.intrinsics is not None and cam.intrinsics.camera_info_topic is not None
+        }
+        self.camera_info_subs = {
+            name: self.on_demand_subscription(
+                functools.partial(self.cache, CameraInfo, topic, CAMERA_INFO_KEY.format(camera=name), SENSOR_QOS),
+                config.timeouts.image_timeout_s,
+                functools.partial(self.drop_sample, CAMERA_INFO_KEY.format(camera=name)),
+            )
+            for name, topic in self.camera_info_topics.items()
         }
 
         if config.battery is not None and battery_guard is not None:
@@ -1891,6 +1908,37 @@ class RosRobot:
             height=height,
             stamp_s=stamp.sec + stamp.nanosec / 1e9,
             age_s=round(age, 3),
+        )
+
+    def camera_info(self, camera: str) -> CameraInfoData | None:
+        """Latest CameraInfo of the camera's on-demand camera_info_topic subscription (subscribed by the first call,
+        which waits inside the first-message window, timeouts.image_timeout_s).
+
+        Args:
+            camera (str): Camera name.
+
+        Returns:
+            CameraInfoData | None: The latest message's fields; None for a camera without a camera_info_topic or when
+                no message has arrived.
+        """
+        handle = self.camera_info_subs.get(camera)
+        if handle is None:
+            return None
+        key = CAMERA_INFO_KEY.format(camera=camera)
+        deadline = self.demand_clock() + handle.touch()
+        while self.get(key) is None and self.demand_clock() < deadline:
+            self.demand_sleep(NAV_POLL_S)
+        item = self.get(key)
+        if item is None:
+            return None
+        msg = item.value
+        return CameraInfoData(
+            width=int(msg.width),
+            height=int(msg.height),
+            k=tuple(float(v) for v in msg.k),
+            d=tuple(float(v) for v in msg.d),
+            distortion_model=str(msg.distortion_model),
+            stamp=msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9,
         )
 
     def camera_zoom(self, camera: str, u: float, v: float, zoom: int, max_px: int) -> CameraZoomFrame:

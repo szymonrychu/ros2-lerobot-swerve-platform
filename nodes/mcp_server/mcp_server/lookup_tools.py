@@ -36,7 +36,13 @@ from ros2_common.photos import (
 )
 from scipy.spatial.transform import Rotation
 
-from .camera_scene import camera_setup, head_parent_transform, load_intrinsics, offset_matrix, parent_transform
+from .camera_scene import (
+    CameraNotCalibratedError,
+    camera_setup,
+    head_parent_transform,
+    offset_matrix,
+    parent_transform,
+)
 from .config import HARD_MAX_IMAGE_PX, McpServerConfig
 from .lookup_store import (
     MAX_QUERY_LIMIT,
@@ -125,7 +131,7 @@ class LookupRecorder:
             dict[str, list[float]] | None: {xyz (m), rpy (rad, fixed axis)}, None when unknown.
         """
         try:
-            setup = camera_setup(self.config, camera)
+            setup = camera_setup(self.config, camera, source=self.robot)
             if setup.mount is None:
                 return None
             if camera == "front":
@@ -159,13 +165,12 @@ class LookupRecorder:
         if not full_frame:
             return None
         try:
-            loaded = load_intrinsics(getattr(self.config.cameras, camera).intrinsics)
+            intrinsics = camera_setup(self.config, camera, need_mount=False, source=self.robot).intrinsics
+        except CameraNotCalibratedError:
+            return None
         except Exception as exc:  # context is best effort
             LOGGER.warning("lookup: %s intrinsics unavailable: %s", camera, exc)
             return None
-        if loaded is None:
-            return None
-        intrinsics = loaded[0]
         return 2.0 * math.atan(intrinsics.width / (2.0 * intrinsics.fx))
 
     def photo_add(self, photo_id: str, tool: str, camera: str, width: int, height: int, full_frame: bool) -> PhotoAdd:

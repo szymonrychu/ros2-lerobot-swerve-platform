@@ -704,20 +704,23 @@ class MonitorSettings(StrictModel):
 
 
 class IntrinsicsSettings(StrictModel):
-    """Camera intrinsics source: a camera_calibration yaml, or an approximate horizontal field of view."""
+    """Camera intrinsics source: a camera_calibration yaml, the camera's sensor_msgs/CameraInfo topic (factory
+    intrinsics of the D435), or an approximate horizontal field of view."""
 
     calibration_file: Path | None = None
+    # CameraInfo topic of the camera (subscribed on demand by ros_iface); the latest message gives the intrinsics.
+    camera_info_topic: str | None = Field(default=None, min_length=1)
     hfov_deg: float | None = Field(default=None, gt=0.0, lt=180.0)
     width: int | None = Field(default=None, gt=0)
     height: int | None = Field(default=None, gt=0)
-    # Size of the images the tools get from this camera. With a calibration_file of another size (same aspect within
-    # 0.5 %) the intrinsics are scaled to it; both or neither.
+    # Size of the images the tools get from this camera. With a calibration_file or CameraInfo of another size (same
+    # aspect within 0.5 %) the intrinsics are scaled to it; both or neither.
     image_width: int | None = Field(default=None, gt=0)
     image_height: int | None = Field(default=None, gt=0)
 
     @model_validator(mode="after")
     def one_source(self) -> "IntrinsicsSettings":
-        """Require either calibration_file alone or hfov_deg with width and height.
+        """Require exactly one source: calibration_file, camera_info_topic, or hfov_deg with width and height.
 
         Returns:
             IntrinsicsSettings: The validated settings.
@@ -725,11 +728,24 @@ class IntrinsicsSettings(StrictModel):
         if (self.image_width is None) != (self.image_height is None):
             raise ValueError("intrinsics: set image_width and image_height together")
         hfov_keys = (self.hfov_deg, self.width, self.height)
-        if self.calibration_file is not None:
-            if any(k is not None for k in hfov_keys):
-                raise ValueError("intrinsics: give calibration_file OR hfov_deg with width and height, not both")
-        elif any(k is None for k in hfov_keys):
-            raise ValueError("intrinsics: set calibration_file, or hfov_deg together with width and height")
+        given = [
+            name
+            for name, set_ in (
+                ("calibration_file", self.calibration_file is not None),
+                ("camera_info_topic", self.camera_info_topic is not None),
+                ("hfov_deg", any(k is not None for k in hfov_keys)),
+            )
+            if set_
+        ]
+        if len(given) > 1:
+            raise ValueError(
+                f"intrinsics: give one of calibration_file, camera_info_topic or hfov_deg with width and height, not "
+                f"{' and '.join(given)}"
+            )
+        if not given or (given == ["hfov_deg"] and any(k is None for k in hfov_keys)):
+            raise ValueError(
+                "intrinsics: set calibration_file, camera_info_topic, or hfov_deg together with width and height"
+            )
         return self
 
 

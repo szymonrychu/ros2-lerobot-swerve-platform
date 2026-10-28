@@ -285,7 +285,7 @@ def camera_scene(robot: RobotApi, config: McpServerConfig, camera: str) -> tuple
         CameraNotCalibratedError: When intrinsics or mount are missing.
         ArmError: When the gripper camera needs joint states and they are stale.
     """
-    setup = camera_setup(config, camera)
+    setup = camera_setup(config, camera, source=robot)
     joints = robot.arm.measured(robot.arm.require_sample()) if camera == "gripper" else None
     return build_scene(setup, config, parent_transform(config, camera, robot.arm.kin, joints, head=robot.head)), setup
 

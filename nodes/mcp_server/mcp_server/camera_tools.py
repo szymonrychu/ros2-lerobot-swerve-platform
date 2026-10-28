@@ -218,7 +218,7 @@ def register(ctx: ToolContext) -> None:
 
     def scene_for(camera: str) -> tuple[Scene, CameraSetup, dict[str, float] | None]:
         """Scene of a calibrated camera at the current arm pose (gripper) or measured head pose (front)."""
-        setup = camera_setup(config, camera)
+        setup = camera_setup(config, camera, source=robot)
         joints = arm_joints(required=camera == "gripper")
         t_parent = parent_transform(config, camera, kin, joints, head=robot.head)
         return build_scene(setup, config, t_parent), setup, joints
@@ -247,7 +247,7 @@ def register(ctx: ToolContext) -> None:
     def candidate_image(camera: str) -> dict[str, int] | None:
         """Calibrated image size the candidate pixels refer to (None when the camera has no intrinsics)."""
         try:
-            intr = camera_setup(config, camera, need_mount=False).intrinsics
+            intr = camera_setup(config, camera, need_mount=False, source=robot).intrinsics
         except ValueError:
             return None
         return {"width": intr.width, "height": intr.height}
@@ -549,7 +549,7 @@ def register(ctx: ToolContext) -> None:
         """Store a calibration sample; the tool description is passed to the decorator."""
         with camera_errors():
             if image_width is not None or image_height is not None:
-                intr = camera_setup(config, camera, need_mount=False).intrinsics
+                intr = camera_setup(config, camera, need_mount=False, source=robot).intrinsics
                 scale = pixel_scale(image_width, image_height, intr.width, intr.height, default_px) or 1.0
                 u, v = u * scale, v * scale
             parent = str(getattr(config.cameras, camera).parent_frame)
@@ -583,7 +583,7 @@ def register(ctx: ToolContext) -> None:
     ) -> CallToolResult:
         """Solve the mount; the tool description is passed to the decorator."""
         with camera_errors():
-            setup = camera_setup(config, camera, need_mount=False)
+            setup = camera_setup(config, camera, need_mount=False, source=robot)
             parent = str(getattr(config.cameras, camera).parent_frame)
             if initial is not None:
                 start = MountPose(parent_frame=parent, **initial.model_dump())

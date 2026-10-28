@@ -47,6 +47,29 @@ def test_intrinsics_calibration_file_excludes_hfov() -> None:
         McpServerConfig.model_validate({"cameras": {"front": {"intrinsics": {}}}})
 
 
+def test_camera_info_topic_is_an_exclusive_source() -> None:
+    topic = "/head/d435/color/camera_info"
+
+    def intrinsics(**fields: object) -> McpServerConfig:
+        return McpServerConfig.model_validate({"cameras": {"front": {"intrinsics": fields}}})
+
+    alone = intrinsics(camera_info_topic=topic).cameras.front.intrinsics
+    assert alone is not None and alone.camera_info_topic == topic
+    assert alone.calibration_file is None and alone.hfov_deg is None
+    scaled = intrinsics(camera_info_topic=topic, image_width=1280, image_height=720).cameras.front.intrinsics
+    assert scaled is not None and (scaled.image_width, scaled.image_height) == (1280, 720)
+    for other in (
+        {"calibration_file": "/x.yaml"},
+        {"hfov_deg": 60.0, "width": 640, "height": 360},
+        {"hfov_deg": 60.0},
+        {"width": 640, "height": 360},
+    ):
+        with pytest.raises(ValidationError, match="camera_info_topic"):
+            intrinsics(camera_info_topic=topic, **other)
+    with pytest.raises(ValidationError):
+        intrinsics(camera_info_topic="")
+
+
 def test_mount_parent_frame_is_adopted_and_must_match() -> None:
     cfg = McpServerConfig.model_validate({"cameras": {"gripper": {"mount": MOUNT}}})
     assert cfg.cameras.gripper.mount is not None and cfg.cameras.gripper.mount.z == 0.05

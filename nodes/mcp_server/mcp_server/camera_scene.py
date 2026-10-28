@@ -60,6 +60,35 @@ class MeasuredHead(Protocol):
         ...
 
 
+@dataclass(frozen=True)
+class CameraInfoData:
+    """The fields of a camera's latest sensor_msgs/CameraInfo that the camera tools use.
+
+    Attributes:
+        width (int): Image width (px).
+        height (int): Image height (px).
+        k (tuple[float, ...]): Row-major 3x3 camera matrix (9 values).
+        d (tuple[float, ...]): Distortion coefficients.
+        distortion_model (str): CameraInfo.distortion_model ('plumb_bob' for the D435 colour stream).
+        stamp (float): Header stamp (ROS time, s).
+    """
+
+    width: int
+    height: int
+    k: tuple[float, ...]
+    d: tuple[float, ...]
+    distortion_model: str
+    stamp: float
+
+
+class CameraInfoSource(Protocol):
+    """Where the latest CameraInfo of a camera comes from (tool_context.RobotApi, implemented by ros_iface.RosRobot)."""
+
+    def camera_info(self, camera: str) -> CameraInfoData | None:
+        """Latest CameraInfo of the camera; None without a camera_info_topic or before a first message."""
+        ...
+
+
 class CameraNotCalibratedError(ValueError):
     """Raised when a camera lacks intrinsics and/or a mount."""
 
@@ -241,15 +270,72 @@ def read_calibration(path: Path) -> tuple[int, CameraIntrinsics] | None:
     return entry
 
 
-def load_intrinsics(settings: IntrinsicsSettings | None) -> tuple[CameraIntrinsics, bool] | None:
-    """Build intrinsics from the config; a calibration file is read lazily (mtime cache) at each call.
+def fit_image_size(
+    intr: CameraIntrinsics, settings: IntrinsicsSettings, source: str, stamp: int | None
+) -> CameraIntrinsics | None:
+    """Scale intrinsics to the configured image size (image_width / image_height), when one is set.
+
+    Args:
+        intr (CameraIntrinsics): Intrinsics of the source.
+        settings (IntrinsicsSettings): Configured source and image size.
+        source (str): Calibration file or CameraInfo topic, for the warning.
+        stamp (int | None): Source state (file mtime_ns) the aspect warning is logged once for.
+
+    Returns:
+        CameraIntrinsics | None: The (scaled) intrinsics; None when the aspect ratio differs from the image size
+            (warned once per source state).
+    """
+    if settings.image_width is None or settings.image_height is None:
+        return intr
+    scaled = scale_intrinsics(intr, settings.image_width, settings.image_height)
+    if scaled is None:
+        warn_once(
+            f"{source}:aspect",
+            stamp,
+            f"camera calibration {source} is {intr.width}x{intr.height}, the image is "
+            f"{settings.image_width}x{settings.image_height}: different aspect ratio, not calibrated",
+        )
+    return scaled
+
+
+def intrinsics_from_camera_info(topic: str, info: CameraInfoData | None) -> CameraIntrinsics | None:
+    """Factory intrinsics from a CameraInfo (CameraIntrinsics.from_camera_info).
+
+    Args:
+        topic (str): Configured camera_info_topic, for the warning.
+        info (CameraInfoData | None): Latest CameraInfo, None when none was received.
+
+    Returns:
+        CameraIntrinsics | None: The intrinsics; None without a CameraInfo or for an invalid one (zero K, an
+            unsupported distortion model, a zero image size; warned once per topic).
+    """
+    if info is None:
+        warn_once(f"{topic}:none", None, f"no CameraInfo on {topic} yet: the camera is not calibrated")
+        return None
+    try:
+        if info.width <= 0 or info.height <= 0:
+            raise ValueError(f"image size {info.width}x{info.height}")
+        return CameraIntrinsics.from_camera_info(info.width, info.height, info.k, info.d, info.distortion_model)
+    except ValueError as exc:
+        warn_once(f"{topic}:invalid", None, f"CameraInfo on {topic} is invalid ({exc}): the camera is not calibrated")
+        return None
+
+
+def load_intrinsics(
+    settings: IntrinsicsSettings | None, camera_info: CameraInfoData | None = None
+) -> tuple[CameraIntrinsics, bool] | None:
+    """Build intrinsics from the config; a calibration file is read lazily (mtime cache) at each call, a
+    camera_info_topic source uses the camera's latest CameraInfo.
 
     Args:
         settings (IntrinsicsSettings | None): Configured source.
+        camera_info (CameraInfoData | None): Latest CameraInfo of the camera (camera_info_topic source); None when
+            none was received.
 
     Returns:
         tuple[CameraIntrinsics, bool] | None: (intrinsics, approximate) or None when not configured, when the
-            calibration file is missing or unreadable, or when its aspect ratio differs from the image size.
+            calibration file is missing or unreadable, when there is no valid CameraInfo, or when the aspect ratio
+            differs from the image size.
     """
     if settings is None:
         return None
@@ -258,29 +344,29 @@ def load_intrinsics(settings: IntrinsicsSettings | None) -> tuple[CameraIntrinsi
         if entry is None:
             return None
         stamp, intr = entry
-        if settings.image_width is not None and settings.image_height is not None:
-            scaled = scale_intrinsics(intr, settings.image_width, settings.image_height)
-            if scaled is None:
-                warn_once(
-                    f"{settings.calibration_file}:aspect",
-                    stamp,
-                    f"camera calibration {settings.calibration_file} is {intr.width}x{intr.height}, the image is "
-                    f"{settings.image_width}x{settings.image_height}: different aspect ratio, not calibrated",
-                )
-                return None
-            intr = scaled
-        return intr, False
+        fitted = fit_image_size(intr, settings, str(settings.calibration_file), stamp)
+        return None if fitted is None else (fitted, False)
+    if settings.camera_info_topic is not None:
+        factory = intrinsics_from_camera_info(settings.camera_info_topic, camera_info)
+        if factory is None:
+            return None
+        fitted = fit_image_size(factory, settings, settings.camera_info_topic, None)
+        return None if fitted is None else (fitted, False)
     assert settings.hfov_deg is not None and settings.width is not None and settings.height is not None
     return CameraIntrinsics.from_hfov(settings.width, settings.height, settings.hfov_deg), True
 
 
-def camera_setup(cfg: McpServerConfig, camera: str, need_mount: bool = True) -> CameraSetup:
+def camera_setup(
+    cfg: McpServerConfig, camera: str, need_mount: bool = True, source: CameraInfoSource | None = None
+) -> CameraSetup:
     """Resolve a camera's calibration from the config.
 
     Args:
         cfg (McpServerConfig): Node configuration.
         camera (str): 'gripper' or 'front'.
         need_mount (bool): Require the mount pose (False for capture and the solver, which determine it).
+        source (CameraInfoSource | None): The robot, asked for the camera's latest CameraInfo when its intrinsics
+            come from a camera_info_topic; None when no CameraInfo is available (such a camera is not calibrated).
 
     Returns:
         CameraSetup: The setup.
@@ -289,7 +375,10 @@ def camera_setup(cfg: McpServerConfig, camera: str, need_mount: bool = True) -> 
         CameraNotCalibratedError: When intrinsics (or the mount, if needed) are missing.
     """
     settings = getattr(cfg.cameras, camera)
-    loaded = load_intrinsics(settings.intrinsics)
+    info = None
+    if source is not None and settings.intrinsics is not None and settings.intrinsics.camera_info_topic is not None:
+        info = source.camera_info(camera)
+    loaded = load_intrinsics(settings.intrinsics, info)
     if loaded is None or (need_mount and settings.mount is None):
         raise CameraNotCalibratedError(NOT_CALIBRATED.format(camera=camera))
     assert settings.parent_frame is not None
