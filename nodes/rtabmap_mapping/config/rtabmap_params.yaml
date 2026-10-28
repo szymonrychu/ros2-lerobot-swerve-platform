@@ -35,16 +35,16 @@ rtabmap:
     # --- occupancy grid: depth only (D6, D13) ---
     Grid/Sensor: "1"                   # depth only: measured 3D points are never mixed with scan points (U6/D13); "2" would merge the scan in
     Grid/3D: "true"                    # 3D local grids: the source of cloud_map
-    Grid/RangeMax: "4.0"               # m, the ToF range
+    Grid/RangeMax: "4.0"               # m, the D435 depth range
     Grid/CellSize: "0.05"              # m, 5 cm voxels (cloud_map voxel size, D10)
-    Grid/DepthDecimation: "2"          # use every 2nd depth pixel: 144x81 points per node from the 288x162 registered depth
+    Grid/DepthDecimation: "2"          # use every 2nd depth pixel: 160x90 points per node from the 320x180 depth aligned to the 640x360 colour
     Grid/MaxObstacleHeight: "2.0"      # m, ignore points above 2 m (ceiling)
     Grid/RayTracing: "false"           # no free-space ray tracing: saves CPU on the Pi 4b
     # --- memory management for the Pi 4b (D8) ---
     Rtabmap/MemoryThr: "400"           # at most 400 nodes in working memory; older nodes move to the database
     Rtabmap/TimeThr: "0"               # no time-based transfer: memory is bounded by MemoryThr
     Mem/STMSize: "10"                  # short-term memory nodes
-    Mem/ImagePostDecimation: "2"       # images stored at half size (288x162)
+    Mem/ImagePostDecimation: "2"       # images stored at half size (320x180 from the 640x360 colour)
     Mem/BinDataKept: "true"            # keep images in the database so it can be re-processed (~30-50 KB per node)
     Mem/RawDescriptorsKept: "false"    # no raw descriptors (there are none with Kp/MaxFeatures -1)
     Rtabmap/ImageBufferSize: "1"       # process only the latest input, drop older ones instead of queueing
