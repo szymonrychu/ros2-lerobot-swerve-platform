@@ -67,3 +67,4 @@ What is true and observable when the task is done.
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
 - 2026-10-28 (user): the board is the same 3D-printed 6x5 ChArUco (same dimensions as before), 4 mm thick; it is in front of the robot and the D435 head is mounted. Account for the 4 mm thickness where the board surface vs mount face matters (plate_mount / tool_in_board_m, board-plane depth bias).
+- 2026-10-29: head-arm poses t2p10-t2p12 pass the D435 FOV rule by only 3-11 px under nominal intrinsics; if they lose views at run time, re-aim them (head-arm-pose-set-retuned-fo).
