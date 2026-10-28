@@ -1,6 +1,6 @@
 ---
 title: Nav2 ground layer and keepout on
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Nav2 plans around the steps, drops and warning areas ground estimation finds."
 files: [nodes/nav2_bringup/config/nav2_params.yaml, tests/test_nav_ground_voxel_layer.py, tests/test_nav_d435_inputs.py, nodes/nav2_bringup/README.md, tests/README.md]
@@ -8,15 +8,15 @@ verify: "uv run pytest tests/test_nav_ground_voxel_layer.py tests/test_nav_d435_
 depends_on: [nav2-collision-sources-on-d4, enable-rgb-d-and-ground-node]
 model: sonnet
 review: ""
-verified_head: ""
+verified_head: ed98aed7
 points: 2
 expected_minutes: 23
 expected_tokens: 1500000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 2
+actual_minutes: 16
+actual_tokens: 1595624
+actual_roles: "impl 10, review 5"
+actual_role_tokens: "impl 1435929, review 159695"
 ---
 
 # Nav2 ground layer and keepout on
@@ -61,3 +61,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-28 done
