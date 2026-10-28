@@ -1,6 +1,6 @@
 ---
 title: Marker detector zoom retired
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: marker_detector stops waiting for zoom stills no camera produces.
 files: [nodes/marker_detector/marker_detector/zoom.py, nodes/marker_detector/tests/test_zoom.py, nodes/marker_detector/marker_detector/config.py, nodes/marker_detector/marker_detector/pipeline.py, nodes/marker_detector/marker_detector/node.py, nodes/marker_detector/tests/test_config.py, ansible/group_vars/client.yml, tests/test_marker_detector_config.py]
@@ -8,15 +8,15 @@ verify: "cd nodes/marker_detector && uv run --frozen pytest tests -q && uv run p
 depends_on: [marker-detector-on-d435]
 model: opus
 review: ""
-verified_head: ""
+verified_head: b4b738dc
 points: 2
 expected_minutes: 23
 expected_tokens: 1500000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 3
+actual_minutes: 17
+actual_tokens: 4546634
+actual_roles: "impl 14, review 3"
+actual_role_tokens: "impl 4307096, review 239538"
 ---
 
 # Marker detector zoom retired
@@ -65,3 +65,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-28 done: root suite on b4b738dc: 2151 passed, 9 skipped (implementer run; reviewer's root run did not finish)
