@@ -393,7 +393,7 @@ protected:
     depth_pub_ = probe_->create_publisher<sensor_msgs::msg::Image>(g.depth_topic, rclcpp::QoS(10).reliable());
     info_pub_ = probe_->create_publisher<sensor_msgs::msg::CameraInfo>(g.info_topic, rclcpp::QoS(10).reliable());
     rgb_pub_ = probe_->create_publisher<sensor_msgs::msg::CompressedImage>(g.rgb_topic, rclcpp::QoS(10).reliable());
-    tof_info_pub_ =
+    depth_info_pub_ =
       probe_->create_publisher<sensor_msgs::msg::CameraInfo>(g.depth_info_topic, rclcpp::QoS(10).reliable());
     rgbd_pub_ =
       probe_->create_publisher<sensor_msgs::msg::PointCloud2>(config.rgbd_cloud_topic, rclcpp::QoS(1).best_effort());
@@ -407,9 +407,9 @@ protected:
     rgb_sub_ = probe_->create_subscription<sensor_msgs::msg::CompressedImage>(
       g.rgb_topic, rclcpp::QoS(10).reliable(),
       [this](sensor_msgs::msg::CompressedImage::ConstSharedPtr m) { rgb_in_.add(ns_of(m->header.stamp), *m); });
-    tof_info_sub_ = probe_->create_subscription<sensor_msgs::msg::CameraInfo>(
+    depth_info_sub_ = probe_->create_subscription<sensor_msgs::msg::CameraInfo>(
       g.depth_info_topic, rclcpp::QoS(10).reliable(),
-      [this](sensor_msgs::msg::CameraInfo::ConstSharedPtr m) { tof_info_in_.add(ns_of(m->header.stamp), *m); });
+      [this](sensor_msgs::msg::CameraInfo::ConstSharedPtr m) { depth_info_in_.add(ns_of(m->header.stamp), *m); });
     rgbd_sub_ = probe_->create_subscription<sensor_msgs::msg::PointCloud2>(
       config.rgbd_cloud_topic, rclcpp::QoS(1).best_effort(),
       [this](sensor_msgs::msg::PointCloud2::ConstSharedPtr m) { rgbd_in_.add(ns_of(m->header.stamp), *m); });
@@ -433,7 +433,7 @@ protected:
              obstacle_sub_->get_publisher_count() > 0 && drop_sub_->get_publisher_count() > 0 &&
              warnings_sub_->get_publisher_count() > 0 && depth_pub_->get_subscription_count() > 0 &&
              info_pub_->get_subscription_count() > 0 && rgb_pub_->get_subscription_count() > 0 &&
-             tof_info_pub_->get_subscription_count() > 0 && rgbd_pub_->get_subscription_count() > 0;
+             depth_info_pub_->get_subscription_count() > 0 && rgbd_pub_->get_subscription_count() > 0;
     }));
   }
 
@@ -583,7 +583,7 @@ protected:
         std_msgs::msg::Header header;
         header.frame_id = scene.depth_model->frame;
         header.stamp = stamp_of_ns(stamp_ns);
-        tof_info_pub_->publish(camera_info_of(*scene.depth_model, header));
+        depth_info_pub_->publish(camera_info_of(*scene.depth_model, header));
       }
       for (; next_imu < scene.imu.size() && scene.imu[next_imu].stamp_ns + offset_ns <= stamp_ns; ++next_imu) {
         publish_imu(scene.imu[next_imu], scene.imu[next_imu].stamp_ns + offset_ns);
@@ -627,15 +627,15 @@ protected:
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr obstacle_sub_, drop_sub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr warnings_sub_;
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr depth_pub_;
-  rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr info_pub_, tof_info_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr info_pub_, depth_info_pub_;
   rclcpp::Publisher<sensor_msgs::msg::CompressedImage>::SharedPtr rgb_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr rgbd_pub_;
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr depth_sub_;
-  rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr info_sub_, tof_info_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr info_sub_, depth_info_sub_;
   rclcpp::Subscription<sensor_msgs::msg::CompressedImage>::SharedPtr rgb_sub_;
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr rgbd_sub_;
   StampedInbox<sensor_msgs::msg::Image> depth_in_;
-  StampedInbox<sensor_msgs::msg::CameraInfo> info_in_, tof_info_in_;
+  StampedInbox<sensor_msgs::msg::CameraInfo> info_in_, depth_info_in_;
   StampedInbox<sensor_msgs::msg::CompressedImage> rgb_in_;
   StampedInbox<sensor_msgs::msg::PointCloud2> rgbd_in_;
   StampedInbox<sensor_msgs::msg::PointCloud2> obstacle_, drop_;
@@ -1378,13 +1378,13 @@ TEST_F(Harness, PublishesPairsOfTinyV2)
     EXPECT_EQ(rgb->format, "jpeg");
     EXPECT_EQ(rgb->data, scene.pairs[i].jpeg);
   }
-  // The ToF camera_info once per cloud, in the ToF model.
-  EXPECT_EQ(tof_info_in_.size(), scene.clouds.size());
+  // The depth camera_info once per cloud, in the depth model.
+  EXPECT_EQ(depth_info_in_.size(), scene.clouds.size());
   for (const auto & cloud : scene.clouds) {
-    const auto tof = tof_info_in_.get(cloud.stamp_ns + offset_ns_);
-    ASSERT_TRUE(tof);
-    EXPECT_EQ(tof->header.frame_id, scene.depth_model->frame);
-    EXPECT_DOUBLE_EQ(tof->k[4], scene.depth_model->K[4]);
+    const auto depth_info = depth_info_in_.get(cloud.stamp_ns + offset_ns_);
+    ASSERT_TRUE(depth_info);
+    EXPECT_EQ(depth_info->header.frame_id, scene.depth_model->frame);
+    EXPECT_DOUBLE_EQ(depth_info->k[4], scene.depth_model->K[4]);
   }
   // The derived XYZRGB cloud: at most 1 Hz, so the 2 pairs of the fixture give one or two; each in the RGB frame at
   // a pair stamp, with float x y z and a packed rgb.

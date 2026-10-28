@@ -541,11 +541,11 @@ header version 2, then the guidance section:
 
 | Field | Type |
 |-------|------|
-| RGB model, then ToF model | float64[9] `K`; float64[5] `D`; uint32 width; uint32 height; uint32 length + UTF-8 frame id |
+| RGB model, then depth model (the D435 depth stream of the clouds) | float64[9] `K`; float64[5] `D`; uint32 width; uint32 height; uint32 length + UTF-8 frame id |
 | pair count | uint32 (0 when exported with `pairs: false`) |
-| per pair | int64 `stamp_ns`; float64[7] `base_T_rgb`; float64[7] `odom_T_base`; uint32 length + JPEG bytes; uint32 length + PNG bytes (the upsampled depth, uint16 mm, lossless `cv2.imencode(".png")`) |
+| per pair | int64 `stamp_ns`; float64[7] `base_T_rgb`; float64[7] `odom_T_base`; uint32 length + JPEG bytes; uint32 length + PNG bytes (the pair depth, uint16 mm, lossless `cv2.imencode(".png")`) |
 
-The reader fills `ReplayScene::rgb_model`, `tof_model` (`CameraModel {K, D, width, height, frame}`) and `pairs`
+The reader fills `ReplayScene::rgb_model`, `depth_model` (`CameraModel {K, D, width, height, frame}`) and `pairs`
 (`ReplayPair {stamp_ns, base_T_rgb, odom_T_base, jpeg, depth_mm}`, `depth_mm` decoded with
 `cv::imdecode(IMREAD_UNCHANGED)` as `CV_16UC1`); all three are empty for version 1. `Replay` is an alias of
 `ReplayScene`. `test/data/replay/tiny_v2.bin` (3 clouds, 2 pairs, 16x12 images) is generated from a synthetic npz by the
@@ -555,7 +555,7 @@ export; `tests/test_ground_replay_export.py::test_tiny_v2_fixture_is_current` re
 Size caps: `MAX_FIXTURE_BYTES` = 3 000 000 for a file without pairs, `MAX_PAIR_FIXTURE_BYTES` = 6 000 000 with pairs (a
 576x324 depth PNG is about 0.2 MB, a JPEG about 35 kB). An export above its cap raises with the size and writes nothing.
 
-### Scenes config and the ToF frame subset
+### Scenes config
 
 `uv run python scripts/ground_replay_export.py` without arguments exports every entry of
 `scripts/ground_replay_scenes.yaml` (pydantic, unknown keys rejected):
@@ -563,16 +563,14 @@ Size caps: `MAX_FIXTURE_BYTES` = 3 000 000 for a file without pairs, `MAX_PAIR_F
 ```yaml
 fixtures:      # replay binaries
   - {input: <recording.npz>, output: <fixture.bin>, start_s: 5.0, duration_s: 10.0, pairs: true}
-tof_frames:    # ToF depth + amplitude subsets for the amplitude gate and flying-pixel tests
-  - {input: [<a.npz>, <b.npz>], output: <frames.npz>, every_n: 5, max_frames: 40, truth_yaml: <truth.yaml>}
 ```
 
-`export_tof_frames` keeps every `every_n`-th frame of each input (at most `max_frames` over all inputs, split evenly so
-every scene is present) and writes `tof_depth_mm`, `tof_amplitude`, `tof_base_T`, `tof_stamps_ns`, `tof_K`, `tof_D`,
-`tof_size`, `scene`, the truth polygons `truth_board`, `truth_ramp`, `truth_empty`, `truth_box` (4 x 2, base_link m, from
-the truth YAML keys `board`, `ramp`, `empty`, `box`), `box_height_m`, and `floor_plane` (`nx ny nz d`, `n.p + d = 0` in
-base_link: RANSAC at 1 cm, then a least-squares fit of the inliers, over the depth points whose floor point lies in
-`truth_empty`).
+The export reads ground recorder layout 3 (`nodes/web_ui/web_ui/ground_recorder.py`: `depth_K`, `depth_D`,
+`depth_size`, `depth_frame`, the `rgb_*` and `pair_*` keys) into version 2, and layout 1 (the 2026-10-22 recordings)
+into version 1. A layout-2 recording (the retired Arducam ToF model) or any other layout is refused naming layout 3, and
+so is a layout-3 recording whose depth or RGB camera_info never arrived (size 0 x 0, K zeros); nothing is written then.
+`depth_points_in_base` deprojects a depth image of the depth model into base_link through
+`ros2_common.camera_geometry.depth_to_points`.
 
 ### How a scene is replayed
 
@@ -608,7 +606,7 @@ after the first cloud that the node answered with a plane. ROI edges are inclusi
 |--------|------------|
 | `plane_share` | answered frames / frames after the 2 s warm-up |
 | `box_lethal_share` | share of counted frames with an obstacle point in `BOX_LETHAL_ROI` |
-| `box_warning_share` | share of counted frames with a ToF `step` warning area centred in `BOX_LETHAL_ROI` |
+| `box_warning_share` | share of counted frames with a depth `step` warning area centred in `BOX_LETHAL_ROI` |
 | `board_lethal_frames` | counted frames with an obstacle or drop point in `BOARD_ROI` |
 | `stray_lethal_share` | share of counted frames with an obstacle or drop point in the stray zone |
 | `far_side_warning_frames` | counted frames with a `ramp` or `step` warning area whose polygon centroid (vertex mean, in base_link) lies in `FAR_SIDE_ROI` |
@@ -648,10 +646,11 @@ source}`, the heights empty when null).
 `guidance.enabled` of the loaded shipped config, the guidance topics get the per-test prefix like the other topics. For a
 version 2 fixture:
 
-- each pair goes out at its restamped time, after the clouds stamped before it: the upsampled depth (`16UC1`) on
+- each pair goes out at its restamped time, after the clouds stamped before it: the pair depth (`16UC1`) on
   `guidance.depth_topic`, its camera_info (the RGB model) on `guidance.info_topic` and the JPEG `CompressedImage` on
   `guidance.rgb_topic`, all with one header (RGB frame, restamped pair stamp);
-- the fixture's depth camera model (`ReplayScene::tof_model`) goes out once per cloud on `guidance.depth_info_topic`, with the cloud's stamp;
+- the fixture's depth camera model (`ReplayScene::depth_model`) goes out once per cloud on
+  `guidance.depth_info_topic`, with the cloud's stamp;
 - TF holds `base_link <- RGB frame` and `odom <- base_link` at every pair stamp;
 - at most once per second an XYZRGB cloud goes out on `rgbd_cloud_topic` (it feeds the floor colour model as
   `head_rgbd_cpp` does): the depth halved by the minimum valid depth of each 2x2 block (0 when none), the JPEG decoded
