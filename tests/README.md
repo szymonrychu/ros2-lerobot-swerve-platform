@@ -3214,7 +3214,7 @@ Retirement pins for the ToF-only code paths of `nodes/head_rgbd_cpp` (the D435 p
 | Test | What it checks |
 |---|---|
 | `test_head_rgbd_registration_and_motion_are_gone` | `git ls-files` returns nothing for the ToF registration and motion compensation sources, headers and gtests (`src/core/{registration,motion}.cpp`, `include/head_rgbd_cpp/{registration,motion}.hpp`, `test/core/test_{registration,motion}.cpp`), and no tracked file under `nodes/head_rgbd_cpp` has an `#include` of `registration.hpp` or `motion.hpp`. |
-| `test_head_rgbd_upsampling_and_tof_filter_are_gone` | `git ls-files` returns nothing for the guided depth upsampling and ToF flying-pixel filter sources, headers and gtests (`src/core/{upsample,tof_filter}.cpp`, `include/head_rgbd_cpp/{upsample,tof_filter}.hpp`, `test/core/test_{upsample,tof_filter}.cpp`), and no tracked file under `nodes/head_rgbd_cpp` has an `#include` of `upsample.hpp` or `tof_filter.hpp`. |
+| `test_head_rgbd_upsampling_and_tof_filter_are_gone` | `git ls-files` returns nothing for the guided depth upsampling and ToF flying-pixel filter sources, headers and gtests (`src/core/{upsample,tof_filter}.cpp`, `include/head_rgbd_cpp/{upsample,tof_filter}.hpp`, `test/core/test_{upsample,tof_filter}.cpp`), the synthetic ToF scene `test/core/synthetic_scene.hpp` and the unread fixture `test/data/tof_calibration.yaml`, and no tracked file under `nodes/head_rgbd_cpp` has an `#include` of `upsample.hpp` or `tof_filter.hpp`. |
 
 ### `test_head_rgbd_urdf_handoff.py`
 

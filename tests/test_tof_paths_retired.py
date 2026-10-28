@@ -27,6 +27,9 @@ UPSAMPLING_AND_TOF_FILTER_PATHS = (
     f"{HEAD_RGBD_DIR}/src/core/tof_filter.cpp",
     f"{HEAD_RGBD_DIR}/include/head_rgbd_cpp/tof_filter.hpp",
     f"{HEAD_RGBD_DIR}/test/core/test_tof_filter.cpp",
+    # The synthetic ToF scene their gtests rendered, and the ToF calibration fixture no test reads any more.
+    f"{HEAD_RGBD_DIR}/test/core/synthetic_scene.hpp",
+    f"{HEAD_RGBD_DIR}/test/data/tof_calibration.yaml",
 )
 # An #include of upsample.hpp or tof_filter.hpp, by any path prefix and with either delimiter.
 UPSAMPLE_OR_TOF_FILTER_INCLUDE = r'#include[[:space:]]*[<"]([^<>"]*/)?(upsample|tof_filter)\.hpp[>"]'
