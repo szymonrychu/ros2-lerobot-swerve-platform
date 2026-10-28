@@ -23,6 +23,7 @@ from .gps_anchor import (
     CompassSettings,
     GpsAnchorEstimator,
 )
+from .ground_recorder import RECORDER_MEMORY_BUDGET_BYTES, recording_buffer_bytes
 from .tilt_guard import TILT_STALE_S_DEFAULT
 
 DEFAULT_CONFIG_PATH = Path("/etc/ros2/web_ui/config.yaml")
@@ -648,6 +649,23 @@ class GroundRecorderConfig(BaseModel):
     state_topic: str = "/ground/state"
     base_frame: str = "base_link"
     odom_frame: str = "odom"
+
+    @field_validator("max_duration_s")
+    @classmethod
+    def fits_memory_budget(cls, value: float) -> float:
+        """Refuse a window whose recording buffers exceed the recorder memory budget.
+
+        :param value: max_duration_s, seconds (float).
+        :return: the value (float).
+        :raises ValueError: when recording_buffer_bytes(value) > RECORDER_MEMORY_BUDGET_BYTES.
+        """
+        need = recording_buffer_bytes(value)
+        if need > RECORDER_MEMORY_BUDGET_BYTES:
+            raise ValueError(
+                f"max_duration_s {value:g} needs {need / 2**20:.0f} MiB of recording buffers, over the "
+                f"{RECORDER_MEMORY_BUDGET_BYTES / 2**20:.0f} MiB recorder memory budget"
+            )
+        return value
 
 
 class AppConfig(BaseModel):

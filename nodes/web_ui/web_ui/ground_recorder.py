@@ -4,11 +4,19 @@ The npz layout (version 3) keeps the cloud, IMU and head keys of the 2026-10-22 
 and the camera model of the D435 depth stream that produced the cloud (depth_K, depth_D, depth_size, depth_frame; no
 depth frames). It is read by scripts/ground_replay_export.py. Poses are Pose7 = (x y z qx qy qz qw),
 "<target> <- <source>".
+
+Memory: the cloud points, the pair depth images and the pair JPEGs are filled in place into buffers sized once from the
+recording window and the upstream worst case (buffer_capacity); a sample that does not fit is dropped and counted as
+"full". arrays() returns views of the buffers, so writing makes no second copy. Untouched buffer pages are never
+committed, and the whole buffer of a max_duration_s recording stays within RECORDER_MEMORY_BUDGET_BYTES (checked by
+GroundRecorderConfig).
 """
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 
@@ -30,6 +38,20 @@ STREAM_STATE = "state"
 STREAMS = (STREAM_CLOUD, STREAM_IMU, STREAM_HEAD, STREAM_PAIR, STREAM_STATE)
 REASON_RANGE = "range"
 REASON_SIZE = "size"
+REASON_FULL = "full"
+
+# Upstream worst case the buffers are sized for.
+CLOUD_MAX_POINTS = 160 * 90  # d435_obstacle_cloud: 640x360 D435 depth, decimation 4, before its voxel and noise filters
+CLOUD_RATE_HZ = 15.0  # realsense_d435 depth_profile 640x360x15; the cloud is one per depth frame
+PAIR_DEPTH_PIXELS = 320 * 180  # head_rgbd_cpp output.divisor 2 of the 640x360 colour
+PAIR_RATE_HZ = 2.0  # head_rgbd_cpp output.rate_hz
+PAIR_JPEG_BYTES = 128 * 1024  # JPEG buffer per pair: the full-size 640x360 colour at jpeg_quality 80
+RATE_MARGIN = 1.1  # frames per second above the nominal rate (stamp jitter) still buffered
+POINT_BYTES = 3 * np.dtype(np.int16).itemsize
+DEPTH_PIXEL_BYTES = np.dtype(np.uint16).itemsize
+# Recording buffers of a max_duration_s recording: web_ui MemoryMax 512M minus its 24 h peak working set of 253 MiB
+# (ansible/group_vars/client.yml) leaves about 259 MiB; the recorder takes 150 MiB of it.
+RECORDER_MEMORY_BUDGET_BYTES = 150 * 1024**2
 
 # 2026-10-22 keys
 KEY_STAMPS_NS = "stamps_ns"
@@ -65,6 +87,48 @@ KEY_STATE_JSON = "state_json"
 Pose7 = tuple[float, ...]
 
 
+class BufferCapacity(NamedTuple):
+    """Buffer sizes of one recording window.
+
+    cloud_frames (int): clouds kept. points (int): cloud points kept. pair_frames (int): RGB-D pairs kept.
+    pair_depth_bytes (int): bytes of pair depth images. jpeg_bytes (int): bytes of pair JPEGs.
+    """
+
+    cloud_frames: int
+    points: int
+    pair_frames: int
+    pair_depth_bytes: int
+    jpeg_bytes: int
+
+
+def buffer_capacity(duration_s: float) -> BufferCapacity:
+    """Buffer sizes for a recording window at the upstream worst case.
+
+    :param duration_s: window length, seconds (float).
+    :return: the buffer sizes (BufferCapacity).
+    """
+    # Rounded before ceil, so float noise (60 * 15 * 1.1 = 990.0000000000001) adds no frame.
+    cloud_frames = math.ceil(round(duration_s * CLOUD_RATE_HZ * RATE_MARGIN, 6))
+    pair_frames = math.ceil(round(duration_s * PAIR_RATE_HZ * RATE_MARGIN, 6))
+    return BufferCapacity(
+        cloud_frames=cloud_frames,
+        points=cloud_frames * CLOUD_MAX_POINTS,
+        pair_frames=pair_frames,
+        pair_depth_bytes=pair_frames * PAIR_DEPTH_PIXELS * DEPTH_PIXEL_BYTES,
+        jpeg_bytes=pair_frames * PAIR_JPEG_BYTES,
+    )
+
+
+def recording_buffer_bytes(duration_s: float) -> int:
+    """Bytes of the cloud, pair depth and JPEG buffers of a recording window.
+
+    :param duration_s: window length, seconds (float).
+    :return: buffer bytes (int).
+    """
+    cap = buffer_capacity(duration_s)
+    return cap.points * POINT_BYTES + cap.pair_depth_bytes + cap.jpeg_bytes
+
+
 def pose_row(pose: Pose7) -> list[float]:
     """Validate a pose and return it as a list.
 
@@ -83,17 +147,6 @@ def pose_array(rows: list[list[float]]) -> np.ndarray:
     :return: float64 array (N, 7).
     """
     return np.asarray(rows, dtype=np.float64).reshape(-1, POSE_FIELDS)
-
-
-def stack_images(frames: list[np.ndarray]) -> np.ndarray:
-    """Stack equally sized uint16 images, (0, 0, 0) when there are none.
-
-    :param frames: images (list[np.ndarray], each H x W uint16).
-    :return: uint16 array (T, H, W).
-    """
-    if not frames:
-        return np.zeros((0, 0, 0), dtype=np.uint16)
-    return np.stack(frames).astype(np.uint16, copy=False)
 
 
 def intrinsics(k: object | None, d: object | None) -> tuple[np.ndarray, np.ndarray]:
@@ -115,15 +168,17 @@ class GroundRecording:
         """Create an empty recording.
 
         :param name: recording name (str).
-        :param max_duration_s: window length from the first sample, seconds (float).
+        :param max_duration_s: window length from the first sample, seconds (float); sizes the buffers.
         """
         self.name = name
         self.max_duration_s = float(max_duration_s)
+        self.capacity = buffer_capacity(self.max_duration_s)
+        self.points = np.empty((self.capacity.points, 3), dtype=np.int16)  # filled in place up to n_points
+        self.n_points = 0
         self.first_ns: int | None = None
         self.cloud_frame = ""
         self.cloud_stamps: list[int] = []
         self.cloud_counts: list[int] = []
-        self.cloud_points: list[np.ndarray] = []
         self.base_T_cloud: list[list[float]] = []
         self.odom_T_base: list[list[float]] = []
         self.imu_rows: list[list[float]] = []
@@ -133,8 +188,9 @@ class GroundRecording:
         self.depth_info: tuple[np.ndarray, np.ndarray, tuple[int, int], str] = (*intrinsics(None, None), (0, 0), "")
         self.rgb_info: tuple[np.ndarray, np.ndarray, tuple[int, int], str] = (*intrinsics(None, None), (0, 0), "")
         self.pair_stamps: list[int] = []
-        self.pair_jpegs: list[bytes] = []
-        self.pair_depth: list[np.ndarray] = []
+        self.jpeg = np.empty(self.capacity.jpeg_bytes, dtype=np.uint8)  # filled in place up to jpeg_offsets[-1]
+        self.jpeg_offsets: list[int] = [0]
+        self.pair_depth: np.ndarray | None = None  # (frames, h, w) allocated at the first pair, filled in place
         self.pair_base_T_rgb: list[list[float]] = []
         self.pair_odom_T_base: list[list[float]] = []
         self.state_stamps: list[int] = []
@@ -163,6 +219,8 @@ class GroundRecording:
     ) -> None:
         """Add one point cloud; non-finite or int16-mm out-of-range points are dropped and counted.
 
+        A cloud that does not fit the remaining buffer (frames or points) is dropped whole and counted as "full".
+
         :param stamp_ns: cloud stamp, ns (int).
         :param frame_id: cloud frame (str).
         :param points_m: points in metres (np.ndarray, N x 3 float32).
@@ -174,12 +232,17 @@ class GroundRecording:
         with np.errstate(invalid="ignore"):
             mm = np.rint(pts * MM_PER_M)
             ok = np.isfinite(mm).all(axis=1) & (mm >= INT16_MIN).all(axis=1) & (mm <= INT16_MAX).all(axis=1)
-        if not ok.all():
-            self.drop(STREAM_CLOUD, REASON_RANGE, int((~ok).sum()))
+        kept = int(ok.sum())
+        if len(self.cloud_stamps) >= self.capacity.cloud_frames or self.n_points + kept > len(self.points):
+            self.drop(STREAM_CLOUD, REASON_FULL)
+            return
+        if kept < len(ok):
+            self.drop(STREAM_CLOUD, REASON_RANGE, len(ok) - kept)
+        self.points[self.n_points : self.n_points + kept] = mm[ok]
+        self.n_points += kept
         self.cloud_frame = frame_id
         self.cloud_stamps.append(int(stamp_ns))
-        self.cloud_counts.append(int(ok.sum()))
-        self.cloud_points.append(mm[ok].astype(np.int16))
+        self.cloud_counts.append(kept)
         self.base_T_cloud.append(pose_row(base_T_cloud))
         self.odom_T_base.append(pose_row(odom_T_base))
 
@@ -235,6 +298,9 @@ class GroundRecording:
     ) -> None:
         """Add one RGB + depth pair; a depth size differing from the first pair is dropped.
 
+        The depth buffer is allocated at the first pair: as many frames of its size as fit capacity.pair_frames and
+        capacity.pair_depth_bytes. A pair whose depth or JPEG does not fit the remaining buffer is counted as "full".
+
         :param stamp_ns: stamp, ns (int).
         :param rgb_jpeg: JPEG-encoded RGB image (bytes).
         :param depth_mm: depth, mm (np.ndarray, h x w uint16).
@@ -243,12 +309,21 @@ class GroundRecording:
         """
         self.touch(stamp_ns)
         depth = np.asarray(depth_mm, dtype=np.uint16)
-        if depth.ndim != 2 or (self.pair_depth and depth.shape != self.pair_depth[0].shape):
+        if depth.ndim != 2 or (self.pair_depth is not None and depth.shape != self.pair_depth.shape[1:]):
             self.drop(STREAM_PAIR, REASON_SIZE)
             return
+        if self.pair_depth is None:
+            fit = self.capacity.pair_depth_bytes // (depth.size * DEPTH_PIXEL_BYTES) if depth.size else 0
+            self.pair_depth = np.empty((min(self.capacity.pair_frames, fit), *depth.shape), dtype=np.uint16)
+        n, start = len(self.pair_stamps), self.jpeg_offsets[-1]
+        end = start + len(rgb_jpeg)
+        if n >= len(self.pair_depth) or end > len(self.jpeg):
+            self.drop(STREAM_PAIR, REASON_FULL)
+            return
+        self.pair_depth[n] = depth
+        self.jpeg[start:end] = np.frombuffer(rgb_jpeg, dtype=np.uint8)
+        self.jpeg_offsets.append(end)
         self.pair_stamps.append(int(stamp_ns))
-        self.pair_jpegs.append(bytes(rgb_jpeg))
-        self.pair_depth.append(depth)
         self.pair_base_T_rgb.append(pose_row(base_T_rgb))
         self.pair_odom_T_base.append(pose_row(odom_T_base))
 
@@ -310,20 +385,21 @@ class GroundRecording:
         return {s: dict(r) for s, r in self.dropped_counts.items()}
 
     def arrays(self) -> dict[str, np.ndarray]:
-        """Build the npz arrays.
+        """Build the npz arrays; the cloud points, pair depth and JPEGs are views of the buffers, not copies.
 
         :return: key to array (dict[str, np.ndarray]).
         """
         depth_k, depth_d, depth_size, depth_frame = self.depth_info
         rgb_k, rgb_d, rgb_size, rgb_frame = self.rgb_info
-        jpeg_sizes = [len(j) for j in self.pair_jpegs]
+        pairs = len(self.pair_stamps)
+        pair_depth = self.pair_depth[:pairs] if self.pair_depth is not None else np.zeros((0, 0, 0), dtype=np.uint16)
         return {
             KEY_LAYOUT_VERSION: np.asarray(LAYOUT_VERSION, dtype=np.int64),
             KEY_NAME: np.asarray(self.name),
             KEY_STAMPS_NS: np.asarray(self.cloud_stamps, dtype=np.int64),
             KEY_CLOUD_FRAME: np.asarray(self.cloud_frame),
             KEY_OFFSETS: np.concatenate([[0], np.cumsum(self.cloud_counts)]).astype(np.int64),
-            KEY_POINTS_MM: np.concatenate(self.cloud_points) if self.cloud_points else np.zeros((0, 3), dtype=np.int16),
+            KEY_POINTS_MM: self.points[: self.n_points],
             KEY_BASE_T_CLOUD: pose_array(self.base_T_cloud),
             KEY_ODOM_T_BASE: pose_array(self.odom_T_base),
             KEY_IMU: np.asarray(self.imu_rows, dtype=np.float64).reshape(-1, IMU_FIELDS),
@@ -335,9 +411,9 @@ class GroundRecording:
             KEY_DEPTH_SIZE: np.asarray(depth_size, dtype=np.int64),
             KEY_DEPTH_FRAME: np.asarray(depth_frame),
             KEY_PAIR_STAMPS_NS: np.asarray(self.pair_stamps, dtype=np.int64),
-            KEY_PAIR_JPEG: np.frombuffer(b"".join(self.pair_jpegs), dtype=np.uint8),
-            KEY_PAIR_JPEG_OFFSETS: np.concatenate([[0], np.cumsum(jpeg_sizes)]).astype(np.int64),
-            KEY_PAIR_DEPTH_MM: stack_images(self.pair_depth),
+            KEY_PAIR_JPEG: self.jpeg[: self.jpeg_offsets[-1]],
+            KEY_PAIR_JPEG_OFFSETS: np.asarray(self.jpeg_offsets, dtype=np.int64),
+            KEY_PAIR_DEPTH_MM: pair_depth,
             KEY_PAIR_BASE_T_RGB: pose_array(self.pair_base_T_rgb),
             KEY_PAIR_ODOM_T_BASE: pose_array(self.pair_odom_T_base),
             KEY_RGB_K: rgb_k,

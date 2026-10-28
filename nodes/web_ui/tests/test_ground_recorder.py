@@ -244,3 +244,75 @@ def test_streams_have_no_tof_frames() -> None:
     assert set(GroundRecording("s", 1.0).counts()) == {"cloud", "imu", "head", "pair", "state"}
     assert set(GroundRecording("s", 1.0).dropped()) == {"cloud", "imu", "head", "pair", "state"}
     assert not hasattr(GroundRecording, "add_tof_frame")
+
+
+MIB = 1024**2
+
+
+def test_buffer_capacity_follows_the_d435_and_head_rgbd_rates() -> None:
+    assert (gr.CLOUD_MAX_POINTS, gr.CLOUD_RATE_HZ) == (160 * 90, 15.0)  # 640x360 depth, decimation 4, 15 fps
+    assert (gr.PAIR_DEPTH_PIXELS, gr.PAIR_RATE_HZ) == (320 * 180, 2.0)  # head_rgbd_cpp divisor 2, rate_hz 2
+    cap = gr.buffer_capacity(60.0)
+    assert (cap.cloud_frames, cap.pair_frames) == (990, 132)  # 10 % rate margin
+    assert cap.points == 990 * 14_400
+    assert cap.pair_depth_bytes == 132 * 320 * 180 * 2
+    assert cap.jpeg_bytes == 132 * gr.PAIR_JPEG_BYTES
+    assert gr.recording_buffer_bytes(60.0) == cap.points * 6 + cap.pair_depth_bytes + cap.jpeg_bytes
+    assert gr.recording_buffer_bytes(60.0) <= gr.RECORDER_MEMORY_BUDGET_BYTES == 150 * MIB
+
+
+def test_config_rejects_a_duration_over_the_memory_budget(monkeypatch: Any) -> None:
+    from pydantic import ValidationError
+
+    from web_ui import config as config_mod
+
+    assert GroundRecorderConfig(max_duration_s=60).max_duration_s == 60
+    monkeypatch.setattr(config_mod, "RECORDER_MEMORY_BUDGET_BYTES", gr.recording_buffer_bytes(20.0))
+    assert GroundRecorderConfig(max_duration_s=20).max_duration_s == 20
+    try:
+        GroundRecorderConfig(max_duration_s=21)
+    except ValidationError as error:
+        assert "recorder memory budget" in str(error)
+    else:
+        raise AssertionError("max_duration_s over the memory budget was accepted")
+
+
+def test_clouds_beyond_capacity_are_dropped_as_full(tmp_path: Path) -> None:
+    rec = GroundRecording("r", 1.0)
+    cap = gr.buffer_capacity(1.0)
+    pts = np.zeros((cap.points - 1, 3), np.float32)
+    rec.add_cloud(NS, "f", pts, POSE, POSE)
+    rec.add_cloud(NS + 1, "f", np.zeros((2, 3), np.float32), POSE, POSE)  # one point left: the cloud is refused whole
+    rec.add_cloud(NS + 2, "f", np.zeros((1, 3), np.float32), POSE, POSE)
+    for i in range(cap.cloud_frames):
+        rec.add_cloud(NS + 3 + i, "f", np.zeros((0, 3), np.float32), POSE, POSE)
+    assert rec.counts()["cloud"] == cap.cloud_frames
+    assert rec.dropped()["cloud"] == {"full": 3}
+    a = load(rec, tmp_path)
+    assert a[gr.KEY_POINTS_MM].shape == (cap.points, 3)
+    assert a[gr.KEY_OFFSETS][-1] == cap.points
+
+
+def test_pairs_beyond_capacity_are_dropped_as_full(tmp_path: Path) -> None:
+    rec = GroundRecording("r", 1.0)
+    cap = gr.buffer_capacity(1.0)
+    depth = np.ones((180, 320), np.uint16)
+    rec.add_pair(NS, b"\xff" * (cap.jpeg_bytes + 1), depth, POSE, POSE)  # larger than the whole JPEG buffer
+    for i in range(cap.pair_frames + 1):
+        rec.add_pair(NS + 1 + i, b"\xff\xd8", depth, POSE, POSE)
+    assert rec.counts()["pair"] == cap.pair_frames
+    assert rec.dropped()["pair"] == {"full": 2}
+    big = GroundRecording("b", 1.0)
+    big.add_pair(NS, b"j", np.ones((720, 1280), np.uint16), POSE, POSE)  # more than the depth byte budget per frame
+    assert big.dropped()["pair"] == {"full": 1}
+    a = load(rec, tmp_path)
+    assert a[gr.KEY_PAIR_DEPTH_MM].shape == (cap.pair_frames, 180, 320)
+    assert a[gr.KEY_PAIR_JPEG_OFFSETS][-1] == 2 * cap.pair_frames
+
+
+def test_arrays_are_views_of_the_buffers_not_copies() -> None:
+    rec = full_recording()
+    a = rec.arrays()
+    assert np.shares_memory(a[gr.KEY_POINTS_MM], rec.points)
+    assert rec.pair_depth is not None and np.shares_memory(a[gr.KEY_PAIR_DEPTH_MM], rec.pair_depth)
+    assert np.shares_memory(a[gr.KEY_PAIR_JPEG], rec.jpeg)
