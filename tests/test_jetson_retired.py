@@ -574,7 +574,7 @@ ALLOWED_REFERENCES: tuple[tuple[str, str, str], ...] = (
     ),
     (
         "tests/README.md",
-        "^\\-\\ Head\\ tab\\ \\(`head`\\):\\ `test_config\\.py`\\ \\(`head`\\ is\\ a\\ valid\\ tab\\ type;\\ fields\\ load\\ and\\ are\\ subscribed;\\ topics\\ default\\ to\\ None\\ and\\ `tof_range_m`\\ to\\ 4\\.0\\ m;\\ a\\ non\\-positive\\ range\\ is\\ rejected;\\ `topic_roles`\\ gives\\ `head_rgb`\\ /\\ `head_depth`\\ /\\ `head_amplitude`\\ and\\ `tof_ranges`\\ maps\\ the\\ depth\\ topic\\ to\\ its\\ range;\\ `test_default_head_tab_subscribes_the_tof_topics`:\\ the\\ shipped\\ default\\ head\\ tab\\ subscribes\\ exactly\\ `/tof/depth/image_raw`\\ \\(`head_depth`\\)\\ and\\ `/tof/amplitude/image_raw`\\ \\(`head_amplitude`\\)\\ plus\\ the\\ RGB\\ `/front_camera/image_raw/compressed`;\\ `test_head_tab_has_no_fused_depth_topic`:\\ `fu",
+        "^\\-\\ Head\\ tab\\ \\(`head`\\):\\ `test_config\\.py`\\ \\(`head`\\ is\\ a\\ valid\\ tab\\ type;\\ fields\\ load\\ and\\ are\\ subscribed;\\ topics\\ default\\ to\\ None\\ and\\ `depth_range_m`\\ to\\ 4\\.0\\ m;\\ a\\ non\\-positive\\ range\\ is\\ rejected;\\ `test_head_tab_depth_keys_replace_tof_keys`:\\ `depth_topic`\\ and\\ `depth_range_m`\\ are\\ fields,\\ the\\ ToF\\ keys\\ are\\ not\\ and\\ are\\ rejected\\ as\\ unknown;\\ `topic_roles`\\ gives\\ `head_rgb`\\ /\\ `head_depth`\\ and\\ `depth_ranges`\\ maps\\ the\\ depth\\ topic\\ to\\ its\\ range;\\ `test_head_tab_rejects_fused_depth_topic`:\\ `fu",
         "retirement-doc",
     ),
     ("tests/README.md", "^\\#\\#\\#\\ test_stereo_depth_config\\.py", "retirement-doc"),
