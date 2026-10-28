@@ -1,6 +1,6 @@
 ---
 title: Laser filter on the D435 cloud
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The D435 cloud reaches Nav2 and ground estimation without the robot's own body in it."
 files: [nodes/laser_filter/config/footprint_filter.yaml, nodes/laser_filter/laser_filter/config.py, nodes/laser_filter/tests/test_cloud_filter.py, nodes/laser_filter/tests/test_config.py, tests/test_nav_stack_config.py, tests/test_tof_obstacle_wiring.py, tests/test_d435_obstacle_wiring.py, tests/README.md]
@@ -8,15 +8,15 @@ verify: "cd nodes/laser_filter && uv run --frozen pytest tests/test_cloud_filter
 depends_on: [d435-obstacle-cloud-node]
 model: opus
 review: ""
-verified_head: ""
+verified_head: 0c19dffc
 points: 2
 expected_minutes: 23
 expected_tokens: 1500000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 2
+actual_minutes: 25
+actual_tokens: 6084596
+actual_roles: "impl 21, review 4"
+actual_role_tokens: "impl 5648874, review 435722"
 ---
 
 # Laser filter on the D435 cloud
@@ -67,3 +67,5 @@ What is true and observable when the task is done.
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
 
 - 2026-10-27 amended: root nav stack pin of the laser_filter topics added to the task
+
+- 2026-10-28 done
