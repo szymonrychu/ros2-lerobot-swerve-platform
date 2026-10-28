@@ -73,6 +73,8 @@ def test_defaults_are_the_d435() -> None:
         "intrinsics_max_principal_diff_px": 5.0,
     }
     assert not {"head_camera_config_file", "default_lens_position"} & set(cfg.model_dump())
+    # An apply restarts the D435 consumers of the applied head chain only (design D10).
+    assert cfg.restart_units == ["ros2-head_rgbd_cpp.service", "ros2-head_state_publisher.service"]
 
 
 def test_the_retired_shared_keys_are_the_tof_ones() -> None:

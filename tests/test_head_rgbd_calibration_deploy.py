@@ -1,6 +1,8 @@
-"""Static invariants of the head_rgbd_calibration deploy: node type, entry, state dir, seeding, apply units."""
+"""Static invariants of the head_rgbd_calibration deploy: node type, entry, state dir, apply units and script."""
 
+import os
 import re
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -27,10 +29,16 @@ TIER = {
     "oom_score_adjust": 0,
     "config_path": "/etc/ros2/head_rgbd_calibration",
 }
-SEED_FILES = (
-    "nodes/head_camera_cpp/config/head_camera_calibration.yaml",
-    "nodes/head_rgbd_cpp/config/tof_calibration.yaml",
-    "nodes/head_rgbd_cpp/config/head_rgbd_extrinsics.yaml",
+APPLY_SCRIPT = REPO_ROOT / "ansible" / "playbooks" / "files" / "ros2-head-rgbd-calibration-apply.sh"
+APPLY_SCRIPT_DEST = "/usr/local/sbin/ros2-head-rgbd-calibration-apply"
+# The D435 consumers of the applied head chain (design D10); head_camera_cpp and arducam_tof are retired.
+RESTART_UNITS = ["ros2-head_rgbd_cpp.service", "ros2-head_state_publisher.service"]
+# Applied files of the retired ToF and head camera (CM3) calibration (design D10).
+RETIRED_APPLIED_FILES = (
+    "head_camera_calibration.yaml",
+    "tof_calibration.yaml",
+    "head_rgbd_extrinsics.yaml",
+    "tof_joint.json",
 )
 
 
@@ -72,17 +80,15 @@ def test_state_dirs_owned_by_node_user_mode_0755() -> None:
     assert task["loop"] == [STATE_DIR, f"{STATE_DIR}/sessions", f"{STATE_DIR}/applied"]
 
 
-def test_seed_copies_never_overwrite_and_need_existing_source() -> None:
-    tasks = setup_tasks()
-    stat = next(t for t in tasks if "ansible.builtin.stat" in t)
-    assert tuple(stat["loop"]) == SEED_FILES
-    copies = [t for t in tasks if "ansible.builtin.copy" in t]
-    assert len(copies) == 1
-    spec = copies[0]["ansible.builtin.copy"]
-    assert spec["force"] is False
-    assert spec["remote_src"] is True
-    assert spec["dest"].startswith(f"{STATE_DIR}/applied/")
-    assert "exists" in str(copies[0]["when"])
+def test_no_tof_or_head_camera_applied_files_are_seeded() -> None:
+    """applied/ is written by the node's Apply only: no setup task stats or copies a file into it."""
+    text = SETUP_TASKS.read_text()
+    for name in RETIRED_APPLIED_FILES:
+        assert name not in text, name
+    for task in setup_tasks():
+        assert "ansible.builtin.stat" not in task, task["name"]
+        spec = task.get("ansible.builtin.copy", {})
+        assert not str(spec.get("dest", "")).startswith(STATE_DIR), task["name"]
 
 
 def test_no_task_clears_state_dir() -> None:
@@ -106,11 +112,19 @@ def test_apply_units_content() -> None:
     assert "Unit=ros2-head-rgbd-calibration-apply.service" in path_unit
     assert "WantedBy=multi-user.target" in path_unit
     assert "Type=oneshot" in service_unit
-    assert (
-        "ExecStart=/usr/bin/systemctl try-restart ros2-head_camera_cpp.service ros2-head_rgbd_cpp.service "
-        "ros2-head_state_publisher.service ros2-arducam_tof.service"
-    ) in service_unit
+    assert "StateDirectory=ros2-head-rgbd-calibration-apply" in service_unit
+    exec_start = [line for line in service_unit.splitlines() if line.startswith("ExecStart=")]
+    assert exec_start == [f"ExecStart={APPLY_SCRIPT_DEST} {' '.join(RESTART_UNITS)}"]
+    for retired in ("head_camera_cpp", "arducam_tof"):
+        assert retired not in service_unit, retired
+    # The node reports the state of the units the apply restarts.
+    assert yaml.safe_load(DEFAULTS.read_text())["restart_units"] == RESTART_UNITS
+    assert calib_config()["restart_units"] == RESTART_UNITS
     tasks = {t["name"]: t for t in setup_tasks()}
+    script = tasks["Install the head_rgbd_calibration apply restart script"]["ansible.builtin.copy"]
+    assert script["src"] == "{{ playbook_dir }}/files/ros2-head-rgbd-calibration-apply.sh"
+    assert script["dest"] == APPLY_SCRIPT_DEST
+    assert (script["owner"], script["group"], script["mode"]) == ("root", "root", "0755")
     reload_task = tasks["Reload systemd after head_rgbd_calibration apply unit changes"]
     assert reload_task["ansible.builtin.systemd"]["daemon_reload"] is True
     enable = tasks["Enable and start head_rgbd_calibration apply path unit"]["ansible.builtin.systemd"]
@@ -119,13 +133,64 @@ def test_apply_units_content() -> None:
     assert enable["state"] == "started"
 
 
-def test_arducam_tof_reads_the_applied_tof_calibration() -> None:
-    wanted = ("head_rgbd_cpp", "arducam_tof")
-    nodes = {n["name"]: yaml.safe_load(n["config"]) for n in client_vars()["ros2_nodes"] if n["name"] in wanted}
-    applied = f"{STATE_DIR}/applied/tof_calibration.yaml"
-    assert "tof_calibration_file" not in nodes["head_rgbd_cpp"]  # the D435 adapter reads no ToF intrinsics
-    assert nodes["arducam_tof"]["tof_calibration_file"] == applied
-    assert nodes["arducam_tof"]["depth_is_radial"] is True
+def run_apply(tmp_path: Path, fail_restart: bool = False) -> tuple[int, list[str]]:
+    """Run the apply restart script against tmp_path/applied, with a fake systemctl.
+
+    Args:
+        tmp_path: Work directory: applied/ holds the applied files, seen/ is the script's state directory.
+        fail_restart: The fake systemctl exits 1.
+
+    Returns:
+        tuple[int, list[str]]: The script's exit code and the systemctl calls it made.
+    """
+    (tmp_path / "applied").mkdir(exist_ok=True)
+    (tmp_path / "seen").mkdir(exist_ok=True)
+    fake = tmp_path / "bin" / "systemctl"
+    fake.parent.mkdir(exist_ok=True)
+    fake.write_text(f'#!/bin/bash\necho "$@" >> "$LOG"\nexit {1 if fail_restart else 0}\n')
+    fake.chmod(0o755)
+    log = tmp_path / "log"
+    log.unlink(missing_ok=True)
+    env = {
+        **os.environ,
+        "PATH": f"{fake.parent}:{os.environ['PATH']}",
+        "LOG": str(log),
+        "HEAD_RGBD_APPLIED_DIR": str(tmp_path / "applied"),
+        "STATE_DIRECTORY": str(tmp_path / "seen"),
+    }
+    result = subprocess.run(
+        ["bash", str(APPLY_SCRIPT), *RESTART_UNITS], capture_output=True, text=True, env=env, check=False
+    )
+    return result.returncode, log.read_text().splitlines() if log.exists() else []
+
+
+def test_apply_restarts_only_when_the_applied_head_chain_changes(tmp_path: Path) -> None:
+    restart = [f"try-restart {' '.join(RESTART_UNITS)}"]
+    chain = tmp_path / "applied" / "head_chain.json"
+    assert run_apply(tmp_path) == (0, []), "nothing applied: nothing to restart"
+    chain.write_text('{"head_tilt": 1}')
+    assert run_apply(tmp_path) == (0, restart), "first head chain"
+    assert (tmp_path / "seen" / "head_chain.json").read_text() == '{"head_tilt": 1}'
+    (tmp_path / "applied" / "applied.json").write_text('{"kind": "intrinsics"}')
+    assert run_apply(tmp_path) == (0, []), "an intrinsics accept rewrites applied.json only"
+    chain.write_text('{"head_tilt": 1}')
+    assert run_apply(tmp_path) == (0, []), "the same head chain written again"
+    chain.write_text('{"head_tilt": 2}')
+    assert run_apply(tmp_path) == (0, restart), "a new head chain"
+    chain.unlink()
+    assert run_apply(tmp_path) == (0, restart), "the head chain removed"
+    assert not (tmp_path / "seen" / "head_chain.json").exists()
+    assert run_apply(tmp_path) == (0, []), "still none"
+
+
+def test_apply_retries_a_failed_restart(tmp_path: Path) -> None:
+    restart = [f"try-restart {' '.join(RESTART_UNITS)}"]
+    (tmp_path / "applied").mkdir()
+    (tmp_path / "applied" / "head_chain.json").write_text('{"head_tilt": 1}')
+    code, calls = run_apply(tmp_path, fail_restart=True)
+    assert (code != 0, calls) == (True, restart)
+    assert not (tmp_path / "seen" / "head_chain.json").exists(), "a failed restart records nothing"
+    assert run_apply(tmp_path) == (0, restart), "the next trigger restarts again"
 
 
 def test_playbook_setup_before_deploy() -> None:

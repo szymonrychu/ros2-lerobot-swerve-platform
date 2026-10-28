@@ -13,9 +13,9 @@
     system: true
   tags: [setup]
 
-# head_rgbd_calibration keeps sessions/ and applied/ here; the node runs as ansible_user. Nothing in this file removes,
-# truncates or overwrites their contents: committed calibration files only seed applied/ when a file is missing
-# (force: false), and the apply unit restarts the head nodes when applied/applied.json changes.
+# head_rgbd_calibration keeps sessions/ and applied/ here; the node runs as ansible_user. Nothing in this file writes,
+# removes or truncates their contents: only the node's Apply writes applied/ (nothing is seeded), and the apply unit
+# restarts the head nodes when applied/applied.json changes and an applied file they read changed with it.
 - name: Ensure head_rgbd_calibration state directories exist (owned by the node user)
   ansible.builtin.file:
     path: "{{ item }}"
@@ -29,29 +29,14 @@
     - /var/lib/ros2/head_rgbd_calibration/applied
   tags: [setup]
 
-- name: Check for committed calibration seed files
-  ansible.builtin.stat:
-    path: "{{ ros2_repo_dest }}/{{ item }}"
-  loop:
-    - nodes/head_camera_cpp/config/head_camera_calibration.yaml
-    - nodes/head_rgbd_cpp/config/tof_calibration.yaml
-    - nodes/head_rgbd_cpp/config/head_rgbd_extrinsics.yaml
-  register: head_rgbd_calibration_seed_stat
-  tags: [setup]
-
-- name: Seed applied/ from committed calibration files (never overwrites an applied file)
+- name: Install the head_rgbd_calibration apply restart script
   ansible.builtin.copy:
-    src: "{{ ros2_repo_dest }}/{{ item.item }}"
-    dest: "/var/lib/ros2/head_rgbd_calibration/applied/{{ item.item | basename }}"
-    remote_src: true
-    force: false
-    owner: "{{ ansible_user }}"
-    group: "{{ ansible_user }}"
-    mode: "0644"
-  loop: "{{ head_rgbd_calibration_seed_stat.results }}"
-  loop_control:
-    label: "{{ item.item }}"
-  when: item.stat.exists
+    src: "{{ playbook_dir }}/files/ros2-head-rgbd-calibration-apply.sh"
+    dest: /usr/local/sbin/ros2-head-rgbd-calibration-apply
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
   tags: [setup]
 
 - name: Install head_rgbd_calibration apply path unit

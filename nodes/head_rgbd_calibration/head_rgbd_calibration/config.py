@@ -40,7 +40,6 @@ DEFAULT_TOPIC_ARM_JOINT_STATES = "/follower/joint_states"
 DEFAULT_HEAD_URDF_FILE = "/opt/ros2-lerobot-swerve-platform/nodes/web_ui/urdf/head.urdf"
 DEFAULT_ARM_URDF_FILE = "/opt/ros2-lerobot-swerve-platform/nodes/web_ui/urdf/so101_arm.urdf"
 DEFAULT_RESTART_UNITS = (
-    "ros2-head_camera_cpp.service",
     "ros2-head_rgbd_cpp.service",
     "ros2-head_state_publisher.service",
 )

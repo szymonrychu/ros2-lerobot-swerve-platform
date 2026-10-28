@@ -30,7 +30,6 @@ head_urdf_file: /opt/ros2-lerobot-swerve-platform/nodes/web_ui/urdf/head.urdf
 arm_urdf_file: /opt/ros2-lerobot-swerve-platform/nodes/web_ui/urdf/so101_arm.urdf
 # Units restarted after applying a calibration.
 restart_units:
-  - ros2-head_camera_cpp.service
   - ros2-head_rgbd_cpp.service
   - ros2-head_state_publisher.service
 # Seconds to wait for the restarted units to report active (> 0).

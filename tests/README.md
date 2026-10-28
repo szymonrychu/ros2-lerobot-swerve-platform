@@ -3301,18 +3301,19 @@ Tests for `shared/ros2_common/head_rgbd_calibration/urdf_handoff.py` on a copy o
 
 ### `test_head_rgbd_calibration_deploy.py`
 
-Static invariants of the `head_rgbd_calibration` deploy (node type and `ros2_nodes` entry in `ansible/group_vars/client.yml`, `ansible/playbooks/tasks/head_rgbd_calibration_setup.yml`, the apply units, `deploy_nodes_client.yml`).
+Static invariants of the `head_rgbd_calibration` deploy (node type and `ros2_nodes` entry in `ansible/group_vars/client.yml`, `ansible/playbooks/tasks/head_rgbd_calibration_setup.yml`, the apply units and their restart script `ansible/playbooks/files/ros2-head-rgbd-calibration-apply.sh`, `deploy_nodes_client.yml`).
 
 | Test | What it pins |
 |---|---|
 | `test_node_type_and_tier` | The node type fields, the config env and the background tier keys (cpu and io weight 100, `oom_score_adjust` 0, own memory cap). |
 | `test_ros2_nodes_entry_matches_defaults` | The `ros2_nodes` entry is present and enabled after `head_rgbd_cpp`, and its config equals the node's shipped default YAML. |
 | `test_state_dirs_owned_by_node_user_mode_0755` | The state, `sessions` and `applied` directories are created owned by the node user, mode 0755. |
-| `test_seed_copies_never_overwrite_and_need_existing_source` | Seeding the applied calibration files copies only when the source exists and never overwrites (`force: false`). |
+| `test_no_tof_or_head_camera_applied_files_are_seeded` | No setup task names a retired ToF or head camera applied file (`head_camera_calibration.yaml`, `tof_calibration.yaml`, `head_rgbd_extrinsics.yaml`, `tof_joint.json`), stats a seed or copies into the state dir: only the node's Apply writes `applied/`. |
 | `test_no_task_clears_state_dir` | No setup task removes, forces over or rewrites state dir content. |
-| `test_apply_units_content` | The apply path unit watches `applied.json` and the oneshot service try-restarts the head camera, RGB-D, state publisher and arducam_tof units; both units are reloaded, enabled and started. |
+| `test_apply_units_content` | The apply path unit watches `applied.json`; the oneshot service (own `StateDirectory`) runs the installed restart script for `ros2-head_rgbd_cpp.service` and `ros2-head_state_publisher.service` only, the node's `restart_units` (shipped YAML and client block) name the same two; the script is installed root 0755; the units are reloaded, enabled and started. |
+| `test_apply_restarts_only_when_the_applied_head_chain_changes` | `ros2-head-rgbd-calibration-apply.sh` (fake `systemctl`) try-restarts the units only when `applied/head_chain.json` differs from its copy of the last restart: a first chain, a new chain and a removed chain restart; nothing applied, an `applied.json`-only rewrite (intrinsics accept) and the same chain written again restart nothing. |
+| `test_apply_retries_a_failed_restart` | A failed `systemctl try-restart` exits non-zero and records no copy, so the next trigger restarts again. |
 | `test_playbook_setup_before_deploy` | The setup include precedes `Deploy head_rgbd_calibration` in the client playbook, with the right tags and node name. |
-| `test_arducam_tof_reads_the_applied_tof_calibration` | arducam_tof's `tof_calibration_file` is the same applied `tof_calibration.yaml` as head_rgbd_cpp's, and `depth_is_radial` is true. |
 | `test_http_port_unique_in_client_vars` | The node's HTTP port appears exactly once in `client.yml`. |
 | `test_fit_joint_offsets_equal_mcp_server_arm` | `fit.joint_offsets_rad` of the node config equals mcp_server's `arm.joint_offsets_rad`. |
 | `test_fit_base_in_base_link_equals_mcp_server_arm` | `fit.base_in_base_link` equals mcp_server's `arm.base_in_base_link`. |
