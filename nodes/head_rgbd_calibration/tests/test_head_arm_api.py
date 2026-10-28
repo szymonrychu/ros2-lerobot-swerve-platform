@@ -26,7 +26,6 @@ from tests.test_head_arm_results import (
     put_marker,
     write_floor_result,
 )
-from tests.test_head_arm_results import write_intrinsics as write_intrinsics
 
 STATE_DOC = {
     "running": True,
@@ -109,7 +108,6 @@ def parts(cfg: NodeConfig) -> SimpleNamespace:
 
 
 def ready_session(parts: SimpleNamespace) -> str:
-    write_intrinsics(parts.state)
     put_marker(
         parts.state, head_chain={"session": FLOOR_SID, "result": FLOOR_RID, "applied_at": "2026-10-22T07:00:00+00:00"}
     )

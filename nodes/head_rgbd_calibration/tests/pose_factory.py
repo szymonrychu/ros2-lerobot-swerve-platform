@@ -88,12 +88,14 @@ class StillArmPose:
     arm_pose: int
     tier: int
     head_offset: int
+    camera_info: CameraInfoData
 
 
 def still_arm_pose(
     joints: dict[str, float], arm_pose: int = 0, tier: int = 0, head_offset: int = 0, seed: int = 1
 ) -> StillArmPose:
-    """A still head-arm pose: the synthetic board image, its real detection and the given joints."""
+    """A still head-arm pose: the synthetic board image, its real detection, the given joints and the factory colour
+    camera_info of the synthetic camera."""
     rgb, _ = synthetic_view(0.33, seed)
     detection = detect(rgb, make_board(BOARD_CFG))
     assert detection is not None
@@ -106,4 +108,5 @@ def still_arm_pose(
         arm_pose=arm_pose,
         tier=tier,
         head_offset=head_offset,
+        camera_info=factory_info(),
     )

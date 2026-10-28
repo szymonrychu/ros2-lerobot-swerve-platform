@@ -3,7 +3,8 @@
 The robot is the real RobotClient over a fake mcp_server transport, so every assertion is on the tool calls and their
 arguments as mcp_server would receive them. The fake arm reports the commanded joints as measured. The capture is a
 fake still-capture controller; the clock is injected and advanced by the injected sleep. The pose check runs on the
-shipped arm and head URDFs (nodes/web_ui/urdf) with the shipped pose set.
+shipped arm and head URDFs (nodes/web_ui/urdf) with the shipped pose set. The fake capture's colour camera_info is a
+very wide camera unless a test sets the D435 one, so only the min-Z and FOV tests see views skipped by those rules.
 """
 
 import json
@@ -21,8 +22,10 @@ import numpy as np
 import pytest
 import yaml
 from ros2_common.head_rgbd_calibration.arm_pose_check import PoseChecker
-from ros2_common.head_rgbd_calibration.chain import UrdfChain, pose_from_xyz_rpy
+from ros2_common.head_rgbd_calibration.chain import UrdfChain, arm_in_robot_base, pose_from_xyz_rpy
+from ros2_common.head_rgbd_calibration.charuco import board_corners_3d
 from ros2_common.head_rgbd_calibration.config import ARM_JOINT_NAMES
+from ros2_common.head_rgbd_calibration.frames import CameraInfoData
 from ros2_common.head_rgbd_calibration.head_arm_fit import aim_head, board_centre
 
 from head_rgbd_calibration.capture import StillOutcome
@@ -72,6 +75,23 @@ WAIT_S = 20.0
 GRIPPER = "gripper"
 ADMIN_PARK_BOARD = "/admin/park_calibration_board"
 BOARD_PARK_TOKEN = "board-park-token"
+COLOR_FRAME = "d435_color_optical_frame"
+MIN_Z_REASON = "inside D435 min-Z"
+FOV_REASON = "outside colour FOV"
+MIN_DEPTH_M = 0.20  # D435 min-Z at 640x360 (0.15 m) plus the 0.05 m margin
+# A tier-2 pose (within the tier bounds and clear by the pose check) that lifts the board to 0.17-0.18 m in front of
+# the D435 at every head offset, the head within its limits.
+NEAR_POSE = {"shoulder_pan": -0.43, "shoulder_lift": -0.03, "elbow_flex": 0.33, "wrist_flex": -0.88, "wrist_roll": -0.1}
+WIDE_K = np.array([[100.0, 0.0, 320.0], [0.0, 100.0, 180.0], [0.0, 0.0, 1.0]])  # 145 deg across 640 px
+D435_FOCAL_PX = 320.0 / math.tan(math.radians(69.0 / 2))  # nominal D435 colour, 69 deg across 640 px
+D435_K = np.array([[D435_FOCAL_PX, 0.0, 320.0], [0.0, D435_FOCAL_PX, 180.0], [0.0, 0.0, 1.0]])
+IMAGE_SIZE = (640, 360)
+
+
+def camera_info(k: np.ndarray) -> CameraInfoData:
+    """A 640x360 plumb_bob colour camera_info without distortion."""
+    p = np.hstack([k, np.zeros((3, 1))]).reshape(12)
+    return CameraInfoData(IMAGE_SIZE[0], IMAGE_SIZE[1], "plumb_bob", np.zeros(5), k.reshape(9), p)
 
 
 class FakeClock:
@@ -163,6 +183,8 @@ class FakeCapture:
         outcomes: 1-based capture_still call number -> StillOutcome other than stored.
         raise_at: 1-based capture_still call number that raises RuntimeError.
         on_capture: Called with the call number on every capture_still (e.g. to press Stop).
+        camera_info: The colour camera_info still_camera_info reports (None: none has arrived).
+        info_after: still_camera_info reports None for its first info_after calls.
     """
 
     def __init__(self, log: list[tuple[str, str, dict[str, Any]]]) -> None:
@@ -173,6 +195,13 @@ class FakeCapture:
         self.outcomes: dict[int, StillOutcome] = {}
         self.raise_at: int | None = None
         self.on_capture: Callable[[int], None] | None = None
+        self.camera_info: CameraInfoData | None = camera_info(WIDE_K)
+        self.info_after = 0
+        self.info_calls = 0
+
+    def still_camera_info(self) -> CameraInfoData | None:
+        self.info_calls += 1
+        return self.camera_info if self.info_calls > self.info_after else None
 
     def start_still_session(self, session_id: str | None) -> str:
         self.sessions.append(session_id)
@@ -964,3 +993,117 @@ def test_state_keys(tmp_path: Path) -> None:
     assert set(state) == STATE_KEYS
     assert state["waiting_since"] is None
     assert state["phase"] == IDLE
+
+
+def corners_in_camera(cfg: NodeConfig, head_urdf: str, joints: dict[str, float], pan_deg: float, tilt_deg: float):
+    """The ChArUco corners (nominal mount) in the colour optical frame, FK and head chain straight from the URDFs."""
+    fit = cfg.fit
+    gripper = arm_in_robot_base(fit.base_in_base_link.model_dump()) @ UrdfChain.from_text(ARM_URDF).transform(
+        "gripper_link", joints, offsets=fit.joint_offsets_rad
+    )
+    board = gripper @ pose_from_xyz_rpy(fit.board_mount.xyz_init, fit.board_mount.rpy_init)
+    angles = {"head_pan": math.radians(pan_deg), "head_tilt": math.radians(tilt_deg)}
+    camera = UrdfChain.from_text(head_urdf).transform(COLOR_FRAME, angles)
+    corners = board_corners_3d(fit.board)
+    return (np.linalg.solve(camera, board) @ np.column_stack([corners, np.ones(len(corners))]).T).T[:, :3]
+
+
+def expected_views(cfg: NodeConfig, head_urdf: str, k: np.ndarray) -> list[tuple[int, int, float, float, str | None]]:
+    """(arm pose, head offset, pan deg, tilt deg, skip reason) of every view of the pose set, computed independently:
+    outside the head limits, then any corner nearer than MIN_DEPTH_M, then any corner outside the 640x360 image."""
+    chain = UrdfChain.from_text(head_urdf)
+    out = []
+    for index, (_, pose) in enumerate(tier_poses(cfg)):
+        pan0, tilt0 = expected_aim(cfg, pose, head_urdf)
+        for offset, (dpan, dtilt) in enumerate(cfg.arm_sequence.head_offsets_deg):
+            pan, tilt = pan0 + dpan, tilt0 + dtilt
+            reason = None
+            for joint, value in (("head_pan", pan), ("head_tilt", tilt)):
+                lower, upper = chain.limits(joint)
+                if reason is None and not lower <= math.radians(value) <= upper:
+                    reason = f"{joint} outside the URDF head limits"
+            if reason is None:
+                points = corners_in_camera(cfg, head_urdf, pose, pan, tilt)
+                pixels = (k @ points.T).T
+                pixels = pixels[:, :2] / pixels[:, 2:3]
+                inside = (
+                    (pixels[:, 0] >= 0)
+                    & (pixels[:, 0] <= IMAGE_SIZE[0] - 1)
+                    & (pixels[:, 1] >= 0)
+                    & (pixels[:, 1] <= IMAGE_SIZE[1] - 1)
+                )
+                if points[:, 2].min() < MIN_DEPTH_M:
+                    reason = MIN_Z_REASON
+                elif not inside.all():
+                    reason = FOV_REASON
+            out.append((index, offset, pan, tilt, reason))
+    return out
+
+
+def assert_rule_skips(rig: Rig, views: list[tuple[int, int, float, float, str | None]], reason: str) -> None:
+    """The run skipped exactly the expected views with their reason, captured the others, and never moved the arm to
+    a pose whose every view is skipped."""
+    cfg = rig.cfg
+    state = rig.run_to_holding()
+    assert state["error"] is None, state
+    poses = tier_poses(cfg)
+    skipped = [(i, k) for i, k, _, _, why in views if why is not None]
+    kept = [(i, k, pan, tilt) for i, k, pan, tilt, why in views if why is None]
+    assert state["skipped"].get(reason, 0) == sum(1 for *_, why in views if why == reason) > 0
+    assert sum(state["skipped"].values()) == len(skipped)
+    assert [(i, k) for i, _, k in rig.capture.stills] == [(i, k) for i, k, _, _ in kept]
+    assert state["captured"] == len(kept) > 0
+    heads = rig.robot.named("set_head_angles")
+    assert len(heads) == len(kept)
+    for command, (_, _, pan, tilt) in zip(heads, kept, strict=True):
+        assert (command["pan_deg"], command["tilt_deg"]) == (
+            pytest.approx(pan, abs=1e-6),
+            pytest.approx(tilt, abs=1e-6),
+        )
+    visited = sorted({i for i, *_ in kept})
+    moved = [m["targets"] for m in rig.robot.named("move_arm_joints")]
+    assert moved[1:-1] == [poses[i][1] for i in visited]
+
+
+def test_poses_inside_min_z_are_skipped(tmp_path: Path) -> None:
+    """A board pose with a ChArUco corner nearer than 0.20 m to the D435 colour camera (0.15 m min-Z + 0.05 m margin)
+    or outside its colour FOV is skipped with the reason, and a pose whose every view is skipped is not visited; the
+    tiers and the big-joint confirm are unchanged."""
+    seq = NodeConfig().arm_sequence
+    cfg = small_cfg(tier2_poses=[seq.tier2_poses[0], NEAR_POSE, seq.tier2_poses[1]])
+    rig = Rig(tmp_path, cfg)
+    views = expected_views(rig.cfg, HEAD_URDF, WIDE_K)
+    near = [why for i, *_, why in views if tier_poses(cfg)[i][1] == NEAR_POSE]
+    assert near == [MIN_Z_REASON] * len(cfg.arm_sequence.head_offsets_deg)
+    assert {why for *_, why in views} == {None, MIN_Z_REASON}
+    assert_rule_skips(rig, views, MIN_Z_REASON)
+    assert NEAR_POSE not in [m["targets"] for m in rig.robot.named("move_arm_joints")]
+    assert {tier for _, tier, _ in rig.capture.stills} == {0, 1, 2}
+
+    # The nominal D435 colour camera (69 deg across 640 px): views with a corner outside the image are skipped, the
+    # others of the same pose are captured.
+    rig = Rig(tmp_path, small_cfg())
+    rig.capture.camera_info = camera_info(D435_K)
+    views = expected_views(rig.cfg, HEAD_URDF, D435_K)
+    assert {why for *_, why in views} == {None, FOV_REASON}
+    assert_rule_skips(rig, views, FOV_REASON)
+
+
+def test_sequence_needs_the_colour_camera_info(tmp_path: Path) -> None:
+    """The FOV rule needs the colour camera_info: the sequence waits for it up to still.timeout_s after the still
+    session starts, then fails holding the arm, before any tier move."""
+    rig = Rig(tmp_path, small_cfg())
+    rig.capture.info_after = 3
+    state = rig.run_to_holding()
+    assert state["error"] is None and state["captured"] > 0
+
+    rig = Rig(tmp_path, small_cfg())
+    rig.capture.camera_info = None
+    rig.seq.move_to_base(confirmed=True)
+    rig.wait_phase(WAITING_BOARD)
+    rig.seq.board_attached()
+    state = rig.finish()
+    assert state["phase"] == HOLDING
+    assert "no colour camera_info" in state["error"] and "6 s" in state["error"]
+    assert rig.robot.count("move_arm_joints") == 1 and rig.capture.stills == []
+    assert_held_not_parked(rig)

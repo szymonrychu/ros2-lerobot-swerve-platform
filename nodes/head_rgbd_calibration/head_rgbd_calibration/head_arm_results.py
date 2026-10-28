@@ -1,7 +1,10 @@
-"""Compute and apply a head_arm session (design D31, D34, D36).
+"""Compute and apply a head_arm session (design D31, D34, D36, D10).
 
-A result lives in the session's results/<rid>/: result.json, report.md and, only when it passed, head_chain.json. Apply
-goes through the floor fit's writer (`floor_results.apply_head_chain_file`), so both fits share one applied path.
+The fit solves the head chain, d435_joint included, in `cfg.camera_frame` (the D435 colour optical frame) with the
+D435 factory colour intrinsics: the camera_info recorded with each still, which must be the same for every still. A
+result lives in the session's results/<rid>/: result.json, report.md and, only when it passed, head_chain.json (no
+tof_joint.json). Apply goes through the floor fit's writer (`floor_results.apply_head_chain_file`), so both fits share
+one applied path.
 """
 
 import json
@@ -13,8 +16,9 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import yaml
+from ros2_common.camera_geometry import PLUMB_BOB_COEFFS, CameraIntrinsics
 from ros2_common.head_rgbd_calibration.floor_fit import json_float
+from ros2_common.head_rgbd_calibration.frames import CameraInfoData
 from ros2_common.head_rgbd_calibration.head_arm_fit import (
     FLOOR_PARAMS,
     HeadArmFit,
@@ -38,28 +42,53 @@ LOGGER = logging.getLogger(__name__)
 
 KIND = "head_arm"
 REPORT_FILE = "report.md"
-INTRINSICS_FILE = "head_camera_calibration.yaml"
-NO_INTRINSICS_ERROR = "no applied head camera calibration"
+NO_STILLS_ERROR = "the session has no stills"
 DATE_TIMESPEC = "seconds"
 SOURCE_HEAD_ARM = "head_arm"
 
 
-def read_intrinsics(path: Path) -> tuple[np.ndarray, np.ndarray, tuple[int, int]]:
-    """Camera matrix, distortion and image size of a ROS camera_calibration YAML.
+def same_camera_info(a: CameraInfoData, b: CameraInfoData) -> bool:
+    """Whether two camera_infos hold the same image size, distortion model, K and D.
 
     Args:
-        path: The YAML file.
+        a: A camera_info.
+        b: Another camera_info.
 
     Returns:
-        (3x3 camera matrix, distortion coefficients, (width, height)).
+        bool: True when they are equal in those fields.
+    """
+    return (
+        (a.width, a.height, a.distortion_model) == (b.width, b.height, b.distortion_model)
+        and np.array_equal(a.k, b.k)
+        and np.array_equal(a.d, b.d)
+    )
+
+
+def session_intrinsics(store: SessionStore, sid: str) -> CameraIntrinsics:
+    """The D435 factory colour intrinsics of a head_arm session: the camera_info recorded with its stills.
+
+    Args:
+        store: Session store.
+        sid: head_arm session id.
+
+    Returns:
+        CameraIntrinsics: From the camera_info every still carries (`CameraIntrinsics.from_camera_info`).
 
     Raises:
-        OSError, ValueError, KeyError: unreadable or malformed file.
+        ValueError: The session has no stills, a still has no camera_info, two stills carry different ones, or the
+            camera_info is not a usable pinhole (plumb_bob) model.
     """
-    data = yaml.safe_load(path.read_text())
-    k = np.asarray(data["camera_matrix"]["data"], dtype=float).reshape(3, 3)
-    d = np.asarray(data["distortion_coefficients"]["data"], dtype=float).reshape(-1)
-    return k, d, (int(data["image_width"]), int(data["image_height"]))
+    infos = store.load_arm_camera_infos(sid)
+    if not infos:
+        raise ValueError(NO_STILLS_ERROR)
+    missing = [pid for pid, info in infos.items() if info is None]
+    if missing:
+        raise ValueError(f"stills without a colour camera_info: {', '.join(missing)}")
+    (first_id, first), *rest = infos.items()
+    for pid, info in rest:
+        if not same_camera_info(first, info):
+            raise ValueError(f"the stills carry different colour camera_info: {first_id} and {pid} differ")
+    return CameraIntrinsics.from_camera_info(first.width, first.height, first.k, first.d, first.distortion_model)
 
 
 def read_floor_values(cfg: NodeConfig) -> tuple[dict[str, float] | None, dict[str, str] | None]:
@@ -193,15 +222,15 @@ def compute_head_arm(cfg: NodeConfig, store: SessionStore, sid: str, now: dateti
     """Fit the head chain to a head_arm session and store the result.
 
     Args:
-        cfg: Node config (state_dir, head_urdf_file, arm_urdf_file, fit).
+        cfg: Node config (state_dir, head_urdf_file, arm_urdf_file, camera_frame, fit).
         store: Session store.
         sid: head_arm session id.
         now: Result time (names the result and dates the note).
 
     Returns:
-        The result.json content. An input error (no applied intrinsics, an image size mismatch, too few views, an
-        unreadable URDF) gives passed false and `error`; a run over a limit gives passed false and `failed_limits`.
-        head_chain.json is written only when the result passed.
+        The result.json content. An input error (a still without camera_info, stills with different camera_info,
+        too few views, an unreadable URDF) gives passed false and `error`; a run over a limit gives passed false and
+        `failed_limits`. head_chain.json is written only when the result passed.
 
     Raises:
         InvalidId, NotFound: unknown or malformed session id.
@@ -215,23 +244,17 @@ def compute_head_arm(cfg: NodeConfig, store: SessionStore, sid: str, now: dateti
     tmp.mkdir(parents=True)
     applied = Path(cfg.state_dir) / APPLIED_DIR
     try:
-        try:
-            k, d, size = read_intrinsics(applied / INTRINSICS_FILE)
-        except (OSError, ValueError, KeyError, TypeError) as exc:
-            LOGGER.warning("applied head camera calibration unreadable: %s", exc)
-            raise ValueError(NO_INTRINSICS_ERROR) from exc
-        rgb_size = store.read_session(sid)["rgb_size"]
-        if rgb_size is not None and tuple(rgb_size) != size:
-            raise ValueError(f"the session images are {tuple(rgb_size)} but the applied calibration is {size}")
+        intrinsics = session_intrinsics(store, sid)
         floor, floor_ref = read_floor_values(cfg)
         fit = fit_head_from_arm(
             views,
-            k,
-            d,
+            intrinsics.matrix(),
+            np.asarray(intrinsics.distortion or np.zeros(PLUMB_BOB_COEFFS), dtype=float),
             floor_results.base_urdf(cfg),
             Path(cfg.arm_urdf_file).read_text(),
             cfg.fit,
             floor,
+            camera_frame=cfg.camera_frame,
         )
         result = result_body(rid, sid, now, fit, cfg, floor, floor_ref)
         date = now.strftime(floor_results.NOTE_DATE_FORMAT)

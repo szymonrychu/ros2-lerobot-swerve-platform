@@ -581,11 +581,15 @@ def feed_still(
     arm_names: tuple[str, ...] = ARM_NAMES,
     head: bool = True,
     arm: bool = True,
+    send_info: bool = True,
 ) -> int:
-    """Feed 4 RGB frames at 2 Hz and joint samples at 50 Hz around them; returns the newest frame stamp."""
+    """Feed the colour camera_info, 4 RGB frames at 2 Hz and joint samples at 50 Hz around them; returns the newest
+    frame stamp."""
     if rgb_jpeg is None:
         frame, _ = synthetic_view(NEAR_M, 1)
         rgb_jpeg = jpeg(frame)
+    if send_info:
+        node.subscription(INFO_TOPIC).callback(camera_info_msg())
     for k in range(4):
         node.subscription(RGB_TOPIC).callback(compressed_msg(T0_NS + k * RGB_PERIOD_NS, rgb_jpeg))
     for step in range(0, 4 * 25 + 1):
@@ -597,12 +601,16 @@ def feed_still(
     return T0_NS + 3 * RGB_PERIOD_NS
 
 
-def test_still_session_subscribes_three_topics(tmp_path: Path) -> None:
+def test_still_session_subscribes_four_topics(tmp_path: Path) -> None:
     node = FakeNode()
     controller = make_still_controller(tmp_path, node)
     sid = controller.start_still_session(None)
     assert controller.store.kind(sid) == "head_arm"
-    assert sorted(s.topic for s in node.subscriptions) == sorted([RGB_TOPIC, HEAD_TOPIC, ARM_TOPIC])
+    assert sorted(s.topic for s in node.subscriptions) == sorted([RGB_TOPIC, INFO_TOPIC, HEAD_TOPIC, ARM_TOPIC])
+    info = node.subscription(INFO_TOPIC)
+    assert info.msg_type is CameraInfo
+    assert info.qos.reliability == ReliabilityPolicy.RELIABLE
+    assert info.qos.depth == 1
     assert node.subscription(RGB_TOPIC).msg_type is CompressedImage
     assert node.subscription(RGB_TOPIC).qos.reliability == ReliabilityPolicy.BEST_EFFORT
     assert node.subscription(RGB_TOPIC).qos.depth == 5
@@ -630,7 +638,35 @@ def test_capture_still_stores_pose_with_nearest_joints(tmp_path: Path) -> None:
     assert meta["joints"] == pytest.approx(
         {"head_pan": 0.3, "head_tilt": 0.4, **{n: -0.2 + i / 10 for i, n in enumerate(ARM_NAMES)}}
     )
+    info = camera_info_msg()
+    assert meta["camera_info"] == {
+        "width": info.width,
+        "height": info.height,
+        "distortion_model": info.distortion_model,
+        "d": info.d,
+        "k": info.k,
+        "p": info.p,
+    }
     assert controller.state()["pose_count"] == 1
+
+
+def test_capture_still_without_camera_info_stores_nothing(tmp_path: Path) -> None:
+    """A still is stored only with the factory colour camera_info (head-from-arm fits with it)."""
+    node = FakeNode()
+    controller = make_still_controller(tmp_path, node)
+    sid = controller.start_still_session(None)
+    assert controller.still_camera_info() is None
+    feed_still(node, send_info=False)
+    outcome = controller.capture_still(0, 0, 0)
+    assert (outcome.stored, outcome.pose_id, outcome.reason) == (False, None, "no colour camera_info")
+    assert controller.store.pose_ids(sid) == []
+    node.subscription(INFO_TOPIC).callback(camera_info_msg())
+    info = controller.still_camera_info()
+    assert info is not None and (info.width, info.height) == RGB_SIZE
+    assert list(info.k) == FACTORY_K
+    assert controller.capture_still(0, 0, 0).stored is True
+    controller.stop()
+    assert controller.still_camera_info() is None
 
 
 def test_capture_still_waits_for_still_joints(tmp_path: Path) -> None:
@@ -693,7 +729,7 @@ def test_still_session_stop_unsubscribes_everything(tmp_path: Path) -> None:
     controller = make_still_controller(tmp_path, node)
     controller.start_still_session(None)
     controller.stop()
-    assert node.subscriptions == [] and len(node.destroyed) == 3
+    assert node.subscriptions == [] and len(node.destroyed) == 4
     assert controller.state()["running"] is False
     assert controller.stop()["running"] is False
 

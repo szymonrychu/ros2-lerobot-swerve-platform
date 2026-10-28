@@ -10,6 +10,11 @@ pan axis of the given head URDF that contains the head at every pan/tilt inside 
 Distances are signed (negative = penetration). Every obstacle is convex, so the distance along a capsule axis is a
 convex function of the axis parameter: its minimum is found by golden-section search, vectorised over every capsule
 and obstacle at once. mcp_server keeps its own checks on top of this one.
+
+`PoseChecker.check_view` checks one view of the board by the head D435 colour camera at a head pan/tilt: every
+ChArUco corner keeps `d435_min_z_m` plus `d435_min_z_margin_m` of depth from the camera's optical frame (the D435
+depth min-Z, design D2) and projects inside the colour image of the camera_info. The corners lie on the printed face,
+the face the camera sees; the board's 4 mm thickness is behind it, so it does not bring the board nearer the camera.
 """
 
 import math
@@ -17,12 +22,15 @@ import xml.etree.ElementTree as ET
 from collections.abc import Mapping
 from typing import Self
 
+import cv2
 import numpy as np
 from pydantic import Field, model_validator
 
+from ros2_common.camera_geometry import CameraIntrinsics
 from ros2_common.head_rgbd_calibration.chain import UrdfChain, arm_in_robot_base, parse_vec, pose_from_xyz_rpy
-from ros2_common.head_rgbd_calibration.charuco import board_outline
+from ros2_common.head_rgbd_calibration.charuco import board_corners_3d, board_outline
 from ros2_common.head_rgbd_calibration.config import ARM_JOINT_NAMES, HeadArmFitConfig, StrictModel
+from ros2_common.head_rgbd_calibration.head_arm_fit import D435_COLOR_FRAME
 
 MM_PER_M = 1000.0
 GRIPPER_JOINT = "gripper"
@@ -50,6 +58,10 @@ RIM_SIDES = 32  # cylinder visuals as circumscribed polygons: their vertices bou
 GOLDEN_RATIO = (math.sqrt(5.0) - 1.0) / 2.0
 GOLDEN_ITERATIONS = 48  # shrinks the bracket below 1e-10 of the capsule length
 PATH_FRACTION = "at path fraction"
+MIN_Z_RULE = "inside D435 min-Z"
+FOV_RULE = "outside colour FOV"
+D435_MIN_Z_M = 0.15  # depth min-Z of the D435 at 640x360 (design D2, datasheet table 4-12)
+D435_MIN_Z_MARGIN_M = 0.05
 DEFAULT_BOXES = (
     ("frame_left", (0.0, 0.1333, 0.15), (0.425, 0.035, 0.06)),
     ("frame_right", (0.0, -0.1333, 0.15), (0.425, 0.035, 0.06)),
@@ -120,7 +132,8 @@ class PoseCheckConfig(StrictModel):
     """Pose check settings (m, rad).
 
     `head_radius_m` and `head_height_m` (above the head mount z) are the head envelope of the shipped head URDF;
-    `head_envelope` grows them for a URDF whose head reaches further.
+    `head_envelope` grows them for a URDF whose head reaches further. A view keeps every board corner at
+    `d435_min_z_m + d435_min_z_margin_m` or more of depth from the camera.
     """
 
     body: BodyConfig = Field(default_factory=BodyConfig)
@@ -135,6 +148,8 @@ class PoseCheckConfig(StrictModel):
     stretched_shoulder_lift_max_rad: float = 1.85
     path_step_rad: float = Field(default=0.05, gt=0)
     board_grid: int = Field(default=5, ge=2)
+    d435_min_z_m: float = Field(default=D435_MIN_Z_M, ge=0)
+    d435_min_z_margin_m: float = Field(default=D435_MIN_Z_MARGIN_M, ge=0)
 
     @model_validator(mode="after")
     def check_crossbar(self) -> Self:
@@ -367,9 +382,21 @@ def board_points_local(fit: HeadArmFitConfig, grid: int) -> np.ndarray:
     xs = np.linspace(outline[:, 0].min(), outline[:, 0].max(), grid)
     ys = np.linspace(outline[:, 1].min(), outline[:, 1].max(), grid)
     lattice = np.array([[x, y, 0.0] for y in ys for x in xs])
-    board = np.vstack([outline, lattice])
+    return mounted(fit, np.vstack([outline, lattice]))
+
+
+def mounted(fit: HeadArmFitConfig, points: np.ndarray) -> np.ndarray:
+    """Board-frame points in gripper_link through `fit.board_mount` (xyz_init, rpy_init).
+
+    Args:
+        fit: Fit config.
+        points: (N, 3) points in the board frame (m).
+
+    Returns:
+        np.ndarray: (N, 3) points in gripper_link (m).
+    """
     mount = pose_from_xyz_rpy(fit.board_mount.xyz_init, fit.board_mount.rpy_init)
-    return board @ mount[:3, :3].T + mount[:3, 3]
+    return points @ mount[:3, :3].T + mount[:3, 3]
 
 
 def mm(value_m: float) -> str:
@@ -392,7 +419,8 @@ class PoseChecker:
 
         Args:
             arm_urdf: Arm URDF XML (so101_arm.urdf).
-            head_urdf: Head URDF XML, the applied chain (the head envelope reads its mount and joint limits).
+            head_urdf: Head URDF XML, the applied chain (the head envelope reads its mount and joint limits, the view
+                check its camera frames).
             fit: Head-from-arm fit config: joint offsets, arm base in base_link, board and its mount.
             cfg: Pose check settings.
             board_margin_m: Clearance the board points keep from the obstacles and the arm links (m); None uses
@@ -405,6 +433,7 @@ class PoseChecker:
         if board_margin_m is not None and board_margin_m < 0.0:
             raise ValueError(f"board_margin_m must be >= 0, got {board_margin_m}")
         self.chain = UrdfChain.from_text(arm_urdf)
+        self.head = UrdfChain.from_text(head_urdf)
         self.fit = fit
         self.cfg = cfg
         self.board_margin_m = cfg.margin_m if board_margin_m is None else board_margin_m
@@ -412,6 +441,7 @@ class PoseChecker:
         self.envelope = head_envelope(head_urdf, cfg)
         self.obstacles = ObstacleSet(list(cfg.body.boxes), [*cfg.body.cylinders, self.envelope])
         self.board_local = board_points_local(fit, cfg.board_grid)
+        self.corners_local = mounted(fit, board_corners_3d(fit.board))
         self.limits = {name: self.chain.limits(name) for name in (*ARM_JOINT_NAMES, GRIPPER_JOINT)}
 
     def link_poses(self, joints: Mapping[str, float]) -> dict[str, np.ndarray]:
@@ -500,6 +530,59 @@ class PoseChecker:
             clearance = float(point_segment_distances(board, start, end).min()) - cfg.link_radius_m
             if clearance < self.board_margin_m:
                 entries.append(f"board_link_clearance: board to {part} clearance {mm(clearance)} < {board_margin}")
+        return entries
+
+    def check_view(
+        self,
+        joints: Mapping[str, float],
+        pan_rad: float,
+        tilt_rad: float,
+        intrinsics: CameraIntrinsics,
+        camera_frame: str = D435_COLOR_FRAME,
+    ) -> list[str]:
+        """Check the board corners as the camera sees them with the head at one pan/tilt.
+
+        Args:
+            joints: Measured angle (rad) of every arm joint.
+            pan_rad: head_pan of the view (rad).
+            tilt_rad: head_tilt of the view (rad).
+            intrinsics: The colour camera_info of the camera (`CameraIntrinsics.from_camera_info`).
+            camera_frame: Optical frame of the camera in the head URDF (default the D435 colour frame).
+
+        Returns:
+            list[str]: Violations, each "<rule>: <detail>": MIN_Z_RULE when a ChArUco corner is nearer along the
+                optical axis than `d435_min_z_m + d435_min_z_margin_m`, FOV_RULE when one lies behind the camera or
+                projects outside the image (pixel centres 0..width-1, 0..height-1); empty when the view is usable.
+        """
+        cfg = self.cfg
+        gripper = self.link_poses(joints)[BOARD_LINK]
+        camera = self.head.transform(camera_frame, {HEAD_PAN: pan_rad, HEAD_TILT: tilt_rad})
+        corners = self.corners_local @ gripper[:3, :3].T + gripper[:3, 3]
+        in_camera = (corners - camera[:3, 3]) @ camera[:3, :3]
+        entries = []
+        nearest = float(in_camera[:, 2].min())
+        limit = cfg.d435_min_z_m + cfg.d435_min_z_margin_m
+        if nearest < limit:
+            entries.append(
+                f"{MIN_Z_RULE}: board corner depth {mm(nearest)} < {mm(limit)} "
+                f"(min-Z {mm(cfg.d435_min_z_m)} + margin {mm(cfg.d435_min_z_margin_m)})"
+            )
+        size = f"{intrinsics.width}x{intrinsics.height} colour image"
+        behind = int(np.count_nonzero(in_camera[:, 2] <= 0.0))
+        if behind:
+            entries.append(f"{FOV_RULE}: {behind} of {len(in_camera)} board corners behind the camera")
+            return entries
+        dist = np.asarray(intrinsics.distortion or np.zeros(5), dtype=float)
+        pixels = cv2.projectPoints(in_camera, np.zeros(3), np.zeros(3), intrinsics.matrix(), dist)[0].reshape(-1, 2)
+        outside = (
+            (pixels[:, 0] < 0.0)
+            | (pixels[:, 0] > intrinsics.width - 1)
+            | (pixels[:, 1] < 0.0)
+            | (pixels[:, 1] > intrinsics.height - 1)
+        )
+        count = int(np.count_nonzero(outside))
+        if count:
+            entries.append(f"{FOV_RULE}: {count} of {len(in_camera)} board corners outside the {size}")
         return entries
 
     def joint_limit_entries(self, joints: Mapping[str, float], gripper_rad: float) -> list[str]:

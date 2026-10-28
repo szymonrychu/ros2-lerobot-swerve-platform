@@ -434,8 +434,10 @@ class SessionStore:
         arm_pose: int,
         tier: int,
         head_offset: int,
+        camera_info: CameraInfoData,
     ) -> str:
-        """Store a still RGB view of the gripper board with the measured joints (head_arm sessions).
+        """Store a still RGB view of the gripper board with the measured joints and the factory colour camera_info
+        (head_arm sessions; the head-from-arm fit takes its intrinsics from it).
 
         Args:
             sid: Session id.
@@ -447,13 +449,14 @@ class SessionStore:
             arm_pose: Index of the scripted arm pose, 0 or more.
             tier: Capture tier 0, 1 or 2.
             head_offset: Index of the head offset, 0 or more.
+            camera_info: The factory colour camera_info current when the frame was captured.
 
         Returns:
             The new pose id.
 
         Raises:
             ValueError: wrong session kind, a joint missing, tier not 0/1/2, a negative arm_pose or head_offset,
-                or an image size other than the session's.
+                a camera_info for another image size, or an image size other than the session's.
         """
         self.require_kind(sid, KIND_HEAD_ARM, "add_still_pose")
         missing = [name for name in (*HEAD_JOINTS, *ARM_JOINTS) if name not in joints]
@@ -463,6 +466,11 @@ class SessionStore:
             raise ValueError(f"tier must be 0, 1 or 2, got {tier}")
         if arm_pose < 0 or head_offset < 0:
             raise ValueError(f"arm_pose and head_offset must not be negative, got {arm_pose} and {head_offset}")
+        rgb_h, rgb_w = rgb_image.shape[:2]
+        if (camera_info.width, camera_info.height) != (rgb_w, rgb_h):
+            raise ValueError(
+                f"camera_info {camera_info.width}x{camera_info.height} is not the colour size {rgb_w}x{rgb_h}"
+            )
         files = {
             RGB_FILE: bytes(rgb_jpeg),
             THUMBNAIL_FILES["rgb"]: rgb_thumbnail(rgb_image, detection, self.cfg.thumbnail_width_px),
@@ -477,6 +485,7 @@ class SessionStore:
             "arm_pose": int(arm_pose),
             "tier": int(tier),
             "head_offset": int(head_offset),
+            "camera_info": camera_info_json(camera_info),
         }
         with self.lock:
             data = self.read_session(sid)
@@ -521,6 +530,25 @@ class SessionStore:
                 )
             )
         return views
+
+    def load_arm_camera_infos(self, sid: str) -> dict[str, CameraInfoData | None]:
+        """The colour camera_info stored with each still pose of a head_arm session, by pose id in pose order.
+
+        Args:
+            sid: Session id.
+
+        Returns:
+            dict[str, CameraInfoData | None]: The camera_info per pose id; None for a pose.json without one.
+
+        Raises:
+            ValueError: the session is not a head_arm session.
+        """
+        self.require_kind(sid, KIND_HEAD_ARM, "load_arm_camera_infos")
+        infos: dict[str, CameraInfoData | None] = {}
+        for pid in self.pose_ids(sid):
+            info = json.loads((self.pose_dir(sid, pid) / POSE_FILE).read_text()).get("camera_info")
+            infos[pid] = None if info is None else camera_info_from_json(info)
+        return infos
 
     def captured_arm_poses(self, sid: str) -> set[int]:
         """The arm pose indices that have at least one stored still pose."""

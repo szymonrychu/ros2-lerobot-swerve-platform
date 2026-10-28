@@ -1,4 +1,5 @@
-"""The shipped head-from-arm arm pose set: safe by FK, the board in view, coverage and a passing synthetic fit.
+"""The shipped head-from-arm arm pose set: safe by FK, the board in the D435's range, coverage and a passing synthetic
+fit.
 
 Everything runs on nodes/web_ui/urdf/so101_arm.urdf and nodes/web_ui/urdf/head.urdf, both as shipped and with the
 applied floor-fit chain of 2026-10-22 as overrides (`tests/head_arm_synthetic.py::synth_head_urdf`). The poses are
@@ -9,7 +10,8 @@ The home pose the sequence starts from is `HOME_POSE`: `scripts/gen_nav_footprin
 repo record of the home that mcp_server's `arm.home_file` (/var/lib/ros2/arm/home.yaml) holds and `arm_home` parks
 at. The board mount is the user's hand-measured mount (2026-10-23), not yet fit-solved (design D47): the safety tests
 use the board margin `margin_m + provisional_margin_m` and the mount shifted by +-1 cm and turned by +-5 deg about each
-gripper axis.
+gripper axis. The camera is the head D435 colour camera (`d435_color_optical_frame`) with the nominal 640x360
+intrinsics (69 deg across, the datasheet colour FOV); the factory camera_info replaces them at run time.
 """
 
 import importlib.util
@@ -25,7 +27,8 @@ import cv2
 import numpy as np
 import pytest
 import yaml
-from ros2_common.head_rgbd_calibration.arm_pose_check import PoseChecker
+from ros2_common.camera_geometry import CameraIntrinsics
+from ros2_common.head_rgbd_calibration.arm_pose_check import FOV_RULE, MIN_Z_RULE, PoseChecker
 from ros2_common.head_rgbd_calibration.chain import UrdfChain, pose_from_xyz_rpy, xyz_rpy_from_pose
 from ros2_common.head_rgbd_calibration.charuco import board_corners_3d
 from ros2_common.head_rgbd_calibration.config import ARM_JOINT_NAMES, BoardMountConfig, HeadArmFitConfig
@@ -81,6 +84,7 @@ WRIST_FLEX = "wrist_flex"
 BIG_JOINTS = ("elbow_flex", "shoulder_lift", "shoulder_pan")
 PAN, TILT = "head_pan", "head_tilt"
 EPS = 1e-9
+D435_COLOR = CameraIntrinsics.from_hfov(640, 360, 69.0)
 
 
 def load_synthetic() -> ModuleType:
@@ -183,15 +187,15 @@ def aimed_views(head_name: str) -> list[tuple[float, float, list[tuple[int, floa
 
     The head is aimed by `aim_head` at the board centre (nominal mount) on the given chain, whose limits clamp it;
     an offset whose pan or tilt leaves the URDF limits is skipped at run time and counts 0 corners. A corner counts
-    when it lies in front of the camera, inside the 576x324 image with IMAGE_MARGIN_PX to spare, and the board front
-    faces the camera (`MIN_FACING_COS`, as the synthetic scenes).
+    when it lies in front of the camera, inside the nominal D435 640x360 colour image with IMAGE_MARGIN_PX to spare,
+    and the board front faces the camera (`MIN_FACING_COS`, as the synthetic scenes).
     """
     chain = UrdfChain.from_text(HEADS[head_name])
     checker = PoseChecker(ARM_URDF, HEADS[head_name], FIT, SEQ.pose_check)
     mount = pose_from_xyz_rpy(FIT.board_mount.xyz_init, FIT.board_mount.rpy_init)
     corners = np.column_stack([board_corners_3d(FIT.board), np.ones(len(board_corners_3d(FIT.board)))])
     pan_limits, tilt_limits = chain.limits(PAN), chain.limits(TILT)
-    width, height = SYN.IMAGE_SIZE
+    width, height = D435_COLOR.width, D435_COLOR.height
     out = []
     for pose in set_poses():
         board = checker.link_poses(pose)["gripper_link"] @ mount
@@ -206,7 +210,7 @@ def aimed_views(head_name: str) -> list[tuple[float, float, list[tuple[int, floa
             camera = camera_pose(chain, {PAN: pan, TILT: tilt})
             in_camera = np.linalg.solve(camera, board)
             points = (in_camera @ corners.T).T[:, :3]
-            pixels = (SYN.SYNTH_CAMERA_MATRIX @ points.T).T
+            pixels = (D435_COLOR.matrix() @ points.T).T
             pixels = pixels[:, :2] / pixels[:, 2:3]
             inside = (
                 (points[:, 2] > 0)
@@ -396,6 +400,41 @@ def test_board_visible_from_aimed_head(head_name: str) -> None:
     for index, (_, _, views) in enumerate(aimed_views(head_name)):
         good = [n >= MIN_VISIBLE_CORNERS and MIN_CAMERA_DISTANCE_M <= d <= MAX_CAMERA_DISTANCE_M for n, d in views]
         assert sum(good) >= MIN_GOOD_OFFSETS, (index, views)
+
+
+@cache
+def d435_views(head_name: str) -> list[tuple[int, float, float, list[str]]]:
+    """(pose index, pan rad, tilt rad, `PoseChecker.check_view` entries) of every view inside the head limits, the
+    head aimed at the board centre as the sequence does, with the nominal D435 colour intrinsics."""
+    chain = UrdfChain.from_text(HEADS[head_name])
+    checker = PoseChecker(ARM_URDF, HEADS[head_name], FIT, SEQ.pose_check)
+    pan_limits, tilt_limits = chain.limits(PAN), chain.limits(TILT)
+    out = []
+    for index, pose in enumerate(set_poses()):
+        pan0, tilt0 = aim_head(chain, board_centre_in_base(checker, pose))
+        for dpan, dtilt in SEQ.head_offsets_deg:
+            pan, tilt = pan0 + math.radians(dpan), tilt0 + math.radians(dtilt)
+            if pan_limits[0] <= pan <= pan_limits[1] and tilt_limits[0] <= tilt <= tilt_limits[1]:
+                out.append((index, pan, tilt, checker.check_view(pose, pan, tilt, D435_COLOR)))
+    return out
+
+
+@pytest.mark.parametrize("head_name", list(HEADS))
+def test_shipped_views_keep_the_board_in_the_d435_range(head_name: str) -> None:
+    """No shipped view puts a board corner inside the D435 min-Z (0.15 m + 0.05 m margin), and the views the colour
+    FOV rule keeps (the sequence skips the others) still meet the fit's coverage limits in every tier."""
+    views = d435_views(head_name)
+    assert [v for v in views if any(e.startswith(MIN_Z_RULE) for e in v[3])] == []
+    assert all(e.startswith(FOV_RULE) for v in views for e in v[3])
+    kept = [v for v in views if not v[3]]
+    poses = sorted({index for index, *_ in kept})
+    held = set(poses[FIT.limits.holdout_every - 1 :: FIT.limits.holdout_every])
+    assert len(poses) >= FIT.limits.min_arm_poses, poses
+    assert sum(1 for index, *_ in kept if index not in held) >= FIT.limits.min_views
+    assert math.degrees(float(np.ptp([pan for _, pan, _, _ in kept]))) >= FIT.limits.min_pan_span_deg
+    assert math.degrees(float(np.ptp([tilt for _, _, tilt, _ in kept]))) >= FIT.limits.min_tilt_span_deg
+    tiers = [0] * len(SEQ.tier0_poses) + [1] * len(SEQ.tier1_poses) + [2] * len(SEQ.tier2_poses)
+    assert {tiers[index] for index in poses} == {0, 1, 2}
 
 
 @pytest.mark.parametrize("head_name", list(HEADS))

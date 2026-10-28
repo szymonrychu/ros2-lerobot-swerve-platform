@@ -12,7 +12,13 @@ ignores the holding load of the clamped stick and nothing else, and re-checks th
 measured joints. The agent-facing `release_control` has no board argument.
 
 Every motion goes through RobotClient (mcp_server's guarded tools) and every arm command waits for the FK path check
-from the measured joints to the target (`PoseChecker.check_path`); a refusal stops before anything moves. The gripper
+from the measured joints to the target (`PoseChecker.check_path`); a refusal stops before anything moves. Every view
+(an arm pose with the head aimed at the board plus one head offset) keeps every ChArUco corner at 0.20 m or more of
+depth from `camera_frame` (the D435 min-Z plus a margin) and inside the colour image of the still session's
+camera_info (`PoseChecker.check_view`), else it is skipped with the reason "inside D435 min-Z" or "outside colour FOV",
+as a view outside the head limits is. A pose whose every view would be skipped, judged at its target joints, is not
+visited; the others are judged again at the measured joints. The sequence waits up to `still.timeout_s` for the first
+colour camera_info after the still session starts. The gripper
 target is sent once, with the base pose. Every exit of the sequence (end, stop, tool error, exception, confirm timeout)
 stops the still capture and releases the arm with `keep_position=True`: the arm holds a checked pose and mcp_server
 keeps the head where it is. The sequence never parks on its own and never sends `carried_object_radius_m`.
@@ -37,6 +43,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from ros2_common.camera_geometry import CameraIntrinsics
 from ros2_common.head_rgbd_calibration.arm_pose_check import BOARD_LINK, GRIPPER_JOINT, PoseChecker
 from ros2_common.head_rgbd_calibration.chain import UrdfChain, pose_from_xyz_rpy
 from ros2_common.head_rgbd_calibration.config import ARM_JOINT_NAMES
@@ -80,6 +87,25 @@ class SequenceError(RuntimeError):
 
 class Busy(SequenceError):
     """A sequence or park runs, `blocked` names a reason, or the step does not fit the phase (maps to 409)."""
+
+
+@dataclass(frozen=True)
+class View:
+    """One head offset at an arm pose: the head command and why it is skipped (None: it is captured).
+
+    Attributes:
+        offset: Index of the head offset (`arm_sequence.head_offsets_deg`).
+        pan_deg: Head pan command (deg).
+        tilt_deg: Head tilt command (deg).
+        reason: Skip reason (the head limit, MIN_Z_RULE or FOV_RULE), None for a view to capture.
+        detail: The head command and every violated rule, for the log.
+    """
+
+    offset: int
+    pan_deg: float
+    tilt_deg: float
+    reason: str | None
+    detail: str
 
 
 class Stopped(Exception):
@@ -735,8 +761,10 @@ class Sequencer:
         with self.lock:
             self.session_id = session_id
             self.phase = CAPTURING
+            self.status = "waiting for the colour camera_info"
+        intrinsics = self.camera_intrinsics()
         for tier in range(BIG_JOINT_TIER):
-            self.capture_tier(plan, tier)
+            self.capture_tier(plan, tier, intrinsics)
         big = ", ".join(BIG_JOINTS)
         self.wait_confirm(
             WAITING_BIG_JOINTS,
@@ -746,13 +774,38 @@ class Sequencer:
         with self.lock:
             self.phase = CAPTURING
         if self.big_joints_allowed:
-            self.capture_tier(plan, BIG_JOINT_TIER)
+            self.capture_tier(plan, BIG_JOINT_TIER, intrinsics)
         self.check_alive()
         with self.lock:
             self.phase = RETURNING
             self.tier = None
             self.status = "moving back to the base pose"
         self.checked_move(plan, base, "the base pose (return)", base)
+
+    def camera_intrinsics(self) -> CameraIntrinsics:
+        """The colour intrinsics of the still session, waiting up to `still.timeout_s` for the first camera_info.
+
+        Raises:
+            Stopped: stop() was called.
+            StepFailed: No camera_info arrived in time, or it is not a usable pinhole (plumb_bob) camera_info.
+        """
+        began = self.clock()
+        timeout = self.cfg.still.timeout_s
+        while True:
+            self.check_alive()
+            info = self.capture.still_camera_info()
+            if info is not None:
+                try:
+                    return CameraIntrinsics.from_camera_info(
+                        info.width, info.height, info.k, info.d, info.distortion_model
+                    )
+                except ValueError as exc:
+                    raise StepFailed(f"the colour camera_info is unusable: {exc}") from exc
+            if self.clock() - began >= timeout:
+                raise StepFailed(
+                    f"no colour camera_info on {self.cfg.topics.rgb_info} within still.timeout_s {timeout:g} s"
+                )
+            self.sleep(POLL_S)
 
     def check_alive(self) -> None:
         """Raise Stopped after stop()."""
@@ -829,8 +882,39 @@ class Sequencer:
                 )
             self.sleep(POLL_S)
 
-    def capture_tier(self, plan: Plan, tier: int) -> None:
-        """Visit every pose of a tier: checked move, aim the head on the applied chain, one view per head offset."""
+    def plan_views(self, plan: Plan, joints: dict[str, float], intrinsics: CameraIntrinsics) -> list[View]:
+        """The views of an arm pose: the head aimed at the board centre on the applied chain, plus each head offset.
+
+        Args:
+            plan: The sequence plan.
+            joints: Arm joints the board is placed by (the target before the move, the measured ones after it).
+            intrinsics: Colour intrinsics of the still session.
+
+        Returns:
+            list[View]: One per head offset; a view outside the head limits, inside the D435 min-Z or outside the
+                colour FOV carries its reason.
+        """
+        camera_frame = self.cfg.camera_frame
+        centre = (plan.checker.link_poses(joints)[BOARD_LINK] @ plan.board_centre)[:3]
+        pan, tilt = aim_head(plan.head, centre, camera_frame)
+        views = []
+        for offset, (dpan, dtilt) in enumerate(self.seq.head_offsets_deg):
+            pan_deg, tilt_deg = math.degrees(pan) + dpan, math.degrees(tilt) + dtilt
+            detail = f"pan {pan_deg:.2f} deg, tilt {tilt_deg:.2f} deg"
+            reason = outside_head_limits(plan.head, pan_deg, tilt_deg)
+            if reason is None:
+                entries = plan.checker.check_view(
+                    joints, math.radians(pan_deg), math.radians(tilt_deg), intrinsics, camera_frame
+                )
+                if entries:
+                    reason = entries[0].partition(": ")[0]
+                    detail = f"{detail}: {'; '.join(entries)}"
+            views.append(View(offset, pan_deg, tilt_deg, reason, detail))
+        return views
+
+    def capture_tier(self, plan: Plan, tier: int, intrinsics: CameraIntrinsics) -> None:
+        """Visit every pose of a tier: skip a pose whose every view is skipped at its target, else checked move, aim
+        the head on the applied chain and capture each view that is not skipped at the measured joints."""
         indices = [index for index, (pose_tier, _) in enumerate(plan.poses) if pose_tier == tier]
         for number, index in enumerate(indices):
             self.check_alive()
@@ -842,21 +926,24 @@ class Sequencer:
                 self.status = (
                     f"tier {tier}: pose {number + 1} of {len(indices)} (arm pose {index + 1} of {len(plan.poses)})"
                 )
+            planned = self.plan_views(plan, pose, intrinsics)
+            if all(view.reason is not None for view in planned):
+                for view in planned:
+                    where = f"tier {tier} arm pose {index} head offset {view.offset}"
+                    self.count_skipped(view.reason, f"{where} (pose not visited): {view.detail}")
+                continue
             self.checked_move(plan, pose, label, pose)
-            joints = self.measured()
-            centre = (plan.checker.link_poses(joints)[BOARD_LINK] @ plan.board_centre)[:3]
-            pan, tilt = aim_head(plan.head, centre)
-            for offset, (dpan, dtilt) in enumerate(self.seq.head_offsets_deg):
+            for view in self.plan_views(plan, self.measured(), intrinsics):
                 self.check_alive()
-                self.view(plan, index, tier, offset, math.degrees(pan) + dpan, math.degrees(tilt) + dtilt)
+                where = f"tier {tier} arm pose {index} head offset {view.offset}"
+                if view.reason is not None:
+                    self.count_skipped(view.reason, f"{where}: {view.detail}")
+                    continue
+                self.view(index, tier, view.offset, view.pan_deg, view.tilt_deg)
 
-    def view(self, plan: Plan, index: int, tier: int, offset: int, pan_deg: float, tilt_deg: float) -> None:
-        """One head offset at an arm pose: skipped outside the head limits, else aim, settle and capture a still."""
+    def view(self, index: int, tier: int, offset: int, pan_deg: float, tilt_deg: float) -> None:
+        """One view that passed the checks: aim, settle and capture a still."""
         where = f"tier {tier} arm pose {index} head offset {offset}"
-        reason = outside_head_limits(plan.head, pan_deg, tilt_deg)
-        if reason is not None:
-            self.count_skipped(reason, f"{where}: pan {pan_deg:.2f} deg, tilt {tilt_deg:.2f} deg")
-            return
         result = self.call(self.robot.set_head_angles(pan_deg, tilt_deg), f"set_head_angles at {where}")
         status, message = tool_status(result)
         if status != CONVERGED:

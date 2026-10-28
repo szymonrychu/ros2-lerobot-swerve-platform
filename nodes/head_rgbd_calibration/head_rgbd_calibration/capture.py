@@ -2,7 +2,8 @@
 
 An intrinsics check capture pairs the D435 colour frame and the depth aligned to it by their exact stamp (the driver
 stamps both with the colour frame time), judges each pair for stillness (colour and depth MADs over a window),
-detects the ChArUco board on the colour only and stores the still with the latest factory colour camera_info.
+detects the ChArUco board on the colour only and stores the still with the latest factory colour camera_info. A
+head_arm still session stores each still with the measured joints and that camera_info as well.
 
 Threads: the subscription and timer callbacks run on the ROS executor thread; start, stop and state run on HTTP
 threads. `lock` guards the shared state (the current capture and its status fields) and is only held for short field
@@ -58,6 +59,7 @@ MIN_STILL_SAMPLES = 2
 REASON_STORED = "stored"
 REASON_NO_BOARD = "no board"
 REASON_JOINTS_STALE = "joints stale"
+REASON_NO_CAMERA_INFO = "no colour camera_info"
 REASON_STOPPED = "stopped"
 
 
@@ -282,6 +284,7 @@ class StillRun:
         running: False once stopped.
         pose_count: Poses stored in the session.
         subscriptions: Subscriptions created by start_still_session.
+        camera_info: The latest factory colour camera_info, None until one has arrived.
         frames: Recent RGB frames, newest last.
         head: Recent head joint samples, newest last.
         arm: Recent arm joint samples, newest last.
@@ -292,6 +295,7 @@ class StillRun:
     pose_count: int
     running: bool = True
     subscriptions: list[Any] = field(default_factory=list)
+    camera_info: CameraInfoData | None = None
     frames: deque[StillFrame] = field(default_factory=lambda: deque(maxlen=RGB_HISTORY))
     head: deque[JointsSample] = field(default_factory=lambda: deque(maxlen=JOINT_HISTORY))
     arm: deque[JointsSample] = field(default_factory=lambda: deque(maxlen=JOINT_HISTORY))
@@ -462,7 +466,8 @@ class CaptureController:
         return self.state()
 
     def start_still_session(self, session_id: str | None) -> str:
-        """Start a head_arm still session: subscribe the colour stream and the head and arm joint states.
+        """Start a head_arm still session: subscribe the colour stream, its camera_info and the head and arm joint
+        states.
 
         Args:
             session_id: head_arm session to add poses to, None for a new one.
@@ -504,6 +509,7 @@ class CaptureController:
         joint_qos = rgb_qos(JOINT_SUBSCRIPTION_DEPTH)
         subscriptions = (
             (CompressedImage, topics.rgb, partial(self.on_still_rgb, run, topics.rgb), rgb_qos(self.cfg.qos.rgb)),
+            (CameraInfo, topics.rgb_info, partial(self.on_still_info, run), reliable_qos(INFO_QOS_DEPTH)),
             (JointState, topics.head_joint_states, partial(self.on_joints, run.head, HEAD_JOINTS), joint_qos),
             (JointState, topics.arm_joint_states, partial(self.on_joints, run.arm, ARM_JOINTS), joint_qos),
         )
@@ -536,6 +542,13 @@ class CaptureController:
             except Exception as exc:  # keep destroying the rest
                 self.logger.error(f"destroying a still capture subscription failed: {exc}")
 
+    def still_camera_info(self) -> CameraInfoData | None:
+        """The latest factory colour camera_info of the running still session (None without a session or before the
+        first camera_info)."""
+        with self.lock:
+            run = self.still
+            return run.camera_info if run is not None and run.running else None
+
     def capture_still(self, arm_pose: int, tier: int, head_offset: int) -> StillOutcome:
         """Wait for a still scene, then store the newest frame with the measured head and arm joints.
 
@@ -547,9 +560,9 @@ class CaptureController:
             head_offset: Index of the head offset.
 
         Returns:
-            StillOutcome: stored with the pose id, or why nothing was stored: "no board", "joints stale",
-            "not still within <t> s", "refused: <store message>", or "stopped" when the session was stopped while
-            waiting. Missing joints are never filled in.
+            StillOutcome: stored with the pose id, or why nothing was stored: "no board", "no colour camera_info",
+            "joints stale", "not still within <t> s", "refused: <store message>", or "stopped" when the session was
+            stopped while waiting. Missing joints are never filled in.
 
         Raises:
             CaptureError: no still session was started.
@@ -626,11 +639,15 @@ class CaptureController:
         tier: int,
         head_offset: int,
     ) -> StillOutcome:
-        """Detect the board in the frame and store it with its joints."""
+        """Detect the board in the frame and store it with its joints and the latest colour camera_info."""
         frame, head, arm = found
         detection = detect(frame.image, make_board(self.cfg.fit.board))
         if detection is None:
             return StillOutcome(False, None, REASON_NO_BOARD)
+        with self.lock:
+            info = run.camera_info
+        if info is None:
+            return StillOutcome(False, None, REASON_NO_CAMERA_INFO)
         try:
             pid = self.store.add_still_pose(
                 run.session_id,
@@ -642,6 +659,7 @@ class CaptureController:
                 arm_pose,
                 tier,
                 head_offset,
+                info,
             )
         except (ValueError, OSError) as exc:
             return StillOutcome(False, None, f"refused: {exc}")
@@ -664,6 +682,14 @@ class CaptureController:
         frame = StillFrame(stamp_ns(msg), image, bytes(msg.data), cv2.cvtColor(image, cv2.COLOR_BGR2GRAY))
         with self.lock:
             run.frames.append(frame)
+
+    def on_still_info(self, run: StillRun, msg: Any) -> None:
+        """Keep the latest factory colour camera_info of a still session; each still stores the current one."""
+        if not run.running:
+            return
+        info = decode_camera_info(msg)
+        with self.lock:
+            run.camera_info = info
 
     def on_joints(self, samples: deque[JointsSample], names: tuple[str, ...], msg: Any) -> None:
         """Keep a stamped sample of a joint group; a message that lacks a joint of the group is ignored."""

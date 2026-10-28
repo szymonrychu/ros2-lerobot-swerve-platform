@@ -7,7 +7,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 import yaml
+from ros2_common.camera_geometry import CameraIntrinsics
 from ros2_common.head_rgbd_calibration.arm_pose_check import (
+    FOV_RULE,
+    MIN_Z_RULE,
     BodyConfig,
     BoxObstacle,
     CylinderObstacle,
@@ -15,9 +18,15 @@ from ros2_common.head_rgbd_calibration.arm_pose_check import (
     PoseChecker,
     head_envelope,
 )
-from ros2_common.head_rgbd_calibration.chain import UrdfChain, arm_in_robot_base, pose_from_xyz_rpy
-from ros2_common.head_rgbd_calibration.charuco import board_outline
+from ros2_common.head_rgbd_calibration.chain import (
+    UrdfChain,
+    arm_in_robot_base,
+    pose_from_xyz_rpy,
+    xyz_rpy_from_pose,
+)
+from ros2_common.head_rgbd_calibration.charuco import board_corners_3d, board_outline
 from ros2_common.head_rgbd_calibration.config import ARM_JOINT_NAMES, BoardMountConfig, HeadArmFitConfig
+from ros2_common.head_rgbd_calibration.head_arm_fit import board_centre
 from ros2_common.head_rgbd_calibration.urdf_text import Origin, rewrite_joint_origin
 from scipy.optimize import brentq
 
@@ -27,7 +36,7 @@ HEAD_URDF = (URDF_DIR / "head.urdf").read_text()
 ARM_URDF = (URDF_DIR / "so101_arm.urdf").read_text()
 CLIENT_YML = ROOT / "ansible" / "group_vars" / "client.yml"
 HEAD_LINKS = ("head_post", "head_pan_base", "head_pan_link", "head_link")
-HEAD_POINT_LINKS = ("head_camera_link", "tof_link")
+HEAD_POINT_LINKS = ("d435_depth_optical_frame", "d435_color_optical_frame")  # D435 frames without a visual
 WIDENED_TILT = (-0.5236, 0.7854)  # -30..+45 deg, the reprinted mount's range (runbook head-arm-calibration Hardware)
 TEST_SAMPLE_DEG = 5.0  # finer than the envelope's own 15 deg grid
 RIM_POINTS = 180
@@ -44,6 +53,11 @@ PATH_FRACTION = "at path fraction "
 # The test board turned upside down under the gripper (hanging below it when the gripper is level).
 HANGING_MOUNT = BoardMountConfig(xyz_init=(0.0, 0.10, -0.12), rpy_init=(0.0, 0.0, math.pi), outline_margin_m=0.01)
 FOREARM_PAN_RAD = -1.4  # shoulder_pan turning the level forearm through the head pan axis
+COLOR_FRAME = "d435_color_optical_frame"
+# A very wide 640x360 camera (145 deg across) for the min-Z cases, and the nominal D435 colour at 640x360 (69 deg
+# across, the datasheet colour FOV, as nodes/marker_detector/marker_detector/synthetic.py) for the FOV cases.
+WIDE_CAMERA = CameraIntrinsics(width=640, height=360, fx=100.0, fy=100.0, cx=320.0, cy=180.0)
+D435_COLOR = CameraIntrinsics.from_hfov(640, 360, 69.0)
 
 
 def fit_with(mount: BoardMountConfig = TEST_MOUNT, offsets: dict[str, float] | None = None) -> HeadArmFitConfig:
@@ -72,6 +86,22 @@ def mount_with_corner_at(joints: dict[str, float], point: np.ndarray) -> BoardMo
     gripper = arm_pose("gripper_link", joints, fit)
     local = np.linalg.solve(gripper, np.append(point, 1.0))[:3] - corner
     return BoardMountConfig(xyz_init=tuple(float(v) for v in local), rpy_init=(0.0, 0.0, 0.0), outline_margin_m=0.01)
+
+
+def mount_facing_camera(
+    joints: dict[str, float], depth_m: float, lateral_m: float = 0.0, pan: float = 0.0, tilt: float = 0.0
+) -> BoardMountConfig:
+    """Board mount that puts the board fronto-parallel to the D435 colour camera at a head pose: its corner grid
+    centred `lateral_m` along the optical x axis, every corner at depth `depth_m` (FK and head chain straight from the
+    URDFs, independent of the checker)."""
+    fit = fit_with()
+    board_in_camera = np.eye(4)
+    board_in_camera[:3, 3] = np.array([lateral_m, 0.0, depth_m]) - board_centre(fit.board)
+    head = UrdfChain.from_text(HEAD_URDF)
+    camera = head.transform(COLOR_FRAME, {"head_pan": pan, "head_tilt": tilt})
+    mount = np.linalg.solve(arm_pose("gripper_link", joints, fit), camera @ board_in_camera)
+    xyz, rpy = xyz_rpy_from_pose(mount)
+    return BoardMountConfig(xyz_init=xyz, rpy_init=rpy, outline_margin_m=0.01)
 
 
 def rules(entries: list[str]) -> set[str]:
@@ -321,3 +351,49 @@ def test_board_margin_applies_to_board_rules_only() -> None:
     assert [e for e in entries if not e.startswith("board_")] == base_entries
     with pytest.raises(ValueError, match="board_margin_m"):
         PoseChecker(ARM_URDF, HEAD_URDF, fit, PoseCheckConfig(), board_margin_m=-0.01)
+
+
+def test_board_beyond_d435_min_z() -> None:
+    """Every board corner keeps d435_min_z_m (150 mm at 640x360, design D2) plus d435_min_z_margin_m (50 mm) of depth
+    from d435_color_optical_frame; a nearer board is named with its nearest corner depth."""
+    cfg = PoseCheckConfig()
+    assert (cfg.d435_min_z_m, cfg.d435_min_z_margin_m) == (0.15, 0.05)
+    for depth, inside in ((0.19, True), (0.199, True), (0.201, False), (0.45, False)):
+        entries = checker(fit_with(mount_facing_camera(ZERO, depth))).check_view(ZERO, 0.0, 0.0, WIDE_CAMERA)
+        assert (MIN_Z_RULE in rules(entries)) == inside, (depth, entries)
+        assert FOV_RULE not in rules(entries), entries
+    entries = checker(fit_with(mount_facing_camera(ZERO, 0.19))).check_view(ZERO, 0.0, 0.0, WIDE_CAMERA)
+    assert entries == [f"{MIN_Z_RULE}: board corner depth 190.0 mm < 200.0 mm (min-Z 150.0 mm + margin 50.0 mm)"]
+    # The depth is taken at the head pose of the view: a board 0.45 m out on the optical axis at pan 0.4 rad passes
+    # there, and with the head turned to pan -1.2 rad it lies beside the camera, inside min-Z.
+    turned = checker(fit_with(mount_facing_camera(ZERO, 0.45, pan=0.4, tilt=0.2)))
+    assert turned.check_view(ZERO, 0.4, 0.2, WIDE_CAMERA) == []
+    assert MIN_Z_RULE in rules(turned.check_view(ZERO, -1.2, 0.2, WIDE_CAMERA))
+    # A board behind the camera is inside min-Z and outside the image.
+    behind = checker(fit_with(mount_facing_camera(ZERO, -0.3))).check_view(ZERO, 0.0, 0.0, WIDE_CAMERA)
+    assert rules(behind) == {MIN_Z_RULE, FOV_RULE}, behind
+    # The limit is the config: no margin lets 0.19 m pass.
+    relaxed = PoseCheckConfig(d435_min_z_margin_m=0.0)
+    near = checker(fit_with(mount_facing_camera(ZERO, 0.19)), relaxed)
+    assert near.check_view(ZERO, 0.0, 0.0, WIDE_CAMERA) == []
+
+
+def test_board_outside_the_colour_fov() -> None:
+    """Every board corner projects inside the colour image of the camera_info; the arm pose does not matter."""
+    for joints in (ZERO, LEVEL_TOOL_20CM):
+        centred = checker(fit_with(mount_facing_camera(joints, 0.45)))
+        assert centred.check_view(joints, 0.0, 0.0, D435_COLOR) == []
+        # 0.25 m to the side: the far column of 4 corners (0.33 m out) passes the 34.5 deg half-angle (0.31 m at
+        # 0.45 m), the next one (0.29 m) does not.
+        aside = checker(fit_with(mount_facing_camera(joints, 0.45, lateral_m=0.25)))
+        entries = aside.check_view(joints, 0.0, 0.0, D435_COLOR)
+        assert rules(entries) == {FOV_RULE}, entries
+        assert entries[0].startswith(f"{FOV_RULE}: 4 of 20 board corners outside the 640x360 colour image")
+        assert aside.check_view(joints, 0.0, 0.0, WIDE_CAMERA) == []
+    # Turning the head away by 30 deg moves the centred board out of the image.
+    centred = checker(fit_with(mount_facing_camera(ZERO, 0.45)))
+    assert rules(centred.check_view(ZERO, math.radians(30.0), 0.0, D435_COLOR)) == {FOV_RULE}
+    # Another camera frame of the head URDF is honoured.
+    depth_frame = centred.check_view(ZERO, 0.0, 0.0, D435_COLOR, camera_frame="d435_depth_optical_frame")
+    assert depth_frame == []
+    assert len(board_corners_3d(fit_with().board)) == 20

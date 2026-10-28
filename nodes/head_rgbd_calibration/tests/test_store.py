@@ -313,7 +313,7 @@ def add_still(store: SessionStore, sid: str, **kwargs):
     pose = still_arm_pose(kwargs.pop("joints", JOINTS), **kwargs)
     return store.add_still_pose(
         sid, pose.rgb_jpeg, pose.rgb_image, pose.detection, pose.joints, pose.stamps, pose.arm_pose, pose.tier,
-        pose.head_offset,
+        pose.head_offset, pose.camera_info,
     )  # fmt: skip
 
 
@@ -344,14 +344,23 @@ def test_head_arm_session_records_kind(store: SessionStore, arm_sid: str) -> Non
 def test_still_pose_layout(store: SessionStore, arm_sid: str) -> None:
     pose = still_arm_pose(JOINTS, arm_pose=3, tier=1, head_offset=2)
     pid = store.add_still_pose(
-        arm_sid, pose.rgb_jpeg, pose.rgb_image, pose.detection, pose.joints, pose.stamps, 3, 1, 2
+        arm_sid, pose.rgb_jpeg, pose.rgb_image, pose.detection, pose.joints, pose.stamps, 3, 1, 2, pose.camera_info
     )  # fmt: skip
     assert pid == "001"
     path = store.state_dir / "sessions" / arm_sid / "poses" / pid
     assert sorted(p.name for p in path.iterdir()) == ["pose.json", "rgb.jpg", "rgb_thumb.jpg"]
     assert (path / "rgb.jpg").read_bytes() == pose.rgb_jpeg
     meta = json.loads((path / "pose.json").read_text())
-    assert set(meta) == {"stamps", "rgb", "joints", "arm_pose", "tier", "head_offset"}
+    assert set(meta) == {"stamps", "rgb", "joints", "arm_pose", "tier", "head_offset", "camera_info"}
+    info = pose.camera_info
+    assert meta["camera_info"] == {
+        "width": RGB_SIZE[0],
+        "height": RGB_SIZE[1],
+        "distortion_model": "plumb_bob",
+        "d": [float(v) for v in info.d],
+        "k": [float(v) for v in info.k],
+        "p": [float(v) for v in info.p],
+    }
     assert meta["joints"] == JOINTS and meta["stamps"] == pose.stamps
     assert (meta["arm_pose"], meta["tier"], meta["head_offset"]) == (3, 1, 2)
     assert meta["rgb"]["ids"] == [int(i) for i in pose.detection.ids]
@@ -375,8 +384,38 @@ def test_still_pose_refuses_another_image_size(store: SessionStore, arm_sid: str
     pose = still_arm_pose(JOINTS)
     small = cv2.resize(pose.rgb_image, (288, 162))
     with pytest.raises(ValueError, match="size"):
-        store.add_still_pose(arm_sid, pose.rgb_jpeg, small, pose.detection, pose.joints, pose.stamps, 0, 0, 0)
+        store.add_still_pose(
+            arm_sid, pose.rgb_jpeg, small, pose.detection, pose.joints, pose.stamps, 0, 0, 0, pose.camera_info
+        )  # fmt: skip
     assert store.pose_ids(arm_sid) == ["001"]
+
+
+def test_still_pose_refuses_camera_info_of_another_size(store: SessionStore, arm_sid: str) -> None:
+    pose = still_arm_pose(JOINTS)
+    other = dataclasses.replace(pose.camera_info, width=640, height=360)
+    with pytest.raises(ValueError, match="camera_info 640x360"):
+        store.add_still_pose(
+            arm_sid, pose.rgb_jpeg, pose.rgb_image, pose.detection, pose.joints, pose.stamps, 0, 0, 0, other
+        )  # fmt: skip
+    assert store.pose_ids(arm_sid) == []
+
+
+def test_load_arm_camera_infos(store: SessionStore, arm_sid: str) -> None:
+    """The colour camera_info stored with each still, by pose id; None for a pose.json without one."""
+    add_still(store, arm_sid)
+    add_still(store, arm_sid, head_offset=1)
+    meta_path = store.pose_dir(arm_sid, "002") / "pose.json"
+    meta = json.loads(meta_path.read_text())
+    del meta["camera_info"]
+    meta_path.write_text(json.dumps(meta))
+    infos = store.load_arm_camera_infos(arm_sid)
+    assert list(infos) == ["001", "002"] and infos["002"] is None
+    stored, expected = infos["001"], factory_info()
+    assert (stored.width, stored.height, stored.distortion_model) == RGB_SIZE + ("plumb_bob",)
+    for name in ("d", "k", "p"):
+        assert np.array_equal(getattr(stored, name), getattr(expected, name)), name
+    with pytest.raises(ValueError):
+        store.load_arm_camera_infos(store.create_session(NOW))
 
 
 def test_wrong_kind_raises(store: SessionStore, arm_sid: str) -> None:
