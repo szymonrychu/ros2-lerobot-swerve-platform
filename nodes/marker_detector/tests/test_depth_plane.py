@@ -1,12 +1,25 @@
-"""Tests for marker_detector.tof_plane on synthetic depth planes; ground truth is always the renderer's marker pose."""
+"""Tests for marker_detector.depth_plane on synthetic D435 aligned depth planes; ground truth is always the renderer's marker
+pose. The depth image is the /head_rgbd decimated D435 depth, aligned to the colour image in d435_color_optical_frame."""
 
 import cv2
 import numpy as np
 import pytest
+from ros2_common.camera_geometry import CameraIntrinsics
 from ros2_common.marker_payload import decode_payload
 
-from marker_detector.config import PoseConfig, TofConfig
+from marker_detector import depth_plane
+from marker_detector.config import DepthPlaneConfig, PoseConfig
 from marker_detector.decode import Candidate
+from marker_detector.depth_plane import (
+    REASON_RESIDUAL,
+    REASON_TOO_FEW_PX,
+    Plane,
+    fit_plane,
+    fit_plane_detailed,
+    nearest_depth,
+    plane_chooser,
+    scale_polygon,
+)
 from marker_detector.pose import Solution, estimate_pose
 from marker_detector.synthetic import (
     STREAM_K,
@@ -16,16 +29,6 @@ from marker_detector.synthetic import (
     render_marker_scene,
     symbol_corners_m,
     symbol_matrix,
-)
-from marker_detector.tof_plane import (
-    REASON_RESIDUAL,
-    REASON_TOO_FEW_PX,
-    Plane,
-    fit_plane,
-    fit_plane_detailed,
-    nearest_depth,
-    plane_chooser,
-    scale_polygon,
 )
 
 DEPTH_SIZE = (288, 162)
@@ -37,13 +40,16 @@ DEPTH_K = np.array(
         [0.0, 0.0, 1.0],
     ]
 )
+DEPTH_INTRINSICS = CameraIntrinsics.from_camera_info(
+    DEPTH_SIZE[0], DEPTH_SIZE[1], DEPTH_K.ravel(), [0.0] * 5, "plumb_bob"
+)
 SIZE_MM = 150.0
 PAYLOAD = "P1/K:BASE/N:HOME/S:100"
 SMALL_SIZE_MM = 100.0
 DEPTH_NOISE_MM = 2.0
 SEEDS = range(5)
 LOW_MODULE_CFG = PoseConfig(min_module_px=1.0)
-CFG = TofConfig()
+CFG = DepthPlaneConfig()
 
 
 def normal_of(rvec: np.ndarray) -> np.ndarray:
@@ -57,7 +63,7 @@ def angle_deg(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def depth_of_plane(pose: tuple[np.ndarray, np.ndarray], noise_mm: float = DEPTH_NOISE_MM, seed: int = 0) -> np.ndarray:
-    """16UC1 mm depth image (288x162) of the infinite plane through the marker, seen through DEPTH_K."""
+    """16UC1 mm depth image (288x162, d435_color_optical_frame) of the infinite plane through the marker, seen through DEPTH_K."""
     normal, point = normal_of(pose[0]), np.asarray(pose[1], dtype=float)
     u, v = np.meshgrid(np.arange(DEPTH_SIZE[0], dtype=float), np.arange(DEPTH_SIZE[1], dtype=float))
     rays = np.stack([(u - DEPTH_K[0, 2]) / DEPTH_K[0, 0], (v - DEPTH_K[1, 2]) / DEPTH_K[1, 1], np.ones_like(u)], -1)
@@ -83,7 +89,7 @@ def polygon_mask(polygon_px: np.ndarray) -> np.ndarray:
 @pytest.mark.parametrize("seed", SEEDS)
 def test_tilted_plane_normal_within_one_degree(seed):
     pose = pose_facing(1.0, yaw_deg=35.0, offset_m=(0.1, -0.05))
-    plane = fit_plane(depth_of_plane(pose, seed=seed), DEPTH_K, marker_polygon(pose), STREAM_SIZE, CFG)
+    plane = fit_plane(depth_of_plane(pose, seed=seed), DEPTH_INTRINSICS, marker_polygon(pose), STREAM_SIZE, CFG)
     assert plane is not None
     true_normal = normal_of(pose[0])
     assert angle_deg(plane.normal, true_normal) < 1.0
@@ -97,7 +103,7 @@ def test_tilted_plane_normal_within_one_degree(seed):
 def test_tilted_plane_pitch_and_both_yaw_signs():
     for yaw, pitch in [(-35.0, 0.0), (0.0, 35.0), (20.0, -25.0)]:
         pose = pose_facing(0.8, yaw_deg=yaw, pitch_deg=pitch)
-        plane = fit_plane(depth_of_plane(pose), DEPTH_K, marker_polygon(pose), STREAM_SIZE, CFG)
+        plane = fit_plane(depth_of_plane(pose), DEPTH_INTRINSICS, marker_polygon(pose), STREAM_SIZE, CFG)
         assert plane is not None
         assert angle_deg(plane.normal, normal_of(pose[0])) < 1.0, (yaw, pitch)
 
@@ -113,12 +119,12 @@ def test_zeros_inside_polygon_ignored():
     polygon = marker_polygon(pose)
     depth = depth_of_plane(pose)
     inside = polygon_mask(polygon)
-    full = fit_plane(depth, DEPTH_K, polygon, STREAM_SIZE, CFG)
+    full = fit_plane(depth, DEPTH_INTRINSICS, polygon, STREAM_SIZE, CFG)
     holes = inside.copy()
     holes[:, ::2] = False  # zero every other column inside the polygon
     holed = depth.copy()
     holed[inside & ~holes] = 0
-    plane = fit_plane(holed, DEPTH_K, polygon, STREAM_SIZE, CFG)
+    plane = fit_plane(holed, DEPTH_INTRINSICS, polygon, STREAM_SIZE, CFG)
     assert full is not None and plane is not None
     assert full.n_px == int(inside.sum())
     assert plane.n_px == int(holes.sum())
@@ -134,19 +140,19 @@ def test_too_few_valid_pixels_return_none():
     sparse = np.zeros_like(depth)
     keep = inside[: CFG.min_valid_px - 1]
     sparse[keep[:, 0], keep[:, 1]] = depth[keep[:, 0], keep[:, 1]]
-    assert fit_plane(sparse, DEPTH_K, polygon, STREAM_SIZE, CFG) is None
-    fit = fit_plane_detailed(sparse, DEPTH_K, polygon, STREAM_SIZE, CFG)
+    assert fit_plane(sparse, DEPTH_INTRINSICS, polygon, STREAM_SIZE, CFG) is None
+    fit = fit_plane_detailed(sparse, DEPTH_INTRINSICS, polygon, STREAM_SIZE, CFG)
     assert fit.plane is None and fit.reason == REASON_TOO_FEW_PX and fit.n_px == CFG.min_valid_px - 1
     exactly = sparse.copy()
     extra = inside[CFG.min_valid_px - 1]
     exactly[extra[0], extra[1]] = depth[extra[0], extra[1]]
-    assert fit_plane(exactly, DEPTH_K, polygon, STREAM_SIZE, CFG) is not None
+    assert fit_plane(exactly, DEPTH_INTRINSICS, polygon, STREAM_SIZE, CFG) is not None
 
 
 def test_polygon_outside_depth_image_returns_none():
     polygon = np.array([[2000.0, 2000.0], [2100.0, 2000.0], [2100.0, 2100.0], [2000.0, 2100.0]])
     depth = np.full((DEPTH_SIZE[1], DEPTH_SIZE[0]), 1000, dtype=np.uint16)
-    fit = fit_plane_detailed(depth, DEPTH_K, polygon, STREAM_SIZE, CFG)
+    fit = fit_plane_detailed(depth, DEPTH_INTRINSICS, polygon, STREAM_SIZE, CFG)
     assert fit.plane is None and fit.reason == REASON_TOO_FEW_PX and fit.n_px == 0
 
 
@@ -156,10 +162,42 @@ def test_step_inside_polygon_returns_none():
     depth = depth_of_plane(pose)
     centre_u = int(round(float(scale_polygon(polygon, STREAM_SIZE, DEPTH_SIZE)[:, 0].mean())))
     depth[:, centre_u:] += 150  # a 150 mm step through the middle of the marker
-    assert fit_plane(depth, DEPTH_K, polygon, STREAM_SIZE, CFG) is None
-    fit = fit_plane_detailed(depth, DEPTH_K, polygon, STREAM_SIZE, CFG)
+    assert fit_plane(depth, DEPTH_INTRINSICS, polygon, STREAM_SIZE, CFG) is None
+    fit = fit_plane_detailed(depth, DEPTH_INTRINSICS, polygon, STREAM_SIZE, CFG)
     assert fit.reason == REASON_RESIDUAL
     assert fit.residual_mm > CFG.max_residual_mm
+
+
+def test_uses_the_shared_deprojection(monkeypatch):
+    """The plane is fitted to the points of ros2_common.camera_geometry.depth_to_points on the D435 intrinsics: the
+    shared deprojection is called once with the polygon-masked depth, and a shift of its points moves the plane."""
+    pose = pose_facing(1.0, yaw_deg=35.0, offset_m=(0.1, -0.05))
+    polygon = marker_polygon(pose)
+    depth = depth_of_plane(pose)
+    calls = []
+    shared = depth_plane.depth_to_points
+
+    def spy(image, intrinsics, *args, **kwargs):
+        calls.append((image.copy(), intrinsics))
+        return shared(image, intrinsics, *args, **kwargs)
+
+    monkeypatch.setattr(depth_plane, "depth_to_points", spy)
+    plane = fit_plane(depth, DEPTH_INTRINSICS, polygon, STREAM_SIZE, CFG)
+    assert plane is not None and len(calls) == 1
+    image, intrinsics = calls[0]
+    assert intrinsics == DEPTH_INTRINSICS
+    inside = polygon_mask(polygon)
+    np.testing.assert_array_equal(image[inside], depth[inside])
+    assert not image[~inside].any()
+    assert plane.n_px == int(inside.sum())
+    assert angle_deg(plane.normal, normal_of(pose[0])) < 1.0
+
+    shift_m = 0.2
+    monkeypatch.setattr(depth_plane, "depth_to_points", lambda *a, **k: shared(*a, **k) + [0.0, 0.0, shift_m])
+    shifted = fit_plane(depth, DEPTH_INTRINSICS, polygon, STREAM_SIZE, CFG)
+    assert shifted is not None
+    expected_mm = plane.distance_mm - 1000.0 * shift_m * float(plane.normal[2])
+    assert shifted.distance_mm == pytest.approx(expected_mm, abs=0.5)
 
 
 # --- plane_chooser --------------------------------------------------------------------------------------------------
@@ -184,7 +222,7 @@ def ambiguous_solutions(seed: int) -> tuple[list[Solution], tuple[np.ndarray, np
 def test_chooser_picks_true_solution_from_depth_plane(seed):
     solutions, pose, candidate, grey = ambiguous_solutions(seed)
     true_normal = normal_of(pose[0])
-    plane = fit_plane(depth_of_plane(pose, seed=seed), DEPTH_K, candidate.corners, STREAM_SIZE, CFG)
+    plane = fit_plane(depth_of_plane(pose, seed=seed), DEPTH_INTRINSICS, candidate.corners, STREAM_SIZE, CFG)
     assert plane is not None
     chosen = plane_chooser(plane, CFG)(solutions)
     truest = min(solutions, key=lambda s: angle_deg(s.normal, true_normal))
@@ -206,7 +244,7 @@ def test_chooser_returns_none_for_plane_ninety_degrees_off():
 def test_chooser_returns_none_when_both_solutions_within_limit():
     solutions, pose, _, _ = ambiguous_solutions(0)
     plane = Plane(normal=normal_of(pose[0]), distance_mm=1300.0, residual_mm=1.0, n_px=100)
-    assert plane_chooser(plane, TofConfig(max_angle_deg=90.0))(solutions) is None
+    assert plane_chooser(plane, DepthPlaneConfig(max_angle_deg=90.0))(solutions) is None
 
 
 def test_chooser_handles_empty_and_single_lists():

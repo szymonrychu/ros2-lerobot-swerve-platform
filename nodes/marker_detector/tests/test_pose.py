@@ -39,7 +39,7 @@ SEEDS = range(5)
 CORNER_NOISE_PX = 0.3
 IMAGE_NOISE_GREY = 2.0
 LOW_MODULE_CFG = PoseConfig(min_module_px=1.0)
-TOF_MAX_ANGLE_DEG = 20.0
+PLANE_MAX_ANGLE_DEG = 20.0
 
 
 def version_of(payload: str) -> int:
@@ -71,8 +71,8 @@ def angle_deg(a: np.ndarray, b: np.ndarray) -> float:
 
 
 class TruthPlaneChooser:
-    """Test double with the ``choose`` contract of the ToF ``plane_chooser``, using the renderer's true marker normal as
-    the plane normal; returns the solution within TOF_MAX_ANGLE_DEG of it when exactly one is, else None. Records each call."""
+    """Test double with the ``choose`` contract of the depth ``plane_chooser``, using the renderer's true marker normal as
+    the plane normal; returns the solution within PLANE_MAX_ANGLE_DEG of it when exactly one is, else None. Records each call."""
 
     def __init__(self, true_normal: np.ndarray) -> None:
         self.true_normal = true_normal
@@ -80,7 +80,7 @@ class TruthPlaneChooser:
 
     def __call__(self, solutions: list[Solution]) -> Solution | None:
         self.calls.append(solutions)
-        near = [s for s in solutions if angle_deg(s.normal, self.true_normal) <= TOF_MAX_ANGLE_DEG]
+        near = [s for s in solutions if angle_deg(s.normal, self.true_normal) <= PLANE_MAX_ANGLE_DEG]
         return near[0] if len(near) == 1 else None
 
 

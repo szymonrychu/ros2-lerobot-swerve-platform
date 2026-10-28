@@ -17,14 +17,26 @@ def write(tmp_path: Path, text: str) -> Path:
 
 def test_defaults_from_empty_yaml(tmp_path: Path) -> None:
     cfg = load_config(write(tmp_path, ""))
-    assert cfg.topics.image == "/head_camera/image_raw/compressed"
     assert cfg.topics.detections == "/markers/detections"
     assert cfg.process_hz == 2.0
     assert cfg.map_frame == "map"
     assert cfg.pose.ambiguity_ratio == 2.0
     assert cfg.zoom.full_size == (4608, 2592)
-    assert cfg.tof.max_residual_mm == 10
+    assert cfg.depth_plane.max_residual_mm == 10
     assert cfg.metrics_port is None
+
+
+def test_topics_are_the_d435(tmp_path: Path) -> None:
+    topics = load_config(write(tmp_path, "")).topics
+    assert topics.image == "/head/d435/color/image_raw/compressed"
+    assert topics.camera_info == "/head/d435/color/camera_info"
+    assert topics.depth == "/head_rgbd/depth/image_raw"
+    assert topics.depth_info == "/head_rgbd/depth/camera_info"
+
+
+def test_tof_section_rejected(tmp_path: Path) -> None:
+    with pytest.raises(ValidationError, match="tof"):
+        load_config(write(tmp_path, "tof:\n  enabled: true\n"))
 
 
 def test_full_yaml(tmp_path: Path) -> None:

@@ -132,7 +132,7 @@ def detection_report(stamp_ns: int, source: str, items: list[dict]) -> str:
         stamp_ns: Image stamp in nanoseconds.
         source: ``stream`` or ``zoom``.
         items: Per marker dicts (key, payload, position, quaternion, rms_px, ratio, confidence, module_px,
-            chooser ``reprojection`` or ``tof``).
+            chooser ``reprojection`` or ``depth``).
     Returns:
         JSON text.
     Raises:

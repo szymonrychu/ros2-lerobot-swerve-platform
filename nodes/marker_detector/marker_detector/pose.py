@@ -16,7 +16,7 @@ pass restarts the refinement from the best solution's reprojection (``refine_and
 Acceptance: the best (lowest RMS) IPPE solution is accepted when the second solution's RMS is at least
 ``ambiguity_ratio`` times the best's, or when both solutions' normals agree within ``SAME_POSE_DEG`` (a near-frontal
 view, where the planar flip barely changes the orientation and the RMS ratio is ~1 by construction). Otherwise the
-optional chooser (the ToF plane) settles it, else the pose is rejected ``ambiguous``.
+optional chooser (the depth plane) settles it, else the pose is rejected ``ambiguous``.
 
 Confidence of an accepted pose, in (0, 1], is the product of three terms, each in [0.5, 1] for an accepted pose:
 
@@ -380,7 +380,7 @@ def estimate_pose(
         K: 3x3 intrinsics of ``grey``.
         D: Distortion coefficients of ``grey`` (or None).
         cfg: Pose thresholds.
-        choose: Optional disambiguation (e.g. the ToF ``plane_chooser``), consulted only when the solutions are
+        choose: Optional disambiguation (e.g. the depth ``plane_chooser``), consulted only when the solutions are
             ambiguous (RMS ratio below ``cfg.ambiguity_ratio`` and normals further apart than ``SAME_POSE_DEG``);
             returns one of the solutions or None.
 

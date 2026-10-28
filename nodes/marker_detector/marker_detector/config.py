@@ -18,8 +18,8 @@ class StrictModel(BaseModel):
 
 
 class TopicsConfig(StrictModel):
-    image: str = "/head_camera/image_raw/compressed"
-    camera_info: str = "/head_camera/camera_info"
+    image: str = "/head/d435/color/image_raw/compressed"
+    camera_info: str = "/head/d435/color/camera_info"
     zoom_command: str = "/head_camera/zoom/command"
     zoom_image: str = "/head_camera/zoom/image"
     zoom_result: str = "/head_camera/zoom/result"
@@ -48,7 +48,9 @@ class ZoomConfig(StrictModel):
     full_size: tuple[int, int] = (4608, 2592)
 
 
-class TofConfig(StrictModel):
+class DepthPlaneConfig(StrictModel):
+    """Marker plane from the D435 aligned depth that settles the planar IPPE ambiguity."""
+
     enabled: bool = True
     max_dt_s: float = Field(0.15, gt=0)
     max_angle_deg: float = Field(20.0, gt=0, le=90)
@@ -63,7 +65,7 @@ class MarkerDetectorConfig(StrictModel):
     tf_timeout_s: float = Field(0.2, gt=0)
     pose: PoseConfig = PoseConfig()
     zoom: ZoomConfig = ZoomConfig()
-    tof: TofConfig = TofConfig()
+    depth_plane: DepthPlaneConfig = DepthPlaneConfig()
     metrics_port: int | None = None
     executor: Literal["events", "single_threaded"] = "single_threaded"
 

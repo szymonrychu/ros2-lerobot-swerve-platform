@@ -4,16 +4,16 @@ Detects printed QR metadata markers in the head camera image and turns them into
 
 ## Requirements
 
-- A calibrated `/head_camera/camera_info` (intrinsics are needed for pose).
+- A calibrated `/head/d435/color/camera_info` (the D435 colour intrinsics are needed for pose).
 - Head TF from the camera frame (the `camera_info` frame_id) to `map_frame`.
-- Optional: the registered ToF depth `/head_rgbd/depth/image_raw` (16UC1 mm) with its camera_info, used to settle planar pose ambiguity (`tof.enabled`).
+- Optional: the D435 depth aligned to the colour image and decimated by head_rgbd_cpp, `/head_rgbd/depth/image_raw` (16UC1 mm, `d435_color_optical_frame`, same stamp as the colour set) with its camera_info, used to settle planar pose ambiguity (`depth_plane.enabled`).
 
 ## Inputs and outputs
 
 | Topic (config key) | Default | Direction |
 |---|---|---|
-| `topics.image` | `/head_camera/image_raw/compressed` | in |
-| `topics.camera_info` | `/head_camera/camera_info` | in |
+| `topics.image` | `/head/d435/color/image_raw/compressed` | in |
+| `topics.camera_info` | `/head/d435/color/camera_info` | in |
 | `topics.zoom_image` | `/head_camera/zoom/image` | in |
 | `topics.zoom_result` | `/head_camera/zoom/result` | in |
 | `topics.depth` | `/head_rgbd/depth/image_raw` | in |
@@ -47,11 +47,11 @@ File: `$MARKER_DETECTOR_CONFIG`, default `/etc/ros2/marker_detector/config.yaml`
 | `zoom.timeout_s` | 8 | zoom request timeout |
 | `zoom.max_px` | 1024 | max still size |
 | `zoom.full_size` | [4608, 2592] | full sensor size |
-| `tof.enabled` | true | use ToF plane disambiguation |
-| `tof.max_dt_s` | 0.15 | max depth/image time gap |
-| `tof.max_angle_deg` | 20 | max plane angle difference |
-| `tof.min_valid_px` | 30 | min valid depth pixels |
-| `tof.max_residual_mm` | 10 | max plane fit residual |
+| `depth_plane.enabled` | true | use depth plane disambiguation |
+| `depth_plane.max_dt_s` | 0.15 | max depth/image time gap |
+| `depth_plane.max_angle_deg` | 20 | max plane angle difference |
+| `depth_plane.min_valid_px` | 30 | min valid depth pixels |
+| `depth_plane.max_residual_mm` | 10 | max plane fit residual |
 | `metrics_port` | null | falls back to env `METRICS_PORT` |
 | `executor` | `single_threaded` | `events` runs the node on rclpy's `EventsExecutor` (less Python executor overhead); `single_threaded` is the stock `SingleThreadedExecutor` |
 
@@ -71,9 +71,11 @@ Zoom thresholds must satisfy `target_module_px > min_module_px >= pose.min_modul
 
 ## Pipeline
 
-`marker_detector/pipeline.py` (`MarkerPipeline`, no ROS) per frame: decode (zxing-cpp) -> pose (IPPE, 24 finder corners; when the two solutions are ambiguous and a depth frame lies within `tof.max_dt_s`, the ToF plane picks one, chooser `tof`) -> TF (map <- camera frame at the image stamp) -> `pose.min_confidence` gate -> one `upsert_marker` per accepted marker, a report, and (only with `zoom.auto_zoom`) at most one zoom request for a small decoded marker (module < `zoom.min_module_px`) or an undecoded QR quad. `process_frame` returns a `FrameOutput` (`commands`, `report`, `zoom_request`, `rejections`).
+`marker_detector/pipeline.py` (`MarkerPipeline`, no ROS) per frame: decode (zxing-cpp) -> pose (IPPE, 24 finder corners; when the two solutions are ambiguous and a depth frame lies within `depth_plane.max_dt_s`, the depth plane picks one, chooser `depth`) -> TF (map <- camera frame at the image stamp) -> `pose.min_confidence` gate -> one `upsert_marker` per accepted marker, a report, and (only with `zoom.auto_zoom`) at most one zoom request for a small decoded marker (module < `zoom.min_module_px`) or an undecoded QR quad. `process_frame` returns a `FrameOutput` (`commands`, `report`, `zoom_request`, `rejections`).
 
-Zoom stills (`zoom.process_stills`, from any requester) are paired with their result by `stamp_ns` and processed by `process_zoom` with intrinsics from the stream camera_info scaled to the result's `full` size, shifted by its `crop` origin and scaled by out/crop. ToF is not used for stills (the depth is registered to the stream image only). A still whose result has no `crop` is rejected (`zoom_geometry`).
+Zoom stills (`zoom.process_stills`, from any requester) are paired with their result by `stamp_ns` and processed by `process_zoom` with intrinsics from the stream camera_info scaled to the result's `full` size, shifted by its `crop` origin and scaled by out/crop. The depth plane is not used for stills (the depth is aligned to the stream image only). A still whose result has no `crop` is rejected (`zoom_geometry`).
+
+`marker_detector/depth_plane.py`: `fit_plane` deprojects the valid depth pixels inside the marker polygon (scaled to the depth size) with the shared `ros2_common.camera_geometry.depth_to_points` on the `CameraIntrinsics.from_camera_info` of the depth camera_info (the node builds them; an invalid camera_info disables the depth plane) and fits a plane by SVD (rejected below `depth_plane.min_valid_px` pixels or above `depth_plane.max_residual_mm` RMS). `plane_chooser` picks the IPPE solution whose +z is within `depth_plane.max_angle_deg` of the plane normal. Tests: `tests/test_depth_plane.py`.
 
 ## Placeholder rules
 
@@ -93,7 +95,7 @@ Nothing is sent without a real detection: no camera_info (or an all-zero K) -> n
 
 ## Report format
 
-`/markers/detections`: `{"stamp_ns": int, "source": "stream"|"zoom", "markers": [{"key", "payload", "position" [x,y,z] map m, "quaternion" [x,y,z,w], "rms_px", "ratio" (null when single solution), "confidence", "module_px", "chooser": "reprojection"|"tof"}]}`.
+`/markers/detections`: `{"stamp_ns": int, "source": "stream"|"zoom", "markers": [{"key", "payload", "position" [x,y,z] map m, "quaternion" [x,y,z,w], "rms_px", "ratio" (null when single solution), "confidence", "module_px", "chooser": "reprojection"|"depth"}]}`.
 
 ## Metrics
 
@@ -101,7 +103,7 @@ Nothing is sent without a real detection: no camera_info (or an all-zero K) -> n
 
 ## Node tests
 
-`tests/test_pipeline.py` covers the pipeline on synthetic scenes (single marker, missing camera_info, TF failure, invalid payload, ToF disambiguation, zoom stills, auto zoom, confidence gate) and the node wiring with `tests/ros_stubs.py` stubbing rclpy, tf2_ros, sensor_msgs and std_msgs.
+`tests/test_pipeline.py` covers the pipeline on synthetic scenes (single marker, missing camera_info, TF failure, invalid payload, depth plane disambiguation, zoom stills, auto zoom, confidence gate) and the node wiring with `tests/ros_stubs.py` stubbing rclpy, tf2_ros, sensor_msgs and std_msgs.
 
 ## Benchmark
 

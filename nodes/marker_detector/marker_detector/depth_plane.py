@@ -1,8 +1,10 @@
-"""Marker plane from the registered ToF depth, used to settle the IPPE ambiguity (design D10b).
+"""Marker plane from the D435 aligned depth, used to settle the IPPE ambiguity (design D10b).
 
-The depth image (``/head_rgbd/depth/image_raw``, 16UC1 mm, ``head_camera_optical_frame``, 288x162) is registered to
-the head RGB camera, so a marker polygon found in the RGB image covers the same surface in the depth image once scaled
-to the depth size. Pixel centres sit at integer coordinates in both images: a point p scales as (p + 0.5) * s - 0.5.
+The depth image (``/head_rgbd/depth/image_raw``, 16UC1 mm, ``d435_color_optical_frame``) is the D435 depth aligned to
+the colour image and decimated by head_rgbd_cpp, so a marker polygon found in the colour image covers the same surface
+in the depth image once scaled to the depth size. Pixel centres sit at integer coordinates in both images: a point p
+scales as (p + 0.5) * s - 0.5. The pixels inside the polygon are deprojected by the shared
+``ros2_common.camera_geometry.depth_to_points`` with the depth camera_info intrinsics.
 
 Normal convention (shared with ``pose.Solution.normal``): the plane normal points out of the surface towards the camera,
 exactly like the marker's +z axis (out of the printed face). So a correct IPPE solution has its +z close to the plane
@@ -14,14 +16,16 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 import numpy as np
+from ros2_common.camera_geometry import CameraIntrinsics, depth_to_points
 
-from marker_detector.config import TofConfig
+from marker_detector.config import DepthPlaneConfig
 from marker_detector.pose import Solution, angle_between_deg
 
 REASON_TOO_FEW_PX = "too_few_px"
 REASON_RESIDUAL = "residual"
 MIN_PLANE_POINTS = 3
 NS_PER_S = 1_000_000_000
+MM_PER_M = 1000.0
 
 
 @dataclass
@@ -53,11 +57,11 @@ class PlaneFit:
 
 
 def scale_polygon(polygon_px: np.ndarray, image_size: tuple[int, int], depth_size: tuple[int, int]) -> np.ndarray:
-    """Scale a polygon from the RGB image to the depth image (pixel centres at integers in both).
+    """Scale a polygon from the colour image to the depth image (pixel centres at integers in both).
 
     Args:
-        polygon_px: (N, 2) polygon vertices in RGB pixels.
-        image_size: (width, height) of the RGB image.
+        polygon_px: (N, 2) polygon vertices in colour pixels.
+        image_size: (width, height) of the colour image.
         depth_size: (width, height) of the depth image.
 
     Returns:
@@ -101,35 +105,35 @@ def polygon_mask(polygon_px: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
 
 def fit_plane_detailed(
     depth_mm: np.ndarray,
-    depth_K: np.ndarray,  # noqa: N803
+    depth_intrinsics: CameraIntrinsics,
     polygon_px: np.ndarray,
     image_size: tuple[int, int],
-    cfg: TofConfig,
+    cfg: DepthPlaneConfig,
 ) -> PlaneFit:
     """Least-squares plane (SVD) of the valid depth pixels inside the marker polygon, with the rejection reason.
 
     Args:
-        depth_mm: (H, W) depth image in mm (16UC1); 0 (and any non-finite or negative value) is invalid.
-        depth_K: 3x3 intrinsics of the depth image.
-        polygon_px: (N, 2) marker polygon in RGB pixels (e.g. the four symbol corners).
-        image_size: (width, height) of the RGB image the polygon comes from.
-        cfg: ToF thresholds (``min_valid_px``, ``max_residual_mm``).
+        depth_mm: (H, W) uint16 depth image in mm (16UC1); 0 is invalid.
+        depth_intrinsics: Intrinsics of the depth image (``CameraIntrinsics.from_camera_info`` of its camera_info);
+            their size must match ``depth_mm``.
+        polygon_px: (N, 2) marker polygon in colour pixels (e.g. the four symbol corners).
+        image_size: (width, height) of the colour image the polygon comes from.
+        cfg: Depth plane thresholds (``min_valid_px``, ``max_residual_mm``).
 
     Returns:
         PlaneFit: the plane, or None with ``too_few_px`` (fewer than ``min_valid_px`` valid pixels) or ``residual``
         (RMS residual above ``max_residual_mm``).
+
+    Raises:
+        ValueError: If the depth image size differs from ``depth_intrinsics`` (from ``depth_to_points``).
     """
-    depth = np.asarray(depth_mm, dtype=float)
+    depth = np.asarray(depth_mm)
     height, width = depth.shape[:2]
     inside = polygon_mask(scale_polygon(polygon_px, image_size, (width, height)), (height, width))
-    valid = inside & np.isfinite(depth) & (depth > 0.0)
-    rows, cols = np.nonzero(valid)
-    n_px = len(rows)
+    points = depth_to_points(np.where(inside, depth, 0).astype(depth.dtype), depth_intrinsics) * MM_PER_M
+    n_px = len(points)
     if n_px < max(cfg.min_valid_px, MIN_PLANE_POINTS):
         return PlaneFit(None, REASON_TOO_FEW_PX, n_px)
-    z = depth[rows, cols]
-    k = np.asarray(depth_K, dtype=float)
-    points = np.column_stack([(cols - k[0, 2]) * z / k[0, 0], (rows - k[1, 2]) * z / k[1, 1], z])
     centroid = points.mean(axis=0)
     _, singular, vt = np.linalg.svd(points - centroid, full_matrices=False)
     normal = vt[-1] / np.linalg.norm(vt[-1])
@@ -144,29 +148,29 @@ def fit_plane_detailed(
 
 def fit_plane(
     depth_mm: np.ndarray,
-    depth_K: np.ndarray,  # noqa: N803
+    depth_intrinsics: CameraIntrinsics,
     polygon_px: np.ndarray,
     image_size: tuple[int, int],
-    cfg: TofConfig,
+    cfg: DepthPlaneConfig,
 ) -> Plane | None:
     """``fit_plane_detailed`` without the reason: the plane, or None when rejected.
 
     Args:
-        depth_mm: (H, W) depth image in mm. depth_K: 3x3 depth intrinsics. polygon_px: (N, 2) polygon in RGB pixels.
-        image_size: (width, height) of the RGB image. cfg: ToF thresholds.
+        depth_mm: (H, W) uint16 depth image in mm. depth_intrinsics: intrinsics of the depth image. polygon_px: (N, 2)
+        polygon in colour pixels. image_size: (width, height) of the colour image. cfg: Depth plane thresholds.
 
     Returns:
         Plane or None (``fit_plane_detailed`` gives the reason).
     """
-    return fit_plane_detailed(depth_mm, depth_K, polygon_px, image_size, cfg).plane
+    return fit_plane_detailed(depth_mm, depth_intrinsics, polygon_px, image_size, cfg).plane
 
 
-def plane_chooser(plane: Plane, cfg: TofConfig) -> Callable[[list[Solution]], Solution | None]:
-    """Disambiguation callback for ``pose.estimate_pose``: the solution whose +z agrees with the ToF plane normal.
+def plane_chooser(plane: Plane, cfg: DepthPlaneConfig) -> Callable[[list[Solution]], Solution | None]:
+    """Disambiguation callback for ``pose.estimate_pose``: the solution whose +z agrees with the depth plane normal.
 
     Args:
-        plane: ToF plane of the marker (normal towards the camera, the marker +z convention).
-        cfg: ToF thresholds (``max_angle_deg``).
+        plane: Depth plane of the marker (normal towards the camera, the marker +z convention).
+        cfg: Depth plane thresholds (``max_angle_deg``).
 
     Returns:
         Callable taking the IPPE solutions and returning the one whose marker +z (camera frame) is within
@@ -187,7 +191,7 @@ def nearest_depth(
 
     Args:
         frames: (stamp_ns, depth image) pairs in any order.
-        stamp_ns: Stamp of the RGB image in ns.
+        stamp_ns: Stamp of the colour image in ns.
         max_dt_s: Largest accepted time difference in seconds (inclusive).
 
     Returns:

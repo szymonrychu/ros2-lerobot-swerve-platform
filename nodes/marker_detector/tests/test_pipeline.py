@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import cv2
 import numpy as np
 import pytest
+from ros2_common.camera_geometry import CameraIntrinsics
 from ros2_common.marker_payload import decode_payload
 
 from marker_detector.config import MarkerDetectorConfig
@@ -23,7 +24,7 @@ from marker_detector.synthetic import (
 )
 from tests.ros_stubs import install_ros_stubs
 
-FRAME = "head_camera_optical_frame"
+FRAME = "d435_color_optical_frame"
 PAYLOAD = "P1/K:BASE/N:HOME/S:150"
 SMALL_PAYLOAD = "P1/K:BASE/N:HOME/S:60"
 AMBIGUOUS_PAYLOAD = "P1/K:BASE/N:HOME/S:100"
@@ -38,6 +39,9 @@ DEPTH_K = np.array(
         [0.0, STREAM_K[1, 1] * DEPTH_SCALE, (STREAM_K[1, 2] + 0.5) * DEPTH_SCALE - 0.5],
         [0.0, 0.0, 1.0],
     ]
+)
+DEPTH_INTRINSICS = CameraIntrinsics.from_camera_info(
+    DEPTH_SIZE[0], DEPTH_SIZE[1], DEPTH_K.ravel(), [0.0] * 5, "plumb_bob"
 )
 
 
@@ -157,14 +161,14 @@ def test_ambiguous_without_depth_gives_nothing(monkeypatch):
     assert out.rejections.get("ambiguous") == 1
 
 
-def test_ambiguous_with_depth_plane_gives_tof_command(monkeypatch):
+def test_ambiguous_with_depth_plane_gives_depth_command(monkeypatch):
     jpeg, candidate, pose = ambiguous_candidate(1)
     patch_decode(monkeypatch, [candidate])
     pipeline = make_pipeline(pose={"min_module_px": 1.0})
-    pipeline.on_depth(STAMP + 50_000_000, depth_of_plane(pose), DEPTH_K)
+    pipeline.on_depth(STAMP + 50_000_000, depth_of_plane(pose), DEPTH_INTRINSICS)
     out = pipeline.process_frame(STAMP, jpeg, "stream", identity_tf)
     assert len(out.commands) == 1
-    assert json.loads(out.report)["markers"][0]["chooser"] == "tof"
+    assert json.loads(out.report)["markers"][0]["chooser"] == "depth"
     position = np.array([out.commands[0]["poi"][axis] for axis in "xyz"])
     assert np.linalg.norm(position - np.asarray(pose[1])) < 0.05
 
@@ -173,16 +177,36 @@ def test_depth_too_old_is_not_used(monkeypatch):
     jpeg, candidate, pose = ambiguous_candidate(1)
     patch_decode(monkeypatch, [candidate])
     pipeline = make_pipeline(pose={"min_module_px": 1.0})
-    pipeline.on_depth(STAMP + 2_000_000_000, depth_of_plane(pose), DEPTH_K)
+    pipeline.on_depth(STAMP + 2_000_000_000, depth_of_plane(pose), DEPTH_INTRINSICS)
     assert pipeline.process_frame(STAMP, jpeg, "stream", identity_tf).commands == []
 
 
-def test_tof_disabled_ignores_depth(monkeypatch):
+def test_depth_plane_disabled_ignores_depth(monkeypatch):
     jpeg, candidate, pose = ambiguous_candidate(1)
     patch_decode(monkeypatch, [candidate])
-    pipeline = make_pipeline(pose={"min_module_px": 1.0}, tof={"enabled": False})
-    pipeline.on_depth(STAMP, depth_of_plane(pose), DEPTH_K)
+    pipeline = make_pipeline(pose={"min_module_px": 1.0}, depth_plane={"enabled": False})
+    pipeline.on_depth(STAMP, depth_of_plane(pose), DEPTH_INTRINSICS)
     assert pipeline.process_frame(STAMP, jpeg, "stream", identity_tf).commands == []
+
+
+def test_depth_of_another_size_than_its_camera_info_is_dropped(monkeypatch):
+    jpeg, candidate, pose = ambiguous_candidate(1)
+    patch_decode(monkeypatch, [candidate])
+    pipeline = make_pipeline(pose={"min_module_px": 1.0})
+    pipeline.on_depth(STAMP, depth_of_plane(pose)[:, :-1], DEPTH_INTRINSICS)
+    assert len(pipeline.depth_frames) == 0
+    assert pipeline.process_frame(STAMP, jpeg, "stream", identity_tf).commands == []
+
+
+def test_new_depth_intrinsics_drop_the_older_frames(monkeypatch):
+    jpeg, candidate, pose = ambiguous_candidate(1)
+    patch_decode(monkeypatch, [candidate])
+    pipeline = make_pipeline(pose={"min_module_px": 1.0})
+    pipeline.on_depth(STAMP, depth_of_plane(pose), DEPTH_INTRINSICS)
+    half = CameraIntrinsics.from_camera_info(DEPTH_SIZE[0] // 2, DEPTH_SIZE[1] // 2, (DEPTH_K / 2).ravel(), [], "")
+    pipeline.on_depth(STAMP + 1, np.zeros((DEPTH_SIZE[1] // 2, DEPTH_SIZE[0] // 2), dtype=np.uint16), half)
+    assert [stamp for stamp, _ in pipeline.depth_frames] == [STAMP + 1]
+    assert pipeline.depth_intrinsics == half
 
 
 def test_low_confidence_sends_nothing():
@@ -305,11 +329,63 @@ def test_node_skips_depth_and_zoom_subscriptions_when_disabled():
     install_ros_stubs()
     from marker_detector.node import MarkerDetectorRos
 
-    cfg = MarkerDetectorConfig.model_validate({"tof": {"enabled": False}, "zoom": {"process_stills": False}})
+    cfg = MarkerDetectorConfig.model_validate({"depth_plane": {"enabled": False}, "zoom": {"process_stills": False}})
     node = MagicMock()
     MarkerDetectorRos(cfg, node, MarkerPipeline(cfg))
     subscribed = [call.args[1] for call in node.create_subscription.call_args_list]
     assert sorted(subscribed) == sorted([cfg.topics.image, cfg.topics.camera_info])
+
+
+def depth_info_msg(k: list[float], distortion_model: str = "plumb_bob"):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        width=DEPTH_SIZE[0], height=DEPTH_SIZE[1], k=k, d=[0.0] * 5, distortion_model=distortion_model
+    )
+
+
+def depth_msg(depth: np.ndarray, stamp_ns: int = STAMP):
+    from types import SimpleNamespace
+
+    stamp = SimpleNamespace(sec=stamp_ns // 1_000_000_000, nanosec=stamp_ns % 1_000_000_000)
+    return SimpleNamespace(
+        header=SimpleNamespace(stamp=stamp),
+        encoding="16UC1",
+        height=depth.shape[0],
+        width=depth.shape[1],
+        step=depth.shape[1] * 2,
+        data=depth.tobytes(),
+    )
+
+
+def test_node_depth_info_gives_shared_intrinsics_to_the_pipeline():
+    install_ros_stubs()
+    from marker_detector.node import MarkerDetectorRos
+
+    cfg = MarkerDetectorConfig()
+    pipeline = MagicMock()
+    wrapper = MarkerDetectorRos(cfg, MagicMock(), pipeline)
+    depth = np.full((DEPTH_SIZE[1], DEPTH_SIZE[0]), 1000, dtype=np.uint16)
+    wrapper.on_depth(depth_msg(depth))
+    pipeline.on_depth.assert_not_called()  # no depth camera_info yet
+    wrapper.on_depth_info(depth_info_msg(list(DEPTH_K.ravel())))
+    wrapper.on_depth(depth_msg(depth))
+    stamp, image, intrinsics = pipeline.on_depth.call_args.args
+    assert stamp == STAMP
+    np.testing.assert_array_equal(image, depth)
+    assert intrinsics == DEPTH_INTRINSICS
+
+
+def test_node_drops_depth_after_an_invalid_depth_info():
+    install_ros_stubs()
+    from marker_detector.node import MarkerDetectorRos
+
+    pipeline = MagicMock()
+    wrapper = MarkerDetectorRos(MarkerDetectorConfig(), MagicMock(), pipeline)
+    wrapper.on_depth_info(depth_info_msg(list(DEPTH_K.ravel())))
+    wrapper.on_depth_info(depth_info_msg([0.0] * 9))
+    wrapper.on_depth(depth_msg(np.full((DEPTH_SIZE[1], DEPTH_SIZE[0]), 1000, dtype=np.uint16)))
+    pipeline.on_depth.assert_not_called()
 
 
 def test_run_node_tf_listener_uses_spin_thread():

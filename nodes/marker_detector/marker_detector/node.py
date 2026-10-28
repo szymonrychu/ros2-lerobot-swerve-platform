@@ -14,6 +14,7 @@ from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.serialization import deserialize_message
 from rclpy.time import Time
+from ros2_common.camera_geometry import CameraIntrinsics
 from ros2_metrics import resolve_metrics_port, start_metrics_server
 from sensor_msgs.msg import CameraInfo, CompressedImage, Image
 from std_msgs.msg import String
@@ -65,14 +66,15 @@ class MarkerDetectorRos:
         self.zoom_pub = node.create_publisher(String, topics.zoom_command, REPORT_QOS)
         node.create_subscription(CompressedImage, topics.image, self.on_image, SENSOR_QOS, raw=True)
         node.create_subscription(CameraInfo, topics.camera_info, self.on_camera_info, SENSOR_QOS, raw=True)
-        if cfg.tof.enabled:
+        if cfg.depth_plane.enabled:
             node.create_subscription(Image, topics.depth, self.on_depth, SENSOR_QOS)
             node.create_subscription(CameraInfo, topics.depth_info, self.on_depth_info, SENSOR_QOS)
         if cfg.zoom.process_stills or cfg.zoom.auto_zoom:
             node.create_subscription(CompressedImage, topics.zoom_image, self.on_zoom_image, STILL_QOS)
             node.create_subscription(String, topics.zoom_result, self.on_zoom_result, STILL_QOS)
         node.create_timer(1.0 / cfg.process_hz, self.on_timer)
-        self.depth_K: np.ndarray | None = None
+        self.depth_intrinsics: CameraIntrinsics | None = None
+        self.depth_info_rejected = False
 
     def lookup_tf(self, frame_id: str, stamp: int) -> tuple | None:
         """TF of ``frame_id`` in the map frame at ``stamp``.
@@ -105,15 +107,33 @@ class MarkerDetectorRos:
         self.latest_info = raw
 
     def on_depth_info(self, msg: CameraInfo) -> None:
-        """Remember the depth intrinsics."""
-        self.depth_K = np.array(msg.k).reshape(3, 3)
+        """Remember the depth intrinsics; an invalid camera_info (zero K, unsupported model) clears them.
+
+        Args:
+            msg: Depth camera_info.
+        """
+        try:
+            self.depth_intrinsics = CameraIntrinsics.from_camera_info(
+                msg.width, msg.height, msg.k, msg.d, msg.distortion_model
+            )
+        except ValueError as exc:
+            if not self.depth_info_rejected:
+                LOG.warning("depth camera_info rejected, depth plane unused until a valid one: %s", exc)
+            self.depth_info_rejected = True
+            self.depth_intrinsics = None
+            return
+        self.depth_info_rejected = False
 
     def on_depth(self, msg: Image) -> None:
-        """Pass a 16UC1 depth frame to the pipeline (needs depth camera_info)."""
-        if self.depth_K is None or msg.encoding != DEPTH_ENCODING:
+        """Pass a 16UC1 depth frame to the pipeline (needs a valid depth camera_info).
+
+        Args:
+            msg: Depth image.
+        """
+        if self.depth_intrinsics is None or msg.encoding != DEPTH_ENCODING:
             return
         depth = np.frombuffer(bytes(msg.data), dtype=np.uint16).reshape(msg.height, msg.step // 2)[:, : msg.width]
-        self.pipeline.on_depth(stamp_ns(msg.header.stamp), depth, self.depth_K)
+        self.pipeline.on_depth(stamp_ns(msg.header.stamp), depth, self.depth_intrinsics)
 
     def on_timer(self) -> None:
         """Deserialize and process the newest unprocessed stream frame (and camera_info if new)."""

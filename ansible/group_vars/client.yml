@@ -3537,8 +3537,9 @@ ros2_nodes:
       # Prometheus /metrics on 127.0.0.1 (scraped by Alloy: monitoring_node_targets).
       metrics_port: 19118
       topics:
-        image: /head_camera/image_raw/compressed
-        camera_info: /head_camera/camera_info
+        # D435 colour, and the D435 depth aligned to it and decimated by head_rgbd_cpp (same stamp as the colour set).
+        image: /head/d435/color/image_raw/compressed
+        camera_info: /head/d435/color/camera_info
         zoom_command: /head_camera/zoom/command
         zoom_image: /head_camera/zoom/image
         zoom_result: /head_camera/zoom/result
@@ -3566,7 +3567,8 @@ ros2_nodes:
         timeout_s: 8.0
         max_px: 1024
         full_size: [4608, 2592]
-      tof:
+      # Marker plane from the aligned depth settles the planar IPPE ambiguity.
+      depth_plane:
         enabled: true
         max_dt_s: 0.15
         max_angle_deg: 20.0

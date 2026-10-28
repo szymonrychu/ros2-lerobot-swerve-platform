@@ -1,4 +1,4 @@
-"""Marker detection pipeline (no ROS): decode -> pose (ToF chooser) -> TF -> confidence gate -> commands and report."""
+"""Marker detection pipeline (no ROS): decode -> pose (depth plane chooser) -> TF -> confidence gate -> commands and report."""
 
 import logging
 import time
@@ -8,13 +8,14 @@ from dataclasses import dataclass, field
 
 import cv2
 import numpy as np
+from ros2_common.camera_geometry import CameraIntrinsics
 from ros2_common.marker_payload import encode_payload
 
 from marker_detector.config import MarkerDetectorConfig
 from marker_detector.decode import Candidate, decode_frame, find_undecoded
+from marker_detector.depth_plane import fit_plane, nearest_depth, plane_chooser
 from marker_detector.geometry import detection_report, marker_in_map, sighting_command, zoom_intrinsics, zoom_request
 from marker_detector.pose import PoseResult, Solution, estimate_pose
-from marker_detector.tof_plane import fit_plane, nearest_depth, plane_chooser
 from marker_detector.zoom import ZoomFrame, ZoomPlanner, ZoomTarget
 
 LOG = logging.getLogger(__name__)
@@ -25,7 +26,7 @@ REASON_ZOOM_GEOMETRY = "zoom_geometry"
 SOURCE_STREAM = "stream"
 SOURCE_ZOOM = "zoom"
 CHOOSER_REPROJECTION = "reprojection"
-CHOOSER_TOF = "tof"
+CHOOSER_DEPTH = "depth"
 MAX_DEPTH_FRAMES = 8
 MAX_ZOOM_RESULTS = 8
 NS_PER_S = 1_000_000_000
@@ -72,7 +73,7 @@ class MarkerPipeline:
         self.D: np.ndarray | None = None
         self.size: tuple[int, int] | None = None
         self.frame_id = ""
-        self.depth_K: np.ndarray | None = None
+        self.depth_intrinsics: CameraIntrinsics | None = None
         self.depth_frames: deque[tuple[int, np.ndarray]] = deque(maxlen=MAX_DEPTH_FRAMES)
         self.zoom_results: dict[int, dict] = {}
         self.request_count = 0
@@ -93,13 +94,20 @@ class MarkerPipeline:
         dist = None if D is None or len(D) == 0 else np.asarray(D, dtype=float)
         self.K, self.D, self.size, self.frame_id = k, dist, (int(size[0]), int(size[1])), frame_id
 
-    def on_depth(self, stamp_ns: int, depth_mm: np.ndarray, depth_K: np.ndarray) -> None:  # noqa: N803
-        """Remember a registered depth frame (16UC1 mm) for ToF disambiguation.
+    def on_depth(self, stamp_ns: int, depth_mm: np.ndarray, depth_intrinsics: CameraIntrinsics) -> None:
+        """Remember an aligned depth frame (16UC1 mm) for the depth plane disambiguation.
+
+        A frame whose size differs from its intrinsics is dropped; new intrinsics drop the frames kept for the old ones.
 
         Args:
-            stamp_ns: Depth stamp. depth_mm: (H, W) depth. depth_K: 3x3 depth intrinsics.
+            stamp_ns: Depth stamp. depth_mm: (H, W) depth. depth_intrinsics: intrinsics from the depth camera_info.
         """
-        self.depth_K = np.asarray(depth_K, dtype=float).reshape(3, 3)
+        if depth_mm.shape[:2] != (depth_intrinsics.height, depth_intrinsics.width):
+            LOG.debug("depth %s does not match its camera_info size; dropped", depth_mm.shape)
+            return
+        if depth_intrinsics != self.depth_intrinsics:
+            self.depth_frames.clear()
+            self.depth_intrinsics = depth_intrinsics
         self.depth_frames.append((int(stamp_ns), depth_mm))
 
     def process_frame(
@@ -162,8 +170,8 @@ class MarkerPipeline:
         Returns:
             The report item, or None when the candidate was rejected.
         """
-        used_tof = []
-        choose = self.tof_chooser(candidate, stamp_ns, used_tof) if source == SOURCE_STREAM else None
+        used_depth = []
+        choose = self.depth_chooser(candidate, stamp_ns, used_depth) if source == SOURCE_STREAM else None
         pose = estimate_pose(grey, candidate, k, self.D, self.cfg.pose, choose)
         if not pose.ok or pose.rvec is None or pose.tvec is None:
             out.reject(pose.reason or "pnp_failed")
@@ -180,12 +188,12 @@ class MarkerPipeline:
         out.commands.append(
             sighting_command(candidate, pose, position, quaternion, f"marker-{stamp_ns}-{self.request_count}")
         )
-        return self.report_item(candidate, pose, position, quaternion, bool(used_tof))
+        return self.report_item(candidate, pose, position, quaternion, bool(used_depth))
 
-    def tof_chooser(
+    def depth_chooser(
         self, candidate: Candidate, stamp_ns: int, used: list[bool]
     ) -> Callable[[list[Solution]], Solution | None] | None:
-        """Disambiguation callback using the depth frame nearest in time, or None when ToF cannot apply.
+        """Disambiguation callback using the depth frame nearest in time, or None when the depth plane cannot apply.
 
         Args:
             candidate: The decoded marker (its corners are the polygon). stamp_ns: image stamp.
@@ -194,17 +202,17 @@ class MarkerPipeline:
         Returns:
             Callback for ``estimate_pose`` (fits the plane lazily, only when the pose is ambiguous) or None.
         """
-        tof = self.cfg.tof
-        if not tof.enabled or self.depth_K is None or self.size is None:
+        plane_cfg = self.cfg.depth_plane
+        if not plane_cfg.enabled or self.depth_intrinsics is None or self.size is None:
             return None
-        frame = nearest_depth(self.depth_frames, stamp_ns, tof.max_dt_s)
+        frame = nearest_depth(self.depth_frames, stamp_ns, plane_cfg.max_dt_s)
         if frame is None:
             return None
-        depth, depth_k, size = frame[1], self.depth_K, self.size
+        depth, intrinsics, size = frame[1], self.depth_intrinsics, self.size
 
         def choose(solutions: list[Solution]) -> Solution | None:
-            plane = fit_plane(depth, depth_k, candidate.corners, size, tof)
-            chosen = plane_chooser(plane, tof)(solutions) if plane is not None else None
+            plane = fit_plane(depth, intrinsics, candidate.corners, size, plane_cfg)
+            chosen = plane_chooser(plane, plane_cfg)(solutions) if plane is not None else None
             if chosen is not None:
                 used.append(True)
             return chosen
@@ -212,13 +220,13 @@ class MarkerPipeline:
         return choose
 
     def report_item(
-        self, candidate: Candidate, pose: PoseResult, position: np.ndarray, quaternion: np.ndarray, tof: bool
+        self, candidate: Candidate, pose: PoseResult, position: np.ndarray, quaternion: np.ndarray, by_depth: bool
     ) -> dict:
         """Per marker entry of the detections report.
 
         Args:
             candidate: decoded marker. pose: accepted pose. position: map position. quaternion: map orientation.
-            tof: True when the ToF plane chose the solution.
+            by_depth: True when the depth plane chose the solution.
 
         Returns:
             JSON-serialisable dict.
@@ -232,7 +240,7 @@ class MarkerPipeline:
             "ratio": None if not np.isfinite(pose.ratio) else float(pose.ratio),
             "confidence": float(pose.confidence),
             "module_px": float(candidate.module_px),
-            "chooser": CHOOSER_TOF if tof else CHOOSER_REPROJECTION,
+            "chooser": CHOOSER_DEPTH if by_depth else CHOOSER_REPROJECTION,
         }
 
     def propose_zoom(self, grey: np.ndarray, candidates: list[Candidate]) -> dict | None:
