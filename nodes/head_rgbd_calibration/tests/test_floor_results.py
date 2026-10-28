@@ -25,6 +25,7 @@ from head_rgbd_calibration.floor_results import (
     read_result,
 )
 from head_rgbd_calibration.store import InvalidId, NotFound
+from tests.applied_writes import record_applied_writes
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 URDF_PATH = REPO_ROOT / "nodes" / "web_ui" / "urdf" / "head.urdf"
@@ -290,6 +291,18 @@ def test_apply_keeps_applied_keys_and_adds_record(cfg: NodeConfig, state: Path) 
         "units": [{"name": "unit-a.service", "active_state": "active", "restarted": True}],
     }
     assert not list(applied.glob(".tmp-*"))
+
+
+def test_floor_apply_writes_the_head_chain_before_applied_json(
+    cfg: NodeConfig, state: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The apply path unit fires on applied.json and compares head_chain.json: the chain must be in place first."""
+    write_observations(state, SID)
+    put_applied(state)
+    result = compute_floor(cfg, SID, NOW)
+    landed = record_applied_writes(monkeypatch, state / "applied")
+    apply_floor(cfg, SID, result["id"], NOW, fake_run)
+    assert landed == ["head_chain.json", "applied.json"]
 
 
 def test_floor_apply_records_source(cfg: NodeConfig, state: Path) -> None:

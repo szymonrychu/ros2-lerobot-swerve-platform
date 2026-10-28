@@ -32,6 +32,7 @@ from head_rgbd_calibration.head_arm_results import (
     latest_board_mount,
 )
 from head_rgbd_calibration.store import SessionStore
+from tests.applied_writes import record_applied_writes
 from tests.pose_factory import still_arm_pose
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -378,6 +379,16 @@ def test_no_floor_record_fails_cross_check(cfg: NodeConfig, state: Path, store: 
     assert "floor_cross_check" in result["failed_limits"]
     directory = result_dir(store, sid, result["id"])
     assert not (directory / "head_chain.json").exists()
+
+
+def test_head_arm_apply_writes_the_head_chain_before_applied_json(
+    cfg: NodeConfig, state: Path, store: SessionStore, ready: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The apply path unit fires on applied.json and compares head_chain.json: the chain must be in place first."""
+    result = compute_head_arm(cfg, store, ready, NOW)
+    landed = record_applied_writes(monkeypatch, state / "applied")
+    apply_head_arm(cfg, store, ready, result["id"], NOW, fake_run)
+    assert landed == ["head_chain.json", "applied.json"]
 
 
 def test_apply_writes_applied_chain_and_record(cfg: NodeConfig, state: Path, store: SessionStore, ready: str) -> None:
