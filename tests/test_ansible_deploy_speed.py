@@ -1118,7 +1118,7 @@ def test_ros2_master_and_fastdds_watch_no_repo_path(target: str) -> None:
 LINT_LINE_LIMIT = 160
 FOLDED_LAUNCH_COMMANDS = {
     "realsense_d435": (
-        "ros2 launch realsense2_camera rs_launch.py camera_namespace:=head camera_name:=d435 serial_no:=_935723024187 "
+        "ros2 launch realsense2_camera rs_launch.py camera_namespace:=head camera_name:=d435 serial_no:=_935422070045 "
         "config_file:={{ ros2_repo_dest }}/nodes/bridges/realsense_d435/config/realsense_d435.yaml"
     ),
     "nav2_bringup": "ros2 launch {{ ros2_repo_dest }}/nodes/nav2_bringup/launch/nav2_launch.py",

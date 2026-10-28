@@ -1,6 +1,6 @@
 """Tests for the realsense_d435 node: the launch line, the parameter file, the client instance and the playbook step.
 
-The D435 (serial 935723024187) runs as the realsense2_camera node from rs_launch.py. Only the camera identity is a
+The D435 (device serial 935422070045) runs as the realsense2_camera node from rs_launch.py. Only the camera identity is a
 launch argument (rs_launch.py builds the node name from it); every other parameter is in the node's config file.
 """
 
@@ -16,7 +16,9 @@ NODE_DIR = "nodes/bridges/realsense_d435"
 CONFIG_FILE = REPO_ROOT / NODE_DIR / "config" / "realsense_d435.yaml"
 NODE_TYPE = "realsense_d435"
 OLD_NAME = "realsense_d435i"
-SERIAL = "935723024187"
+# realsense2_camera matches serial_no against the device serial number (rs-enumerate-devices "Serial Number"), not
+# the ASIC serial / firmware update id 935723024187 that lsusb and rs-fw-update -s show.
+SERIAL = "935422070045"
 EXPECTED_LAUNCH_COMMAND = (
     "ros2 launch realsense2_camera rs_launch.py camera_namespace:=head camera_name:=d435 "
     f"serial_no:=_{SERIAL} config_file:={{{{ ros2_repo_dest }}}}/{NODE_DIR}/config/realsense_d435.yaml"

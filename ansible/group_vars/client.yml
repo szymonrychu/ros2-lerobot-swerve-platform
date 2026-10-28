@@ -304,13 +304,14 @@ ros2_node_type_defaults:
     # The launcher sources /opt/ros/jazzy/setup.bash, which prepends the ROS paths and keeps this entry.
     env:
       - "PYTHONPATH={{ ros2_repo_dest }}/shared/ros2_metrics"
-  # Intel RealSense D435 (no IMU) on the pan/tilt head, serial 935723024187: the realsense2_camera node of
+  # Intel RealSense D435 (no IMU) on the pan/tilt head, device serial 935422070045 (serial_no matches it; the ASIC serial /
+  # firmware update id 935723024187 is what lsusb and rs-fw-update -s show): the realsense2_camera node of
   # rs_launch.py. Only the camera identity is a launch argument (rs_launch.py builds the node name /head/d435 from
   # it); the stream profile and every other parameter is in the config file.
   realsense_d435:
     deploy_mode: native
     node_launch_command: >-
-      ros2 launch realsense2_camera rs_launch.py camera_namespace:=head camera_name:=d435 serial_no:=_935723024187
+      ros2 launch realsense2_camera rs_launch.py camera_namespace:=head camera_name:=d435 serial_no:=_935422070045
       config_file:={{ ros2_repo_dest }}/nodes/bridges/realsense_d435/config/realsense_d435.yaml
     node_src_dir: ""
     # Repo paths whose change restarts the node (no Python package dir): its config file.
