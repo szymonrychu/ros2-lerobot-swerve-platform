@@ -1,6 +1,6 @@
 ---
 title: Nav2 collision sources on D435
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The collision monitor stops the robot for obstacles and drops the D435 sees, as it did with the ToF."
 files: [nodes/nav2_bringup/config/nav2_params.yaml, tests/test_nav_tof_collision.py, tests/test_nav_depth_collision.py, tests/test_nav_d435_inputs.py, tests/test_nav_stack_config.py, tests/test_nav_footprint.py, nodes/nav2_bringup/README.md, tests/README.md]
@@ -8,15 +8,15 @@ verify: "uv run pytest tests/test_nav_d435_inputs.py tests/test_nav_depth_collis
 depends_on: [nav2-voxel-layer-on-d435-clo]
 model: opus
 review: ""
-verified_head: ""
+verified_head: 15b17033
 points: 3
 expected_minutes: 34
 expected_tokens: 2250000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 3
+actual_minutes: 31
+actual_tokens: 5484054
+actual_roles: "impl 24, review 8"
+actual_role_tokens: "impl 5225317, review 258737"
 ---
 
 # Nav2 collision sources on D435
@@ -64,3 +64,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-28 done
