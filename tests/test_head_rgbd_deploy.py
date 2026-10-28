@@ -1,4 +1,4 @@
-"""Static invariants of the head_rgbd_cpp deploy: node type, ros2_nodes entry, head camera mapping, ToF stamp setting.
+"""Static invariants of the head_rgbd_cpp deploy: node type, build dependencies, ros2_nodes entry, D435 inputs, rate.
 
 head_rgbd_cpp adapts the D435 aligned depth and colour to the /head_rgbd contract. It is background work (a map input,
 not a safety path), so it gets the background cgroup tier, not protection.
@@ -11,6 +11,8 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CLIENT_PLAYBOOK = REPO_ROOT / "ansible" / "playbooks" / "deploy_nodes_client.yml"
 CLIENT_VARS = REPO_ROOT / "ansible" / "group_vars" / "client.yml"
+REALSENSE_CONFIG = REPO_ROOT / "nodes" / "bridges" / "realsense_d435" / "config" / "realsense_d435.yaml"
+MAP3D_TOPICS = REPO_ROOT / "nodes" / "rtabmap_mapping" / "config" / "map3d_topics.yaml"
 NODE_DIR = REPO_ROOT / "nodes" / "head_rgbd_cpp"
 DEFAULTS = NODE_DIR / "config" / "head_rgbd.yaml"
 WORKSPACE = "/opt/ros2-ws"
@@ -27,19 +29,32 @@ REQUIRED_APT_PACKAGES = (
     "ros-jazzy-rclcpp",
     "ros-jazzy-sensor-msgs",
     "ros-jazzy-message-filters",
-    "ros-jazzy-tf2-ros",
-    "ros-jazzy-tf2-eigen",
     "ros-jazzy-cv-bridge",
     "ros-jazzy-image-geometry",
-    "ros-jazzy-camera-calibration-parsers",
     "ros-jazzy-depth-image-proc",
     "libopencv-dev",
-    "libopencv-contrib-dev",
-    "libeigen3-dev",
     "libyaml-cpp-dev",
     "prometheus-cpp-dev",
 )
-MAPPING = {"enabled": True, "lock_focus": True, "rate_hz": 2.0, "width": 576, "height": 324, "jpeg_quality": 80}
+# What only the removed ToF registration, motion compensation and guided upsampling used: the ToF calibration file
+# parser, the head TF lookups and their Eigen maths, OpenCV calib3d (in libopencv-dev) and contrib ximgproc.
+TOF_ONLY_APT_PACKAGES = (
+    "ros-jazzy-tf2",
+    "ros-jazzy-tf2-ros",
+    "ros-jazzy-tf2-eigen",
+    "ros-jazzy-camera-calibration-parsers",
+    "libopencv-contrib-dev",
+    "libeigen3-dev",
+)
+HEAD_RGBD_STAMP_APT_PACKAGES = [
+    "ros-jazzy-rclcpp",
+    "ros-jazzy-sensor-msgs",
+    "ros-jazzy-message-filters",
+    "ros-jazzy-cv-bridge",
+    "ros-jazzy-image-geometry",
+    "ros-jazzy-depth-image-proc",
+    "libopencv-dev",
+]
 
 
 def client_vars() -> dict:
@@ -51,13 +66,25 @@ def client_vars() -> dict:
     return yaml.safe_load(CLIENT_VARS.read_text())
 
 
+def node_type_of(name: str) -> dict:
+    """Return the node type defaults of a node type.
+
+    Args:
+        name (str): Node type name.
+
+    Returns:
+        dict: ros2_node_type_defaults[name].
+    """
+    return client_vars()["ros2_node_type_defaults"][name]
+
+
 def node_type() -> dict:
     """Return the head_rgbd_cpp node type defaults.
 
     Returns:
         dict: ros2_node_type_defaults["head_rgbd_cpp"].
     """
-    return client_vars()["ros2_node_type_defaults"]["head_rgbd_cpp"]
+    return node_type_of("head_rgbd_cpp")
 
 
 def entry_config(name: str) -> dict:
@@ -83,11 +110,10 @@ def test_node_type_keys() -> None:
 
 
 def test_apt_packages() -> None:
+    """The adapter and cloud.cpp build dependencies, none of the ToF-only ones."""
     apt = node_type()["apt_packages"]
-    for package in REQUIRED_APT_PACKAGES:
-        assert package in apt
-    assert "libopencv-contrib-dev" in apt
-    assert "ros-jazzy-depth-image-proc" in apt
+    assert apt == list(REQUIRED_APT_PACKAGES)
+    assert not set(TOF_ONLY_APT_PACKAGES) & set(apt)
 
 
 def test_background_tier_values() -> None:
@@ -113,8 +139,9 @@ def test_colcon_sources_order_and_build() -> None:
         assert source["jobs"] == 2
     assert sources[0]["stamp_apt_packages"] == ["libyaml-cpp-dev", "prometheus-cpp-dev"]
     stamp = sources[1]["stamp_apt_packages"]
-    assert {"ros-jazzy-rclcpp", "ros-jazzy-depth-image-proc", "libopencv-dev", "libopencv-contrib-dev"} <= set(stamp)
+    assert stamp == HEAD_RGBD_STAMP_APT_PACKAGES
     assert set(stamp) <= set(node_type()["apt_packages"])
+    assert not set(TOF_ONLY_APT_PACKAGES) & set(stamp)
 
 
 def test_depth_output_feeds_ground_guidance() -> None:
@@ -147,16 +174,29 @@ def test_metrics_target_is_absent_while_disabled() -> None:
     assert "head_rgbd_cpp" not in {t["node"] for t in targets}
 
 
-def test_head_camera_mapping_and_focus_lock() -> None:
-    config = entry_config("head_camera_cpp")
-    assert config["lens_position"] == 1.0
-    assert config["mapping"] == MAPPING
-    assert config.get("af_mode", "continuous") == "continuous"
+def test_inputs_are_the_d435_aligned_pair() -> None:
+    """The deployed config and the defaults read the realsense_d435 aligned depth and raw colour at 2 Hz."""
+    launch = node_type_of("realsense_d435")["node_launch_command"]
+    assert "camera_namespace:=head" in launch and "camera_name:=d435" in launch
+    assert yaml.safe_load(REALSENSE_CONFIG.read_text())["align_depth.enable"] is True
+    for config in (entry_config("head_rgbd_cpp"), yaml.safe_load(DEFAULTS.read_text())):
+        assert config["depth_topic"] == "/head/d435/aligned_depth_to_color/image_raw"
+        assert config["rgb_image_topic"] == "/head/d435/color/image_raw"
+        assert config["rgb_info_topic"] == "/head/d435/color/camera_info"
+        assert config["output"]["rate_hz"] == 2.0
 
 
-def test_arducam_tof_stamp_latency() -> None:
-    config = entry_config("arducam_tof")
-    assert config["stamp_latency_ms"] == 0.0
+def test_output_rate_matches_the_mapping_budget() -> None:
+    """output.rate_hz is the expected_rate_hz every /head_rgbd uplink stream of map3d_topics.yaml is budgeted for."""
+    streams = [s for s in yaml.safe_load(MAP3D_TOPICS.read_text())["uplink"] if s["source"].startswith("/head_rgbd/")]
+    assert {s["source"] for s in streams} == {
+        "/head_rgbd/rgb/image_raw/compressed",
+        "/head_rgbd/rgb/camera_info",
+        "/head_rgbd/depth/image_raw",
+        "/head_rgbd/depth/camera_info",
+    }
+    for config in (entry_config("head_rgbd_cpp"), yaml.safe_load(DEFAULTS.read_text())):
+        assert {s["expected_rate_hz"] for s in streams} == {config["output"]["rate_hz"]}
 
 
 def test_client_playbook_step_order() -> None:

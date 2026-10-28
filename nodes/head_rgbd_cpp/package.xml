@@ -3,7 +3,7 @@
 <package format="3">
   <name>head_rgbd_cpp</name>
   <version>0.1.0</version>
-  <description>Registers the head ToF depth into the Camera Module 3 frame: an aligned RGB-D pair and a coloured point cloud.</description>
+  <description>Adapts the head D435 aligned depth and colour to the /head_rgbd contract: a throttled RGB-D pair and a coloured point cloud.</description>
   <maintainer email="szymon.rychu@gmail.com">Szymon Richert</maintainer>
   <license>Proprietary</license>
 
@@ -13,18 +13,11 @@
   <depend>rclcpp</depend>
   <depend>sensor_msgs</depend>
   <depend>message_filters</depend>
-  <depend>tf2</depend>
-  <depend>tf2_ros</depend>
-  <depend>tf2_eigen</depend>
   <depend>cv_bridge</depend>
   <depend>image_geometry</depend>
-  <depend>camera_calibration_parsers</depend>
   <depend>depth_image_proc</depend>
   <depend>yaml-cpp</depend>
-  <depend>eigen</depend>
-  <!-- OpenCV with the ximgproc module (guided filter): libopencv-contrib-dev, same version as the system OpenCV. -->
   <depend>libopencv-dev</depend>
-  <depend>libopencv-contrib-dev</depend>
   <depend>prometheus-cpp</depend>
 
   <test_depend>ament_cmake_gtest</test_depend>

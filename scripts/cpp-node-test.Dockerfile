@@ -7,9 +7,7 @@ FROM ros:jazzy-ros-base
 ENV DEBIAN_FRONTEND=noninteractive
 
 # prometheus-cpp (used by ros2_common_cpp metrics) has no upstream rosdep rule; map the key to Ubuntu's apt package.
-# libopencv-contrib-dev (OpenCV ximgproc, the guided filter of head_rgbd_cpp; same 4.6 version as the system OpenCV that
-# ros-jazzy-cv-bridge uses) likewise has no rosdep key, so it is mapped to the apt package the same way.
-RUN printf 'prometheus-cpp:\n  ubuntu: [prometheus-cpp-dev]\nlibopencv-contrib-dev:\n  ubuntu: [libopencv-contrib-dev]\n' \
+RUN printf 'prometheus-cpp:\n  ubuntu: [prometheus-cpp-dev]\n' \
   > /etc/ros/rosdep/cpp-node-test.yaml \
   && echo "yaml file:///etc/ros/rosdep/cpp-node-test.yaml" > /etc/ros/rosdep/sources.list.d/10-cpp-node-test.list
 

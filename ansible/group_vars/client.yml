@@ -656,16 +656,10 @@ ros2_node_type_defaults:
           - ros-jazzy-rclcpp
           - ros-jazzy-sensor-msgs
           - ros-jazzy-message-filters
-          - ros-jazzy-tf2
-          - ros-jazzy-tf2-ros
-          - ros-jazzy-tf2-eigen
           - ros-jazzy-cv-bridge
           - ros-jazzy-image-geometry
-          - ros-jazzy-camera-calibration-parsers
           - ros-jazzy-depth-image-proc
           - libopencv-dev
-          - libopencv-contrib-dev
-          - libeigen3-dev
     memory_low: "48M"
     memory_max: "256M"
     cpu_weight: 100
@@ -683,16 +677,10 @@ ros2_node_type_defaults:
       - ros-jazzy-rclcpp
       - ros-jazzy-sensor-msgs
       - ros-jazzy-message-filters
-      - ros-jazzy-tf2
-      - ros-jazzy-tf2-ros
-      - ros-jazzy-tf2-eigen
       - ros-jazzy-cv-bridge
       - ros-jazzy-image-geometry
-      - ros-jazzy-camera-calibration-parsers
       - ros-jazzy-depth-image-proc
       - libopencv-dev
-      - libopencv-contrib-dev
-      - libeigen3-dev
       - libyaml-cpp-dev
       - prometheus-cpp-dev
   # Ground estimator (nodes/ground_estimator_cpp/README.md): fits the floor plane from the filtered head D435 cloud with

@@ -27,9 +27,19 @@ UPSAMPLING_AND_TOF_FILTER_PATHS = (
     f"{HEAD_RGBD_DIR}/src/core/tof_filter.cpp",
     f"{HEAD_RGBD_DIR}/include/head_rgbd_cpp/tof_filter.hpp",
     f"{HEAD_RGBD_DIR}/test/core/test_tof_filter.cpp",
-    # The synthetic ToF scene their gtests rendered, and the ToF calibration fixture no test reads any more.
+)
+# The synthetic ToF scene the removed gtests rendered, and the ToF calibration fixture (the whole test/data dir).
+TOF_FIXTURE_PATHS = (
     f"{HEAD_RGBD_DIR}/test/core/synthetic_scene.hpp",
-    f"{HEAD_RGBD_DIR}/test/data/tof_calibration.yaml",
+    f"{HEAD_RGBD_DIR}/test/data",
+)
+# Build dependencies only the ToF code used: OpenCV calib3d and contrib ximgproc, the calibration file parser, the TF
+# lookups and their Eigen maths (the fixture dir pointer HEAD_RGBD_TEST_DATA_DIR is pinned by the fixtures test).
+TOF_ONLY_BUILD_TERMS = r"calib3d|ximgproc|opencv[-_]contrib|camera_calibration_parsers|tf2|[Ee]igen"
+TOF_ONLY_BUILD_FILES = (
+    f"{HEAD_RGBD_DIR}/CMakeLists.txt",
+    f"{HEAD_RGBD_DIR}/package.xml",
+    "scripts/cpp-node-test.Dockerfile",
 )
 # An #include of upsample.hpp or tof_filter.hpp, by any path prefix and with either delimiter.
 UPSAMPLE_OR_TOF_FILTER_INCLUDE = r'#include[[:space:]]*[<"]([^<>"]*/)?(upsample|tof_filter)\.hpp[>"]'
@@ -61,3 +71,18 @@ def test_head_rgbd_upsampling_and_tof_filter_are_gone() -> None:
     includes = git("grep", "-n", "-E", UPSAMPLE_OR_TOF_FILTER_INCLUDE, "--", HEAD_RGBD_DIR)
     assert includes.returncode in (0, 1), includes.stderr
     assert includes.stdout == "", f"still included:\n{includes.stdout}"
+
+
+def test_head_rgbd_tof_fixtures_are_gone() -> None:
+    tracked = git("ls-files", "--", *TOF_FIXTURE_PATHS).stdout.strip()
+    assert tracked == "", f"still tracked:\n{tracked}"
+    users = git("grep", "-n", "-E", r"synthetic_scene\.hpp|test/data|HEAD_RGBD_TEST_DATA_DIR", "--", HEAD_RGBD_DIR)
+    assert users.returncode in (0, 1), users.stderr
+    assert users.stdout == "", f"still referenced:\n{users.stdout}"
+
+
+def test_head_rgbd_tof_build_dependencies_are_gone() -> None:
+    """CMakeLists.txt, package.xml and the cpp-node-test image carry none of the ToF-only build dependencies."""
+    found = git("grep", "-n", "-E", TOF_ONLY_BUILD_TERMS, "--", *TOF_ONLY_BUILD_FILES)
+    assert found.returncode in (0, 1), found.stderr
+    assert found.stdout == "", f"still declared:\n{found.stdout}"

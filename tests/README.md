@@ -2342,23 +2342,22 @@ Static invariants of the `ground_estimator_cpp` deploy: node type keys, apt list
 
 ### `test_head_rgbd_deploy.py`
 
-Static invariants of the head RGB-D fusion deploy (`head_rgbd_cpp` in `ansible/group_vars/client.yml`, the `config_files` task of the `ros2_node_deploy` role, `deploy_nodes_client.yml`).
+Static invariants of the head RGB-D adapter deploy (`head_rgbd_cpp` in `ansible/group_vars/client.yml`, its defaults `nodes/head_rgbd_cpp/config/head_rgbd.yaml`, `deploy_nodes_client.yml`).
 
 | Test | What it pins |
 |---|---|
 | `test_node_type_keys` | Native, launch command `ros2 run head_rgbd_cpp head_rgbd_node`, empty `node_src_dir` and `src_paths`, no `ROS_STATIC_PEERS`. |
-| `test_apt_packages` | The build and runtime apt list, incl. `libopencv-contrib-dev` and `ros-jazzy-depth-image-proc`. |
+| `test_apt_packages` | The build and runtime apt list is exactly what the adapter and `cloud.cpp` use; none of the ToF-only packages (`tf2`, `tf2-ros`, `tf2-eigen`, `camera-calibration-parsers`, `libopencv-contrib-dev`, `libeigen3-dev`). |
 | `test_background_tier_values` | Weights 100, `oom_score_adjust` 0, `memory_low` 48M, `memory_max` 256M. |
 | `test_config_path_and_env` | `/etc/ros2/head_rgbd_cpp` and `HEAD_RGBD_CONFIG`. |
-| `test_colcon_sources_order_and_build` | `ros2_common_cpp` then `head_rgbd_cpp`, Release, `BUILD_TESTING=OFF`, `-j2`, `base_paths`, `stamp_apt_packages` installed. |
-| `test_tof_calibration_file_is_deployed_when_present` | `config_files` maps `tof_calibration.yaml` into the config dir; the role copies existing repo files with `remote_src`. |
-| `test_ros2_nodes_entry` | Present and disabled (user 2026-10-24), after `head_camera_cpp` and `arducam_tof`; the config block equals the node defaults and carries comments. |
-| `test_upsampling_is_enabled_for_ground_guidance` | `upsampling.enabled` is true in the deployed config and the node defaults (input of ground guidance). |
+| `test_colcon_sources_order_and_build` | `ros2_common_cpp` then `head_rgbd_cpp`, Release, `BUILD_TESTING=OFF`, `-j2`, `base_paths`; the `head_rgbd_cpp` `stamp_apt_packages` list is exact, installed, and carries no ToF-only package. |
+| `test_depth_output_feeds_ground_guidance` | `/head_rgbd` namespace, depth divisor 2, the 0.3-2 m floor inside the depth range, no `upsampling` block (deployed config and defaults). |
+| `test_ros2_nodes_entry` | Present and disabled (user 2026-10-24), after `head_camera_cpp` and `arducam_tof`; the config block equals the node defaults plus `metrics_port` and carries comments. |
 | `test_metrics_target_is_absent_while_disabled` | No Alloy target for `head_rgbd_cpp` while it is disabled. |
-| `test_rgbd_fusion_and_ground_nodes_are_disabled_not_removed` | `head_rgbd_cpp` and `ground_estimator_cpp` are present and disabled, `arducam_tof`, `d435_obstacle_cloud`, `head_camera_cpp` stay enabled, no scrape targets for the two. |
-| `test_head_camera_mapping_and_focus_lock` | `lens_position: 1.0`, the `mapping` block (2 Hz, 576x324, JPEG 80, `lock_focus`), `af_mode` continuous. |
-| `test_arducam_tof_stamp_latency` | The `arducam_tof` block sets `stamp_latency_ms: 0.0`. |
+| `test_inputs_are_the_d435_aligned_pair` | The deployed config and the defaults read `/head/d435/aligned_depth_to_color/image_raw`, `/head/d435/color/image_raw` and `/head/d435/color/camera_info` at `output.rate_hz` 2.0; `realsense_d435` launches as `head`/`d435` with `align_depth.enable: true`. |
+| `test_output_rate_matches_the_mapping_budget` | `output.rate_hz` equals the `expected_rate_hz` of all four `/head_rgbd/*` uplink streams of `nodes/rtabmap_mapping/config/map3d_topics.yaml`. |
 | `test_client_playbook_step_order` | `Deploy head_rgbd_cpp` after the head_camera_cpp and arducam_tof steps, tags `[head_rgbd_cpp, apt, python, build, config]`. |
+| `test_rgbd_fusion_and_ground_nodes_are_disabled_not_removed` | `head_rgbd_cpp` and `ground_estimator_cpp` are present and disabled, `arducam_tof`, `d435_obstacle_cloud`, `head_camera_cpp` stay enabled, no scrape targets for the two. |
 
 ### `test_pi_camera_boot_config.py`
 
@@ -3237,7 +3236,9 @@ Retirement pins for the ToF-only code paths of `nodes/head_rgbd_cpp` (the D435 p
 | Test | What it checks |
 |---|---|
 | `test_head_rgbd_registration_and_motion_are_gone` | `git ls-files` returns nothing for the ToF registration and motion compensation sources, headers and gtests (`src/core/{registration,motion}.cpp`, `include/head_rgbd_cpp/{registration,motion}.hpp`, `test/core/test_{registration,motion}.cpp`), and no tracked file under `nodes/head_rgbd_cpp` has an `#include` of `registration.hpp` or `motion.hpp`. |
-| `test_head_rgbd_upsampling_and_tof_filter_are_gone` | `git ls-files` returns nothing for the guided depth upsampling and ToF flying-pixel filter sources, headers and gtests (`src/core/{upsample,tof_filter}.cpp`, `include/head_rgbd_cpp/{upsample,tof_filter}.hpp`, `test/core/test_{upsample,tof_filter}.cpp`), the synthetic ToF scene `test/core/synthetic_scene.hpp` and the unread fixture `test/data/tof_calibration.yaml`, and no tracked file under `nodes/head_rgbd_cpp` has an `#include` of `upsample.hpp` or `tof_filter.hpp`. |
+| `test_head_rgbd_upsampling_and_tof_filter_are_gone` | `git ls-files` returns nothing for the guided depth upsampling and ToF flying-pixel filter sources, headers and gtests (`src/core/{upsample,tof_filter}.cpp`, `include/head_rgbd_cpp/{upsample,tof_filter}.hpp`, `test/core/test_{upsample,tof_filter}.cpp`), and no tracked file under `nodes/head_rgbd_cpp` has an `#include` of `upsample.hpp` or `tof_filter.hpp`. |
+| `test_head_rgbd_tof_fixtures_are_gone` | `git ls-files` returns nothing for the synthetic ToF scene `test/core/synthetic_scene.hpp` and the `test/data` dir (the ToF calibration fixture `tof_calibration.yaml`), and no tracked file under `nodes/head_rgbd_cpp` names `synthetic_scene.hpp`, `test/data` or `HEAD_RGBD_TEST_DATA_DIR`. |
+| `test_head_rgbd_tof_build_dependencies_are_gone` | `nodes/head_rgbd_cpp/CMakeLists.txt`, `package.xml` and `scripts/cpp-node-test.Dockerfile` name none of the ToF-only build dependencies: OpenCV `calib3d`, `ximgproc` / opencv contrib, `camera_calibration_parsers`, `tf2*`, Eigen. |
 
 ### `test_head_rgbd_urdf_handoff.py`
 
