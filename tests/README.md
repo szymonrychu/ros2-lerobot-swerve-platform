@@ -3203,6 +3203,14 @@ Retirement pins for the ssh-streamed live pose counter and the ToF+CM3 offline c
 | `test_no_live_counter_references` | `git grep` finds no relay script name, start function or dotted config key of the live counter under `scripts/` and `tests/` (this file excluded). |
 | `test_offline_cli_is_gone` | `git ls-files` returns nothing for the offline CLI script, its yaml and its `scripts/head_rgbd_calibration/` package, and no tracked file outside `docs/` (this file excluded) names the CLI script. |
 
+### `test_tof_paths_retired.py`
+
+Retirement pins for the ToF-only code paths of `nodes/head_rgbd_cpp` (the D435 publishes its depth already aligned to the colour camera). Asserts on `git ls-files` and `git grep`, never the filesystem.
+
+| Test | What it checks |
+|---|---|
+| `test_head_rgbd_registration_and_motion_are_gone` | `git ls-files` returns nothing for the ToF registration and motion compensation sources, headers and gtests (`src/core/{registration,motion}.cpp`, `include/head_rgbd_cpp/{registration,motion}.hpp`, `test/core/test_{registration,motion}.cpp`), and no tracked file under `nodes/head_rgbd_cpp` has an `#include` of `registration.hpp` or `motion.hpp`. |
+
 ### `test_head_rgbd_urdf_handoff.py`
 
 Tests for `shared/ros2_common/head_rgbd_calibration/urdf_handoff.py` on a copy of `nodes/web_ui/urdf/head.urdf`.

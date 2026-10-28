@@ -1,11 +1,9 @@
-// Synthetic scenes for the registration, motion and upsampling tests: infinite planes and axis-aligned boxes in a world
-// frame, ray-cast into any PinholeModel at any camera pose. Renders the ToF depth (CV_16UC1 mm, as the bridge
-// publishes it), the ground-truth depth seen by the RGB camera (CV_64FC1 metres), the index of the primitive hit per
-// pixel and a grey guide image (per-primitive albedo), plus the default head models and the rig helpers (RGB = ToF
-// identity, RGB offset from the ToF).
+// Synthetic scenes for the upsampling tests: infinite planes and axis-aligned boxes in a world frame, ray-cast into a
+// distortion-free pinhole camera at any pose. Renders the ground-truth depth a camera sees (CV_64FC1 metres), the same
+// depth as CV_16UC1 mm, the index of the primitive hit per pixel and a grey guide image (per-primitive albedo), plus
+// the default RGB mapping and output models.
 //
-// Conventions: poses are T_world_cam (camera optical frame -> world; optical frame x right, y down, z forward). The
-// world frame defaults to the ToF optical frame, so scenes are written in ToF coordinates.
+// Conventions: poses are T_world_cam (camera optical frame -> world; optical frame x right, y down, z forward).
 #ifndef HEAD_RGBD_CPP__TEST__CORE__SYNTHETIC_SCENE_HPP_
 #define HEAD_RGBD_CPP__TEST__CORE__SYNTHETIC_SCENE_HPP_
 
@@ -17,15 +15,9 @@
 #include <utility>
 #include <vector>
 
-#include "head_rgbd_cpp/registration.hpp"
-
 namespace head_rgbd_cpp::test
 {
 
-// Default head ToF: Arducam ToF, 240x180, fx about 191 (design D7).
-constexpr int TOF_WIDTH = 240;
-constexpr int TOF_HEIGHT = 180;
-constexpr double TOF_F = 191.0;
 // Default RGB mapping stream: Camera Module 3 at 576x324, fx about 440; the default output (divisor 2) is 288x162.
 constexpr int RGB_MAPPING_WIDTH = 576;
 constexpr int RGB_MAPPING_HEIGHT = 324;
@@ -67,15 +59,15 @@ struct Render
   cv::Mat index;    // CV_32SC1, primitive index, NO_HIT where nothing was hit
 };
 
-// A ToF-RGB camera pair: models, poses in the world and the registration transform between them.
-struct Rig
+// A distortion-free pinhole camera: focal lengths and principal point in pixels, image size in pixels.
+struct PinholeModel
 {
-  PinholeModel tof;
-  PinholeModel rgb;               // at the output size
-  Eigen::Isometry3d T_world_tof;  // ToF pose
-  Eigen::Isometry3d T_world_rgb;  // RGB pose
-  // @return p_rgb = T_rgb_tof() * p_tof.
-  Eigen::Isometry3d T_rgb_tof() const { return T_world_rgb.inverse() * T_world_tof; }
+  double fx = 0.0;
+  double fy = 0.0;
+  double cx = 0.0;
+  double cy = 0.0;
+  int width = 0;
+  int height = 0;
 };
 
 // A distortion-free model with the principal point at the image centre.
@@ -85,16 +77,19 @@ struct Rig
 // @return the model.
 inline PinholeModel make_model(double f, int width, int height)
 {
-  PinholeModel m;
-  m.K = cv::Matx33d(f, 0.0, (width - 1) / 2.0, 0.0, f, (height - 1) / 2.0, 0.0, 0.0, 1.0);
-  m.D = cv::Vec<double, 5>(0.0, 0.0, 0.0, 0.0, 0.0);
-  m.width = width;
-  m.height = height;
-  return m;
+  return PinholeModel{f, f, (width - 1) / 2.0, (height - 1) / 2.0, width, height};
 }
 
-// @return the default ToF model, 240x180, f 191, no distortion.
-inline PinholeModel default_tof_model() { return make_model(TOF_F, TOF_WIDTH, TOF_HEIGHT); }
+// The model of the same camera at another image size, with the pixel-centre convention (c' = (c + 0.5) * s - 0.5).
+// @param m the model.
+// @param width, height the new image size, pixels.
+// @return the scaled model.
+inline PinholeModel scale_model(const PinholeModel & m, int width, int height)
+{
+  const double sx = static_cast<double>(width) / m.width;
+  const double sy = static_cast<double>(height) / m.height;
+  return PinholeModel{m.fx * sx, m.fy * sy, (m.cx + 0.5) * sx - 0.5, (m.cy + 0.5) * sy - 0.5, width, height};
+}
 
 // @return the default RGB mapping model, 576x324, f 440, no distortion.
 inline PinholeModel default_rgb_mapping_model()
@@ -106,34 +101,6 @@ inline PinholeModel default_rgb_mapping_model()
 inline PinholeModel default_rgb_out_model()
 {
   return scale_model(default_rgb_mapping_model(), RGB_OUT_WIDTH, RGB_OUT_HEIGHT);
-}
-
-// A pose translated by (x, y, z) metres with no rotation.
-// @param x, y, z the translation, metres.
-// @return the pose.
-inline Eigen::Isometry3d translation(double x, double y, double z)
-{
-  Eigen::Isometry3d T = Eigen::Isometry3d::Identity();
-  T.translation() = Eigen::Vector3d(x, y, z);
-  return T;
-}
-
-// RGB = ToF: the same model at the same pose, so registration is the identity.
-// @param m the model of both cameras.
-// @return the rig.
-inline Rig identity_rig(const PinholeModel & m)
-{
-  return Rig{m, m, Eigen::Isometry3d::Identity(), Eigen::Isometry3d::Identity()};
-}
-
-// The ToF at the world origin and the RGB at T_tof_rgb (its pose in the ToF optical frame).
-// @param tof the ToF model.
-// @param rgb the RGB model at the output size.
-// @param T_tof_rgb the RGB pose in the ToF optical frame, e.g. translation(0.05, 0, 0) for an RGB 5 cm right.
-// @return the rig.
-inline Rig offset_rig(const PinholeModel & tof, const PinholeModel & rgb, const Eigen::Isometry3d & T_tof_rgb)
-{
-  return Rig{tof, rgb, Eigen::Isometry3d::Identity(), T_tof_rgb};
 }
 
 // A plane facing the camera (normal -z) at depth z in the world frame.
@@ -222,23 +189,21 @@ inline std::pair<double, int> cast(const Scene & scene, const Eigen::Vector3d & 
   return {best_t, best};
 }
 
-// Ray-cast the scene into every pixel centre of a camera (rays undistorted with the model's distortion).
+// Ray-cast the scene into every pixel centre of a camera.
 // @param scene the scene.
 // @param m the camera model.
 // @param T_world_cam the camera pose.
 // @return z in the camera optical frame and the primitive index per pixel.
 inline Render render(const Scene & scene, const PinholeModel & m, const Eigen::Isometry3d & T_world_cam)
 {
-  const RayTable rays(m);
   Render out{
     cv::Mat(m.height, m.width, CV_64FC1, cv::Scalar(0.0)), cv::Mat(m.height, m.width, CV_32SC1, cv::Scalar(NO_HIT))};
   const Eigen::Vector3d origin = T_world_cam.translation();
   for (int v = 0; v < m.height; ++v) {
     for (int u = 0; u < m.width; ++u) {
-      const cv::Vec2d & r = rays.ray(u, v);
       // The camera ray (x, y, 1): t is the z of the hit in the camera frame.
-      const Eigen::Vector3d dir = T_world_cam.linear() * Eigen::Vector3d(r[0], r[1], 1.0);
-      const auto [t, index] = cast(scene, origin, dir);
+      const Eigen::Vector3d ray((u - m.cx) / m.fx, (v - m.cy) / m.fy, 1.0);
+      const auto [t, index] = cast(scene, origin, T_world_cam.linear() * ray);
       if (index != NO_HIT) {
         out.depth_m.at<double>(v, u) = t;
         out.index.at<int>(v, u) = index;
@@ -264,16 +229,6 @@ inline cv::Mat to_depth_mm(const cv::Mat & depth_m, double min_m = 0.0, double m
     }
   }
   return out;
-}
-
-// The ToF depth image of a scene: CV_16UC1 mm, 0 where nothing was hit or the depth is above 65.535 m.
-// @param scene the scene.
-// @param tof the ToF model.
-// @param T_world_tof the ToF pose.
-// @return the depth.
-inline cv::Mat render_tof_depth_mm(const Scene & scene, const PinholeModel & tof, const Eigen::Isometry3d & T_world_tof)
-{
-  return to_depth_mm(render(scene, tof, T_world_tof).depth_m);
 }
 
 // The ground-truth depth an RGB camera sees: CV_64FC1 z in the RGB optical frame, metres, 0 where nothing was hit.
@@ -308,55 +263,6 @@ inline cv::Mat render_grey(const Scene & scene, const PinholeModel & m, const Ei
     }
   }
   return grey;
-}
-
-// The world point a camera pixel's ray hits, with the hit primitive index.
-// @param scene the scene.
-// @param rays the ray table of the camera model (built once by the caller).
-// @param T_world_cam the camera pose.
-// @param u, v the pixel.
-// @return (world point, index); index NO_HIT when nothing is hit.
-inline std::pair<Eigen::Vector3d, int> hit_point(
-  const Scene & scene, const RayTable & rays, const Eigen::Isometry3d & T_world_cam, int u, int v)
-{
-  const cv::Vec2d & r = rays.ray(u, v);
-  const Eigen::Vector3d dir = T_world_cam.linear() * Eigen::Vector3d(r[0], r[1], 1.0);
-  const auto [t, index] = cast(scene, T_world_cam.translation(), dir);
-  if (index == NO_HIT) {
-    return {Eigen::Vector3d::Zero(), NO_HIT};
-  }
-  return {T_world_cam.translation() + t * dir, index};
-}
-
-// True when a world point is the first thing a camera centre sees along the line to it (nothing occludes it).
-// @param scene the scene.
-// @param cam_origin the camera centre, world frame.
-// @param point the point, world frame.
-// @param tolerance_m how much nearer than the point an occluder must be, metres.
-// @return whether the point is visible.
-inline bool visible(
-  const Scene & scene, const Eigen::Vector3d & cam_origin, const Eigen::Vector3d & point, double tolerance_m = 1e-6)
-{
-  const Eigen::Vector3d dir = point - cam_origin;
-  const double length = dir.norm();
-  const auto hit = cast(scene, cam_origin, dir / length);
-  return hit.second == NO_HIT || hit.first >= length - tolerance_m;
-}
-
-// True when a world point lies in front of a camera and projects inside its image (within the pixel area
-// [-0.5, width - 0.5) x [-0.5, height - 0.5)).
-// @param m the camera model.
-// @param T_world_cam the camera pose.
-// @param point the point, world frame.
-// @return whether the camera images the point.
-inline bool in_view(const PinholeModel & m, const Eigen::Isometry3d & T_world_cam, const Eigen::Vector3d & point)
-{
-  const Eigen::Vector3d p = T_world_cam.inverse() * point;
-  if (p.z() <= 0.0) {
-    return false;
-  }
-  const cv::Point2d px = project_point(m, p);
-  return px.x >= -0.5 && px.x < m.width - 0.5 && px.y >= -0.5 && px.y < m.height - 0.5;
 }
 
 }  // namespace head_rgbd_cpp::test
