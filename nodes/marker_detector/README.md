@@ -54,7 +54,7 @@ There is no zoom stage: the zoom stills came from head_camera_cpp's full-resolut
 ## Decode and synthetic scenes
 
 - `marker_detector/decode.py`: `decode_frame(grey)` reads QR codes with zxing-cpp and validates payloads (invalid ones become `Rejection(reason="payload")`); corners are top-left, top-right, bottom-right, bottom-left in the symbol's own orientation.
-- `marker_detector/synthetic.py`: `render_marker_scene`, `pose_facing`, `STREAM_K` render segno symbols through a pinhole camera for tests and the bench.
+- `marker_detector/synthetic.py`: `render_marker_scene`, `pose_facing`, `STREAM_K` (tests) and `D435_COLOR_K` (bench) render segno symbols through a pinhole camera for tests and the bench.
 - Measured limit: zxing decodes down to about 1.4 px/module sharp; blur sigma 1.6 px at that size defeats it (`tests/test_decode.py`).
 
 ## Pipeline
@@ -91,6 +91,6 @@ Nothing is sent without a real detection: no camera_info (or an all-zero K) -> n
 
 ## Benchmark
 
-`python -m marker_detector.bench [config]` (default `config/bench.yaml`, pydantic `BenchConfig`: `iterations` 200, `warmup` 20, `seed`, `scenes[]` of `name`, `image_size`, optional `focal_scale`, `markers[]` of `size_mm` and `distance_m`, 1-3 per scene) renders each synthetic scene once and times `decode_frame`, `estimate_pose` (per candidate) and the whole frame with `time.perf_counter_ns`. It prints JSON `{scene: {stage: {p50_ms, p95_ms, max_ms}}, "decoded_ratio", "decoded_by_scene", "cv2", "zxingcpp", "machine"}`. Shipped scenes: 1152x648 and 576x324 stream frames and 1024x576 zoom crops, with 1 and 3 markers each.
+`python -m marker_detector.bench [config]` (default `config/bench.yaml`, pydantic `BenchConfig`: `iterations` 200, `warmup` 20, `seed`, `scenes[]` of `name`, `image_size`, `markers[]` of `size_mm` and `distance_m`, 1-3 per scene) renders each synthetic scene once and times `decode_frame`, `estimate_pose` (per candidate) and the whole frame with `time.perf_counter_ns`. It prints JSON `{scene: {stage: {p50_ms, p95_ms, max_ms}}, "decoded_ratio", "decoded_by_scene", "cv2", "zxingcpp", "machine"}`. Scenes render through the D435 colour intrinsics (`synthetic.D435_COLOR_K`: 640x360, 69 deg horizontal FOV) scaled by image width / 640. Shipped scenes: 640x360 D435 colour frames, near and far, with 1 and 3 markers each.
 
 On the robot: `./scripts/marker_bench.sh` runs it on the client in the deployed venv and saves `.logs/marker_bench.json` (gitignored). Budget (design D14): decode + pose p95 <= 100 ms per 1152x648 frame on the Pi 5 and node CPU p95 <= 0.3 core at `process_hz` 2. A miss lowers `process_hz` in `ansible/group_vars/client.yml`, and the measured numbers are recorded in the runbook. Tests: `tests/test_bench.py`.

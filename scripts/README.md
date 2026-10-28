@@ -381,7 +381,7 @@ Printing:
 
 ## marker_bench.sh
 
-Times marker decode and pose on the client RPi 5 with `python -m marker_detector.bench` in the deployed node venv. Streams `nodes/marker_detector/config/bench.yaml` (or `--config FILE`) over ssh, writes the JSON to `.logs/marker_bench.json` and prints p50/p95/max per scene and stage. Budget: decode + pose p95 <= 100 ms per 1152x648 frame (design D14).
+Times marker decode and pose on the client RPi 5 with `python -m marker_detector.bench` in the deployed node venv. Streams `nodes/marker_detector/config/bench.yaml` (or `--config FILE`) over ssh, writes the JSON to `.logs/marker_bench.json` and prints p50/p95/max per scene and stage. Budget: decode + pose p95 <= 100 ms per 640x360 D435 colour frame (design D14).
 
 ```bash
 ./scripts/marker_bench.sh            # default scenes

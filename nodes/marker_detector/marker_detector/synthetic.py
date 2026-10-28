@@ -1,5 +1,7 @@
 """Synthetic marker scenes for tests and the bench: QR symbols warped through a pinhole camera."""
 
+import math
+
 import cv2
 import numpy as np
 import segno
@@ -10,6 +12,17 @@ SUPERSAMPLE = 3
 BACKGROUND_GREY = 128
 STREAM_SIZE = (1152, 648)
 STREAM_K = np.array([[887.0, 0.0, 576.0], [0.0, 887.0, 324.0], [0.0, 0.0, 1.0]])
+# D435 colour stream (design D2 profile 640x360) with its 69 deg horizontal FOV (design D5), square pixels.
+D435_COLOR_SIZE = (640, 360)
+D435_COLOR_HFOV_DEG = 69.0
+D435_COLOR_FOCAL_PX = D435_COLOR_SIZE[0] / 2 / math.tan(math.radians(D435_COLOR_HFOV_DEG / 2))
+D435_COLOR_K = np.array(
+    [
+        [D435_COLOR_FOCAL_PX, 0.0, D435_COLOR_SIZE[0] / 2],
+        [0.0, D435_COLOR_FOCAL_PX, D435_COLOR_SIZE[1] / 2],
+        [0.0, 0.0, 1.0],
+    ]
+)
 
 
 def pose_facing(

@@ -1,4 +1,4 @@
-"""Benchmark of decode and pose cost on synthetic scenes: ``python -m marker_detector.bench [config]``."""
+"""Benchmark of decode and pose cost on synthetic D435 colour scenes: ``python -m marker_detector.bench [config]``."""
 
 import json
 import platform
@@ -15,7 +15,7 @@ from pydantic import Field
 from marker_detector.config import PoseConfig, StrictModel
 from marker_detector.decode import decode_frame
 from marker_detector.pose import estimate_pose
-from marker_detector.synthetic import STREAM_K, STREAM_SIZE, pose_facing, render_marker_scene
+from marker_detector.synthetic import D435_COLOR_K, D435_COLOR_SIZE, pose_facing, render_marker_scene
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config" / "bench.yaml"
 MARKER_SPACING_M = 0.2
@@ -33,11 +33,10 @@ class BenchMarker(StrictModel):
 
 
 class BenchScene(StrictModel):
-    """One scene: image size, optional focal scale (default image width / 1152) and 1-3 markers."""
+    """One scene: image size (the D435 colour intrinsics scaled by width / 640) and 1-3 markers."""
 
     name: str
     image_size: tuple[int, int]
-    focal_scale: float | None = Field(None, gt=0)
     markers: list[BenchMarker] = Field(min_length=1, max_length=3)
 
 
@@ -73,8 +72,8 @@ def render_scene(scene: BenchScene, seed: int) -> tuple[np.ndarray, np.ndarray, 
         (grey image, 3x3 intrinsics, marker count).
     """
     width, height = scene.image_size
-    scale = scene.focal_scale if scene.focal_scale is not None else width / STREAM_SIZE[0]
-    k = np.array([[STREAM_K[0, 0] * scale, 0, width / 2], [0, STREAM_K[1, 1] * scale, height / 2], [0, 0, 1.0]])
+    scale = width / D435_COLOR_SIZE[0]
+    k = np.array([[D435_COLOR_K[0, 0] * scale, 0, width / 2], [0, D435_COLOR_K[1, 1] * scale, height / 2], [0, 0, 1.0]])
     count = len(scene.markers)
     payloads = [f"P1/K:BASE/N:BENCH{i}/S:{round(m.size_mm)}" for i, m in enumerate(scene.markers)]
     poses = [

@@ -3,7 +3,7 @@
 #
 # Streams nodes/marker_detector/config/bench.yaml (or --config FILE) to the client over ssh, runs the bench with the
 # deployed node venv, saves the JSON to .logs/marker_bench.json and prints a per-scene summary.
-# Budget (design D14): decode + pose p95 <= 100 ms per 1152x648 frame; a miss lowers process_hz in client.yml.
+# Budget (design D14): decode + pose p95 <= 100 ms per 640x360 D435 colour frame; a miss lowers process_hz in client.yml.
 #
 # Usage:
 #   ./scripts/marker_bench.sh                  # default config
