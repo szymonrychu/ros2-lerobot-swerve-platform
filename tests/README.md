@@ -69,6 +69,29 @@ head offsets, 0.3 px noise, the board seen in the D435 colour camera (`d435_colo
 | `test_view_missing_a_joint_raises` | A view without wrist_flex raises naming it. |
 | `test_fewer_than_three_views_raise` | Fewer than three views raise. |
 
+### `test_arm_offsets_fit.py`
+
+Joint head chain and arm joint offsets fit (`shared/ros2_common/head_rgbd_calibration/arm_offsets_fit.py`, design D9,
+Q2) on synthetic D435 scenes from `tests/head_arm_synthetic.py`: `plate_scene` (the gripper-held 6x5 plate in
+`d435_color_optical_frame`, 36 arm poses with wrist_roll up to +-1.5 rad, four head offsets, 0.3 px noise, views with
+fewer than 6 corners dropped) and `floor_scene` (floor planes in `d435_depth_optical_frame` over 10 pan/tilt poses,
+0.15 deg / 1.5 mm noise). Truth: the applied floor-fit chain moved by `SYNTH_TRUTH_DELTAS` (mount x +8 mm, y -6 mm,
+yaw +1.5 deg, ...), arm offsets moved from the current ones by shoulder_lift +0.03, elbow_flex -0.04, wrist_flex
++0.05 rad, wrist_roll at the synthetic recorded neutral, the plate start 10 mm / 10 deg off the truth.
+
+| Test | Description |
+|------|-------------|
+| `test_recovers_arm_offsets_and_head_yaw` | Each free offset within 0.004 rad and 3 sigma of the truth, head mount x/y within 2 mm, yaw within 0.2 deg, held-out tool error below 3 mm, the fit passes. |
+| `test_default_fits_plate_rotation_with_wrist_roll_fixed` | Without a CAD rotation wrist_roll stays at `wrist_roll_offset_rad` (not fitted), the plate rotation is within 0.2 deg, the report says "wrist_roll fixed at the recorded neutral; plate rotation fitted" and lists every joint and limit; without `wrist_roll_offset_rad` the fit raises. |
+| `test_wrist_roll_zero_error_is_absorbed_by_the_plate` | A 2 deg wrist_roll zero error turns the fitted plate by 2 deg about the wrist_roll axis and moves the FK tool point by less than 1 mm; the fit passes. |
+| `test_cad_rotation_frees_wrist_roll` | With `plate_mount.rpy` set to the true rotation a +0.06 rad wrist_roll offset is fitted within 0.004 rad, the plate rotation stays the CAD one, the report says wrist_roll is fitted. |
+| `test_tool_point_fitted_and_gated` | With `tool_in_board_m` the tool point is within 2 mm of the truth and in the snippet; with the held-out limit below the achieved error it is not fitted, the current `tool_offset_m` is kept with the reason in the report and `holdout_tool_mm` fails; without `tool_in_board_m` it is not fitted and the reason names the missing key. |
+| `test_holdout_needs_three_head_settings` | Plate views from two head offsets only fail `holdout_coverage`. |
+| `test_offsets_snippet_round_trips` | shoulder_pan keeps the current offset (the gauge); the snippet has one comment line (date, session, px, mm), is indented for the client.yml mcp_server `arm:` block and `yaml.safe_load`s to the five offsets (4 decimals) and the fitted `tool_offset_m`. |
+| `test_too_few_plate_views_fail` | 20 plate views fail `min_views`; fewer than three raise. |
+| `test_fit_inputs_are_checked` | No `plate_mount`, or `current_offsets` without a joint, raise. |
+| `test_arm_offsets_config` | `HeadArmFitConfig` arm offsets defaults: no plate mount, no recorded wrist_roll neutral, the 6x5 plate, `max_tool_holdout_mm` 5.0, three held-out head settings, the client.yml tool point; `PlateMountConfig.tool_in_board_m` has no default (required key, null allowed) and must have three values. |
+
 ### `test_head_arm_real_session.py`
 
 The head-from-arm fit on the real session calib-20261023-074418 (`tests/fixtures/head_arm/calib-20261023-074418.json`:

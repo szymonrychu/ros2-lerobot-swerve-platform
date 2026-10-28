@@ -122,6 +122,8 @@ DEFAULT_JOINT_OFFSETS_RAD = {
     "wrist_flex": 0.0988,
     "wrist_roll": -0.0710,
 }
+# The current tool point (client.yml mcp_server arm.tool_offset_m, fitted 2026-10-10), m in gripper_frame_link.
+DEFAULT_TOOL_OFFSET_M = (0.0010, -0.0056, -0.0014)
 
 
 class BoardMountConfig(StrictModel):
@@ -134,6 +136,42 @@ class BoardMountConfig(StrictModel):
     xyz_init: tuple[float, float, float] = (0.0, 0.0, 0.0)
     rpy_init: tuple[float, float, float] = (0.0, 0.0, 0.0)
     outline_margin_m: float = Field(default=0.01, ge=0)
+
+
+class PlateMountConfig(StrictModel):
+    """Plate (the gripper-held ChArUco board of the arm offsets fit) in gripper_link.
+
+    `xyz_init` / `rpy_init` are the start of the plate frame origin (m) and fixed-axis xyz rotation (rad). `rpy` is
+    the CAD rotation of the plate: when set the rotation is fixed to it and wrist_roll is fitted; when None the
+    rotation is fitted and wrist_roll stays at `HeadArmFitConfig.wrist_roll_offset_rad` (a wrist_roll zero error turns
+    the plate about the wrist_roll axis exactly, so both cannot be free). `tool_in_board_m` is the CAD board-to-jaw-tip
+    offset, the tool point in the plate frame (m); the key has no default and is null until it is measured, in which
+    case the tool point is not fitted (design Q2).
+    """
+
+    xyz_init: tuple[float, float, float]
+    rpy_init: tuple[float, float, float]
+    rpy: tuple[float, float, float] | None = None
+    tool_in_board_m: tuple[float, float, float] | None
+
+
+class ArmFitLimits(StrictModel):
+    """Acceptance limits of the arm offsets fit (arm_offsets_fit); held-out views decide, never the fit residual alone
+    (design D9).
+
+    `rms_px` and `holdout_rms_px` are the head-from-arm evidence limits (same camera, board and arm). Every
+    `holdout_every`-th plate view is held out; the held-out views must cover at least `min_holdout_head_settings`
+    distinct head settings (head offset indices). `max_tool_holdout_mm` bounds the held-out tool error (RMS of the arm
+    FK tool point against the view's solvePnP plate pose through the fitted chain); the tool point is fitted only
+    below it (design Q2: 5 mm). `min_views` counts the fit plate views (held-out views not counted).
+    """
+
+    rms_px: float = Field(default=3.0, gt=0)
+    holdout_rms_px: float = Field(default=4.0, gt=0)
+    max_tool_holdout_mm: float = Field(default=5.0, gt=0)
+    min_views: int = Field(default=40, gt=0)
+    holdout_every: int = Field(default=5, ge=2)
+    min_holdout_head_settings: int = Field(default=3, ge=1)
 
 
 class HeadArmFitLimits(StrictModel):
@@ -188,6 +226,11 @@ class HeadArmFitConfig(StrictModel):
     calib-20261023-074418 put the pan axis direction 2.1-2.8 deg off the floor fit (mount roll, mount pitch and tilt
     zero fail the floor cross-check; mount pitch plus tilt zero agree within 0.04 deg); with it the fit passes at rms
     2.93 px against 2.67 px, held-out 2.88 px against 2.98 px.
+
+    The arm offsets fit (arm_offsets_fit) reads `plate`, `plate_mount` (required by that fit, None otherwise),
+    `wrist_roll_offset_rad` (the wrist_roll zero from the user's recorded servo neutral, rad; required when the plate
+    rotation is fitted), `tool_offset_m` (the current tool point in gripper_frame_link, reported unchanged when the
+    tool point is not fitted), `floor_fit` (its floor views) and `arm_limits`.
     """
 
     board: BoardConfig = Field(default_factory=BoardConfig)
@@ -199,6 +242,12 @@ class HeadArmFitConfig(StrictModel):
     base_in_base_link: BaseInBaseLink = Field(default_factory=BaseInBaseLink)
     joint_offsets_rad: dict[str, float] = Field(default_factory=lambda: dict(DEFAULT_JOINT_OFFSETS_RAD))
     floor_prior_weight: float = Field(default=10.0, ge=0)
+    plate: BoardConfig = Field(default_factory=BoardConfig)
+    plate_mount: PlateMountConfig | None = None
+    wrist_roll_offset_rad: float | None = None
+    tool_offset_m: tuple[float, float, float] = DEFAULT_TOOL_OFFSET_M
+    floor_fit: FloorFitConfig = Field(default_factory=FloorFitConfig)
+    arm_limits: ArmFitLimits = Field(default_factory=ArmFitLimits)
 
     @model_validator(mode="after")
     def check_joints(self) -> Self:

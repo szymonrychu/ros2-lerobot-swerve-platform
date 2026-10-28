@@ -5,6 +5,9 @@ The arm is exact (the measured joints plus `cfg.joint_offsets_rad` through the a
 the head is aimed at the true board centre with `aim_head` on the truth chain plus each head offset, and the ChArUco
 corners are projected through the truth chain, so a fit started from the applied chain has to recover the truth. Used
 by the fit tests, the arm pose set tests and the node tests.
+
+The arm offsets scenes (`plate_scene`, `floor_scene`) add true arm joint offsets that differ from the current ones
+and floor planes in the D435 depth frame (`DEPTH_FRAME`), for the joint head and arm offsets fit (arm_offsets_fit).
 """
 
 import math
@@ -15,7 +18,14 @@ import cv2
 import numpy as np
 from ros2_common.head_rgbd_calibration.chain import UrdfChain, arm_in_robot_base, pose_from_xyz_rpy, xyz_rpy_from_pose
 from ros2_common.head_rgbd_calibration.charuco import MIN_CORNERS, Detection, board_corners_3d
-from ros2_common.head_rgbd_calibration.config import BoardMountConfig, HeadArmFitConfig
+from ros2_common.head_rgbd_calibration.config import (
+    DEFAULT_JOINT_OFFSETS_RAD,
+    BoardConfig,
+    BoardMountConfig,
+    HeadArmFitConfig,
+    PlateMountConfig,
+)
+from ros2_common.head_rgbd_calibration.floor_fit import FloorObservation, PlaneFit, predicted_floor
 from ros2_common.head_rgbd_calibration.head_arm_fit import (
     GRIPPER_LINK,
     MOUNT_JOINT,
@@ -26,6 +36,7 @@ from ros2_common.head_rgbd_calibration.head_arm_fit import (
 )
 from ros2_common.head_rgbd_calibration.urdf_text import Origin, rewrite_joint_origin
 from ros2_common.head_rgbd_calibration.views import ArmBoardView
+from scipy.spatial.transform import Rotation
 
 URDF_DIR = Path(__file__).resolve().parents[1] / "nodes" / "web_ui" / "urdf"
 CAMERA_FRAME = "d435_color_optical_frame"
@@ -109,6 +120,55 @@ SYNTH_ARM_POSES: list[dict[str, float]] = [
     for pan, elbow, flex, roll in ARM_POSE_CHANGES
 ]
 DEFAULT_HEAD_OFFSETS_DEG: list[tuple[float, float]] = [(0.0, 0.0), (10.0, 0.0), (-10.0, 0.0), (0.0, 6.0)]
+
+# Arm offsets scenes (plate_scene, floor_scene).
+DEPTH_FRAME = "d435_depth_optical_frame"
+GRIPPER_FRAME_LINK = "gripper_frame_link"
+PLATE_BOARD = BoardConfig()  # the rigid 6x5 ChArUco board
+# True offsets minus the current ones (DEFAULT_JOINT_OFFSETS_RAD) of the free joints (rad).
+PLATE_OFFSET_CHANGES = {"shoulder_lift": 0.03, "elbow_flex": -0.04, "wrist_flex": 0.05}
+# The synthetic recorded wrist_roll neutral (rad): the fixed wrist_roll offset of the default (no CAD rotation) mode.
+SYNTH_WRIST_ROLL_NEUTRAL_RAD = -0.05
+# The true tool point in gripper_frame_link (m), away from the current config value so the fit has to move it.
+SYNTH_TOOL_TRUTH_M = (0.0030, -0.0080, -0.0020)
+PLATE_INIT_SHIFT_M = 0.010
+PLATE_INIT_TURN_DEG = 10.0
+# (shoulder_lift, wrist_roll) changes of the twelve extra plate poses from BASE_ARM_POSE (rad): the shoulder_lift
+# moves and wrist_roll reaches +-1.5 rad.
+PLATE_POSE_CHANGES = (
+    (0.08, 1.5),
+    (0.08, -1.5),
+    (-0.08, 1.5),
+    (-0.08, -1.5),
+    (0.08, 0.0),
+    (-0.08, 0.0),
+    (0.0, 1.5),
+    (0.0, -1.5),
+    (0.04, 0.9),
+    (-0.04, -0.9),
+    (0.08, 0.6),
+    (-0.08, -0.6),
+)
+PLATE_ARM_POSES: list[dict[str, float]] = [
+    *SYNTH_ARM_POSES,
+    *[
+        {
+            **BASE_ARM_POSE,
+            "shoulder_lift": BASE_ARM_POSE["shoulder_lift"] + lift,
+            "wrist_roll": BASE_ARM_POSE["wrist_roll"] + roll,
+        }
+        for lift, roll in PLATE_POSE_CHANGES
+    ],
+]
+# Floor sweep (pan, tilt) in rad: five pans over 100 deg, two tilts toward the floor (+ is down).
+FLOOR_GRID: list[tuple[float, float]] = [
+    (math.radians(pan), tilt) for pan in (-50.0, -25.0, 0.0, 25.0, 50.0) for tilt in (0.35, 0.6)
+]
+FLOOR_OBSERVATIONS_PER_POSE = 3
+# Floor plane noise of the synthetic depth planes: 0.3 of the floor fit's residual scales (0.5 deg, 5 mm), the same
+# share of its scale as 0.3 px of corner noise.
+FLOOR_NOISE_DEG = 0.15
+FLOOR_NOISE_MM = 1.5
 
 
 @dataclass(frozen=True)
@@ -446,3 +506,166 @@ def arm_board_scene(
                 )
             )
     return views
+
+
+@dataclass(frozen=True)
+class PlateTruth:
+    """Truth of an arm offsets scene.
+
+    Attributes:
+        origins: Head origin overrides (joint -> Origin) of `synth_head_urdf`; joints not named keep the URDF.
+        plate_xyz: Plate (board) frame origin in gripper_link (m).
+        plate_rpy: Plate frame fixed-axis xyz rotation in gripper_link (rad).
+        joint_offsets_rad: True arm joint offsets (rad), urdf = measured + offset.
+    """
+
+    origins: dict[str, Origin]
+    plate_xyz: tuple[float, float, float]
+    plate_rpy: tuple[float, float, float]
+    joint_offsets_rad: dict[str, float]
+
+    def plate_pose(self) -> np.ndarray:
+        """4x4 pose of the plate frame in gripper_link."""
+        return pose_from_xyz_rpy(self.plate_xyz, self.plate_rpy)
+
+
+def plate_truth(
+    deltas: dict[str, float] | None = None,
+    offset_changes: dict[str, float] | None = None,
+    wrist_roll_rad: float = SYNTH_WRIST_ROLL_NEUTRAL_RAD,
+) -> PlateTruth:
+    """Truth of the standard arm offsets scene: the start chain moved by `deltas`, the nominal plate mount (the plate
+    across the tool axis, `nominal_board_mount`) and the current offsets moved by `offset_changes`.
+
+    Args:
+        deltas: Head parameter changes (head_arm_fit names, m or deg); `SYNTH_TRUTH_DELTAS` when None.
+        offset_changes: Per joint the true minus current offset (rad); `PLATE_OFFSET_CHANGES` when None.
+        wrist_roll_rad: True wrist_roll offset (rad).
+
+    Returns:
+        PlateTruth: The truth.
+    """
+    changes = PLATE_OFFSET_CHANGES if offset_changes is None else offset_changes
+    head = synth_truth(synth_head_urdf(), deltas)
+    xyz, rpy = nominal_board_mount(HeadArmFitConfig(board=PLATE_BOARD))
+    offsets = {name: value + changes.get(name, 0.0) for name, value in DEFAULT_JOINT_OFFSETS_RAD.items()}
+    return PlateTruth(head.origins, xyz, rpy, {**offsets, "wrist_roll": wrist_roll_rad})
+
+
+def gripper_frame_in_gripper(arm_urdf: str) -> np.ndarray:
+    """4x4 pose of gripper_frame_link in gripper_link (a fixed joint).
+
+    Args:
+        arm_urdf: Arm URDF text.
+
+    Returns:
+        np.ndarray: 4x4 pose.
+    """
+    arm = UrdfChain.from_text(arm_urdf)
+    zeros = {name: 0.0 for name, joint in arm.joints.items() if joint.movable}
+    return np.linalg.solve(arm.transform(GRIPPER_LINK, zeros), arm.transform(GRIPPER_FRAME_LINK, zeros))
+
+
+def tool_in_plate(truth: PlateTruth, tool_m: tuple[float, float, float] = SYNTH_TOOL_TRUTH_M) -> list[float]:
+    """The CAD board-to-jaw-tip offset of a truth: the tool point (given in gripper_frame_link) in the plate frame.
+
+    Args:
+        truth: Scene truth (plate mount).
+        tool_m: Tool point in gripper_frame_link (m).
+
+    Returns:
+        list[float]: (3,) tool point in the plate frame (m).
+    """
+    in_gripper = gripper_frame_in_gripper(synth_arm_urdf()) @ np.append(tool_m, 1.0)
+    return [float(v) for v in np.linalg.solve(truth.plate_pose(), in_gripper)[:3]]
+
+
+def synth_plate_config(
+    truth: PlateTruth,
+    tool_in_board_m: list[float] | None = None,
+    rpy: tuple[float, float, float] | None = None,
+    **overrides: object,
+) -> HeadArmFitConfig:
+    """Arm offsets fit config: the plate mount start `PLATE_INIT_SHIFT_M` / `PLATE_INIT_TURN_DEG` off the truth, the
+    synthetic recorded wrist_roll neutral, the floor prior off.
+
+    Args:
+        truth: Scene truth (plate mount).
+        tool_in_board_m: CAD board-to-jaw-tip offset (m) or None (not measured).
+        rpy: CAD plate rotation (rad) or None (rotation fitted).
+        **overrides: Further HeadArmFitConfig fields.
+
+    Returns:
+        HeadArmFitConfig: The config.
+    """
+    xyz_init, rpy_init = perturbed_board_mount(
+        truth.plate_xyz, truth.plate_rpy, PLATE_INIT_SHIFT_M, PLATE_INIT_TURN_DEG
+    )
+    mount = PlateMountConfig(xyz_init=xyz_init, rpy_init=rpy_init, rpy=rpy, tool_in_board_m=tool_in_board_m)
+    fields: dict[str, object] = {
+        "floor_prior_weight": 0.0,
+        "wrist_roll_offset_rad": SYNTH_WRIST_ROLL_NEUTRAL_RAD,
+        **overrides,
+    }
+    return HeadArmFitConfig(plate=PLATE_BOARD, plate_mount=mount, **fields)
+
+
+def plate_scene(
+    truth: PlateTruth,
+    arm_poses: list[dict[str, float]],
+    noise_px: float,
+    seed: int,
+    head_offsets_deg: list[tuple[float, float]] | None = None,
+) -> list[ArmBoardView]:
+    """Views of the gripper-held plate (the 6x5 board) in the D435 colour camera through the truth head chain and the
+    true arm offsets (`arm_board_scene` on `synth_head_urdf` / `synth_arm_urdf`); views with fewer than `MIN_CORNERS`
+    corners are dropped.
+
+    Args:
+        truth: Truth head origins, plate mount and arm offsets.
+        arm_poses: Measured arm joints (rad) per pose.
+        noise_px: Standard deviation of the Gaussian pixel noise.
+        seed: Random seed of the noise.
+        head_offsets_deg: (pan, tilt) head offsets (deg) per arm pose; `DEFAULT_HEAD_OFFSETS_DEG` when None.
+
+    Returns:
+        list[ArmBoardView]: Views, id `p<pose>-h<offset>`, `head_offset` the index into the head offsets.
+    """
+    cfg = HeadArmFitConfig(board=PLATE_BOARD, joint_offsets_rad=truth.joint_offsets_rad)
+    head = HeadArmTruth(origins=truth.origins, board_xyz=truth.plate_xyz, board_rpy=truth.plate_rpy)
+    offsets = DEFAULT_HEAD_OFFSETS_DEG if head_offsets_deg is None else head_offsets_deg
+    return arm_board_scene(head, synth_head_urdf(), synth_arm_urdf(), arm_poses, offsets, noise_px, seed, cfg)
+
+
+def floor_scene(
+    truth: PlateTruth,
+    grid: list[tuple[float, float]],
+    noise_deg: float,
+    noise_mm: float,
+    seed: int,
+    per_pose: int = FLOOR_OBSERVATIONS_PER_POSE,
+) -> list[FloorObservation]:
+    """Floor planes (base_link z = 0) in the D435 depth frame of the truth chain at each (pan, tilt), with noise: the
+    normal turned by a Gaussian rotation vector of `noise_deg` per axis, the height moved by `noise_mm`.
+
+    Args:
+        truth: Truth head origins.
+        grid: Measured (pan, tilt) per pose (rad).
+        noise_deg: Normal noise per rotation axis (deg).
+        noise_mm: Height noise (mm).
+        seed: Random seed.
+        per_pose: Observations per pose, each with its own noise.
+
+    Returns:
+        list[FloorObservation]: Observations in grid order.
+    """
+    rng = np.random.default_rng(seed)
+    chain = UrdfChain.from_text(synth_head_urdf())
+    observations = []
+    for pose, (pan, tilt) in enumerate(grid):
+        normal, height = predicted_floor(chain, pan, tilt, truth.origins, DEPTH_FRAME)
+        for _ in range(per_pose):
+            turn = Rotation.from_rotvec(rng.normal(0.0, math.radians(noise_deg), 3)).as_matrix()
+            plane = PlaneFit(turn @ normal, height + rng.normal(0.0, noise_mm) / 1000.0, 1000, 1000, 0.0)
+            observations.append(FloorObservation(pose, pan, tilt, plane))
+    return observations
