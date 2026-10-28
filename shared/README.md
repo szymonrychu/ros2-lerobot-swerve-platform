@@ -235,6 +235,15 @@ Free parameters (`fit_head_from_arm`):
 
 - `PARAM_NAMES`: `mount_x_m`, `mount_y_m`, `mount_z_m`, `mount_roll_deg`, `mount_pitch_deg`, `mount_yaw_deg` (the
   `head_mount_joint` origin), `tilt_zero_deg` (the `head_tilt` origin pitch) and `tilt_roll_deg` (its roll).
+- `CAMERA_MOUNT_PARAMS` with `fit_camera_mount: true` (the default): `camera_x_m`, `camera_z_m`, `camera_roll_deg`,
+  `camera_yaw_deg`, the origin of the camera mount joint (`camera_mount_joint`: the joint after `head_tilt` on the path
+  to `camera_frame`, `d435_joint` for the D435 colour), refined from its CAD start. Its y and pitch keep the URDF
+  values: y runs along the tilt axis and is degenerate with the mount y (Jacobian condition number 8e10 on the
+  synthetic scene), pitch commutes with the tilt and folds into `tilt_zero_deg` (correlation 0.9995). With the four
+  free the synthetic scene's largest correlation is 0.905 (camera yaw / mount yaw), camera x / pan axis x 0.89. The
+  real session (29 arm poses, camera mount free) gives camera z sigma 0.78 mm and passes every limit; the synthetic
+  scene (24 poses) at 2.5 px per axis gives 2.74 mm, above `max_sigma_mm`. The camera parameters carry `start_delta`
+  checks against `max_start_delta_mm` / `max_start_delta_deg`.
 - `PAN_AXIS_PARAMS` with `fit_pan_axis: true` (the default): `pan_axis_x_m`, `pan_axis_y_m`, the `head_pan` origin x, y.
   The `head_tilt` origin is moved back by the same shift (`head_origins`), so the head stays where it is at pan 0 and
   only the axis it turns about moves. The real session `calib-20261023-074418` put that axis 38 mm behind the URDF
@@ -243,8 +252,8 @@ Free parameters (`fit_head_from_arm`):
   `solvePnP` seeded from the configured `board_mount` and mapped through the start chain into `gripper_link`, median
   translation and mean rotation.
 
-Fixed: every other head origin component (`head_pan` rpy and z, `head_tilt` z, `d435_joint`, the D435 colour and
-optical joints), the arm URDF, the joint offsets, the arm gauge (`base_in_base_link`) and the intrinsics. The pan zero is folded
+Fixed: every other head origin component (`head_pan` rpy and z, `head_tilt` z, the camera mount y and pitch, the D435
+colour and optical joints), the arm URDF, the joint offsets, the arm gauge (`base_in_base_link`) and the intrinsics. The pan zero is folded
 into `mount_yaw_deg` (the result's `PAN_ZERO_NOTE`): a pan scale or zero offset is degenerate with the mount yaw and
 the axis shift, so it is not a parameter.
 
@@ -325,7 +334,7 @@ between samples). Pass the applied chain: a head that reaches further, or a wide
 
 ### Config models (`config.py`)
 
-`HeadArmFitConfig` (`board`, `fit_pan_axis`, `board_mount`, `limits`, `huber_f_scale_px`, `base_in_base_link`,
+`HeadArmFitConfig` (`board`, `fit_pan_axis`, `fit_camera_mount`, `board_mount`, `limits`, `huber_f_scale_px`, `base_in_base_link`,
 `joint_offsets_rad` (exactly the five arm joints), `floor_prior_weight`), `BoardMountConfig` (`xyz_init`, `rpy_init`,
 `outline_margin_m`: the start of the board frame in `gripper_link` and the plate margin the pose check uses),
 `HeadArmFitLimits` (every limit above, with `holdout_every` >= 2) and `BaseInBaseLink` (`x`, `y`, `z`, `yaw`, default

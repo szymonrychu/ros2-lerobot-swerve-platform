@@ -29,6 +29,7 @@ from ros2_common.head_rgbd_calibration.views import ArmBoardView
 
 URDF_DIR = Path(__file__).resolve().parents[1] / "nodes" / "web_ui" / "urdf"
 CAMERA_FRAME = "d435_color_optical_frame"
+CAMERA_JOINT = "d435_joint"
 APPLIED_NOTE = "floor fit 2026-10-22"
 # The applied floor-fit chain of 2026-10-22 (floor_fit.PARAM_NAMES, m and deg): the start chain of every scene.
 APPLIED_FLOOR = {
@@ -247,18 +248,20 @@ def perturbed_board_mount(
 
 
 def perturbed_origins(head_urdf: str, deltas: dict[str, float]) -> dict[str, Origin]:
-    """head_mount_joint and head_tilt origins of `head_urdf` moved by `deltas` (head_arm_fit.PARAM_NAMES units).
+    """head_mount_joint, head_tilt and d435_joint origins of `head_urdf` moved by `deltas` (head_arm_fit.PARAM_NAMES
+    and CAMERA_MOUNT_PARAMS units); the d435_joint y and pitch stay at the URDF values.
 
     Args:
         head_urdf: Head URDF text (the start chain).
         deltas: Per parameter name the change from the URDF value (m for `*_m`, deg for `*_deg`); missing names are 0.
 
     Returns:
-        dict[str, Origin]: Origins of head_mount_joint and head_tilt.
+        dict[str, Origin]: Origins of head_mount_joint, head_tilt and d435_joint.
     """
     chain = UrdfChain.from_text(head_urdf)
     (mx, my, mz), (mroll, mpitch, myaw) = chain.origin(MOUNT_JOINT)
     txyz, (troll, tpitch, tyaw) = chain.origin(TILT_JOINT)
+    (cx, cy, cz), (croll, cpitch, cyaw) = chain.origin(CAMERA_JOINT)
 
     def deg(name: str) -> float:
         return math.radians(deltas.get(name, 0.0))
@@ -269,6 +272,10 @@ def perturbed_origins(head_urdf: str, deltas: dict[str, float]) -> dict[str, Ori
             (mroll + deg("mount_roll_deg"), mpitch + deg("mount_pitch_deg"), myaw + deg("mount_yaw_deg")),
         ),
         TILT_JOINT: Origin(txyz, (troll + deg("tilt_roll_deg"), tpitch + deg("tilt_zero_deg"), tyaw)),
+        CAMERA_JOINT: Origin(
+            (cx + deltas.get("camera_x_m", 0.0), cy, cz + deltas.get("camera_z_m", 0.0)),
+            (croll + deg("camera_roll_deg"), cpitch, cyaw + deg("camera_yaw_deg")),
+        ),
     }
 
 

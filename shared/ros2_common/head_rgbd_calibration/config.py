@@ -181,7 +181,8 @@ class HeadArmFitConfig(StrictModel):
     """Head-from-arm fit: board and its mount on the gripper, limits, the trusted arm gauge and the floor prior.
 
     `fit_pan_axis` frees the head pan axis position (head_pan origin x, y) relative to the head, which stays where
-    it is at pan 0 (head_tilt origin moved back by the same amount).
+    it is at pan 0 (head_tilt origin moved back by the same amount). `fit_camera_mount` frees the camera mount joint
+    (d435_joint) x, z, roll and yaw from its CAD start; its y and pitch are not observable (head_arm_fit).
 
     `floor_prior_weight` 10 (user decision 2026-10-23, replacing D49's prior off): without it the arm views of
     calib-20261023-074418 put the pan axis direction 2.1-2.8 deg off the floor fit (mount roll, mount pitch and tilt
@@ -191,6 +192,7 @@ class HeadArmFitConfig(StrictModel):
 
     board: BoardConfig = Field(default_factory=BoardConfig)
     fit_pan_axis: bool = True
+    fit_camera_mount: bool = True
     board_mount: BoardMountConfig = Field(default_factory=BoardMountConfig)
     limits: HeadArmFitLimits = Field(default_factory=HeadArmFitLimits)
     huber_f_scale_px: float = Field(default=1.0, gt=0)

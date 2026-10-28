@@ -45,7 +45,8 @@ head offsets, 0.3 px noise, the board seen in the D435 colour camera (`d435_colo
 | Test | Description |
 |------|-------------|
 | `test_recovers_perturbed_head_chain_with_noise` | Every fitted parameter (pan axis included) within 1.5 mm / 0.15 deg and 3 sigma of the truth; rms, held-out and board errors small; passes. |
-| `test_recovers_the_d435_mount_from_board_views` | Views in the D435 colour camera (pan axis moved): the fit (explicit `camera_frame` and the default alike) passes and puts `d435_color_optical_frame` and `d435_depth_optical_frame` within 1.5 mm / 0.15 deg of the truth at three head angles; d435_joint is not overridden. |
+| `test_recovers_the_d435_mount_from_board_views` | The D435 moved on the head (d435_joint x +6 mm, z -4 mm, roll +0.5 deg, yaw -0.8 deg) with the pan axis moved, 2.5 px noise (the real session): camera x, z, roll, yaw within 3 sigma of the truth, the d435_joint y and pitch exactly the URDF values, the largest correlation below `max_correlation`, the default `camera_frame` gives the same fit. |
+| `test_d435_mount_is_exact_without_noise` | The same scene without noise: every parameter exact, the fit passes. |
 | `test_fit_reports_coverage_and_holdout` | Hold-out of every fifth arm pose, view counts, spans, floor deltas, the largest correlation below `max_correlation`, JSON origins (mount, pan, tilt) and `offset_rms_px` per head offset. |
 | `test_noiseless_recovery_exact` | Without noise every parameter and the board mount are exact. |
 | `test_pan_zero_folds_into_mount_yaw` | A 1 deg head_pan yaw lands in `mount_yaw_deg` (D33). |
@@ -53,11 +54,12 @@ head offsets, 0.3 px noise, the board seen in the D435 colour camera (`d435_colo
 | `test_floor_cross_check_limits` | A floor value 2 deg off fails its `floor_delta`; no floor fails `floor_cross_check`. |
 | `test_floor_prior_weight_pulls` | A floor prior pulls the tilt zero toward the floor value. |
 | `test_noisy_views_fail_a_sigma_limit` | 3 px noise fails a sigma limit. |
-| `test_fixed_components_stay_at_urdf` | The head_pan origin carries the pan axis x, y (z and rpy kept), head_tilt xyz moves back by the same shift, `head_origins` reproduces the fitted origins, d435_joint is not overridden. |
-| `test_fixed_pan_axis_keeps_mount_and_tilt_only` | `fit_pan_axis: false` fits the eight mount/tilt parameters and writes head_mount_joint and head_tilt only. |
+| `test_fixed_components_stay_at_urdf` | The head_pan origin carries the pan axis x, y (z and rpy kept), head_tilt xyz moves back by the same shift, `head_origins` reproduces the fitted origins, d435_joint keeps its URDF y and pitch, the D435 colour and optical joints are not overridden. |
+| `test_fixed_pan_axis_keeps_mount_tilt_and_camera_only` | `fit_pan_axis: false` fits the eight mount/tilt and four camera mount parameters and writes head_mount_joint, head_tilt and d435_joint only. |
 | `test_pan_axis_parameters_move_the_axis_not_the_head` | The pan axis parameters leave the camera pose at pan 0 unchanged and make the head turn about the moved axis. |
 | `test_pan_axis_fit_recovers_moved_pan_axis` | A pan axis 30 mm behind and 10 mm right of the URDF value is recovered (with the rest of the chain), every head offset fits below 0.5 px, the result passes. |
-| `test_fixed_pan_axis_fit_cannot_absorb_moved_pan_axis` | The fixed-axis fit of the same views stays above 2 px, worst at the +-10 deg pan offsets, and fails `rms_px`. |
+| `test_fixed_pan_axis_fit_cannot_absorb_moved_pan_axis` | The fixed-axis fit of the same views stays above 2 px and fails (the free camera yaw runs off its start, `max_sigma_deg`); with the camera mount fixed too it is worst at the +-10 deg pan offsets and fails `rms_px`. |
+| `test_fixed_camera_mount_keeps_d435_joint_at_urdf` | `fit_camera_mount: false` fits the mount, tilt and pan axis only, writes no d435_joint and passes. |
 | `test_max_correlation_limit` | `max_correlation` is a limit check; a 0.1 limit fails only it. |
 | `test_pan_axis_delta_limit` | Each pan axis parameter has a `start_delta` check against `max_pan_axis_delta_mm`; a 60 mm shift fails only it. |
 | `test_aim_head` | `aim_head` puts points on the optical axis and clamps to the head limits. |
@@ -73,8 +75,9 @@ The head-from-arm fit on the real session calib-20261023-074418 (`tests/fixtures
 corner detections and measured joints of the 113 views, the applied intrinsics, head_chain.json, floor values and board
 mount start) and the floor sweep floor-20261022-064337 (`tests/fixtures/head_arm/floor-20261022-064337.json`: its
 per-cloud floor planes and the applied tof_joint). The session was recorded with the retired head RGB camera and ToF, so
-the fits run with `camera_frame=head_camera_optical_frame` and `sensor_frame=tof_optical_frame`. Pins the diagnosis and
-the evidence behind the `fit.limits` values.
+the fits run with `camera_frame=head_camera_optical_frame` and `sensor_frame=tof_optical_frame`, and with
+`fit_camera_mount: false` (the model the evidence was taken with) except where named. Pins the diagnosis and the
+evidence behind the `fit.limits` values.
 
 | Test | Description |
 |------|-------------|
@@ -82,6 +85,7 @@ the evidence behind the `fit.limits` values.
 | `test_pan_axis_fit_meets_accuracy_limits` | The free pan axis (floor prior on) passes every residual, sigma, correlation and pan axis limit, sits at -37.9 / -11.2 mm (+-3 mm), and every head offset fits within 30 % and below 3.5 px. |
 | `test_real_session_outcome` | With the floor prior (weight 10, user decision 2026-10-23) the session passes every limit at rms 2.93 px. |
 | `test_without_floor_prior_only_the_floor_cross_check_fails` | Prior off: only the floor cross-checks of mount roll, mount pitch and tilt zero fail (the two fits disagree on the pan axis direction; mount pitch plus tilt zero agree within 0.1 deg), and every head offset fits within 20 %. |
+| `test_free_camera_mount_meets_every_limit` | The camera mount free (head_camera_joint x, z, roll, yaw): every limit passes, camera z sigma below 1 mm, rms below 2.93 px. |
 | `test_floor_values_do_not_depend_on_pan_axis` | Refitting the floor sweep with the arm-fitted pan axis reproduces the applied floor values and changes them by less than 0.1 deg / 0.5 mm, so the cross-check compares like with like. |
 | `test_leave_poses_out_within_limits` | Five folds, each holding out five arm poses: every fold meets the residual, sigma, correlation and pan axis limits. |
 
@@ -91,7 +95,7 @@ Head-from-arm fit config, board corner geometry and view types (`shared/ros2_com
 
 | Test | Description |
 |------|-------------|
-| `test_head_arm_fit_config_defaults` | `HeadArmFitConfig` defaults: board mount, `fit_pan_axis` on, every `HeadArmFitLimits` value (the evidence-based rms 3.0 px, held-out 4.0 px / 4.5 mm, `max_correlation` 0.99, `max_pan_axis_delta_mm` 50), Huber scale, floor prior weight (10, user decision 2026-10-23) and the `base_in_base_link` gauge (0.0592, -0.05, 0.100). |
+| `test_head_arm_fit_config_defaults` | `HeadArmFitConfig` defaults: board mount, `fit_pan_axis` and `fit_camera_mount` on, every `HeadArmFitLimits` value (the evidence-based rms 3.0 px, held-out 4.0 px / 4.5 mm, `max_correlation` 0.99, `max_pan_axis_delta_mm` 50), Huber scale, floor prior weight (10, user decision 2026-10-23) and the `base_in_base_link` gauge (0.0592, -0.05, 0.100). |
 | `test_board_is_the_existing_charuco_board` | The default board equals the `charuco` spec in the markers YAML. |
 | `test_unknown_keys_and_bad_joint_set_rejected` | Unknown keys, a joint-offset set missing `wrist_roll` or containing `gripper`, and `holdout_every=1` raise `ValidationError`. |
 | `test_arm_gauge_matches_client_yml` | Default joint offsets and `base_in_base_link` equal the arm config in `client.yml`. |

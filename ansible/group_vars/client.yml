@@ -1660,6 +1660,9 @@ ros2_nodes:
         # the same shift so the head stays put at pan 0. Session calib-20261023-074418: the fixed axis left 13 px at the
         # +-10 deg pan offsets (rms 12.2 px), the free axis sits 38 mm behind and 11 mm right of the URDF value (rms 2.7 px).
         fit_pan_axis: true
+        # Fit the D435 mount (d435_joint x, z, roll, yaw) from its CAD start; its y (along the tilt axis) and pitch
+        # (folded into the tilt zero) are not observable and keep the head URDF values.
+        fit_camera_mount: true
         # The residual limits are evidence from calib-20261023-074418 refitted with the free
         # pan axis over five leave-poses-out folds (tests/test_head_arm_real_session.py): the arm is about 2 mm accurate
         # (gripper camera calibration), about 2.5 px at the board distance; fit rms 2.51-2.72 px, held-out 2.56-3.59 px

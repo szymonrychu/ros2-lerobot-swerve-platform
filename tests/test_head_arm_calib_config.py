@@ -37,6 +37,7 @@ def test_head_arm_fit_config_defaults() -> None:
     cfg = HeadArmFitConfig()
     assert cfg.board_mount == BoardMountConfig(xyz_init=(0, 0, 0), rpy_init=(0, 0, 0), outline_margin_m=0.01)
     assert cfg.fit_pan_axis is True
+    assert cfg.fit_camera_mount is True
     assert cfg.limits == HeadArmFitLimits(
         rms_px=3.0,
         holdout_rms_px=4.0,

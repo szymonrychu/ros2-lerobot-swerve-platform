@@ -14,6 +14,7 @@ import pytest
 from ros2_common.head_rgbd_calibration.chain import UrdfChain, arm_in_robot_base, pose_from_xyz_rpy
 from ros2_common.head_rgbd_calibration.config import HeadArmFitConfig
 from ros2_common.head_rgbd_calibration.head_arm_fit import (
+    CAMERA_MOUNT_PARAMS,
     PAN_AXIS_PARAMS,
     PARAM_NAMES,
     HeadArmFit,
@@ -31,6 +32,7 @@ from ros2_common.head_rgbd_calibration.urdf_text import Origin
 from tests.head_arm_synthetic import (
     APPLIED_FLOOR,
     CAMERA_FRAME,
+    CAMERA_JOINT,
     DEFAULT_HEAD_OFFSETS_DEG,
     SYNTH_ARM_POSES,
     SYNTH_CAMERA_MATRIX,
@@ -58,9 +60,11 @@ FLOOR_OFFSET_DEG = 2.0
 # Pan axis moved back and right of the head (m), the kind of shift the 2026-10-23 session showed (-38 mm, -11 mm).
 PAN_AXIS_SHIFT_M = (-0.030, -0.010)
 FIXED_PAN_MISFIT_PX = 2.0
-ALL_NAMES = (*PARAM_NAMES, *PAN_AXIS_PARAMS)
-D435_FRAMES = ("d435_color_optical_frame", "d435_depth_optical_frame")
-CHECK_HEAD_ANGLES = ((0.0, 0.0), (0.4, 0.2), (-0.4, -0.2))
+ALL_NAMES = (*PARAM_NAMES, *CAMERA_MOUNT_PARAMS, *PAN_AXIS_PARAMS)
+# The D435 on the head moved from its CAD start (d435_joint x, z, roll, yaw; y and pitch are not observable).
+CAMERA_TRUTH_DELTAS = {"camera_x_m": 0.006, "camera_z_m": -0.004, "camera_roll_deg": 0.5, "camera_yaw_deg": -0.8}
+# Pixel noise of the real session calib-20261023-074418 (fit rms 2.51-2.72 px over five folds, HeadArmFitLimits).
+REAL_NOISE_PX = 2.5
 
 
 def truth(
@@ -122,11 +126,17 @@ def test_recovers_perturbed_head_chain_with_noise(noisy_fit: HeadArmFit) -> None
     assert noisy_fit.passed
 
 
-def test_recovers_the_d435_mount_from_board_views(pan_axis_views: list) -> None:
-    """Board views in the D435 colour camera: the fitted chain puts the D435 colour and depth frames where the truth
-    chain does at every head angle; d435_joint itself keeps the head URDF value (D32)."""
+@pytest.fixture(scope="module")
+def d435_views() -> list:
+    """The D435 moved on the head (plus the standard chain deltas and the moved pan axis), real-session pixel noise."""
+    return scene(truth({**SYNTH_TRUTH_DELTAS, **CAMERA_TRUTH_DELTAS}, pan_axis_m=PAN_AXIS_SHIFT_M), REAL_NOISE_PX)
+
+
+def test_recovers_the_d435_mount_from_board_views(d435_views: list) -> None:
+    """Board views in the D435 colour camera at real-session noise: the d435_joint x, z, roll and yaw are recovered
+    within 3 sigma, its y and pitch stay at the head URDF (CAD) values."""
     result = fit_head_from_arm(
-        pan_axis_views,
+        d435_views,
         SYNTH_CAMERA_MATRIX,
         SYNTH_DIST,
         HEAD_URDF,
@@ -135,20 +145,30 @@ def test_recovers_the_d435_mount_from_board_views(pan_axis_views: list) -> None:
         APPLIED_FLOOR,
         camera_frame=CAMERA_FRAME,
     )
-    assert result.passed, result.failed_limits
-    assert "d435_joint" not in result.origins
-    chain = UrdfChain.from_text(HEAD_URDF)
-    fitted = {name: (o.xyz, o.rpy) for name, o in result.origins.items()}
-    real = {name: (o.xyz, o.rpy) for name, o in truth(SYNTH_TRUTH_DELTAS, pan_axis_m=PAN_AXIS_SHIFT_M).origins.items()}
-    for pan, tilt in CHECK_HEAD_ANGLES:
-        angles = {"head_pan": pan, "head_tilt": tilt}
-        for frame in D435_FRAMES:
-            got, want = chain.transform(frame, angles, fitted), chain.transform(frame, angles, real)
-            assert np.linalg.norm(got[:3, 3] - want[:3, 3]) * 1000.0 < TOLERANCE_MM, (frame, pan, tilt)
-            turn = math.degrees(np.linalg.norm(cv2.Rodrigues(got[:3, :3].T @ want[:3, :3])[0]))
-            assert turn < TOLERANCE_DEG, (frame, pan, tilt)
+    want = expected({**SYNTH_TRUTH_DELTAS, **CAMERA_TRUTH_DELTAS})
+    for name in CAMERA_MOUNT_PARAMS:
+        error = abs(result.params[name] - want[name])
+        assert error <= SIGMA_FACTOR * result.sigma[name], (name, result.params[name], want[name], result.sigma[name])
+    (cad_x, cad_y, cad_z), (cad_roll, cad_pitch, cad_yaw) = UrdfChain.from_text(HEAD_URDF).origin(CAMERA_JOINT)
+    origin = result.origins[CAMERA_JOINT]
+    assert origin.xyz == (result.params["camera_x_m"], cad_y, result.params["camera_z_m"])
+    assert origin.rpy == pytest.approx(
+        (math.radians(result.params["camera_roll_deg"]), cad_pitch, math.radians(result.params["camera_yaw_deg"])),
+        abs=1e-12,
+    )
+    assert origin.rpy[1] == cad_pitch
+    assert abs(result.max_correlation.value) < synth_fit_config().limits.max_correlation
     # The D435 colour frame is the default camera frame.
-    assert fit(pan_axis_views).params == result.params
+    assert fit(d435_views).params == result.params
+
+
+def test_d435_mount_is_exact_without_noise() -> None:
+    result = fit(scene(truth({**SYNTH_TRUTH_DELTAS, **CAMERA_TRUTH_DELTAS}, pan_axis_m=PAN_AXIS_SHIFT_M), 0.0))
+    pan_axis = dict(zip(PAN_AXIS_PARAMS, PAN_AXIS_SHIFT_M, strict=True))
+    want = expected({**SYNTH_TRUTH_DELTAS, **CAMERA_TRUTH_DELTAS, **pan_axis})
+    for name in ALL_NAMES:
+        assert result.params[name] == pytest.approx(want[name], abs=1e-6), name
+    assert result.passed, result.failed_limits
 
 
 def test_fit_reports_coverage_and_holdout(noisy_fit: HeadArmFit, noisy_views: list) -> None:
@@ -168,7 +188,7 @@ def test_fit_reports_coverage_and_holdout(noisy_fit: HeadArmFit, noisy_views: li
     assert abs(value) < cfg.limits.max_correlation  # no free parameter is degenerate with another (design D32)
     data = json.loads(json.dumps(noisy_fit.to_json(), allow_nan=False))
     assert data["passed"] is True
-    assert set(data["origins"]) == {"head_mount_joint", "head_pan", "head_tilt"}
+    assert set(data["origins"]) == {"head_mount_joint", "head_pan", "head_tilt", CAMERA_JOINT}
     assert set(data["per_view"][0]) == {"view_id", "arm_pose", "rms_px", "held_out"}
     offsets = {entry["head_offset"]: entry for entry in data["offset_rms_px"]}
     assert sorted(offsets) == list(range(len(DEFAULT_HEAD_OFFSETS_DEG)))
@@ -236,7 +256,7 @@ def test_fixed_components_stay_at_urdf(noisy_fit: HeadArmFit) -> None:
     chain = UrdfChain.from_text(HEAD_URDF)
     pan_xyz, pan_rpy = chain.origin("head_pan")
     tilt_xyz, tilt_rpy = chain.origin("head_tilt")
-    assert set(noisy_fit.origins) == {"head_mount_joint", "head_pan", "head_tilt"}
+    assert set(noisy_fit.origins) == {"head_mount_joint", "head_pan", "head_tilt", CAMERA_JOINT}
     pan = noisy_fit.origins["head_pan"]
     assert pan.xyz[:2] == pytest.approx((noisy_fit.params["pan_axis_x_m"], noisy_fit.params["pan_axis_y_m"]), abs=1e-12)
     assert pan.xyz[2] == pytest.approx(pan_xyz[2], abs=1e-12)
@@ -247,20 +267,23 @@ def test_fixed_components_stay_at_urdf(noisy_fit: HeadArmFit) -> None:
     assert noisy_fit.origins["head_tilt"].rpy[2] == pytest.approx(tilt_rpy[2], abs=1e-12)
     values = [noisy_fit.params[n] if n.endswith("_m") else math.radians(noisy_fit.params[n]) for n in ALL_NAMES]
     model = head_origins(chain, np.array(values), ALL_NAMES)
-    assert set(model) == {"head_mount_joint", "head_pan", "head_tilt"}
+    assert set(model) == {"head_mount_joint", "head_pan", "head_tilt", CAMERA_JOINT}
     for joint in model:
         assert model[joint].xyz == pytest.approx(noisy_fit.origins[joint].xyz, abs=1e-12), joint
         assert model[joint].rpy == pytest.approx(noisy_fit.origins[joint].rpy, abs=1e-12), joint
-    # d435_joint and the D435 optical joints are not overridden: the model uses the URDF for them.
-    assert "d435_joint" not in model
+    # d435_joint keeps its URDF y and pitch; the D435 colour and optical joints are not overridden.
+    camera_xyz, camera_rpy = chain.origin(CAMERA_JOINT)
+    assert model[CAMERA_JOINT].xyz[1] == camera_xyz[1]
+    assert model[CAMERA_JOINT].rpy[1] == camera_rpy[1]
+    assert not {"d435_color_joint", "d435_color_optical_joint"} & set(model)
 
 
-def test_fixed_pan_axis_keeps_mount_and_tilt_only() -> None:
+def test_fixed_pan_axis_keeps_mount_tilt_and_camera_only() -> None:
     cfg = synth_fit_config(fit_pan_axis=False)
-    assert fit_param_names(cfg) == PARAM_NAMES
+    assert fit_param_names(cfg) == (*PARAM_NAMES, *CAMERA_MOUNT_PARAMS)
     result = fit(scene(truth(SYNTH_TRUTH_DELTAS), NOISE_PX), cfg=cfg)
-    assert tuple(result.params) == PARAM_NAMES
-    assert set(result.origins) == {"head_mount_joint", "head_tilt"}
+    assert tuple(result.params) == (*PARAM_NAMES, *CAMERA_MOUNT_PARAMS)
+    assert set(result.origins) == {"head_mount_joint", "head_tilt", CAMERA_JOINT}
     chain = UrdfChain.from_text(HEAD_URDF)
     assert result.origins["head_tilt"].xyz == pytest.approx(chain.origin("head_tilt")[0], abs=1e-12)
     assert result.passed, result.failed_limits
@@ -271,7 +294,8 @@ def test_pan_axis_parameters_move_the_axis_not_the_head() -> None:
     start = start_params(chain, ALL_NAMES)
     shift = np.array([0.02, -0.015])
     values = [start[n] if n.endswith("_m") else math.radians(start[n]) for n in ALL_NAMES]
-    values[len(PARAM_NAMES) :] = list(np.add(values[len(PARAM_NAMES) :], shift))
+    for name, step in zip(PAN_AXIS_PARAMS, shift, strict=True):
+        values[ALL_NAMES.index(name)] += step
     moved = head_origins(chain, np.array(values), ALL_NAMES)
     still = {"head_pan": 0.0, "head_tilt": 0.2}
     np.testing.assert_allclose(camera_pose(chain, still, moved), camera_pose(chain, still), atol=1e-12)
@@ -304,11 +328,24 @@ def test_pan_axis_fit_recovers_moved_pan_axis(pan_axis_views: list) -> None:
 def test_fixed_pan_axis_fit_cannot_absorb_moved_pan_axis(pan_axis_views: list) -> None:
     result = fit(pan_axis_views, cfg=synth_fit_config(fit_pan_axis=False))
     assert result.rms_px > FIXED_PAN_MISFIT_PX
-    by_offset = result.offset_rms_px
-    # The +-10 deg pan offsets carry the misfit (as the 2026-10-23 session: 13 px against 10 px).
-    assert min(by_offset[1], by_offset[2]) > by_offset[0]
-    assert "rms_px" in result.failed_limits
+    # The free camera mount drifts to absorb the axis (its yaw and the mount yaw run off the start, the sigma grows).
+    assert {"max_sigma_deg", "start_delta:camera_yaw_deg"} <= set(result.failed_limits)
     assert not result.passed
+    # With the camera mount fixed as well (the model of the 2026-10-23 session) the +-10 deg pan offsets carry the
+    # misfit, as in that session (13 px against 10 px); a free camera x absorbs part of it at the aimed view.
+    fixed = fit(pan_axis_views, cfg=synth_fit_config(fit_pan_axis=False, fit_camera_mount=False))
+    assert fixed.rms_px > FIXED_PAN_MISFIT_PX
+    assert min(fixed.offset_rms_px[1], fixed.offset_rms_px[2]) > fixed.offset_rms_px[0]
+    assert "rms_px" in fixed.failed_limits
+
+
+def test_fixed_camera_mount_keeps_d435_joint_at_urdf(noisy_views: list) -> None:
+    cfg = synth_fit_config(fit_camera_mount=False)
+    assert fit_param_names(cfg) == (*PARAM_NAMES, *PAN_AXIS_PARAMS)
+    result = fit(noisy_views, cfg=cfg)
+    assert tuple(result.params) == (*PARAM_NAMES, *PAN_AXIS_PARAMS)
+    assert CAMERA_JOINT not in result.origins
+    assert result.passed, result.failed_limits
 
 
 def test_max_correlation_limit(noisy_fit: HeadArmFit) -> None:

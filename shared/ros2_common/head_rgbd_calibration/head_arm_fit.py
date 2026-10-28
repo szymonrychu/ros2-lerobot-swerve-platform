@@ -9,9 +9,14 @@ with the D435 colour intrinsics (the factory camera_info). The pan zero is folde
 axis parameters move the head_pan origin x, y in head_pan_base and the head_tilt origin back by the same shift, so the
 head stays where it is at pan 0 and only the axis it turns about moves: the 2026-10-23 session put that axis 38 mm
 behind the head URDF value, which the fixed-axis model could not absorb (13 px at the +-10 deg pan offsets). The
-head_pan rpy and z, head_tilt z, d435_joint and the D435 colour and optical joints keep the head URDF values (D32; the
-pan axis direction relative to the head is the tilt roll and zero already, and a pan scale factor is degenerate with
-the axis shift). numpy, scipy and OpenCV only, no ROS.
+camera mount parameters are the x, z, roll and yaw of the camera mount joint (`d435_joint`, the joint after head_tilt
+on the path to `camera_frame`), refined from its CAD start. Its y and pitch keep the head URDF values: y runs along the
+tilt axis and is fully degenerate with the mount y (Jacobian condition number 8e10 on the synthetic scene), and pitch
+commutes with the tilt rotation and folds into tilt_zero (correlation 0.9995). With x, z, roll and yaw free the
+synthetic scene's largest correlation is 0.905 (camera yaw against mount yaw), camera x against the pan axis x 0.89.
+The head_pan rpy and z, head_tilt z and the D435 colour and optical joints keep the head URDF values (D32; the pan axis
+direction relative to the head is the tilt roll and zero already, and a pan scale factor is degenerate with the axis
+shift). numpy, scipy and OpenCV only, no ROS.
 """
 
 import math
@@ -32,6 +37,7 @@ from ros2_common.head_rgbd_calibration.urdf_text import Origin
 from ros2_common.head_rgbd_calibration.views import ArmBoardView, require_joints
 
 D435_COLOR_FRAME = "d435_color_optical_frame"
+D435_JOINT = "d435_joint"
 GRIPPER_LINK = "gripper_link"
 PARAM_NAMES = (
     "mount_x_m",
@@ -43,11 +49,12 @@ PARAM_NAMES = (
     "tilt_zero_deg",
     "tilt_roll_deg",
 )
+CAMERA_MOUNT_PARAMS = ("camera_x_m", "camera_z_m", "camera_roll_deg", "camera_yaw_deg")
 PAN_AXIS_PARAMS = ("pan_axis_x_m", "pan_axis_y_m")
 FLOOR_PARAMS = floor_fit.PARAM_NAMES
-LENGTH_PARAMS = ("mount_x_m", "mount_y_m", "mount_z_m", *PAN_AXIS_PARAMS)
-ANGLE_PARAMS = tuple(name for name in PARAM_NAMES if name not in LENGTH_PARAMS)
-START_DELTA_PARAMS = ("mount_x_m", "mount_y_m", "mount_yaw_deg")
+LENGTH_PARAMS = ("mount_x_m", "mount_y_m", "mount_z_m", "camera_x_m", "camera_z_m", *PAN_AXIS_PARAMS)
+ANGLE_PARAMS = tuple(name for name in (*PARAM_NAMES, *CAMERA_MOUNT_PARAMS) if name not in LENGTH_PARAMS)
+START_DELTA_PARAMS = ("mount_x_m", "mount_y_m", "mount_yaw_deg", *CAMERA_MOUNT_PARAMS)
 BOARD_PARAM_COUNT = 6
 MIN_VIEWS = 3
 MM_PER_M = 1000.0
@@ -58,6 +65,7 @@ SOLVER_TOLERANCE = 1e-12
 AIM_TOLERANCE = 1e-15
 JACOBIAN_STEP = 1e-6
 PAN_ZERO_NOTE = "pan zero folded into mount_yaw_deg"
+CAMERA_MOUNT_NOTE = "camera mount x, z, roll, yaw free; its y and pitch kept (degenerate with mount y and tilt zero)"
 PAN_AXIS_NOTE = "pan axis free: head_pan origin x, y moved, head_tilt origin moved back (head unchanged at pan 0)"
 
 LimitCheck = tuple[str, float, float, bool]
@@ -181,7 +189,7 @@ def param_scale(name: str) -> float:
     """Factor from the internal unit (m, rad) to the reported unit (m, deg) of a parameter.
 
     Args:
-        name: Entry of `PARAM_NAMES` or `PAN_AXIS_PARAMS`.
+        name: Entry of `PARAM_NAMES`, `CAMERA_MOUNT_PARAMS` or `PAN_AXIS_PARAMS`.
 
     Returns:
         float: 1 for lengths, degrees per radian for angles.
@@ -196,69 +204,136 @@ def fit_param_names(cfg: HeadArmFitConfig) -> tuple[str, ...]:
         cfg: Fit config.
 
     Returns:
-        tuple[str, ...]: `PARAM_NAMES`, followed by `PAN_AXIS_PARAMS` when `cfg.fit_pan_axis`.
+        tuple[str, ...]: `PARAM_NAMES`, then `CAMERA_MOUNT_PARAMS` when `cfg.fit_camera_mount`, then
+        `PAN_AXIS_PARAMS` when `cfg.fit_pan_axis`.
     """
-    return (*PARAM_NAMES, *PAN_AXIS_PARAMS) if cfg.fit_pan_axis else PARAM_NAMES
+    camera = CAMERA_MOUNT_PARAMS if cfg.fit_camera_mount else ()
+    pan_axis = PAN_AXIS_PARAMS if cfg.fit_pan_axis else ()
+    return (*PARAM_NAMES, *camera, *pan_axis)
 
 
-def head_vector(chain: UrdfChain, names: tuple[str, ...] = PARAM_NAMES) -> np.ndarray:
+def camera_mount_joint(chain: UrdfChain, camera_frame: str) -> str:
+    """The camera mount joint: the joint after head_tilt on the path to the camera frame.
+
+    Args:
+        chain: Head URDF chain.
+        camera_frame: Optical frame of the camera in the head URDF.
+
+    Returns:
+        str: Joint name (`d435_joint` for the D435 colour frame).
+
+    Raises:
+        ValueError: The camera frame does not hang below head_tilt.
+    """
+    joints = chain.joint_names(camera_frame)
+    if TILT_JOINT not in joints[:-1]:
+        raise ValueError(f"{camera_frame} has no joint after {TILT_JOINT}: {joints}")
+    return joints[joints.index(TILT_JOINT) + 1]
+
+
+def head_values(chain: UrdfChain, camera_joint: str = D435_JOINT) -> dict[str, float]:
+    """Every head parameter of a head chain in metres and radians.
+
+    Args:
+        chain: Head URDF chain.
+        camera_joint: Camera mount joint (`camera_mount_joint`).
+
+    Returns:
+        dict[str, float]: Value per `PARAM_NAMES`, `CAMERA_MOUNT_PARAMS` and `PAN_AXIS_PARAMS` entry.
+    """
+    (mx, my, mz), (mroll, mpitch, myaw) = chain.origin(MOUNT_JOINT)
+    troll, tpitch, _ = chain.origin(TILT_JOINT)[1]
+    (cx, _, cz), (croll, _, cyaw) = chain.origin(camera_joint)
+    px, py, _ = chain.origin(PAN_JOINT)[0]
+    return {
+        "mount_x_m": mx,
+        "mount_y_m": my,
+        "mount_z_m": mz,
+        "mount_roll_deg": mroll,
+        "mount_pitch_deg": mpitch,
+        "mount_yaw_deg": myaw,
+        "tilt_zero_deg": tpitch,
+        "tilt_roll_deg": troll,
+        "camera_x_m": cx,
+        "camera_z_m": cz,
+        "camera_roll_deg": croll,
+        "camera_yaw_deg": cyaw,
+        "pan_axis_x_m": px,
+        "pan_axis_y_m": py,
+    }
+
+
+def head_vector(chain: UrdfChain, names: tuple[str, ...] = PARAM_NAMES, camera_joint: str = D435_JOINT) -> np.ndarray:
     """The values of the named head parameters of a head chain in metres and radians.
 
     Args:
         chain: Head URDF chain.
-        names: `PARAM_NAMES`, optionally followed by `PAN_AXIS_PARAMS` (see `fit_param_names`).
+        names: Head parameter names (see `fit_param_names`).
+        camera_joint: Camera mount joint (`camera_mount_joint`).
 
     Returns:
-        np.ndarray: [mount x, y, z (m), mount roll, pitch, yaw, tilt origin pitch, tilt origin roll (rad)], then the
-        head_pan origin x, y (m) when the pan axis parameters are named.
+        np.ndarray: Value per name, in `names` order.
     """
-    (mx, my, mz), (mroll, mpitch, myaw) = chain.origin(MOUNT_JOINT)
-    troll, tpitch, _ = chain.origin(TILT_JOINT)[1]
-    values = [mx, my, mz, mroll, mpitch, myaw, tpitch, troll]
-    if names[len(PARAM_NAMES) :]:
-        values += list(chain.origin(PAN_JOINT)[0][:2])
-    return np.array(values, dtype=float)
+    values = head_values(chain, camera_joint)
+    return np.array([values[name] for name in names], dtype=float)
 
 
-def start_params(chain: UrdfChain, names: tuple[str, ...] = PARAM_NAMES) -> dict[str, float]:
+def start_params(
+    chain: UrdfChain, names: tuple[str, ...] = PARAM_NAMES, camera_joint: str = D435_JOINT
+) -> dict[str, float]:
     """Start value of every named parameter, read from the head chain (the applied chain).
 
     Args:
         chain: Head URDF chain.
-        names: `PARAM_NAMES`, optionally followed by `PAN_AXIS_PARAMS`.
+        names: Head parameter names (see `fit_param_names`).
+        camera_joint: Camera mount joint (`camera_mount_joint`).
 
     Returns:
         dict[str, float]: Value per name (m or deg).
     """
-    x = head_vector(chain, names)
+    x = head_vector(chain, names, camera_joint)
     return {name: float(x[i] * param_scale(name)) for i, name in enumerate(names)}
 
 
-def head_origins(chain: UrdfChain, x: np.ndarray, names: tuple[str, ...] = PARAM_NAMES) -> dict[str, Origin]:
+def head_origins(
+    chain: UrdfChain, x: np.ndarray, names: tuple[str, ...] = PARAM_NAMES, camera_joint: str = D435_JOINT
+) -> dict[str, Origin]:
     """Head origins for a parameter vector.
 
-    The mount takes x[0:6] and the head_tilt origin roll and pitch x[7], x[6]; its yaw stays at the chain value. With
-    the pan axis parameters the head_pan origin x, y become x[8], x[9] (its z and rpy stay) and the head_tilt origin
-    xyz moves back by the same shift, expressed in the head_pan frame, so the camera pose at pan 0 does not change;
-    without them head_pan is not returned and head_tilt keeps the chain xyz.
+    The mount takes the six mount parameters and the head_tilt origin the tilt roll and zero (pitch); its yaw stays at
+    the chain value. With the camera mount parameters the camera mount joint takes x, z, roll and yaw, its y and
+    pitch stay at the chain value. With the pan axis parameters the head_pan origin x, y become the pan axis values
+    (its z and rpy stay) and the head_tilt origin xyz moves back by the same shift, expressed in the head_pan frame,
+    so the camera pose at pan 0 does not change; without them head_pan is not returned and head_tilt keeps the chain
+    xyz.
 
     Args:
         chain: Head URDF chain (the start chain the shift is measured from).
         x: Parameters in `names` order, metres and radians.
-        names: `PARAM_NAMES`, optionally followed by `PAN_AXIS_PARAMS`.
+        names: `PARAM_NAMES`, optionally with `CAMERA_MOUNT_PARAMS` and `PAN_AXIS_PARAMS` (see `fit_param_names`).
+        camera_joint: Camera mount joint (`camera_mount_joint`).
 
     Returns:
-        dict[str, Origin]: Origins of head_mount_joint, head_tilt and, with the pan axis, head_pan; every other joint
-        keeps its URDF origin.
+        dict[str, Origin]: Origins of head_mount_joint, head_tilt and, with their parameters, the camera mount joint
+        and head_pan; every other joint keeps its URDF origin.
     """
+    v = {name: float(value) for name, value in zip(names, x, strict=True)}
     txyz, (_, _, tyaw) = chain.origin(TILT_JOINT)
     origins = {
-        MOUNT_JOINT: Origin((float(x[0]), float(x[1]), float(x[2])), (float(x[3]), float(x[4]), float(x[5]))),
-        TILT_JOINT: Origin(txyz, (float(x[7]), float(x[6]), tyaw)),
+        MOUNT_JOINT: Origin(
+            (v["mount_x_m"], v["mount_y_m"], v["mount_z_m"]),
+            (v["mount_roll_deg"], v["mount_pitch_deg"], v["mount_yaw_deg"]),
+        ),
+        TILT_JOINT: Origin(txyz, (v["tilt_roll_deg"], v["tilt_zero_deg"], tyaw)),
     }
-    if names[len(PARAM_NAMES) :]:
+    if CAMERA_MOUNT_PARAMS[0] in v:
+        (_, cy, _), (_, cpitch, _) = chain.origin(camera_joint)
+        origins[camera_joint] = Origin(
+            (v["camera_x_m"], cy, v["camera_z_m"]), (v["camera_roll_deg"], cpitch, v["camera_yaw_deg"])
+        )
+    if PAN_AXIS_PARAMS[0] in v:
         pxyz, prpy = chain.origin(PAN_JOINT)
-        moved = np.array([float(x[8]), float(x[9]), pxyz[2]])
+        moved = np.array([v["pan_axis_x_m"], v["pan_axis_y_m"], pxyz[2]])
         back = pose_from_xyz_rpy(pxyz, prpy)[:3, :3].T @ (np.asarray(pxyz, dtype=float) - moved)
         origins[PAN_JOINT] = Origin((float(moved[0]), float(moved[1]), float(moved[2])), prpy)
         tilt_xyz = np.asarray(txyz, dtype=float) + back
@@ -455,6 +530,7 @@ def corner_errors(
     camera_matrix: np.ndarray,
     dist: np.ndarray,
     camera_frame: str = D435_COLOR_FRAME,
+    camera_joint: str = D435_JOINT,
 ) -> list[np.ndarray]:
     """Projected minus detected corners of each view.
 
@@ -470,11 +546,12 @@ def corner_errors(
         camera_matrix: 3x3 intrinsics.
         dist: Distortion coefficients.
         camera_frame: Optical frame of the camera in the head URDF.
+        camera_joint: Camera mount joint (`camera_mount_joint`).
 
     Returns:
         list[np.ndarray]: (N, 2) pixel errors per view.
     """
-    origins = head_origins(chain, x[: len(names)], names)
+    origins = head_origins(chain, x[: len(names)], names, camera_joint)
     mount = board_mount_pose(mount_start, x[len(names) :])
     errors = []
     for view, gripper, obj, img in zip(views, grippers, objects, images, strict=True):
@@ -547,13 +624,14 @@ def fit_head_from_arm(
 ) -> HeadArmFit:
     """Fit the head chain from views of the gripper board in the D435 colour camera (design D31-D35, D10).
 
-    Free: the eight `PARAM_NAMES`, the two `PAN_AXIS_PARAMS` with `cfg.fit_pan_axis`, and the 6-DOF board mount in
-    gripper_link. Every other head origin component (d435_joint and the D435 optical joints included), the arm, the
-    joint offsets, the gauge and the intrinsics are fixed. Every `limits.holdout_every`-th distinct arm pose (sorted)
-    is held out with all its views. One Huber least squares over the fit views' corner residuals (px); with
-    `cfg.floor_prior_weight > 0` and a floor, one residual per floor parameter
-    `floor_prior_weight * (value - floor[name]) / unit` (1 mm, 0.1 deg). Sigma from `(J^T J)^-1 * sum(r^2) / (m - n)`
-    on the corner residuals at the solution.
+    Free: the eight `PARAM_NAMES`, the four `CAMERA_MOUNT_PARAMS` with `cfg.fit_camera_mount` (x, z, roll, yaw of
+    the camera mount joint, `d435_joint` for the D435 colour frame), the two `PAN_AXIS_PARAMS` with
+    `cfg.fit_pan_axis`, and the 6-DOF board mount in gripper_link. Every other head origin component (the camera mount
+    y and pitch and the D435 optical joints included), the arm, the joint offsets, the gauge and the intrinsics are
+    fixed. Every `limits.holdout_every`-th distinct arm pose (sorted) is held out with all its views. One Huber least
+    squares over the fit views' corner residuals (px); with `cfg.floor_prior_weight > 0` and a floor, one residual per
+    floor parameter `floor_prior_weight * (value - floor[name]) / unit` (1 mm, 0.1 deg). Sigma from
+    `(J^T J)^-1 * sum(r^2) / (m - n)` on the corner residuals at the solution.
 
     Args:
         views: Views of the board with all seven measured joints.
@@ -602,12 +680,15 @@ def fit_head_from_arm(
 
     fit_set = subset(fit_idx)
     names = fit_param_names(cfg)
-    x_start = head_vector(chain, names)
+    camera_joint = camera_mount_joint(chain, camera_frame)
+    x_start = head_vector(chain, names, camera_joint)
     nominal = pose_from_xyz_rpy(cfg.board_mount.xyz_init, cfg.board_mount.rpy_init)
-    mount_start = initial_board_mount(chain, head_origins(chain, x_start, names), *fit_set, k, d, nominal, camera_frame)
+    mount_start = initial_board_mount(
+        chain, head_origins(chain, x_start, names, camera_joint), *fit_set, k, d, nominal, camera_frame
+    )
 
     def corner_residuals(x: np.ndarray) -> np.ndarray:
-        errors = corner_errors(chain, x, names, mount_start, *fit_set, k, d, camera_frame)
+        errors = corner_errors(chain, x, names, mount_start, *fit_set, k, d, camera_frame, camera_joint)
         return np.concatenate([e.ravel() for e in errors])
 
     floor_values = floor or {}
@@ -646,9 +727,11 @@ def fit_head_from_arm(
             cov = unknown
     sigma_x = np.sqrt(np.abs(np.diag(cov)))
 
-    origins = head_origins(chain, solution[: len(names)], names)
+    origins = head_origins(chain, solution[: len(names)], names, camera_joint)
     mount = board_mount_pose(mount_start, solution[len(names) :])
-    errors = corner_errors(chain, solution, names, mount_start, views, grippers, objects, images, k, d, camera_frame)
+    errors = corner_errors(
+        chain, solution, names, mount_start, views, grippers, objects, images, k, d, camera_frame, camera_joint
+    )
     centre = np.append(board_centre(cfg.board), 1.0)
     board_mm = []
     for i in hold_idx:
@@ -670,7 +753,7 @@ def fit_head_from_arm(
         origins=origins,
         params=params,
         sigma={name: float(sigma_x[i] * param_scale(name)) for i, name in enumerate(names)},
-        start_params=start_params(chain, names),
+        start_params=start_params(chain, names, camera_joint),
         floor_delta={name: params[name] - floor_values[name] for name in FLOOR_PARAMS} if floor_values else {},
         max_correlation=largest_correlation(cov, names),
         board_mount={"xyz": list(mount_xyz), "rpy": list(mount_rpy)},
@@ -706,7 +789,7 @@ def limit_checks(fit: HeadArmFit, limits: HeadArmFitLimits) -> list[LimitCheck]:
         value. NaN values fail.
     """
     sigma_mm = float(np.max([fit.sigma[name] for name in LENGTH_PARAMS if name in fit.sigma])) * MM_PER_M
-    sigma_deg = float(np.max([fit.sigma[name] for name in ANGLE_PARAMS]))
+    sigma_deg = float(np.max([fit.sigma[name] for name in ANGLE_PARAMS if name in fit.sigma]))
     correlation = abs(fit.max_correlation.value)
     checks: list[LimitCheck] = [
         ("rms_px", fit.rms_px, limits.rms_px, fit.rms_px <= limits.rms_px),
@@ -737,7 +820,7 @@ def limit_checks(fit: HeadArmFit, limits: HeadArmFitLimits) -> list[LimitCheck]:
             else (abs(delta), limits.max_floor_delta_deg)
         )
         checks.append((f"floor_delta:{name}", value, limit, value <= limit))
-    for name in START_DELTA_PARAMS:
+    for name in (n for n in START_DELTA_PARAMS if n in fit.params):
         delta = abs(fit.params[name] - fit.start_params[name])
         value, limit = (
             (delta * MM_PER_M, limits.max_start_delta_mm)
@@ -780,6 +863,7 @@ def head_arm_report_markdown(fit: HeadArmFit, cfg: HeadArmFitConfig, session: st
         f"- Date: {date}",
         f"- Result: {'PASS' if fit.passed else 'FAIL'}",
         f"- Note: {PAN_ZERO_NOTE}",
+        *([f"- Note: {CAMERA_MOUNT_NOTE}"] if any(name in fit.params for name in CAMERA_MOUNT_PARAMS) else []),
         *([f"- Note: {PAN_AXIS_NOTE}"] if any(name in fit.params for name in PAN_AXIS_PARAMS) else []),
         "",
         "## Parameters",

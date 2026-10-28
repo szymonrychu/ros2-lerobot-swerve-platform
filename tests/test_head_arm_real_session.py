@@ -28,6 +28,7 @@ FLOOR_PAN_AXIS_TOLERANCE_M = 0.0005
 # Without the floor prior the floor fit and the head-from-arm fit disagree on the pan axis direction (mount roll and
 # pitch, with the tilt zero keeping the camera pitch at pan 0): these floor cross-checks fail on this session.
 PRIOR_RMS_PX = 2.93
+CAMERA_Z_SIGMA_MM = 1.0
 FLOOR_DISAGREEMENT = ["floor_delta:mount_roll_deg", "floor_delta:mount_pitch_deg", "floor_delta:tilt_zero_deg"]
 URDF_DIR = REPO_ROOT / "nodes" / "web_ui" / "urdf"
 # The session was recorded with the retired head RGB camera and the floor sweep with the retired ToF.
@@ -91,10 +92,13 @@ def floor_observations() -> tuple[dict, list[FloorObservation]]:
 
 
 def node_fit_config(doc: dict, **overrides: object) -> HeadArmFitConfig:
-    """The node fit config of the session (board mount start); limits and the rest at the defaults (= node config)."""
+    """The node fit config of the session (board mount start); limits and the rest at the defaults (= node config),
+    except the camera mount: the evidence below was taken with the head camera mount fixed (the model of 2026-10-23,
+    before `fit_camera_mount`)."""
     mount = doc["board_mount"]
     board_mount = BoardMountConfig(xyz_init=tuple(mount["xyz_init"]), rpy_init=tuple(mount["rpy_init"]))
-    return HeadArmFitConfig(board_mount=board_mount, **overrides)
+    fields: dict[str, object] = {"fit_camera_mount": False, **overrides}
+    return HeadArmFitConfig(board_mount=board_mount, **fields)
 
 
 def run_fit(doc: dict, views: list[ArmBoardView], cfg: HeadArmFitConfig) -> HeadArmFit:
@@ -161,6 +165,17 @@ def test_without_floor_prior_only_the_floor_cross_check_fails(session: tuple[dic
     assert result.failed_limits == FLOOR_DISAGREEMENT
     assert max(result.offset_rms_px.values()) < 1.2 * min(result.offset_rms_px.values())
     assert abs(result.floor_delta["mount_pitch_deg"] + result.floor_delta["tilt_zero_deg"]) < 0.1
+
+
+def test_free_camera_mount_meets_every_limit(session: tuple[dict, list[ArmBoardView]]) -> None:
+    """The camera mount free (x, z, roll, yaw of the camera joint, here the retired head_camera_joint): the session's
+    29 arm poses keep every sigma inside the limits (camera z about 0.8 mm against 2 mm) and the fit passes."""
+    doc, views = session
+    cfg = node_fit_config(doc, fit_camera_mount=True)
+    result = run_fit(doc, views, cfg)
+    assert result.failed_limits == []
+    assert result.sigma["camera_z_m"] * 1000.0 < CAMERA_Z_SIGMA_MM
+    assert result.rms_px < PRIOR_RMS_PX
 
 
 def test_floor_values_do_not_depend_on_pan_axis(pan_axis_fit: HeadArmFit, session: tuple[dict, list]) -> None:
