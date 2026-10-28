@@ -1,7 +1,7 @@
 """Tests for the realsense_d435 node: the launch line, the parameter file, the client instance and the playbook step.
 
-The D435 (device serial 935422070045) runs as the realsense2_camera node from rs_launch.py. Only the camera identity is a
-launch argument (rs_launch.py builds the node name from it); every other parameter is in the node's config file.
+The D435 (device serial 935422070045) runs as the realsense2_camera node from rs_launch.py. Only the camera identity
+is a launch argument (rs_launch.py builds the node name from it); every other parameter is in the node's config file.
 """
 
 from pathlib import Path
