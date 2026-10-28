@@ -2953,6 +2953,9 @@ Tests for `scripts/d435_diag.sh` (read-only RealSense D435 diagnostic), run with
 | `test_help_lists_every_mode` | `--help` names `--topics`, `--rates`, `--device`, `--watch`, `--lines`, `--since`, `--interval`, `--help` and the `D435_CLIENT_HOST`, `D435_SSH_USER`, `SCRAPER_PORT` env vars, without any SSH call. |
 | `test_unknown_option_fails` | An unknown option exits 1 with `Unknown option`. |
 | `test_since_with_a_quote_is_rejected` | A `--since` value with a single quote exits 1 before any SSH call (it is quoted into the remote journalctl command). |
+| `test_bare_relative_since_becomes_ago` | `--since 30min` (no journalctl time) runs the three error counts with `--since '30min ago'` and says so in the heading. |
+| `test_journalctl_since_syntax_passes_verbatim` | Journalctl times (`2 hours ago`, an absolute timestamp, `-45min`, `today`) reach the counts unchanged. |
+| `test_rejected_since_fails_instead_of_counting_zero` | When the `journalctl --since ... -n 0` check fails the script exits 1 with `journalctl rejected --since`, runs no count and prints no zeros. |
 | `test_no_rclpy_or_python_on_the_client` | The script code (comments aside) has no `python` and no `ros2 ` command; every remote command logged across the default mode, `--topics`, `--rates` and `--device` has neither. |
 | `test_default_mode_reads_service_usb_firmware_psu_and_errors` | The default mode runs `systemctl is-active ros2-realsense_d435`, `lsusb -d 8086:0b07`, the sysfs `speed` read, the `Device FW version` / `Device USB type` journal grep, `vcgencmd get_config usb_max_current_enable`, the `5A` PSU journal grep, the three error counts with `--since`, and the `--lines` journal tail. |
 | `test_device_mode_refuses_a_running_unit` | `--device` with the unit active exits non-zero, says it refuses and never runs `rs-enumerate-devices`. |

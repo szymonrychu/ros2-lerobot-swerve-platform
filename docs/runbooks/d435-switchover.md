@@ -140,9 +140,9 @@ Soak: the unit active since 17:48:28 (node up 17:48:34), the full D435 pipeline 
 ```
 
 The whole run since the node came up (`./scripts/d435_diag.sh --since "2026-10-28 17:48:34"`, 31 min) gives the same
-three zeros, with no `process has died` in the unit's journal. Pass the window in journalctl syntax (`"30 min ago"`,
-the default): `--since 30min` is not a journalctl time (`Failed to parse timestamp: 30min`) and the script then prints
-0 for every count whatever the journal holds.
+three zeros, with no `process has died` in the unit's journal. `--since 30min` was not a journalctl time
+(`Failed to parse timestamp: 30min`) and the script then printed 0 for every count whatever the journal held; it now
+reads a bare span as `30min ago` and exits 1 when journalctl rejects the window.
 
 ### 5. Topics and rates
 

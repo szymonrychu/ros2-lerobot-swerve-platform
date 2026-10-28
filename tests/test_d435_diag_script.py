@@ -41,6 +41,7 @@ case "$cmd" in
     echo "$STUB_UNIT_STATE"
     [ "$STUB_UNIT_STATE" = active ] || exit 3 ;;
   *rs-enumerate-devices*) echo "Device Name: Intel RealSense D435" ;;
+  *since-ok*) [ -n "${STUB_BAD_SINCE:-}" ] || echo since-ok ;;
   *camera_info*) cat "$STUB_RATES_FILE" ;;
 esac
 exit 0
@@ -167,6 +168,46 @@ def test_since_with_a_quote_is_rejected(stub_env: dict[str, str]) -> None:
     result = run(stub_env, "--since", "1 hour ago'; reboot; '")
     assert result.returncode == 1
     assert ssh_commands(stub_env) == []
+
+
+def error_count_commands(env: dict[str, str]) -> list[str]:
+    """Remote error-count commands the ssh stub saw.
+
+    Args:
+        env (dict[str, str]): Environment from stub_env.
+
+    Returns:
+        list[str]: The grep -c commands.
+    """
+    return [c for c in ssh_commands(env) if "grep -c" in c]
+
+
+def test_bare_relative_since_becomes_ago(stub_env: dict[str, str]) -> None:
+    """A bare span like 30min (not a journalctl time) is read as that long ago."""
+    result = run(stub_env, "--since", "30min")
+    assert result.returncode == 0, result.stderr
+    counts = error_count_commands(stub_env)
+    assert len(counts) == 3
+    assert all("--since '30min ago'" in c for c in counts)
+    assert "Errors since '30min ago'" in result.stdout
+
+
+@pytest.mark.parametrize("since", ["2 hours ago", "2026-10-28 17:48:34", "-45min", "today"])
+def test_journalctl_since_syntax_passes_verbatim(stub_env: dict[str, str], since: str) -> None:
+    result = run(stub_env, "--since", since)
+    assert result.returncode == 0, result.stderr
+    assert all(f"--since '{since}'" in c for c in error_count_commands(stub_env))
+
+
+def test_rejected_since_fails_instead_of_counting_zero(stub_env: dict[str, str]) -> None:
+    """When journalctl rejects the window the script says so and exits 1; it never prints counts for it."""
+    stub_env["STUB_BAD_SINCE"] = "1"
+    result = run(stub_env, "--since", "yesterdayish")
+    assert result.returncode == 1
+    assert "journalctl rejected --since 'yesterdayish'" in result.stderr
+    assert error_count_commands(stub_env) == []
+    assert not re.search(r"VIDIOC_QBUF\s+0", result.stdout)
+    assert any("--since 'yesterdayish' -n 0" in c for c in ssh_commands(stub_env))
 
 
 def test_no_rclpy_or_python_on_the_client(stub_env: dict[str, str]) -> None:

@@ -18,6 +18,7 @@ PSU_FULL_MA=5000
 TOPIC_PREFIX="/head/d435/"
 ERROR_PATTERNS=("VIDIOC_QBUF" "No such device" "Frame didn.t arrive")
 EXIT_SCRAPER_UNREACHABLE=2
+BARE_SPAN='^[0-9]+ ?(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hour|hours|d|day|days)$'
 # From the apt ros-jazzy-librealsense2 package; neither its bin nor its lib dir is on a non-interactive SSH path.
 RS_ENUMERATE="/opt/ros/jazzy/bin/rs-enumerate-devices"
 RS_LIBS="/opt/ros/jazzy/lib/aarch64-linux-gnu:/opt/ros/jazzy/lib"
@@ -52,7 +53,8 @@ Options:
   --watch          Repeat the selected mode every --interval seconds (Ctrl+C to stop)
   --interval S     Watch period and --rates sampling window in seconds (default: $INTERVAL)
   --lines N        Journal lines in the default mode (default: $LOG_LINES)
-  --since SPEC     journalctl --since for the error counts (default: "$SINCE")
+  --since SPEC     journalctl --since for the error counts (default: "$SINCE"); a bare span such as 30min or 2h
+                   means that long ago; a window journalctl rejects exits 1 instead of counting
   --help           This text
 
 Env:
@@ -98,6 +100,10 @@ require_number --interval "$INTERVAL"
 if [[ -z "$SINCE" || "$SINCE" == *"'"* ]]; then
   echo "--since must be a non-empty journalctl time without single quotes, got: $SINCE" >&2
   exit 1
+fi
+# A bare span ("30min", "2h", "90 s") is no journalctl time: read it as that long ago. Anything else goes verbatim.
+if [[ "$SINCE" =~ $BARE_SPAN ]]; then
+  SINCE="$SINCE ago"
 fi
 
 if [[ -z "$SSH_USER" ]] && [[ -f "$REPO_ROOT/ansible/inventory" ]]; then
@@ -201,6 +207,12 @@ section_psu() {
 section_errors() {
   echo "--- Errors since '$SINCE' ---"
   local pattern count apostrophe="'"
+  # journalctl prints nothing and grep -c counts 0 when it rejects --since: check the window first.
+  if [[ "$(ssh_cmd "$JOURNAL --since '$SINCE' -n 0 >/dev/null 2>&1 && echo since-ok" || true)" != "since-ok" ]]; then
+    echo "journalctl rejected --since '$SINCE' (or the client is unreachable): no error counts. Use a journalctl" \
+      "time such as \"30 min ago\" or \"2026-10-28 17:48:34\"." >&2
+    exit 1
+  fi
   for pattern in "${ERROR_PATTERNS[@]}"; do
     count=$(ssh_cmd "$JOURNAL --since '$SINCE' -o cat 2>/dev/null | grep -c -e '$pattern'" || true)
     printf "  %-22s %s\n" "${pattern//./$apostrophe}" "${count:-?}"
