@@ -14,7 +14,7 @@ from ros2_common.head_rgbd_calibration.urdf_text import Origin, head_chain_json
 from mcp_server.camera_scene import Scene, build_scene, camera_setup, parent_transform
 from mcp_server.config import REPO_ROOT, McpServerConfig
 from mcp_server.head import AppliedHeadKinematics, HeadController
-from mcp_server.head_kinematics import CAMERA_FRAME, HeadKinematics
+from mcp_server.head_kinematics import HeadKinematics
 from mcp_server.ik import ArmKinematics
 
 from .camera_helpers import HEIGHT, HFOV, WIDTH, fresh_head
@@ -29,6 +29,8 @@ TILT_AXIS_Z = 0.35
 TILT_AXIS_X = 0.15
 CAMERA_FORWARD = 0.02
 URDF_ATOL = 1e-4  # the URDF optical rotation uses 1.5708 for pi/2
+# Optical frame of the head_camera_joint mount HEAD_MOUNT copies (HeadKinematics.CAMERA_FRAME is the D435 colour).
+HEAD_CAMERA_OPTICAL_FRAME = "head_camera_optical_frame"
 
 
 def head_config(**front: object) -> McpServerConfig:
@@ -56,14 +58,16 @@ def front_scene(cfg: McpServerConfig, kin: ArmKinematics, head: HeadController) 
 def test_front_scene_at_pan_0_tilt_0_equals_the_urdf_camera_pose(kin: ArmKinematics) -> None:
     cfg = head_config()
     head, _ = head_at(cfg, 0.0, 0.0)
-    expected = HeadKinematics(cfg.head.urdf_path).link_pose(0.0, 0.0, CAMERA_FRAME)
+    expected = HeadKinematics(cfg.head.urdf_path).link_pose(0.0, 0.0, HEAD_CAMERA_OPTICAL_FRAME)
     assert np.allclose(front_scene(cfg, kin, head).t_ref_optical, expected, atol=URDF_ATOL)
 
 
 def test_front_scene_follows_the_head_at_any_pose(kin: ArmKinematics) -> None:
     cfg = head_config()
     head, _ = head_at(cfg, -40.0, 20.0)
-    expected = HeadKinematics(cfg.head.urdf_path).link_pose(math.radians(-40.0), math.radians(20.0), CAMERA_FRAME)
+    expected = HeadKinematics(cfg.head.urdf_path).link_pose(
+        math.radians(-40.0), math.radians(20.0), HEAD_CAMERA_OPTICAL_FRAME
+    )
     assert np.allclose(front_scene(cfg, kin, head).t_ref_optical, expected, atol=URDF_ATOL)
 
 

@@ -4,11 +4,11 @@ Frames: base_link is the robot body frame (REP 103): x forward, y left, z up, or
 Units: metres and radians throughout.
 Sign conventions (head.urdf): ``head_pan`` positive turns the head left (CCW seen from above, about +z);
 ``head_tilt`` positive pitches it down (about +y of the panned head). pan = tilt = 0 is straight ahead and level.
-Optical frames (``head_camera_optical_frame``, ``tof_optical_frame``): z forward along the optical axis, x right,
-y down.
+The head carries the Intel RealSense D435 RGB-D camera; head.urdf owns every D435 frame (design D4). Optical frames
+(``d435_color_optical_frame``, ``d435_depth_optical_frame``): z forward along the optical axis, x right, y down.
 
-The RGB camera does not sit on the pan or tilt axis (mount, tilt-axis height, forward and lateral camera offsets), so
-look-at is a small numerical solve on the URDF chain rather than two atan2 calls.
+The D435 colour camera does not sit on the pan or tilt axis (mount, tilt-axis height, forward and lateral camera
+offsets), so look-at is a small numerical solve on the URDF chain rather than two atan2 calls.
 """
 
 import math
@@ -17,14 +17,16 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+from ros2_common.head_rgbd_calibration.chain import parse_vec, pose_from_xyz_rpy
 from scipy.optimize import least_squares
 from scipy.spatial.transform import Rotation
 
 BASE_LINK = "base_link"
 PAN_JOINT = "head_pan"
 TILT_JOINT = "head_tilt"
-CAMERA_FRAME = "head_camera_optical_frame"
-TOF_FRAME = "tof_optical_frame"
+CAMERA_FRAME = "d435_color_optical_frame"
+DEPTH_FRAME = "d435_depth_optical_frame"
+ZERO_VEC = (0.0, 0.0, 0.0)
 # mcp_server/head_kinematics.py -> repo root is three levels above the package (same root as config.REPO_ROOT).
 DEFAULT_HEAD_URDF = Path(__file__).resolve().parents[3] / "nodes/web_ui/urdf/head.urdf"
 # Pan axis base frame; the offset-free seed aims from the pan axis at the tilt-axis height (head_link).
@@ -38,7 +40,7 @@ SUPPORTED_JOINT_TYPES = ("fixed", *MOVABLE_JOINT_TYPES)
 
 
 class HeadAimError(ValueError):
-    """The head cannot aim the RGB optical axis at the point; carries the angles it would need and the limits.
+    """The head cannot aim the D435 colour optical axis at the point; carries the angles it would need and the limits.
 
     Attributes:
         pan (float): Pan the aim would need (rad, + left).
@@ -73,25 +75,6 @@ class UrdfJoint:
     parent: str
     origin: np.ndarray
     axis: np.ndarray | None
-
-
-def origin_transform(element: ET.Element | None) -> np.ndarray:
-    """4x4 transform of a URDF ``<origin xyz rpy>`` element (rpy = fixed-axis roll, pitch, yaw).
-
-    Args:
-        element (ET.Element | None): The origin element; None means identity.
-
-    Returns:
-        np.ndarray: 4x4 homogeneous transform parent <- child.
-    """
-    transform = np.eye(4)
-    if element is None:
-        return transform
-    xyz = [float(v) for v in element.get("xyz", "0 0 0").split()]
-    rpy = [float(v) for v in element.get("rpy", "0 0 0").split()]
-    transform[:3, :3] = Rotation.from_euler("xyz", rpy).as_matrix()
-    transform[:3, 3] = xyz
-    return transform
 
 
 def wrap_angle(angle: float) -> float:
@@ -171,9 +154,10 @@ class HeadKinematics:
             child, parent = joint.find("child"), joint.find("parent")
             if child is None or parent is None:
                 raise ValueError(f"joint {name!r}: missing parent or child link")
-            self.joints[child.attrib["link"]] = UrdfJoint(
-                name, parent.attrib["link"], origin_transform(joint.find("origin")), axis
-            )
+            origin = joint.find("origin")
+            attrib = {} if origin is None else origin.attrib
+            pose = pose_from_xyz_rpy(parse_vec(attrib.get("xyz"), ZERO_VEC), parse_vec(attrib.get("rpy"), ZERO_VEC))
+            self.joints[child.attrib["link"]] = UrdfJoint(name, parent.attrib["link"], pose, axis)
         missing = [j for j in (PAN_JOINT, TILT_JOINT) if j not in limits]
         if missing:
             raise ValueError(f"{source}: no revolute limits for {missing}")
@@ -195,7 +179,7 @@ class HeadKinematics:
         Args:
             pan (float): head_pan angle (rad, + left).
             tilt (float): head_tilt angle (rad, + down).
-            link (str): URDF link name, e.g. ``head_camera_optical_frame``, ``tof_optical_frame``, ``head_link``.
+            link (str): URDF link name, e.g. ``d435_color_optical_frame``, ``d435_depth_optical_frame``, ``head_link``.
 
         Returns:
             np.ndarray: 4x4 homogeneous transform base_link <- link (translation in m).
@@ -222,7 +206,7 @@ class HeadKinematics:
         return pose
 
     def aim_error(self, pan: float, tilt: float, point_base: np.ndarray) -> float:
-        """Angle between the RGB optical axis and the camera-to-point ray.
+        """Angle between the D435 colour optical axis and the camera-to-point ray.
 
         Args:
             pan (float): head_pan angle (rad, + left).
@@ -256,7 +240,7 @@ class HeadKinematics:
         return ray[:2] * scale
 
     def camera_distance(self, pan: float, tilt: float, point_base: np.ndarray) -> float:
-        """Distance from the RGB optical frame origin to the point.
+        """Distance from the D435 colour optical frame origin to the point.
 
         Args:
             pan (float): head_pan angle (rad).
@@ -326,7 +310,7 @@ class HeadKinematics:
         return lo_pan <= pan <= hi_pan and lo_tilt <= tilt <= hi_tilt
 
     def look_at(self, point_base: np.ndarray) -> tuple[float, float]:
-        """Head angles for which the +z axis of ``head_camera_optical_frame`` passes through the point.
+        """Head angles for which the +z axis of ``d435_color_optical_frame`` passes through the point.
 
         Accounts for every URDF offset (mount, tilt-axis height, camera forward and lateral offset): a bounded
         ``scipy.optimize.least_squares`` over (pan, tilt) on the angle between the optical axis and the

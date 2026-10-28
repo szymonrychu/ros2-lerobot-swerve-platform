@@ -1,7 +1,8 @@
 """Head tools: set_head_angles, head_look_at and head_home (pan/tilt head, degrees in and out).
 
 All three need either the arm or the base lease (tools.TOOL_SUBSYSTEM "any") and are refused under battery cut-off.
-head_look_at aims the RGB camera axis once at a point; it never tracks.
+The head carries the Intel RealSense D435 RGB-D camera; head_look_at aims its colour camera axis once at a point, it
+never tracks.
 """
 
 import math
@@ -99,7 +100,7 @@ def register(ctx: ToolContext) -> None:
 
     @ctx.server.tool(
         description=(
-            "Move the pan/tilt head (carries the RGB camera and the ToF sensor) to pan_deg / tilt_deg, in degrees: "
+            "Move the pan/tilt head (carries the D435 RGB-D camera) to pan_deg / tilt_deg, in degrees: "
             "pan + is left, tilt + is down, 0/0 is straight ahead and level. Angles outside the head limits are "
             f"refused with the limits. Waits until the head arrives. {LEASE_NOTE}"
         ),
@@ -119,8 +120,8 @@ def register(ctx: ToolContext) -> None:
 
     @ctx.server.tool(
         description=(
-            "Aim the head RGB camera axis once at a point (x, y, z in metres) in base_link (x forward, y left, z up "
-            "from the floor) or in the map frame (converted with the current robot pose; refused when the pose is "
+            "Aim the head D435 colour camera axis once at a point (x, y, z in metres) in base_link (x forward, y left, "
+            "z up from the floor) or in the map frame (converted with the current robot pose; refused when the pose is "
             "unknown), then move there. No tracking: the head does not follow the point or the robot afterwards. "
             f"A point the head cannot reach is refused with the pan/tilt it would need. {LEASE_NOTE}"
         ),

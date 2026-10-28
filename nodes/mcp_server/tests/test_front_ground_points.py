@@ -1,4 +1,4 @@
-"""The front (head RGB) camera gives floor points through the applied intrinsics and head chain (design D59, R2)."""
+"""The front (D435 colour) camera gives floor points through the applied intrinsics and the head chain (design D8)."""
 
 import asyncio
 import math
@@ -18,10 +18,12 @@ from mcp_server.head_kinematics import HeadKinematics
 from .test_camera_tools import make, text_json
 from .test_tools import call
 
-STREAM = (1152, 648)  # head_camera_cpp stream (16:9)
-CALIBRATED = (576, 324)  # applied head RGB calibration size
+STREAM = (1152, 648)  # front stream size under test (16:9)
+CALIBRATED = (576, 324)  # calibration image size, half the stream
 DEFAULT_PICTURE = (384, 216)  # get_camera_image default: 384 px on the longest side, 16:9
 PAN_DEG, TILT_DEG = 20.0, 30.0
+# head.urdf frame of the D435 colour camera (design D4); its optical frame is CAMERA_FRAME.
+FRONT_FRAME = "d435_color_frame"
 FLOOR_POINT = (1.0, 0.3, 0.0)  # base_link, on the floor
 CALIB = {
     "image_width": CALIBRATED[0],
@@ -29,7 +31,7 @@ CALIB = {
     "camera_matrix": {"rows": 3, "cols": 3, "data": [400.0, 0.0, 290.0, 0.0, 410.0, 160.0, 0.0, 0.0, 1.0]},
     "distortion_coefficients": {"rows": 1, "cols": 5, "data": [0.1, -0.2, 0.0, 0.0, 0.05]},
 }
-ZERO_MOUNT = {"parent_frame": "head_camera_link", "x": 0, "y": 0, "z": 0, "roll": 0, "pitch": 0, "yaw": 0}
+ZERO_MOUNT = {"parent_frame": FRONT_FRAME, "x": 0, "y": 0, "z": 0, "roll": 0, "pitch": 0, "yaw": 0}
 
 
 @pytest.fixture(autouse=True)
@@ -39,12 +41,12 @@ def fresh_caches() -> None:
 
 
 def front_config(calib: Path) -> McpServerConfig:
-    """Config whose front camera is the head RGB camera with the applied-style calibration file."""
+    """Config whose front camera hangs on the D435 colour frame with an applied-style calibration file."""
     return McpServerConfig.model_validate(
         {
             "cameras": {
                 "front": {
-                    "parent_frame": "head_camera_link",
+                    "parent_frame": FRONT_FRAME,
                     "intrinsics": {"calibration_file": str(calib), "image_width": STREAM[0], "image_height": STREAM[1]},
                     "mount": ZERO_MOUNT,
                 }
@@ -55,7 +57,7 @@ def front_config(calib: Path) -> McpServerConfig:
 
 @pytest.fixture
 def front(tmp_path: Path) -> tuple[Any, Any, McpServerConfig]:
-    calib = tmp_path / "head_camera_calibration.yaml"
+    calib = tmp_path / "front_calibration.yaml"
     calib.write_text(yaml.safe_dump(CALIB))
     server, robot, cfg = make(tmp_path, front_config(calib))
     robot.head_backend.positions.update({"head_pan": math.radians(PAN_DEG), "head_tilt": math.radians(TILT_DEG)})
@@ -75,9 +77,7 @@ def stream_pixel(cfg: McpServerConfig) -> tuple[float, float]:
         cy=k[5] * scale,
         distortion=CALIB["distortion_coefficients"]["data"],
     )
-    link = HeadKinematics(cfg.head.urdf_path).link_pose(
-        math.radians(PAN_DEG), math.radians(TILT_DEG), "head_camera_link"
-    )
+    link = HeadKinematics(cfg.head.urdf_path).link_pose(math.radians(PAN_DEG), math.radians(TILT_DEG), FRONT_FRAME)
     u, v, _ = project_raw(stream, optical_from_mount(link), np.array(FLOOR_POINT))
     assert 0 <= u < STREAM[0] and 0 <= v < STREAM[1]
     return float(u), float(v)

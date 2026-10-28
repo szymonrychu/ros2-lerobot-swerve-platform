@@ -1,5 +1,6 @@
 """Tests for mcp_server.head_tools: set_head_angles, head_look_at, head_home, lease/battery classification, state."""
 
+import asyncio
 import math
 from pathlib import Path
 from typing import Any
@@ -42,6 +43,15 @@ def test_tool_names_and_classification() -> None:
         assert TOOL_SUBSYSTEM[name] == "any"
         assert name not in RATE_SUBSYSTEMS  # the head is not on the arm or base joint-state stream
     assert "set_head_angles" in INSTRUCTIONS and "head_home" in INSTRUCTIONS
+
+
+def test_descriptions_name_the_d435(server: Any) -> None:
+    tools = {t.name: t.description for t in asyncio.run(server.list_tools())}
+    assert "carries the D435 RGB-D camera" in tools["set_head_angles"]
+    assert "Aim the head D435 colour camera axis" in tools["head_look_at"]
+    for name in ("set_head_angles", "head_look_at"):
+        assert "ToF" not in tools[name] and "RGB camera" not in tools[name]
+    assert "D435" in head_tools.__doc__ and "RGB camera" not in head_tools.__doc__
 
 
 @pytest.mark.parametrize("name", HEAD_TOOLS)

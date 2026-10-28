@@ -19,9 +19,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+from ros2_common.head_rgbd_calibration.chain import parse_vec, pose_from_xyz_rpy
 from scipy.spatial.transform import Rotation
 
 BASE_LINK = "base_link"
+ZERO_VEC = (0.0, 0.0, 0.0)
 # Joints the sag model predicts a deflection for (gravity-loaded pitch axes of the arm).
 SAG_JOINTS = ("shoulder_lift", "elbow_flex", "wrist_flex")
 GRAVITY_MPS2 = 9.81
@@ -50,25 +52,6 @@ class UrdfJoint:
     movable: bool
 
 
-def origin_transform(element: ET.Element | None) -> np.ndarray:
-    """4x4 transform of a URDF <origin xyz rpy> element (identity when missing).
-
-    Args:
-        element (ET.Element | None): The origin element.
-
-    Returns:
-        np.ndarray: Homogeneous transform.
-    """
-    transform = np.eye(4)
-    if element is None:
-        return transform
-    xyz = [float(v) for v in element.get("xyz", "0 0 0").split()]
-    rpy = [float(v) for v in element.get("rpy", "0 0 0").split()]
-    transform[:3, :3] = Rotation.from_euler("xyz", rpy).as_matrix()  # URDF rpy: fixed axes x, y, z
-    transform[:3, 3] = xyz
-    return transform
-
-
 class GravityModel:
     """Static gravity torques about the arm joints from the URDF link inertials (link masses and centres of mass)."""
 
@@ -93,7 +76,8 @@ class GravityModel:
             if inertial is None or mass is None:
                 continue
             self.masses[link.attrib["name"]] = float(mass.attrib["value"])
-            self.coms[link.attrib["name"]] = origin_transform(inertial.find("origin"))[:3, 3]
+            com = inertial.find("origin")
+            self.coms[link.attrib["name"]] = np.array(parse_vec(None if com is None else com.get("xyz"), ZERO_VEC))
         self.by_parent: dict[str, list[UrdfJoint]] = {}
         movable: dict[str, UrdfJoint] = {}
         for element in root.findall("joint"):  # top-level joints (not <transmission> ones)
@@ -104,11 +88,15 @@ class GravityModel:
             axis_text = "1 0 0" if axis_element is None else axis_element.get("xyz", "1 0 0")
             axis = np.array([float(v) for v in axis_text.split()])
             is_movable = element.get("type") in ("revolute", "continuous")
+            origin = element.find("origin")
+            attrib = {} if origin is None else origin.attrib
             joint = UrdfJoint(
                 name=element.attrib["name"],
                 parent=parent.attrib["link"],
                 child=child.attrib["link"],
-                origin=origin_transform(element.find("origin")),
+                origin=pose_from_xyz_rpy(
+                    parse_vec(attrib.get("xyz"), ZERO_VEC), parse_vec(attrib.get("rpy"), ZERO_VEC)
+                ),
                 axis=axis / np.linalg.norm(axis) if is_movable else np.zeros(3),
                 movable=is_movable,
             )

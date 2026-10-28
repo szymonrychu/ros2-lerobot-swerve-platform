@@ -1,23 +1,27 @@
-"""Tests for mcp_server.head_kinematics: head URDF forward kinematics and look-at aiming of the RGB optical axis."""
+"""Tests for mcp_server.head_kinematics: head URDF forward kinematics and look-at aiming of the D435 colour axis."""
 
 import math
 
 import numpy as np
 import pytest
+from ros2_common.head_rgbd_calibration import chain
 
+from mcp_server import head_kinematics, sag
 from mcp_server.config import REPO_ROOT
 from mcp_server.head_kinematics import (
     CAMERA_FRAME,
     DEFAULT_HEAD_URDF,
-    TOF_FRAME,
+    DEPTH_FRAME,
     HeadAimError,
     HeadKinematics,
 )
 
 HEAD_URDF = REPO_ROOT / "nodes/web_ui/urdf/head.urdf"
-# URDF origins at pan = tilt = 0: mount (0.15, 0.10, 0.31) + tilt axis (0, 0, 0.04) + camera / ToF (0.02, -+0.025, 0).
-CAMERA_HOME_XYZ = (0.17, 0.075, 0.35)
-TOF_HOME_XYZ = (0.17, 0.125, 0.35)
+ARM_URDF = REPO_ROOT / "nodes/web_ui/urdf/so101_arm.urdf"
+# URDF origins at pan = tilt = 0: mount (0.15, 0.10, 0.31) + tilt axis (0, 0, 0.04) + d435_joint (0.02, 0, 0), then
+# the depth frame at d435_link and the colour frame 0.015 m to its right (d435_color_joint).
+COLOR_HOME_XYZ = (0.17, 0.085, 0.35)
+DEPTH_HOME_XYZ = (0.17, 0.10, 0.35)
 # Optical frame columns at zero angles in base_link: x right (-y), y down (-z), z forward (+x).
 OPTICAL_HOME_ROTATION = np.array([[0.0, 0.0, 1.0], [-1.0, 0.0, 0.0], [0.0, -1.0, 0.0]])
 RESIDUAL_LIMIT_DEG = 0.2
@@ -28,7 +32,7 @@ REACHABLE_POINTS = (
     (0.9, 0.3, 0.0),  # floor, near
     (3.0, 0.0, 0.0),  # floor, far
     (0.85, 0.1, 0.0),  # floor, near the home view (tilt near 30 deg)
-    (0.52, 0.075, 0.0),  # floor, close to the lowest view (tilt near 43 deg)
+    (0.52, 0.085, 0.0),  # floor, close to the lowest view (tilt near 43 deg)
     (0.3, 0.9, 0.3),  # raised, far left (pan about 80 deg)
     (0.4, -0.7, 0.2),  # raised, far right
     (2.0, 1.0, 0.5),  # raised above the camera, left
@@ -71,20 +75,37 @@ def test_optical_axis_is_base_link_x_at_zero(head: HeadKinematics) -> None:
     np.testing.assert_allclose(axis, [1.0, 0.0, 0.0], atol=1e-4)
 
 
-def test_link_pose_of_camera_and_tof_match_urdf_origins(head: HeadKinematics) -> None:
-    camera = head.link_pose(0.0, 0.0, CAMERA_FRAME)
-    tof = head.link_pose(0.0, 0.0, TOF_FRAME)
-    np.testing.assert_allclose(camera[:3, 3], CAMERA_HOME_XYZ, atol=1e-9)
-    np.testing.assert_allclose(tof[:3, 3], TOF_HOME_XYZ, atol=1e-9)
-    np.testing.assert_allclose(camera[:3, :3], OPTICAL_HOME_ROTATION, atol=1e-4)
-    np.testing.assert_allclose(tof[:3, :3], OPTICAL_HOME_ROTATION, atol=1e-4)
-    np.testing.assert_allclose(camera[3], [0.0, 0.0, 0.0, 1.0])
+def test_d435_optical_frames_resolve(head: HeadKinematics) -> None:
+    assert CAMERA_FRAME == "d435_color_optical_frame"
+    assert DEPTH_FRAME == "d435_depth_optical_frame"
+    color = head.link_pose(0.0, 0.0, CAMERA_FRAME)
+    depth = head.link_pose(0.0, 0.0, DEPTH_FRAME)
+    np.testing.assert_allclose(color[:3, 3], COLOR_HOME_XYZ, atol=1e-9)
+    np.testing.assert_allclose(depth[:3, 3], DEPTH_HOME_XYZ, atol=1e-9)
+    np.testing.assert_allclose(color[:3, :3], OPTICAL_HOME_ROTATION, atol=1e-6)
+    np.testing.assert_allclose(depth[:3, :3], OPTICAL_HOME_ROTATION, atol=1e-6)
+    np.testing.assert_allclose(color[3], [0.0, 0.0, 0.0, 1.0])
+
+
+def test_uses_the_shared_origin_helper(head: HeadKinematics) -> None:
+    for module in (head_kinematics, sag):
+        assert not hasattr(module, "origin_transform"), f"{module.__name__} keeps a private URDF origin copy"
+        assert module.pose_from_xyz_rpy is chain.pose_from_xyz_rpy
+    color_joint = head.joints["d435_color_optical_frame"]
+    np.testing.assert_allclose(
+        color_joint.origin, chain.pose_from_xyz_rpy((0.0, 0.0, 0.0), (-1.5707963, 0.0, -1.5707963)), atol=1e-12
+    )
+    model = sag.GravityModel(ARM_URDF)
+    arm = chain.UrdfChain.from_text(ARM_URDF.read_text())
+    for joints in model.by_parent.values():
+        for joint in joints:
+            np.testing.assert_allclose(joint.origin, chain.pose_from_xyz_rpy(*arm.origin(joint.name)), atol=1e-12)
 
 
 def test_link_pose_follows_pan_and_tilt_signs(head: HeadKinematics) -> None:
-    # pan +90 deg looks left: the camera offset (0.02, -0.025) rotates to (0.025, 0.02) about the pan axis.
-    left = head.link_pose(math.pi / 2, 0.0, "head_camera_link")
-    np.testing.assert_allclose(left[:3, 3], [0.175, 0.12, 0.35], atol=1e-9)
+    # pan +90 deg looks left: the colour frame offset (0.02, -0.015) rotates to (0.015, 0.02) about the pan axis.
+    left = head.link_pose(math.pi / 2, 0.0, "d435_color_frame")
+    np.testing.assert_allclose(left[:3, 3], [0.165, 0.12, 0.35], atol=1e-9)
     np.testing.assert_allclose(left[:3, 0], [0.0, 1.0, 0.0], atol=1e-9)
     # tilt +30 deg looks down: the optical axis points forward and below horizontal.
     _origin, axis = optical_axis(head, 0.0, math.radians(30.0))
@@ -123,7 +144,7 @@ def test_look_at_hits_a_point_two_metres_away_within_two_millimetres(head: HeadK
 
 
 def test_look_at_accounts_for_camera_offsets(head: HeadKinematics) -> None:
-    # The offset-free atan2 from the pan axis would miss: the camera sits 0.025 m right and 0.02 m forward.
+    # The offset-free atan2 from the pan axis would miss: the colour camera sits 0.015 m right and 0.02 m forward.
     target = np.array([0.5, 0.6, 0.0])
     pan, tilt = head.look_at(target)
     naive_pan = math.atan2(0.6 - 0.10, 0.5 - 0.15)
@@ -154,14 +175,14 @@ def test_point_straight_behind_is_refused_with_the_angles(head: HeadKinematics) 
 
 def test_point_needing_tilt_past_45_deg_is_refused_with_the_angles(head: HeadKinematics) -> None:
     with pytest.raises(HeadAimError) as info:
-        head.look_at(np.array([0.3, 0.075, 0.0]))
+        head.look_at(np.array([0.3, 0.085, 0.0]))
     err = info.value
     assert err.tilt > math.radians(45.0)
     assert abs(err.pan) < math.radians(90.0)
     assert err.limits == head.limits
     assert f"{math.degrees(err.tilt):.1f}" in str(err)
     # the needed angles really aim at the point: refused, not clamped
-    assert math.degrees(head.aim_error(err.pan, err.tilt, np.array([0.3, 0.075, 0.0]))) < RESIDUAL_LIMIT_DEG
+    assert math.degrees(head.aim_error(err.pan, err.tilt, np.array([0.3, 0.085, 0.0]))) < RESIDUAL_LIMIT_DEG
 
 
 def test_point_too_close_to_the_camera_is_refused(head: HeadKinematics) -> None:
@@ -183,7 +204,7 @@ def test_from_text_equals_path() -> None:
     from_text = HeadKinematics.from_text(HEAD_URDF.read_text(), "inline")
     assert from_text.limits == from_path.limits
     assert from_text.links == from_path.links
-    for link in (CAMERA_FRAME, TOF_FRAME, "head_link"):
+    for link in (CAMERA_FRAME, DEPTH_FRAME, "head_link"):
         np.testing.assert_allclose(from_text.link_pose(0.3, 0.2, link), from_path.link_pose(0.3, 0.2, link))
     point = np.array([2.0, 0.4, 0.0])
     assert from_text.look_at(point) == from_path.look_at(point)
