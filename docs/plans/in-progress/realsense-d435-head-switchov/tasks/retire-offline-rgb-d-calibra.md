@@ -1,6 +1,6 @@
 ---
 title: Retire offline RGB-D calibration CLI
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The ToF+CM3 bag calibration CLI no longer has to be kept working."
 files: [scripts/head_rgbd_calibrate.py, scripts/head_rgbd_calibrate.yaml, scripts/head_rgbd_calibration/, tests/test_head_rgbd_calibrate_cli.py, tests/test_head_rgbd_validate.py, tests/test_head_rgbd_calib_frames.py, tests/test_head_rgbd_calib_retired.py, tests/README.md]
@@ -8,15 +8,15 @@ verify: "uv run pytest tests/test_head_rgbd_calib_retired.py tests/test_head_rgb
 depends_on: [calibration-tests-off-the-cl]
 model: opus
 review: ""
-verified_head: ""
+verified_head: 6c92ea4f
 points: 2
 expected_minutes: 23
 expected_tokens: 1500000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 2
+actual_minutes: 151
+actual_tokens: 1640782
+actual_roles: "impl 8, review 143"
+actual_role_tokens: "impl 1241219, review 399563"
 ---
 
 # Retire offline RGB-D calibration CLI
@@ -64,3 +64,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-28 done
