@@ -1,6 +1,6 @@
 ---
 title: Calibration config on D435
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The calibration service is configured for the D435 streams and frames.
 files: [nodes/head_rgbd_calibration/head_rgbd_calibration/config.py, nodes/head_rgbd_calibration/head_rgbd_calibration/capture.py, nodes/head_rgbd_calibration/head_rgbd_calibration/images.py, nodes/head_rgbd_calibration/config/head_rgbd_calibration.yaml, ansible/group_vars/client.yml, nodes/head_rgbd_calibration/tests/test_config.py, nodes/head_rgbd_calibration/tests/test_capture.py, nodes/head_rgbd_calibration/tests/test_images.py]
@@ -8,15 +8,15 @@ verify: "cd nodes/head_rgbd_calibration && uv run --frozen pytest tests -q && uv
 depends_on: [calibration-library-d435-fra, d435-live-bring-up-and-topic, d435-intrinsics-check-maths]
 model: opus
 review: ""
-verified_head: ""
+verified_head: 3d44192b
 points: 5
 expected_minutes: 57
 expected_tokens: 3750000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 5
+actual_minutes: 47
+actual_tokens: 29669535
+actual_roles: impl 47
+actual_role_tokens: impl 29669535
 ---
 
 # Calibration config on D435
@@ -70,3 +70,5 @@ What is true and observable when the task is done.
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
 
 - 2026-10-27 amended: merged with the capture rework so the node suite stays green in one commit
+
+- 2026-10-28 done
