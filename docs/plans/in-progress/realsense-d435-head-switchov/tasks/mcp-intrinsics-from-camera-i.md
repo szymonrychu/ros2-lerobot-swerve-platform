@@ -1,6 +1,6 @@
 ---
 title: MCP intrinsics from camera_info
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "MCP camera tools use the D435 factory intrinsics, never a hand-copied calibration."
 files: [nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/mcp_server/tool_context.py, nodes/mcp_server/mcp_server/camera_scene.py, nodes/mcp_server/tests/fakes.py, nodes/mcp_server/tests/test_camera_scene.py, nodes/mcp_server/tests/test_camera_config.py]
@@ -8,15 +8,15 @@ verify: "cd nodes/mcp_server && uv run --frozen pytest tests/test_camera_scene.p
 depends_on: [shared-d435-camera-geometry]
 model: opus
 review: ""
-verified_head: ""
+verified_head: 86fcf841
 points: 3
 expected_minutes: 34
 expected_tokens: 2250000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 3
+actual_minutes: 24
+actual_tokens: 4131551
+actual_roles: "impl 14, review 9"
+actual_role_tokens: "impl 3957044, review 174507"
 ---
 
 # MCP intrinsics from camera_info
@@ -64,3 +64,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-28 done
