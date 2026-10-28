@@ -1,6 +1,7 @@
 """Map3d topic contract (D2, D3): the shipped yaml loads, every rule rejects a crafted bad document."""
 
 import copy
+import importlib.util
 import sys
 from pathlib import Path
 from typing import Any
@@ -9,12 +10,16 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
+from .ros_stubs import install_ros_stubs
+
 NODE_DIR = Path(__file__).resolve().parent.parent / "nodes" / "rtabmap_mapping"
 sys.path.insert(0, str(NODE_DIR))
 
 from map3d_topics import Map3dTopics, estimated_mbit_s, load_map3d_topics  # noqa: E402
 
 YAML_PATH = NODE_DIR / "config" / "map3d_topics.yaml"
+LAUNCH_FILE = NODE_DIR / "launch" / "rtabmap_mapping.launch.py"
+LAUNCH_STUBS = ("launch", "launch.actions", "launch_ros", "launch_ros.actions", "launch_ros.descriptions")
 HEAD_RGBD_SOURCES = {
     "/head_rgbd/rgb/image_raw/compressed",
     "/head_rgbd/rgb/camera_info",
@@ -51,8 +56,60 @@ def test_shipped_yaml_loads() -> None:
     assert load_map3d_topics(YAML_PATH) == topics
     assert topics.frames.map3d_frame == "rtabmap_map"
     assert topics.frames.map_frame == "map"
-    assert topics.frames.rgb_frame == "head_camera_optical_frame"
-    assert topics.frames.depth_frame == "tof_optical_frame"
+
+
+def test_contract_frames_are_the_d435() -> None:
+    topics = load_map3d_topics()
+    assert topics.frames.rgb_frame == "d435_color_optical_frame"
+    assert topics.frames.depth_frame == "d435_depth_optical_frame"
+    text = YAML_PATH.read_text()
+    assert "640x360" in text
+    assert "320x180" in text
+    for stale in ("576x324", "288x162", "head_camera_optical_frame", "tof_optical_frame"):
+        assert stale not in text
+
+
+def load_launch() -> Any:
+    """Import the rtabmap_mapping launch file with ROS launch stubs.
+
+    Returns:
+        The launch module.
+    """
+    install_ros_stubs(*LAUNCH_STUBS)
+    spec = importlib.util.spec_from_file_location("rtabmap_mapping_launch_sources", LAUNCH_FILE)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_rtabmap_launch_reads_sources_from_the_contract() -> None:
+    assert "/head_rgbd/" not in LAUNCH_FILE.read_text()
+    launch = load_launch()
+    topics = load_map3d_topics()
+    rgb, info, depth = launch.image_sources(topics)
+    assert (rgb.source, info.source, depth.source) == (
+        "/head_rgbd/rgb/image_raw/compressed",
+        "/head_rgbd/rgb/camera_info",
+        "/head_rgbd/depth/image_raw",
+    )
+    # Re-pointing the yaml re-points the launch: no source topic lives in the launch module.
+    doc = raw()
+    uplink(doc, "/head_rgbd/rgb/image_raw/compressed").update(
+        source="/cam/color/compressed", dest="/uplink/cam/color/compressed"
+    )
+    uplink(doc, "/head_rgbd/rgb/camera_info").update(source="/cam/color/info", dest="/uplink/cam/color/info")
+    uplink(doc, "/head_rgbd/depth/image_raw").update(source="/cam/depth", dest="/uplink/cam/depth/compressedDepth")
+    moved = Map3dTopics(**doc)
+    assert [s.source for s in launch.image_sources(moved)] == ["/cam/color/compressed", "/cam/color/info", "/cam/depth"]
+    params = launch.RtabmapMappingConfig(database_dir="/tmp/db", rtabmap={"ros__parameters": {}})
+    remaps = dict(launch.build_container(moved, params).components[0].remappings)
+    assert remaps == {
+        "rgb/image": "/uplink/cam/color",
+        "depth/image": "/uplink/cam/depth",
+        "rgb/camera_info": "/uplink/cam/color/info",
+    }
 
 
 def test_unknown_keys_forbidden() -> None:
@@ -208,8 +265,8 @@ def test_head_rgbd_entries_unthrottled() -> None:
 def test_documented_values() -> None:
     topics = load_map3d_topics()
     by = {s.source: s for s in topics.uplink}
-    assert by["/head_rgbd/rgb/image_raw/compressed"].budget_bytes == 40000
-    assert by["/head_rgbd/depth/image_raw"].budget_bytes == 45000
+    assert by["/head_rgbd/rgb/image_raw/compressed"].budget_bytes == 50000
+    assert by["/head_rgbd/depth/image_raw"].budget_bytes == 55000
     assert by["/head_rgbd/depth/image_raw"].dest == "/uplink/head_rgbd/depth/image_raw/compressedDepth"
     assert by["/scan_filtered"].budget_bytes == 12000
     assert by["/tf"].budget_bytes == 200

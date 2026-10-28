@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Launch RTAB-Map as a depth-only 3D mapper locked to slam_toolbox's map frame (design D1, D5-D9).
 
-One component_container process loads rtabmap_sync::RGBDSync (exact sync of the head_rgbd pair registered on the
-client by head_rgbd_cpp) and rtabmap_slam::CoreWrapper (namespace rtabmap, RGB-D + scan). Topics and QoS come from the
+One component_container process loads rtabmap_sync::RGBDSync (exact sync of the RGB / depth pair the client's
+head_rgbd_cpp publishes) and rtabmap_slam::CoreWrapper (namespace rtabmap, RGB-D + scan). Topics and QoS come from the
 map3d topic contract (config/map3d_topics.yaml); RTAB-Map parameters from config/rtabmap_params.yaml (override the path
 with env RTABMAP_MAPPING_PARAMS), merged key by key with the deployed /etc/ros2/rtabmap_mapping/config.yaml (env
 RTABMAP_MAPPING_CONFIG, written by Ansible) when it exists and is non-empty, the same rule as slam_toolbox.
@@ -54,10 +54,12 @@ CORE_NODE_NAME = "rtabmap"
 # interface map3d_manager calls (D9).
 CORE_SERVICES = ("backup", "reset", "pause", "resume")
 
+# Message types that pick the image uplinks this container reads out of the contract; the topic names live only in
+# config/map3d_topics.yaml.
+RGB_TYPE = "sensor_msgs/msg/CompressedImage"
+RGB_INFO_TYPE = "sensor_msgs/msg/CameraInfo"
+DEPTH_TYPE = "sensor_msgs/msg/Image"
 # Client topics (contract sources) whose uplink dests this container reads.
-RGB_SOURCE = "/head_rgbd/rgb/image_raw/compressed"
-RGB_INFO_SOURCE = "/head_rgbd/rgb/camera_info"
-DEPTH_SOURCE = "/head_rgbd/depth/image_raw"
 SCAN_SOURCE = "/scan_filtered"
 TF_SOURCES = ("/tf", "/tf_static")
 RGB_TRANSPORT = "compressed"  # the relay passes head_rgbd_cpp's JPEG through as <base>/compressed
@@ -220,6 +222,27 @@ def uplink_stream(topics: Map3dTopics, source: str) -> Stream:
     raise ValueError(f"map3d contract has no uplink of {source} read by {READER}")
 
 
+def image_sources(topics: Map3dTopics) -> tuple[Stream, Stream, Stream]:
+    """Find the RGB, RGB camera_info and depth uplinks that rtabmap_mapping reads, by message type.
+
+    Args:
+        topics: The map3d topic contract.
+
+    Returns:
+        tuple[Stream, Stream, Stream]: RGB (compressed image), RGB camera_info and depth contract entries.
+    """
+    readers = [stream for stream in topics.uplink if READER in stream.server_readers]
+    found = []
+    for msg_type in (RGB_TYPE, RGB_INFO_TYPE, DEPTH_TYPE):
+        matches = [stream for stream in readers if stream.type == msg_type]
+        if len(matches) != 1:
+            raise ValueError(
+                f"map3d contract needs exactly one uplink of {msg_type} read by {READER}, has {len(matches)}"
+            )
+        found.append(matches[0])
+    return found[0], found[1], found[2]
+
+
 def transport_base(dest: str, transport: str) -> str:
     """Base topic an image_transport subscriber resolves to dest.
 
@@ -263,9 +286,7 @@ def build_container(topics: Map3dTopics, params: RtabmapMappingConfig) -> Contai
     Returns:
         ContainerSpec: Plugins, remaps, parameters and ros_arguments.
     """
-    rgb = uplink_stream(topics, RGB_SOURCE)
-    rgb_info = uplink_stream(topics, RGB_INFO_SOURCE)
-    depth = uplink_stream(topics, DEPTH_SOURCE)
+    rgb, rgb_info, depth = image_sources(topics)
     scan = uplink_stream(topics, SCAN_SOURCE)
     image_qos = QOS_RELIABILITY[rgb.qos.reliability]
     if QOS_RELIABILITY[depth.qos.reliability] != image_qos:

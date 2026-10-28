@@ -19,8 +19,12 @@ any source (relay loop), dests are unique, `rate_hz` and `budget_bytes` are posi
 transient_local, and an uplink stream has more than one server reader only if flagged `small` (under 1 KB/s),
 because every extra remote reader process is one more copy over WiFi.
 
+The launch takes its RGB, RGB camera_info and depth sources from the `uplink` entries that `rtabmap_mapping` reads
+(found by message type: `CompressedImage`, `CameraInfo`, `Image`); no source topic is a constant in
+`launch/rtabmap_mapping.launch.py`, so re-pointing the camera is a yaml change.
+
 Frames: `map` (slam_toolbox, RTAB-Map's odometry frame), `rtabmap_map` (RTAB-Map's map and the `/map3d/cloud`
-frame, identical to `map` by D7), `base_link`, `head_camera_optical_frame`, `tof_optical_frame`.
+frame, identical to `map` by D7), `base_link`, `d435_color_optical_frame`, `d435_depth_optical_frame`.
 
 ## Pipeline
 
@@ -34,9 +38,8 @@ client (head_rgbd_cpp, map3d_uplink relay)        WiFi   server: rtabmap_contain
 /tf, /tf_static                      -> /uplink/tf, /uplink/tf_static (process-wide remap to the TF listener)
 ```
 
-- **Input pair.** The depth is registered to the RGB camera on the client by `head_rgbd_cpp` (epic
-  head-rgb-d-fusion-of-camera, design D5): 288x162 16UC1 mm, exactly half the 576x324 mapping JPEG, with the same
-  stamp as its RGB image. RTAB-Map needs depth registered to RGB at an integer fraction of its size, which this pair
+- **Input pair.** The D435 depth is aligned to the colour camera on the client and published by `head_rgbd_cpp`: 320x180 16UC1 mm
+  (raw 115 200 B), exactly half the 640x360 colour JPEG (q80), with the same stamp as its RGB image. RTAB-Map needs depth registered to RGB at an integer fraction of its size, which this pair
   already is, so no `depth_image_proc::RegisterNode` runs on the server.
 - **Exact sync.** `rtabmap_sync::RGBDSync` subscribes the RGB with `image_transport: compressed` and the depth with
   `depth_transport: compressedDepth` (0.23.13 renamed `depth_image_transport` to `depth_transport`; the old name only
@@ -133,7 +136,7 @@ From `config/rtabmap_params.yaml` (overridable) unless marked fixed (set by the 
 | `Rtabmap/DetectionRate` | `"1"` | at most 1 Hz processing |
 | `Grid/Sensor` | `"1"` | depth only: measured points never mixed with scan points (U6, D13) |
 | `Grid/3D` | `"true"` | 3D local grids, the source of `cloud_map` |
-| `Grid/RangeMax` | `"4.0"` | m, ToF range |
+| `Grid/RangeMax` | `"4.0"` | m, D435 depth range |
 | `Grid/CellSize` | `"0.05"` | m, 5 cm voxels |
 | `Grid/DepthDecimation` | `"2"` | every 2nd depth pixel |
 | `Grid/MaxObstacleHeight` | `"2.0"` | m, ignore the ceiling |
@@ -141,7 +144,7 @@ From `config/rtabmap_params.yaml` (overridable) unless marked fixed (set by the 
 | `Rtabmap/MemoryThr` | `"400"` | working-memory cap (D8) |
 | `Rtabmap/TimeThr` | `"0"` | no time-based transfer |
 | `Mem/STMSize` | `"10"` | short-term memory nodes |
-| `Mem/ImagePostDecimation` | `"2"` | images stored at 288x162 |
+| `Mem/ImagePostDecimation` | `"2"` | images stored at 320x180 |
 | `Mem/BinDataKept` | `"true"` | images kept for re-processing |
 | `Mem/RawDescriptorsKept` | `"false"` | no raw descriptors |
 | `Rtabmap/ImageBufferSize` | `"1"` | process only the latest input |
@@ -161,7 +164,7 @@ From `config/rtabmap_params.yaml` (overridable) unless marked fixed (set by the 
 
 Design D8, for the Pi 4b (4 cores, 3.8 GB, about 1.1 GB left for ROS units next to monitoring): at most
 `Rtabmap/MemoryThr: "400"` nodes stay in working memory and older nodes move to the database (`Rtabmap/TimeThr: "0"`:
-no time-based transfer), `Mem/STMSize: "10"`, images are stored at half size (`Mem/ImagePostDecimation: "2"`, 288x162)
+no time-based transfer), `Mem/STMSize: "10"`, images are stored at half size (`Mem/ImagePostDecimation: "2"`, 320x180)
 and kept (`Mem/BinDataKept: "true"`, about 30-50 KB per node) so the database can be re-processed, no raw descriptors
 (`Mem/RawDescriptorsKept: "false"`), and only the latest input is processed (`Rtabmap/ImageBufferSize: "1"`). With
 `Kp/MaxFeatures: "-1"` there is no feature extraction, RTAB-Map's main CPU cost; what remains is JPEG and PNG decode at
@@ -202,9 +205,9 @@ Rate "-" = every message passes; the figure in brackets is the expected rate use
 
 | Source | Dest | Rate | Budget (B/msg) | Reader |
 |---|---|---|---|---|
-| `/head_rgbd/rgb/image_raw/compressed` | `/uplink/head_rgbd/rgb/image_raw/compressed` | - (2 Hz) | 40000 | rtabmap_mapping |
+| `/head_rgbd/rgb/image_raw/compressed` | `/uplink/head_rgbd/rgb/image_raw/compressed` | - (2 Hz) | 50000 | rtabmap_mapping |
 | `/head_rgbd/rgb/camera_info` | `/uplink/head_rgbd/rgb/camera_info` | - (2 Hz) | 400 | rtabmap_mapping, map3d_manager |
-| `/head_rgbd/depth/image_raw` (compressedDepth) | `/uplink/head_rgbd/depth/image_raw/compressedDepth` | - (2 Hz) | 45000 | rtabmap_mapping |
+| `/head_rgbd/depth/image_raw` (compressedDepth) | `/uplink/head_rgbd/depth/image_raw/compressedDepth` | - (2 Hz) | 55000 | rtabmap_mapping |
 | `/head_rgbd/depth/camera_info` | `/uplink/head_rgbd/depth/camera_info` | - (2 Hz) | 400 | map3d_manager |
 | `/scan_filtered` | `/uplink/scan_filtered` | - (7 Hz) | 12000 | rtabmap_mapping |
 | `/tf` | `/uplink/tf` | - (100 msg/s) | 200 | rtabmap_mapping |
@@ -213,7 +216,7 @@ Rate "-" = every message passes; the figure in brackets is the expected rate use
 | `/map3d/command` | `/uplink/map3d/command` | - (rare) | 300 | map3d_manager |
 
 The head RGB-D pair are exact-stamp pairs at the 2 Hz mapping rate and are relayed unthrottled so a pair is
-never split. No raw ToF stream is uplinked.
+never split. No raw ToF or D435 stream is uplinked.
 
 ### Downlink (server to client)
 

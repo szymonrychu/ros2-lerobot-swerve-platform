@@ -4,7 +4,7 @@
 # rate_hz null = pass every message; expected_rate_hz is then the budgeting rate.
 uplink:
   # head_rgbd_cpp exact-stamp pairs at the 2 Hz mapping rate, relayed unthrottled so a pair is never split (D5).
-  - source: /head_rgbd/rgb/image_raw/compressed   # mapping JPEG 576x324 q80, passed through
+  - source: /head_rgbd/rgb/image_raw/compressed   # head_rgbd_cpp D435 colour 640x360 JPEG q80, passed through
     dest: /uplink/head_rgbd/rgb/image_raw/compressed
     type: sensor_msgs/msg/CompressedImage
     rate_hz: null
@@ -12,7 +12,7 @@ uplink:
     qos: {reliability: best_effort, durability: volatile, depth: 5}
     transport: raw
     lazy: true
-    budget_bytes: 40000   # ~40 KB JPEG 576x324 q80 (D3 estimate)
+    budget_bytes: 50000   # ~50 KB JPEG 640x360 q80 (D3 estimate re-scaled to 640x360)
     server_readers: [rtabmap_mapping]
   - source: /head_rgbd/rgb/camera_info
     dest: /uplink/head_rgbd/rgb/camera_info
@@ -25,7 +25,7 @@ uplink:
     budget_bytes: 400   # ~400 B CameraInfo (D3 estimate)
     server_readers: [rtabmap_mapping, map3d_manager]
     small: true
-  - source: /head_rgbd/depth/image_raw   # registered depth 288x162 16UC1 mm, raw 93 312 B
+  - source: /head_rgbd/depth/image_raw   # head_rgbd_cpp D435 depth aligned to colour, 320x180 16UC1 mm, raw 115 200 B
     dest: /uplink/head_rgbd/depth/image_raw/compressedDepth
     type: sensor_msgs/msg/Image
     rate_hz: null
@@ -33,7 +33,7 @@ uplink:
     qos: {reliability: best_effort, durability: volatile, depth: 5}
     transport: compressedDepth
     lazy: true
-    budget_bytes: 45000   # ~45 KB PNG compressedDepth (D3 estimate)
+    budget_bytes: 55000   # ~55 KB PNG compressedDepth (D3 estimate re-scaled to 320x180)
     server_readers: [rtabmap_mapping]
   - source: /head_rgbd/depth/camera_info
     dest: /uplink/head_rgbd/depth/camera_info
@@ -134,8 +134,8 @@ frames:
   map_frame: map                  # slam_toolbox; RTAB-Map's odometry frame (D7)
   map3d_frame: rtabmap_map        # RTAB-Map's map frame and frame of /map3d/cloud, identical to map by D7
   base_frame: base_link
-  rgb_frame: head_camera_optical_frame
-  depth_frame: tof_optical_frame
+  rgb_frame: d435_color_optical_frame
+  depth_frame: d435_depth_optical_frame
 
 budget:
   uplink_mbit_s_max: 8.0
