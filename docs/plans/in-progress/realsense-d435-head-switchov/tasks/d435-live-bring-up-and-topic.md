@@ -1,6 +1,6 @@
 ---
 title: D435 live bring-up and topic pin
-status: blocked
+status: in-progress
 repo: ros2-lerobot-sverve-platform
 value: "The D435 is proven on the real Pi 5 (USB3, firmware, power, 30 min soak) and its real topic names are pinned."
 files: [nodes/bridges/realsense_d435/config/topics.yaml, nodes/bridges/realsense_d435/config/realsense_d435.yaml, nodes/web_ui/urdf/head.urdf, tests/test_d435_topics.py, tests/test_d435_runbook.py, docs/runbooks/d435-switchover.md, tests/README.md]
@@ -76,3 +76,5 @@ Context the implementer needs: pitfalls, existing code to reuse, decisions alrea
 - 2026-10-27 probed (d435-diagnostics-script live run): D435 firmware 5.16.0.1 (< 5.17.3.10, flash per gate Q4); client PSU negotiates 3000 mA with usb_max_current_enable=1 forced in config.txt (not the 5 V 5 A the design assumed) - user decision pending.
 
 - 2026-10-28 blocked: blocked: git push rejected (GitHub email privacy); deploy clones from GitHub. whoCanClear: user. Also needs user answers on PSU 3 A and board.
+
+- 2026-10-28 in-progress: unblocked 2026-10-28: push works, D435 progress merged to main at 9e44171c (user-approved mid-epic merge); PSU 3 A accepted by user
