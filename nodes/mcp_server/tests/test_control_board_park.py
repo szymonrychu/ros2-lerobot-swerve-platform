@@ -124,10 +124,14 @@ def test_the_board_geometry_is_mcp_servers_own_and_the_request_only_moves_the_mo
     settings = SETTINGS
     park = board()
     assert park.margin_m == settings.margin_m and park.min_height_m == settings.min_height_m
-    assert len(park.points) == 4 + settings.lattice_points**2
+    assert len(park.points) == 2 * (4 + settings.lattice_points**2)
     width, height = settings.squares_x * settings.square_mm / 1000, settings.squares_y * settings.square_mm / 1000
     # In the board frame the outline spans the squares plus the margin; the mount is a rigid pose of it.
-    diagonal = math.hypot(width + 2 * settings.outline_margin_m, height + 2 * settings.outline_margin_m)
+    diagonal = math.sqrt(
+        (width + 2 * settings.outline_margin_m) ** 2
+        + (height + 2 * settings.outline_margin_m) ** 2
+        + (settings.thickness_mm / 1000) ** 2  # the back face lies behind the printed one
+    )
     reach = max(float(np.linalg.norm(a - b)) for a in park.points for b in park.points)
     assert reach == pytest.approx(diagonal)
 

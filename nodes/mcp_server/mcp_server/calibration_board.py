@@ -21,7 +21,7 @@ class BoardPark:
     """The calibration board a park is checked with.
 
     Attributes:
-        points: (N, 3) outline corners and lattice points in gripper_link (m).
+        points: (N, 3) outline corners and lattice points of both plate faces in gripper_link (m).
         margin_m: Clearance the board keeps from every body obstacle (m), sag margin included.
         min_height_m: Lowest board point height above the floor (base_link z, m), sag margin included.
     """
@@ -65,7 +65,9 @@ class BoardPark:
         corners = np.array([[x0, y0, 0.0], [x1, y0, 0.0], [x1, y1, 0.0], [x0, y1, 0.0]])
         xs, ys = np.linspace(x0, x1, settings.lattice_points), np.linspace(y0, y1, settings.lattice_points)
         lattice = np.array([[x, y, 0.0] for y in ys for x in xs])
-        board = np.vstack([corners, lattice])
+        front = np.vstack([corners, lattice])
+        back = front + np.array([0.0, 0.0, settings.thickness_mm / MM_PER_M])
+        board = np.vstack([front, back])
         return cls(board @ mount[:3, :3].T + mount[:3, 3], settings.margin_m, settings.min_height_m)
 
 

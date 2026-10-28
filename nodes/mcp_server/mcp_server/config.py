@@ -128,6 +128,7 @@ class CalibrationBoardSettings(StrictModel):
     squares_x: int = Field(default=6, ge=2)
     squares_y: int = Field(default=5, ge=2)
     square_mm: float = Field(default=40.0, gt=0)
+    thickness_mm: float = Field(default=4.0, gt=0)  # plate thickness behind the printed face
     outline_margin_m: float = Field(default=0.01, ge=0)  # plate margin beyond the outer squares
     lattice_points: int = Field(default=5, ge=2)  # points per plate edge of the checked lattice
     mount_xyz_m: tuple[float, float, float] = (-0.1665, 0.1938, -0.1181)  # board frame origin in gripper_link

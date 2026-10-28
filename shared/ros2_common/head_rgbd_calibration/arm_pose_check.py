@@ -14,7 +14,8 @@ and obstacle at once. mcp_server keeps its own checks on top of this one.
 `PoseChecker.check_view` checks one view of the board by the head D435 colour camera at a head pan/tilt: every
 ChArUco corner keeps `d435_min_z_m` plus `d435_min_z_margin_m` of depth from the camera's optical frame (the D435
 depth min-Z, design D2) and projects inside the colour image of the camera_info. The corners lie on the printed face,
-the face the camera sees; the board's 4 mm thickness is behind it, so it does not bring the board nearer the camera.
+the face the camera sees; the board's thickness is behind it, so it does not bring the corners nearer the camera.
+The collision checks use both faces (`board_points_local`).
 """
 
 import math
@@ -369,20 +370,25 @@ def point_segment_distances(points: np.ndarray, a: np.ndarray, b: np.ndarray) ->
 
 
 def board_points_local(fit: HeadArmFitConfig, grid: int) -> np.ndarray:
-    """Board outline corners plus a grid x grid lattice over the outline, in gripper_link.
+    """Board outline corners plus a grid x grid lattice over the outline, in gripper_link, on both plate faces.
+
+    The printed face is at board z = 0 and the plate's back face `fit.board.thickness_mm` behind it (+z, away from
+    the camera), so the points span the real board volume.
 
     Args:
-        fit: Fit config (`board`, `board_mount` xyz_init/rpy_init/outline_margin_m).
+        fit: Fit config (`board` incl. thickness_mm, `board_mount` xyz_init/rpy_init/outline_margin_m).
         grid: Points per board edge.
 
     Returns:
-        np.ndarray: (4 + grid * grid, 3) points (m).
+        np.ndarray: (2 * (4 + grid * grid), 3) points (m): the front face, then the back face.
     """
     outline = board_outline(fit.board, fit.board_mount.outline_margin_m)
     xs = np.linspace(outline[:, 0].min(), outline[:, 0].max(), grid)
     ys = np.linspace(outline[:, 1].min(), outline[:, 1].max(), grid)
     lattice = np.array([[x, y, 0.0] for y in ys for x in xs])
-    return mounted(fit, np.vstack([outline, lattice]))
+    front = np.vstack([outline, lattice])
+    back = front + np.array([0.0, 0.0, fit.board.thickness_mm / MM_PER_M])
+    return mounted(fit, np.vstack([front, back]))
 
 
 def mounted(fit: HeadArmFitConfig, points: np.ndarray) -> np.ndarray:
@@ -461,7 +467,7 @@ class PoseChecker:
         return self.link_poses(joints)[TOOL_LINK][:3, 3]
 
     def board_points(self, joints: Mapping[str, float]) -> np.ndarray:
-        """Board outline and grid points in base_link (m), (4 + board_grid^2, 3)."""
+        """Board outline and grid points of both plate faces in base_link (m), (2 * (4 + board_grid^2), 3)."""
         gripper = self.link_poses(joints)[BOARD_LINK]
         return self.board_local @ gripper[:3, :3].T + gripper[:3, 3]
 

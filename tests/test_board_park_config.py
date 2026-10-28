@@ -23,6 +23,7 @@ CALIB_SETUP = REPO_ROOT / "ansible" / "playbooks" / "tasks" / "head_rgbd_calibra
 BOARD_GROUP = "board-park"
 BOARD_TOKEN_FILE = "/etc/ros2/mcp_server/board_park_token"
 GRID = 5
+BOARD_THICKNESS_MM = 4.0  # the printed 6x5 ChArUco plate (scripts/markers_generate.yaml thickness_mm)
 
 sys.path[:0] = [
     str(REPO_ROOT / "nodes" / "mcp_server"),
@@ -52,6 +53,7 @@ def test_mcp_server_board_equals_the_calibration_fit_board_and_mount() -> None:
         fit.board.squares_y,
         fit.board.square_mm,
     )
+    assert mcp["thickness_mm"] == fit.board.thickness_mm == BOARD_THICKNESS_MM
     assert mcp["outline_margin_m"] == fit.board_mount.outline_margin_m
     assert mcp["lattice_points"] == GRID == seq.pose_check.board_grid
     assert tuple(mcp["mount_xyz_m"]) == fit.board_mount.xyz_init
@@ -73,6 +75,18 @@ def test_mcp_server_points_equal_the_node_board_points_at_the_configured_mount()
     park = BoardPark.from_mount(settings, list(settings.mount_xyz_m), list(settings.mount_rpy_rad))
     assert np.allclose(np.sort(park.points, axis=0), np.sort(expected, axis=0), atol=1e-9)
     assert np.allclose(park.points, expected, atol=1e-9)
+
+
+def test_both_board_models_span_the_4_mm_thickness_behind_the_printed_face() -> None:
+    calib = NodeConfig()
+    settings = CalibrationBoardSettings()
+    assert calib.fit.board.thickness_mm == settings.thickness_mm == BOARD_THICKNESS_MM
+    flat = calib.fit.board_mount.model_copy(update={"xyz_init": (0.0,) * 3, "rpy_init": (0.0,) * 3})
+    fit = calib.fit.model_copy(update={"board_mount": flat})
+    local = board_points_local(fit, GRID)
+    assert len(local) == 2 * (4 + GRID**2)
+    assert np.ptp(local[:, 2]) == pytest.approx(BOARD_THICKNESS_MM / 1000.0)
+    assert local[:, 2].min() == 0.0
 
 
 def test_board_park_token_is_a_separate_file_for_the_calibration_group_only() -> None:

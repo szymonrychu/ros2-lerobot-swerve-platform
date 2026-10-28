@@ -16,6 +16,7 @@ from ros2_common.head_rgbd_calibration.arm_pose_check import (
     CylinderObstacle,
     PoseCheckConfig,
     PoseChecker,
+    board_points_local,
     head_envelope,
 )
 from ros2_common.head_rgbd_calibration.chain import (
@@ -397,3 +398,23 @@ def test_board_outside_the_colour_fov() -> None:
     depth_frame = centred.check_view(ZERO, 0.0, 0.0, D435_COLOR, camera_frame="d435_depth_optical_frame")
     assert depth_frame == []
     assert len(board_corners_3d(fit_with().board)) == 20
+
+
+def test_board_points_span_the_board_thickness_behind_the_printed_face() -> None:
+    fit = fit_with(BoardMountConfig(xyz_init=(0.0, 0.0, 0.0), rpy_init=(0.0, 0.0, 0.0), outline_margin_m=0.01))
+    assert fit.board.thickness_mm == 4.0
+    local = board_points_local(fit, 5)
+    assert len(local) == 2 * (4 + 25)
+    assert local[:, 2].min() == 0.0 and local[:, 2].max() == pytest.approx(0.004)
+    front, back = local[: len(local) // 2], local[len(local) // 2 :]
+    assert np.allclose(back[:, :2], front[:, :2]) and np.allclose(back[:, 2], 0.004)
+
+
+def test_thicker_board_has_less_clearance_than_a_thin_one() -> None:
+    mount = mount_with_corner_at(ZERO, np.array([0.40, -0.05, 0.35]))
+    thin = fit_with(mount)
+    thin.board.thickness_mm = 1.0
+    thick = fit_with(mount)
+    thick.board.thickness_mm = 40.0
+    clear = lambda f: float(checker(f).obstacles.distances(checker(f).board_points(ZERO)).min())  # noqa: E731
+    assert clear(thick) < clear(thin)

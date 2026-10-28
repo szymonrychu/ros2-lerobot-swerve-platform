@@ -19,6 +19,7 @@ class BoardConfig(StrictModel):
     square_mm: float = Field(default=40.0, gt=0)
     marker_mm: float = Field(default=30.0, gt=0)
     dictionary: str = "DICT_5X5_100"
+    thickness_mm: float = Field(default=4.0, gt=0)  # plate thickness behind the printed face (markers_generate.yaml)
 
     @model_validator(mode="after")
     def check_marker(self) -> Self:

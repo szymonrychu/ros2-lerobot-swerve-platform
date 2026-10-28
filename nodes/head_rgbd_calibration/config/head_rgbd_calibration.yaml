@@ -48,6 +48,7 @@ board:
   square_mm: 40.0
   marker_mm: 30.0
   dictionary: DICT_5X5_100
+  thickness_mm: 4.0 # plate thickness behind the printed face
 # Still-frame selection of the D435 check: a colour + aligned depth pair is still when every consecutive pair over
 # still_window_s differs by less than both MADs.
 selection:
@@ -120,6 +121,7 @@ fit:
     square_mm: 40.0
     marker_mm: 30.0
     dictionary: DICT_5X5_100
+    thickness_mm: 4.0 # plate thickness behind the printed face, in the collision checks
   # Board on a stick held in the closed gripper (rubber band), in gripper_link, as measured by the user
   # (2026-10-23), not the jaw-geometry estimate: the 250 x 210 mm sheet is glued at the middle of its lower long
   # edge to the stick, its plane across the tool axis 2 cm past the URDF tool point (gripper_frame_joint), the
@@ -179,7 +181,7 @@ fit:
   floor_prior_weight: 10.0
   # Arm offsets fit (shared core arm_offsets_fit, design D9, Q2): the gripper-held plate in the D435 colour camera
   # plus floor planes give the arm joint offsets (shoulder_pan the gauge), the head chain and the tool point.
-  plate: {squares_x: 6, squares_y: 5, square_mm: 40.0, marker_mm: 30.0, dictionary: DICT_5X5_100} # the 6x5 board
+  plate: {squares_x: 6, squares_y: 5, square_mm: 40.0, marker_mm: 30.0, dictionary: DICT_5X5_100, thickness_mm: 4.0} # the 6x5 board
   # Plate in gripper_link: xyz_init / rpy_init start values, rpy the CAD rotation (null: rotation fitted,
   # wrist_roll fixed at wrist_roll_offset_rad), tool_in_board_m the CAD board-to-jaw-tip offset (required
   # key, null until measured: the tool point is not fitted). Required by the arm offsets fit; null until the
