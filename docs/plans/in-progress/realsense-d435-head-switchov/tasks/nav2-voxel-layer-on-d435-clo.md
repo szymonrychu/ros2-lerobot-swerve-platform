@@ -1,6 +1,6 @@
 ---
 title: Nav2 voxel layer on D435 cloud
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The local costmap sees obstacles above and below the lidar plane again, from the D435."
 files: [nodes/nav2_bringup/config/nav2_params.yaml, tests/test_nav_lidar_only.py, tests/test_nav_d435_inputs.py, tests/test_nav_tof_voxel_layer.py, tests/test_nav_depth_voxel_layer.py, nodes/nav2_bringup/README.md, tests/README.md]
@@ -8,15 +8,15 @@ verify: "uv run pytest tests/test_nav_d435_inputs.py tests/test_nav_depth_voxel_
 depends_on: [laser-filter-on-the-d435-clo]
 model: opus
 review: ""
-verified_head: ""
+verified_head: ae6918aa
 points: 3
 expected_minutes: 34
 expected_tokens: 2250000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 3
+actual_minutes: 26
+actual_tokens: 5939748
+actual_roles: "impl 25, review 1"
+actual_role_tokens: "impl 5825995, review 113753"
 ---
 
 # Nav2 voxel layer on D435 cloud
@@ -64,3 +64,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-28 done: root suite on ae6918aa: 2162 passed, 9 skipped (implementer, twice)
