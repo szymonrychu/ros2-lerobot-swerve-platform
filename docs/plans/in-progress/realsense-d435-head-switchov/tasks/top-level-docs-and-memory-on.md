@@ -65,3 +65,4 @@ What is true and observable when the task is done.
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
 - 2026-10-28: also update ansible/README.md (lines ~446, 468, 504 name realsense_d435i; describe the D435 udev step from d435-udev-rule-via-node-depl) and .claude/skills/ansible-deploy/SKILL.md node table (realsense_d435i, arducam_tof, head_camera_cpp, gripper_uvc_camera, tof_obstacle_cloud rows).
+- 2026-10-28: also docs/markers.md:96 and the ansible-deploy SKILL.md marker_detector row still name tof.* keys / "ToF plane"; marker_detector now uses depth_plane.* (marker-detector-on-d435).
