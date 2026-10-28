@@ -48,8 +48,9 @@ What is true and observable when the task is done.
 
 ## Steps
 
-Test first. One step per bullet, with the exact command and the output to expect.
-A retirement test asserts on `git ls-files <path>`, never on the filesystem.
+1. Pin in tests that depth topics list no compressed/theora transports; fails.
+2. Set the image_transport plugin parameters in realsense_d435.yaml; update topics.yaml.
+3. Deploy realsense_d435 (orchestrator pushes first), run d435_diag.sh --since 10min.
 
 ## Notes
 
