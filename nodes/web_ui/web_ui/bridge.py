@@ -311,7 +311,7 @@ ROLE_SPECS: dict[str, tuple[type, Any, Serializer]] = {
     # Nav2 publishes costmaps reliable + transient_local: match it so a (re)connecting UI gets the last one.
     "costmap": (OccupancyGrid, MAP_SUB_QOS, serialize_costmap),
     "gps": (NavSatFix, SENSOR_SUB_QOS, serialize_navsatfix),
-    # ToF obstacle cloud and lidar points of the 3D obstacles layer: sensor data, latest wins.
+    # D435 obstacle cloud and lidar points of the 3D obstacles layer: sensor data, latest wins.
     "cloud": (PointCloud2, SENSOR_SUB_QOS, serialize_point_cloud),
     "scan_points": (LaserScan, SENSOR_SUB_QOS, serialize_scan_points),
     # RTAB-Map 3D map: on demand, latest wins; serialized lazily at flush so an unchanged cloud is encoded once.
