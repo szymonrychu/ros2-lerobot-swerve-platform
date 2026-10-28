@@ -1,6 +1,6 @@
 ---
 title: Replay export depth model
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: D435 recordings become replay fixtures with one shared deprojection.
 files: [scripts/ground_replay_export.py, scripts/ground_replay_scenes.yaml, nodes/ground_estimator_cpp/test/replay_fixture.hpp, nodes/ground_estimator_cpp/test/data/replay/tiny_v2.bin, tests/test_ground_replay_export.py, tests/README.md]
@@ -8,15 +8,15 @@ verify: "uv run pytest tests/test_ground_replay_export.py -q && uv run poe lint 
 depends_on: [ground-recorder-on-d435-topi, shared-d435-camera-geometry, ground-estimator-on-d435-inp]
 model: opus
 review: ""
-verified_head: ""
+verified_head: 777f3895
 points: 3
 expected_minutes: 34
 expected_tokens: 2250000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 3
+actual_minutes: 23
+actual_tokens: 4746824
+actual_roles: "impl 20, review 4"
+actual_role_tokens: "impl 4580587, review 166237"
 ---
 
 # Replay export depth model
@@ -65,3 +65,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-28 done: root suite on 777f3895: 2166 passed, 9 skipped (implementer)
