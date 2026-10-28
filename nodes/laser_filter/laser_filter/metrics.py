@@ -19,7 +19,8 @@ from dataclasses import dataclass
 from prometheus_client import REGISTRY, CollectorRegistry, Gauge, Histogram
 
 GAP_WINDOW_S = 60.0
-# Around the rplidar period (~0.14 s), the 10 Hz ToF and tick periods, and the collision monitor source_timeout (1.0 s).
+# Around the rplidar period (~0.14 s), the 15 Hz D435 cloud and tick periods, and the collision monitor
+# source_timeout (1.0 s).
 BUCKETS_S = (0.05, 0.1, 0.15, 0.2, 0.3, 0.5, 0.75, 1.0, 1.5, 2.0, 5.0)
 STREAM_LABEL = "stream"
 STREAM_INPUT = "input"

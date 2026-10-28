@@ -10,7 +10,7 @@ set_polygon replaces the polygon at runtime (mcp_server sets the dynamic footpri
 recomputed. A polygon with non-finite coordinates or that is not a valid simple polygon (self-intersecting, zero area)
 is refused: shapely's contains_xy would silently filter nothing with it.
 
-ToF cloud: each point is transformed into polygon_frame with the TF at the cloud's stamp (the head moves, so that
+D435 cloud: each point is transformed into polygon_frame with the TF at the cloud's stamp (the head moves, so that
 transform is never cached: transform_points) and removed when its (x, y) lies inside the same self polygon (prepared,
 in polygon_frame: SelfFilter.base_polygon) and its z <= the height limit (cloud_self_mask); non-finite points are
 removed. The kept points are returned unmoved, in the cloud frame (SelfFilter.filter_cloud). A cloud waiting for its TF
@@ -226,7 +226,7 @@ class PendingSlot[T]:
 
 
 class SelfFilter:
-    """Polygon in polygon_frame (prepared, for the ToF cloud), its static transform into the scan frame and the
+    """Polygon in polygon_frame (prepared, for the D435 cloud), its static transform into the scan frame and the
     per-scan beam test."""
 
     def __init__(self, polygon: list[Point2]) -> None:
@@ -310,7 +310,7 @@ class SelfFilter:
     def filter_cloud(
         self, points: np.ndarray, rotation: np.ndarray, translation: np.ndarray, max_height_m: float
     ) -> np.ndarray:
-        """ToF cloud points without the robot's own (cloud_self_mask with the current polygon), in the cloud frame.
+        """D435 cloud points without the robot's own (cloud_self_mask with the current polygon), in the cloud frame.
 
         Args:
             points (np.ndarray): (N, 3) points in the cloud frame (m).

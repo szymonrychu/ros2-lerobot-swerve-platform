@@ -488,7 +488,7 @@ ros2_node_type_defaults:
     src_shared: true
     env:
       - LASER_FILTER_CONFIG={{ ros2_repo_dest }}/nodes/laser_filter/config/footprint_filter.yaml
-    # point_cloud2 for the ToF cloud (sensor_msgs_py reads /tof/points and writes /tof/points_filtered).
+    # point_cloud2 for the D435 cloud (sensor_msgs_py reads /head/d435/points and writes /head/d435/points_filtered).
     apt_packages:
       - ros-jazzy-sensor-msgs-py
     # MemoryLow 64M: the C++ filter chain it replaced measured 35.7/37.6 MiB, and this Python node also loads

@@ -1,4 +1,4 @@
-"""ROS 2 laser_filter node: subscribes the raw scan and the ToF cloud, publishes both without the robot's own returns.
+"""ROS 2 laser_filter node: subscribes the raw scan and the D435 cloud, publishes both without the robot's own returns.
 
 The `polygon` parameter (string "[[x, y], ...]" in polygon_frame) starts at the config polygon and may be set at
 runtime through the parameter service (`ros2 param set /laser_filter polygon "[[...]]"`; mcp_server does this with
@@ -7,7 +7,7 @@ node's parameter service comes up after a restart, which starts from the static 
 (non-finite, self-intersecting, zero area) is refused and the current one stays. A scan is published only once the
 polygon_frame -> scan frame TF is known (no unfiltered or placeholder scans).
 
-ToF cloud (cloud_topic, unless null): each cloud needs the TF polygon_frame <- cloud frame at its own header stamp (the
+D435 cloud (cloud_topic, unless null): each cloud needs the TF polygon_frame <- cloud frame at its own header stamp (the
 head moves: never cached). The lookup never blocks (tf2_ros wait_for_transform_async: answered at once when the TF is
 there, else a future completed by the TF listener the moment it arrives), so scan filtering is never delayed by a
 cloud TF wait. A cloud without its TF yet waits in one newest-wins slot: a newer cloud replaces it, and the expiry timer
@@ -176,7 +176,7 @@ class LaserFilterNode(Node):
         """Filter and publish a cloud whose TF at its stamp is known, else hold it (newest wins) until the TF arrives.
 
         Args:
-            msg (PointCloud2): Raw ToF cloud.
+            msg (PointCloud2): Raw D435 cloud.
         """
         try:
             future = self.tf_buffer.wait_for_transform_async(
@@ -237,7 +237,7 @@ class LaserFilterNode(Node):
         """Remove the robot's own points with the TF at the cloud's stamp and publish the rest with the input header.
 
         Args:
-            msg (PointCloud2): Raw ToF cloud.
+            msg (PointCloud2): Raw D435 cloud.
             tf (TransformStamped): polygon_frame <- cloud frame at the cloud's stamp.
         """
         q, t = tf.transform.rotation, tf.transform.translation
