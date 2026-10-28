@@ -388,8 +388,8 @@ def test_nav2_cliffstop_polygon_is_wired_and_listed() -> None:
     assert cliff["simulation_time_step"] == 0.05
     assert cliff["min_points"] == 4
     assert cliff["visualize"] is False
-    assert cliff["enabled"] is False  # disabled (user 2026-10-24): lidar-only
-    assert cliff["sources_names"] == ["tof_cliff"]
+    assert cliff["enabled"] is True
+    assert cliff["sources_names"] == ["depth_cliff"]
     for sub in cliff["velocity_polygons"]:
         assert len(yaml.safe_load(cliff[sub]["points"])) >= MIN_POLYGON_POINTS, sub
     assert "CliffStop" in params["polygons"]

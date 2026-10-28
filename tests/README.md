@@ -1998,7 +1998,7 @@ in the mcp_server uv environment, cached per client.yml content) and the check t
 | `test_cliffstop_region_renders_the_direction_aware_sub_polygons` | The `cliffstop` region renders `velocity_polygons: [rotate, forward, back]` and each sub-polygon's points and ranges as generated. |
 | `test_cliffstop_checks_the_cliff_margin_except_while_backing_away` | `rotate` (below the StopBox rotate speed) and `forward` are the cliff polygon, `back` the footprint; every sub-polygon has >= 4 points and yaw limits +-10. |
 | `test_cliffstop_selects_by_command_direction` | Every 5 deg at 0.1 m/s, first-match selection picks `forward` within +-90 deg (sideways included) and `back` beyond. |
-| `test_nav2_cliffstop_polygon_is_wired_and_listed` | `CliffStop` block in nav2_params (holonomic velocity_polygon, approach, 1.2 s, tof_cliff, >= 4 points per sub-polygon) exists and is listed in `polygons`. |
+| `test_nav2_cliffstop_polygon_is_wired_and_listed` | `CliffStop` block in nav2_params (holonomic velocity_polygon, approach, 1.2 s, enabled, `depth_cliff`, >= 4 points per sub-polygon) exists and is listed in `polygons`. |
 | `test_main_writes_the_files_and_is_idempotent` | With bigger wheels in a temp config (and no client.yml, whose region is then skipped), `main` rewrites copies of both files (footprint now contains the bigger wheel), a second run changes nothing, and sections outside the generated regions are untouched. |
 
 ### test_poi_store_config.py
@@ -2316,7 +2316,7 @@ Keeps the ground estimation docs consistent with the shipped config and the repo
 
 ### Ground estimation epic: other tests
 
-- Root tests: `test_ground_estimator_readme.py`, `test_ground_estimator_deploy.py` and `test_nav_ground_voxel_layer.py` (described in their sections); changed: `test_nav_stack_config.py` (ground layers in the local costmap only), `test_nav_depth_voxel_layer.py` (then `test_nav_tof_voxel_layer.py`) and `test_nav_tof_collision.py` (the fixed bands and the collision monitor stay unchanged), `test_d435_obstacle_wiring.py` (ground topics), `test_monitoring_dashboards.py` (ground_estimator_cpp panel), `test_node_cpu_compare.py` (the `nav2_bringup_ground_layer` entry), `test_node_metrics_wiring.py`, `test_cpp_node_deploy.py`, `test_unit_cgroups.py`.
+- Root tests: `test_ground_estimator_readme.py`, `test_ground_estimator_deploy.py` and `test_nav_ground_voxel_layer.py` (described in their sections); changed: `test_nav_stack_config.py` (ground layers in the local costmap only), `test_nav_depth_voxel_layer.py` (then `test_nav_tof_voxel_layer.py`) and `test_nav_depth_collision.py` (then `test_nav_tof_collision.py`; the fixed bands and the collision monitor stay unchanged), `test_d435_obstacle_wiring.py` (ground topics), `test_monitoring_dashboards.py` (ground_estimator_cpp panel), `test_node_cpu_compare.py` (the `nav2_bringup_ground_layer` entry), `test_node_metrics_wiring.py`, `test_cpp_node_deploy.py`, `test_unit_cgroups.py`.
 - ground_estimator_cpp gtests (`nodes/ground_estimator_cpp/test`): `test_plane_fit.cpp` (`PlaneFit.*`: level, pitched, wall, table, box, depth bias, deterministic seed), `test_tracker.cpp` (`GravityUp.*`, `ChoosePrior.*`, `Tracker.*`, `Slope.*`, `Angles.*`: IMU prior, hold, motion in odom, smoothing, slope levels), `test_segmentation.cpp` (`Segmentation.*`: bands, box, drop-off, 3 cm sill, range, overhang, cloud round trip), `test_edges.cpp` (`Edges.*`: drop-off, step plate, ramp, box, hull, clustering cap, median edge step of a spread box top and a noisy 3 cm sill, sparse 14 deg mat ramp slope over 30 seeds through the cell median with aligned and misaligned cells, dense 25 deg ramp, flat 5 cm box top, unknown slope below the bin support or with bins in one line), `test_traversability.cpp` (`Traversability.*`: thresholds are warnings, sill/drop/ramp both sides, box, colour sheet and plate), `test_colour.cpp` (`Colour.*`: Lab, red sheet, floor model, labelled message layout), `test_config.cpp` (`Config.*`: defaults, derived topics, one third max step, shipped yaml, rejected keys, robustness key ranges, `GuidanceDefaults`/`RejectsGuidanceRanges`/`RejectsGuidanceCrossKeyViolations`/`RejectsUnknownGuidanceKeys`, max slope against the tilt_guard error limits), `test_state.cpp` (`GroundState.*`, `WarningAreas.*`: key order, shapes, rounding, fixtures), `test_node.cpp` (`NodeTest.*`: level floor with box, 10 cm drop, 3 cm sill, 6 deg ramp, missing transform, plane hold, IMU prior).
 - costmap_zones: `nodes/costmap_zones/tests/test_ground_warnings.py` (warning areas to the speed and ground cost masks) and `test_node.py`.
 - mcp_server: `nodes/mcp_server/tests/test_ground_summary.py` (`/ground/state` contract, region conversion, summary mapping), `test_floor_guard_ground.py` (opt-in floor_guard with the ground plane).
@@ -3002,7 +3002,7 @@ Static checks of the plane-relative `ground_voxel_layer` and the `ground_cost_fi
 | `test_ground_layer_sources_topics_and_pass_through_limits` | Sources `ground_obstacle_mark, ground_drop_mark, ground_clear`; topics equal the ground_estimator_cpp `output_namespace` (client.yml and package config) plus `/obstacle_points` / `/drop_points`; limits -1.5 / 1.5 and the buffer settings. |
 | `test_ground_clear_equals_the_tof_clear_frustum` | `ground_clear` equals `depth_clear` on `/head/d435/points_filtered`. |
 | `test_global_costmap_is_untouched` | Global plugins unchanged; no STVL and no ground topic. |
-| `test_collision_monitor_sources_are_unchanged_and_free_of_ground_topics` | Monitor sources `scan, tof_obstacles, tof_cliff`, CliffStop on `tof_cliff` only, no `/ground/` topic. |
+| `test_collision_monitor_sources_are_unchanged_and_free_of_ground_topics` | Monitor sources `scan, depth_obstacles, depth_cliff`, CliffStop on `depth_cliff` only, no `/ground/` topic. |
 | `test_tof_voxel_layer_is_pinned` | `depth_voxel_layer` sources (`depth_mark depth_cliff_mark depth_clear`) and bands unchanged. |
 | `test_ground_values_are_commented_with_their_reasons` | Layer and filter values carry comments; the header names the runtime switch, the fixed bands and D-A1. |
 | `test_readme_documents_the_ground_layer` | The README section names the topics, pass-through limits, what stays on the fixed bands, the obstacle vs warning rule, the slow-down mechanism, the runtime switch and the four switch-over criteria. |
@@ -3016,6 +3016,7 @@ Nav2 head inputs on the RealSense D435 (design D6): the lidar-only state of 2026
 | Test | Covers |
 |---|---|
 | `test_depth_voxel_layer_reads_the_d435_cloud` | `depth_voxel_layer` is in the local plugins and enabled, its sources are `depth_mark depth_cliff_mark depth_clear` and each reads `/head/d435/points_filtered` (laser_filter `cloud_filtered_topic`), the layer block carries no "disabled (user 2026-10-24): lidar-only" comment, and no line of nav2_params.yaml names a `/tof` topic or `tof_voxel_layer`. |
+| `test_collision_sources_read_the_d435_cloud` | The collision monitor sources are `scan, depth_obstacles, depth_cliff`; both D435 sources are enabled `pointcloud` sources on `/head/d435/points_filtered`; StopBox (enabled) reads `scan, depth_obstacles`, CliffStop is enabled on `depth_cliff`; no line of nav2_params.yaml names `tof_obstacles` or `tof_cliff`. |
 | `test_lidar_only_pin_is_retired` | The lidar-only pin file is deleted, not tracked by git, and no longer named in this README. |
 | `test_tests_readme_documents_this_file` | This section lists every test of the file. |
 
@@ -3047,29 +3048,29 @@ Static checks of the head D435 spatio-temporal voxel layer (`depth_voxel_layer`,
 | `test_readme_depth_section_has_no_parking_wording` | The nav2_bringup README "D435 obstacle layer" section states what the values are and how to check them, with no wording that defers the values to a later change. |
 | `test_tests_readme_documents_this_file` | This section lists every test of the file. |
 
-### test_nav_tof_collision.py
+### test_nav_depth_collision.py
 
-Static checks of the collision_monitor ToF sources `tof_obstacles` / `tof_cliff`, the per-polygon source sets and the direction-aware CliffStop approach polygon (design D4, D5; U1, U5). Reads `nav2_params.yaml` (values and comments), the generator output of `scripts/gen_nav_footprint.py` and the READMEs; replays the nav2 1.3.13 approach model (`VelocityPolygon::isInRange`, `Polygon::getCollisionTime`, translation only) on the CliffStop sub-polygons.
+Static checks of the collision_monitor D435 sources `depth_obstacles` / `depth_cliff`, the per-polygon source sets and the direction-aware CliffStop approach polygon (design D4, D5, D6; U1, U5). Moved from `test_nav_tof_collision.py` with the D435 switch-over: the ToF source names were no longer accurate, the CliffStop geometry and direction-aware tests are unchanged. Reads `nav2_params.yaml` (values and comments), the generator output of `scripts/gen_nav_footprint.py` and the READMEs; replays the nav2 1.3.13 approach model (`VelocityPolygon::isInRange`, `Polygon::getCollisionTime`, translation only) on the CliffStop sub-polygons.
 
 | Test | Covers |
 |---|---|
-| `test_observation_sources_are_scan_and_the_two_tof_sources` | `observation_sources` is exactly `scan, tof_obstacles, tof_cliff`. |
-| `test_tof_source_settings` | Both ToF sources: `pointcloud` on `/head/d435/points_filtered`, bands 0.10-0.6 m and -1.0 to -0.10 m, `min_range` 0.0, enabled (values and types). |
-| `test_tof_source_band_equals_the_stvl_mark_band` | `tof_obstacles` band equals the STVL `depth_mark` band, `tof_cliff` equals `depth_cliff_mark`, same topic. |
+| `test_observation_sources_are_scan_and_the_two_depth_sources` | `observation_sources` is exactly `scan, depth_obstacles, depth_cliff`. |
+| `test_depth_source_settings` | Both D435 sources: `pointcloud` on `/head/d435/points_filtered`, bands 0.10-0.6 m and -1.0 to -0.10 m, `min_range` 0.0, enabled (values and types). |
+| `test_depth_source_band_equals_the_stvl_mark_band` | `depth_obstacles` band equals the `depth_voxel_layer` `depth_mark` band, `depth_cliff` equals `depth_cliff_mark`, same topic. |
 | `test_no_collision_monitor_source_reads_a_ground_topic` | No collision_monitor source topic starts with `/ground/` (D-A1). |
 | `test_scan_source_is_unchanged` | U5: `scan` stays `type: scan` on `/scan_filtered`, enabled. |
 | `test_polygons_include_cliffstop` | `polygons` is exactly `StopBox, ArmStop, CliffStop`. |
 | `test_every_polygon_names_only_declared_sources` | Every listed polygon has a non-empty `sources_names` that names only declared observation sources. |
-| `test_polygon_source_sets` | StopBox `scan, tof_obstacles`; ArmStop `scan`; CliffStop `tof_cliff`. |
+| `test_polygon_source_sets` | StopBox `scan, depth_obstacles`; ArmStop `scan`; CliffStop `depth_cliff`. |
 | `test_cliffstop_is_a_direction_aware_approach_polygon_with_the_generated_points` | CliffStop is an enabled holonomic `velocity_polygon` with `approach`, `time_before_collision` > 0 and sub-polygons `rotate, forward, back`; `rotate` / `forward` equal the generator's cliff polygon, `back` the footprint. |
 | `test_cliffstop_stops_motion_toward_or_along_cliff_points_inside` | Cliff points 0.42-0.52 m ahead (inside CliffStop): forward, left, right, forward-left and a zero command get collision time 0 (stop). |
 | `test_cliffstop_passes_backing_away_from_cliff_points_inside` | The same points: back, back-left and back-right get no collision (pass). |
 | `test_cliffstop_slows_the_approach_to_a_cliff_outside_and_passes_backing_away` | Cliff points 0.62-0.72 m ahead: forward 0.2 m/s gets a collision time inside `time_before_collision` (slowdown), backward none. |
-| `test_tof_sources_keep_the_stale_source_stop` | Node `source_timeout` 1.0 and no ToF source overrides it (no `source_timeout: 0.0`), so a ToF or head-TF outage stops motion. |
-| `test_comments_explain_the_outage_stop_and_the_runtime_switch` | The collision_monitor comments name "invalid source", `collision_monitor_node.cpp`, `ros2 param set /collision_monitor tof_cliff.enabled false`, the ArmStop edge noise and the arm shadow. |
+| `test_depth_sources_keep_the_stale_source_stop` | Node `source_timeout` 1.0, both D435 sources enabled and none overrides it (no `source_timeout: 0.0`), so a D435 or head-TF outage stops motion. |
+| `test_comments_explain_the_outage_stop_and_the_runtime_switch` | The collision_monitor comments name "invalid source", `collision_monitor_node.cpp`, `ros2 param set /collision_monitor depth_cliff.enabled false`, the ArmStop edge noise and the arm shadow. |
 | `test_cliffstop_comment_explains_the_direction_aware_shape` | The CliffStop comment names `getCollisionTime`, the `rotate` / `forward` / `back` sub-polygons and that backing away passes. |
-| `test_readme_documents_the_tof_collision_sources` | The nav2_bringup README "Collision monitor" section names both ToF sources, the topic, CliffStop / ArmStop, the invalid-source stop, the runtime switch, that backing away from a seen cliff passes and the cliff view limitation. |
-| `test_readme_records_the_docker_validation` | The README "ToF validation in Docker" section names the image, the three packages, `tof_optical_frame`, `cmd_vel_smoothed` and the invalid-source outcome; every case with cliff points inside CliffStop records that backward -0.1 passes. |
+| `test_readme_documents_the_depth_collision_sources` | The nav2_bringup README "Sources: lidar plus head D435" subsection of "Collision monitor" names both D435 sources, the topic, CliffStop / ArmStop, the invalid-source stop, the runtime switch, that backing away from a seen cliff passes and the cliff view limitation. |
+| `test_readme_records_the_docker_validation` | The README "ToF validation in Docker" section (the 2026-10-18 record, run with the ToF names) names the image, the three packages, `tof_optical_frame`, `cmd_vel_smoothed` and the invalid-source outcome; every case with cliff points inside CliffStop records that backward -0.1 passes. |
 | `test_readme_sections_have_no_parking_wording` | Neither README section defers anything to a later change. |
 | `test_tests_readme_documents_this_file` | This section lists every test of the file. |
 

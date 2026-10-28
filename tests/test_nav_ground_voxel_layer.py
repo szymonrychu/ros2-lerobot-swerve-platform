@@ -243,10 +243,10 @@ def test_global_costmap_is_untouched() -> None:
 
 def test_collision_monitor_sources_are_unchanged_and_free_of_ground_topics() -> None:
     monitor = nav2()["collision_monitor"]["ros__parameters"]
-    assert monitor["observation_sources"] == ["scan", "tof_obstacles", "tof_cliff"]
+    assert monitor["observation_sources"] == ["scan", "depth_obstacles", "depth_cliff"]
     for name in monitor["observation_sources"]:
         assert not monitor[name]["topic"].startswith("/ground/"), name
-    assert monitor["CliffStop"]["sources_names"] == ["tof_cliff"]
+    assert monitor["CliffStop"]["sources_names"] == ["depth_cliff"]
     assert "/ground/" not in yaml.dump(monitor)
 
 

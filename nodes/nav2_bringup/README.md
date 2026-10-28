@@ -17,7 +17,7 @@ option requires localization and runs online_sync.
 - `map -> odom`: slam_toolbox. `odom -> base_link`: robot_localization_ekf. `base_link -> laser_frame`: static TF.
 - Odometry: `/odometry/filtered` (bt_navigator, controller_server, velocity_smoother).
 - Obstacles: `/scan_filtered` (RPLidar A1 with the robot's own body removed by `nodes/laser_filter`) in both costmaps and the collision monitor.
-- 3D obstacles and cliffs: `/head/d435/points_filtered` (head D435 cloud, self-filtered by `nodes/laser_filter`) in the local costmap `depth_voxel_layer` (see [D435 obstacle layer](#d435-obstacle-layer)) and the collision monitor sources `tof_obstacles` / `tof_cliff` (see [Collision monitor](#collision-monitor)).
+- 3D obstacles and cliffs: `/head/d435/points_filtered` (head D435 cloud, self-filtered by `nodes/laser_filter`) in the local costmap `depth_voxel_layer` (see [D435 obstacle layer](#d435-obstacle-layer)) and the collision monitor sources `depth_obstacles` / `depth_cliff` (see [Collision monitor](#collision-monitor)).
 - Goals: `/goal_pose` (bt_navigator) or the `navigate_to_pose` action.
 
 ## D435 inputs
@@ -29,10 +29,12 @@ ends with the D435 switch-over (design D6). The head 3D input is the D435 cloud:
 
 - Local costmap: `depth_voxel_layer` is enabled and its three sources (`depth_mark`, `depth_cliff_mark`,
   `depth_clear`) read `/head/d435/points_filtered` (see [D435 obstacle layer](#d435-obstacle-layer)). The global costmap has no head input.
+- Collision monitor: the sources `depth_obstacles` and `depth_cliff` are enabled on `/head/d435/points_filtered`;
+  `StopBox` reads `scan` and `depth_obstacles`, `CliffStop` is enabled on `depth_cliff` (see
+  [Collision monitor](#collision-monitor)).
 - No line of `config/nav2_params.yaml` names a `/tof` topic: the disabled `ground_voxel_layer` clears on
-  `/head/d435/points_filtered` and the disabled collision monitor sources `tof_obstacles` / `tof_cliff` read it too.
-- Still disabled with the "disabled (user 2026-10-24)" comment: `ground_voxel_layer`, `ground_cost_filter`, the
-  `tof_obstacles` / `tof_cliff` sources, `CliffStop`, and `StopBox.sources_names` is `["scan"]`.
+  `/head/d435/points_filtered` too.
+- Still disabled with the "disabled (user 2026-10-24)" comment: `ground_voxel_layer` and `ground_cost_filter`.
 
 Runtime switch without a redeploy: `ros2 param set /local_costmap/local_costmap depth_voxel_layer.enabled false` (and
 `true` to put it back). `tests/test_nav_d435_inputs.py` pins the D435 inputs.
@@ -96,10 +98,10 @@ Non-convex footprints in Nav2 Jazzy (checked in the navigation2 1.3.13 sources a
   the laser_filter self polygon, and raytracing clears stale cells.
 
 The collision_monitor also carries a `CliffStop` polygon (holonomic `velocity_polygon`, `approach`,
-`time_before_collision` 1.2 s, source `tof_cliff`), generated into the `cliffstop` region: `rotate` and `forward`
+`time_before_collision` 1.2 s, source `depth_cliff`), generated into the `cliffstop` region: `rotate` and `forward`
 (every command with a forward or sideways component) are the footprint grown by `cliff_margin_m` (0.25 m,
-`gen_nav_footprint.yaml`; the head ToF at 0.35-0.40 m sees the lower floor of a 15 cm step about 0.2 m beyond the
-edge, so the guard reaches past it); `back` (every command with a backward component) is the footprint itself, so the
+`gen_nav_footprint.yaml`; a head camera at 0.35-0.40 m, where the D435 sits at the old head unit's centre, sees the
+lower floor of a 15 cm step about 0.2 m beyond the edge, so the guard reaches past it); `back` (every command with a backward component) is the footprint itself, so the
 robot can back away from a seen edge (see [Collision monitor](#collision-monitor)).
 
 ### Dynamic footprint (arm released)
@@ -346,6 +348,10 @@ Zones drawn as POIs become two costmap filters, fed by `nodes/costmap_zones` (ke
 
 ## ToF validation in Docker
 
+The collision monitor sources were named `tof_obstacles` / `tof_cliff` and the costmap layer `tof_voxel_layer` in
+this check; the D435 switch-over renamed them `depth_obstacles` / `depth_cliff` / `depth_voxel_layer` with the same
+bands, polygons and `source_timeout`.
+
 No ROS on the dev machine, so the ToF sources were checked by the real Jazzy servers (2026-10-18, rerun the same day
 with the direction-aware CliffStop) in an arm64
 `ros:jazzy` image (`ros:jazzy@sha256:103b6c417973394659af6804d4917cd489b91e5ed22eb7bef263025a3bed2410`) with
@@ -441,9 +447,9 @@ Pass-through limits: the marking sources use `min_obstacle_height` -1.5 and `max
 already applied the plane-relative bands, so the costmap does not cut heights a second time (a pass-through, not a
 filter); `obstacle_range` is 2.0 m as for the fixed bands.
 
-What stays on the fixed bands: the collision monitor sources `scan`, `tof_obstacles` and `tof_cliff` and CliffStop
-(`tof_cliff` only). The ground clouds do not feed the collision monitor (user decision D-A1): the 10 Hz ToF bands with
-the fail-safe stale-source stop stay.
+What stays on the fixed bands: the collision monitor sources `scan`, `depth_obstacles` and `depth_cliff` and CliffStop
+(`depth_cliff` only). The ground clouds do not feed the collision monitor (user decision D-A1): the 15 Hz D435 bands
+with the fail-safe stale-source stop stay.
 
 Obstacle vs warning rule: a step, threshold, drop or ramp cluster is an obstacle (lethal, marked in the ground layer)
 when its edge step exceeds one third of the wheel diameter (0.04 m with wheel radius 0.06 m) or its surface slope
@@ -496,11 +502,11 @@ linear speed (`rotate`, below 0.005 m/s, which includes rotating in place) check
 tangent to it, generated), because a turning H sweeps its corners and its notches out to that radius. A robot stopped next to a wall can still back away or slide along it. A
 plain stop polygon zeroed every command once a return was inside, so the robot froze against the wall.
 
-### Sources: lidar plus head ToF
+### Sources: lidar plus head D435
 
-The lidar keeps guarding 360 deg out to ~12 m (U5); the head ToF adds 3D obstacles (low objects, overhangs up to
-the robot height) and below-floor points (cliffs) inside its narrow view. Both head sources read the self-filtered
-D435 cloud `/head/d435/points_filtered`; heights compare in `base_link` after the TF lookup
+The lidar keeps guarding 360 deg out to ~12 m (U5); the head D435 adds 3D obstacles (low objects, overhangs up to
+the robot height) and below-floor points (cliffs) inside its 87 x 58 deg view. Both head sources are enabled and read
+the self-filtered D435 cloud `/head/d435/points_filtered`; heights compare in `base_link` after the TF lookup
 (`nav2_collision_monitor/src/pointcloud.cpp`), so the negative cliff band works. The bands equal the local costmap
 `depth_voxel_layer` bands (`depth_mark`, `depth_cliff_mark`), so the monitor and the planner agree on what an obstacle and
 a cliff are.
@@ -508,13 +514,13 @@ a cliff are.
 | Source | Type | Topic | Band (base_link z) | Feeds |
 |---|---|---|---|---|
 | `scan` | `scan` | `/scan_filtered` | lidar plane | StopBox, ArmStop |
-| `tof_obstacles` | `pointcloud` | `/head/d435/points_filtered` | 0.10 to 0.6 m (`min_range` 0.0) | StopBox |
-| `tof_cliff` | `pointcloud` | `/head/d435/points_filtered` | -1.0 to -0.10 m (`min_range` 0.0) | CliffStop |
+| `depth_obstacles` | `pointcloud` | `/head/d435/points_filtered` | 0.10 to 0.6 m (`min_range` 0.0) | StopBox |
+| `depth_cliff` | `pointcloud` | `/head/d435/points_filtered` | -1.0 to -0.10 m (`min_range` 0.0) | CliffStop |
 
-| Polygon | Type / action | `scan` | `tof_obstacles` | `tof_cliff` | Why |
+| Polygon | Type / action | `scan` | `depth_obstacles` | `depth_cliff` | Why |
 |---|---|---|---|---|---|
-| `StopBox` | `velocity_polygon` / `stop` | yes | yes | no | Stops motion toward a lidar or 3D ToF obstacle 2 cm from the body. |
-| `ArmStop` | `polygon` (dynamic) / `approach` | yes | no | no | ToF edge noise around the released arm must not freeze it; ToF obstacles near the arm still reach the local costmap, whose footprint includes the arm shadow. |
+| `StopBox` | `velocity_polygon` / `stop` | yes | yes | no | Stops motion toward a lidar or 3D D435 obstacle 2 cm from the body. |
+| `ArmStop` | `polygon` (dynamic) / `approach` | yes | no | no | D435 edge noise around the released arm must not freeze it; D435 obstacles near the arm still reach the local costmap, whose footprint includes the arm shadow. |
 | `CliffStop` | `velocity_polygon` / `approach` | no | no | yes | Footprint + `cliff_margin_m` 0.25 m while rotating or moving forward or sideways, the footprint while backing away (generated by `scripts/gen_nav_footprint.py`): blocks motion toward below-floor points, backing away passes. |
 
 `CliffStop` uses the approach model (`time_before_collision` 1.2 s, `simulation_time_step` 0.05 s): below-floor
@@ -527,25 +533,25 @@ from them passes. Points already inside the selected sub-polygon stop the comman
 |---|---|---|---|
 | `rotate` | below 0.005 m/s (rotating in place included) | footprint + `cliff_margin_m` | A turning body swings its corners toward the true edge, which lies up to ~0.2 m inside the seen below-floor points. |
 | `forward` | direction within +-90 deg (forward and sideways) | footprint + `cliff_margin_m` | Toward or along a seen edge. |
-| `back` | direction beyond +-90 deg | footprint | The ToF looks forward, so the cliff points sit ahead and backing away passes. |
+| `back` | direction beyond +-90 deg | footprint | The D435 looks forward, so the cliff points sit ahead and backing away passes. |
 
 At a seen edge forward and sideways stop and backing away passes (see the [Docker check](#tof-validation-in-docker));
 the generator tests pin the shapes and the selection (`tests/test_nav_footprint.py`), and
-`tests/test_nav_tof_collision.py` replays the nav2 approach model on them.
+`tests/test_nav_depth_collision.py` replays the nav2 approach model on them.
 
-Fail-safe stop on a ToF outage: both ToF sources keep the node `source_timeout` 1.0 s (no per-source override, never
+Fail-safe stop on a D435 outage: both D435 sources keep the node `source_timeout` 1.0 s (no per-source override, never
 0.0). An enabled source with no cloud for 1 s, or without the head TF at the cloud stamp, is an "invalid source" and
 the monitor publishes a STOP for every command (`collision_monitor_node.cpp`, nav2 1.3.13; user decision
-2026-10-18), logging `Robot to stop due to invalid source`. So a ToF driver crash, a laser_filter stall or a missing
-pan/tilt joint state stops Nav2 motion. An empty cloud (a frame with no valid pixel) still counts as fresh data.
+2026-10-18), logging `Robot to stop due to invalid source`. So a D435 driver crash, a d435_obstacle_cloud or
+laser_filter stall or a missing pan/tilt joint state stops Nav2 motion. An empty cloud (a frame with no valid pixel) still counts as fresh data.
 Runtime switch per source, `false` takes it out of the monitor and `true` puts it back:
 
 ```bash
-ros2 param set /collision_monitor tof_cliff.enabled false
-ros2 param set /collision_monitor tof_obstacles.enabled false
+ros2 param set /collision_monitor depth_cliff.enabled false
+ros2 param set /collision_monitor depth_obstacles.enabled false
 ```
 
-Cliff limitation: the monitor sees a cliff only while the ToF looks at it (the head home pose looks forward-down);
+Cliff limitation: the monitor sees a cliff only while the D435 looks at it (the head home pose looks forward-down);
 there is no below-floor source behind or beside the robot, and a cliff into a void with no returns gives no points.
 The local costmap keeps cliff voxels for 15 s after the head looked away, so the planner keeps avoiding a seen edge.
 
