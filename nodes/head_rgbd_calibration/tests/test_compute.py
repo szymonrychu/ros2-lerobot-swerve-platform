@@ -1,5 +1,6 @@
-"""Tests for the compute step: a synthetic session written through the store, then computed."""
+"""Tests for the compute step: a synthetic D435 intrinsics check session written through the store, then computed."""
 
+import dataclasses
 import json
 from datetime import datetime
 from functools import cache
@@ -8,74 +9,78 @@ from pathlib import Path
 import numpy as np
 import pytest
 import yaml
-from ros2_common.head_rgbd_calibration.calibrate import detect_tof
 from ros2_common.head_rgbd_calibration.charuco import detect, make_board
 from ros2_common.head_rgbd_calibration.frames import CameraInfoData, StampedImage
-from ros2_common.head_rgbd_calibration.poses import CapturedPose
-from ros2_common.head_rgbd_calibration.urdf_handoff import read_chain
 
 from head_rgbd_calibration.compute import compute_result, main
 from head_rgbd_calibration.config import NodeConfig
-from head_rgbd_calibration.store import SessionStore
+from head_rgbd_calibration.store import ColourDepthStill, SessionStore
 from tests.contract import assert_matches_fixture
-from tests.pose_factory import BOARD_CFG, RGB_STAMP_NS, SELECTION, TOF_STAMP_NS, load_synthetic
+from tests.pose_factory import BOARD_CFG, STAMP_NS, factory_info, load_synthetic
 
 NOW = datetime(2026, 10, 19, 12, 30, 45)
-LENS = 1.5
-POSES = 18
-DISTANCE_M = (0.3, 0.45)
-TILT_DEG = 20.0
-URDF_FILE = Path(__file__).resolve().parents[3] / "nodes" / "web_ui" / "urdf" / "head.urdf"
-SDK_K = [191.0, 0.0, 120.0, 0.0, 191.0, 90.0, 0.0, 0.0, 1.0]
-SDK_P = [191.0, 0.0, 120.0, 0.0, 0.0, 191.0, 90.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+VIEWS = 20
+DISTANCE_M = (0.4, 0.9)
+FOCAL_ERROR = 1.03
+PLANE_OFFSET_MM = 15
+RESULT_FILES = {"result.json", "report.md"}
 
 
 @cache
-def synthetic_poses() -> tuple[CapturedPose, ...]:
-    """Poses of one board seen by both synthetic cameras, spread over distance and tilt."""
+def synthetic_stills() -> tuple[ColourDepthStill, ...]:
+    """Stills of the synthetic board spread over distance and tilt, with exact aligned depth and the true K."""
     syn = load_synthetic()
-    rgb_cam, tof_cam, true = syn.rgb_camera(), syn.tof_camera(), syn.default_extrinsic(0.05, 1.5)
+    camera = syn.rgb_camera()
     board = make_board(BOARD_CFG)
-    poses = []
-    candidates = syn.board_poses(
-        POSES + 8, rgb_cam, BOARD_CFG, seed=11, distance_m=DISTANCE_M, max_tilt_deg=TILT_DEG, lateral_fraction=0.1
-    )
-    for i, pose in enumerate(candidates):
-        tof_pose = true.tof_pose(pose)
-        rgb = syn.render_rgb(rgb_cam, pose, BOARD_CFG, seed=i)
-        amplitude = syn.render_tof_amplitude(tof_cam, tof_pose, BOARD_CFG, seed=i)
-        rgb_det, tof_det = detect(rgb, board), detect_tof(amplitude, board, SELECTION)
-        if rgb_det is None or tof_det is None:
+    stills = []
+    for i, pose in enumerate(syn.board_poses(VIEWS, camera, BOARD_CFG, seed=3, distance_m=DISTANCE_M)):
+        rgb = syn.render_rgb(camera, pose, BOARD_CFG, seed=i)
+        detection = detect(rgb, board)
+        if detection is None:
             continue
-        depth = syn.render_depth(tof_cam, tof_pose, BOARD_CFG)
-        poses.append(
-            CapturedPose(
-                number=len(poses) + 1,
-                rgb=StampedImage(RGB_STAMP_NS, rgb),
+        stamp = STAMP_NS + i
+        stills.append(
+            ColourDepthStill(
+                number=len(stills) + 1,
+                rgb=StampedImage(stamp, rgb),
                 rgb_raw=None,
-                amplitude=StampedImage(TOF_STAMP_NS, amplitude),
-                depth=StampedImage(TOF_STAMP_NS, depth),
-                rgb_detection=rgb_det,
-                tof_detection=tof_det,
+                depth=StampedImage(stamp, syn.render_depth(camera, pose, BOARD_CFG)),
+                detection=detection,
+                camera_info=factory_info(),
             )
         )
-    assert len(poses) >= POSES
-    return tuple(poses[:POSES])
+    assert len(stills) >= NodeConfig().limits.min_views
+    return tuple(stills)
 
 
 def make_cfg(tmp_path: Path, **limits: float) -> NodeConfig:
-    return NodeConfig.model_validate(
-        {"state_dir": str(tmp_path / "state"), "head_urdf_file": str(URDF_FILE), "limits": limits}
-    )
+    return NodeConfig.model_validate({"state_dir": str(tmp_path / "state"), "limits": limits})
 
 
-def make_session(store: SessionStore, count: int, tof_info: bool = True) -> str:
-    sid = store.create_session(NOW, LENS)
-    if tof_info:
-        store.set_tof_info(sid, CameraInfoData(240, 180, "plumb_bob", np.zeros(5), np.array(SDK_K), np.array(SDK_P)))
-    for pose in synthetic_poses()[:count]:
-        store.add_pose(sid, pose)
+def make_session(
+    store: SessionStore, count: int = VIEWS, info: CameraInfoData | None = None, depth_offset_mm: int = 0
+) -> str:
+    """An intrinsics session of the first count synthetic stills, the factory info and depth changed when given."""
+    sid = store.create_session(NOW)
+    for still in synthetic_stills()[:count]:
+        depth = still.depth.image
+        if depth_offset_mm:
+            depth = np.where(depth > 0, depth.astype(np.int64) + depth_offset_mm, 0).astype(np.uint16)
+        store.add_pose(
+            sid,
+            dataclasses.replace(
+                still, depth=StampedImage(still.depth.stamp_ns, depth), camera_info=info or still.camera_info
+            ),
+        )
     return sid
+
+
+def edit_pose(store: SessionStore, sid: str, pid: str, change) -> None:
+    """Rewrite one stored pose.json through change(meta)."""
+    path = store.pose_dir(sid, pid) / "pose.json"
+    meta = json.loads(path.read_text())
+    change(meta)
+    path.write_text(json.dumps(meta))
 
 
 @pytest.fixture
@@ -88,73 +93,89 @@ def store(cfg: NodeConfig) -> SessionStore:
     return SessionStore(Path(cfg.state_dir), cfg)
 
 
-def test_passing_session_writes_all_result_files(store: SessionStore, cfg: NodeConfig) -> None:
-    sid = make_session(store, POSES)
+def test_intrinsics_session_result(store: SessionStore, cfg: NodeConfig) -> None:
+    """A check session computes a pass with the plane bias and writes no calibration file."""
+    sid = make_session(store)
     rid = store.new_result_id(NOW)
     result = compute_result(store, sid, rid, cfg, NOW)
     out = store.result_dir(sid, rid)
     assert result["passed"] is True, result
+    assert result["kind"] == "intrinsics"
     assert json.loads((out / "result.json").read_text()) == result
-    assert {p.name for p in out.iterdir()} == {
-        "head_camera_calibration.yaml",
-        "tof_calibration.yaml",
-        "head_rgbd_extrinsics.yaml",
-        "tof_joint.json",
-        "head.urdf",
-        "report.md",
-        "result.json",
-    }
+    assert {p.name for p in out.iterdir()} == RESULT_FILES
     assert [p.name for p in out.parent.iterdir()] == [rid]
-    assert result["id"] == rid and result["session"] == sid
-    assert result["failed_limits"] == [] and result["lens_position"] == LENS
-    assert result["pose_ids"] == store.pose_ids(sid)
-    assert result["rgb_views"] == POSES and result["tof_views"] == POSES and result["stereo_pairs"] == POSES
-    for key in ("rgb_rms_px", "tof_rms_px", "stereo_rms_px", "plane_bias_mm"):
-        assert isinstance(result[key], float)
+    assert result["id"] == rid and result["session"] == sid and result["failed_limits"] == []
+    assert result["pose_ids"] == store.pose_ids(sid) and result["views"] == len(store.pose_ids(sid))
+    assert result["rms_px"] < cfg.limits.intrinsics_max_rms_px
+    assert result["focal_diff_pct"] < cfg.limits.intrinsics_max_focal_diff_pct
+    assert result["principal_diff_px"] < cfg.limits.intrinsics_max_principal_diff_px
+    assert abs(result["plane_bias_median_mm"]) < 1.0 and 0.0 <= result["plane_bias_spread_mm"] < 2.0
+    assert [p["id"] for p in result["poses"]] == store.pose_ids(sid)
+    assert all(isinstance(p["error_px"], float) and isinstance(p["plane_bias_mm"], float) for p in result["poses"])
+    assert result["limits"] == cfg.limits.model_dump()
     assert_matches_fixture({**result, "report": (out / "report.md").read_text()}, "result")
-    assert result["limits"] == cfg.limits.model_dump() and result["limits"]["plane_max_bias_mm"] == 40.0
-    assert yaml.safe_load((out / "head_camera_calibration.yaml").read_text())["camera_name"] == "head_camera"
-    assert yaml.safe_load((out / "tof_calibration.yaml").read_text())["camera_name"] == "tof"
-    meta = yaml.safe_load((out / "head_rgbd_extrinsics.yaml").read_text())
-    assert meta["session"] == sid and meta["lens_position"] == LENS and "board" in meta and "tof_sdk_diff_pct" in meta
-    assert sid in (out / "report.md").read_text()
+    report = (out / "report.md").read_text()
+    assert sid in report and "Result: PASS" in report and "Board plane depth bias" in report
 
 
-def test_tof_joint_matches_rewritten_urdf(store: SessionStore, cfg: NodeConfig) -> None:
-    sid = make_session(store, POSES)
-    rid = store.new_result_id(NOW)
-    compute_result(store, sid, rid, cfg, NOW)
-    out = store.result_dir(sid, rid)
-    joint = json.loads((out / "tof_joint.json").read_text())
-    assert set(joint) == {"xyz", "rpy", "note"}
-    chain = read_chain((out / "head.urdf").read_text())
-    np.testing.assert_allclose(chain.tof.origin.xyz, joint["xyz"], atol=1e-6)
-    np.testing.assert_allclose(chain.tof.origin.rpy, joint["rpy"], atol=1e-6)
-    assert "stereo RMS" in joint["note"]
-
-
-def test_limits_exceeded_marks_not_passed(tmp_path: Path) -> None:
-    cfg = make_cfg(tmp_path, rgb_max_rms_px=1e-6)
+def test_focal_offset_fails_the_check(tmp_path: Path) -> None:
+    cfg = make_cfg(tmp_path)
     store = SessionStore(Path(cfg.state_dir), cfg)
-    sid = make_session(store, POSES)
+    k = factory_info().k.reshape(3, 3).copy()
+    k[0, 0] *= FOCAL_ERROR
+    k[1, 1] *= FOCAL_ERROR
+    sid = make_session(store, info=factory_info(k))
     rid = store.new_result_id(NOW)
     result = compute_result(store, sid, rid, cfg, NOW)
-    out = store.result_dir(sid, rid)
-    assert result["passed"] is False
-    assert result["failed_limits"] and "limits.rgb_max_rms_px" in result["failed_limits"][0]
-    assert result["rgb_rms_px"] > 0
-    assert (out / "report.md").is_file() and (out / "result.json").is_file()
-    assert not list(out.glob("*.yaml"))
+    assert result["passed"] is False and "error" not in result
+    assert any("limits.intrinsics_max_focal_diff_pct" in f for f in result["failed_limits"])
+    assert result["focal_diff_pct"] == pytest.approx(100 * (1 - 1 / FOCAL_ERROR), abs=0.5)
+    assert {p.name for p in store.result_dir(sid, rid).iterdir()} == RESULT_FILES
+    assert "Result: FAIL" in (store.result_dir(sid, rid) / "report.md").read_text()
 
 
-def test_plane_bias_over_limit_marks_not_passed(tmp_path: Path) -> None:
-    cfg = make_cfg(tmp_path, plane_max_bias_mm=1e-6)
+def test_plane_bias_over_the_limit_fails(tmp_path: Path) -> None:
+    cfg = make_cfg(tmp_path)
+    assert cfg.limits.plane_max_bias_mm == 10.0
     store = SessionStore(Path(cfg.state_dir), cfg)
-    sid = make_session(store, POSES)
+    sid = make_session(store, depth_offset_mm=PLANE_OFFSET_MM)
     result = compute_result(store, sid, store.new_result_id(NOW), cfg, NOW)
+    assert result["plane_bias_median_mm"] == pytest.approx(PLANE_OFFSET_MM, abs=1.0)
     assert result["passed"] is False
-    assert any("limits.plane_max_bias_mm" in f for f in result["failed_limits"])
-    assert result["limits"]["plane_max_bias_mm"] == 1e-6
+    assert [f for f in result["failed_limits"] if "limits.plane_max_bias_mm" in f]
+
+
+def test_unmeasured_plane_bias_fails(store: SessionStore, cfg: NodeConfig) -> None:
+    sid = store.create_session(NOW)
+    for still in synthetic_stills():
+        patch = np.zeros_like(still.depth.image)
+        patch[:5, :5] = 500  # valid depth only in an image corner, off the board
+        store.add_pose(sid, dataclasses.replace(still, depth=StampedImage(still.depth.stamp_ns, patch)))
+    result = compute_result(store, sid, store.new_result_id(NOW), cfg, NOW)
+    assert result["passed"] is False and "error" not in result
+    assert result["plane_bias_median_mm"] is None and result["plane_bias_spread_mm"] is None
+    assert any("limits.plane_max_bias_mm" in f and "not measured" in f for f in result["failed_limits"])
+
+
+def test_missing_factory_camera_info_is_an_error(store: SessionStore, cfg: NodeConfig) -> None:
+    sid = make_session(store)
+    edit_pose(store, sid, store.pose_ids(sid)[0], lambda meta: meta.pop("camera_info"))
+    rid = store.new_result_id(NOW)
+    result = compute_result(store, sid, rid, cfg, NOW)
+    assert result["passed"] is False and "camera_info" in result["error"]
+    assert result["kind"] == "intrinsics"
+    assert [p.name for p in store.result_dir(sid, rid).iterdir()] == ["result.json"]
+
+
+def test_camera_info_changing_within_the_session_is_an_error(store: SessionStore, cfg: NodeConfig) -> None:
+    sid = make_session(store)
+
+    def shift(meta: dict) -> None:
+        meta["camera_info"]["k"][0] += 5.0
+
+    edit_pose(store, sid, store.pose_ids(sid)[1], shift)
+    result = compute_result(store, sid, store.new_result_id(NOW), cfg, NOW)
+    assert result["passed"] is False and "camera_info" in result["error"]
 
 
 def test_too_few_poses_reports_error(store: SessionStore, cfg: NodeConfig) -> None:
@@ -168,59 +189,24 @@ def test_too_few_poses_reports_error(store: SessionStore, cfg: NodeConfig) -> No
     assert json.loads((out / "result.json").read_text())["error"] == result["error"]
 
 
-def test_missing_tof_info_gives_error(store: SessionStore, cfg: NodeConfig) -> None:
-    sid = make_session(store, POSES, tof_info=False)
+def test_head_arm_session_is_an_error(store: SessionStore, cfg: NodeConfig) -> None:
+    sid = store.create_session(NOW, kind="head_arm")
     result = compute_result(store, sid, store.new_result_id(NOW), cfg, NOW)
-    assert result["passed"] is False and "camera_info" in result["error"]
+    assert result["passed"] is False and "intrinsics" in result["error"]
+
+
+def test_error_result_has_empty_pose_lists(store: SessionStore, cfg: NodeConfig) -> None:
+    result = compute_result(store, make_session(store, 3), store.new_result_id(NOW), cfg, NOW)
+    assert result["error"] and result["poses"] == [] and result["views"] is None
+    assert result["rms_px"] is None and result["plane_bias_median_mm"] is None
 
 
 def test_main_runs_one_computation(tmp_path: Path) -> None:
     cfg = make_cfg(tmp_path)
     store = SessionStore(Path(cfg.state_dir), cfg)
-    sid = make_session(store, POSES)
+    sid = make_session(store)
     config_path = tmp_path / "node.yaml"
-    config_path.write_text(yaml.safe_dump(cfg.model_dump()))
+    config_path.write_text(yaml.safe_dump(cfg.model_dump(mode="json")))
     rid = store.new_result_id(NOW)
     assert main(["--config", str(config_path), "--session", sid, "--result", rid]) == 0
     assert json.loads((store.result_dir(sid, rid) / "result.json").read_text())["passed"] is True
-
-
-def test_result_carries_the_limits(store: SessionStore, cfg: NodeConfig) -> None:
-    sid = make_session(store, POSES)
-    result = compute_result(store, sid, store.new_result_id(NOW), cfg, NOW)
-    assert result["limits"] == cfg.limits.model_dump()
-    assert result["limits"]["plane_max_bias_mm"] == 40.0
-
-
-def test_outlier_pose_named_in_result_and_report(store: SessionStore, cfg: NodeConfig) -> None:
-    sid = make_session(store, POSES)
-    bad = store.pose_ids(sid)[3]
-    path = store.pose_dir(sid, bad) / "pose.json"
-    meta = json.loads(path.read_text())
-    points = meta["rgb"]["points"]
-    for i in range(0, len(points), 2):
-        points[i][0] += 40.0
-    path.write_text(json.dumps(meta))
-    rid = store.new_result_id(NOW)
-    result = compute_result(store, sid, rid, cfg, NOW)
-    assert result["passed"] is False
-    assert result["outlier_poses"] == [bad]
-    entry = next(p for p in result["poses"] if p["id"] == bad)
-    assert "rgb" in entry["outlier"]
-    line = next(f for f in result["failed_limits"] if "limits.rgb_max_rms_px" in f)
-    assert f"delete pose {bad} and Compute again" in line
-    report = (store.result_dir(sid, rid) / "report.md").read_text()
-    assert "## Per-pose reprojection errors" in report and bad in report
-
-
-def test_clean_session_has_pose_errors_without_outliers(store: SessionStore, cfg: NodeConfig) -> None:
-    sid = make_session(store, POSES)
-    result = compute_result(store, sid, store.new_result_id(NOW), cfg, NOW)
-    assert result["outlier_poses"] == []
-    assert [p["id"] for p in result["poses"]] == store.pose_ids(sid)
-    assert all(isinstance(p["rgb_error_px"], float) and p["outlier"] == [] for p in result["poses"])
-
-
-def test_error_result_has_empty_pose_lists(store: SessionStore, cfg: NodeConfig) -> None:
-    result = compute_result(store, make_session(store, 3), store.new_result_id(NOW), cfg, NOW)
-    assert result["error"] and result["poses"] == [] and result["outlier_poses"] == []

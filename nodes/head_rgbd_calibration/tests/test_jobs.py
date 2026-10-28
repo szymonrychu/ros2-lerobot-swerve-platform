@@ -56,7 +56,7 @@ def store(cfg: NodeConfig) -> SessionStore:
 
 @pytest.fixture
 def sid(store: SessionStore) -> str:
-    return store.create_session(NOW, 1.0)
+    return store.create_session(NOW)
 
 
 def test_child_is_niced(cfg: NodeConfig, store: SessionStore, sid: str) -> None:

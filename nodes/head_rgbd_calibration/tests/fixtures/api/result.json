@@ -2,16 +2,15 @@
   "id": "r-20261019-123045",
   "session": "calib-20261019-120000",
   "created": "2026-10-19T12:30:45",
+  "kind": "intrinsics",
   "passed": true,
   "failed_limits": [],
-  "rgb_rms_px": 0.21,
-  "tof_rms_px": 0.12,
-  "stereo_rms_px": 0.55,
-  "plane_bias_mm": -3.5,
-  "rgb_views": 18,
-  "tof_views": 18,
-  "stereo_pairs": 18,
-  "lens_position": 1.5,
+  "rms_px": 0.21,
+  "focal_diff_pct": 0.35,
+  "principal_diff_px": 1.2,
+  "plane_bias_median_mm": -1.5,
+  "plane_bias_spread_mm": 2.1,
+  "views": 18,
   "pose_ids": [
     "001",
     "002"
@@ -19,28 +18,18 @@
   "poses": [
     {
       "id": "001",
-      "rgb_error_px": 0.21,
-      "tof_error_px": 0.12,
-      "stereo_error_px": 0.55,
-      "outlier": [
-        "rgb"
-      ]
+      "error_px": 0.2,
+      "plane_bias_mm": -1.5,
+      "plane_spread_mm": 2.0
     }
   ],
-  "outlier_poses": [
-    "007"
-  ],
   "limits": {
-    "rgb_max_rms_px": 0.5,
-    "tof_max_rms_px": 0.3,
-    "stereo_max_rms_px": 1.0,
-    "tof_zero_distortion_rms_px": 0.3,
-    "plane_max_bias_mm": 40.0,
+    "plane_max_bias_mm": 10.0,
     "plane_max_spread_mm": 50.0,
     "min_views": 12,
     "intrinsics_max_rms_px": 0.5,
     "intrinsics_max_focal_diff_pct": 1.0,
     "intrinsics_max_principal_diff_px": 5.0
   },
-  "report": "# Head RGB-D calibration\n"
+  "report": "# D435 intrinsics check calib-20261019-120000\n"
 }

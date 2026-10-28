@@ -1,4 +1,4 @@
-"""Tests for applying a result to the robot and packaging it for download."""
+"""Tests for accepting an intrinsics check and packaging a result for download."""
 
 import io
 import json
@@ -10,22 +10,16 @@ from pathlib import Path
 
 import pytest
 
-from head_rgbd_calibration import apply as apply_mod
-from head_rgbd_calibration.apply import (
-    APPLIED_FILES,
-    APPLIED_MARKER,
-    NotApplicable,
-    applied_state,
-    apply_result,
-    download_zip,
-)
-from head_rgbd_calibration.compute import REPORT_FILE, URDF_FILE
+from head_rgbd_calibration import store as store_mod
+from head_rgbd_calibration.apply import APPLIED_MARKER, NotApplicable, applied_state, apply_result, download_zip
+from head_rgbd_calibration.compute import REPORT_FILE
 from head_rgbd_calibration.config import NodeConfig
 from head_rgbd_calibration.store import RESULT_FILE, SessionStore
 
 NOW = datetime(2026, 10, 19, 12, 30, 45, tzinfo=UTC)
 RID = "r-20261019-123045"
-UNITS = ["head_camera_cpp", "head_rgbd_cpp"]
+UNITS = ["head_rgbd_cpp", "head_state_publisher"]
+HEAD_CHAIN = {"session": "floor-20261021-120000", "result": "r-20261021-123000", "source": "floor"}
 
 
 @pytest.fixture
@@ -33,61 +27,53 @@ def store(tmp_path: Path) -> SessionStore:
     return SessionStore(tmp_path / "state", NodeConfig())
 
 
-def make_result(store: SessionStore, passed: bool = True, rid: str = RID, tag: str = "a") -> tuple[str, str]:
-    sid = store.create_session(datetime(2026, 10, 19, 12, 0, 0), 1.5)
+def make_result(store: SessionStore, passed: bool = True, rid: str = RID, kind: str | None = "intrinsics") -> tuple:
+    sid = store.create_session(datetime(2026, 10, 19, 12, 0, 0))
     path = store.result_dir(sid, rid)
     path.mkdir(parents=True)
-    (path / RESULT_FILE).write_text(json.dumps({"passed": passed}))
-    if passed:
-        for name in (*APPLIED_FILES, URDF_FILE, REPORT_FILE):
-            (path / name).write_text(f"{tag}:{name}")
+    body = {"id": rid, "session": sid, "passed": passed} | ({} if kind is None else {"kind": kind})
+    (path / RESULT_FILE).write_text(json.dumps(body))
+    (path / REPORT_FILE).write_text("# D435 intrinsics check\n")
     return sid, rid
 
 
-def test_apply_writes_marker_last(store: SessionStore, monkeypatch: pytest.MonkeyPatch) -> None:
+def applied_files(store: SessionStore) -> dict[str, str]:
+    return {p.name: p.read_text() for p in (store.state_dir / "applied").iterdir()}
+
+
+def test_intrinsics_apply_records_only(store: SessionStore) -> None:
+    """A passed check is recorded in applied.json, nothing is copied, and a failed check is refused."""
+    applied = store.state_dir / "applied"
+    applied.mkdir(parents=True)
+    (applied / APPLIED_MARKER).write_text(json.dumps({"head_chain": HEAD_CHAIN}))
+    sid, rid = make_result(store)
+    info = apply_result(store, sid, rid, NOW)
+    assert info == {"kind": "intrinsics", "session": sid, "result": rid, "applied_at": NOW.isoformat()}
+    assert [p.name for p in applied.iterdir()] == [APPLIED_MARKER]
+    assert json.loads((applied / APPLIED_MARKER).read_text()) == {**info, "head_chain": HEAD_CHAIN}
+    before = applied_files(store)
+    failed_sid, failed_rid = make_result(store, passed=False, rid="r-20261019-130000")
+    with pytest.raises(NotApplicable, match="did not pass"):
+        apply_result(store, failed_sid, failed_rid, NOW)
+    assert applied_files(store) == before
+
+
+def test_apply_writes_the_marker_atomically(store: SessionStore, monkeypatch: pytest.MonkeyPatch) -> None:
     sid, rid = make_result(store)
     order: list[str] = []
     real = os.replace
-    monkeypatch.setattr(apply_mod.os, "replace", lambda a, b: (order.append(Path(b).name), real(a, b))[1])
-    info = apply_result(store, sid, rid, NOW)
-    applied = store.state_dir / "applied"
-    for name in APPLIED_FILES:
-        assert (applied / name).read_text() == f"a:{name}"
-    assert order[-1] == APPLIED_MARKER and set(order[:-1]) == set(APPLIED_FILES)
-    marker = json.loads((applied / APPLIED_MARKER).read_text())
-    assert marker == info
-    assert marker["session"] == sid and marker["result"] == rid
-    assert marker["applied_at"] == NOW.isoformat() and marker["files"] == list(APPLIED_FILES)
-
-
-def test_failing_result_refused(store: SessionStore) -> None:
-    ok_sid, ok_rid = make_result(store)
-    apply_result(store, ok_sid, ok_rid, NOW)
-    before = {p.name: p.read_text() for p in (store.state_dir / "applied").iterdir()}
-    sid, rid = make_result(store, passed=False, rid="r-20261019-130000")
-    with pytest.raises(NotApplicable):
-        apply_result(store, sid, rid, NOW)
-    assert {p.name: p.read_text() for p in (store.state_dir / "applied").iterdir()} == before
-
-
-def test_interrupted_apply_keeps_previous_marker(store: SessionStore, monkeypatch: pytest.MonkeyPatch) -> None:
-    sid, rid = make_result(store)
+    monkeypatch.setattr(store_mod.os, "replace", lambda a, b: (order.append(Path(b).name), real(a, b))[1])
     apply_result(store, sid, rid, NOW)
-    marker_before = (store.state_dir / "applied" / APPLIED_MARKER).read_text()
-    sid2, rid2 = make_result(store, rid="r-20261019-140000", tag="b")
-    real = os.replace
-    calls = []
+    assert order == [APPLIED_MARKER]
+    assert [p.name for p in (store.state_dir / "applied").iterdir()] == [APPLIED_MARKER]
 
-    def flaky(a: object, b: object) -> None:
-        calls.append(b)
-        if len(calls) == 3:
-            raise OSError("disk")
-        real(a, b)
 
-    monkeypatch.setattr(apply_mod.os, "replace", flaky)
-    with pytest.raises(OSError):
-        apply_result(store, sid2, rid2, NOW)
-    assert (store.state_dir / "applied" / APPLIED_MARKER).read_text() == marker_before
+@pytest.mark.parametrize("kind", [None, "head_arm"])
+def test_result_of_another_kind_refused(store: SessionStore, kind: str | None) -> None:
+    sid, rid = make_result(store, kind=kind)
+    with pytest.raises(NotApplicable, match="intrinsics"):
+        apply_result(store, sid, rid, NOW)
+    assert not (store.state_dir / "applied").exists()
 
 
 def fake_run(stamp: int, state: str = "active"):
@@ -119,11 +105,12 @@ def test_download_zip_members(store: SessionStore) -> None:
     name, data = download_zip(store, sid, rid)
     assert name == f"{sid}-{rid}.zip"
     with zipfile.ZipFile(io.BytesIO(data)) as z:
-        assert sorted(z.namelist()) == sorted([*APPLIED_FILES, URDF_FILE, REPORT_FILE])
-        assert z.read("tof_joint.json") == b"a:tof_joint.json"
+        assert sorted(z.namelist()) == [REPORT_FILE, RESULT_FILE]
+        assert z.read(REPORT_FILE) == b"# D435 intrinsics check\n"
 
 
-def test_download_zip_without_yamls(store: SessionStore) -> None:
+def test_download_zip_without_a_report(store: SessionStore) -> None:
     sid, rid = make_result(store, passed=False)
+    (store.result_dir(sid, rid) / REPORT_FILE).unlink()
     with pytest.raises(NotApplicable):
         download_zip(store, sid, rid)

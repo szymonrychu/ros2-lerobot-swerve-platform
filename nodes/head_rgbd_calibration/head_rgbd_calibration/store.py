@@ -1,8 +1,8 @@
 """On-disk session store of the calibration node (design D3): only selected poses, safe ids, atomic writes.
 
-Layout under state_dir: sessions/<sid>/session.json, sessions/<sid>/poses/<pid>/{rgb.jpg, amplitude.png, depth.png,
-pose.json, rgb_thumb.jpg, tof_thumb.jpg} and sessions/<sid>/results/<rid>/result.json (plus the files the compute job
-writes there).
+Layout under state_dir: sessions/<sid>/session.json, sessions/<sid>/poses/<pid>/{rgb.jpg, depth.png, pose.json,
+rgb_thumb.jpg, depth_thumb.jpg} for a D435 intrinsics check session (rgb.jpg, pose.json and rgb_thumb.jpg for a
+head_arm one) and sessions/<sid>/results/<rid>/result.json (plus the files the compute job writes there).
 """
 
 import json
@@ -18,15 +18,14 @@ from typing import Any, Literal
 
 import cv2
 import numpy as np
-from ros2_common.head_rgbd_calibration.calibrate import PoseView
 from ros2_common.head_rgbd_calibration.charuco import Detection
-from ros2_common.head_rgbd_calibration.frames import CameraInfoData
-from ros2_common.head_rgbd_calibration.hints import capture_hints
-from ros2_common.head_rgbd_calibration.poses import CapturedPose
+from ros2_common.head_rgbd_calibration.config import BoardConfig
+from ros2_common.head_rgbd_calibration.frames import CameraInfoData, StampedImage
+from ros2_common.head_rgbd_calibration.hints import FEW_CORNERS_FRACTION
 from ros2_common.head_rgbd_calibration.views import ARM_JOINTS, HEAD_JOINTS, ArmBoardView
 
 from head_rgbd_calibration.config import NodeConfig
-from head_rgbd_calibration.images import rgb_thumbnail, tof_thumbnail
+from head_rgbd_calibration.images import depth_thumbnail, rgb_thumbnail
 
 LOGGER = logging.getLogger(__name__)
 
@@ -44,13 +43,14 @@ SESSION_FILE = "session.json"
 POSE_FILE = "pose.json"
 RESULT_FILE = "result.json"
 RGB_FILE = "rgb.jpg"
-AMPLITUDE_FILE = "amplitude.png"
 DEPTH_FILE = "depth.png"
-THUMBNAIL_FILES = {"rgb": "rgb_thumb.jpg", "tof": "tof_thumb.jpg"}
+THUMBNAIL_FILES = {"rgb": "rgb_thumb.jpg", "depth": "depth_thumb.jpg"}
 TEMP_PREFIX = ".tmp-"
 RGB_JPEG_QUALITY = 95
-KIND_RGBD = "rgbd"
+KIND_INTRINSICS = "intrinsics"
 KIND_HEAD_ARM = "head_arm"
+# Kind a session.json without the key reads as: a session of the retired RGB + ToF calibration, which nothing computes.
+KIND_RGBD = "rgbd"
 STILL_TIERS = (0, 1, 2)
 
 
@@ -63,24 +63,41 @@ class NotFound(LookupError):
 
 
 @dataclass(frozen=True)
-class SessionViews:
-    """A session's poses as the compute job needs them.
+class ColourDepthStill:
+    """A captured D435 still: colour and aligned depth of one stamp, the colour detection and the factory intrinsics.
 
     Attributes:
-        views: One PoseView per stored pose, in pose id order.
-        rgb_size: RGB (width, height), None while the session has no poses.
-        tof_size: ToF (width, height), None while the session has no poses.
-        tof_info: SDK ToF camera_info recorded for the session, None if none arrived.
-        lens_position: Lens position the session was captured with.
-        pose_ids: Pose ids matching views.
+        number: Pose number, continuing from the poses already stored.
+        rgb: Decoded BGR colour frame.
+        rgb_raw: Compressed bytes the colour frame was decoded from, None when not passed (then encoded at store).
+        depth: Depth registered to the colour frame, uint16 mm (0 is no depth), the colour frame's stamp.
+        detection: Board detection in the colour image.
+        camera_info: The factory colour camera_info at capture time.
     """
 
-    views: list[PoseView]
-    rgb_size: tuple[int, int] | None
-    tof_size: tuple[int, int] | None
-    tof_info: CameraInfoData | None
-    lens_position: float
-    pose_ids: list[str]
+    number: int
+    rgb: StampedImage
+    rgb_raw: bytes | None
+    depth: StampedImage
+    detection: Detection
+    camera_info: CameraInfoData
+
+
+@dataclass(frozen=True)
+class StoredStill:
+    """One stored still as the compute job reads it back.
+
+    Attributes:
+        pose_id: Pose id.
+        rgb: The stored colour frame, decoded (BGR).
+        depth: The stored aligned depth, uint16 mm.
+        camera_info: The factory colour camera_info stored with it, None when pose.json carries none.
+    """
+
+    pose_id: str
+    rgb: np.ndarray
+    depth: np.ndarray
+    camera_info: CameraInfoData | None
 
 
 def write_bytes_atomic(path: Path, data: bytes) -> None:
@@ -112,6 +129,66 @@ def detection_json(stamp_ns: int, detection: Detection) -> dict[str, Any]:
     }
 
 
+def camera_info_json(info: CameraInfoData) -> dict[str, Any]:
+    """The pose.json block of a camera_info (width, height, distortion_model, d, k, p)."""
+    return {
+        "width": int(info.width),
+        "height": int(info.height),
+        "distortion_model": info.distortion_model,
+        "d": [float(v) for v in info.d],
+        "k": [float(v) for v in info.k],
+        "p": [float(v) for v in info.p],
+    }
+
+
+def camera_info_from_json(block: dict[str, Any]) -> CameraInfoData:
+    """Rebuild a CameraInfoData from a pose.json block."""
+    return CameraInfoData(
+        width=int(block["width"]),
+        height=int(block["height"]),
+        distortion_model=str(block["distortion_model"]),
+        d=np.array(block["d"], dtype=np.float64),
+        k=np.array(block["k"], dtype=np.float64),
+        p=np.array(block["p"], dtype=np.float64),
+    )
+
+
+def colour_hints(detection: Detection, board: BoardConfig) -> list[str]:
+    """Hints for an operator on how to improve a captured still.
+
+    Args:
+        detection: ChArUco detection in the colour image.
+        board: The calibration board (its inner corner count sets the few-corners threshold).
+
+    Returns:
+        list[str]: The few-corners hint when the colour camera sees under FEW_CORNERS_FRACTION of the inner corners;
+        [] for a good still.
+    """
+    inner = (board.squares_x - 1) * (board.squares_y - 1)
+    count = len(detection.ids)
+    if count < FEW_CORNERS_FRACTION * inner:
+        return [f"few corners: {count} RGB - move the board closer / fill the frame"]
+    return []
+
+
+def board_depth_samples(depth_mm: np.ndarray, detection: Detection) -> int:
+    """Valid aligned depth pixels inside the convex hull of the detected corners (the plane bias samples).
+
+    Args:
+        depth_mm: uint16 depth registered to the colour frame, mm (0 is no depth).
+        detection: Board corners in colour pixels.
+
+    Returns:
+        int: Pixel count; 0 for fewer than three corners.
+    """
+    if len(detection.points) < 3:
+        return 0
+    mask = np.zeros(depth_mm.shape, dtype=np.uint8)
+    hull = cv2.convexHull(np.rint(detection.points).astype(np.int32).reshape(-1, 1, 2))
+    cv2.fillConvexPoly(mask, hull, 1)
+    return int(np.count_nonzero((mask > 0) & (depth_mm > 0)))
+
+
 def detection_from_json(block: dict[str, Any]) -> Detection:
     """Rebuild a Detection from a pose.json block."""
     return Detection(
@@ -133,7 +210,7 @@ class SessionStore:
 
         Args:
             state_dir: Root directory of the node state.
-            cfg: Node config supplying the coverage grid, thumbnail width and amplitude percentiles (defaults).
+            cfg: Node config supplying the coverage grid, thumbnail width and board (defaults).
         """
         self.state_dir = Path(state_dir)
         self.cfg = cfg or NodeConfig()
@@ -178,7 +255,7 @@ class SessionStore:
         Args:
             sid: Session id.
             pid: Pose id.
-            kind: "rgb" or "tof".
+            kind: "rgb" or "depth".
 
         Returns:
             The existing thumbnail file; InvalidId for another kind, NotFound if the file is missing.
@@ -212,7 +289,7 @@ class SessionStore:
         return sorted(found, reverse=True)
 
     def kind(self, sid: str) -> str:
-        """The session kind, "rgbd" for a session.json without the key."""
+        """The session kind, "rgbd" (the retired RGB + ToF calibration) for a session.json without the key."""
         return self.read_session(sid).get("kind", KIND_RGBD)
 
     def require_kind(self, sid: str, wanted: str, action: str) -> None:
@@ -228,13 +305,12 @@ class SessionStore:
         ids = self.pose_ids(sid)
         return {**data, "pose_ids": ids, "pose_count": len(ids), "result_count": len(self.result_ids(sid))}
 
-    def create_session(self, now: datetime, lens_position: float, kind: Literal["rgbd", "head_arm"] = KIND_RGBD) -> str:
+    def create_session(self, now: datetime, kind: Literal["intrinsics", "head_arm"] = KIND_INTRINSICS) -> str:
         """Create a session.
 
         Args:
             now: Creation time; it names the session.
-            lens_position: Lens position the head camera is locked at.
-            kind: "rgbd" (RGB+ToF poses) or "head_arm" (still RGB poses with measured joints).
+            kind: "intrinsics" (D435 colour + aligned depth stills) or "head_arm" (still RGB poses with joints).
 
         Returns:
             The id calib-YYYYmmdd-HHMMSS, with -N appended when that second is taken.
@@ -258,10 +334,7 @@ class SessionStore:
                     "id": sid,
                     "kind": kind,
                     "created": now.isoformat(),
-                    "lens_position": lens_position,
                     "rgb_size": None,
-                    "tof_size": None,
-                    "tof_info": None,
                     "next_pose": 1,
                 },
             )
@@ -285,82 +358,67 @@ class SessionStore:
         """One session: session.json fields plus pose_ids, pose_count and result_count."""
         return self.summary(sid)
 
-    def set_tof_info(self, sid: str, info: CameraInfoData) -> None:
-        """Record the SDK ToF camera_info (k, p, d, width, height, distortion_model) in session.json."""
-        block = {
-            "k": [float(v) for v in info.k],
-            "p": [float(v) for v in info.p],
-            "d": [float(v) for v in info.d],
-            "width": int(info.width),
-            "height": int(info.height),
-            "distortion_model": info.distortion_model,
-        }
-        with self.lock:
-            data = self.read_session(sid)
-            data["tof_info"] = block
-            write_json_atomic(self.session_dir(sid) / SESSION_FILE, data)
-
-    def set_image_sizes(self, sid: str, rgb_size: tuple[int, int], tof_size: tuple[int, int]) -> None:
-        """Record the image sizes (width, height); the first call wins, a different size raises ValueError."""
-        with self.lock:
-            data = self.read_session(sid)
-            self.apply_sizes(data, rgb_size, tof_size)
-            write_json_atomic(self.session_dir(sid) / SESSION_FILE, data)
-
     @staticmethod
-    def apply_sizes(data: dict[str, Any], rgb_size: tuple[int, int], tof_size: tuple[int, int]) -> None:
-        """Set the sizes in a session dict, or raise ValueError when they differ from the recorded ones."""
-        wanted = {"rgb_size": list(rgb_size), "tof_size": list(tof_size)}
-        for key, value in wanted.items():
-            if data[key] is not None and data[key] != value:
-                raise ValueError(f"{key} {value} differs from the session's {data[key]}: image size changed")
-        data.update(wanted)
+    def apply_rgb_size(data: dict[str, Any], image: np.ndarray) -> None:
+        """Record the colour (width, height) in a session dict: the first pose sets it, another size is refused."""
+        height, width = image.shape[:2]
+        wanted = [width, height]
+        if data["rgb_size"] is not None and data["rgb_size"] != wanted:
+            raise ValueError(f"rgb_size {wanted} differs from the session's {data['rgb_size']}: image size changed")
+        data["rgb_size"] = wanted
 
     # poses
 
-    def add_pose(self, sid: str, pose: CapturedPose) -> str:
-        """Store a captured pose.
+    def add_pose(self, sid: str, still: ColourDepthStill) -> str:
+        """Store a captured D435 still: colour JPEG, aligned depth PNG (16-bit), thumbnails and pose.json.
 
         Args:
             sid: Session id.
-            pose: The pose with its detections, as the PoseCounter produced it.
+            still: The still with its detection and factory camera_info, as the capture judged it.
 
         Returns:
             The new pose id, zero-padded from the session's next_pose counter and never reused after a delete.
 
         Raises:
-            ValueError: the session is a head_arm one, the amplitude frame is empty (no thumbnail possible,
-                nothing is stored) or an image has another size than the session's first pose.
+            ValueError: the session is not an intrinsics session, the depth is not the colour size (not aligned) or
+                holds no valid pixel, the camera_info is for another image size, or the colour frame has another size
+                than the session's first pose. Nothing is stored then.
         """
-        self.require_kind(sid, KIND_RGBD, "add_pose")
-        tof_thumb = tof_thumbnail(pose.amplitude.image, pose.tof_detection, self.cfg.selection.amplitude_percentiles)
-        if tof_thumb is None:
-            raise ValueError("empty amplitude frame: pose not stored")
-        rgb_jpeg = pose.rgb_raw
+        self.require_kind(sid, KIND_INTRINSICS, "add_pose")
+        rgb_h, rgb_w = still.rgb.image.shape[:2]
+        if still.depth.image.shape[:2] != (rgb_h, rgb_w):
+            raise ValueError(
+                f"aligned depth {still.depth.image.shape[1]}x{still.depth.image.shape[0]} is not the colour size "
+                f"{rgb_w}x{rgb_h}: pose not stored"
+            )
+        info = still.camera_info
+        if (info.width, info.height) != (rgb_w, rgb_h):
+            raise ValueError(f"camera_info {info.width}x{info.height} is not the colour size {rgb_w}x{rgb_h}")
+        depth_thumb = depth_thumbnail(still.depth.image, still.detection, self.cfg.thumbnail_width_px)
+        if depth_thumb is None:
+            raise ValueError("aligned depth has no valid pixel: pose not stored")
+        rgb_jpeg = still.rgb_raw
         if rgb_jpeg is None:
-            ok, buffer = cv2.imencode(".jpg", pose.rgb.image, [cv2.IMWRITE_JPEG_QUALITY, RGB_JPEG_QUALITY])
+            ok, buffer = cv2.imencode(".jpg", still.rgb.image, [cv2.IMWRITE_JPEG_QUALITY, RGB_JPEG_QUALITY])
             if not ok:
                 raise ValueError("JPEG encoding failed")
             rgb_jpeg = buffer.tobytes()
         files = {
             RGB_FILE: rgb_jpeg,
-            AMPLITUDE_FILE: encode_png(pose.amplitude.image),
-            THUMBNAIL_FILES["rgb"]: rgb_thumbnail(pose.rgb.image, pose.rgb_detection, self.cfg.thumbnail_width_px),
-            THUMBNAIL_FILES["tof"]: tof_thumb,
+            DEPTH_FILE: encode_png(still.depth.image),
+            THUMBNAIL_FILES["rgb"]: rgb_thumbnail(still.rgb.image, still.detection, self.cfg.thumbnail_width_px),
+            THUMBNAIL_FILES["depth"]: depth_thumb,
         }
-        if pose.depth is not None:
-            files[DEPTH_FILE] = encode_png(pose.depth.image)
         meta = {
-            "rgb": detection_json(pose.rgb.stamp_ns, pose.rgb_detection),
-            "tof": detection_json(pose.amplitude.stamp_ns, pose.tof_detection),
-            "depth_stamp_ns": None if pose.depth is None else int(pose.depth.stamp_ns),
-            "hints": capture_hints(pose.rgb_detection, pose.tof_detection, self.cfg.board),
+            "rgb": detection_json(still.rgb.stamp_ns, still.detection),
+            "depth_stamp_ns": int(still.depth.stamp_ns),
+            "camera_info": camera_info_json(info),
+            "plane_bias_samples": board_depth_samples(still.depth.image, still.detection),
+            "hints": colour_hints(still.detection, self.cfg.board),
         }
-        rgb_h, rgb_w = pose.rgb.image.shape[:2]
-        tof_h, tof_w = pose.amplitude.image.shape[:2]
         with self.lock:
             data = self.read_session(sid)
-            self.apply_sizes(data, (rgb_w, rgb_h), (tof_w, tof_h))
+            self.apply_rgb_size(data, still.rgb.image)
             pid = self.write_pose_dir(sid, data, files, meta)
             write_json_atomic(self.session_dir(sid) / SESSION_FILE, data)
         return pid
@@ -420,13 +478,9 @@ class SessionStore:
             "tier": int(tier),
             "head_offset": int(head_offset),
         }
-        rgb_h, rgb_w = rgb_image.shape[:2]
         with self.lock:
             data = self.read_session(sid)
-            wanted = [rgb_w, rgb_h]
-            if data["rgb_size"] is not None and data["rgb_size"] != wanted:
-                raise ValueError(f"rgb_size {wanted} differs from the session's {data['rgb_size']}: image size changed")
-            data["rgb_size"] = wanted
+            self.apply_rgb_size(data, rgb_image)
             pid = self.write_pose_dir(sid, data, files, meta)
             write_json_atomic(self.session_dir(sid) / SESSION_FILE, data)
         return pid
@@ -481,15 +535,10 @@ class SessionStore:
             pid: Pose id.
 
         Returns:
-            The pose.json hints, or hints computed from the stored detections when the pose predates them
-            (nothing is written back).
+            The pose.json hints; [] for a head_arm pose.
         """
         meta = json.loads((self.pose_dir(sid, pid) / POSE_FILE).read_text())
-        if self.kind(sid) == KIND_HEAD_ARM:
-            return []
-        if "hints" in meta:
-            return list(meta["hints"])
-        return capture_hints(detection_from_json(meta["rgb"]), detection_from_json(meta["tof"]), self.cfg.board)
+        return list(meta.get("hints", []))
 
     def delete_pose(self, sid: str, pid: str) -> None:
         """Delete one pose directory (its id is not reused); NotFound when it does not exist."""
@@ -499,61 +548,44 @@ class SessionStore:
                 raise NotFound(f"no such pose: {pid}")
             shutil.rmtree(path)
 
-    def load_views(self, sid: str) -> SessionViews:
-        """Rebuild the compute inputs of a session from pose.json and depth.png."""
-        data = self.read_session(sid)
-        ids = self.pose_ids(sid)
-        views = []
-        for pid in ids:
+    def load_stills(self, sid: str) -> list[StoredStill]:
+        """The stored stills of an intrinsics session, in pose id order: colour, aligned depth and camera_info.
+
+        Raises:
+            ValueError: the session is not an intrinsics session, or a stored image does not decode.
+        """
+        self.require_kind(sid, KIND_INTRINSICS, "load_stills")
+        stills = []
+        for pid in self.pose_ids(sid):
             path = self.pose_dir(sid, pid)
             meta = json.loads((path / POSE_FILE).read_text())
-            depth = cv2.imread(str(path / DEPTH_FILE), cv2.IMREAD_UNCHANGED) if (path / DEPTH_FILE).is_file() else None
-            views.append(PoseView(detection_from_json(meta["rgb"]), detection_from_json(meta["tof"]), depth))
-        info = data["tof_info"]
-        tof_info = (
-            None
-            if info is None
-            else CameraInfoData(
-                width=info["width"],
-                height=info["height"],
-                distortion_model=info["distortion_model"],
-                d=np.array(info["d"], dtype=np.float64),
-                k=np.array(info["k"], dtype=np.float64),
-                p=np.array(info["p"], dtype=np.float64),
-            )
-        )
-        return SessionViews(
-            views=views,
-            rgb_size=None if data["rgb_size"] is None else tuple(data["rgb_size"]),
-            tof_size=None if data["tof_size"] is None else tuple(data["tof_size"]),
-            tof_info=tof_info,
-            lens_position=data["lens_position"],
-            pose_ids=ids,
-        )
+            rgb = cv2.imread(str(path / RGB_FILE), cv2.IMREAD_COLOR)
+            depth = cv2.imread(str(path / DEPTH_FILE), cv2.IMREAD_UNCHANGED)
+            if rgb is None or depth is None:
+                raise ValueError(f"pose {pid}: {RGB_FILE} or {DEPTH_FILE} is missing or does not decode")
+            info = meta.get("camera_info")
+            stills.append(StoredStill(pid, rgb, depth, None if info is None else camera_info_from_json(info)))
+        return stills
 
     def coverage(self, sid: str) -> dict[str, dict[str, Any]]:
         """Corner counts per image grid cell over every stored pose.
 
         Returns:
-            {rgb: {cols, rows, counts}, tof: {...}} with counts[row][col]; all zero without poses. Only stored
-            corners are counted.
+            {rgb: {cols, rows, counts}} with counts[row][col] over the colour image; all zero without poses. Only
+            stored corners are counted.
         """
         data = self.read_session(sid)
         cols, rows = self.cfg.coverage.cols, self.cfg.coverage.rows
-        out: dict[str, dict[str, Any]] = {}
-        cameras = ("rgb",) if data.get("kind", KIND_RGBD) == KIND_HEAD_ARM else ("rgb", "tof")
-        for camera in cameras:
-            counts = np.zeros((rows, cols), dtype=int)
-            size = data[f"{camera}_size"]
-            if size is not None:
-                for pid in self.pose_ids(sid):
-                    meta = json.loads((self.pose_dir(sid, pid) / POSE_FILE).read_text())
-                    for x, y in meta[camera]["points"]:
-                        col = min(cols - 1, max(0, int(x / size[0] * cols)))
-                        row = min(rows - 1, max(0, int(y / size[1] * rows)))
-                        counts[row, col] += 1
-            out[camera] = {"cols": cols, "rows": rows, "counts": counts.tolist()}
-        return out
+        counts = np.zeros((rows, cols), dtype=int)
+        size = data["rgb_size"]
+        if size is not None:
+            for pid in self.pose_ids(sid):
+                meta = json.loads((self.pose_dir(sid, pid) / POSE_FILE).read_text())
+                for x, y in meta["rgb"]["points"]:
+                    col = min(cols - 1, max(0, int(x / size[0] * cols)))
+                    row = min(rows - 1, max(0, int(y / size[1] * rows)))
+                    counts[row, col] += 1
+        return {"rgb": {"cols": cols, "rows": rows, "counts": counts.tolist()}}
 
     # results
 

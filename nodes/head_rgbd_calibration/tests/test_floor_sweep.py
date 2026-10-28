@@ -135,7 +135,7 @@ class World:
                     position=[math.radians(self.pan), math.radians(self.tilt)],
                 )
             )
-        cloud_cb = self.callbacks.get("/tof/points")
+        cloud_cb = self.callbacks.get("/head/d435/points")
         if cloud_cb is not None and self.ticks % CLOUD_EVERY_TICKS == 0:
             stamp = self.t + self.cloud_offsets(self.cloud_count)
             empty = self.cloud_empty(self.cloud_count, self.pan, self.tilt)

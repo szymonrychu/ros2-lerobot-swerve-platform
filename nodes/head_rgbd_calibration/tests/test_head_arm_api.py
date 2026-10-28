@@ -216,7 +216,7 @@ def test_park_passes_confirm_and_conflicts_while_running(parts: SimpleNamespace)
 
 def test_sessions_list_only_head_arm_sessions(parts: SimpleNamespace) -> None:
     assert parts.client.get("/api/head-arm/sessions").json() == []
-    parts.store.create_session(NOW, 0.0)  # an rgbd session is not listed
+    parts.store.create_session(NOW)  # an intrinsics session is not listed
     sid = ready_session(parts)
     compute = parts.client.post(f"/api/head-arm/sessions/{sid}/compute").json()
     body = parts.client.get("/api/head-arm/sessions").json()
@@ -261,7 +261,7 @@ def test_compute_conflicts_while_a_sequence_runs(parts: SimpleNamespace) -> None
 
 
 def test_compute_of_an_rgbd_session_is_400(parts: SimpleNamespace) -> None:
-    sid = parts.store.create_session(NOW, 0.0)
+    sid = parts.store.create_session(NOW)
     response = parts.client.post(f"/api/head-arm/sessions/{sid}/compute")
     assert response.status_code == 400 and response.json()["ok"] is False
 
@@ -279,7 +279,7 @@ def test_compute_of_an_rgbd_session_is_400(parts: SimpleNamespace) -> None:
     ],
 )
 def test_unknown_or_malformed_ids_are_404(parts: SimpleNamespace, method: str, path: str) -> None:
-    sid = parts.store.create_session(NOW, 0.0, kind="head_arm")
+    sid = parts.store.create_session(NOW, kind="head_arm")
     response = getattr(parts.client, method)(path.format(sid=sid))
     assert response.status_code == 404
     assert response.json()["ok"] is False and response.json()["message"]
@@ -293,7 +293,7 @@ def test_fixtures_are_valid_json() -> None:
 
 
 def test_non_head_arm_session_result_routes_are_400(parts: SimpleNamespace) -> None:
-    sid = parts.store.create_session(NOW, 0.0)
+    sid = parts.store.create_session(NOW)
     for method, path in (
         ("get", f"/api/head-arm/sessions/{sid}/results/r-20200101-000000"),
         ("post", f"/api/head-arm/sessions/{sid}/results/r-20200101-000000/apply"),

@@ -1,6 +1,7 @@
 """Localhost HTTP API of the head_rgbd_calibration node (design D1; web_ui proxies /api/calibration/rgbd/* to it).
 
-Every error answers {ok: false, message}: InvalidId and NotFound give 404, Busy and NotApplicable give 409.
+The /api/capture, /api/sessions and /api/applied routes serve the D435 intrinsics check. Every error answers
+{ok: false, message}: InvalidId and NotFound give 404, Busy and NotApplicable give 409, a session of another kind 400.
 """
 
 import json
@@ -29,7 +30,7 @@ from head_rgbd_calibration.compute import REPORT_FILE
 from head_rgbd_calibration.config import NodeConfig
 from head_rgbd_calibration.jobs import Busy as JobBusy
 from head_rgbd_calibration.jobs import ComputeJob
-from head_rgbd_calibration.store import POSE_FILE, RESULT_FILE, InvalidId, NotFound, SessionStore
+from head_rgbd_calibration.store import KIND_INTRINSICS, POSE_FILE, RESULT_FILE, InvalidId, NotFound, SessionStore
 
 JPEG_MEDIA_TYPE = "image/jpeg"
 ZIP_MEDIA_TYPE = "application/zip"
@@ -127,11 +128,17 @@ def build_app(capture: CaptureController, job: ComputeJob, store: SessionStore, 
 
     @app.get("/api/sessions")
     def sessions() -> list[dict[str, Any]]:
-        return [{key: s[key] for key in ("id", "created", "pose_count", "result_count")} for s in store.list_sessions()]
+        return [
+            {key: s[key] for key in ("id", "created", "pose_count", "result_count")}
+            for s in store.list_sessions()
+            if s["kind"] == KIND_INTRINSICS
+        ]
 
     @app.get("/api/sessions/{sid}")
-    def session(sid: str) -> dict[str, Any]:
+    def session(sid: str) -> Any:
         data = store.load_session(sid)
+        if data["kind"] != KIND_INTRINSICS:
+            return error_response(HTTP_BAD_REQUEST, f"{sid} is a {data['kind']} session, not {KIND_INTRINSICS}")
         poses = []
         for pid in data["pose_ids"]:
             meta = json.loads((store.pose_dir(sid, pid) / POSE_FILE).read_text())
@@ -139,15 +146,13 @@ def build_app(capture: CaptureController, job: ComputeJob, store: SessionStore, 
                 {
                     "id": pid,
                     "rgb_corners": len(meta["rgb"]["points"]),
-                    "tof_corners": len(meta["tof"]["points"]),
-                    "has_depth": meta["depth_stamp_ns"] is not None,
+                    "plane_bias_samples": meta["plane_bias_samples"],
                     "hints": store.pose_hints(sid, pid),
                 }
             )
         return {
             "id": data["id"],
             "created": data["created"],
-            "lens_position": data["lens_position"],
             "poses": poses,
             "coverage": store.coverage(sid),
             "results": store.list_results(sid),

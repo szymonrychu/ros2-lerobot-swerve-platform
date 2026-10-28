@@ -1,13 +1,16 @@
-"""Live capture (design D4): subscribe the head topics only while a session runs and store each pose as it is judged.
+"""Live capture (design D4): subscribe the D435 topics only while a session runs and store each still as it is judged.
+
+An intrinsics check capture pairs the D435 colour frame and the depth aligned to it by their exact stamp (the driver
+stamps both with the colour frame time), judges each pair for stillness (colour and depth MADs over a window),
+detects the ChArUco board on the colour only and stores the still with the latest factory colour camera_info.
 
 Threads: the subscription and timer callbacks run on the ROS executor thread; start, stop and state run on HTTP
 threads. `lock` guards the shared state (the current capture and its status fields) and is only held for short field
-updates. Decoding, detection (PoseCounter) and pose file writes run on the executor thread, serialised by
-`feed_lock`, which no HTTP call takes. Subscribing the mapping topic engages the head camera focus lock, so every
-subscription and the timer are destroyed when the capture stops, times out or fails to start. Nothing is published.
+updates. Decoding, pairing and detection (StillPairCounter) and pose file writes run on the executor thread,
+serialised by `feed_lock`, which no HTTP call takes. Every subscription and the timer are destroyed when the capture
+stops, times out or fails to start. Nothing is published.
 """
 
-import math
 import threading
 import time
 from collections import deque
@@ -15,14 +18,16 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from functools import partial
-from pathlib import Path
 from typing import Any
 
 import cv2
-import yaml
+import numpy as np
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from ros2_common.head_rgbd_calibration.charuco import detect, make_board
+from ros2_common.head_rgbd_calibration.config import SelectionConfig
 from ros2_common.head_rgbd_calibration.frames import (
+    NS_PER_S,
+    CameraInfoData,
     StampedImage,
     decode_camera_info,
     decode_compressed,
@@ -30,24 +35,26 @@ from ros2_common.head_rgbd_calibration.frames import (
     rgb_difference,
     stamp_ns,
 )
-from ros2_common.head_rgbd_calibration.poses import AMPLITUDE, DEPTH, RGB, WAITING, PoseCounter
 from ros2_common.head_rgbd_calibration.views import ARM_JOINTS, HEAD_JOINTS
 from sensor_msgs.msg import CameraInfo, CompressedImage, Image, JointState
 
 from head_rgbd_calibration.config import NodeConfig
-from head_rgbd_calibration.store import KIND_HEAD_ARM, SessionStore
+from head_rgbd_calibration.store import KIND_HEAD_ARM, KIND_INTRINSICS, ColourDepthStill, SessionStore
 
-TOF_INFO_QOS_DEPTH = 1
+INFO_QOS_DEPTH = 1
 IDLE = "idle"
 STOPPED = "stopped"
 DROP_LOG_THROTTLE_S = 5.0
-LENS_POSITION_KEY = "lens_position"
+WAITING = "waiting for frames"
+MOVING = "moving"
+NO_BOARD = "still - no board in the colour image"
+NO_CAMERA_INFO = "still - no colour camera_info yet"
+PAIR_HISTORY_S = 1.0  # an unpaired colour or depth frame this much older than the newest frame is dropped
 JOINT_SUBSCRIPTION_DEPTH = 10  # as FloorSweep's /head/joint_states
 RGB_HISTORY = 16
 JOINT_HISTORY = 400
 STILL_POLL_S = 0.02
 MIN_STILL_SAMPLES = 2
-NS_PER_S = 1_000_000_000
 REASON_STORED = "stored"
 REASON_NO_BOARD = "no board"
 REASON_JOINTS_STALE = "joints stale"
@@ -62,32 +69,177 @@ class Busy(CaptureError):
     """A capture is already running or starting (maps to 409)."""
 
 
+def captured_status(count: int) -> str:
+    """Status line of a captured still.
+
+    Args:
+        count: Number of the still.
+
+    Returns:
+        str: "pose N captured - move to the next pose".
+    """
+    return f"pose {count} captured - move to the next pose"
+
+
+def depth_change_fraction(a: np.ndarray, b: np.ndarray) -> float:
+    """Mean absolute change between two aligned depth frames as a fraction of the median depth of the second.
+
+    Args:
+        a: Earlier uint16 depth frame, mm (0 is no depth).
+        b: Later frame of the same size.
+
+    Returns:
+        float: mean |b - a| / median(b) over the pixels valid in both; inf when no pixel is valid in both.
+    """
+    valid = (a > 0) & (b > 0)
+    if not valid.any():
+        return float("inf")
+    later = b[valid].astype(np.float64)
+    return float(np.mean(np.abs(later - a[valid])) / np.median(later))
+
+
+@dataclass(frozen=True)
+class PairFrame:
+    """A colour frame and the aligned depth of the same stamp, with the colour's grey image and compressed bytes."""
+
+    stamp_ns: int
+    rgb: np.ndarray
+    raw: bytes | None
+    grey: np.ndarray
+    depth: np.ndarray
+
+
+@dataclass(frozen=True)
+class StillEvent:
+    """The judgement of one colour + depth pair: its status, and the still when this pair captured one."""
+
+    status: str
+    still: ColourDepthStill | None = None
+
+
+class StillPairCounter:
+    """Captures still windows of exact-stamp colour + aligned depth pairs in which the colour shows the board.
+
+    A pair is still when every consecutive pair in the last `still_window_s` (at least two pairs) differs by less than
+    `still_rgb_mad` (colour) and `still_depth_mad` (depth); one still is captured per still window, once the board is
+    detected on the colour and a factory colour camera_info has arrived. Pairs before `skip_start_s` are not captured.
+    """
+
+    def __init__(self, board: cv2.aruco.CharucoBoard, sel: SelectionConfig, start_count: int = 0) -> None:
+        """Start with no frames.
+
+        Args:
+            board: The ChArUco board.
+            sel: Selection settings (still_window_s, still_rgb_mad, still_depth_mad, skip_start_s).
+            start_count: Stills already stored; the next captured still is numbered start_count + 1.
+        """
+        self.board = board
+        self.sel = sel
+        self.count = start_count
+        self.camera_info: CameraInfoData | None = None
+        self.rgb: dict[int, tuple[np.ndarray, bytes | None]] = {}
+        self.depth: dict[int, np.ndarray] = {}
+        self.newest_ns = 0
+        self.window: list[PairFrame] = []
+        self.still_steps: list[bool] = []  # still_steps[i]: window[i] and window[i + 1] differ less than both MADs
+        self.first_ns: int | None = None
+        self.window_counted = False
+        self.last_status: str | None = None
+
+    @property
+    def status(self) -> str:
+        """WAITING until a pair was judged, then the status of the last judged pair."""
+        return self.last_status or WAITING
+
+    def add_rgb(self, frame: StampedImage, raw: bytes | None) -> list[StillEvent]:
+        """Add a decoded colour frame and its compressed bytes; judges the pair when its depth has arrived."""
+        self.rgb[frame.stamp_ns] = (frame.image, raw)
+        return self.pair(frame.stamp_ns)
+
+    def add_depth(self, frame: StampedImage) -> list[StillEvent]:
+        """Add a decoded aligned depth frame; judges the pair when its colour frame has arrived."""
+        self.depth[frame.stamp_ns] = frame.image
+        return self.pair(frame.stamp_ns)
+
+    def pair(self, stamp: int) -> list[StillEvent]:
+        """Judge the pair of this stamp when both frames are in, and drop unpaired frames older than PAIR_HISTORY_S."""
+        self.newest_ns = max(self.newest_ns, stamp)
+        events = []
+        if stamp in self.rgb and stamp in self.depth:
+            image, raw = self.rgb.pop(stamp)
+            depth = self.depth.pop(stamp)
+            grey = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            event = self.judge(PairFrame(stamp, image, raw, grey, depth))
+            if event is not None:
+                self.last_status = event.status
+                events.append(event)
+        horizon = self.newest_ns - int(PAIR_HISTORY_S * NS_PER_S)
+        for pending in (self.rgb, self.depth):
+            for old in [ns for ns in pending if ns < horizon]:
+                del pending[old]
+        return events
+
+    def judge(self, pair: PairFrame) -> StillEvent | None:
+        """Judge one pair; None for a pair older than the last judged one (it arrived out of order)."""
+        if self.window and pair.stamp_ns <= self.window[-1].stamp_ns:
+            return None
+        if self.window:
+            previous = self.window[-1]
+            self.still_steps.append(
+                rgb_difference(previous.grey, pair.grey) < self.sel.still_rgb_mad
+                and depth_change_fraction(previous.depth, pair.depth) < self.sel.still_depth_mad
+            )
+        self.window.append(pair)
+        since = pair.stamp_ns - int(self.sel.still_window_s * NS_PER_S)
+        while self.window[0].stamp_ns < since:
+            del self.window[0]
+            del self.still_steps[0]
+        if self.first_ns is None:
+            self.first_ns = pair.stamp_ns + int(self.sel.skip_start_s * NS_PER_S)
+        still = pair.stamp_ns >= self.first_ns and len(self.window) >= MIN_STILL_SAMPLES and all(self.still_steps)
+        if not still:
+            self.window_counted = False
+            return StillEvent(MOVING)
+        if self.window_counted:
+            return StillEvent(captured_status(self.count))
+        detection = detect(pair.rgb, self.board)
+        if detection is None:
+            return StillEvent(NO_BOARD)
+        if self.camera_info is None:
+            return StillEvent(NO_CAMERA_INFO)
+        self.count += 1
+        self.window_counted = True
+        stamped = StampedImage(pair.stamp_ns, pair.rgb)
+        still_frame = ColourDepthStill(
+            self.count, stamped, pair.raw, StampedImage(pair.stamp_ns, pair.depth), detection, self.camera_info
+        )
+        return StillEvent(captured_status(self.count), still_frame)
+
+
 @dataclass
 class Capture:
     """One capture run: its session, counter, ROS handles and the status shown to the operator.
 
     Attributes:
-        session_id: Session the poses are stored in.
-        counter: The core PoseCounter, fed on the executor thread only.
+        session_id: Session the stills are stored in.
+        counter: The StillPairCounter, fed on the executor thread only.
         started_at: Start time.
         stops_at: Time the timer stops the capture.
         pose_count: Poses stored in the session.
         status: Status line: the counter status, a store failure, or why the capture stopped.
         running: False once stopped; callbacks of a stopped capture drop their frames.
-        tof_info_stored: The first /tof/camera_info of the capture was handed to the store.
         store_error: (counter status at the failure, message) of the last pose the store refused.
         subscriptions: Subscriptions created by start.
         timer: The max_capture_s timer.
     """
 
     session_id: str
-    counter: PoseCounter
+    counter: StillPairCounter
     started_at: datetime
     stops_at: datetime
     pose_count: int
     status: str = WAITING
     running: bool = True
-    tof_info_stored: bool = False
     store_error: tuple[str, str] | None = None
     subscriptions: list[Any] = field(default_factory=list)
     timer: Any = None
@@ -145,42 +297,13 @@ class StillRun:
     arm: deque[JointsSample] = field(default_factory=lambda: deque(maxlen=JOINT_HISTORY))
 
 
-def read_lens_position(path: str | Path, default: float) -> float:
-    """lens_position of the head_camera_cpp node config.
-
-    Args:
-        path: The node's config.yaml (a flat mapping).
-        default: Value when the file sets no lens_position.
-
-    Returns:
-        The lens position in dioptres.
-
-    Raises:
-        CaptureError: the file is unreadable, not YAML, not a mapping, or lens_position is not a number.
-    """
-    try:
-        data = yaml.safe_load(Path(path).read_text())
-    except (OSError, UnicodeDecodeError) as exc:
-        raise CaptureError(f"cannot read the head camera config {path}: {exc}") from exc
-    except yaml.YAMLError as exc:
-        raise CaptureError(f"the head camera config {path} is not valid YAML: {exc}") from exc
-    if data is None:
-        data = {}
-    if not isinstance(data, dict):
-        raise CaptureError(f"the head camera config {path} is not a mapping")
-    value = data.get(LENS_POSITION_KEY, default)
-    if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
-        raise CaptureError(f"{LENS_POSITION_KEY} {value!r} in the head camera config {path} is not a number")
-    return float(value)
-
-
-def tof_qos(depth: int) -> QoSProfile:
-    """RELIABLE KEEP_LAST profile: the ToF publisher is RELIABLE and BEST_EFFORT loses frames under load."""
+def reliable_qos(depth: int) -> QoSProfile:
+    """RELIABLE KEEP_LAST profile, as the D435 driver publishes depth and camera_info (its default QoS)."""
     return QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=depth)
 
 
 def rgb_qos(depth: int) -> QoSProfile:
-    """BEST_EFFORT KEEP_LAST profile matching the mapping stream publisher."""
+    """BEST_EFFORT KEEP_LAST profile for the colour and joint streams (a late frame is better dropped than queued)."""
     return QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST, depth=depth)
 
 
@@ -193,7 +316,7 @@ class CaptureController:
         Args:
             node: The rclpy node the subscriptions and the timer are created on.
             store: Session store the poses go to.
-            cfg: Node config (topics, qos, max_capture_s, lens position source, board, selection).
+            cfg: Node config (topics, qos, max_capture_s, board, selection, still).
             clock: Returns the current time; it names new sessions and sets started_at / stops_at.
         """
         self.node = node
@@ -214,8 +337,8 @@ class CaptureController:
 
         Returns:
             {running, session_id, kind, status, pose_count, started_at, stops_at}: kind ("head_arm") is only
-            present for a still session, the key set of an RGB-D capture is unchanged; status is the counter status
-            ("waiting for frames" until both streams delivered a frame), "idle" before the first start, or why the
+            present for a still session, an intrinsics check capture has no kind key; status is the counter status
+            ("waiting for frames" until a colour + depth pair was judged), "idle" before the first start, or why the
             last capture stopped; started_at and stops_at are ISO times, stops_at only while running.
         """
         with self.lock:
@@ -260,8 +383,7 @@ class CaptureController:
 
         Raises:
             Busy: a capture is running or starting.
-            CaptureError: the head camera config is unreadable or invalid, or the reopened session was captured at
-                another lens position.
+            CaptureError: the reopened session is not an intrinsics session.
             NotFound, InvalidId: unknown or malformed session id.
             Exception: whatever creating a subscription, the timer or the session raised; everything created so
                 far is destroyed first.
@@ -287,51 +409,37 @@ class CaptureController:
         if self.still is not None and self.still.running:
             raise Busy("a still capture session is already running")
 
-    def check_lens(self, session_id: str | None) -> float:
-        """Lens position of the head camera; a reopened session must have been captured at the same one."""
-        lens = read_lens_position(self.cfg.head_camera_config_file, self.cfg.default_lens_position)
-        if session_id is not None:
-            recorded = float(self.store.read_session(session_id)["lens_position"])
-            if not math.isclose(recorded, lens):
-                raise CaptureError(
-                    f"session {session_id} was captured at lens_position {recorded:g}, the head camera is set to "
-                    f"{lens:g}: start a new session"
-                )
-        return lens
-
     def open(self, session_id: str | None) -> Capture:
         """Build a capture and create its subscriptions and timer; the session is created last.
 
         Callbacks drop every frame until the returned capture is installed as the current one.
         """
-        lens = self.check_lens(session_id)
-        stored = len(self.store.pose_ids(session_id)) if session_id is not None else 0
+        stored = 0
+        if session_id is not None:
+            kind = self.store.kind(session_id)
+            if kind != KIND_INTRINSICS:
+                raise CaptureError(f"session {session_id} is a {kind} session, not {KIND_INTRINSICS}")
+            stored = len(self.store.pose_ids(session_id))
         started = self.clock()
         capture = Capture(
             session_id=session_id or "",
-            counter=PoseCounter(self.board, self.cfg.selection, start_count=stored),
+            counter=StillPairCounter(self.board, self.cfg.selection, start_count=stored),
             started_at=started,
             stops_at=started + timedelta(seconds=self.cfg.max_capture_s),
             pose_count=stored,
         )
         topics, qos = self.cfg.topics, self.cfg.qos
         subscriptions = (
-            (
-                Image,
-                topics.amplitude,
-                partial(self.on_mono16, capture, AMPLITUDE, topics.amplitude),
-                tof_qos(qos.tof_depth),
-            ),
-            (Image, topics.depth, partial(self.on_mono16, capture, DEPTH, topics.depth), tof_qos(qos.tof_depth)),
-            (CameraInfo, topics.tof_info, partial(self.on_tof_info, capture), tof_qos(TOF_INFO_QOS_DEPTH)),
-            (CompressedImage, topics.rgb, partial(self.on_rgb, capture, topics.rgb), rgb_qos(qos.rgb_depth)),
+            (Image, topics.depth, partial(self.on_depth, capture, topics.depth), reliable_qos(qos.depth)),
+            (CameraInfo, topics.rgb_info, partial(self.on_rgb_info, capture), reliable_qos(INFO_QOS_DEPTH)),
+            (CompressedImage, topics.rgb, partial(self.on_rgb, capture, topics.rgb), rgb_qos(qos.rgb)),
         )
         try:
             for msg_type, topic, callback, profile in subscriptions:
                 capture.subscriptions.append(self.node.create_subscription(msg_type, topic, callback, profile))
             capture.timer = self.node.create_timer(self.cfg.max_capture_s, partial(self.expire, capture))
             if session_id is None:
-                capture.session_id = self.store.create_session(started, lens)
+                capture.session_id = self.store.create_session(started)
         except BaseException:
             capture.running = False
             self.release(capture)
@@ -354,7 +462,7 @@ class CaptureController:
         return self.state()
 
     def start_still_session(self, session_id: str | None) -> str:
-        """Start a head_arm still session: subscribe the mapping RGB stream and the head and arm joint states.
+        """Start a head_arm still session: subscribe the colour stream and the head and arm joint states.
 
         Args:
             session_id: head_arm session to add poses to, None for a new one.
@@ -363,9 +471,8 @@ class CaptureController:
             The session id.
 
         Raises:
-            Busy: an RGB-D capture or another still session runs or starts.
-            CaptureError: the head camera config is unreadable or invalid, the lens position differs from the
-                reopened session's, or the session is not a head_arm session.
+            Busy: an intrinsics check capture or another still session runs or starts.
+            CaptureError: the session is not a head_arm session.
             NotFound, InvalidId: unknown or malformed session id.
             Exception: whatever creating a subscription or the session raised; everything created so far is
                 destroyed first.
@@ -386,7 +493,6 @@ class CaptureController:
 
     def open_still(self, session_id: str | None) -> StillRun:
         """Build a still run and create its subscriptions; the session is created last."""
-        lens = self.check_lens(session_id)
         stored = 0
         if session_id is not None:
             kind = self.store.kind(session_id)
@@ -397,7 +503,7 @@ class CaptureController:
         topics = self.cfg.topics
         joint_qos = rgb_qos(JOINT_SUBSCRIPTION_DEPTH)
         subscriptions = (
-            (CompressedImage, topics.rgb, partial(self.on_still_rgb, run, topics.rgb), rgb_qos(self.cfg.qos.rgb_depth)),
+            (CompressedImage, topics.rgb, partial(self.on_still_rgb, run, topics.rgb), rgb_qos(self.cfg.qos.rgb)),
             (JointState, topics.head_joint_states, partial(self.on_joints, run.head, HEAD_JOINTS), joint_qos),
             (JointState, topics.arm_joint_states, partial(self.on_joints, run.arm, ARM_JOINTS), joint_qos),
         )
@@ -405,7 +511,7 @@ class CaptureController:
             for msg_type, topic, callback, profile in subscriptions:
                 run.subscriptions.append(self.node.create_subscription(msg_type, topic, callback, profile))
             if session_id is None:
-                run.session_id = self.store.create_session(run.started_at, lens, KIND_HEAD_ARM)
+                run.session_id = self.store.create_session(run.started_at, KIND_HEAD_ARM)
         except BaseException:
             run.running = False
             self.release_still(run)
@@ -547,7 +653,7 @@ class CaptureController:
     # still executor-thread callbacks
 
     def on_still_rgb(self, run: StillRun, topic: str, msg: Any) -> None:
-        """Mapping RGB frame of a still session; the compressed bytes travel with it."""
+        """Colour frame of a still session; the compressed bytes travel with it."""
         if not run.running:
             return
         try:
@@ -610,8 +716,8 @@ class CaptureController:
 
     # executor-thread callbacks
 
-    def on_mono16(self, capture: Capture, kind: str, topic: str, msg: Any) -> None:
-        """Amplitude or depth frame."""
+    def on_depth(self, capture: Capture, topic: str, msg: Any) -> None:
+        """Aligned depth frame (16UC1 mm)."""
         if not self.active(capture):
             return
         try:
@@ -619,10 +725,10 @@ class CaptureController:
         except ValueError as exc:
             self.drop(topic, exc)
             return
-        self.feed(capture, kind, frame)
+        self.feed(capture, "depth", lambda: capture.counter.add_depth(frame))
 
     def on_rgb(self, capture: Capture, topic: str, msg: Any) -> None:
-        """Mapping RGB frame; its compressed bytes travel with it so the stored rgb.jpg is the received JPEG."""
+        """Colour frame; its compressed bytes travel with it so the stored rgb.jpg is the received JPEG."""
         if not self.active(capture):
             return
         raw = bytes(msg.data)
@@ -631,39 +737,34 @@ class CaptureController:
         except ValueError as exc:
             self.drop(topic, exc)
             return
-        self.feed(capture, RGB, frame, raw)
+        self.feed(capture, "colour", lambda: capture.counter.add_rgb(frame, raw))
 
-    def on_tof_info(self, capture: Capture, msg: Any) -> None:
-        """Store the first /tof/camera_info of the capture in session.json."""
-        with self.lock:
-            if self.capture is not capture or not capture.running or capture.tof_info_stored:
-                return
-            capture.tof_info_stored = True
-        try:
-            self.store.set_tof_info(capture.session_id, decode_camera_info(msg))
-        except Exception as exc:  # an executor callback must not raise; retried on the next message
-            self.logger.error(f"storing the ToF camera_info failed: {exc}")
-            with self.lock:
-                capture.tof_info_stored = False
+    def on_rgb_info(self, capture: Capture, msg: Any) -> None:
+        """Keep the latest factory colour camera_info; each still stores the one current when it is captured."""
+        if not self.active(capture):
+            return
+        info = decode_camera_info(msg)
+        with self.feed_lock:
+            capture.counter.camera_info = info
 
-    def feed(self, capture: Capture, kind: str, frame: StampedImage, raw: bytes | None = None) -> None:
-        """Feed a decoded frame to the counter and store every pose it captures."""
+    def feed(self, capture: Capture, kind: str, add: Callable[[], list[StillEvent]]) -> None:
+        """Feed a decoded frame to the counter (add) and store every still it captures."""
         with self.feed_lock:
             if not self.active(capture):
                 return
             try:
-                events = capture.counter.add(kind, frame, raw)
+                events = add()
             except Exception as exc:  # an executor callback must not raise
                 self.logger.error(f"judging a {kind} frame failed: {exc}")
                 return
             stored = 0
             for event in events:
-                if event.pose is None:
+                if event.still is None:
                     continue
                 try:
-                    pid = self.store.add_pose(capture.session_id, event.pose)
+                    pid = self.store.add_pose(capture.session_id, event.still)
                 except Exception as exc:  # the capture goes on; the operator sees the reason
-                    message = f"pose {event.pose.number} not stored: {exc}"
+                    message = f"pose {event.still.number} not stored: {exc}"
                     self.logger.error(message)
                     capture.store_error = (capture.counter.status, message)
                     continue

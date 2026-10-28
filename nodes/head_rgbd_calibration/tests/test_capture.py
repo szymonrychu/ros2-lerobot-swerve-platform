@@ -1,4 +1,4 @@
-"""Tests for the live capture controller: subscriptions and QoS, their lifetime, decoding and stored poses."""
+"""Tests for the live capture controller: subscriptions and QoS, their lifetime, decoding, pairing and stored stills."""
 
 import json
 import threading
@@ -12,27 +12,35 @@ import cv2
 import numpy as np
 import pytest
 from rclpy.qos import HistoryPolicy, ReliabilityPolicy
-from ros2_common.head_rgbd_calibration.config import SelectionConfig
-from ros2_common.head_rgbd_calibration.poses import WAITING, captured_status
 from sensor_msgs.msg import CameraInfo, CompressedImage, Image, JointState
 
-from head_rgbd_calibration.capture import Busy, CaptureController, CaptureError, StillOutcome, decode_mono16
+from head_rgbd_calibration.capture import (
+    MOVING,
+    NO_BOARD,
+    NO_CAMERA_INFO,
+    WAITING,
+    Busy,
+    CaptureController,
+    CaptureError,
+    StillOutcome,
+    captured_status,
+    decode_mono16,
+    depth_change_fraction,
+)
 from head_rgbd_calibration.config import NodeConfig, StillConfig
 from head_rgbd_calibration.store import NotFound, SessionStore
-from tests.pose_factory import make_pose, synthetic_frames
+from tests.pose_factory import RGB_SIZE, make_still, synthetic_view
 
 NOW = datetime(2026, 10, 19, 12, 30, 45, tzinfo=UTC)
-LENS = 1.0
 NS_PER_S = 1_000_000_000
 T0_NS = 1_700_000_000 * NS_PER_S
-TOF_PERIOD_NS = 100_000_000  # ToF at 10 Hz
-RGB_EVERY = 5  # RGB at 2 Hz
-RGB_OFFSET_NS = 5_000_000
+FRAME_PERIOD_NS = 66_666_667  # D435 colour and aligned depth at 15 Hz, one stamp per pair
 NEAR_M = 0.33
-DEPTH_MM = 450
-STEPS = 12
-TOPICS = ("/tof/amplitude/image_raw", "/tof/depth/image_raw", "/tof/camera_info")
-RGB_TOPIC = "/head_camera/mapping/image_raw/compressed"
+STEPS = 8
+RGB_TOPIC = "/head/d435/color/image_raw/compressed"
+DEPTH_TOPIC = "/head/d435/aligned_depth_to_color/image_raw"
+INFO_TOPIC = "/head/d435/color/camera_info"
+FACTORY_K = [432.0, 0.0, 288.0, 0.0, 432.0, 162.0, 0.0, 0.0, 1.0]
 
 
 class FakeSubscription:
@@ -149,79 +157,75 @@ def compressed_msg(stamp_ns: int, data: bytes) -> SimpleNamespace:
     return SimpleNamespace(header=header(stamp_ns), format="jpeg", data=data)
 
 
-def camera_info_msg() -> SimpleNamespace:
+def camera_info_msg(width: int = RGB_SIZE[0]) -> SimpleNamespace:
+    """The factory colour camera_info of the synthetic camera, as the D435 publishes it."""
     return SimpleNamespace(
         header=header(T0_NS),
-        width=240,
-        height=180,
+        width=width,
+        height=RGB_SIZE[1],
         distortion_model="plumb_bob",
-        d=[0.1, -0.2, 0.0, 0.0, 0.05],
-        k=[191.0, 0, 120, 0, 191, 90, 0, 0, 1],
-        p=[191.0, 0, 120, 0, 0, 191, 90, 0, 0, 0, 1, 0],
+        d=[0.0, 0.0, 0.0, 0.0, 0.0],
+        k=FACTORY_K,
+        p=[432.0, 0.0, 288.0, 0.0, 0.0, 432.0, 162.0, 0.0, 0.0, 0.0, 1.0, 0.0],
     )
 
 
-def write_head_config(tmp_path: Path, text: str) -> Path:
-    path = tmp_path / "head_camera.yaml"
-    path.write_text(text)
-    return path
-
-
-def make_cfg(tmp_path: Path, head_text: str = f"jpeg_quality: 70\nlens_position: {LENS}\n") -> NodeConfig:
-    return NodeConfig(
-        state_dir=str(tmp_path / "state"),
-        head_camera_config_file=str(write_head_config(tmp_path, head_text)),
-        default_lens_position=2.5,
-        max_capture_s=120.0,
-        selection=SelectionConfig(skip_start_s=0.0),
+def make_cfg(tmp_path: Path) -> NodeConfig:
+    return NodeConfig.model_validate(
+        {"state_dir": str(tmp_path / "state"), "max_capture_s": 120.0, "selection": {"skip_start_s": 0.0}}
     )
 
 
-def make_controller(tmp_path: Path, node: FakeNode | None = None, **cfg_kwargs: Any) -> CaptureController:
-    cfg = make_cfg(tmp_path, **cfg_kwargs)
+def make_controller(tmp_path: Path, node: FakeNode | None = None) -> CaptureController:
+    cfg = make_cfg(tmp_path)
     return CaptureController(node or FakeNode(), SessionStore(Path(cfg.state_dir), cfg), cfg, lambda: NOW)
 
 
-def feed_still_board(node: FakeNode, steps: int = STEPS, rgb_data: bytes | None = None) -> None:
-    """Feed a still board as the topics deliver it: ToF amplitude and depth at 10 Hz, RGB at 2 Hz."""
-    rgb, amplitude = synthetic_frames(NEAR_M, 1)
-    jpeg = rgb_data if rgb_data is not None else cv2.imencode(".jpg", rgb, [cv2.IMWRITE_JPEG_QUALITY, 95])[1].tobytes()
-    depth = np.full(amplitude.shape, DEPTH_MM, dtype=np.uint16)
-    node.subscription(TOPICS[2]).callback(camera_info_msg())
+def jpeg(image: np.ndarray, quality: int = 95) -> bytes:
+    return cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, quality])[1].tobytes()
+
+
+def feed_still_board(
+    node: FakeNode,
+    steps: int = STEPS,
+    rgb_data: bytes | None = None,
+    depth: np.ndarray | None = None,
+    info: SimpleNamespace | None = None,
+    depth_offset_ns: int = 0,
+    send_info: bool = True,
+    start_ns: int = T0_NS,
+) -> None:
+    """Feed a still board as the D435 delivers it: camera_info, colour and aligned depth with one stamp per frame."""
+    rgb, aligned = synthetic_view(NEAR_M, 1)
+    data = rgb_data if rgb_data is not None else jpeg(rgb)
+    frame = aligned if depth is None else depth
     for step in range(steps):
-        ns = T0_NS + step * TOF_PERIOD_NS
-        node.subscription(TOPICS[0]).callback(image_msg(ns, amplitude))
-        node.subscription(TOPICS[1]).callback(image_msg(ns, depth, encoding="16UC1"))
-        if step % RGB_EVERY == 0:
-            node.subscription(RGB_TOPIC).callback(compressed_msg(ns + RGB_OFFSET_NS, jpeg))
+        ns = start_ns + step * FRAME_PERIOD_NS
+        if send_info:
+            node.subscription(INFO_TOPIC).callback(info or camera_info_msg())
+        node.subscription(RGB_TOPIC).callback(compressed_msg(ns, data))
+        node.subscription(DEPTH_TOPIC).callback(image_msg(ns + depth_offset_ns, frame, encoding="16UC1"))
 
 
 # subscriptions and QoS
 
 
-def test_tof_subscriptions_are_reliable(tmp_path: Path) -> None:
+def test_d435_subscriptions_and_qos(tmp_path: Path) -> None:
     node = FakeNode()
     make_controller(tmp_path, node).start(None)
-    amplitude, depth, info = (node.subscription(topic) for topic in TOPICS)
-    for sub in (amplitude, depth):
-        assert sub.msg_type is Image
-        assert sub.qos.reliability == ReliabilityPolicy.RELIABLE
-        assert sub.qos.history == HistoryPolicy.KEEP_LAST
-        assert sub.qos.depth == 10
+    assert sorted(s.topic for s in node.subscriptions) == sorted([RGB_TOPIC, DEPTH_TOPIC, INFO_TOPIC])
+    depth, info, rgb = (node.subscription(t) for t in (DEPTH_TOPIC, INFO_TOPIC, RGB_TOPIC))
+    assert depth.msg_type is Image
+    assert depth.qos.reliability == ReliabilityPolicy.RELIABLE
+    assert depth.qos.history == HistoryPolicy.KEEP_LAST
+    assert depth.qos.depth == 10
     assert info.msg_type is CameraInfo
     assert info.qos.reliability == ReliabilityPolicy.RELIABLE
     assert info.qos.depth == 1
-
-
-def test_mapping_subscription_best_effort(tmp_path: Path) -> None:
-    node = FakeNode()
-    make_controller(tmp_path, node).start(None)
-    rgb = node.subscription(RGB_TOPIC)
     assert rgb.msg_type is CompressedImage
     assert rgb.qos.reliability == ReliabilityPolicy.BEST_EFFORT
     assert rgb.qos.history == HistoryPolicy.KEEP_LAST
     assert rgb.qos.depth == 5
-    assert len(node.subscriptions) == 4
 
 
 def test_nothing_is_subscribed_before_start(tmp_path: Path) -> None:
@@ -245,11 +249,11 @@ def test_stop_destroys_all_subscriptions(tmp_path: Path) -> None:
     timer = node.timers[0]
     state = controller.stop()
     assert node.subscriptions == []
-    assert len(node.destroyed) == 4
+    assert len(node.destroyed) == 3
     assert node.timers == [] and node.destroyed_timers == [timer] and timer.cancelled
     assert state["running"] is False
     assert controller.stop()["running"] is False  # a second stop is harmless
-    assert len(node.destroyed) == 4
+    assert len(node.destroyed) == 3
 
 
 def test_timeout_stops_capture(tmp_path: Path) -> None:
@@ -281,37 +285,13 @@ def test_failed_start_leaves_nothing_subscribed(tmp_path: Path) -> None:
     assert controller.start(None)["running"] is True
 
 
-@pytest.mark.parametrize("head_text", ["lens_position: [1, 2\n", "- a list\n", "lens_position: far\n"])
-def test_invalid_head_camera_config_fails_start(tmp_path: Path, head_text: str) -> None:
-    node = FakeNode()
-    controller = make_controller(tmp_path, node, head_text=head_text)
-    with pytest.raises(CaptureError, match="head_camera.yaml"):
-        controller.start(None)
-    assert node.created == 0 and node.timers == []
-
-
-def test_unreadable_head_camera_config_fails_start(tmp_path: Path) -> None:
-    node = FakeNode()
-    cfg = make_cfg(tmp_path).model_copy(update={"head_camera_config_file": str(tmp_path / "missing.yaml")})
-    controller = CaptureController(node, SessionStore(Path(cfg.state_dir), cfg), cfg, lambda: NOW)
-    with pytest.raises(CaptureError, match="missing.yaml"):
-        controller.start(None)
-    assert node.created == 0
-
-
-def test_absent_lens_position_uses_default(tmp_path: Path) -> None:
-    controller = make_controller(tmp_path, head_text="jpeg_quality: 70\n")
-    sid = controller.start(None)["session_id"]
-    assert controller.store.read_session(sid)["lens_position"] == 2.5
-
-
 def test_start_while_running_is_busy(tmp_path: Path) -> None:
     node = FakeNode()
     controller = make_controller(tmp_path, node)
     controller.start(None)
     with pytest.raises(Busy):
         controller.start(None)
-    assert len(node.subscriptions) == 4
+    assert len(node.subscriptions) == 3
 
 
 def test_unknown_session_is_not_found(tmp_path: Path) -> None:
@@ -322,11 +302,11 @@ def test_unknown_session_is_not_found(tmp_path: Path) -> None:
     assert node.created == 0
 
 
-def test_reopen_with_another_lens_position_fails(tmp_path: Path) -> None:
+def test_reopening_a_head_arm_session_for_the_check_is_refused(tmp_path: Path) -> None:
     node = FakeNode()
     controller = make_controller(tmp_path, node)
-    sid = controller.store.create_session(NOW, 0.5)
-    with pytest.raises(CaptureError, match="lens_position"):
+    sid = controller.store.create_session(NOW, "head_arm")
+    with pytest.raises(CaptureError, match="head_arm"):
         controller.start(sid)
     assert node.created == 0
 
@@ -340,10 +320,11 @@ def test_capture_publishes_nothing(tmp_path: Path) -> None:
     assert node.publishers == []
 
 
-# frames and poses
+# pairing, still selection and stored stills
 
 
-def test_still_board_pose_is_stored(tmp_path: Path) -> None:
+def test_still_stores_colour_depth_and_camera_info(tmp_path: Path) -> None:
+    """An exact-stamp colour + aligned depth still is stored with the factory CameraInfo and no amplitude."""
     node = FakeNode()
     controller = make_controller(tmp_path, node)
     sid = controller.start(None)["session_id"]
@@ -352,37 +333,125 @@ def test_still_board_pose_is_stored(tmp_path: Path) -> None:
     store = controller.store
     assert store.pose_ids(sid) == ["001"]
     pose_dir = Path(controller.cfg.state_dir) / "sessions" / sid / "poses" / "001"
-    assert {p.name for p in pose_dir.iterdir()} >= {"rgb.jpg", "amplitude.png", "depth.png", "pose.json"}
+    assert {p.name for p in pose_dir.iterdir()} == {
+        "rgb.jpg",
+        "depth.png",
+        "pose.json",
+        "rgb_thumb.jpg",
+        "depth_thumb.jpg",
+    }
     meta = json.loads((pose_dir / "pose.json").read_text())
-    assert meta["rgb"]["stamp_ns"] == T0_NS + RGB_EVERY * TOF_PERIOD_NS + RGB_OFFSET_NS
-    assert meta["tof"]["stamp_ns"] == T0_NS + RGB_EVERY * TOF_PERIOD_NS
+    assert set(meta) == {"rgb", "depth_stamp_ns", "camera_info", "plane_bias_samples", "hints"}
+    stamp = T0_NS + FRAME_PERIOD_NS  # the second pair closes the first still window
+    assert meta["rgb"]["stamp_ns"] == stamp and meta["depth_stamp_ns"] == stamp
+    _, aligned = synthetic_view(NEAR_M, 1)
     depth = cv2.imread(str(pose_dir / "depth.png"), cv2.IMREAD_UNCHANGED)
-    assert depth.dtype == np.uint16 and int(depth[0, 0]) == DEPTH_MM
+    assert depth.dtype == np.uint16 and np.array_equal(depth, aligned)
+    info = camera_info_msg()
+    assert meta["camera_info"] == {
+        "width": info.width,
+        "height": info.height,
+        "distortion_model": info.distortion_model,
+        "d": info.d,
+        "k": info.k,
+        "p": info.p,
+    }
+    assert meta["plane_bias_samples"] > 1000
     session = store.read_session(sid)
-    assert session["tof_info"]["width"] == 240 and session["tof_info"]["k"][0] == 191.0
-    assert session["lens_position"] == LENS
+    assert session["kind"] == "intrinsics"
+    assert not {"lens_position", "tof_info", "tof_size"} & set(session)
     state = controller.state()
     assert state["running"] is True
     assert state["pose_count"] == 1
     assert state["status"] == captured_status(1)
 
 
+def test_pairs_need_the_exact_stamp(tmp_path: Path) -> None:
+    node = FakeNode()
+    controller = make_controller(tmp_path, node)
+    sid = controller.start(None)["session_id"]
+    feed_still_board(node, depth_offset_ns=1_000_000)
+    assert controller.store.pose_ids(sid) == []
+    assert controller.state()["status"] == WAITING
+
+
+def test_moving_depth_is_not_still(tmp_path: Path) -> None:
+    node = FakeNode()
+    controller = make_controller(tmp_path, node)
+    sid = controller.start(None)["session_id"]
+    rgb, aligned = synthetic_view(NEAR_M, 1)
+    for step in range(STEPS):
+        ns = T0_NS + step * FRAME_PERIOD_NS
+        node.subscription(INFO_TOPIC).callback(camera_info_msg())
+        node.subscription(RGB_TOPIC).callback(compressed_msg(ns, jpeg(rgb)))
+        depth = np.where(aligned > 0, aligned + (30 if step % 2 else 0), 0).astype(np.uint16)  # about 9 %
+        node.subscription(DEPTH_TOPIC).callback(image_msg(ns, depth, encoding="16UC1"))
+    assert controller.store.pose_ids(sid) == []
+    assert controller.state()["status"] == MOVING
+
+
+def test_moving_colour_is_not_still(tmp_path: Path) -> None:
+    node = FakeNode()
+    controller = make_controller(tmp_path, node)
+    sid = controller.start(None)["session_id"]
+    near, aligned = synthetic_view(NEAR_M, 1)
+    far, _ = synthetic_view(0.45, 1)
+    for step in range(STEPS):
+        ns = T0_NS + step * FRAME_PERIOD_NS
+        node.subscription(INFO_TOPIC).callback(camera_info_msg())
+        node.subscription(RGB_TOPIC).callback(compressed_msg(ns, jpeg(near if step % 2 else far)))
+        node.subscription(DEPTH_TOPIC).callback(image_msg(ns, aligned, encoding="16UC1"))
+    assert controller.store.pose_ids(sid) == []
+    assert controller.state()["status"] == MOVING
+
+
+def test_no_camera_info_stores_nothing_until_it_arrives(tmp_path: Path) -> None:
+    node = FakeNode()
+    controller = make_controller(tmp_path, node)
+    sid = controller.start(None)["session_id"]
+    feed_still_board(node, send_info=False)
+    assert controller.store.pose_ids(sid) == []
+    assert controller.state()["status"] == NO_CAMERA_INFO
+    feed_still_board(node, start_ns=T0_NS + STEPS * FRAME_PERIOD_NS)
+    assert controller.store.pose_ids(sid) == ["001"]
+
+
+def test_no_board_stores_nothing_in_the_check(tmp_path: Path) -> None:
+    node = FakeNode()
+    controller = make_controller(tmp_path, node)
+    sid = controller.start(None)["session_id"]
+    blank = np.full((RGB_SIZE[1], RGB_SIZE[0], 3), 127, dtype=np.uint8)
+    feed_still_board(node, rgb_data=jpeg(blank))
+    assert controller.store.pose_ids(sid) == []
+    assert controller.state()["status"] == NO_BOARD
+
+
+def test_depth_change_fraction() -> None:
+    a = np.full((4, 4), 500, dtype=np.uint16)
+    b = a.copy()
+    b[0, 0] = 0  # invalid in one frame: not compared
+    assert depth_change_fraction(a, b) == 0.0
+    c = np.full((4, 4), 510, dtype=np.uint16)
+    assert depth_change_fraction(a, c) == pytest.approx(10 / 510)
+    assert depth_change_fraction(a, np.zeros_like(a)) == float("inf")
+
+
 def test_raw_rgb_bytes_are_stored(tmp_path: Path) -> None:
     node = FakeNode()
     controller = make_controller(tmp_path, node)
     sid = controller.start(None)["session_id"]
-    rgb, _ = synthetic_frames(NEAR_M, 1)
-    jpeg = cv2.imencode(".jpg", rgb, [cv2.IMWRITE_JPEG_QUALITY, 90])[1].tobytes()
-    feed_still_board(node, rgb_data=jpeg)
-    assert (Path(controller.cfg.state_dir) / "sessions" / sid / "poses" / "001" / "rgb.jpg").read_bytes() == jpeg
+    rgb, _ = synthetic_view(NEAR_M, 1)
+    data = jpeg(rgb, 90)
+    feed_still_board(node, rgb_data=data)
+    assert (Path(controller.cfg.state_dir) / "sessions" / sid / "poses" / "001" / "rgb.jpg").read_bytes() == data
 
 
 def test_resume_continues_pose_numbers(tmp_path: Path) -> None:
     node = FakeNode()
     controller = make_controller(tmp_path, node)
-    sid = controller.store.create_session(NOW, LENS)
-    controller.store.add_pose(sid, make_pose(1))
-    controller.store.add_pose(sid, make_pose(2))
+    sid = controller.store.create_session(NOW)
+    controller.store.add_pose(sid, make_still(1))
+    controller.store.add_pose(sid, make_still(2))
     state = controller.start(sid)
     assert state["session_id"] == sid and state["pose_count"] == 2
     feed_still_board(node)
@@ -396,26 +465,26 @@ def test_undecodable_frame_dropped(tmp_path: Path) -> None:
     node = FakeNode()
     controller = make_controller(tmp_path, node)
     sid = controller.start(None)["session_id"]
-    rgb, amplitude = synthetic_frames(NEAR_M, 1)
-    # amplitude frames whose data does not match height x step, an RGB frame that is not an image
-    short = image_msg(T0_NS, amplitude)
+    _, aligned = synthetic_view(NEAR_M, 1)
+    # depth frames whose data does not match height x step or that are not 16-bit, colour frames that are not images
+    short = image_msg(T0_NS, aligned)
     short.data = short.data[:-10]
-    node.subscription(TOPICS[0]).callback(short)
-    node.subscription(TOPICS[0]).callback(image_msg(T0_NS, amplitude, encoding="rgb8"))
+    node.subscription(DEPTH_TOPIC).callback(short)
+    node.subscription(DEPTH_TOPIC).callback(image_msg(T0_NS, aligned, encoding="rgb8"))
     for step in range(STEPS):
-        ns = T0_NS + step * TOF_PERIOD_NS
-        if step % RGB_EVERY == 0:
-            node.subscription(RGB_TOPIC).callback(compressed_msg(ns, b"not a jpeg"))
-            node.subscription(RGB_TOPIC).callback(compressed_msg(ns, b""))
-        node.subscription(TOPICS[0]).callback(image_msg(ns, amplitude))
-    # the RGB stream never delivered a decodable frame, so the counter was never fed one
+        ns = T0_NS + step * FRAME_PERIOD_NS
+        node.subscription(INFO_TOPIC).callback(camera_info_msg())
+        node.subscription(RGB_TOPIC).callback(compressed_msg(ns, b"not a jpeg"))
+        node.subscription(RGB_TOPIC).callback(compressed_msg(ns, b""))
+        node.subscription(DEPTH_TOPIC).callback(image_msg(ns, aligned, encoding="16UC1"))
+    # the colour stream never delivered a decodable frame, so no pair was ever judged
     assert controller.state()["status"] == WAITING
     assert controller.store.pose_ids(sid) == []
     warnings = [msg for level, msg in node.logger.records if level == "warning"]
     assert any(RGB_TOPIC in msg for msg in warnings)
-    assert any(TOPICS[0] in msg for msg in warnings)
+    assert any(DEPTH_TOPIC in msg for msg in warnings)
     # valid frames afterwards are still used
-    feed_still_board(node)
+    feed_still_board(node, start_ns=T0_NS + STEPS * FRAME_PERIOD_NS)
     assert controller.store.pose_ids(sid) == ["001"]
 
 
@@ -428,7 +497,6 @@ def test_frames_after_stop_are_ignored(tmp_path: Path) -> None:
     node.subscriptions = [FakeSubscription(Image, t, cb, None) for t, cb in callbacks.items()]
     feed_still_board(node)
     assert controller.store.pose_ids(sid) == []
-    assert controller.store.read_session(sid)["tof_info"] is None
 
 
 @pytest.mark.parametrize("bigendian", [False, True])
@@ -469,17 +537,15 @@ def test_state_is_safe_while_frames_arrive(tmp_path: Path) -> None:
     assert controller.state()["pose_count"] == 1
 
 
-def test_refused_pose_shows_the_reason(tmp_path: Path) -> None:
+def test_refused_still_shows_the_reason(tmp_path: Path) -> None:
     node = FakeNode()
     controller = make_controller(tmp_path, node)
-    sid = controller.store.create_session(NOW, LENS)
-    controller.store.set_image_sizes(sid, (640, 480), (240, 180))
-    controller.start(sid)
-    feed_still_board(node)
+    sid = controller.start(None)["session_id"]
+    feed_still_board(node, info=camera_info_msg(width=640))
     assert controller.store.pose_ids(sid) == []
     state = controller.state()
     assert state["running"] is True and state["pose_count"] == 0
-    assert state["status"].startswith("pose 1 not stored: rgb_size")
+    assert state["status"].startswith("pose 1 not stored: camera_info")
     assert any(level == "error" and "not stored" in msg for level, msg in node.logger.records)
 
 
@@ -518,8 +584,8 @@ def feed_still(
 ) -> int:
     """Feed 4 RGB frames at 2 Hz and joint samples at 50 Hz around them; returns the newest frame stamp."""
     if rgb_jpeg is None:
-        frame, _ = synthetic_frames(NEAR_M, 1)
-        rgb_jpeg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 95])[1].tobytes()
+        frame, _ = synthetic_view(NEAR_M, 1)
+        rgb_jpeg = jpeg(frame)
     for k in range(4):
         node.subscription(RGB_TOPIC).callback(compressed_msg(T0_NS + k * RGB_PERIOD_NS, rgb_jpeg))
     for step in range(0, 4 * 25 + 1):
@@ -601,7 +667,7 @@ def test_joints_far_from_frame_stamp_are_stale(tmp_path: Path) -> None:
     assert controller.store.pose_ids(sid) == []
 
 
-def test_no_board_stores_nothing(tmp_path: Path) -> None:
+def test_still_without_board_stores_nothing(tmp_path: Path) -> None:
     node = FakeNode()
     controller = make_still_controller(tmp_path, node)
     sid = controller.start_still_session(None)
@@ -648,19 +714,19 @@ def test_still_and_rgbd_exclude_each_other(tmp_path: Path) -> None:
     controller.start(None)
     with pytest.raises(Busy):
         controller.start_still_session(None)
-    assert len(node.subscriptions) == 4  # nothing else was subscribed
+    assert len(node.subscriptions) == 3  # nothing else was subscribed
     controller.stop()
     controller.start_still_session(None)
     with pytest.raises(Busy):
         controller.start(None)
 
 
-def test_reopening_an_rgbd_session_is_refused(tmp_path: Path) -> None:
+def test_reopening_an_intrinsics_session_is_refused(tmp_path: Path) -> None:
     node = FakeNode()
     controller = make_still_controller(tmp_path, node)
     sid = controller.start(None)["session_id"]
     controller.stop()
-    with pytest.raises(CaptureError, match="rgbd"):
+    with pytest.raises(CaptureError, match="intrinsics"):
         controller.start_still_session(sid)
     assert node.subscriptions == []
 

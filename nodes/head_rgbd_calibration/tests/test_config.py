@@ -21,10 +21,84 @@ def test_defaults_equal_shipped_yaml() -> None:
     assert yaml.safe_load(SHIPPED.read_text()) == NodeConfig().model_dump(mode="json")
 
 
+def client_block() -> dict:
+    """The head_rgbd_calibration config block of ansible/group_vars/client.yml."""
+    nodes = yaml.safe_load(CLIENT_YML.read_text())["ros2_nodes"]
+    return yaml.safe_load(next(n for n in nodes if n["name"] == "head_rgbd_calibration")["config"])
+
+
+def test_client_block_equals_the_defaults() -> None:
+    """The deployed config block shows every key at its default, key for key."""
+    block = client_block()
+    assert block == NodeConfig().model_dump(mode="json")
+    assert NodeConfig.model_validate(block) == NodeConfig()
+
+
+def test_defaults_are_the_d435() -> None:
+    cfg = NodeConfig()
+    assert cfg.topics.model_dump() == {
+        "rgb": "/head/d435/color/image_raw/compressed",
+        "depth": "/head/d435/aligned_depth_to_color/image_raw",
+        "rgb_info": "/head/d435/color/camera_info",
+        "head_joint_states": "/head/joint_states",
+        "arm_joint_states": "/follower/joint_states",
+    }
+    assert cfg.qos.model_dump() == {"depth": 10, "rgb": 5}
+    assert cfg.camera_frame == "d435_color_optical_frame"
+    assert cfg.floor.cloud_topic == "/head/d435/points"
+    assert cfg.floor.sensor_frame == "d435_depth_optical_frame"
+    assert cfg.selection.model_dump() == {
+        "still_window_s": 0.5,
+        "still_rgb_mad": 2.0,
+        "still_depth_mad": 0.01,
+        "skip_start_s": 2.0,
+    }
+    assert cfg.limits.model_dump() == {
+        "plane_max_bias_mm": 10.0,
+        "plane_max_spread_mm": 50.0,
+        "min_views": 12,
+        "intrinsics_max_rms_px": 0.5,
+        "intrinsics_max_focal_diff_pct": 1.0,
+        "intrinsics_max_principal_diff_px": 5.0,
+    }
+    assert not {"head_camera_config_file", "default_lens_position"} & set(cfg.model_dump())
+
+
+def key_path(data: dict) -> list[str]:
+    """The keys from the top of a one-key-per-level mapping down to its leaf key."""
+    section, value = next(iter(data.items()))
+    return [section, next(iter(value))] if isinstance(value, dict) else [section]
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        {"topics": {"amplitude": "/tof/amplitude/image_raw"}},
+        {"topics": {"tof_info": "/tof/camera_info"}},
+        {"qos": {"tof_depth": 10}},
+        {"qos": {"rgb_depth": 5}},
+        {"head_camera_config_file": "/etc/ros2/head_camera_cpp/config.yaml"},
+        {"default_lens_position": 1.0},
+        {"selection": {"still_tof_mad": 0.01}},
+        {"selection": {"max_pair_dt_s": 0.05}},
+        {"selection": {"amplitude_percentiles": [1.0, 99.0]}},
+        {"selection": {"tof_upscale": 2}},
+        {"limits": {"tof_max_rms_px": 0.3}},
+        {"limits": {"stereo_max_rms_px": 1.0}},
+        {"limits": {"tof_zero_distortion_rms_px": 0.3}},
+        {"limits": {"rgb_max_rms_px": 0.5}},
+    ],
+    ids=lambda data: ".".join(key_path(data)),
+)
+def test_tof_keys_are_rejected(data: dict) -> None:
+    """ToF, amplitude, stereo and focus-lock keys are refused, naming the key."""
+    with pytest.raises(ValidationError, match=key_path(data)[-1]):
+        NodeConfig.model_validate(data)
+
+
 def test_client_yml_arm_sequence_and_board_mount_equal_defaults() -> None:
     """The deployed config block carries the shipped arm sequence and the nominal board mount, key for key."""
-    nodes = yaml.safe_load(CLIENT_YML.read_text())["ros2_nodes"]
-    block = yaml.safe_load(next(n for n in nodes if n["name"] == "head_rgbd_calibration")["config"])
+    block = client_block()
     defaults = NodeConfig().model_dump(mode="json")
     assert block["arm_sequence"] == defaults["arm_sequence"]
     assert block["fit"]["board_mount"] == defaults["fit"]["board_mount"]
@@ -64,8 +138,9 @@ def test_nested_unknown_key_rejected(tmp_path: Path) -> None:
         "compute_timeout_s: -1\n",
         "compute_nice: 20\n",
         "compute_nice: -1\n",
-        "qos:\n  tof_depth: 0\n",
-        "qos:\n  rgb_depth: 0\n",
+        "qos:\n  depth: 0\n",
+        "qos:\n  rgb: 0\n",
+        "selection:\n  still_depth_mad: -0.1\n",
         "coverage:\n  cols: 2\n",
         "coverage:\n  cols: 7\n",
         "coverage:\n  rows: 1\n",
@@ -83,7 +158,8 @@ def test_floor_defaults_and_tilt_range() -> None:
     floor = NodeConfig().floor
     assert floor.joint_states_topic == "/head/joint_states"
     assert floor.command_topic == "/head/joint_commands"
-    assert floor.cloud_topic == "/tof/points"
+    assert floor.cloud_topic == "/head/d435/points"
+    assert floor.sensor_frame == "d435_depth_optical_frame"
     assert floor.command_frame_id == "head_rgbd_calibration"
     assert floor.pan_deg == [-30, -15, 0, 15, 30, 45]
     assert floor.tilt_deg == [20, 24, 28]

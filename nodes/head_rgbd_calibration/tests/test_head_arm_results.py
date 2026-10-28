@@ -129,7 +129,7 @@ def make_session(
         5,
         cfg.fit,
     )
-    sid = store.create_session(NOW, 0.0, kind="head_arm")
+    sid = store.create_session(NOW, kind="head_arm")
     for index, view in enumerate(views):
         still = still_arm_pose(view.joints, arm_pose=view.arm_pose, tier=view.tier, head_offset=view.head_offset)
         store.add_still_pose(
@@ -345,7 +345,7 @@ def test_failed_result_not_applicable(cfg: NodeConfig, state: Path, store: Sessi
 
 def test_latest_board_mount_reads_the_newest_result(tmp_path: Path) -> None:
     store = SessionStore(tmp_path)
-    sid = store.create_session(NOW, 1.0, "head_arm")
+    sid = store.create_session(NOW, "head_arm")
     assert latest_board_mount(store, None) is None and latest_board_mount(store, sid) is None
     assert latest_board_mount(store, "head_arm-20200101-000000") is None
     for rid, xyz in (("r-20261022-140000", [0.1, 0.2, 0.3]), ("r-20261022-150000", [0.4, 0.5, 0.6])):
@@ -357,10 +357,10 @@ def test_latest_board_mount_reads_the_newest_result(tmp_path: Path) -> None:
 
 def test_head_arm_session_exists_only_for_stored_head_arm_sessions(tmp_path: Path) -> None:
     store = SessionStore(tmp_path)
-    head_arm = store.create_session(NOW, 1.0, "head_arm")
-    rgbd = store.create_session(NOW, 1.0, "rgbd")
+    head_arm = store.create_session(NOW, "head_arm")
+    check = store.create_session(NOW)
     assert head_arm_session_exists(store, head_arm) is True
-    assert head_arm_session_exists(store, rgbd) is False
+    assert head_arm_session_exists(store, check) is False
     assert head_arm_session_exists(store, None) is False
     assert head_arm_session_exists(store, "head_arm-20200101-000000") is False
     assert head_arm_session_exists(store, "../escape") is False

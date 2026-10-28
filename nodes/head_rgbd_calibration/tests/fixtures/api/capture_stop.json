@@ -15,14 +15,9 @@
     "error": null
   },
   "applied": {
+    "kind": "intrinsics",
     "session": "calib-20261019-120000",
     "result": "r-20261019-123045",
-    "applied_at": "2026-10-19T12:31:00+00:00",
-    "files": [
-      "head_camera_calibration.yaml",
-      "tof_calibration.yaml",
-      "head_rgbd_extrinsics.yaml",
-      "tof_joint.json"
-    ]
+    "applied_at": "2026-10-19T12:31:00+00:00"
   }
 }

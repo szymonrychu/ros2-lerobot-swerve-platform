@@ -12,15 +12,15 @@ import pytest
 from fastapi.testclient import TestClient
 
 from head_rgbd_calibration.app import build_app
-from head_rgbd_calibration.apply import APPLIED_FILES, APPLIED_MARKER
+from head_rgbd_calibration.apply import APPLIED_MARKER
 from head_rgbd_calibration.capture import Busy as CaptureBusy
 from head_rgbd_calibration.capture import CaptureError
-from head_rgbd_calibration.compute import REPORT_FILE, URDF_FILE
+from head_rgbd_calibration.compute import REPORT_FILE
 from head_rgbd_calibration.config import NodeConfig
 from head_rgbd_calibration.jobs import Busy as JobBusy
 from head_rgbd_calibration.store import RESULT_FILE, NotFound, SessionStore
 from tests.contract import assert_matches_fixture, load_fixture
-from tests.pose_factory import few_rgb_corner_pose, make_pose
+from tests.pose_factory import few_corner_still, make_still
 
 RID = "r-20261019-123045"
 UNIT = "ros2-head_camera_cpp.service"
@@ -108,9 +108,9 @@ def client(capture: FakeCapture, job: FakeJob, store: SessionStore, cfg: NodeCon
 
 
 def new_session(store: SessionStore, poses: int = 0) -> str:
-    sid = store.create_session(datetime(2026, 10, 19, 12, 0, 0), 1.5)
+    sid = store.create_session(datetime(2026, 10, 19, 12, 0, 0))
     for _ in range(poses):
-        store.add_pose(sid, make_pose())
+        store.add_pose(sid, make_still())
     return sid
 
 
@@ -120,8 +120,7 @@ def new_result(store: SessionStore, sid: str, passed: bool = True) -> None:
     body = {**load_fixture("result"), "id": RID, "passed": passed}
     del body["report"]
     (path / RESULT_FILE).write_text(json.dumps(body))
-    for name in (*APPLIED_FILES, URDF_FILE, REPORT_FILE):
-        (path / name).write_text(f"{name} text")
+    (path / REPORT_FILE).write_text(f"{REPORT_FILE} text")
 
 
 def assert_error(response, status: int) -> None:
@@ -191,7 +190,7 @@ def test_capture_start_passes_session_id(client: TestClient, capture: FakeCaptur
 def test_capture_start_errors(client: TestClient, capture: FakeCapture) -> None:
     capture.error = NotFound("no such session")
     assert_error(client.post("/api/capture/start", json={"session_id": "calib-20261019-120000"}), 404)
-    capture.error = CaptureError("lens position unreadable")
+    capture.error = CaptureError("head_arm session is not an intrinsics session")
     assert_error(client.post("/api/capture/start"), 400)
 
 
@@ -222,18 +221,29 @@ def test_sessions_list_and_detail_with_coverage(client: TestClient, store: Sessi
     older = new_session(store)
     sid = new_session(store, poses=2)
     new_result(store, sid)
+    store.create_session(datetime(2026, 10, 19, 13, 0, 0), kind="head_arm")  # not an intrinsics session: not listed
     listing = client.get("/api/sessions").json()
     assert [s["id"] for s in listing] == [sid, older]
     assert set(listing[0]) == {"id", "created", "pose_count", "result_count"}
     assert listing[0]["pose_count"] == 2 and listing[0]["result_count"] == 1
     detail = client.get(f"/api/sessions/{sid}").json()
-    assert detail["id"] == sid and detail["lens_position"] == 1.5
+    assert set(detail) == {"id", "created", "poses", "coverage", "results"}
+    assert detail["id"] == sid
     assert [p["id"] for p in detail["poses"]] == ["001", "002"]
     pose = detail["poses"][0]
-    assert pose["rgb_corners"] > 0 and pose["tof_corners"] > 0 and pose["has_depth"] is True
+    assert set(pose) == {"id", "rgb_corners", "plane_bias_samples", "hints"}
+    assert pose["rgb_corners"] > 0 and pose["plane_bias_samples"] > 1000
     assert detail["coverage"] == store.coverage(sid)
+    assert set(detail["coverage"]) == {"rgb"}
     assert set(detail["coverage"]["rgb"]) == {"cols", "rows", "counts"}
     assert [r["id"] for r in detail["results"]] == [RID]
+
+
+def test_head_arm_session_detail_is_refused(client: TestClient, store: SessionStore) -> None:
+    sid = store.create_session(datetime(2026, 10, 19, 13, 0, 0), kind="head_arm")
+    response = client.get(f"/api/sessions/{sid}")
+    assert_error(response, 400)
+    assert "intrinsics" in response.json()["message"]
 
 
 def test_bad_ids_are_404(client: TestClient) -> None:
@@ -254,12 +264,13 @@ def test_binary_routes_content_types(client: TestClient, store: SessionStore) ->
     new_result(store, sid)
     zipped = client.get(f"/api/sessions/{sid}/results/{RID}/download")
     assert zipped.headers["content-type"] == "application/zip"
-    for kind in ("rgb", "tof"):
+    for kind in ("rgb", "depth"):
         response = client.get(f"/api/sessions/{sid}/poses/001/{kind}.jpg")
         assert response.status_code == 200
         assert response.headers["content-type"] == "image/jpeg"
         assert response.content[:2] == b"\xff\xd8"
     assert_error(client.get(f"/api/sessions/{sid}/poses/009/rgb.jpg"), 404)
+    assert_error(client.get(f"/api/sessions/{sid}/poses/001/tof.jpg"), 404)
 
 
 def test_compute_starts_with_enough_poses(
@@ -319,7 +330,7 @@ def test_download_zip(client: TestClient, store: SessionStore) -> None:
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/zip"
     assert response.headers["content-disposition"] == f'attachment; filename="{sid}-{RID}.zip"'
-    assert set(APPLIED_FILES[:3]) <= set(zipfile.ZipFile(io.BytesIO(response.content)).namelist())
+    assert sorted(zipfile.ZipFile(io.BytesIO(response.content)).namelist()) == [REPORT_FILE, RESULT_FILE]
     assert_error(client.get(f"/api/sessions/{sid}/results/r-20200101-000000/download"), 404)
 
 
@@ -329,10 +340,11 @@ def test_apply_and_applied_units(client: TestClient, store: SessionStore) -> Non
     new_result(store, sid)
     response = client.post(f"/api/sessions/{sid}/results/{RID}/apply")
     assert response.status_code == 200
-    assert response.json()["result"] == RID
+    assert response.json()["result"] == RID and response.json()["kind"] == "intrinsics"
     applied = client.get("/api/applied").json()
     assert response.json() == applied
     assert applied["session"] == sid
+    assert [p.name for p in (store.state_dir / "applied").iterdir()] == [APPLIED_MARKER]
     assert applied["units"] == [{"name": UNIT, "active_state": "active", "restarted": True}]
     assert calls and calls[0][-1] == UNIT
 
@@ -389,8 +401,8 @@ def test_apply_and_applied_match_the_fixtures(client: TestClient, store: Session
 
 def test_session_poses_carry_hints(client: TestClient, store: SessionStore) -> None:
     sid = new_session(store)
-    store.add_pose(sid, few_rgb_corner_pose())
-    store.add_pose(sid, make_pose())
+    store.add_pose(sid, few_corner_still())
+    store.add_pose(sid, make_still())
     poses = client.get(f"/api/sessions/{sid}").json()["poses"]
     assert poses[0]["hints"] == ["few corners: 6 RGB - move the board closer / fill the frame"]
     assert poses[1]["hints"] == []
@@ -398,5 +410,5 @@ def test_session_poses_carry_hints(client: TestClient, store: SessionStore) -> N
 
 def test_session_matches_contract_fixture(client: TestClient, store: SessionStore) -> None:
     sid = new_session(store)
-    store.add_pose(sid, few_rgb_corner_pose())
+    store.add_pose(sid, few_corner_still())
     assert_matches_fixture(client.get(f"/api/sessions/{sid}").json(), "session")

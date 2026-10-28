@@ -1,5 +1,6 @@
 """Tests for the session store: layout, ids, atomic writes, coverage and path safety."""
 
+import dataclasses
 import json
 import threading
 from datetime import datetime
@@ -8,17 +9,14 @@ from pathlib import Path
 import cv2
 import numpy as np
 import pytest
-from ros2_common.head_rgbd_calibration.frames import CameraInfoData
+from ros2_common.head_rgbd_calibration.frames import StampedImage
 from ros2_common.head_rgbd_calibration.views import ARM_JOINTS, HEAD_JOINTS
 
 from head_rgbd_calibration.config import NodeConfig
 from head_rgbd_calibration.store import InvalidId, NotFound, SessionStore
-from tests.pose_factory import few_rgb_corner_pose, make_pose, still_arm_pose
+from tests.pose_factory import RGB_SIZE, factory_info, few_corner_still, make_still, still_arm_pose
 
 NOW = datetime(2026, 10, 19, 12, 30, 45)
-LENS = 1.5
-RGB_SIZE = (576, 324)
-TOF_SIZE = (240, 180)
 
 
 @pytest.fixture
@@ -26,38 +24,23 @@ def store(tmp_path: Path) -> SessionStore:
     return SessionStore(tmp_path / "state", NodeConfig())
 
 
-def tof_info() -> CameraInfoData:
-    return CameraInfoData(
-        width=240,
-        height=180,
-        distortion_model="plumb_bob",
-        d=np.array([0.1, -0.2, 0.0, 0.0, 0.05]),
-        k=np.array([191.0, 0, 120, 0, 191, 90, 0, 0, 1]),
-        p=np.array([191.0, 0, 120, 0, 0, 191, 90, 0, 0, 0, 1, 0]),
-    )
-
-
 def test_create_session_id_and_session_json(store: SessionStore) -> None:
-    sid = store.create_session(NOW, LENS)
+    sid = store.create_session(NOW)
     assert sid == "calib-20261019-123045"
     data = json.loads((store.state_dir / "sessions" / sid / "session.json").read_text())
-    assert data["id"] == sid
-    assert data["lens_position"] == LENS
-    assert data["next_pose"] == 1
-    assert data["tof_info"] is None
-    assert data["rgb_size"] is None and data["tof_size"] is None
+    assert data == {"id": sid, "kind": "intrinsics", "created": NOW.isoformat(), "rgb_size": None, "next_pose": 1}
 
 
 def test_create_session_same_second_gets_suffix(store: SessionStore) -> None:
-    ids = [store.create_session(NOW, LENS) for _ in range(3)]
+    ids = [store.create_session(NOW) for _ in range(3)]
     assert ids == ["calib-20261019-123045", "calib-20261019-123045-2", "calib-20261019-123045-3"]
 
 
 def test_sessions_listed_newest_first(store: SessionStore) -> None:
-    old = store.create_session(datetime(2026, 10, 18, 8, 0, 0), LENS)
-    new = store.create_session(NOW, LENS)
-    store.add_pose(new, make_pose())
-    store.add_pose(new, make_pose(2, seed=2))
+    old = store.create_session(datetime(2026, 10, 18, 8, 0, 0))
+    new = store.create_session(NOW)
+    store.add_pose(new, make_still())
+    store.add_pose(new, make_still(2, seed=2))
     rid = store.new_result_id(NOW)
     store.result_dir(new, rid).mkdir(parents=True)
     (store.result_dir(new, rid) / "result.json").write_text(json.dumps({"id": rid}))
@@ -71,151 +54,165 @@ def test_list_sessions_empty_state_dir(store: SessionStore) -> None:
     assert store.list_sessions() == []
 
 
-def test_set_tof_info_roundtrip(store: SessionStore) -> None:
-    sid = store.create_session(NOW, LENS)
-    info = tof_info()
-    store.set_tof_info(sid, info)
-    stored = json.loads((store.state_dir / "sessions" / sid / "session.json").read_text())["tof_info"]
-    assert set(stored) == {"k", "p", "d", "width", "height", "distortion_model"}
-    loaded = store.load_session(sid)["tof_info"]
-    assert loaded["distortion_model"] == "plumb_bob" and loaded["k"] == list(info.k)
-
-
-def test_set_image_sizes_and_mismatch_refused(store: SessionStore) -> None:
-    sid = store.create_session(NOW, LENS)
-    store.set_image_sizes(sid, RGB_SIZE, TOF_SIZE)
-    store.set_image_sizes(sid, RGB_SIZE, TOF_SIZE)
-    data = store.load_session(sid)
-    assert data["rgb_size"] == list(RGB_SIZE) and data["tof_size"] == list(TOF_SIZE)
-    with pytest.raises(ValueError, match="size"):
-        store.set_image_sizes(sid, (640, 480), TOF_SIZE)
-
-
 def test_add_pose_writes_all_files_atomically(store: SessionStore) -> None:
-    sid = store.create_session(NOW, LENS)
-    pose = make_pose()
-    pid = store.add_pose(sid, pose)
+    sid = store.create_session(NOW)
+    still = make_still()
+    pid = store.add_pose(sid, still)
     assert pid == "001"
     pose_dir = store.state_dir / "sessions" / sid / "poses" / pid
     assert sorted(p.name for p in pose_dir.iterdir()) == [
-        "amplitude.png",
         "depth.png",
+        "depth_thumb.jpg",
         "pose.json",
         "rgb.jpg",
         "rgb_thumb.jpg",
-        "tof_thumb.jpg",
     ]
-    assert (pose_dir / "rgb.jpg").read_bytes() == pose.rgb_raw
-    amp = cv2.imread(str(pose_dir / "amplitude.png"), cv2.IMREAD_UNCHANGED)
-    assert amp.dtype == np.uint16 and np.array_equal(amp, pose.amplitude.image)
+    assert (pose_dir / "rgb.jpg").read_bytes() == still.rgb_raw
     depth = cv2.imread(str(pose_dir / "depth.png"), cv2.IMREAD_UNCHANGED)
-    assert depth.dtype == np.uint16 and np.array_equal(depth, pose.depth.image)
+    assert depth.dtype == np.uint16 and np.array_equal(depth, still.depth.image)
     meta = json.loads((pose_dir / "pose.json").read_text())
-    assert meta["rgb"]["stamp_ns"] == pose.rgb.stamp_ns and meta["tof"]["stamp_ns"] == pose.amplitude.stamp_ns
-    assert meta["rgb"]["ids"] == pose.rgb_detection.ids.tolist()
-    assert np.allclose(meta["tof"]["points"], pose.tof_detection.points)
+    assert meta["rgb"]["stamp_ns"] == still.rgb.stamp_ns and meta["depth_stamp_ns"] == still.depth.stamp_ns
+    assert meta["rgb"]["ids"] == still.detection.ids.tolist()
+    assert np.allclose(meta["rgb"]["points"], still.detection.points)
+    assert meta["camera_info"]["k"] == list(still.camera_info.k) and meta["camera_info"]["width"] == RGB_SIZE[0]
+    assert 1000 < meta["plane_bias_samples"] < int(np.count_nonzero(still.depth.image))
     session = store.load_session(sid)
-    assert session["next_pose"] == 2 and session["rgb_size"] == list(RGB_SIZE) and session["tof_size"] == list(TOF_SIZE)
+    assert session["next_pose"] == 2 and session["rgb_size"] == list(RGB_SIZE)
     assert not [p for p in (pose_dir.parent).iterdir() if p.name != pid]
 
 
-def test_add_pose_without_depth_and_raw_encodes_frame(store: SessionStore) -> None:
-    sid = store.create_session(NOW, LENS)
-    pid = store.add_pose(sid, make_pose(with_depth=False, raw=False))
+def test_add_pose_without_raw_encodes_frame(store: SessionStore) -> None:
+    sid = store.create_session(NOW)
+    pid = store.add_pose(sid, make_still(raw=False))
     pose_dir = store.state_dir / "sessions" / sid / "poses" / pid
-    assert not (pose_dir / "depth.png").exists()
-    assert cv2.imread(str(pose_dir / "rgb.jpg")).shape[:2] == (324, 576)
+    assert cv2.imread(str(pose_dir / "rgb.jpg")).shape[:2] == (RGB_SIZE[1], RGB_SIZE[0])
 
 
 def test_pose_ids_never_reused_after_delete(store: SessionStore) -> None:
-    sid = store.create_session(NOW, LENS)
-    first = store.add_pose(sid, make_pose())
-    second = store.add_pose(sid, make_pose(2, seed=2))
+    sid = store.create_session(NOW)
+    first = store.add_pose(sid, make_still())
+    second = store.add_pose(sid, make_still(2, seed=2))
     store.delete_pose(sid, second)
-    third = store.add_pose(sid, make_pose(3, seed=3))
+    third = store.add_pose(sid, make_still(3, seed=3))
     assert (first, second, third) == ("001", "002", "003")
     store.delete_pose(sid, first)
     assert store.load_session(sid)["pose_ids"] == ["003"]
 
 
 def test_delete_pose_missing_is_not_found(store: SessionStore) -> None:
-    sid = store.create_session(NOW, LENS)
+    sid = store.create_session(NOW)
     with pytest.raises(NotFound):
         store.delete_pose(sid, "001")
 
 
+def assert_nothing_stored(store: SessionStore, sid: str, count: int = 0) -> None:
+    assert len(store.load_session(sid)["pose_ids"]) == count
+    assert store.load_session(sid)["next_pose"] == count + 1
+
+
 def test_add_pose_of_other_size_refused_and_not_stored(store: SessionStore) -> None:
-    sid = store.create_session(NOW, LENS)
-    store.add_pose(sid, make_pose())
-    pose = make_pose(2, seed=2)
-    small = cv2.resize(pose.rgb.image, (288, 162))
-    other = type(pose)(**{**pose.__dict__, "rgb": type(pose.rgb)(pose.rgb.stamp_ns, small), "rgb_raw": None})
-    with pytest.raises(ValueError, match="size"):
+    sid = store.create_session(NOW)
+    store.add_pose(sid, make_still())
+    still = make_still(2, seed=2)
+    small_rgb = cv2.resize(still.rgb.image, (288, 162))
+    small_depth = cv2.resize(still.depth.image, (288, 162), interpolation=cv2.INTER_NEAREST)
+    small_info = dataclasses.replace(factory_info(), width=288, height=162)
+    other = dataclasses.replace(
+        still,
+        rgb=StampedImage(still.rgb.stamp_ns, small_rgb),
+        rgb_raw=None,
+        depth=StampedImage(still.depth.stamp_ns, small_depth),
+        camera_info=small_info,
+    )
+    with pytest.raises(ValueError, match="rgb_size"):
         store.add_pose(sid, other)
-    assert store.load_session(sid)["pose_ids"] == ["001"]
-    assert store.load_session(sid)["next_pose"] == 2
+    assert_nothing_stored(store, sid, 1)
 
 
-def test_add_pose_with_empty_amplitude_not_stored(store: SessionStore) -> None:
-    sid = store.create_session(NOW, LENS)
-    pose = make_pose()
-    flat = type(pose.amplitude)(pose.amplitude.stamp_ns, np.full(pose.amplitude.image.shape, 7, dtype=np.uint16))
-    empty = type(pose)(**{**pose.__dict__, "amplitude": flat})
-    with pytest.raises(ValueError, match="empty"):
-        store.add_pose(sid, empty)
-    assert store.load_session(sid)["pose_ids"] == []
+def test_add_pose_with_unaligned_depth_refused(store: SessionStore) -> None:
+    sid = store.create_session(NOW)
+    still = make_still()
+    small = cv2.resize(still.depth.image, (288, 162), interpolation=cv2.INTER_NEAREST)
+    with pytest.raises(ValueError, match="aligned depth"):
+        store.add_pose(sid, dataclasses.replace(still, depth=StampedImage(still.depth.stamp_ns, small)))
+    assert_nothing_stored(store, sid)
+
+
+def test_add_pose_with_camera_info_of_another_size_refused(store: SessionStore) -> None:
+    sid = store.create_session(NOW)
+    still = make_still()
+    with pytest.raises(ValueError, match="camera_info"):
+        store.add_pose(sid, dataclasses.replace(still, camera_info=dataclasses.replace(factory_info(), width=640)))
+    assert_nothing_stored(store, sid)
+
+
+def test_add_pose_with_empty_depth_not_stored(store: SessionStore) -> None:
+    sid = store.create_session(NOW)
+    still = make_still()
+    empty = StampedImage(still.depth.stamp_ns, np.zeros_like(still.depth.image))
+    with pytest.raises(ValueError, match="no valid pixel"):
+        store.add_pose(sid, dataclasses.replace(still, depth=empty))
+    assert_nothing_stored(store, sid)
     poses = store.state_dir / "sessions" / sid / "poses"
     assert not poses.exists() or not list(poses.iterdir())
 
 
-def test_load_views_round_trip(store: SessionStore) -> None:
-    sid = store.create_session(NOW, LENS)
-    store.set_tof_info(sid, tof_info())
-    a, b = make_pose(), make_pose(2, seed=2, with_depth=False)
+def test_load_stills_round_trip(store: SessionStore) -> None:
+    sid = store.create_session(NOW)
+    a, b = make_still(), make_still(2, seed=2, distance_m=0.4)
     store.add_pose(sid, a)
     store.add_pose(sid, b)
-    loaded = store.load_views(sid)
-    assert loaded.pose_ids == ["001", "002"]
-    assert loaded.rgb_size == RGB_SIZE and loaded.tof_size == TOF_SIZE
-    assert loaded.lens_position == LENS
-    assert np.array_equal(loaded.tof_info.k, tof_info().k) and loaded.tof_info.width == 240
-    first, second = loaded.views
-    assert np.array_equal(first.rgb.ids, a.rgb_detection.ids)
-    assert np.allclose(first.tof.points, a.tof_detection.points)
-    assert np.array_equal(first.depth, a.depth.image)
-    assert second.depth is None
+    first, second = store.load_stills(sid)
+    assert (first.pose_id, second.pose_id) == ("001", "002")
+    assert first.rgb.shape == a.rgb.image.shape and first.rgb.dtype == np.uint8
+    assert np.array_equal(first.depth, a.depth.image) and np.array_equal(second.depth, b.depth.image)
+    info = first.camera_info
+    assert info is not None and info.width == RGB_SIZE[0] and info.distortion_model == "plumb_bob"
+    assert np.array_equal(info.k, a.camera_info.k) and np.array_equal(info.p, a.camera_info.p)
 
 
-def test_load_views_without_tof_info(store: SessionStore) -> None:
-    sid = store.create_session(NOW, LENS)
-    assert store.load_views(sid).tof_info is None
+def test_load_stills_without_camera_info(store: SessionStore) -> None:
+    sid = store.create_session(NOW)
+    pid = store.add_pose(sid, make_still())
+    path = store.pose_dir(sid, pid) / "pose.json"
+    meta = json.loads(path.read_text())
+    del meta["camera_info"]
+    path.write_text(json.dumps(meta))
+    assert store.load_stills(sid)[0].camera_info is None
+
+
+def test_load_stills_needs_an_intrinsics_session(store: SessionStore) -> None:
+    sid = store.create_session(NOW, kind="head_arm")
+    with pytest.raises(ValueError, match="intrinsics"):
+        store.load_stills(sid)
 
 
 def test_coverage_counts_corners_per_cell(store: SessionStore) -> None:
-    sid = store.create_session(NOW, LENS)
+    sid = store.create_session(NOW)
     empty = store.coverage(sid)
+    assert set(empty) == {"rgb"}
     assert empty["rgb"]["cols"] == 4 and empty["rgb"]["rows"] == 3
-    assert sum(map(sum, empty["rgb"]["counts"])) == 0 and sum(map(sum, empty["tof"]["counts"])) == 0
-    pose = make_pose()
-    store.add_pose(sid, pose)
+    assert sum(map(sum, empty["rgb"]["counts"])) == 0
+    still = make_still()
+    store.add_pose(sid, still)
     cov = store.coverage(sid)
-    assert sum(map(sum, cov["rgb"]["counts"])) == len(pose.rgb_detection.ids)
-    assert sum(map(sum, cov["tof"]["counts"])) == len(pose.tof_detection.ids)
+    assert set(cov) == {"rgb"}
+    assert sum(map(sum, cov["rgb"]["counts"])) == len(still.detection.ids)
     assert len(cov["rgb"]["counts"]) == 3 and len(cov["rgb"]["counts"][0]) == 4
-    first = pose.rgb_detection.points[0]
+    first = still.detection.points[0]
     col, row = int(first[0] / RGB_SIZE[0] * 4), int(first[1] / RGB_SIZE[1] * 3)
     assert cov["rgb"]["counts"][row][col] >= 1
 
 
 def test_coverage_drops_with_deleted_pose(store: SessionStore) -> None:
-    sid = store.create_session(NOW, LENS)
-    pid = store.add_pose(sid, make_pose())
+    sid = store.create_session(NOW)
+    pid = store.add_pose(sid, make_still())
     store.delete_pose(sid, pid)
     assert sum(map(sum, store.coverage(sid)["rgb"]["counts"])) == 0
 
 
 def test_results_ids_and_listing_newest_first(store: SessionStore) -> None:
-    sid = store.create_session(NOW, LENS)
+    sid = store.create_session(NOW)
     assert store.new_result_id(NOW) == "r-20261019-123045"
     for rid in ("r-20261019-123045", "r-20261019-130000"):
         store.result_dir(sid, rid).mkdir(parents=True)
@@ -225,12 +222,12 @@ def test_results_ids_and_listing_newest_first(store: SessionStore) -> None:
 
 
 def test_thumbnail_path(store: SessionStore) -> None:
-    sid = store.create_session(NOW, LENS)
-    pid = store.add_pose(sid, make_pose())
+    sid = store.create_session(NOW)
+    pid = store.add_pose(sid, make_still())
     assert store.thumbnail_path(sid, pid, "rgb").name == "rgb_thumb.jpg"
-    assert store.thumbnail_path(sid, pid, "tof").name == "tof_thumb.jpg"
+    assert store.thumbnail_path(sid, pid, "depth").name == "depth_thumb.jpg"
     with pytest.raises(InvalidId):
-        store.thumbnail_path(sid, pid, "depth")
+        store.thumbnail_path(sid, pid, "tof")
     with pytest.raises(NotFound):
         store.thumbnail_path(sid, "009", "rgb")
 
@@ -245,7 +242,7 @@ def test_invalid_session_ids_rejected(store: SessionStore, sid: str) -> None:
 
 @pytest.mark.parametrize("pid", ["1", "01", "../001", "00a", "001/..", ".."])
 def test_rejects_traversal_ids(store: SessionStore, pid: str) -> None:
-    sid = store.create_session(NOW, LENS)
+    sid = store.create_session(NOW)
     with pytest.raises(InvalidId):
         store.delete_pose(sid, pid)
     with pytest.raises(InvalidId):
@@ -253,7 +250,7 @@ def test_rejects_traversal_ids(store: SessionStore, pid: str) -> None:
 
 
 def test_invalid_result_id_rejected(store: SessionStore) -> None:
-    sid = store.create_session(NOW, LENS)
+    sid = store.create_session(NOW)
     with pytest.raises(InvalidId):
         store.result_dir(sid, "../../x")
 
@@ -262,7 +259,7 @@ def test_missing_session_not_found(store: SessionStore) -> None:
     with pytest.raises(NotFound):
         store.load_session("calib-20261019-000000")
     with pytest.raises(NotFound):
-        store.add_pose("calib-20261019-000000", make_pose())
+        store.add_pose("calib-20261019-000000", make_still())
 
 
 def test_symlinked_session_escaping_state_dir_rejected(store: SessionStore, tmp_path: Path) -> None:
@@ -277,10 +274,10 @@ def test_symlinked_session_escaping_state_dir_rejected(store: SessionStore, tmp_
 
 
 def test_concurrent_add_pose_gives_unique_ids(store: SessionStore) -> None:
-    sid = store.create_session(NOW, LENS)
-    poses = [make_pose(i + 1, seed=i + 1) for i in range(4)]
+    sid = store.create_session(NOW)
+    stills = [make_still(i + 1, seed=i + 1) for i in range(4)]
     ids: list[str] = []
-    threads = [threading.Thread(target=lambda p=p: ids.append(store.add_pose(sid, p))) for p in poses]
+    threads = [threading.Thread(target=lambda s=s: ids.append(store.add_pose(sid, s))) for s in stills]
     for t in threads:
         t.start()
     for t in threads:
@@ -293,29 +290,18 @@ def read_pose_json(store: SessionStore, sid: str, pid: str) -> dict:
 
 
 def test_add_pose_stores_hints(store: SessionStore) -> None:
-    sid = store.create_session(NOW, LENS)
-    pid = store.add_pose(sid, few_rgb_corner_pose())
+    sid = store.create_session(NOW)
+    pid = store.add_pose(sid, few_corner_still())
     hints = read_pose_json(store, sid, pid)["hints"]
-    assert hints[0] == "few corners: 6 RGB - move the board closer / fill the frame"
+    assert hints == ["few corners: 6 RGB - move the board closer / fill the frame"]
     assert store.pose_hints(sid, pid) == hints
 
 
 def test_add_pose_of_a_good_pose_has_empty_hints(store: SessionStore) -> None:
-    sid = store.create_session(NOW, LENS)
-    pid = store.add_pose(sid, make_pose())
+    sid = store.create_session(NOW)
+    pid = store.add_pose(sid, make_still())
     assert read_pose_json(store, sid, pid)["hints"] == []
     assert store.pose_hints(sid, pid) == []
-
-
-def test_pose_hints_fallback_for_legacy_pose(store: SessionStore) -> None:
-    sid = store.create_session(NOW, LENS)
-    pid = store.add_pose(sid, few_rgb_corner_pose())
-    path = store.state_dir / "sessions" / sid / "poses" / pid / "pose.json"
-    meta = json.loads(path.read_text())
-    del meta["hints"]
-    path.write_text(json.dumps(meta))
-    assert store.pose_hints(sid, pid)[0].startswith("few corners: 6 RGB")
-    assert "hints" not in json.loads(path.read_text())
 
 
 # head_arm sessions (design D36)
@@ -333,18 +319,20 @@ def add_still(store: SessionStore, sid: str, **kwargs):
 
 @pytest.fixture
 def arm_sid(store: SessionStore) -> str:
-    return store.create_session(NOW, LENS, kind="head_arm")
+    return store.create_session(NOW, kind="head_arm")
 
 
-def test_legacy_session_kind_is_rgbd(store: SessionStore) -> None:
-    sid = store.create_session(NOW, LENS)
-    assert store.load_session(sid)["kind"] == "rgbd"
+def test_session_without_kind_is_a_tof_era_rgbd_session(store: SessionStore) -> None:
+    sid = store.create_session(NOW)
+    assert store.load_session(sid)["kind"] == "intrinsics"
     path = store.state_dir / "sessions" / sid / "session.json"
     data = json.loads(path.read_text())
     del data["kind"]
     path.write_text(json.dumps(data))
     assert store.load_session(sid)["kind"] == "rgbd"
     assert store.list_sessions()[0]["kind"] == "rgbd"
+    with pytest.raises(ValueError, match="intrinsics"):
+        store.add_pose(sid, make_still())
 
 
 def test_head_arm_session_records_kind(store: SessionStore, arm_sid: str) -> None:
@@ -393,15 +381,15 @@ def test_still_pose_refuses_another_image_size(store: SessionStore, arm_sid: str
 
 def test_wrong_kind_raises(store: SessionStore, arm_sid: str) -> None:
     with pytest.raises(ValueError):
-        store.add_pose(arm_sid, make_pose())
-    rgbd = store.create_session(NOW, LENS)
+        store.add_pose(arm_sid, make_still())
+    check = store.create_session(NOW)
     with pytest.raises(ValueError):
-        add_still(store, rgbd)
+        add_still(store, check)
     with pytest.raises(ValueError):
-        store.load_arm_board_views(rgbd)
+        store.load_arm_board_views(check)
     with pytest.raises(ValueError):
-        store.captured_arm_poses(rgbd)
-    assert store.pose_ids(rgbd) == []
+        store.captured_arm_poses(check)
+    assert store.pose_ids(check) == []
 
 
 def test_load_arm_board_views(store: SessionStore, arm_sid: str) -> None:
@@ -432,8 +420,8 @@ def test_head_arm_coverage_has_only_rgb(store: SessionStore, arm_sid: str) -> No
     assert sum(sum(row) for row in coverage["rgb"]["counts"]) > 0
 
 
-def test_still_pose_tof_thumbnail_is_not_found(store: SessionStore, arm_sid: str) -> None:
+def test_still_pose_depth_thumbnail_is_not_found(store: SessionStore, arm_sid: str) -> None:
     pid = add_still(store, arm_sid)
     with pytest.raises(NotFound):
-        store.thumbnail_path(arm_sid, pid, "tof")
+        store.thumbnail_path(arm_sid, pid, "depth")
     assert store.thumbnail_path(arm_sid, pid, "rgb").is_file()

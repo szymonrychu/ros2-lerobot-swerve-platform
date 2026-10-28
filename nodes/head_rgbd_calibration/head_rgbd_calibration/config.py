@@ -23,19 +23,19 @@ CONFIG_ENV = "HEAD_RGBD_CALIBRATION_CONFIG"
 DEFAULT_STATE_DIR = "/var/lib/ros2/head_rgbd_calibration"
 DEFAULT_HTTP_HOST = "127.0.0.1"
 DEFAULT_HTTP_PORT = 18110
-DEFAULT_TOPIC_RGB = "/head_camera/mapping/image_raw/compressed"
-DEFAULT_TOPIC_AMPLITUDE = "/tof/amplitude/image_raw"
-DEFAULT_TOPIC_DEPTH = "/tof/depth/image_raw"
-DEFAULT_TOPIC_TOF_INFO = "/tof/camera_info"
-DEFAULT_QOS_TOF_DEPTH = 10
-DEFAULT_QOS_RGB_DEPTH = 5
+# The D435 streams (nodes/bridges/realsense_d435/config/topics.yaml): colour, depth registered to the colour frame
+# (16UC1 mm, the colour stamp), and the factory colour intrinsics.
+DEFAULT_TOPIC_RGB = "/head/d435/color/image_raw/compressed"
+DEFAULT_TOPIC_DEPTH = "/head/d435/aligned_depth_to_color/image_raw"
+DEFAULT_TOPIC_RGB_INFO = "/head/d435/color/camera_info"
+DEFAULT_QOS_DEPTH = 10
+DEFAULT_QOS_RGB = 5
+DEFAULT_CAMERA_FRAME = "d435_color_optical_frame"
 DEFAULT_MAX_CAPTURE_S = 900.0
 DEFAULT_COMPUTE_TIMEOUT_S = 600.0
 DEFAULT_COMPUTE_NICE = 10
 DEFAULT_TOPIC_HEAD_JOINT_STATES = "/head/joint_states"
 DEFAULT_TOPIC_ARM_JOINT_STATES = "/follower/joint_states"
-DEFAULT_HEAD_CAMERA_CONFIG_FILE = "/etc/ros2/head_camera_cpp/config.yaml"
-DEFAULT_LENS_POSITION = 1.0
 DEFAULT_HEAD_URDF_FILE = "/opt/ros2-lerobot-swerve-platform/nodes/web_ui/urdf/head.urdf"
 DEFAULT_ARM_URDF_FILE = "/opt/ros2-lerobot-swerve-platform/nodes/web_ui/urdf/so101_arm.urdf"
 DEFAULT_RESTART_UNITS = (
@@ -49,7 +49,8 @@ DEFAULT_COVERAGE_COLS = 4
 DEFAULT_COVERAGE_ROWS = 3
 DEFAULT_FLOOR_JOINT_STATES_TOPIC = "/head/joint_states"
 DEFAULT_FLOOR_COMMAND_TOPIC = "/head/joint_commands"
-DEFAULT_FLOOR_CLOUD_TOPIC = "/tof/points"
+DEFAULT_FLOOR_CLOUD_TOPIC = "/head/d435/points"
+DEFAULT_FLOOR_SENSOR_FRAME = "d435_depth_optical_frame"
 DEFAULT_FLOOR_COMMAND_FRAME_ID = "head_rgbd_calibration"
 DEFAULT_FLOOR_PAN_DEG = (-30.0, -15.0, 0.0, 15.0, 30.0, 45.0)
 DEFAULT_FLOOR_TILT_DEG = (20.0, 24.0, 28.0)
@@ -122,24 +123,92 @@ DEFAULT_TIER2_POSES = (
     (-0.12, 0.45, 0.3, -0.85, -0.2),
 )
 DEFAULT_HEAD_OFFSETS_DEG = ((0.0, 0.0), (10.0, 0.0), (-10.0, 0.0), (0.0, 6.0))
+# Shared selection and limit keys of the retired ToF / stereo calibration: the shared models still carry them until
+# retire-tof-stereo-calibratio, the node refuses them.
+TOF_SELECTION_KEYS = ("still_tof_mad", "max_pair_dt_s", "amplitude_percentiles", "tof_upscale")
+TOF_LIMIT_KEYS = ("rgb_max_rms_px", "tof_max_rms_px", "stereo_max_rms_px", "tof_zero_distortion_rms_px")
+# |median aligned depth - PnP board plane depth| of the D435 intrinsics check, mm: the D435 depth RMS error is under
+# 2 % at 2 m (about 2 mm at the 0.3-0.6 m board distance), so 10 mm only passes a sound depth-to-colour alignment.
+D435_PLANE_MAX_BIAS_MM = 10.0
+D435_STILL_DEPTH_MAD = 0.01
+D435_INTRINSICS_MAX_RMS_PX = 0.5
+D435_INTRINSICS_MAX_FOCAL_DIFF_PCT = 1.0
+D435_INTRINSICS_MAX_PRINCIPAL_DIFF_PX = 5.0
 
 
 class TopicsConfig(StrictModel):
-    """Topics the capture subscribes to."""
+    """Topics the capture subscribes to: D435 colour (compressed), aligned depth and colour camera_info, and joints."""
 
     rgb: str = DEFAULT_TOPIC_RGB
-    amplitude: str = DEFAULT_TOPIC_AMPLITUDE
     depth: str = DEFAULT_TOPIC_DEPTH
-    tof_info: str = DEFAULT_TOPIC_TOF_INFO
+    rgb_info: str = DEFAULT_TOPIC_RGB_INFO
     head_joint_states: str = DEFAULT_TOPIC_HEAD_JOINT_STATES
     arm_joint_states: str = DEFAULT_TOPIC_ARM_JOINT_STATES
 
 
 class QosConfig(StrictModel):
-    """Subscription queue depths."""
+    """Subscription queue depths of the aligned depth and the colour streams."""
 
-    tof_depth: int = Field(default=DEFAULT_QOS_TOF_DEPTH, ge=1)
-    rgb_depth: int = Field(default=DEFAULT_QOS_RGB_DEPTH, ge=1)
+    depth: int = Field(default=DEFAULT_QOS_DEPTH, ge=1)
+    rgb: int = Field(default=DEFAULT_QOS_RGB, ge=1)
+
+
+def refuse_keys(data: Any, keys: tuple[str, ...], section: str) -> Any:
+    """Raise ValueError naming the first of keys present in a mapping; return the data unchanged otherwise.
+
+    Args:
+        data: The raw section input.
+        keys: Keys the node refuses.
+        section: Config section name for the message.
+
+    Returns:
+        Any: data.
+    """
+    if isinstance(data, dict):
+        for key in keys:
+            if key in data:
+                raise ValueError(
+                    f"{section}.{key} belongs to the retired ToF calibration; the D435 check has no such key"
+                )
+    return data
+
+
+class D435SelectionConfig(SelectionConfig):
+    """Still-frame selection of the D435 check: colour and aligned depth MADs over still_window_s, skip_start_s.
+
+    The shared ToF keys are refused and never dumped.
+    """
+
+    still_depth_mad: float = Field(default=D435_STILL_DEPTH_MAD, ge=0)
+    still_tof_mad: float = Field(default=0.01, ge=0, exclude=True)
+    max_pair_dt_s: float = Field(default=0.05, gt=0, exclude=True)
+    amplitude_percentiles: tuple[float, float] = Field(default=(1, 99), exclude=True)
+    tof_upscale: int = Field(default=2, ge=1, exclude=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def refuse_tof_keys(cls, data: Any) -> Any:
+        """Refuse the shared ToF selection keys."""
+        return refuse_keys(data, TOF_SELECTION_KEYS, "selection")
+
+
+class D435LimitsConfig(LimitsConfig):
+    """Acceptance limits of the D435 intrinsics check; the shared ToF, stereo and RGB-fit keys are refused."""
+
+    plane_max_bias_mm: float = Field(default=D435_PLANE_MAX_BIAS_MM, gt=0)
+    intrinsics_max_rms_px: float = Field(default=D435_INTRINSICS_MAX_RMS_PX, gt=0)
+    intrinsics_max_focal_diff_pct: float = Field(default=D435_INTRINSICS_MAX_FOCAL_DIFF_PCT, gt=0)
+    intrinsics_max_principal_diff_px: float = Field(default=D435_INTRINSICS_MAX_PRINCIPAL_DIFF_PX, gt=0)
+    rgb_max_rms_px: float = Field(default=0.5, gt=0, exclude=True)
+    tof_max_rms_px: float = Field(default=0.3, gt=0, exclude=True)
+    stereo_max_rms_px: float = Field(default=1.0, gt=0, exclude=True)
+    tof_zero_distortion_rms_px: float = Field(default=0.3, gt=0, exclude=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def refuse_tof_keys(cls, data: Any) -> Any:
+        """Refuse the shared ToF, stereo and RGB-fit limit keys."""
+        return refuse_keys(data, TOF_LIMIT_KEYS, "limits")
 
 
 class StillConfig(StrictModel):
@@ -172,7 +241,9 @@ def default_min_clouds(clouds_per_pose: int) -> int:
 
 
 class FloorSweepConfig(StrictModel):
-    """Guided head sweep that records the ToF floor plane at a pan/tilt grid (design D5, D11).
+    """Guided head sweep that records the floor plane at a pan/tilt grid (design D5, D11).
+
+    `cloud_topic` is the D435 cloud, its points in `sensor_frame`.
 
     A pose with fewer than `min_clouds_per_pose` fitted clouds (of `clouds_per_pose`) is skipped as partly blocked;
     the key defaults to half of `clouds_per_pose`, rounded up, when absent or null.
@@ -181,6 +252,7 @@ class FloorSweepConfig(StrictModel):
     joint_states_topic: str = DEFAULT_FLOOR_JOINT_STATES_TOPIC
     command_topic: str = DEFAULT_FLOOR_COMMAND_TOPIC
     cloud_topic: str = DEFAULT_FLOOR_CLOUD_TOPIC
+    sensor_frame: str = DEFAULT_FLOOR_SENSOR_FRAME
     command_frame_id: str = DEFAULT_FLOOR_COMMAND_FRAME_ID
     pan_deg: list[float] = Field(default_factory=lambda: list(DEFAULT_FLOOR_PAN_DEG), min_length=1)
     tilt_deg: list[float] = Field(default_factory=lambda: list(DEFAULT_FLOOR_TILT_DEG), min_length=1)
@@ -355,7 +427,10 @@ class ArmSequenceConfig(StrictModel):
 
 
 class NodeConfig(StrictModel):
-    """Whole node config; every key has a default so an empty file is valid."""
+    """Whole node config; every key has a default so an empty file is valid.
+
+    `camera_frame` is the optical frame of the colour stream the head-from-arm fit solves the camera in.
+    """
 
     state_dir: str = DEFAULT_STATE_DIR
     http_host: str = DEFAULT_HTTP_HOST
@@ -365,8 +440,7 @@ class NodeConfig(StrictModel):
     max_capture_s: float = Field(default=DEFAULT_MAX_CAPTURE_S, gt=0)
     compute_timeout_s: float = Field(default=DEFAULT_COMPUTE_TIMEOUT_S, gt=0)
     compute_nice: int = Field(default=DEFAULT_COMPUTE_NICE, ge=0, le=19)
-    head_camera_config_file: str = DEFAULT_HEAD_CAMERA_CONFIG_FILE
-    default_lens_position: float = DEFAULT_LENS_POSITION
+    camera_frame: str = DEFAULT_CAMERA_FRAME
     head_urdf_file: str = DEFAULT_HEAD_URDF_FILE
     arm_urdf_file: str = DEFAULT_ARM_URDF_FILE
     restart_units: list[str] = Field(default_factory=lambda: list(DEFAULT_RESTART_UNITS))
@@ -374,8 +448,8 @@ class NodeConfig(StrictModel):
     thumbnail_width_px: int = Field(default=DEFAULT_THUMBNAIL_WIDTH_PX, ge=1)
     coverage: CoverageConfig = Field(default_factory=CoverageConfig)
     board: BoardConfig = Field(default_factory=BoardConfig)
-    selection: SelectionConfig = Field(default_factory=SelectionConfig)
-    limits: LimitsConfig = Field(default_factory=LimitsConfig)
+    selection: D435SelectionConfig = Field(default_factory=D435SelectionConfig)
+    limits: D435LimitsConfig = Field(default_factory=D435LimitsConfig)
     floor: FloorSweepConfig = Field(default_factory=FloorSweepConfig)
     still: StillConfig = Field(default_factory=StillConfig)
     fit: HeadArmFitConfig = Field(default_factory=default_fit)

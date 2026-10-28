@@ -3,10 +3,10 @@
 import cv2
 import numpy as np
 from ros2_common.head_rgbd_calibration.charuco import Detection
-from ros2_common.head_rgbd_calibration.frames import normalise_amplitude
 
 JPEG_QUALITY = 80
-TOF_ENLARGE = 2
+DEPTH_PERCENTILES = (1.0, 99.0)  # valid depth range mapped onto the colour map, robust to stray far pixels
+MAX_UINT8 = 255
 CORNER_COLOR_BGR = (0, 255, 0)
 PIXEL_CENTRE = 0.5  # detect() reports corners with pixel centres at integer coordinates
 
@@ -38,6 +38,15 @@ def encode_jpeg(image: np.ndarray) -> bytes:
     return buffer.tobytes()
 
 
+def scaled_thumbnail(image: np.ndarray, detection: Detection, width_px: int, interpolation: int) -> bytes:
+    """JPEG of a BGR image scaled to at most width_px wide (aspect kept, never enlarged) with the corners drawn."""
+    height, width = image.shape[:2]
+    scale = min(1.0, width_px / width)
+    size = (max(1, round(width * scale)), max(1, round(height * scale)))
+    thumb = cv2.resize(image, size, interpolation=interpolation) if scale < 1.0 else image.copy()
+    return encode_jpeg(draw_corners(thumb, detection, size[0] / width))
+
+
 def rgb_thumbnail(image: np.ndarray, detection: Detection, width_px: int) -> bytes:
     """JPEG thumbnail of an RGB frame with its corners drawn.
 
@@ -49,26 +58,26 @@ def rgb_thumbnail(image: np.ndarray, detection: Detection, width_px: int) -> byt
     Returns:
         JPEG bytes, scaled to at most width_px wide with the aspect ratio kept.
     """
-    height, width = image.shape[:2]
-    scale = min(1.0, width_px / width)
-    size = (max(1, round(width * scale)), max(1, round(height * scale)))
-    thumb = cv2.resize(image, size, interpolation=cv2.INTER_AREA) if scale < 1.0 else image.copy()
-    return encode_jpeg(draw_corners(thumb, detection, size[0] / width))
+    return scaled_thumbnail(image, detection, width_px, cv2.INTER_AREA)
 
 
-def tof_thumbnail(amplitude: np.ndarray, detection: Detection, percentiles: tuple[float, float]) -> bytes | None:
-    """JPEG thumbnail of a ToF amplitude frame: normalised, enlarged 2x, corners drawn.
+def depth_thumbnail(depth_mm: np.ndarray, detection: Detection, width_px: int) -> bytes | None:
+    """JPEG thumbnail of an aligned depth frame: colourised (turbo, near blue), no depth black, colour corners drawn.
 
     Args:
-        amplitude: uint16 amplitude frame.
-        detection: Board corners in amplitude pixels.
-        percentiles: Selection amplitude_percentiles, as normalise_amplitude uses them.
+        depth_mm: uint16 depth registered to the colour frame, millimetres (0 is no depth); not modified.
+        detection: Board corners in colour pixels (the aligned depth shares them).
+        width_px: Thumbnail width; a narrower frame is not enlarged.
 
     Returns:
-        JPEG bytes, or None for an empty frame (no dynamic range).
+        JPEG bytes scaled as rgb_thumbnail, or None when the frame holds no valid depth.
     """
-    grey = normalise_amplitude(amplitude, percentiles)
-    if grey is None:
+    valid = depth_mm > 0
+    if not valid.any():
         return None
-    big = cv2.resize(grey, None, fx=TOF_ENLARGE, fy=TOF_ENLARGE, interpolation=cv2.INTER_CUBIC)
-    return encode_jpeg(draw_corners(cv2.cvtColor(big, cv2.COLOR_GRAY2BGR), detection, TOF_ENLARGE))
+    low, high = np.percentile(depth_mm[valid], DEPTH_PERCENTILES)
+    span = max(float(high - low), 1.0)
+    grey = np.clip((depth_mm.astype(np.float64) - low) / span * MAX_UINT8, 0, MAX_UINT8).astype(np.uint8)
+    colour = cv2.applyColorMap(grey, cv2.COLORMAP_TURBO)
+    colour[~valid] = 0
+    return scaled_thumbnail(colour, detection, width_px, cv2.INTER_NEAREST)
