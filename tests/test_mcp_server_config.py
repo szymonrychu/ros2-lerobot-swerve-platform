@@ -530,7 +530,8 @@ def test_web_ui_tab_set() -> None:
     assert head["label"] == "Head"
     assert head["rgb_camera_topic"] == "/head/d435/color/image_raw/compressed"
     assert head["depth_topic"] == "/head/d435/depth/image_rect_raw"
-    assert not {"fused_depth_topic", "tof_depth_topic", "tof_amplitude_topic", "tof_range_m"} & set(head)
+    assert "fused_depth_topic" not in head
+    assert not {"tof_depth_topic", "tof_amplitude_topic", "tof_range_m"} & set(head)
     assert "camera_info_topic" not in head
     assert head["depth_range_m"] == 4.0
     poi = tabs[5]
