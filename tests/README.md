@@ -3099,6 +3099,17 @@ Static checks of the collision_monitor D435 sources `depth_obstacles` / `depth_c
 | `test_readme_sections_have_no_parking_wording` | Neither README section defers anything to a later change. |
 | `test_tests_readme_documents_this_file` | This section lists every test of the file. |
 
+### test_web_ui_obstacle_bands.py
+
+Keeps the web_ui 3D obstacles layer height bands (`OBSTACLE_MIN_Z`, `OBSTACLE_MAX_Z`, `CLIFF_MAX_Z` in `nodes/web_ui/frontend/src/map3d/obstaclePoints.ts`, read by regex) equal to the Nav2 D435 bands in `nodes/nav2_bringup/config/nav2_params.yaml`, so the colours of the D435 points match what the costmap and the collision monitor treat as obstacles and cliffs.
+
+| Test | Covers |
+|---|---|
+| `test_obstacle_band_equals_depth_mark` | `OBSTACLE_MIN_Z` / `OBSTACLE_MAX_Z` equal `depth_voxel_layer.depth_mark` `min_obstacle_height` / `max_obstacle_height`. |
+| `test_cliff_bound_equals_depth_cliff_mark` | `CLIFF_MAX_Z` equals `depth_voxel_layer.depth_cliff_mark` `max_obstacle_height`. |
+| `test_obstacle_band_equals_collision_depth_obstacles` | `OBSTACLE_MIN_Z` / `OBSTACLE_MAX_Z` equal collision_monitor `depth_obstacles` `min_height` / `max_height`. |
+| `test_cliff_bound_equals_collision_depth_cliff` | `CLIFF_MAX_Z` equals collision_monitor `depth_cliff` `max_height`. |
+
 ### test_d435_obstacle_cloud_config.py
 
 Static checks of the `d435_obstacle_cloud` deployment (config-only rtabmap_util point_cloud_xyz on the full-FOV D435 depth, Client only, design D5) and of the uninstall of the retired `tof_obstacle_cloud`.
