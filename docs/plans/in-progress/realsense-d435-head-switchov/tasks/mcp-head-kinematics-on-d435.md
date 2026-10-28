@@ -1,6 +1,6 @@
 ---
 title: MCP head kinematics on D435 frames
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: MCP head pointing and projection use the D435 frames and one shared URDF origin helper.
 files: [nodes/mcp_server/mcp_server/head_kinematics.py, nodes/mcp_server/mcp_server/sag.py, nodes/mcp_server/mcp_server/head_tools.py, nodes/mcp_server/tests/test_head_kinematics.py, nodes/mcp_server/tests/test_front_ground_points.py, nodes/mcp_server/tests/test_head_tools.py]
@@ -8,15 +8,15 @@ verify: "cd nodes/mcp_server && uv run --frozen pytest tests/test_head_kinematic
 depends_on: [d435-frames-on-the-head-urdf]
 model: opus
 review: ""
-verified_head: ""
+verified_head: 762b393d
 points: 3
 expected_minutes: 34
 expected_tokens: 2250000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 3
+actual_minutes: 18
+actual_tokens: 3932308
+actual_roles: "impl 12, review 6"
+actual_role_tokens: "impl 3626574, review 305734"
 ---
 
 # MCP head kinematics on D435 frames
@@ -62,3 +62,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-28 done
