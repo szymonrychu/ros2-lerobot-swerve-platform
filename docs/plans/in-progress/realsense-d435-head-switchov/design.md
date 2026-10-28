@@ -425,3 +425,7 @@ Plan inputs from the briefs, each placed:
 - Committing new arm `joint_offsets_rad` / `tool_offset_m` to client.yml and deploying mcp_server (changes every arm
   motion). Safeguard: the result passes the held-out limits and the snippet is reviewed in the commit; the old values are
   in git.
+
+### D32b: d435_joint partly free in the head-from-arm fit (my call, 2026-10-28)
+
+Decision: the fit frees d435_joint x, z, roll, yaw; y is unobservable from board views and pitch folds into tilt_zero (synthetic correlation 0.9995), so both stay at the URDF/CAD values. Source: calibration-library-d435-fra implementer identifiability run.
