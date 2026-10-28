@@ -1,6 +1,6 @@
 ---
 title: Node suites green after early D435 tasks
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: Every node suite is green before the next task builds on it
 files: [nodes/web_ui/tests/test_stale_names_gone.py, nodes/head_rgbd_calibration, shared/ros2_common/head_rgbd_calibration, scripts/head_rgbd_calibration]
@@ -8,15 +8,15 @@ verify: "(cd nodes/web_ui && uv run pytest tests -q) && (cd nodes/head_rgbd_cali
 depends_on: [mcp-head-kinematics-on-d435]
 model: sonnet
 review: ""
-verified_head: ""
+verified_head: b2bd0cc1
 points: 2
 expected_minutes: 8
 expected_tokens: 530724
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 2
+actual_minutes: 39
+actual_tokens: 1456922
+actual_roles: "impl 26, review 14"
+actual_role_tokens: "impl 1044248, review 412674"
 ---
 
 # Node suites green after early D435 tasks
@@ -55,3 +55,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-28 done
