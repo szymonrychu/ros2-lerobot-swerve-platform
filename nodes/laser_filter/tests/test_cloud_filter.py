@@ -1,4 +1,4 @@
-"""ToF cloud self filter (laser_filter.self_filter, no ROS): the per-point keep mask against the deployed self polygon
+"""D435 cloud self filter (laser_filter.self_filter, no ROS): the per-point keep mask against the deployed self polygon
 (H body + parked gripper, notches kept, height limit, non-finite removed), the runtime polygon replacement with a
 released arm shadow, the cloud frame -> polygon_frame transform helper, the whole cloud filter in the cloud frame, the
 newest-wins pending slot for clouds waiting for TF, the cloud config keys, and laser_filter.node.LaserFilterNode's cloud
@@ -31,6 +31,9 @@ from laser_filter.self_filter import (
 )
 
 DEPLOYED = Path(__file__).resolve().parent.parent / "config" / "footprint_filter.yaml"
+CLOUD_TOPIC = "/head/d435/points"
+FILTERED_TOPIC = "/head/d435/points_filtered"
+CLOUD_FRAME = "d435_depth_optical_frame"
 GENERATED_BEGIN = "# >>> gen_nav_footprint: laser_polygon"
 GENERATED_END = "# <<< gen_nav_footprint: laser_polygon"
 MAX_HEIGHT_M = 1.0
@@ -59,7 +62,7 @@ def polygon_string(shape: Polygon) -> str:
 
 
 def head_transform() -> tuple[np.ndarray, np.ndarray]:
-    """tof_optical_frame -> base_link: head 0.10 m ahead and 0.60 m up, panned 30 deg and tilted 20 deg down, optical
+    """d435_depth_optical_frame -> base_link: head 0.10 m ahead and 0.60 m up, panned 30 deg and tilted 20 deg down, optical
     axes (z forward, x right, y down)."""
     pan = quaternion_matrix(0.0, 0.0, math.sin(math.radians(15)), math.cos(math.radians(15)))
     tilt = quaternion_matrix(0.0, math.sin(math.radians(10)), 0.0, math.cos(math.radians(10)))
@@ -165,8 +168,8 @@ def test_pending_slot_drops_a_cloud_after_the_timeout() -> None:
 
 def test_cloud_config_defaults() -> None:
     cfg = LaserFilterConfig(polygon="[[0, 0], [1, 0], [1, 1]]")
-    assert cfg.cloud_topic == "/tof/points"
-    assert cfg.cloud_filtered_topic == "/tof/points_filtered"
+    assert cfg.cloud_topic == CLOUD_TOPIC
+    assert cfg.cloud_filtered_topic == FILTERED_TOPIC
     assert cfg.cloud_self_max_height_m == 1.0
     assert cfg.cloud_transform_timeout_s == 0.2
     assert LaserFilterConfig(polygon="[[0, 0], [1, 0], [1, 1]]", cloud_topic=None).cloud_topic is None
@@ -191,14 +194,14 @@ def test_deployed_config_sets_the_cloud_keys_outside_the_generated_region() -> N
     text = DEPLOYED.read_text()
     outside = text.split(GENERATED_BEGIN)[0] + text.split(GENERATED_END)[1]
     for line in (
-        "cloud_topic: /tof/points",
-        "cloud_filtered_topic: /tof/points_filtered",
+        f"cloud_topic: {CLOUD_TOPIC}",
+        f"cloud_filtered_topic: {FILTERED_TOPIC}",
         "cloud_self_max_height_m: 1.0",
         "cloud_transform_timeout_s: 0.2",
     ):
         assert f"\n{line}\n" in outside, line
     cfg = load_config(DEPLOYED)
-    assert (cfg.cloud_topic, cfg.cloud_filtered_topic) == ("/tof/points", "/tof/points_filtered")
+    assert (cfg.cloud_topic, cfg.cloud_filtered_topic) == (CLOUD_TOPIC, FILTERED_TOPIC)
 
 
 def test_pending_slot_drop_counts_the_waiting_cloud() -> None:
@@ -232,7 +235,6 @@ ROS_MODULES = (
     "sensor_msgs_py.point_cloud2",
     "tf2_ros",
 )
-CLOUD_FRAME = "tof_optical_frame"
 LASER_FRAME = "laser"
 CLOUD_STAMP = (100, 250_000_000)
 
@@ -429,17 +431,31 @@ def test_laser_filter_node_publishes_kept_points_with_the_input_header_only_afte
     node, tf_buffer = make_node(node_module)
     points, tf = head_cloud()
     msg = cloud_msg(points)
-    node.callbacks["/tof/points"](msg)
-    assert node.published["/tof/points_filtered"] == []  # no TF at the stamp yet: nothing published
+    node.callbacks[CLOUD_TOPIC](msg)
+    assert node.published[FILTERED_TOPIC] == []  # no TF at the stamp yet: nothing published
     tf_buffer.arrive("base_link", CLOUD_FRAME, (CLOUD_STAMP[0], CLOUD_STAMP[1] - 1), tf)  # TF at another stamp
     for timer in node.timers:
         timer()
-    assert node.published["/tof/points_filtered"] == []
+    assert node.published[FILTERED_TOPIC] == []
     tf_buffer.arrive("base_link", CLOUD_FRAME, CLOUD_STAMP, tf)
-    (out,) = node.published["/tof/points_filtered"]
+    (out,) = node.published[FILTERED_TOPIC]
     assert out.header is msg.header  # same frame, same stamp
     assert out.points.dtype == np.float32 and out.is_dense
     np.testing.assert_allclose(out.points, points[[1, 3]], atol=1e-6)  # side frame and parked gripper removed
+
+
+def test_self_points_removed_in_the_d435_frame(node_module: ModuleType) -> None:
+    """A deployed-config node with the head TF already known: a cloud in d435_depth_optical_frame on the D435 topic
+    loses the side frame and the parked gripper and keeps the front notch and the cliff, published on the D435
+    filtered topic in the same frame."""
+    node, tf_buffer = make_node(node_module)
+    points, tf = head_cloud()
+    tf_buffer.arrive("base_link", CLOUD_FRAME, CLOUD_STAMP, tf)
+    msg = cloud_msg(points)
+    node.callbacks[CLOUD_TOPIC](msg)
+    (out,) = node.published[FILTERED_TOPIC]
+    assert out.header.frame_id == CLOUD_FRAME
+    np.testing.assert_allclose(out.points, points[[1, 3]], atol=1e-6)
 
 
 def test_laser_filter_node_timer_never_publishes_and_drops_a_cloud_without_tf(
@@ -449,7 +465,7 @@ def test_laser_filter_node_timer_never_publishes_and_drops_a_cloud_without_tf(
     points, tf = head_cloud()
     clock = [1000.0]
     monkeypatch.setattr(node_module.time, "monotonic", lambda: clock[0])
-    node.callbacks["/tof/points"](cloud_msg(points))
+    node.callbacks[CLOUD_TOPIC](cloud_msg(points))
     clock[0] += 0.1
     for timer in node.timers:
         timer()
@@ -460,21 +476,21 @@ def test_laser_filter_node_timer_never_publishes_and_drops_a_cloud_without_tf(
     assert node.cloud_slot.item is None and node.cloud_slot.dropped == 1
     assert any("no TF within 0.2 s" in text and "1 clouds dropped" in text for text in node.logger.warnings)
     tf_buffer.arrive("base_link", CLOUD_FRAME, CLOUD_STAMP, tf)  # too late: the dropped cloud stays dropped
-    assert node.published["/tof/points_filtered"] == []
+    assert node.published[FILTERED_TOPIC] == []
 
 
 def test_laser_filter_node_pending_cloud_is_newest_wins(node_module: ModuleType) -> None:
     node, tf_buffer = make_node(node_module)
     points, tf = head_cloud()
     later = (CLOUD_STAMP[0], CLOUD_STAMP[1] + 100_000_000)
-    node.callbacks["/tof/points"](cloud_msg(points))
+    node.callbacks[CLOUD_TOPIC](cloud_msg(points))
     newer = cloud_msg(points, later)
-    node.callbacks["/tof/points"](newer)
+    node.callbacks[CLOUD_TOPIC](newer)
     assert node.cloud_slot.dropped == 1
     tf_buffer.arrive("base_link", CLOUD_FRAME, CLOUD_STAMP, tf)  # the superseded cloud's TF: not published
-    assert node.published["/tof/points_filtered"] == []
+    assert node.published[FILTERED_TOPIC] == []
     tf_buffer.arrive("base_link", CLOUD_FRAME, later, tf)
-    (out,) = node.published["/tof/points_filtered"]
+    (out,) = node.published[FILTERED_TOPIC]
     assert out.header is newer.header
 
 
@@ -483,8 +499,8 @@ def test_laser_filter_node_passes_an_empty_cloud_through_with_its_header(node_mo
     _, tf = head_cloud()
     tf_buffer.arrive("base_link", CLOUD_FRAME, CLOUD_STAMP, tf)
     msg = cloud_msg(np.zeros((0, 3), np.float32))
-    node.callbacks["/tof/points"](msg)
-    (out,) = node.published["/tof/points_filtered"]
+    node.callbacks[CLOUD_TOPIC](msg)
+    (out,) = node.published[FILTERED_TOPIC]
     assert out.header is msg.header and out.points.shape == (0, 3)
 
 
@@ -492,7 +508,7 @@ def test_laser_filter_node_scan_is_not_delayed_by_a_cloud_waiting_for_tf(node_mo
     node, tf_buffer = make_node(node_module)
     points, _ = head_cloud()
     tf_buffer.static[(LASER_FRAME, "base_link")] = transform_msg(np.eye(3), np.zeros(3))
-    node.callbacks["/tof/points"](cloud_msg(points))  # waits for its TF in the pending slot
+    node.callbacks[CLOUD_TOPIC](cloud_msg(points))  # waits for its TF in the pending slot
     scan = SimpleNamespace(
         header=SimpleNamespace(frame_id=LASER_FRAME, stamp=stamp_msg(CLOUD_STAMP)),
         angle_min=-math.pi,
@@ -508,4 +524,4 @@ def test_laser_filter_node_scan_is_not_delayed_by_a_cloud_waiting_for_tf(node_mo
     node.callbacks["/scan"](scan)
     (out,) = node.published["/scan_filtered"]
     assert out.header is scan.header
-    assert node.cloud_slot.item is not None and node.published["/tof/points_filtered"] == []
+    assert node.cloud_slot.item is not None and node.published[FILTERED_TOPIC] == []

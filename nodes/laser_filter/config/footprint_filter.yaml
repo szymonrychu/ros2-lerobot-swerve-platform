@@ -14,11 +14,12 @@ scan_filtered_topic: /scan_filtered
 polygon_frame: base_link
 # Longest wait for the static TF polygon_frame -> scan frame per scan before the scan is dropped (s).
 transform_timeout_s: 0.1
-# ToF cloud self filter: cloud_topic points inside the polygon with z <= cloud_self_max_height_m (polygon_frame) are
-# removed, the rest is published on cloud_filtered_topic with the input frame and stamp (consumed by the Nav2 STVL
-# layer, the collision monitor, web_ui and mcp_server). cloud_topic: null disables the cloud path.
-cloud_topic: /tof/points
-cloud_filtered_topic: /tof/points_filtered
+# D435 cloud self filter: cloud_topic (the d435_obstacle_cloud output, d435_depth_optical_frame) points inside the
+# polygon with z <= cloud_self_max_height_m (polygon_frame) are removed, the rest is published on cloud_filtered_topic
+# with the input frame and stamp (consumed by ground_estimator_cpp, the Nav2 local costmap, the collision monitor,
+# web_ui and mcp_server). cloud_topic: null disables the cloud path.
+cloud_topic: /head/d435/points
+cloud_filtered_topic: /head/d435/points_filtered
 cloud_self_max_height_m: 1.0
 # Longest wait for the TF polygon_frame <- cloud frame at the cloud's stamp (the head moves) before the cloud is
 # dropped and counted (s). The lookup never blocks: the cloud waits in a newest-wins slot.

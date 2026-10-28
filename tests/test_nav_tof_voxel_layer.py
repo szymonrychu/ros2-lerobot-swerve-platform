@@ -277,9 +277,15 @@ def test_tof_fov_constants_match_the_design() -> None:
     assert math.degrees(vertical) == pytest.approx(45.6, abs=0.1)
 
 
-def test_tof_topic_is_the_laser_filter_output() -> None:
+def test_disabled_tof_layer_is_off_the_d435_laser_filter_output() -> None:
+    """laser_filter self-filters the D435 cloud (laser-filter-on-the-d435-clo), so nothing publishes TOF_TOPIC any more:
+    the layer reading it must stay disabled until nav2-voxel-layer-on-d435-clo re-points it to the laser_filter
+    output."""
     laser_filter = yaml.safe_load(LASER_FILTER_PARAMS.read_text())
-    assert laser_filter["cloud_filtered_topic"] == TOF_TOPIC
+    assert laser_filter["cloud_filtered_topic"] == "/head/d435/points_filtered"
+    layer = tof_layer()
+    assert {layer[source]["topic"] for source in (*MARK_SOURCES, CLEAR_SOURCE)} == {TOF_TOPIC}
+    assert layer["enabled"] is False
 
 
 @pytest.mark.parametrize("costmap", ["global_costmap", "local_costmap"])

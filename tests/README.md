@@ -2293,7 +2293,7 @@ Keeps the ground estimation docs consistent with the shipped config and the repo
 
 ### Ground estimation epic: other tests
 
-- Root tests: `test_ground_estimator_readme.py`, `test_ground_estimator_deploy.py` and `test_nav_ground_voxel_layer.py` (described in their sections); changed: `test_nav_stack_config.py` (ground layers in the local costmap only), `test_nav_tof_voxel_layer.py` and `test_nav_tof_collision.py` (the fixed bands and the collision monitor stay unchanged), `test_tof_obstacle_wiring.py` (ground topics), `test_monitoring_dashboards.py` (ground_estimator_cpp panel), `test_node_cpu_compare.py` (the `nav2_bringup_ground_layer` entry), `test_node_metrics_wiring.py`, `test_cpp_node_deploy.py`, `test_unit_cgroups.py`.
+- Root tests: `test_ground_estimator_readme.py`, `test_ground_estimator_deploy.py` and `test_nav_ground_voxel_layer.py` (described in their sections); changed: `test_nav_stack_config.py` (ground layers in the local costmap only), `test_nav_tof_voxel_layer.py` and `test_nav_tof_collision.py` (the fixed bands and the collision monitor stay unchanged), `test_d435_obstacle_wiring.py` (ground topics), `test_monitoring_dashboards.py` (ground_estimator_cpp panel), `test_node_cpu_compare.py` (the `nav2_bringup_ground_layer` entry), `test_node_metrics_wiring.py`, `test_cpp_node_deploy.py`, `test_unit_cgroups.py`.
 - ground_estimator_cpp gtests (`nodes/ground_estimator_cpp/test`): `test_plane_fit.cpp` (`PlaneFit.*`: level, pitched, wall, table, box, depth bias, deterministic seed), `test_tracker.cpp` (`GravityUp.*`, `ChoosePrior.*`, `Tracker.*`, `Slope.*`, `Angles.*`: IMU prior, hold, motion in odom, smoothing, slope levels), `test_segmentation.cpp` (`Segmentation.*`: bands, box, drop-off, 3 cm sill, range, overhang, cloud round trip), `test_edges.cpp` (`Edges.*`: drop-off, step plate, ramp, box, hull, clustering cap, median edge step of a spread box top and a noisy 3 cm sill, sparse 14 deg mat ramp slope over 30 seeds through the cell median with aligned and misaligned cells, dense 25 deg ramp, flat 5 cm box top, unknown slope below the bin support or with bins in one line), `test_traversability.cpp` (`Traversability.*`: thresholds are warnings, sill/drop/ramp both sides, box, colour sheet and plate), `test_colour.cpp` (`Colour.*`: Lab, red sheet, floor model, labelled message layout), `test_config.cpp` (`Config.*`: defaults, derived topics, one third max step, shipped yaml, rejected keys, robustness key ranges, `GuidanceDefaults`/`RejectsGuidanceRanges`/`RejectsGuidanceCrossKeyViolations`/`RejectsUnknownGuidanceKeys`, max slope against the tilt_guard error limits), `test_state.cpp` (`GroundState.*`, `WarningAreas.*`: key order, shapes, rounding, fixtures), `test_node.cpp` (`NodeTest.*`: level floor with box, 10 cm drop, 3 cm sill, 6 deg ramp, missing transform, plane hold, IMU prior).
 - costmap_zones: `nodes/costmap_zones/tests/test_ground_warnings.py` (warning areas to the speed and ground cost masks) and `test_node.py`.
 - mcp_server: `nodes/mcp_server/tests/test_ground_summary.py` (`/ground/state` contract, region conversion, summary mapping), `test_floor_guard_ground.py` (opt-in floor_guard with the ground plane).
@@ -3005,7 +3005,7 @@ Static checks of the head ToF spatio-temporal voxel layer (`tof_voxel_layer`, ST
 | `test_ranges_stay_inside_the_cloud_max_depth` | `max_z` and both `obstacle_range` <= d435_obstacle_cloud `max_depth`; `min_z` >= its `min_depth`. |
 | `test_clearing_fov_is_inside_the_tof_fov` | Clearing FOV angles are below the ToF horizontal/vertical FOV (70 deg diagonal, 240 x 180). |
 | `test_tof_fov_constants_match_the_design` | The FOV constants give 58.5 x 45.6 deg. |
-| `test_tof_topic_is_the_laser_filter_output` | `/tof/points_filtered` is laser_filter's `cloud_filtered_topic`. |
+| `test_disabled_tof_layer_is_off_the_d435_laser_filter_output` | laser_filter's `cloud_filtered_topic` is the D435 `/head/d435/points_filtered`, so the layer whose sources still read `/tof/points_filtered` stays disabled. |
 | `test_lidar_obstacle_layer_keeps_the_scan_source` | Both costmaps keep the enabled ObstacleLayer with the single `/scan_filtered` LaserScan source (marking and clearing). |
 | `test_no_stvl_source_uses_the_lidar` | No STVL source reads `/scan_filtered`, a scan topic or a LaserScan. |
 | `test_global_costmap_has_no_tof_voxels` | Global plugins unchanged; no STVL plugin and no ToF topic there (user decision Q3). |
@@ -3068,22 +3068,17 @@ Static checks of the `d435_obstacle_cloud` deployment (config-only rtabmap_util 
 | `test_old_params_file_is_moved` | `nodes/tof_obstacle_cloud/config/point_cloud_xyz.yaml` is gone. |
 | `test_node_is_not_on_the_server` | Not in server.yml. |
 
-### test_tof_obstacle_wiring.py
+### test_d435_obstacle_wiring.py
 
-Cross-file topic and frame chain of the head ToF obstacle pipeline (arducam_tof -> tof_obstacle_cloud -> laser_filter -> Nav2 STVL, collision_monitor, web_ui, mcp_server). Reads the YAML only.
+Cross-file topic chain of the head D435 obstacle cloud (design D5): d435_obstacle_cloud (`/head/d435/points`, `d435_depth_optical_frame`) -> laser_filter self filter (`/head/d435/points_filtered`) -> ground_estimator_cpp. The Nav2, web_ui and mcp_server consumers of the filtered cloud are pinned by their own tests. Reads the YAML only.
 
 | Test | Covers |
 |---|---|
-| `test_tof_obstacle_cloud_output_is_the_laser_filter_input` | The `cloud` remap of the tof_obstacle_cloud launch command equals laser_filter `cloud_topic`. |
-| `test_laser_filter_output_feeds_every_consumer` | laser_filter `cloud_filtered_topic` equals every STVL source topic, both collision_monitor ToF sources, the web_ui map_nav `obstacle_cloud_topic` (client.yml and default.yaml) and the mcp_server `topics.tof_points` (client.yml and config default). |
-| `test_ground_estimator_input_is_the_laser_filter_output_and_the_ground_clear_topic` | laser_filter `cloud_filtered_topic` equals the ground_estimator_cpp `cloud_topic` and the `ground_clear` topic. |
-| `test_stvl_observation_sources_are_exactly_the_three_tof_sources` | The STVL layer lists exactly tof_mark, tof_cliff_mark, tof_clear. |
-| `test_arducam_tof_frame_id_is_the_tof_optical_frame` | arducam_tof `frame_id` is `tof_optical_frame`. |
-| `test_stvl_and_collision_monitor_height_bands_agree` | tof_obstacles = tof_mark and tof_cliff = tof_cliff_mark in min and max height. |
-| `test_ranges_and_collision_sources_are_listed` | The collision monitor observes scan, tof_obstacles and tof_cliff. |
+| `test_d435_cloud_feeds_the_self_filter` | The `cloud` remap of the d435_obstacle_cloud launch command and laser_filter `cloud_topic` are `/head/d435/points`; laser_filter `cloud_filtered_topic` is `/head/d435/points_filtered`; both nodes are present in client.yml. |
+| `test_ground_estimator_input_is_the_laser_filter_output` | The ground_estimator_cpp `cloud_topic` equals laser_filter `cloud_filtered_topic`. |
 | `test_slam_toolbox_publishes_map_to_odom` | slam_toolbox `transform_publish_period` > 0 with map and odom frames. |
-| `test_no_other_client_node_publishes_map_to_odom` | No other client node sets `publish_tf: true` (but the EKF, odom -> base_link), the static TF publisher has no map parent or odom child, tof_obstacle_cloud has no TF argument. |
-| `test_new_nodes_and_tests_are_in_the_tests_readme` | d435_obstacle_cloud and the obstacle pipeline test files (its config test, the voxel layer, collision, wiring and ground voxel layer tests) have a section here. |
+| `test_no_other_client_node_publishes_map_to_odom` | No other client node sets `publish_tf: true` (but the EKF, odom -> base_link), the static TF publisher has no map parent or odom child, d435_obstacle_cloud has no TF argument. |
+| `test_chain_nodes_and_tests_are_in_the_tests_readme` | d435_obstacle_cloud, laser_filter and the chain test files (`test_d435_obstacle_cloud_config.py`, this file) have a section here. |
 
 ### `test_head_rgbd_calib_core.py`
 

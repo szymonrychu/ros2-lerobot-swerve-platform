@@ -1,4 +1,4 @@
-"""laser_filter configuration (pydantic): scan and ToF cloud topics, polygon frame and the startup self polygon."""
+"""laser_filter configuration (pydantic): scan and D435 cloud topics, polygon frame and the startup self polygon."""
 
 import os
 from pathlib import Path
@@ -25,10 +25,10 @@ class LaserFilterConfig(BaseModel):
     polygon_frame: str = "base_link"
     # Longest wait for the polygon_frame -> scan frame TF per scan before the scan is dropped (s).
     transform_timeout_s: float = Field(default=0.1, ge=0.0, le=10.0)
-    # Raw ToF cloud; None disables the cloud path (no subscription, no publisher).
-    cloud_topic: str | None = "/tof/points"
-    # ToF cloud without the robot's own points (same frame and stamp as the input cloud).
-    cloud_filtered_topic: str = "/tof/points_filtered"
+    # Raw D435 obstacle cloud (d435_obstacle_cloud); None disables the cloud path (no subscription, no publisher).
+    cloud_topic: str | None = "/head/d435/points"
+    # D435 cloud without the robot's own points (same frame and stamp as the input cloud).
+    cloud_filtered_topic: str = "/head/d435/points_filtered"
     # Points inside the polygon with z <= this (m, polygon_frame) are the robot; above it they are kept (overhangs).
     cloud_self_max_height_m: float = Field(default=1.0, gt=0.0)
     # Longest wait for the polygon_frame <- cloud frame TF at the cloud's stamp before the cloud is dropped (s).
