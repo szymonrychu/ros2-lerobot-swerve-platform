@@ -63,3 +63,4 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+- 2026-10-28 (from calibration-config-on-d435): head-arm stills store no CameraInfo and read head_camera_calibration.yaml, which is no longer written; head-arm must take the D435 factory intrinsics from CameraInfo stored with each still (CameraIntrinsics.from_camera_info).

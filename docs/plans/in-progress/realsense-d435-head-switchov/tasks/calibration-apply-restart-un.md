@@ -61,3 +61,4 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+- 2026-10-28 (from calibration-config-on-d435): accepting an intrinsics check rewrites applied.json, so the path unit restarts units for a no-op; only restart when applied content changes.
