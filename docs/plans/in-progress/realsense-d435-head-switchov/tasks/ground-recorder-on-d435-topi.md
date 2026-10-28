@@ -65,3 +65,4 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+- 2026-10-28: ground_recorder.py still names the constant STREAM_TOF and the npz keys tof_depth_mm / tof_K (value already "depth"); rename them here with the readers (ground_replay_export.py).
