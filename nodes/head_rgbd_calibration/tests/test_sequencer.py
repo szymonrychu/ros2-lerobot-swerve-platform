@@ -1081,8 +1081,8 @@ def test_poses_inside_min_z_are_skipped(tmp_path: Path) -> None:
     assert {tier for _, tier, _ in rig.capture.stills} == {0, 1, 2}
 
     # The nominal D435 colour camera (69 deg across 640 px): views with a corner outside the image are skipped, the
-    # others of the same pose are captured.
-    rig = Rig(tmp_path, small_cfg())
+    # others of the same pose are captured. A +6 deg tilt offset pushes the board out of the 360 px image height.
+    rig = Rig(tmp_path, small_cfg(head_offsets_deg=[*seq.head_offsets_deg, (0.0, 6.0)]))
     rig.capture.camera_info = camera_info(D435_K)
     views = expected_views(rig.cfg, HEAD_URDF, D435_K)
     assert {why for *_, why in views} == {None, FOV_REASON}

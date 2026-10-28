@@ -105,7 +105,7 @@ DEFAULT_TIER1_POSES = (
     (-0.12, 0.3, 0.0, -0.9, 1.0),
     (-0.12, 0.3, 0.0, -0.9, 0.4),
     (-0.12, 0.3, 0.0, -0.7, -0.1),
-    (-0.12, 0.3, 0.0, -0.9, -0.6),
+    (-0.12, 0.3, 0.0, -0.85, -0.3),
 )
 DEFAULT_TIER2_POSES = (
     (-0.27, 0.3, 0.0, -0.5, -0.3),
@@ -123,7 +123,7 @@ DEFAULT_TIER2_POSES = (
     (-0.32, 0.3, -0.3, -0.2, -0.7),
     (-0.12, 0.45, 0.3, -0.85, -0.2),
 )
-DEFAULT_HEAD_OFFSETS_DEG = ((0.0, 0.0), (10.0, 0.0), (-10.0, 0.0), (0.0, 6.0))
+DEFAULT_HEAD_OFFSETS_DEG = ((0.0, 0.0), (10.0, 0.0), (-10.0, 0.0), (0.0, -3.0))
 # The shared selection and limit keys the D435 check uses. The shared models still carry the keys of the retired
 # ToF calibration until the shared ToF fields are retired; the node refuses and never dumps any key not listed here.
 D435_SELECTION_KEYS = ("still_window_s", "still_rgb_mad", "still_depth_mad", "skip_start_s")

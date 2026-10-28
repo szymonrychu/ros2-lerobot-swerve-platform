@@ -269,7 +269,7 @@ def test_arm_sequence_defaults() -> None:
     assert load_config(SHIPPED).arm_sequence.speed_scale == 0.1
     assert seq.settle_s == 1.0
     assert seq.confirm_timeout_s == 600.0
-    assert seq.head_offsets_deg == [(0, 0), (10, 0), (-10, 0), (0, 6)]
+    assert seq.head_offsets_deg == [(0, 0), (10, 0), (-10, 0), (0, -3)]
     assert seq.pose_check == PoseCheckConfig()
     assert seq.provisional_margin_m == 0.05
     assert len(seq.tier0_poses) >= 8 and len(seq.tier1_poses) >= 8 and len(seq.tier2_poses) >= 12

@@ -233,7 +233,8 @@ arm_sequence:
   - {shoulder_pan: -0.12, shoulder_lift: 0.3, elbow_flex: 0.0, wrist_flex: -0.5, wrist_roll: -0.6}
   - {shoulder_pan: -0.12, shoulder_lift: 0.3, elbow_flex: 0.0, wrist_flex: -0.5, wrist_roll: -0.9}
   - {shoulder_pan: -0.12, shoulder_lift: 0.3, elbow_flex: 0.0, wrist_flex: -0.5, wrist_roll: -1.2}
-  # Tier 1: wrist_flex (within max_flex_delta_rad) and wrist_roll.
+  # Tier 1: wrist_flex (within max_flex_delta_rad) and wrist_roll. The last pose keeps the board 0.24 m from the
+  # D435 rolled only -0.3, so it fits the 360 px colour image height.
   tier1_poses:
   - {shoulder_pan: -0.12, shoulder_lift: 0.3, elbow_flex: 0.0, wrist_flex: -0.3, wrist_roll: -0.9}
   - {shoulder_pan: -0.12, shoulder_lift: 0.3, elbow_flex: 0.0, wrist_flex: -0.1, wrist_roll: -0.5}
@@ -243,7 +244,7 @@ arm_sequence:
   - {shoulder_pan: -0.12, shoulder_lift: 0.3, elbow_flex: 0.0, wrist_flex: -0.9, wrist_roll: 1.0}
   - {shoulder_pan: -0.12, shoulder_lift: 0.3, elbow_flex: 0.0, wrist_flex: -0.9, wrist_roll: 0.4}
   - {shoulder_pan: -0.12, shoulder_lift: 0.3, elbow_flex: 0.0, wrist_flex: -0.7, wrist_roll: -0.1}
-  - {shoulder_pan: -0.12, shoulder_lift: 0.3, elbow_flex: 0.0, wrist_flex: -0.9, wrist_roll: -0.6}
+  - {shoulder_pan: -0.12, shoulder_lift: 0.3, elbow_flex: 0.0, wrist_flex: -0.85, wrist_roll: -0.3}
   # Tier 2, after the confirm naming elbow_flex, shoulder_lift, shoulder_pan: those too (each within
   # max_big_delta_rad). The measured board sits 0.12 m off the tool axis, so the low poses (shoulder_lift >= 0.6)
   # keep wrist_roll <= 0 (board up), and the high left pose keeps the board 0.25 m from the camera.
@@ -268,7 +269,7 @@ arm_sequence:
   speed_scale: 0.1 # move_arm_joints speed scale (0 < x <= 0.3); slow for the fragile board mount
   settle_s: 1.0 # wait after a move before the still capture, s (>= 0)
   confirm_timeout_s: 600.0 # an unanswered confirm ends the sequence (arm held), s (> 0)
-  head_offsets_deg: [[0.0, 0.0], [10.0, 0.0], [-10.0, 0.0], [0.0, 6.0]] # (pan, tilt) added to the aimed head, deg
+  head_offsets_deg: [[0.0, 0.0], [10.0, 0.0], [-10.0, 0.0], [0.0, -3.0]] # (pan, tilt) added to the aimed head, deg; -3 deg tilt (up) keeps the board in the 42 deg tall D435 colour image
   provisional_margin_m: 0.05 # extra board margin while board_mount is the hand-measured start, m (>= 0)
   # Parked arm (gen_nav_footprint.yaml parked_arm_joints): the target of Park with the board on.
   park_pose: {shoulder_pan: -0.003, shoulder_lift: -1.35, elbow_flex: 1.578, wrist_flex: -0.1, wrist_roll: -1.637}

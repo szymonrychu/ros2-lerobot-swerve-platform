@@ -122,7 +122,7 @@ keys are rejected.
 | `arm_sequence.base_pose`, `gripper_rad` | board ~0.34 m in front of the head camera, 0.4 rad | Base pose (measured joint angles, the `move_arm_joints` space: `urdf = measured + fit.joint_offsets_rad`) and the gripper sent once with it (at most `pose_check.max_roll_gripper_rad`) |
 | `arm_sequence.tier0_poses` / `tier1_poses` / `tier2_poses` | 10 / 9 / 14 poses | Tier 0 moves only wrist_roll (within `max_roll_delta_rad` 1.2), tier 1 also wrist_flex (`max_flex_delta_rad` 0.4), tier 2 also elbow_flex, shoulder_lift, shoulder_pan (`max_big_delta_rad` 0.35). Load errors name the tier, pose and joint |
 | `arm_sequence.speed_scale`, `settle_s`, `confirm_timeout_s` | 0.1 (<= 0.3), 1.0, 600 | Arm speed (slow for the fragile board mount; `move_arm_joints` has no acceleration option, its quintic peak acceleration scales with the speed squared), wait after a move, unanswered confirm timeout |
-| `arm_sequence.head_offsets_deg` | `[[0, 0], [10, 0], [-10, 0], [0, 6]]` | (pan, tilt) offsets added to the aimed head angles, one view each |
+| `arm_sequence.head_offsets_deg` | `[[0, 0], [10, 0], [-10, 0], [0, -3]]` | (pan, tilt) offsets added to the aimed head angles, one view each. The tilt offset is -3 deg (head up): the board fills 250-340 px of the 360 px D435 colour image height, and the former +6 deg pushed it out on 26 of 33 poses |
 | `arm_sequence.pose_check`, `provisional_margin_m` | core defaults, 0.05 | FK pose check settings; the board keeps `margin_m + provisional_margin_m` while the mount is the shipped hand-measured start; every view keeps each board corner `d435_min_z_m + d435_min_z_margin_m` (0.15 + 0.05 m) deep from `camera_frame` |
 | `arm_sequence.park_pose`, `park_board_sag_margin_m`, `board_record_max_age_s` | the parked arm (`scripts/gen_nav_footprint.yaml` `parked_arm_joints`), 0.01, 7200 | Park with the board on (design D63): the arm moves to `park_pose` only after the path from the measured joints passes the pose check with the board outline and `park_board_sag_margin_m` added to the board floor, body and head clearances (the live run showed the board about 4 mm below FK under its 214 g) |
 
@@ -314,7 +314,11 @@ stops capture, kills a running compute child and destroys the node.
   shifted +-1 cm / turned
   +-5 deg (`test_safe_under_board_mount_uncertainty`), both also with a -30..+45 deg tilt URDF (`shipped-tilt-45`, `applied-tilt-45`), the base pose in front
   of the head, at least 12 board corners in view for 3 of 4 head offsets (`test_board_visible_from_aimed_head`), the
-  aimed pan/tilt span and pose count (`test_coverage_limits`), a passing synthetic `fit_head_from_arm`
+  aimed pan/tilt span and pose count (`test_coverage_limits`), no view inside the D435 min-Z and the kept views at 1.5
+  times the coverage limits (`test_shipped_views_keep_the_board_in_the_d435_range`), at least 3 usable D435 views per
+  pose (`test_every_pose_keeps_the_minimum_d435_views`; tier 1 pose 8 was wrist_flex -0.9 / wrist_roll -0.6 and lost
+  all four, now -0.85 / -0.3) and each head offset usable on 3/4 of the poses
+  (`test_every_head_offset_is_usable_on_most_poses`), a passing synthetic `fit_head_from_arm`
   (`test_synthetic_fit_on_shipped_set_passes`), and the measured-space phrase of `move_arm_joints`
   (`test_target_joint_convention`).
 - `tests/test_floor_sweep.py` - the floor sweep against a fake node, fake clock and sleep and synthetic floor clouds:
@@ -447,7 +451,7 @@ pose and joint): tier 0 moves `wrist_roll` only (10 poses, within `max_roll_delt
 joint angles, the `move_arm_joints` space (`urdf = measured + fit.joint_offsets_rad`).
 
 For every pose: the board centre from arm FK is passed to `aim_head` on the applied head chain (in `camera_frame`) and
-one view is planned per `arm_sequence.head_offsets_deg` entry (default `[0,0]`, `[10,0]`, `[-10,0]`, `[0,6]` deg added
+one view is planned per `arm_sequence.head_offsets_deg` entry (default `[0,0]`, `[10,0]`, `[-10,0]`, `[0,-3]` deg added
 to the aimed pan/tilt). A view is skipped and counted with its reason when its head target is outside the head URDF
 limits, when a ChArUco corner is nearer than 0.20 m along the optical axis of `camera_frame` (`inside D435 min-Z`: the
 D435 min-Z of 0.15 m at 640x360 plus 0.05 m, `pose_check.d435_min_z_m` and `d435_min_z_margin_m`), or when a corner
@@ -472,8 +476,9 @@ refused while `holding`: press Park first.
 poses, every pose and every transit (home -> base -> tiers -> base) safe by `PoseChecker` with the provisional board
 margin and with the mount shifted +-1 cm / turned +-5 deg, on the shipped and the applied head URDF and with the widened
 -30..+45 deg tilt range; the board in view of the nominal D435 colour camera (at least 12 corners for 3 of 4 head
-offsets); no view inside the D435 min-Z, and the views the colour FOV rule keeps still meeting the fit's coverage limits
-in every tier; enough pan and tilt span for the limits; and a passing synthetic fit on the set. The sequencer re-checks every move from the measured joints at run
+offsets); no view inside the D435 min-Z, and the views the colour FOV rule keeps meeting 1.5 times the fit's coverage
+limits in every tier; every pose keeping at least 3 views the min-Z and colour FOV rule passes (nominal 640x360
+intrinsics), so the sequencer visits every pose, and each head offset usable on at least 3/4 of the poses; enough pan and tilt span for the limits; and a passing synthetic fit on the set. The sequencer re-checks every move from the measured joints at run
 time, so a robot that is not where the test assumed is still refused. The tests of the sequence over a fake mcp_server
 are `tests/test_sequencer.py`.
 

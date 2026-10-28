@@ -69,6 +69,8 @@ MOUNT_TURN_DEG = 5.0
 MIN_VISIBLE_CORNERS = 12
 IMAGE_MARGIN_PX = 10.0
 MIN_GOOD_OFFSETS = 3
+MIN_OFFSET_POSE_SHARE = 0.75  # each head offset keeps its view on at least this share of the shipped poses
+COVERAGE_MARGIN = 1.5  # the kept D435 views meet every coverage limit times this
 MIN_CAMERA_DISTANCE_M = 0.25
 MAX_CAMERA_DISTANCE_M = 0.65
 BASE_MIN_DISTANCE_M = 0.30
@@ -403,38 +405,68 @@ def test_board_visible_from_aimed_head(head_name: str) -> None:
 
 
 @cache
-def d435_views(head_name: str) -> list[tuple[int, float, float, list[str]]]:
-    """(pose index, pan rad, tilt rad, `PoseChecker.check_view` entries) of every view inside the head limits, the
-    head aimed at the board centre as the sequence does, with the nominal D435 colour intrinsics."""
+def d435_views(head_name: str) -> list[tuple[int, int, float, float, list[str]]]:
+    """(pose index, head offset index, pan rad, tilt rad, `PoseChecker.check_view` entries) of every view inside the
+    head limits, the head aimed at the board centre as the sequence does, with the nominal D435 colour intrinsics."""
     chain = UrdfChain.from_text(HEADS[head_name])
     checker = PoseChecker(ARM_URDF, HEADS[head_name], FIT, SEQ.pose_check)
     pan_limits, tilt_limits = chain.limits(PAN), chain.limits(TILT)
     out = []
     for index, pose in enumerate(set_poses()):
         pan0, tilt0 = aim_head(chain, board_centre_in_base(checker, pose))
-        for dpan, dtilt in SEQ.head_offsets_deg:
+        for offset, (dpan, dtilt) in enumerate(SEQ.head_offsets_deg):
             pan, tilt = pan0 + math.radians(dpan), tilt0 + math.radians(dtilt)
             if pan_limits[0] <= pan <= pan_limits[1] and tilt_limits[0] <= tilt <= tilt_limits[1]:
-                out.append((index, pan, tilt, checker.check_view(pose, pan, tilt, D435_COLOR)))
+                out.append((index, offset, pan, tilt, checker.check_view(pose, pan, tilt, D435_COLOR)))
     return out
+
+
+def pose_names() -> list[str]:
+    """Name (tier <t> pose <i>) of every set pose, in `set_poses` order."""
+    return [f"tier {tier} pose {i}" for tier in (0, 1, 2) for i in range(len(getattr(SEQ, f"tier{tier}_poses")))]
 
 
 @pytest.mark.parametrize("head_name", list(HEADS))
 def test_shipped_views_keep_the_board_in_the_d435_range(head_name: str) -> None:
     """No shipped view puts a board corner inside the D435 min-Z (0.15 m + 0.05 m margin), and the views the colour
-    FOV rule keeps (the sequence skips the others) still meet the fit's coverage limits in every tier."""
+    FOV rule keeps (the sequence skips the others) meet the fit's coverage limits times COVERAGE_MARGIN in every
+    tier."""
     views = d435_views(head_name)
-    assert [v for v in views if any(e.startswith(MIN_Z_RULE) for e in v[3])] == []
-    assert all(e.startswith(FOV_RULE) for v in views for e in v[3])
-    kept = [v for v in views if not v[3]]
+    assert [v for v in views if any(e.startswith(MIN_Z_RULE) for e in v[4])] == []
+    assert all(e.startswith(FOV_RULE) for v in views for e in v[4])
+    kept = [v for v in views if not v[4]]
     poses = sorted({index for index, *_ in kept})
     held = set(poses[FIT.limits.holdout_every - 1 :: FIT.limits.holdout_every])
-    assert len(poses) >= FIT.limits.min_arm_poses, poses
-    assert sum(1 for index, *_ in kept if index not in held) >= FIT.limits.min_views
-    assert math.degrees(float(np.ptp([pan for _, pan, _, _ in kept]))) >= FIT.limits.min_pan_span_deg
-    assert math.degrees(float(np.ptp([tilt for _, _, tilt, _ in kept]))) >= FIT.limits.min_tilt_span_deg
+    limits = FIT.limits
+    assert len(poses) >= COVERAGE_MARGIN * limits.min_arm_poses, poses
+    assert sum(1 for index, *_ in kept if index not in held) >= COVERAGE_MARGIN * limits.min_views
+    assert math.degrees(float(np.ptp([v[2] for v in kept]))) >= COVERAGE_MARGIN * limits.min_pan_span_deg
+    assert math.degrees(float(np.ptp([v[3] for v in kept]))) >= COVERAGE_MARGIN * limits.min_tilt_span_deg
     tiers = [0] * len(SEQ.tier0_poses) + [1] * len(SEQ.tier1_poses) + [2] * len(SEQ.tier2_poses)
     assert {tiers[index] for index in poses} == {0, 1, 2}
+
+
+@pytest.mark.parametrize("head_name", list(HEADS))
+def test_every_pose_keeps_the_minimum_d435_views(head_name: str) -> None:
+    """Every shipped pose keeps at least MIN_GOOD_OFFSETS views the D435 min-Z and colour FOV rule passes (nominal
+    intrinsics, `PoseChecker.check_view` as the sequencer runs it), so the sequencer visits every pose. Tier 1 pose 8
+    at wrist_flex -0.9 / wrist_roll -0.6 filled more than the 360 px image height and lost all four views."""
+    usable = [0] * len(set_poses())
+    for index, *_, entries in d435_views(head_name):
+        usable[index] += not entries
+    short = {name: count for name, count in zip(pose_names(), usable, strict=True) if count < MIN_GOOD_OFFSETS}
+    assert short == {}, short
+
+
+@pytest.mark.parametrize("head_name", list(HEADS))
+def test_every_head_offset_is_usable_on_most_poses(head_name: str) -> None:
+    """Each head offset keeps its view on at least MIN_OFFSET_POSE_SHARE of the shipped poses under the D435 rule: the
+    former +6 deg tilt offset pushed the board out of the 42 deg tall colour image on 26 of 33 poses
+    (shipped head)."""
+    poses = len(set_poses())
+    for offset, degrees in enumerate(SEQ.head_offsets_deg):
+        kept = sum(1 for _, view_offset, *_, entries in d435_views(head_name) if view_offset == offset and not entries)
+        assert kept >= MIN_OFFSET_POSE_SHARE * poses, (degrees, kept, poses)
 
 
 @pytest.mark.parametrize("head_name", list(HEADS))
