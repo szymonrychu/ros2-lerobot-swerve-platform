@@ -1,6 +1,6 @@
 ---
 title: Head RGB-D build deps cleanup
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: head_rgbd_cpp builds and deploys without the ToF-era OpenCV contrib and calibration dependencies.
 files: [nodes/head_rgbd_cpp/CMakeLists.txt, nodes/head_rgbd_cpp/package.xml, nodes/head_rgbd_cpp/test/core/synthetic_scene.hpp, nodes/head_rgbd_cpp/test/data/tof_calibration.yaml, ansible/group_vars/client.yml, tests/test_head_rgbd_deploy.py, tests/test_tof_paths_retired.py, tests/README.md]
@@ -8,15 +8,15 @@ verify: "uv run pytest tests/test_head_rgbd_deploy.py tests/test_tof_paths_retir
 depends_on: [retire-rgb-d-upsampling-and]
 model: opus
 review: ""
-verified_head: ""
+verified_head: adfa5022
 points: 2
 expected_minutes: 23
 expected_tokens: 1500000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 2
+actual_minutes: 16
+actual_tokens: 1791532
+actual_roles: "impl 13, review 3"
+actual_role_tokens: "impl 1615305, review 176227"
 ---
 
 # Head RGB-D build deps cleanup
@@ -71,3 +71,5 @@ Context the implementer needs: pitfalls, existing code to reuse, decisions alrea
 - 2026-10-28: CMakeLists.txt comments at lines 16 and 30 still name registration/motion (removed by retire-rgb-d-registration-an) - clean up here.
 - 2026-10-28: after retire-rgb-d-upsampling-and, nodes/head_rgbd_cpp/test/core/synthetic_scene.hpp and test/data/tof_calibration.yaml have no users (delete with a retirement test); package.xml description still says it registers ToF depth.
 - 2026-10-28: CMakeLists.txt still defines HEAD_RGBD_TEST_DATA_DIR (test/data is gone); remove it here.
+
+- 2026-10-28 done: root suite on adfa5022: 2164 passed, 9 skipped (implementer run)
