@@ -1,6 +1,6 @@
 ---
 title: Board thickness in the pose check and BoardPark
-status: todo
+status: done
 repo: ros2-lerobot-sverve-platform
 value: Arm collision checks use the real 4 mm board
 files: [shared/ros2_common/head_rgbd_calibration/arm_pose_check.py, shared/ros2_common/head_rgbd_calibration/config.py, nodes/mcp_server/mcp_server/config.py, tests/test_board_park_config.py, tests/test_arm_pose_check.py, ansible/group_vars/client.yml]
@@ -8,15 +8,15 @@ verify: "uv run pytest tests/test_board_park_config.py tests/test_arm_pose_check
 depends_on: [head-arm-calibration-on-d435]
 model: sonnet
 review: ""
-verified_head: ""
+verified_head: af44e8e4
 points: 2
 expected_minutes: 16
 expected_tokens: 1374904
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 2
+actual_minutes: 29
+actual_tokens: 1809509
+actual_roles: "impl 29, review 7"
+actual_role_tokens: "impl 1623556, review 185953"
 ---
 
 # Board thickness in the pose check and BoardPark
@@ -56,3 +56,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-28 done: root suite on af44e8e4: 2196 passed, 9 skipped (implementer)
