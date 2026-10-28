@@ -191,7 +191,7 @@ Calibration procedure:
 
 The head RGB-D calibration core. It never imports `scripts`, `rosbags`, `subprocess` or ssh code, so node venvs can use it.
 
-- `config`: `StrictModel` (pydantic, unknown keys rejected) and the `BoardConfig`, `SelectionConfig`, `LimitsConfig` settings, plus the floor fit models `FloorPlaneConfig` (RANSAC distance, iterations, `min_inliers`, `min_inlier_ratio`, `max_range_m`, `candidate_band_m` > the RANSAC distance, `seed`), `FloorFitLimits` (observation, pose and pan span minimums; pose-mean height and normal RMS, sigma and delta-from-URDF maximums) and `FloorFitConfig` (`plane`, `limits`, the residual scales `sigma_height_mm` / `sigma_normal_deg` and `huber_scale`). The head-from-arm models are `BoardMountConfig`, `HeadArmFitLimits`, `BaseInBaseLink` and `HeadArmFitConfig` (see "Head from arm fit").
+- `config`: `StrictModel` (pydantic, unknown keys rejected) and the `BoardConfig`, `SelectionConfig`, `LimitsConfig` settings, plus the floor fit models `FloorPlaneConfig` (RANSAC distance, iterations, `min_inliers`, `min_inlier_ratio`, `max_range_m`, `candidate_band_m` > the RANSAC distance, `seed`), `FloorFitLimits` (observation, pose and pan span minimums; pose-mean height and normal RMS, sigma and delta-from-URDF maximums) and `FloorFitConfig` (`plane`, `limits`, the residual scales `sigma_height_mm` / `sigma_normal_deg` and `huber_scale`). The head-from-arm models are `BoardMountConfig`, `HeadArmFitLimits`, `BaseInBaseLink` and `HeadArmFitConfig` (see "Head from arm fit"); the arm offsets fit adds `PlateMountConfig` and `ArmFitLimits` (see "Arm offsets fit").
 - `charuco`: `make_board`, `detect` and `Detection` (ChArUco detection for the RGB image and the normalised ToF amplitude).
 - `frames`: `FrameSet`, `StampedImage`, `CameraInfoData`, `FramePair`, `normalise_amplitude`, `rgb_difference` (stillness measure with mains flicker removed), `tof_diff_fraction` and `still_pairs` (one RGB and ToF pair per still window).
 - `poses`: `PoseCounter(board, sel, start_count=0)`, the live pose counter. `add(kind, frame, raw=None)` takes `RGB`, `AMPLITUDE` and `DEPTH` frames and returns a `PoseEvent(status, pose)` per judged RGB frame; `pose` is a `CapturedPose` (number, RGB frame and its compressed bytes, amplitude, the depth frame nearest the amplitude within `max_pair_dt_s` or None, and both detections) when a new still window has the board in both cameras. `status` is `WAITING` until frames arrived. Same stillness and pairing rules as `still_pairs`; history is kept `TOF_HISTORY_S`.
@@ -203,6 +203,7 @@ The head RGB-D calibration core. It never imports `scripts`, `rosbags`, `subproc
 - `chain`: `UrdfChain` (numpy forward kinematics over URDF text: `from_text`, `transform(link, positions, origins, offsets)` with urdf_angle = measured + offset, `joint_names`, `origin`, `limits`), `pose_from_xyz_rpy`, `xyz_rpy_from_pose` and `arm_in_robot_base`. Shared by the head fit, the arm fit and the arm pose sequence.
 - `views`: `ArmBoardView` (one still view of the gripper board: view id, arm pose index, tier, the seven measured joints, the board `Detection`, the head offset index) and `require_joints`; see "Head from arm fit" below.
 - `head_arm_fit`: the head-from-arm head chain fit, `aim_head` and the report; see "Head from arm fit" below.
+- `arm_offsets_fit`: the joint arm joint offsets, head chain and tool point fit from the head D435, the client.yml snippet and the report; see "Arm offsets fit" below.
 - `arm_pose_check`: the FK safety check of arm poses and joint paths with the board on the gripper (numpy, no ROS). `PoseChecker(...)` evaluates `urdf = measured + offset` FK placed in base_link by `arm_in_robot_base`; `check_pose(joints, gripper_rad, rolling)` returns named rule violations (body collisions, head envelope, board margin, roll rules, stretched arm, joint limits) and `check_path(start, target, gripper_rad)` samples the path between two poses. The body is `BodyConfig` (boxes and vertical cylinders, equal to the client.yml mcp_server `body` block), configured through `PoseCheckConfig`; `head_envelope(head_urdf, cfg)` gives the vertical cylinder containing the head at every pan/tilt. Distances are signed (negative = penetration). Tests: `tests/test_arm_pose_check.py`.
 - `floor_fit`: the floor-plane head chain fit (numpy and scipy, no ROS). `predicted_floor(chain, pan, tilt, origins, sensor_frame)` gives the floor (base_link z = 0) in the depth sensor frame (`sensor_frame`, default `d435_depth_optical_frame`, the frame of `/head/d435/points`) as (unit normal toward the sensor, sensor height); `fit_plane(points, prior, cfg, rng)` gates finite points by range and by `candidate_band_m` around the prior plane, runs RANSAC and an SVD refit and returns a `PlaneFit(normal, height_m, inliers, candidates, rms_m)` or None; `fit_head_chain_floor(observations, urdf_text, cfg, sensor_frame)` fits `head_mount_joint` z, roll, pitch and the `head_tilt` origin pitch (tilt zero) and roll from `FloorObservation(pose, pan_rad, tilt_rad, plane)` with a Huber `least_squares`, every other origin component kept at the URDF value (d435_joint and the D435 optical joints included), and returns a `FloorFitResult` (`passed`, `failed_limits`, `params` value/sigma/urdf for `mount_z_m`, `mount_roll_deg`, `mount_pitch_deg`, `tilt_zero_deg`, `tilt_roll_deg`, the pose-mean `height_rms_mm` / `normal_rms_deg` the RMS limits apply to, the per-observation `observation_height_rms_mm` / `observation_normal_rms_deg`, per-pose pose-mean and per-observation residuals, the new `origins`, `to_json()` with non-finite numbers as null). `pose_mean_errors` gives one pose's mean height error and the angle between its mean observed and predicted normals. Fewer than `min_observations` skips the solver.
 - `urdf_text`: `rewrite_joint_origin`, `rewrite_tof_joint`, `Origin`, `format_vec`, and the override pieces: the `head_chain.json` format `{"joints": {head_mount_joint|head_pan|head_tilt|d435_joint: {"xyz": [3], "rpy": [3]}}, "note", "session", "result"}` (`parse_head_chain`, `head_chain_json`) and `apply_overrides(urdf_text, applied_dir)`, the one applier that applies `head_chain.json` then `tof_joint.json` and returns the text plus one warning per unreadable or invalid file. A `head_chain.json` naming the pre-D435 `head_camera_joint` is skipped whole with a warning that the fit predates the D435 (re-run head-from-arm calibration). It must stay standard-library only (no numpy, scipy or package-relative imports): the head_state_publisher launch loads it by file path on the system Python.
@@ -344,6 +345,79 @@ geometry the fit and the pose check use. Unknown keys are rejected by every mode
 
 Tests: `tests/test_head_arm_fit.py`, `tests/test_head_arm_real_session.py`, `tests/test_arm_pose_check.py`,
 `tests/test_head_arm_calib_config.py`, `tests/test_head_arm_calib_chain.py`.
+
+## Arm offsets fit
+
+The arm offsets fit (`arm_offsets_fit.py`, design D9, Q2) re-solves the arm joint offsets and the tool point against
+the head D435: the 6x5 ChArUco plate held in the gripper is seen by the D435 colour camera (`d435_color_optical_frame`,
+factory intrinsics) at many arm poses and head pan/tilt settings, and floor planes in `d435_depth_optical_frame` tie
+the head chain to the floor. numpy, scipy and OpenCV only, no ROS.
+
+### Model and parameters
+
+`fit_head_arm(floor_views, plate_views, camera_matrix, dist, head_urdf, arm_urdf, cfg, current_offsets) -> HeadArmFit`.
+`floor_views` are `floor_fit.FloorObservation`s, `plate_views` are `ArmBoardView`s. Per plate corner: plate corner
+(`board_corners_3d(cfg.plate)`) -> plate pose in `gripper_link` -> arm FK at the measured joints plus the offsets ->
+`base_in_base_link` -> the inverse of the head chain's `d435_color_optical_frame` pose at the view's pan/tilt ->
+`cv2.projectPoints`. Floor views use the `floor_fit` model (residuals over `floor_fit.sigma_normal_deg` and
+`sigma_height_mm`). The fit starts the head chain from `fit_head_chain_floor` on the floor views, the offsets from
+`current_offsets` and the plate from `plate_mount.xyz_init` / `rpy_init` refined by solvePnP of the first fit views,
+then runs one Huber `least_squares`.
+
+- Free: the head-from-arm head parameters (`head_arm_fit.fit_param_names(cfg)`: head_mount_joint x, y, z, roll, pitch,
+  yaw, tilt zero and roll, plus the camera mount and the pan axis when the config frees them), the shoulder_lift,
+  elbow_flex and wrist_flex offsets and the plate pose (6 DOF; only the translation with a CAD `plate_mount.rpy`).
+- wrist_roll: a wrist_roll zero error turns the plate about the wrist_roll axis exactly, so both cannot be free.
+  Without `plate_mount.rpy` wrist_roll is fixed at `cfg.wrist_roll_offset_rad` and the report says "wrist_roll fixed
+  at the recorded neutral; plate rotation fitted"; a 2 deg zero error then moves the FK tool point by under 1 mm (it is
+  8 mm off that axis). With `plate_mount.rpy` the plate rotation is the CAD one and wrist_roll is fitted.
+- Fixed: the shoulder_pan offset (the gauge: an arm turn about the pan axis equals a head mount x, y, yaw change),
+  `base_in_base_link`, the link lengths and the intrinsics.
+- Tool point (Q2): with `plate_mount.tool_in_board_m` the tool point is the fitted plate pose composed with that CAD
+  board-to-jaw-tip offset, expressed in `gripper_frame_link`. `tool_fitted` is true only when `holdout_tool_mm` is
+  below `arm_limits.max_tool_holdout_mm` (5 mm); otherwise `tool_offset_m` is the current `cfg.tool_offset_m`,
+  unchanged, and `tool_note` (also in the report) gives the reason.
+
+Acceptance is on held-out plate views, never on the fit residual alone (design D9): every `arm_limits.holdout_every`-th
+plate view is held out, and the held-out views must cover at least `min_holdout_head_settings` (3) head settings (head
+offset indices; else `holdout_coverage` fails). `holdout_tool_mm` is the RMS over the held-out views of the distance
+between the arm FK tool point and the tool point of the view's solvePnP plate pose through the fitted head chain and
+plate mount. The checks (`HeadArmFit.limits`, `failed_limits`, `passed`) are `rms_px`, `holdout_rms_px`,
+`holdout_tool_mm`, `min_views` (fit plate views), `holdout_coverage` and the floor part `floor:min_observations`,
+`floor:min_poses`, `floor:min_pan_span_deg`, `floor:max_height_rms_mm`, `floor:max_normal_rms_deg` (pose-mean
+residuals at the solution, `floor_fit.limits`).
+
+`HeadArmFit` (frozen) carries the head `origins`, all five `offsets`, `current_offsets`, `params` and `sigma` (head
+parameters in m or deg, free offsets as `<joint>_offset_rad`), `plate_pose`, `tool_offset_m`, `tool_fitted`,
+`tool_note`, `rms_px`, `holdout_rms_px`, `holdout_tool_mm`, `wrist_roll_fitted`, the view counts, the floor RMS and
+the limit checks. `offsets_snippet_yaml(fit, session, date)` returns one comment line (date, session, rms, held-out
+tool error), a `joint_offsets_rad:` block with the five joints (4 decimals) and, only when fitted, `tool_offset_m:`,
+indented for the client.yml mcp_server `arm:` block; it is reviewed and committed, never a runtime override.
+`arm_report_markdown(fit, cfg, session, date)` returns the report.
+
+### Config
+
+`HeadArmFitConfig` fields read by this fit:
+
+- `plate` (`BoardConfig`, default the 6x5 board).
+- `plate_mount` (`PlateMountConfig | None`, default None): `xyz_init`, `rpy_init` (required, the plate start in
+  `gripper_link`), `rpy` (CAD rotation, default None) and `tool_in_board_m` (the CAD board-to-jaw-tip offset in the
+  plate frame, m: a required key with no default, null allowed until the user has measured it; null means the tool
+  point is not fitted).
+- `wrist_roll_offset_rad` (`float | None`, default None): the wrist_roll zero from the servo neutral recorded on the
+  robot by the feetech_servos neutral recording; arm-offsets-compute-apply fills it from that recording. It stays null
+  in the shipped node config and in client.yml.
+- `tool_offset_m`: the current tool point in `gripper_frame_link` (default (0.0010, -0.0056, -0.0014), the client.yml
+  mcp_server `arm.tool_offset_m`).
+- `floor_fit` (`FloorFitConfig`) for the floor views and `arm_limits` (`ArmFitLimits`: `rms_px` 3.0, `holdout_rms_px`
+  4.0, `max_tool_holdout_mm` 5.0, `min_views` 40, `holdout_every` 5, `min_holdout_head_settings` 3).
+
+The fit refuses to run (`ValueError`) until `plate_mount` is set, and, without a CAD `plate_mount.rpy`, until
+`wrist_roll_offset_rad` is set; it also raises for fewer than 3 plate views, a view missing a joint, or
+`current_offsets` not naming exactly the five arm joints. `tool_in_board_m` must be present in `plate_mount` (the
+config is refused without the key); while it is null the fit runs but keeps the current tool point.
+
+Tests: `tests/test_arm_offsets_fit.py` (scenes from `tests/head_arm_synthetic.py`: `plate_scene`, `floor_scene`).
 
 ## ros2_common_cpp (C++)
 
