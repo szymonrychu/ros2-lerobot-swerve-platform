@@ -65,3 +65,4 @@ What is true and observable when the task is done.
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
 - 2026-10-28: ground-estimator-on-d435-inp fix round brought forward the client.yml ground_estimator_cpp config block (D435 keys) and the README config-key names to keep the root suite green; this task keeps the rest.
+- 2026-10-28 live after deploy: ground_fits_total ok=3161, every failure reason 0; head_rgbd_sets_published_total 323 vs head_rgbd_dropped_total{unpaired} 2294 in about 3 min - check whether throttle-thinned sets are miscounted as unpaired or the depth/colour stamps really do not pair.
