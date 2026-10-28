@@ -27,7 +27,8 @@ find_package(image_geometry REQUIRED)
 find_package(camera_calibration_parsers REQUIRED)
 find_package(depth_image_proc REQUIRED)
 
-# The pure logic, without ROS node code: every src/core/*.cpp (config, cloud). Globbed so adding a source file under src/core or test/core needs no edit to this file.
+# The pure logic, without ROS node code: every src/core/*.cpp (config, cloud). Globbed so adding a source file
+# under src/core or test/core needs no edit to this file.
 file(GLOB HEAD_RGBD_CORE_SOURCES CONFIGURE_DEPENDS src/core/*.cpp)
 add_library(head_rgbd_core STATIC ${HEAD_RGBD_CORE_SOURCES})
 target_include_directories(head_rgbd_core PUBLIC
