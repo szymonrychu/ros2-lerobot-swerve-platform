@@ -65,3 +65,4 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+- 2026-10-28: arm-offsets-plate-solver ships plate_mount, wrist_roll_offset_rad and tool_in_board_m as null (fit refuses to run until set). Fill wrist_roll_offset_rad from the wrist_roll servo neutral recorded on the robot (feetech_servos neutral recording) and tool_in_board_m from the user-measured board-to-jaw-tip offset (gate Q2) before computing; stop and show offsets to the user before commit/deploy (gate Q6).
