@@ -207,7 +207,8 @@ def test_front_pose_follows_applied_head_camera_joint(kin: ArmKinematics, tmp_pa
     backend = FakeHeadBackend({"head_pan": 0.0, "head_tilt": 0.0})
     head = HeadController(backend, provider, cfg.head)
     before = front_scene(cfg, kin, head).t_ref_optical.copy()
-    origins = {"head_camera_joint": Origin((0.02, -0.025, 0.03), (0.0, 0.0, 0.0))}
+    # head_camera_joint is no longer a head chain override joint (HEAD_CHAIN_JOINTS); a raised head mount lifts it.
+    origins = {"head_mount_joint": Origin((0.15, 0.10, 0.34), (0.0, 0.0, 0.0))}
     tmp_path.mkdir(exist_ok=True)
     (tmp_path / "head_chain.json").write_text(head_chain_json(origins, "test", "s2", "ok"))
     (tmp_path / "applied.json").write_text(json.dumps({"session": "s2"}))
