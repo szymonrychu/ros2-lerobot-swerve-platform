@@ -1,6 +1,6 @@
 ---
 title: Calibration apply restart units
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: Applying a calibration restarts exactly the nodes that read it.
 files: [ansible/playbooks/templates/ros2-head-rgbd-calibration-apply.service.j2, ansible/playbooks/tasks/head_rgbd_calibration_setup.yml, nodes/head_rgbd_calibration/head_rgbd_calibration/config.py, nodes/head_rgbd_calibration/config/head_rgbd_calibration.yaml, ansible/group_vars/client.yml, tests/test_head_rgbd_calibration_deploy.py]
@@ -8,15 +8,15 @@ verify: "uv run pytest tests/test_head_rgbd_calibration_deploy.py -q && uv run p
 depends_on: [d435-intrinsics-check-comput, floor-sweep-on-d435-depth, head-arm-calibration-on-d435]
 model: opus
 review: ""
-verified_head: ""
+verified_head: d7bad079
 points: 2
 expected_minutes: 23
 expected_tokens: 1500000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 3
+actual_minutes: 23
+actual_tokens: 4406346
+actual_roles: "impl 23, review 1"
+actual_role_tokens: "impl 4307229, review 99117"
 ---
 
 # Calibration apply restart units
@@ -62,3 +62,5 @@ What is true and observable when the task is done.
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
 - 2026-10-28 (from calibration-config-on-d435): accepting an intrinsics check rewrites applied.json, so the path unit restarts units for a no-op; only restart when applied content changes.
+
+- 2026-10-29 done: fix round: write order head_chain.json before applied.json pinned by tests (mutation-checked); reviewer verified ad210aca, d7bad079 is test-only
