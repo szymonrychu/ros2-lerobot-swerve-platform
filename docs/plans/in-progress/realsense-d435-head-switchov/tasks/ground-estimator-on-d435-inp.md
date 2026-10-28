@@ -1,6 +1,6 @@
 ---
 title: Ground estimator on D435 inputs
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Ground estimation reads the D435 cloud and guidance with honest, sensor-neutral config."
 files: [nodes/ground_estimator_cpp/include/ground_estimator_cpp/config.hpp, nodes/ground_estimator_cpp/src/core/config.cpp, nodes/ground_estimator_cpp/src/core/guidance.cpp, nodes/ground_estimator_cpp/src/ground_node.cpp, nodes/ground_estimator_cpp/config/ground_estimator.yaml, nodes/ground_estimator_cpp/test/core/test_config.cpp, nodes/ground_estimator_cpp/test/test_node.cpp, nodes/ground_estimator_cpp/test/test_replay.cpp]
@@ -8,15 +8,15 @@ verify: "scripts/cpp-node-test.sh ground_estimator_cpp && scripts/cpp-node-test.
 depends_on: [head-rgb-d-node-on-d435-alig]
 model: opus
 review: ""
-verified_head: ""
+verified_head: c488d191
 points: 5
 expected_minutes: 57
 expected_tokens: 3750000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 5
+actual_minutes: 44
+actual_tokens: 13315778
+actual_roles: "impl 37, review 7"
+actual_role_tokens: "impl 13053787, review 261991"
 ---
 
 # Ground estimator on D435 inputs
@@ -69,3 +69,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-28 done
