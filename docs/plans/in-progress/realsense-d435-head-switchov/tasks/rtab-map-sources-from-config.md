@@ -1,6 +1,6 @@
 ---
 title: RTAB-Map sources from config
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "RTAB-Map maps from the D435 through one topic contract, with no hardcoded topics."
 files: [nodes/rtabmap_mapping/launch/rtabmap_mapping.launch.py, nodes/rtabmap_mapping/config/map3d_topics.yaml, tests/test_map3d_topics.py, nodes/rtabmap_mapping/README.md]
@@ -8,15 +8,15 @@ verify: "uv run pytest tests/test_map3d_topics.py tests/test_map3d_uplink_config
 depends_on: [head-rgb-d-node-on-d435-alig]
 model: sonnet
 review: ""
-verified_head: ""
+verified_head: bbe42a85
 points: 2
 expected_minutes: 23
 expected_tokens: 1500000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 2
+actual_minutes: 15
+actual_tokens: 1442400
+actual_roles: "impl 15, review 7"
+actual_role_tokens: "impl 958405, review 483995"
 ---
 
 # RTAB-Map sources from config
@@ -60,3 +60,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-28 done
