@@ -2,7 +2,8 @@
 
 The session is created by BridgeNode.ground_recording_start. Every sensor message is stored with the TF at its own
 stamp; a message whose TF does not arrive within tf_timeout_s is dropped and counted, never recorded with a guessed
-or latest pose. The session publishes nothing and commands nothing.
+or latest pose. Camera infos are subscribed best effort, so they match both reliable and best-effort publishers
+(head_rgbd_cpp publishes best effort). The session publishes nothing and commands nothing.
 """
 
 from __future__ import annotations
@@ -30,7 +31,6 @@ from .ground_recorder import (
     STREAM_HEAD,
     STREAM_IMU,
     STREAM_PAIR,
-    STREAM_TOF,
     GroundRecording,
     Pose7,
 )
@@ -45,8 +45,7 @@ PART_SUFFIX = ".part"
 HEAD_PAN_JOINT = "head_pan"
 HEAD_TILT_JOINT = "head_tilt"
 DEPTH_ENCODINGS = frozenset({"16uc1"})
-AMPLITUDE_ENCODINGS = frozenset({"mono16", "16uc1"})
-# Unmatched half-pairs (depth without its amplitude / RGB yet) kept before the oldest is dropped.
+# Unmatched half-pairs (depth without its RGB yet, or the reverse) kept before the oldest is dropped.
 MATCH_CAPACITY = 8
 REASON_TF = "tf"
 REASON_DECODE = "decode"
@@ -138,7 +137,7 @@ def read_recording_info(directory: Path, name: str) -> dict[str, Any] | None:
 
     :param directory: recording directory (Path).
     :param name: recording name (str).
-    :return: {name, bytes, done, counts, dropped}, or None when the file does not exist.
+    :return: {name, bytes, done, counts, dropped, topics}, or None when the file does not exist.
     """
     npz = directory / f"{name}{NPZ_SUFFIX}"
     if not npz.exists():
@@ -154,6 +153,7 @@ def read_recording_info(directory: Path, name: str) -> dict[str, Any] | None:
         "done": True,
         "counts": meta.get("counts", {}),
         "dropped": meta.get("dropped", {}),
+        "topics": meta.get("topics", {}),
     }
 
 
@@ -191,29 +191,42 @@ class GroundSession:
         self.lock = threading.RLock()
         self.subscriptions: list[Any] = []
         self.pending: list[Pending] = []
-        self.waiting: dict[str, dict[int, dict[str, Any]]] = {STREAM_TOF: {}, STREAM_PAIR: {}}
+        self.waiting: dict[int, dict[str, Any]] = {}
         self.imu_mount: Pose7 | None = None
         self.started: float | None = None
         self.closed = False
         self.writer: threading.Thread | None = None
 
+    def plan(self) -> list[tuple[type, str, Callable[[Any], None], Any]]:
+        """The subscriptions of a recording.
+
+        :return: (message class, GroundRecorderConfig topic field, callback, QoS) per subscription (list[tuple]).
+        """
+        return [
+            (PointCloud2, "cloud_topic", self.on_cloud, RELIABLE_QOS),
+            (CameraInfo, "depth_info_topic", self.on_depth_info, SENSOR_QOS),
+            (Image, "pair_depth_topic", self.on_depth, SENSOR_QOS),
+            (CameraInfo, "pair_info_topic", self.on_pair_info, SENSOR_QOS),
+            (CompressedImage, "pair_rgb_topic", self.on_rgb, SENSOR_QOS),
+            (Imu, "imu_topic", self.on_imu, SENSOR_QOS),
+            (JointState, "head_js_topic", self.on_head, RELIABLE_QOS),
+            (String, "state_topic", self.on_state, RELIABLE_QOS),
+        ]
+
+    def topics(self) -> dict[str, str]:
+        """The topics this recording subscribes.
+
+        :return: GroundRecorderConfig topic field to topic name (dict[str, str]).
+        """
+        return {field: getattr(self.cfg, field) for _, field, _, _ in self.plan()}
+
     def open(self) -> None:
         """Create the subscriptions and start the window (executor thread)."""
-        c = self.cfg
-        plan: list[tuple[type, str, Callable[[Any], None], Any]] = [
-            (PointCloud2, c.cloud_topic, self.on_cloud, RELIABLE_QOS),
-            (Image, c.tof_depth_topic, lambda m: self.on_image(STREAM_TOF, KIND_DEPTH, m), SENSOR_QOS),
-            (Image, c.tof_amplitude_topic, lambda m: self.on_image(STREAM_TOF, KIND_OTHER, m), SENSOR_QOS),
-            (CameraInfo, c.tof_info_topic, self.on_tof_info, RELIABLE_QOS),
-            (Image, c.pair_depth_topic, lambda m: self.on_image(STREAM_PAIR, KIND_DEPTH, m), SENSOR_QOS),
-            (CameraInfo, c.pair_info_topic, self.on_pair_info, RELIABLE_QOS),
-            (CompressedImage, c.pair_rgb_topic, self.on_rgb, SENSOR_QOS),
-            (Imu, c.imu_topic, self.on_imu, SENSOR_QOS),
-            (JointState, c.head_js_topic, self.on_head, RELIABLE_QOS),
-            (String, c.state_topic, self.on_state, RELIABLE_QOS),
-        ]
         with self.lock:
-            self.subscriptions = [self.subscribe(*entry) for entry in plan]
+            self.subscriptions = [
+                self.subscribe(cls, getattr(self.cfg, field), callback, qos)
+                for cls, field, callback, qos in self.plan()
+            ]
             self.started = time.monotonic()
 
     def submit(self, stream: str, apply: Callable[[], None]) -> None:
@@ -264,10 +277,9 @@ class GroundSession:
             for item in self.pending:
                 self.recording.drop(item.stream, REASON_TF)
             self.pending = []
-            for stream, entries in self.waiting.items():
-                for _ in entries:
-                    self.recording.drop(stream, REASON_UNMATCHED)
-                entries.clear()
+            if self.waiting:
+                self.recording.drop(STREAM_PAIR, REASON_UNMATCHED, len(self.waiting))
+            self.waiting.clear()
             self.writer = threading.Thread(target=self.write, name=f"ground-write-{self.name}", daemon=True)
             self.writer.start()
 
@@ -277,7 +289,7 @@ class GroundSession:
         try:
             part = directory / f"{self.name}{NPZ_SUFFIX}{PART_SUFFIX}"
             size = self.recording.write(part)
-            meta = {"counts": self.recording.counts(), "dropped": self.recording.dropped()}
+            meta = {"counts": self.recording.counts(), "dropped": self.recording.dropped(), "topics": self.topics()}
             (directory / f"{self.name}{META_SUFFIX}").write_text(json.dumps(meta))
             os.replace(part, directory / f"{self.name}{NPZ_SUFFIX}")
             prune_recordings(directory, self.cfg.max_files)
@@ -290,7 +302,7 @@ class GroundSession:
     def info(self) -> dict[str, Any]:
         """Describe the running recording.
 
-        :return: {name, bytes, done, counts, dropped} with done False (dict).
+        :return: {name, bytes, done, counts, dropped, topics} with done False (dict).
         """
         with self.lock:
             return {
@@ -299,18 +311,18 @@ class GroundSession:
                 "done": False,
                 "counts": self.recording.counts(),
                 "dropped": self.recording.dropped(),
+                "topics": self.topics(),
             }
 
-    def match(self, stream: str, stamp: int, kind: str, payload: dict[str, Any]) -> dict[str, Any] | None:
-        """Pair the depth and the other half of a frame by stamp.
+    def match(self, stamp: int, kind: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+        """Pair the depth and the RGB half of a frame by stamp.
 
-        :param stream: STREAM_TOF or STREAM_PAIR (str).
         :param stamp: header stamp, ns (int).
         :param kind: KIND_DEPTH or KIND_OTHER (str).
         :param payload: this half's data (dict).
         :return: both halves merged once complete, else None (dict | None).
         """
-        entries = self.waiting[stream]
+        entries = self.waiting
         entry = entries.setdefault(stamp, {})
         entry[kind] = payload
         if KIND_DEPTH in entry and KIND_OTHER in entry:
@@ -318,7 +330,7 @@ class GroundSession:
             return {**entry[KIND_DEPTH], **entry[KIND_OTHER]}
         while len(entries) > MATCH_CAPACITY:
             del entries[min(entries)]
-            self.recording.drop(stream, REASON_UNMATCHED)
+            self.recording.drop(STREAM_PAIR, REASON_UNMATCHED)
         return None
 
     def on_cloud(self, msg: Any) -> None:
@@ -341,27 +353,21 @@ class GroundSession:
 
         self.submit(STREAM_CLOUD, apply)
 
-    def on_image(self, stream: str, kind: str, msg: Any) -> None:
-        """Take one 16-bit image (depth, ToF amplitude or upsampled depth) and complete a frame when its mate is in.
+    def on_depth(self, msg: Any) -> None:
+        """Take one 16UC1 registered depth image and complete a pair when its RGB is in.
 
-        :param stream: STREAM_TOF or STREAM_PAIR (str).
-        :param kind: KIND_DEPTH for the depth image, KIND_OTHER for the amplitude (ToF) (str).
         :param msg: sensor_msgs/Image (Any).
         """
-        encodings = DEPTH_ENCODINGS if kind == KIND_DEPTH else AMPLITUDE_ENCODINGS
-        array = image_array(msg, encodings)
+        array = image_array(msg, DEPTH_ENCODINGS)
         stamp = stamp_ns(msg.header)
         with self.lock:
             if self.closed:
                 return
             if array is None:
-                self.recording.drop(stream, REASON_DECODE)
+                self.recording.drop(STREAM_PAIR, REASON_DECODE)
                 return
-            half = {"depth": array, "frame": msg.header.frame_id} if kind == KIND_DEPTH else {"amp": array}
-            frame = self.match(stream, stamp, kind, half)
-        if frame is not None and stream == STREAM_TOF:
-            self.add_tof(stamp, frame)
-        elif frame is not None:
+            frame = self.match(stamp, KIND_DEPTH, {"depth": array})
+        if frame is not None:
             self.add_pair(stamp, frame)
 
     def on_rgb(self, msg: Any) -> None:
@@ -373,27 +379,12 @@ class GroundSession:
         with self.lock:
             if self.closed:
                 return
-            frame = self.match(
-                STREAM_PAIR, stamp, KIND_OTHER, {"jpeg": bytes(msg.data), "rgb_frame": msg.header.frame_id}
-            )
+            frame = self.match(stamp, KIND_OTHER, {"jpeg": bytes(msg.data), "rgb_frame": msg.header.frame_id})
         if frame is not None:
             self.add_pair(stamp, frame)
 
-    def add_tof(self, stamp: int, frame: dict[str, Any]) -> None:
-        """Record a complete ToF frame with base <- ToF frame.
-
-        :param stamp: header stamp, ns (int).
-        :param frame: merged halves (dict).
-        """
-
-        def apply() -> None:
-            pose = self.lookup(self.cfg.base_frame, frame["frame"], stamp)
-            self.recording.add_tof_frame(stamp, frame["depth"], frame["amp"], pose)
-
-        self.submit(STREAM_TOF, apply)
-
     def add_pair(self, stamp: int, frame: dict[str, Any]) -> None:
-        """Record a complete RGB + upsampled depth pair with base <- RGB frame and odom <- base.
+        """Record a complete RGB + registered depth pair with base <- RGB frame and odom <- base.
 
         :param stamp: header stamp, ns (int).
         :param frame: merged halves (dict).
@@ -406,16 +397,16 @@ class GroundSession:
 
         self.submit(STREAM_PAIR, apply)
 
-    def on_tof_info(self, msg: Any) -> None:
-        """Keep the ToF camera info.
+    def on_depth_info(self, msg: Any) -> None:
+        """Keep the camera model of the D435 depth stream behind the cloud.
 
         :param msg: sensor_msgs/CameraInfo (Any).
         """
         with self.lock:
-            self.recording.set_tof_info(msg.k, msg.d, msg.width, msg.height, msg.header.frame_id)
+            self.recording.set_depth_info(msg.k, msg.d, msg.width, msg.height, msg.header.frame_id)
 
     def on_pair_info(self, msg: Any) -> None:
-        """Keep the RGB camera info (the upsampled depth shares it).
+        """Keep the RGB camera info (the registered depth shares it).
 
         :param msg: sensor_msgs/CameraInfo (Any).
         """

@@ -1,7 +1,9 @@
-"""ROS-free ground recording: accumulates clouds, IMU, head, ToF, RGB pairs and /ground/state lines.
+"""ROS-free ground recording: accumulates head D435 clouds, IMU, head, RGB-D pairs and /ground/state lines.
 
-The npz layout (version 2) is a superset of the 2026-10-22 recordings read by
-scripts/ground_replay_export.py. Poses are Pose7 = (x y z qx qy qz qw), "<target> <- <source>".
+The npz layout (version 3) keeps the cloud, IMU and head keys of the 2026-10-22 recordings, adds the /head_rgbd pairs
+and the camera model of the D435 depth stream that produced the cloud (depth_K, depth_D, depth_size, depth_frame; no
+depth frames). It is read by scripts/ground_replay_export.py. Poses are Pose7 = (x y z qx qy qz qw),
+"<target> <- <source>".
 """
 
 from __future__ import annotations
@@ -11,7 +13,7 @@ from pathlib import Path
 import numpy as np
 
 NS_PER_S = 1_000_000_000
-LAYOUT_VERSION = 2
+LAYOUT_VERSION = 3
 POSE_FIELDS = 7
 IMU_FIELDS = 11
 HEAD_FIELDS = 3
@@ -23,10 +25,9 @@ INT16_MAX = int(np.iinfo(np.int16).max)
 STREAM_CLOUD = "cloud"
 STREAM_IMU = "imu"
 STREAM_HEAD = "head"
-STREAM_TOF = "depth"
 STREAM_PAIR = "pair"
 STREAM_STATE = "state"
-STREAMS = (STREAM_CLOUD, STREAM_IMU, STREAM_HEAD, STREAM_TOF, STREAM_PAIR, STREAM_STATE)
+STREAMS = (STREAM_CLOUD, STREAM_IMU, STREAM_HEAD, STREAM_PAIR, STREAM_STATE)
 REASON_RANGE = "range"
 REASON_SIZE = "size"
 
@@ -44,14 +45,10 @@ KEY_HEAD_JS = "head_js"
 KEY_LAYOUT_VERSION = "layout_version"
 KEY_NAME = "name"
 KEY_IMU_FRAME = "imu_frame"
-KEY_TOF_STAMPS_NS = "tof_stamps_ns"
-KEY_TOF_DEPTH_MM = "tof_depth_mm"
-KEY_TOF_AMPLITUDE = "tof_amplitude"
-KEY_TOF_BASE_T = "tof_base_T"
-KEY_TOF_K = "tof_K"
-KEY_TOF_D = "tof_D"
-KEY_TOF_SIZE = "tof_size"
-KEY_TOF_FRAME = "tof_frame"
+KEY_DEPTH_K = "depth_K"
+KEY_DEPTH_D = "depth_D"
+KEY_DEPTH_SIZE = "depth_size"
+KEY_DEPTH_FRAME = "depth_frame"
 KEY_PAIR_STAMPS_NS = "pair_stamps_ns"
 KEY_PAIR_JPEG = "pair_jpeg"
 KEY_PAIR_JPEG_OFFSETS = "pair_jpeg_offsets"
@@ -133,11 +130,7 @@ class GroundRecording:
         self.imu_frame = ""
         self.base_T_imu: list[float] = [0.0] * POSE_FIELDS
         self.head_rows: list[list[float]] = []
-        self.tof_info: tuple[np.ndarray, np.ndarray, tuple[int, int], str] = (*intrinsics(None, None), (0, 0), "")
-        self.tof_stamps: list[int] = []
-        self.tof_depth: list[np.ndarray] = []
-        self.tof_amp: list[np.ndarray] = []
-        self.tof_base_T: list[list[float]] = []
+        self.depth_info: tuple[np.ndarray, np.ndarray, tuple[int, int], str] = (*intrinsics(None, None), (0, 0), "")
         self.rgb_info: tuple[np.ndarray, np.ndarray, tuple[int, int], str] = (*intrinsics(None, None), (0, 0), "")
         self.pair_stamps: list[int] = []
         self.pair_jpegs: list[bytes] = []
@@ -226,26 +219,8 @@ class GroundRecording:
         self.touch(stamp_ns)
         self.head_rows.append([float(stamp_ns), float(pan_rad), float(tilt_rad)])
 
-    def add_tof_frame(self, stamp_ns: int, depth_mm: np.ndarray, amplitude: np.ndarray, base_T_tof: Pose7) -> None:
-        """Add one raw ToF frame; a size differing from the first frame (or between depth and amplitude) is dropped.
-
-        :param stamp_ns: stamp, ns (int).
-        :param depth_mm: depth, mm (np.ndarray, H x W uint16).
-        :param amplitude: amplitude (np.ndarray, H x W uint16).
-        :param base_T_tof: base_link <- ToF frame (Pose7).
-        """
-        self.touch(stamp_ns)
-        depth, amp = np.asarray(depth_mm, dtype=np.uint16), np.asarray(amplitude, dtype=np.uint16)
-        if depth.ndim != 2 or depth.shape != amp.shape or (self.tof_depth and depth.shape != self.tof_depth[0].shape):
-            self.drop(STREAM_TOF, REASON_SIZE)
-            return
-        self.tof_stamps.append(int(stamp_ns))
-        self.tof_depth.append(depth)
-        self.tof_amp.append(amp)
-        self.tof_base_T.append(pose_row(base_T_tof))
-
-    def set_tof_info(self, k: object, d: object, width: int, height: int, frame_id: str) -> None:
-        """Set the ToF camera info.
+    def set_depth_info(self, k: object, d: object, width: int, height: int, frame_id: str) -> None:
+        """Set the camera model of the D435 depth stream that produced the cloud.
 
         :param k: camera matrix (3x3 or 9 values).
         :param d: distortion coefficients.
@@ -253,7 +228,7 @@ class GroundRecording:
         :param height: image height, px (int).
         :param frame_id: optical frame id (str).
         """
-        self.tof_info = (*intrinsics(k, d), (int(width), int(height)), frame_id)
+        self.depth_info = (*intrinsics(k, d), (int(width), int(height)), frame_id)
 
     def add_pair(
         self, stamp_ns: int, rgb_jpeg: bytes, depth_mm: np.ndarray, base_T_rgb: Pose7, odom_T_base: Pose7
@@ -323,7 +298,6 @@ class GroundRecording:
             STREAM_CLOUD: len(self.cloud_stamps),
             STREAM_IMU: len(self.imu_rows),
             STREAM_HEAD: len(self.head_rows),
-            STREAM_TOF: len(self.tof_stamps),
             STREAM_PAIR: len(self.pair_stamps),
             STREAM_STATE: len(self.state_stamps),
         }
@@ -340,7 +314,7 @@ class GroundRecording:
 
         :return: key to array (dict[str, np.ndarray]).
         """
-        tof_k, tof_d, tof_size, tof_frame = self.tof_info
+        depth_k, depth_d, depth_size, depth_frame = self.depth_info
         rgb_k, rgb_d, rgb_size, rgb_frame = self.rgb_info
         jpeg_sizes = [len(j) for j in self.pair_jpegs]
         return {
@@ -356,14 +330,10 @@ class GroundRecording:
             KEY_IMU_FRAME: np.asarray(self.imu_frame),
             KEY_BASE_T_IMU: np.asarray(self.base_T_imu, dtype=np.float64),
             KEY_HEAD_JS: np.asarray(self.head_rows, dtype=np.float64).reshape(-1, HEAD_FIELDS),
-            KEY_TOF_STAMPS_NS: np.asarray(self.tof_stamps, dtype=np.int64),
-            KEY_TOF_DEPTH_MM: stack_images(self.tof_depth),
-            KEY_TOF_AMPLITUDE: stack_images(self.tof_amp),
-            KEY_TOF_BASE_T: pose_array(self.tof_base_T),
-            KEY_TOF_K: tof_k,
-            KEY_TOF_D: tof_d,
-            KEY_TOF_SIZE: np.asarray(tof_size, dtype=np.int64),
-            KEY_TOF_FRAME: np.asarray(tof_frame),
+            KEY_DEPTH_K: depth_k,
+            KEY_DEPTH_D: depth_d,
+            KEY_DEPTH_SIZE: np.asarray(depth_size, dtype=np.int64),
+            KEY_DEPTH_FRAME: np.asarray(depth_frame),
             KEY_PAIR_STAMPS_NS: np.asarray(self.pair_stamps, dtype=np.int64),
             KEY_PAIR_JPEG: np.frombuffer(b"".join(self.pair_jpegs), dtype=np.uint8),
             KEY_PAIR_JPEG_OFFSETS: np.concatenate([[0], np.cumsum(jpeg_sizes)]).astype(np.int64),

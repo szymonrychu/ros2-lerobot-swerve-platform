@@ -19,6 +19,7 @@ from web_ui.config import AppConfig, GroundRecorderConfig
 from web_ui.ground_recorder import (
     KEY_BASE_T_CLOUD,
     KEY_BASE_T_IMU,
+    KEY_DEPTH_SIZE,
     KEY_HEAD_JS,
     KEY_ODOM_T_BASE,
     KEY_PAIR_BASE_T_RGB,
@@ -27,9 +28,8 @@ from web_ui.ground_recorder import (
     KEY_PAIR_ODOM_T_BASE,
     KEY_POINTS_MM,
     KEY_STATE_JSON,
-    KEY_TOF_AMPLITUDE,
 )
-from web_ui.ground_session import MATCH_CAPACITY
+from web_ui.ground_session import MATCH_CAPACITY, SENSOR_QOS
 
 from .test_bridge_on_demand import FakeRos, ros  # noqa: F401  (ros is a fixture)
 
@@ -161,11 +161,14 @@ def pose_tf(x: float) -> SimpleNamespace:
     )
 
 
+DEPTH_FRAME = "d435_depth_optical_frame"
+
+
 def header(stamp_ns: int, frame: str) -> SimpleNamespace:
     return SimpleNamespace(stamp=SimpleNamespace(sec=stamp_ns // 10**9, nanosec=stamp_ns % 10**9), frame_id=frame)
 
 
-def cloud_msg(stamp_ns: int, points: np.ndarray, frame: str = "tof_optical") -> SimpleNamespace:
+def cloud_msg(stamp_ns: int, points: np.ndarray, frame: str = DEPTH_FRAME) -> SimpleNamespace:
     fields = [SimpleNamespace(name=n, offset=4 * i, datatype=7, count=1) for i, n in enumerate("xyz")]
     pts = np.asarray(points, dtype="<f4")
     return SimpleNamespace(
@@ -179,6 +182,11 @@ def cloud_msg(stamp_ns: int, points: np.ndarray, frame: str = "tof_optical") -> 
         data=pts.tobytes(),
         is_dense=True,
     )
+
+
+def camera_info_msg(stamp_ns: int, frame: str, width: int, height: int) -> SimpleNamespace:
+    k = [385.0, 0.0, width / 2, 0.0, 385.0, height / 2, 0.0, 0.0, 1.0]
+    return SimpleNamespace(header=header(stamp_ns, frame), k=k, d=[0.0] * 5, width=width, height=height)
 
 
 def image_msg(stamp_ns: int, array: np.ndarray, encoding: str, frame: str) -> SimpleNamespace:
@@ -196,6 +204,21 @@ def image_msg(stamp_ns: int, array: np.ndarray, encoding: str, frame: str) -> Si
 
 STAMP = 5_000_000_000
 POINTS = np.array([[1.0, 0.0, 0.2], [2.0, 0.5, 0.0], [1.5, -0.5, 0.1]])
+CLOUD = "/head/d435/points_filtered"
+DEPTH_INFO = "/head/d435/depth/camera_info"
+PAIR_DEPTH = "/head_rgbd/depth/image_raw"
+PAIR_INFO = "/head_rgbd/depth/camera_info"
+PAIR_RGB = "/head_rgbd/rgb/image_raw/compressed"
+D435_TOPICS = {
+    "cloud_topic": CLOUD,
+    "depth_info_topic": DEPTH_INFO,
+    "pair_depth_topic": PAIR_DEPTH,
+    "pair_info_topic": PAIR_INFO,
+    "pair_rgb_topic": PAIR_RGB,
+    "imu_topic": "/imu/data",
+    "head_js_topic": "/head/joint_states",
+    "state_topic": "/ground/state",
+}
 
 
 @pytest.fixture
@@ -231,7 +254,7 @@ def test_message_without_tf_dropped_and_counted(ros: FakeRos, clock: Clock, tmp_
     node = recorder_node(tmp_path)
     set_tf(node, set())
     start(node)
-    ros.callback("/tof/points_filtered")(cloud_msg(STAMP, POINTS))
+    ros.callback(CLOUD)(cloud_msg(STAMP, POINTS))
     clock.now += 0.4
     node.apply_demand()
     assert node.ground_recording_info("scene")["counts"]["cloud"] == 0  # still waiting for TF
@@ -246,12 +269,11 @@ def test_message_with_tf_recorded_with_its_pose(ros: FakeRos, clock: Clock, tmp_
     node = recorder_node(tmp_path)
     set_tf(node, set())
     start(node)
-    ros.callback("/tof/points_filtered")(cloud_msg(STAMP, POINTS))
-    set_tf(node, {("base_link", "tof_optical"), ("odom", "base_link")})  # TF arrives within the timeout
+    ros.callback(CLOUD)(cloud_msg(STAMP, POINTS))
+    set_tf(node, {("base_link", DEPTH_FRAME), ("odom", "base_link")})  # TF arrives within the timeout
     clock.now += 0.2
     node.apply_demand()
-    ros.callback("/tof/depth/image_raw")(image_msg(STAMP, np.full((2, 3), 800), "16UC1", "tof_optical"))
-    ros.callback("/tof/amplitude/image_raw")(image_msg(STAMP, np.full((2, 3), 90), "mono16", "tof_optical"))
+    ros.callback(DEPTH_INFO)(camera_info_msg(STAMP, DEPTH_FRAME, 640, 360))
     clock.now += 10.0
     node.apply_demand()  # window over
     node.join_ground_recording(5)
@@ -261,22 +283,20 @@ def test_message_with_tf_recorded_with_its_pose(ros: FakeRos, clock: Clock, tmp_
     assert data[KEY_BASE_T_CLOUD].tolist() == [[1.0, 0.0, 0.5, 0.0, 0.0, 0.0, 1.0]]
     assert data[KEY_ODOM_T_BASE].tolist() == [[7.0, 0.0, 0.5, 0.0, 0.0, 0.0, 1.0]]
     assert data[KEY_POINTS_MM].tolist() == (POINTS * 1000).astype(int).tolist()
-    assert data[KEY_TOF_AMPLITUDE].shape == (1, 2, 3)
+    assert data[KEY_DEPTH_SIZE].tolist() == [640, 360]
     assert node.ground_recording_info("scene")["done"] is True
 
 
 def test_subscriptions_destroyed_after_window(ros: FakeRos, clock: Clock, tmp_path: Path) -> None:  # noqa: F811
     node = recorder_node(tmp_path)
     set_tf(node, set())
-    assert "/tof/points_filtered" not in ros.live_topics()
+    assert CLOUD not in ros.live_topics()
     start(node, duration_s=5.0)
     live = set(ros.live_topics())
     cfg = node._ground_cfg
     expected = {
         cfg.cloud_topic,
-        cfg.tof_depth_topic,
-        cfg.tof_amplitude_topic,
-        cfg.tof_info_topic,
+        cfg.depth_info_topic,
         cfg.pair_depth_topic,
         cfg.pair_info_topic,
         cfg.pair_rgb_topic,
@@ -321,10 +341,10 @@ def lookup_stamps(node: BridgeNode) -> set[int]:
 
 def test_tf_is_looked_up_at_the_message_stamp(ros: FakeRos, clock: Clock, tmp_path: Path) -> None:  # noqa: F811
     node = recorder_node(tmp_path)
-    set_tf(node, {("base_link", "tof_optical"), ("odom", "base_link")})
+    set_tf(node, {("base_link", DEPTH_FRAME), ("odom", "base_link")})
     start(node)
-    ros.callback("/tof/points_filtered")(cloud_msg(STAMP, POINTS))
-    ros.callback("/tof/points_filtered")(cloud_msg(STAMP + 7, POINTS))
+    ros.callback(CLOUD)(cloud_msg(STAMP, POINTS))
+    ros.callback(CLOUD)(cloud_msg(STAMP + 7, POINTS))
     assert node._tf_buffer.lookup_transform.call_count == 4
     assert lookup_stamps(node) == {STAMP, STAMP + 7}  # never Time(0) / latest
 
@@ -336,15 +356,13 @@ def finish(node: BridgeNode, clock: Clock, tmp_path: Path) -> Any:
     return np.load(tmp_path / "scene.npz")
 
 
-def test_rgb_and_upsampled_depth_pair_recorded_by_stamp(ros: FakeRos, clock: Clock, tmp_path: Path) -> None:  # noqa: F811
+def test_rgb_and_registered_depth_pair_recorded_by_stamp(ros: FakeRos, clock: Clock, tmp_path: Path) -> None:  # noqa: F811
     node = recorder_node(tmp_path)
     set_tf(node, {("base_link", "rgb_optical"), ("odom", "base_link")})
     start(node)
-    ros.callback("/head_rgbd/depth_upsampled/image_raw")(image_msg(STAMP, np.full((2, 3), 900), "16UC1", "rgb_optical"))
+    ros.callback(PAIR_DEPTH)(image_msg(STAMP, np.full((2, 3), 900), "16UC1", "rgb_optical"))
     assert node.ground_recording_info("scene")["counts"]["pair"] == 0  # half a frame is not a sample
-    ros.callback("/head_rgbd/rgb/image_raw/compressed")(
-        SimpleNamespace(header=header(STAMP, "rgb_optical"), format="jpeg", data=b"\xff\xd8jpeg")
-    )
+    ros.callback(PAIR_RGB)(SimpleNamespace(header=header(STAMP, "rgb_optical"), format="jpeg", data=b"\xff\xd8jpeg"))
     assert node.ground_recording_info("scene")["counts"]["pair"] == 1
     assert lookup_stamps(node) == {STAMP}
     data = finish(node, clock, tmp_path)
@@ -358,13 +376,9 @@ def test_pair_without_tf_dropped_and_unmatched_half_counted(ros: FakeRos, clock:
     node = recorder_node(tmp_path)
     set_tf(node, set())
     start(node)
-    ros.callback("/head_rgbd/depth_upsampled/image_raw")(image_msg(STAMP, np.full((2, 3), 900), "16UC1", "rgb_optical"))
-    ros.callback("/head_rgbd/rgb/image_raw/compressed")(
-        SimpleNamespace(header=header(STAMP, "rgb_optical"), format="jpeg", data=b"j")
-    )
-    ros.callback("/head_rgbd/rgb/image_raw/compressed")(
-        SimpleNamespace(header=header(STAMP + 1, "rgb_optical"), format="jpeg", data=b"lonely")
-    )
+    ros.callback(PAIR_DEPTH)(image_msg(STAMP, np.full((2, 3), 900), "16UC1", "rgb_optical"))
+    ros.callback(PAIR_RGB)(SimpleNamespace(header=header(STAMP, "rgb_optical"), format="jpeg", data=b"j"))
+    ros.callback(PAIR_RGB)(SimpleNamespace(header=header(STAMP + 1, "rgb_optical"), format="jpeg", data=b"lonely"))
     clock.now += 1.0
     node.apply_demand()
     clock.now += 10.0
@@ -380,20 +394,20 @@ def test_unmatched_halves_beyond_capacity_are_dropped(ros: FakeRos, clock: Clock
     set_tf(node, set())
     start(node)
     for i in range(MATCH_CAPACITY + 3):
-        ros.callback("/tof/amplitude/image_raw")(image_msg(STAMP + i, np.full((2, 3), 1), "mono16", "tof_optical"))
-    assert node.ground_recording_info("scene")["dropped"]["depth"] == {"unmatched": 3}
+        ros.callback(PAIR_DEPTH)(image_msg(STAMP + i, np.full((2, 3), 1), "16UC1", "rgb_optical"))
+    assert node.ground_recording_info("scene")["dropped"]["pair"] == {"unmatched": 3}
 
 
 def test_undecodable_messages_are_dropped_and_counted(ros: FakeRos, clock: Clock, tmp_path: Path) -> None:  # noqa: F811
     node = recorder_node(tmp_path)
-    set_tf(node, {("base_link", "tof_optical"), ("odom", "base_link")})
+    set_tf(node, {("base_link", DEPTH_FRAME), ("odom", "base_link")})
     start(node)
-    ros.callback("/tof/depth/image_raw")(image_msg(STAMP, np.full((2, 3), 1), "rgb8", "tof_optical"))
+    ros.callback(PAIR_DEPTH)(image_msg(STAMP, np.full((2, 3), 1), "rgb8", "rgb_optical"))
     bad_cloud = cloud_msg(STAMP, POINTS)
     bad_cloud.fields = []
-    ros.callback("/tof/points_filtered")(bad_cloud)
+    ros.callback(CLOUD)(bad_cloud)
     info = node.ground_recording_info("scene")
-    assert info["dropped"]["depth"] == {"decode": 1}
+    assert info["dropped"]["pair"] == {"decode": 1}
     assert info["dropped"]["cloud"] == {"decode": 1}
     assert info["counts"]["cloud"] == 0
 
@@ -427,3 +441,31 @@ def test_imu_head_and_state_are_recorded(ros: FakeRos, clock: Clock, tmp_path: P
     assert data[KEY_BASE_T_IMU].tolist() == [1.0, 0.0, 0.5, 0.0, 0.0, 0.0, 1.0]
     assert np.allclose(data[KEY_HEAD_JS][0][-2:], [-0.1, 0.2])
     assert '"phase"' in str(data[KEY_STATE_JSON][0])
+
+
+def test_camera_infos_are_subscribed_best_effort(ros: FakeRos, clock: Clock, tmp_path: Path) -> None:  # noqa: F811
+    node = recorder_node(tmp_path)
+    set_tf(node, set())
+    start(node)
+    qos = {s.topic: s.qos for s in ros.live()}
+    assert qos[DEPTH_INFO] is SENSOR_QOS  # realsense_d435 camera_info
+    assert qos[PAIR_INFO] is SENSOR_QOS  # head_rgbd_cpp publishes best effort; a reliable reader never matches
+
+
+def test_api_reports_the_d435_topics(ros: FakeRos, clock: Clock, tmp_path: Path) -> None:  # noqa: F811
+    from web_ui.server import build_app
+
+    node = recorder_node(tmp_path)
+    set_tf(node, set())
+    config = AppConfig(ground_recorder=node._ground_cfg)
+    client = TestClient(build_app(config=config, urdf_dir=tmp_path, static_dir=tmp_path / "none", bridge_node=node))
+    assert client.post("/api/ground/recordings", json={"name": "scene", "duration_s": 5}).status_code == 202
+    node.apply_demand()
+    running = client.get("/api/ground/recordings").json()
+    assert [(r["name"], r["done"], r["topics"]) for r in running] == [("scene", False, D435_TOPICS)]
+    assert set(D435_TOPICS.values()) <= set(ros.live_topics())
+    clock.now += 10.0
+    node.apply_demand()
+    node.join_ground_recording(5)
+    finished = client.get("/api/ground/recordings").json()
+    assert [(r["name"], r["done"], r["topics"]) for r in finished] == [("scene", True, D435_TOPICS)]

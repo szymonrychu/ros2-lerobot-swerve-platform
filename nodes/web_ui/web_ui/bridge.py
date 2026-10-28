@@ -850,7 +850,7 @@ class BridgeNode(Node):
             name (str): Recording name.
 
         Returns:
-            dict[str, Any] | None: {name, bytes, done, counts, dropped}, or None when unknown.
+            dict[str, Any] | None: {name, bytes, done, counts, dropped, topics}, or None when unknown.
         """
         session = self._ground
         if session is not None and session.name == name:

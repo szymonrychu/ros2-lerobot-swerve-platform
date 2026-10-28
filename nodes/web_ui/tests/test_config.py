@@ -503,12 +503,10 @@ def test_ground_recorder_defaults_and_ranges() -> None:
         4,
         0.5,
     )
-    assert cfg.cloud_topic == "/tof/points_filtered"
-    assert cfg.tof_depth_topic == "/tof/depth/image_raw"
-    assert cfg.tof_amplitude_topic == "/tof/amplitude/image_raw"
-    assert cfg.tof_info_topic == "/tof/camera_info"
-    assert cfg.pair_depth_topic == "/head_rgbd/depth_upsampled/image_raw"
-    assert cfg.pair_info_topic == "/head_rgbd/depth_upsampled/camera_info"
+    assert cfg.cloud_topic == "/head/d435/points_filtered"
+    assert cfg.depth_info_topic == "/head/d435/depth/camera_info"
+    assert cfg.pair_depth_topic == "/head_rgbd/depth/image_raw"
+    assert cfg.pair_info_topic == "/head_rgbd/depth/camera_info"
     assert cfg.pair_rgb_topic == "/head_rgbd/rgb/image_raw/compressed"
     assert (cfg.imu_topic, cfg.head_js_topic, cfg.state_topic) == ("/imu/data", "/head/joint_states", "/ground/state")
     assert (cfg.base_frame, cfg.odom_frame) == ("base_link", "odom")

@@ -625,7 +625,11 @@ class CalibrationConfig(BaseModel):
 
 
 class GroundRecorderConfig(BaseModel):
-    """Operator tool recording ToF + RGB + amplitude replay files from the live robot (idle when not recording)."""
+    """Operator tool recording ground replay files of the head D435 from the live robot (idle when not recording).
+
+    Records the D435 cloud, the D435 depth camera model (camera_info only, no depth frames), the /head_rgbd depth +
+    RGB pairs, IMU, head joint states and /ground/state.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -634,12 +638,10 @@ class GroundRecorderConfig(BaseModel):
     max_duration_s: float = Field(30, ge=1, le=60)  # longest recording a request may ask for
     max_files: int = Field(4, ge=1, le=20)  # older files beyond this many are deleted after each recording
     tf_timeout_s: float = Field(0.5, ge=0, le=2)  # a message whose TF does not arrive within this is dropped
-    cloud_topic: str = "/tof/points_filtered"
-    tof_depth_topic: str = "/tof/depth/image_raw"
-    tof_amplitude_topic: str = "/tof/amplitude/image_raw"
-    tof_info_topic: str = "/tof/camera_info"
-    pair_depth_topic: str = "/head_rgbd/depth_upsampled/image_raw"
-    pair_info_topic: str = "/head_rgbd/depth_upsampled/camera_info"
+    cloud_topic: str = "/head/d435/points_filtered"  # PointCloud2 of the D435 after the self filter
+    depth_info_topic: str = "/head/d435/depth/camera_info"  # camera model of the depth stream behind the cloud
+    pair_depth_topic: str = "/head_rgbd/depth/image_raw"  # 16UC1 depth registered to the RGB (head_rgbd_cpp)
+    pair_info_topic: str = "/head_rgbd/depth/camera_info"  # camera model of the registered depth (= the RGB's)
     pair_rgb_topic: str = "/head_rgbd/rgb/image_raw/compressed"
     imu_topic: str = "/imu/data"
     head_js_topic: str = "/head/joint_states"
