@@ -2,7 +2,7 @@
 
 ## Summary
 
-The Intel RealSense D435 (serial 935723024187, USB 8086:0b07) on the pan/tilt head becomes the robot's only head
+The Intel RealSense D435 (device serial 935422070045 (935422070045 is the ASIC/firmware-update serial), USB 8086:0b07) on the pan/tilt head becomes the robot's only head
 RGB-D sensor and the only camera. It runs on the client as the apt `realsense2_camera` node (`/head/d435/*`, frames
 `d435_*`), owned by Ansible. Its depth feeds a renamed obstacle cloud node, laser_filter, Nav2 and ground_estimator_cpp.
 Its aligned depth plus colour feed head_rgbd_cpp. That node is reduced to an adapter that keeps the `/head_rgbd/*`
@@ -103,7 +103,7 @@ Decision: `depth_module.depth_profile: 640x360x15`, `rgb_camera.color_profile: 6
 hardware sync holds), `align_depth.enable: true`, `pointcloud.enable: false`, `enable_infra1/2: false`, no IMU
 arguments (the D435 has none), `publish_tf: false` (D4). Parameters live in
 `nodes/bridges/realsense_d435/config/realsense_d435.yaml`, passed as `config_file:=`. Launch arguments are
-`camera_namespace:=head camera_name:=d435 serial_no:=_935723024187`.
+`camera_namespace:=head camera_name:=d435 serial_no:=_935422070045`.
 Alternatives: 848x480x90 + 1280x720x30 (today's line): no HW sync, align at 1280x720 on the Pi CPU, 90 fps nobody
 consumes. 848x480x30: min-Z 195 mm, about 2.4x the align and cloud work. 480x270: min-Z 120 mm, but too coarse for
 ChArUco and for the agent's images. Align off: head_rgbd_cpp would need its own registration, which D1 deletes.
@@ -395,7 +395,7 @@ Plan inputs from the briefs, each placed:
   color/image_raw/compressed, color/camera_info, depth/image_rect_raw, depth/camera_info,
   aligned_depth_to_color/image_raw, aligned_depth_to_color/camera_info}`. The bring-up task probes this and pins the
   real list.
-- `serial_no:=_935723024187`: the underscore form is the realsense-ros way to keep a numeric serial a string. The
+- `serial_no:=_935422070045`: the underscore form is the realsense-ros way to keep a numeric serial a string. The
   bring-up task confirms it from the startup log line.
 - Firmware version unknown: the bring-up task reads it.
 - Factory depth-to-colour extrinsic unknown: the bring-up task captures it (rs-enumerate-devices -c, unit stopped).

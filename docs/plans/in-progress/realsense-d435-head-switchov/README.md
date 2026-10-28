@@ -21,7 +21,7 @@ Why: D435 permanently replaces the ToF+RGB head and the gripper camera; ground e
 
 ## Goals
 
-- The D435 (serial 935723024187) runs on the client as the realsense2_camera node, deployed by Ansible, with udev for 0b07, a matched-fps profile, explicit camera_name/namespace and the live topic list pinned in config.
+- The D435 (device serial 935422070045 (935422070045 is the ASIC/firmware-update serial)) runs on the client as the realsense2_camera node, deployed by Ansible, with udev for 0b07, a matched-fps profile, explicit camera_name/namespace and the live topic list pinned in config.
 - The D435 sits on the pan/tilt head chain in head.urdf / head_state_publisher at a position similar to the current head unit, replacing the ToF and head RGB frames.
 - Ground estimation is restored on D435 depth: ground_estimator_cpp (and head_rgbd_cpp or its replacement) enabled, obstacle cloud and self-filter re-pointed, replay fixtures re-recorded.
 - Nav2 head inputs disabled on 2026-10-24 "until a RealSense D435 replaces the head ToF" are re-enabled on the D435 cloud (my call: the lidar-only decision was conditional on this).

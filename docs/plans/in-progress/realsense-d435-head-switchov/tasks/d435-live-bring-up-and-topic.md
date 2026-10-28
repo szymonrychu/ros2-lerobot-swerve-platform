@@ -27,7 +27,7 @@ LIVE task. Goal G1: "... deployed by Ansible ... and the live topic list pinned 
 
 Steps on the robot (no manual SSH beyond scripts/d435_diag.sh; deploy only with scripts/deploy-nodes.sh, logs in .logs/; invoke the ansible-deploy skill first; no servo moves in this task):
 1. With `enabled: false` set for realsense_d435 in the working tree only (not committed), `./scripts/deploy-nodes.sh client realsense_d435 2>&1 | tee .logs/deploy-client-realsense.log` installs the udev rule and the unit without starting it.
-2. `./scripts/d435_diag.sh --device` (unit inactive): serial 935723024187, firmware, the factory Depth-to-Color extrinsic. If firmware < 5.17.3.10: back up with `rs-fw-update -b`, flash the signed 5.17.3.10 image with `rs-fw-update -s 935723024187 -f <image>` with the unit stopped (irreversible operation listed in design.md, Q4), re-read.
+2. `./scripts/d435_diag.sh --device` (unit inactive): device serial 935422070045 (935422070045 is the ASIC/firmware-update serial), firmware, the factory Depth-to-Color extrinsic. If firmware < 5.17.3.10: back up with `rs-fw-update -b`, flash the signed 5.17.3.10 image with `rs-fw-update -s 935422070045 -f <image>` with the unit stopped (irreversible operation listed in design.md, Q4), re-read.
 3. Write the factory extrinsic into `nodes/web_ui/urdf/head.urdf` `d435_color_joint` (translation in m, rotation as rpy) with a comment naming the capture date and serial.
 4. Restore `enabled: true`, deploy the same way, then `./scripts/d435_diag.sh`: 8086:0b07 at 5000, USB type 3.x, PSU check passes (usb_max_current_enable=1 or the 5A supply line), zero VIDIOC_QBUF / No such device / Frame didn't arrive over 30 min (`--since 30min`).
 5. Enable topic_scraper_api for the session (CLAUDE.md debug workflow), `./scripts/d435_diag.sh --topics` and `--rates`: pin the live topic list (name and type) in new `nodes/bridges/realsense_d435/config/topics.yaml`; colour and depth camera_info at >= 14 Hz idle. Disable topic_scraper_api again.
@@ -41,7 +41,7 @@ If the V4L2 apt build fails the soak, stop and return a `discovered` entry for a
 - AC2: 30 min with no VIDIOC_QBUF, No such device or Frame didn't arrive [evidence: command:./scripts/d435_diag.sh --since 30min]
 - AC3: the live topic list and rates are captured [evidence: command:./scripts/d435_diag.sh --topics && ./scripts/d435_diag.sh --rates]
 - AC4: every D435 topic used in client.yml is in the pinned topics.yaml [evidence: test:tests/test_d435_topics.py::test_every_configured_d435_topic_is_pinned]
-- AC5: head.urdf carries the factory colour extrinsic of serial 935723024187 [evidence: test:tests/test_d435_topics.py::test_head_urdf_colour_joint_is_the_factory_extrinsic]
+- AC5: head.urdf carries the factory colour extrinsic of device serial 935422070045 (935422070045 is the ASIC/firmware-update serial) [evidence: test:tests/test_d435_topics.py::test_head_urdf_colour_joint_is_the_factory_extrinsic]
 - AC6: the runbook records the bring-up evidence [evidence: test:tests/test_d435_runbook.py::test_bring_up_section_is_recorded]
 
 ## Files

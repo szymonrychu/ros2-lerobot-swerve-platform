@@ -23,10 +23,10 @@ actual_role_tokens: "impl 1531625, review 223170"
 
 ## Requirement
 
-Goal G1 (README): "The D435 (serial 935723024187) runs on the client as the realsense2_camera node, deployed by Ansible, with udev for 0b07, a matched-fps profile, explicit camera_name/namespace and the live topic list pinned in config." Design D2, D3, D14.
+Goal G1 (README): "The D435 (device serial 935422070045 (935422070045 is the ASIC/firmware-update serial)) runs on the client as the realsense2_camera node, deployed by Ansible, with udev for 0b07, a matched-fps profile, explicit camera_name/namespace and the live topic list pinned in config." Design D2, D3, D14.
 
 - Replace the `realsense_d435i` node type and instance in `ansible/group_vars/client.yml` with `realsense_d435` (no backward compatibility: the old entry described a D435i with an IMU and is removed, not kept as a stub; it has been present: false since 4c6bf6cf).
-- `node_launch_command`: `ros2 launch realsense2_camera rs_launch.py camera_namespace:=head camera_name:=d435 serial_no:=_935723024187 config_file:={{ ros2_repo_dest }}/nodes/bridges/realsense_d435/config/realsense_d435.yaml`. No `enable_accel`/`enable_gyro` (D435 has no IMU). `src_paths: [nodes/bridges/realsense_d435]`.
+- `node_launch_command`: `ros2 launch realsense2_camera rs_launch.py camera_namespace:=head camera_name:=d435 serial_no:=_935422070045 config_file:={{ ros2_repo_dest }}/nodes/bridges/realsense_d435/config/realsense_d435.yaml`. No `enable_accel`/`enable_gyro` (D435 has no IMU). `src_paths: [nodes/bridges/realsense_d435]`.
 - New `nodes/bridges/realsense_d435/config/realsense_d435.yaml` (realsense2_camera parameters, commented per key): `depth_module.depth_profile: 640x360x15`, `rgb_camera.color_profile: 640x360x15` (one fps: RGB-depth hardware sync, datasheet Table 4-6), `align_depth.enable: true`, `pointcloud.enable: false`, `enable_infra1: false`, `enable_infra2: false`, `enable_color: true`, `enable_depth: true`, `publish_tf: false` (head.urdf owns the d435 frames, D4).
 - Instance `realsense_d435`: `present: true`, `enabled: true`, in the NORMAL tier (memory_low 128M, memory_max 512M estimates until d435-memory-and-cpu-budget measures them; comment says so). The enabled memory_low sum must stay <= the 2560 MiB cap of tests/test_unit_cgroups.py.
 - The playbook step `Deploy realsense_d435i` in `ansible/playbooks/deploy_nodes_client.yml` is renamed to `realsense_d435` (tags and `_deploy_node_name`).
