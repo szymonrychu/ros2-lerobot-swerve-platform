@@ -32,6 +32,8 @@ Goal G3: "Ground estimation is restored on D435 depth: ground_estimator_cpp (and
 - The enabled memory_low sum stays <= 2560 MiB: this task runs after arducam_tof and gripper_uvc_camera are present: false (they free 136 MiB).
 - Tests: `tests/test_head_rgbd_deploy.py::test_rgbd_fusion_and_ground_nodes_are_disabled_not_removed` and `test_metrics_target_is_absent_while_disabled` are no longer accurate. They are replaced by `test_rgbd_and_ground_nodes_are_enabled` and `test_metrics_targets_are_present`. `tests/test_ground_estimator_deploy.py`, `tests/test_cpp_cutover.py` and `tests/test_map3d_uplink_config.py` assertions that pin the disabled state are updated the same way, each named in the commit message. `tests/test_unit_cgroups.py` passes unchanged. tests/README.md updated.
 
+Amended 2026-10-28 (user: "the stream seems very stable, enable slope and obstacle estimation from the D435 and include it in map and path planning"): this task no longer waits for retire-gripper-camera-in-ans. Instead it sets the gripper_uvc_camera instance `enabled: false` (present stays true; retire-gripper-camera-in-ans makes it present: false later) so the enabled memory_low sum stays <= 2560 MiB with head_rgbd_cpp and ground_estimator_cpp enabled; the comment names the reason. Tests that pin gripper_uvc_camera as enabled are updated (named in the commit).
+
 ## Acceptance conditions
 
 - AC1: head_rgbd_cpp and ground_estimator_cpp are enabled with their metrics targets [evidence: test:tests/test_head_rgbd_deploy.py::test_rgbd_and_ground_nodes_are_enabled]
@@ -39,6 +41,7 @@ Goal G3: "Ground estimation is restored on D435 depth: ground_estimator_cpp (and
 - AC3: the enabled memory_low sum stays within the cap [evidence: command:uv run pytest tests/test_unit_cgroups.py -q]
 - AC4: cut-over and uplink tests pass with the nodes enabled [evidence: command:uv run pytest tests/test_cpp_cutover.py tests/test_map3d_uplink_config.py -q]
 - AC5: Ansible checks pass [evidence: command:uv run poe test-ansible]
+- AC-mem: gripper_uvc_camera is enabled: false (present true) and the enabled memory_low sum is <= 2560 MiB [evidence: command:uv run pytest tests/test_unit_cgroups.py -q]
 
 ## Files
 
@@ -68,3 +71,5 @@ What is true and observable when the task is done.
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
 - 2026-10-28: ground-estimator-on-d435-inp fix round brought forward the client.yml ground_estimator_cpp config block (D435 keys) and the README config-key names to keep the root suite green; this task keeps the rest.
+
+- 2026-10-28 amended: user 2026-10-28: enable ground estimation now; gripper camera disabled for memory instead of waiting for its retirement
