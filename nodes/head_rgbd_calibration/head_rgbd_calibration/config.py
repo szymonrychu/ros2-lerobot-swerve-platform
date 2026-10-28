@@ -1,11 +1,12 @@
 """Validated config of the head_rgbd_calibration node (pydantic, unknown keys forbidden)."""
 
 import math
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, Self
 
 import yaml
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, SerializerFunctionWrapHandler, field_validator, model_serializer, model_validator
 from ros2_common.head_rgbd_calibration.arm_pose_check import PoseCheckConfig
 from ros2_common.head_rgbd_calibration.config import (
     ARM_JOINT_NAMES,
@@ -123,10 +124,17 @@ DEFAULT_TIER2_POSES = (
     (-0.12, 0.45, 0.3, -0.85, -0.2),
 )
 DEFAULT_HEAD_OFFSETS_DEG = ((0.0, 0.0), (10.0, 0.0), (-10.0, 0.0), (0.0, 6.0))
-# Shared selection and limit keys of the retired ToF / stereo calibration: the shared models still carry them until
-# retire-tof-stereo-calibratio, the node refuses them.
-TOF_SELECTION_KEYS = ("still_tof_mad", "max_pair_dt_s", "amplitude_percentiles", "tof_upscale")
-TOF_LIMIT_KEYS = ("rgb_max_rms_px", "tof_max_rms_px", "stereo_max_rms_px", "tof_zero_distortion_rms_px")
+# The shared selection and limit keys the D435 check uses. The shared models still carry the keys of the retired
+# ToF calibration until the shared ToF fields are retired; the node refuses and never dumps any key not listed here.
+D435_SELECTION_KEYS = ("still_window_s", "still_rgb_mad", "still_depth_mad", "skip_start_s")
+D435_LIMIT_KEYS = (
+    "plane_max_bias_mm",
+    "plane_max_spread_mm",
+    "min_views",
+    "intrinsics_max_rms_px",
+    "intrinsics_max_focal_diff_pct",
+    "intrinsics_max_principal_diff_px",
+)
 # |median aligned depth - PnP board plane depth| of the D435 intrinsics check, mm: the D435 depth RMS error is under
 # 2 % at 2 m (about 2 mm at the 0.3-0.6 m board distance), so 10 mm only passes a sound depth-to-colour alignment.
 D435_PLANE_MAX_BIAS_MM = 10.0
@@ -153,20 +161,21 @@ class QosConfig(StrictModel):
     rgb: int = Field(default=DEFAULT_QOS_RGB, ge=1)
 
 
-def refuse_keys(data: Any, keys: tuple[str, ...], section: str) -> Any:
-    """Raise ValueError naming the first of keys present in a mapping; return the data unchanged otherwise.
+def refuse_unused_keys(data: Any, fields: Iterable[str], kept: tuple[str, ...], section: str) -> Any:
+    """Raise ValueError naming the first shared key the D435 check does not use; return the data unchanged otherwise.
 
     Args:
         data: The raw section input.
-        keys: Keys the node refuses.
+        fields: Every field of the shared model.
+        kept: The fields the D435 check uses.
         section: Config section name for the message.
 
     Returns:
         Any: data.
     """
     if isinstance(data, dict):
-        for key in keys:
-            if key in data:
+        for key in fields:
+            if key in data and key not in kept:
                 raise ValueError(
                     f"{section}.{key} belongs to the retired ToF calibration; the D435 check has no such key"
                 )
@@ -176,39 +185,41 @@ def refuse_keys(data: Any, keys: tuple[str, ...], section: str) -> Any:
 class D435SelectionConfig(SelectionConfig):
     """Still-frame selection of the D435 check: colour and aligned depth MADs over still_window_s, skip_start_s.
 
-    The shared ToF keys are refused and never dumped.
+    Only D435_SELECTION_KEYS are accepted and dumped; the other shared keys are refused.
     """
 
     still_depth_mad: float = Field(default=D435_STILL_DEPTH_MAD, ge=0)
-    still_tof_mad: float = Field(default=0.01, ge=0, exclude=True)
-    max_pair_dt_s: float = Field(default=0.05, gt=0, exclude=True)
-    amplitude_percentiles: tuple[float, float] = Field(default=(1, 99), exclude=True)
-    tof_upscale: int = Field(default=2, ge=1, exclude=True)
 
     @model_validator(mode="before")
     @classmethod
     def refuse_tof_keys(cls, data: Any) -> Any:
-        """Refuse the shared ToF selection keys."""
-        return refuse_keys(data, TOF_SELECTION_KEYS, "selection")
+        """Refuse the shared selection keys the D435 check does not use."""
+        return refuse_unused_keys(data, SelectionConfig.model_fields, D435_SELECTION_KEYS, "selection")
+
+    @model_serializer(mode="wrap")
+    def dump_d435_keys(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        """Dump only D435_SELECTION_KEYS."""
+        return {key: value for key, value in handler(self).items() if key in D435_SELECTION_KEYS}
 
 
 class D435LimitsConfig(LimitsConfig):
-    """Acceptance limits of the D435 intrinsics check; the shared ToF, stereo and RGB-fit keys are refused."""
+    """Acceptance limits of the D435 intrinsics check; only D435_LIMIT_KEYS are accepted and dumped."""
 
     plane_max_bias_mm: float = Field(default=D435_PLANE_MAX_BIAS_MM, gt=0)
     intrinsics_max_rms_px: float = Field(default=D435_INTRINSICS_MAX_RMS_PX, gt=0)
     intrinsics_max_focal_diff_pct: float = Field(default=D435_INTRINSICS_MAX_FOCAL_DIFF_PCT, gt=0)
     intrinsics_max_principal_diff_px: float = Field(default=D435_INTRINSICS_MAX_PRINCIPAL_DIFF_PX, gt=0)
-    rgb_max_rms_px: float = Field(default=0.5, gt=0, exclude=True)
-    tof_max_rms_px: float = Field(default=0.3, gt=0, exclude=True)
-    stereo_max_rms_px: float = Field(default=1.0, gt=0, exclude=True)
-    tof_zero_distortion_rms_px: float = Field(default=0.3, gt=0, exclude=True)
 
     @model_validator(mode="before")
     @classmethod
     def refuse_tof_keys(cls, data: Any) -> Any:
-        """Refuse the shared ToF, stereo and RGB-fit limit keys."""
-        return refuse_keys(data, TOF_LIMIT_KEYS, "limits")
+        """Refuse the shared limit keys the D435 check does not use."""
+        return refuse_unused_keys(data, LimitsConfig.model_fields, D435_LIMIT_KEYS, "limits")
+
+    @model_serializer(mode="wrap")
+    def dump_d435_keys(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        """Dump only D435_LIMIT_KEYS."""
+        return {key: value for key, value in handler(self).items() if key in D435_LIMIT_KEYS}
 
 
 class StillConfig(StrictModel):
