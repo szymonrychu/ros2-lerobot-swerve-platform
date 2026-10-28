@@ -1779,7 +1779,7 @@ ros2_nodes:
         speed_scale: 0.1 # move_arm_joints speed scale (0 < x <= 0.3); slow for the fragile board mount
         settle_s: 1.0 # wait after a move before the still capture, s (>= 0)
         confirm_timeout_s: 600.0 # an unanswered confirm ends the sequence (arm held), s (> 0)
-        head_offsets_deg: [[0.0, 0.0], [10.0, 0.0], [-10.0, 0.0], [0.0, -3.0]] # (pan, tilt) added to the aimed head, deg; -3 deg tilt (up) keeps the board in the 42 deg tall D435 colour image
+        head_offsets_deg: [[0.0, 0.0], [10.0, 0.0], [-10.0, 0.0], [0.0, -3.0]] # (pan, tilt) added to the aimed head, deg; tilt -3 (up) fits the D435 colour FOV
         provisional_margin_m: 0.05 # extra board margin while board_mount is the hand-measured start, m (>= 0)
         # Parked arm (gen_nav_footprint.yaml parked_arm_joints): the target of Park with the board on.
         park_pose: {shoulder_pan: -0.003, shoulder_lift: -1.35, elbow_flex: 1.578, wrist_flex: -0.1, wrist_roll: -1.637}
