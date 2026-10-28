@@ -161,7 +161,13 @@ def test_laser_filter_output_feeds_every_consumer() -> None:
 def test_ground_estimator_input_is_the_laser_filter_output_and_the_ground_clear_topic() -> None:
     out = laser_filter_config()["cloud_filtered_topic"]
     ground = node_config("ground_estimator_cpp")
-    assert ground["cloud_topic"] == out
+    # The ground estimator reads the self-filtered D435 cloud (ground-estimator-on-d435-inp); laser_filter is re-pointed
+    # to it by laser-filter-on-the-d435-clo, which pins ground["cloud_topic"] == out again.
+    d435_type = load_client()["ros2_node_type_defaults"]["d435_obstacle_cloud"]
+    d435_launch = " ".join(str(d435_type["node_launch_command"]).split())
+    d435_cloud = re.search(r"-r cloud:=(\S+)", d435_launch)
+    assert d435_cloud
+    assert ground["cloud_topic"] == d435_cloud.group(1) + "_filtered"
     ground_layer = nav2_params()["local_costmap"]["local_costmap"]["ros__parameters"]["ground_voxel_layer"]
     assert ground_layer["ground_clear"]["topic"] == out
 
