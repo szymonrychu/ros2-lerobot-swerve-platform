@@ -48,6 +48,8 @@ PAN_AXIS_M = (-0.03, -0.01)
 TRUTH_DELTAS = {"mount_x_m": 0.006, "mount_yaw_deg": 1.0, "mount_z_m": 0.003, "tilt_zero_deg": 0.4}
 NOISE_PX = 0.3
 CAMERA_ORIGIN = Origin((0.01, 0.02, 0.03), (0.1, 0.2, 0.3))
+CAMERA_TOLERANCE_M = 0.0015
+CAMERA_TOLERANCE_RAD = 0.0026  # 0.15 deg
 
 
 def fake_run(args: list[str], **_: Any) -> SimpleNamespace:
@@ -195,7 +197,15 @@ def test_fitted_joints_merge_over_applied_chain(cfg: NodeConfig, state: Path, st
     assert result["passed"] is True, (result["failed_limits"], result["error"])
     chain = json.loads((result_dir(store, sid, result["id"]) / "head_chain.json").read_text())
     assert set(chain["joints"]) == {CAMERA, MOUNT, PAN, TILT}
-    assert chain["joints"][CAMERA] == {"rpy": list(CAMERA_ORIGIN.rpy), "xyz": list(CAMERA_ORIGIN.xyz)}
+    # The fit starts the D435 mount from the applied d435_joint: x, z, roll, yaw are refitted (the scene's truth is
+    # the applied origin), y and pitch are kept exactly.
+    camera = chain["joints"][CAMERA]
+    assert camera["xyz"][1] == CAMERA_ORIGIN.xyz[1]
+    assert camera["rpy"][1] == CAMERA_ORIGIN.rpy[1]
+    assert camera["xyz"][0] == pytest.approx(result["params"]["camera_x_m"]["value"], abs=1e-6)
+    assert camera["rpy"][2] == pytest.approx(math.radians(result["params"]["camera_yaw_deg"]["value"]), abs=1e-6)
+    assert camera["xyz"] == pytest.approx(list(CAMERA_ORIGIN.xyz), abs=CAMERA_TOLERANCE_M)
+    assert camera["rpy"] == pytest.approx(list(CAMERA_ORIGIN.rpy), abs=CAMERA_TOLERANCE_RAD)
     assert chain["joints"][MOUNT]["xyz"][0] == pytest.approx(result["params"]["mount_x_m"]["value"], abs=1e-6)
     assert chain["joints"][MOUNT]["rpy"][2] == pytest.approx(
         math.radians(result["params"]["mount_yaw_deg"]["value"]), abs=1e-6

@@ -77,6 +77,34 @@
       "floor": 0.0,
       "floor_delta": 0.0026466265698014873
     },
+    "camera_x_m": {
+      "value": 0.0212,
+      "sigma": 0.0005,
+      "start": 0.02,
+      "floor": null,
+      "floor_delta": null
+    },
+    "camera_z_m": {
+      "value": -0.0008,
+      "sigma": 0.0009,
+      "start": 0.0,
+      "floor": null,
+      "floor_delta": null
+    },
+    "camera_roll_deg": {
+      "value": 0.21,
+      "sigma": 0.07,
+      "start": 0.0,
+      "floor": null,
+      "floor_delta": null
+    },
+    "camera_yaw_deg": {
+      "value": -0.35,
+      "sigma": 0.15,
+      "start": 0.0,
+      "floor": null,
+      "floor_delta": null
+    },
     "pan_axis_x_m": {
       "value": -0.0301,
       "sigma": 0.0004,
