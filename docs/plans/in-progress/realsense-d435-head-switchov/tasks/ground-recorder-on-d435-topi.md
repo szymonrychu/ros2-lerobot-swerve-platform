@@ -1,6 +1,6 @@
 ---
 title: Ground recorder on D435 topics
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: Ground scenes can be recorded from the D435 pipeline to rebuild the replay fixtures.
 files: [nodes/web_ui/web_ui/config.py, nodes/web_ui/web_ui/ground_recorder.py, nodes/web_ui/web_ui/ground_session.py, nodes/web_ui/web_ui/bridge.py, nodes/web_ui/config/default.yaml, nodes/web_ui/tests/test_ground_recorder.py, nodes/web_ui/tests/test_ground_recorder_api.py]
@@ -8,15 +8,15 @@ verify: "cd nodes/web_ui && uv run --frozen pytest tests/test_ground_recorder.py
 depends_on: [laser-filter-on-the-d435-clo, head-rgb-d-node-on-d435-alig]
 model: opus
 review: ""
-verified_head: ""
+verified_head: b48cbe96
 points: 3
 expected_minutes: 34
 expected_tokens: 2250000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 5
+actual_minutes: 36
+actual_tokens: 7384454
+actual_roles: "impl 34, review 20"
+actual_role_tokens: "impl 6740598, review 643856"
 ---
 
 # Ground recorder on D435 topics
@@ -66,3 +66,5 @@ What is true and observable when the task is done.
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
 - 2026-10-28: ground_recorder.py still names the constant STREAM_TOF and the npz keys tof_depth_mm / tof_K (value already "depth"); rename them here with the readers (ground_replay_export.py).
+
+- 2026-10-28 done
