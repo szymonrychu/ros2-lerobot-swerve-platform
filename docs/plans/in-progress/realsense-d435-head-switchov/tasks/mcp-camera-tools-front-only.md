@@ -1,6 +1,6 @@
 ---
 title: MCP camera tools front only
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: Camera tools stop offering a camera that no longer exists.
 files: [nodes/mcp_server/mcp_server/camera_scene.py, nodes/mcp_server/mcp_server/camera_tools.py, nodes/mcp_server/mcp_server/camera_calib.py, nodes/mcp_server/tests/test_camera_scene.py, nodes/mcp_server/tests/test_camera_tools.py, nodes/mcp_server/tests/camera_helpers.py, nodes/mcp_server/tests/fakes.py]
@@ -8,15 +8,15 @@ verify: "cd nodes/mcp_server && uv run --frozen pytest tests/test_camera_scene.p
 depends_on: [mcp-front-camera-on-d435]
 model: opus
 review: ""
-verified_head: ""
+verified_head: bca003c3
 points: 5
 expected_minutes: 57
 expected_tokens: 3750000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 5
+actual_minutes: 884
+actual_tokens: 22413686
+actual_roles: "impl 875, review 9"
+actual_role_tokens: "impl 22061824, review 351862"
 ---
 
 # MCP camera tools front only
@@ -63,3 +63,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-29 done
