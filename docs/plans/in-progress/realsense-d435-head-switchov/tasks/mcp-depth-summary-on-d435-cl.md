@@ -1,6 +1,6 @@
 ---
 title: MCP depth summary on D435 cloud
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The agent's 3D obstacle summary comes from the D435 cloud."
 files: [nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/mcp_server/tool_context.py, nodes/mcp_server/mcp_server/tools.py, nodes/mcp_server/tests/test_map_summary_tof.py, nodes/mcp_server/tests/test_map_summary_depth.py, nodes/mcp_server/tests/test_tof_obstacles.py, ansible/group_vars/client.yml]
@@ -8,15 +8,15 @@ verify: "cd nodes/mcp_server && uv run --frozen pytest tests/test_map_summary_de
 depends_on: [laser-filter-on-the-d435-clo, mcp-image-tools-front-only]
 model: opus
 review: ""
-verified_head: ""
+verified_head: 06130657
 points: 3
 expected_minutes: 34
 expected_tokens: 2250000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 3
+actual_minutes: 22
+actual_tokens: 2392999
+actual_roles: "impl 13, review 9"
+actual_role_tokens: "impl 2206618, review 186381"
 ---
 
 # MCP depth summary on D435 cloud
@@ -66,3 +66,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-29 done
