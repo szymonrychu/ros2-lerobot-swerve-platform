@@ -325,15 +325,16 @@ ros2_node_type_defaults:
     apt_packages:
       - ros-jazzy-realsense2-camera
   # Config-only node (D5): rtabmap_util point_cloud_xyz turns the full-FOV D435 depth (not the colour-aligned depth,
-  # cropped to the colour FOV) into /head/d435/points in d435_depth_optical_frame. It publishes no TF; slam_toolbox
-  # keeps map -> odom.
+  # cropped to the colour FOV) into /head/d435/points in d435_depth_optical_frame. Its input is head_rgbd_cpp's
+  # edge-masked copy of /head/d435/depth/image_rect_raw (filtered_depth, every frame, same header), so the mixed pixels
+  # at object edges never reach the cloud. It publishes no TF; slam_toolbox keeps map -> odom.
   d435_obstacle_cloud:
     deploy_mode: native
     node_launch_command: >-
       ros2 run rtabmap_util point_cloud_xyz --ros-args
       --params-file {{ ros2_repo_dest }}/nodes/d435_obstacle_cloud/config/point_cloud_xyz.yaml
-      -r depth/image:=/head/d435/depth/image_rect_raw
-      -r depth/camera_info:=/head/d435/depth/camera_info
+      -r depth/image:=/head/d435/depth_filtered/image_raw
+      -r depth/camera_info:=/head/d435/depth_filtered/camera_info
       -r cloud:=/head/d435/points
       -r __node:=d435_obstacle_cloud
     node_src_dir: ""
@@ -628,10 +629,13 @@ ros2_node_type_defaults:
     env:
       - MAP_GUARD_CONFIG=/etc/ros2/map_guard/config.yaml
   # Head RGB-D adapter (nodes/head_rgbd_cpp/README.md): pairs the D435 aligned depth with the colour image and publishes
-  # /head_rgbd/* (depth + JPEG RGB with camera_infos, coloured cloud). Consumers: RTAB-Map, ground guidance,
-  # marker_detector, web_ui. Built from the repo tree as colcon local sources (-j2). Background tier: the map
-  # input is work the robot can lose, so no protection. The memory figures are an estimate; the measured
-  # working set (Mimir p50 and 24 h peak) sets MemoryLow ~1.33x p50 and MemoryMax 4x the peak. No ROS_STATIC_PEERS.
+  # /head_rgbd/* (depth + JPEG RGB with camera_infos, coloured cloud), and republishes the full-FOV D435 depth edge-masked
+  # on /head/d435/depth_filtered/image_raw + camera_info (the d435_obstacle_cloud input). Consumers: RTAB-Map, ground
+  # guidance, marker_detector, web_ui, and through the obstacle cloud laser_filter, ground_estimator_cpp, Nav2 and the
+  # collision monitor. Built from the repo tree as colcon local sources (-j2). Normal tier, like d435_obstacle_cloud: the
+  # obstacle cloud stops when this node stops, so it is protected above the background work. The memory figures are an
+  # estimate; the measured working set (Mimir p50 and 24 h peak) sets MemoryLow ~1.33x p50 and MemoryMax 4x the peak. No
+  # ROS_STATIC_PEERS.
   head_rgbd_cpp:
     deploy_mode: native
     node_launch_command: "ros2 run head_rgbd_cpp head_rgbd_node"
@@ -663,9 +667,9 @@ ros2_node_type_defaults:
           - libopencv-dev
     memory_low: "48M"
     memory_max: "256M"
-    cpu_weight: 100
-    io_weight: 100
-    oom_score_adjust: 0
+    cpu_weight: 500
+    io_weight: 500
+    oom_score_adjust: -500
     config_path: /etc/ros2/head_rgbd_cpp
     env:
       - HEAD_RGBD_CONFIG=/etc/ros2/head_rgbd_cpp/config.yaml
@@ -1389,8 +1393,9 @@ ros2_nodes:
     node_type: realsense_d435
     present: true
     enabled: true
-  # D435 point cloud: /head/d435/depth/image_rect_raw + /head/d435/depth/camera_info (realsense_d435) ->
-  # /head/d435/points (PointCloud2 in d435_depth_optical_frame, stamp copied from the depth header).
+  # D435 point cloud: /head/d435/depth_filtered/image_raw + camera_info (head_rgbd_cpp's edge-masked copy of the
+  # realsense_d435 full-FOV depth) -> /head/d435/points (PointCloud2 in d435_depth_optical_frame, stamp copied from
+  # the depth header).
   # Params: nodes/d435_obstacle_cloud/config/point_cloud_xyz.yaml.
   - name: d435_obstacle_cloud
     node_type: d435_obstacle_cloud
@@ -1432,8 +1437,9 @@ ros2_nodes:
         height: 324
         jpeg_quality: 80
   # Head RGB-D adapter: the D435 aligned depth + raw colour (/head/d435/*) -> /head_rgbd/* (depth and JPEG RGB with
-  # camera_infos, coloured cloud), exact-stamp sets at output.rate_hz. Defaults of
-  # nodes/head_rgbd_cpp/config/head_rgbd.yaml; needs realsense_d435 with align_depth on.
+  # camera_infos, coloured cloud), paired sets at output.rate_hz; the full-FOV depth ->
+  # /head/d435/depth_filtered/image_raw + camera_info (edge-masked, every frame, read by d435_obstacle_cloud).
+  # Defaults of nodes/head_rgbd_cpp/config/head_rgbd.yaml; needs realsense_d435 with align_depth on.
   - name: head_rgbd_cpp
     node_type: head_rgbd_cpp
     present: true
@@ -1463,6 +1469,35 @@ ros2_nodes:
 
       lazy:
         idle_unsubscribe_s: 5.0 # drop the input subscriptions this long after the last output subscriber left, s (>= 0)
+
+      # Depth edge ("veil") mask (ros2_common_cpp::depth_mask) on every depth this node publishes: the aligned depth of the
+      # sets (before the downscale) and the full-rate filtered depth. A valid pixel is removed (0, no depth) when a valid
+      # pixel of its window_px x window_px neighbourhood is nearer by more than max(abs_m, rel x its depth): the mixed and
+      # flying pixels behind an object edge go, the object keeps its edge.
+      edge_mask:
+        enabled: true # apply the mask
+        window_px: 3  # neighbourhood side, px (odd, 3..9)
+        abs_m: 0.01   # smallest jump that removes a pixel, m (>= 0)
+        # rel: the floor 2 m ahead of the head home pose deepens ~1.5 % per pixel row, a 3 px blend across a 5 cm box edge ~4 %.
+        rel: 0.025    # jump that removes a pixel per metre of its depth (0..1; abs_m or rel must be > 0)
+        grow_px: 0    # widen the removed region by this many pixels (0..2)
+
+      # Full-rate filtered depth: every frame of depth_topic, masked, republished with its own header on output_image_topic
+      # and the latest camera_info of info_topic (same size) on output_info_topic. The input of d435_obstacle_cloud.
+      # Subscribed only while an output has subscribers (lazy.idle_unsubscribe_s).
+      filtered_depth:
+        enabled: true                                              # advertise the filtered depth
+        depth_topic: /head/d435/depth/image_rect_raw               # sensor_msgs/Image 16UC1 full-FOV depth, mm
+        info_topic: /head/d435/depth/camera_info                   # sensor_msgs/CameraInfo of that depth
+        output_image_topic: /head/d435/depth_filtered/image_raw    # the masked depth, same header as the input
+        output_info_topic: /head/d435/depth_filtered/camera_info   # the camera_info with the image header
+
+      # Pairing of the aligned depth with the colour frame (message_filters). exact: equal stamps (ExactTime). approximate:
+      # stamps at most max_interval_s apart (ApproximateTime). The set carries the colour header either way. Choose from
+      # the live head_rgbd_pair_stamp_delta_seconds histogram (README, Pairing).
+      pairing:
+        policy: exact         # exact or approximate
+        max_interval_s: 0.02  # widest colour-to-depth stamp spread of an approximate pair, s (0 < v <= 0.0333 = 1/30)
 
       metrics_port: 19117 # Prometheus /metrics port (1..65535), null disables
   # Head RGB-D calibration service (HTTP 127.0.0.1:18110, proxied by web_ui). Defaults of

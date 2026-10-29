@@ -212,8 +212,11 @@ def test_topics_match_their_producers() -> None:
     assert guidance["depth_topic"] == head_ns + "/depth/image_raw"
     assert guidance["info_topic"] == head_ns + "/depth/camera_info"
     assert guidance["rgb_topic"] == head_ns + "/rgb/image_raw/compressed"
-    # The camera model of the depth stream the cloud is made from.
-    assert guidance["depth_info_topic"] == d435["depth/camera_info"]
+    # The camera model of the depth stream the cloud is made from: the cloud reads head_rgbd_cpp's edge-masked copy of
+    # the full-FOV depth, whose camera_info is the realsense one the guidance reads.
+    filtered = entry_config("head_rgbd_cpp")["filtered_depth"]
+    assert d435["depth/camera_info"] == filtered["output_info_topic"]
+    assert guidance["depth_info_topic"] == filtered["info_topic"]
 
 
 def test_limits_match_tilt_guard_and_swerve() -> None:

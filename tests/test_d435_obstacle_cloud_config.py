@@ -1,6 +1,7 @@
 """Static invariants of the d435_obstacle_cloud deployment (config-only rtabmap_util point_cloud_xyz node).
 
-The node turns the realsense_d435 full-FOV depth image (/head/d435/depth/image_rect_raw, not the aligned one) into
+The node turns the realsense_d435 full-FOV depth image (/head/d435/depth/image_rect_raw, not the aligned one), as
+edge-masked by head_rgbd_cpp on /head/d435/depth_filtered/* (tests/test_d435_depth_filter_wiring.py), into
 /head/d435/points in d435_depth_optical_frame (design D5). It has no Python package; the launch command, params file,
 Ansible type, playbook block and the uninstall of the retired tof_obstacle_cloud instance are checked here.
 """
@@ -39,8 +40,8 @@ EXPECTED_PARAMS = {
     "qos": 0,
 }
 EXPECTED_REMAPS = {
-    "depth/image": "/head/d435/depth/image_rect_raw",
-    "depth/camera_info": "/head/d435/depth/camera_info",
+    "depth/image": "/head/d435/depth_filtered/image_raw",
+    "depth/camera_info": "/head/d435/depth_filtered/camera_info",
     "cloud": "/head/d435/points",
     "__node": NODE,
 }

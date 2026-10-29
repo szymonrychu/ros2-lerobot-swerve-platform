@@ -93,7 +93,6 @@ def test_background_tier_has_no_stereo_type() -> None:
     assert sorted(background) == [
         "head_camera_cpp",
         "head_rgbd_calibration",
-        "head_rgbd_cpp",
         "joint_state_throttle_follower",
         "joint_state_throttle_swerve",
         "map3d_uplink",

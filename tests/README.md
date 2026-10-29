@@ -369,7 +369,7 @@ Packaging of `shared/` as the installable uv/hatchling package `ros2-common`.
 ### `test_unit_cgroups.py`
 
 Cgroup model of the ROS2 units: robot headroom guaranteed, background constrained (no `CPUQuota` / `MemoryHigh` for robot
-units, weight tiers, `MemoryLow`, `MemoryMax` safety net, `Restart=always`, host slice drop-ins). The C++ ports sit in their Python node's tier: `map_guard_cpp` normal; `head_rgbd_cpp` (head RGB-D fusion), `head_rgbd_calibration` (operator calibration tool) and `map3d_uplink` (map3d stream relay) join `head_camera_cpp` in the background tier (weights 100/100, no OOM protection); the retired types carry no tier. Every robot type has a `MemoryLow` and a `MemoryMax` of at least twice it (no pinned measurements). `test_config_error_exit_is_not_restarted` checks `RestartPreventExitStatus=78`; the `MemoryLow` sum test only bounds it by `MAX_MEMORY_LOW_SUM_MIB` (no pinned total).
+units, weight tiers, `MemoryLow`, `MemoryMax` safety net, `Restart=always`, host slice drop-ins). The C++ ports sit in their Python node's tier: `map_guard_cpp` normal; `head_rgbd_cpp` normal too (since 2026-10-29 its edge-masked full-FOV depth feeds `d435_obstacle_cloud`); `head_rgbd_calibration` (operator calibration tool) and `map3d_uplink` (map3d stream relay) join `head_camera_cpp` in the background tier (weights 100/100, no OOM protection); the retired types carry no tier. Every robot type has a `MemoryLow` and a `MemoryMax` of at least twice it (no pinned measurements). `test_config_error_exit_is_not_restarted` checks `RestartPreventExitStatus=78`; the `MemoryLow` sum test only bounds it by `MAX_MEMORY_LOW_SUM_MIB` (no pinned total).
 
 ### `test_config_exit_codes.py`
 
@@ -1835,7 +1835,7 @@ Static checks of the D7 retirement of the Pi stereo pipeline: `stereo_depth` and
 | `test_ros2_nodes_entries_are_uninstalled_by_the_next_deploy` | Both `ros2_nodes` entries keep their node type, are `present: false` and carry no `config`. |
 | `test_the_entries_name_d7_in_the_comment_above_them` | The comment block directly above each entry names D7. |
 | `test_node_types_keep_only_what_the_uninstall_path_needs` | Each type has only `deploy_mode: native` and a `node_launch_command`: no source dir, `src_shared`, `colcon_source`, apt, env, config path, memory or tier keys. |
-| `test_background_tier_has_no_stereo_type` | The 100/100 weight tier holds only the two joint-state throttle types. |
+| `test_background_tier_has_no_stereo_type` | The 100/100 weight tier holds no stereo type: exactly `head_camera_cpp`, `head_rgbd_calibration`, the two joint-state throttle types and `map3d_uplink`. |
 | `test_metrics_target_is_removed` | `monitoring_agent_node_targets` has no stereo node and no `:19113` address. |
 | `test_client_playbook_still_deploys_both_names_so_the_uninstall_runs` | The client playbook still has a deploy step for each name. |
 | `test_ansible_readme_documents_the_retirement` | `ansible/README.md` "Cut-over and rollback" names D7 and `present: false`, has no 19113 and no stereo row in the tier or memory tables. |
@@ -2354,7 +2354,7 @@ Keeps `nodes/ground_estimator_cpp/README.md` in sync with the node. Parses `STAT
 
 ### `test_ground_estimator_deploy.py`
 
-Static invariants of the `ground_estimator_cpp` deploy: node type keys, apt list, normal tier values, env, colcon source order, `ros2_nodes` entry (present and enabled, equal to the shipped yaml plus `metrics_port` 19119), metrics scrape target `127.0.0.1:19119` (`test_metrics_target_is_present`) and playbook step order. `test_deployed_config_reads_the_d435` (design D7): the enabled entry reads `/head/d435/points_filtered`, `/head_rgbd/points`, the `/head_rgbd/depth/*` and RGB guidance topics and `guidance.depth_info_topic` `/head/d435/depth/camera_info`, has `no_return.margin_px` and no ToF key names or `/tof/` topics, the 1.5x scaled frame windows (temporal 12/6, hysteresis 8/5/2, no_return 6/5), and its header comment names the D435. Consistency (design D3): topics equal the laser_filter, bno055_imu and head_rgbd_cpp outputs; the IMU level reference and slope limits equal tilt_guard; `wheel_radius_m` equals swerve_controller and the max step is one third of the wheel diameter; `max_slope_deg` is at most the smaller tilt_guard error limit (`test_limits_match_tilt_guard_and_swerve`). `test_robustness_keys_present` pins the robustness settings in the client config: `temporal.max_spread_m` 0.025, the `hysteresis` section (8/5/2), `traversability.lethal_min_points` 2, `edges.slope_bin_m` 0.10 and `edges.slope_min_cells` 3. `test_config_keys_equal_the_shipped_yaml_keys` also covers the `guidance` block; `test_topics_match_their_producers` maps the cloud to the laser_filter output of the d435_obstacle_cloud cloud and the four guidance topics to head_rgbd_cpp (depth image and info, RGB) and realsense_d435 (`depth/camera_info`); `test_guidance_block_is_in_the_client_config` pins the client block to the shipped yaml.
+Static invariants of the `ground_estimator_cpp` deploy: node type keys, apt list, normal tier values, env, colcon source order, `ros2_nodes` entry (present and enabled, equal to the shipped yaml plus `metrics_port` 19119), metrics scrape target `127.0.0.1:19119` (`test_metrics_target_is_present`) and playbook step order. `test_deployed_config_reads_the_d435` (design D7): the enabled entry reads `/head/d435/points_filtered`, `/head_rgbd/points`, the `/head_rgbd/depth/*` and RGB guidance topics and `guidance.depth_info_topic` `/head/d435/depth/camera_info`, has `no_return.margin_px` and no ToF key names or `/tof/` topics, the 1.5x scaled frame windows (temporal 12/6, hysteresis 8/5/2, no_return 6/5), and its header comment names the D435. Consistency (design D3): topics equal the laser_filter, bno055_imu and head_rgbd_cpp outputs; the IMU level reference and slope limits equal tilt_guard; `wheel_radius_m` equals swerve_controller and the max step is one third of the wheel diameter; `max_slope_deg` is at most the smaller tilt_guard error limit (`test_limits_match_tilt_guard_and_swerve`). `test_robustness_keys_present` pins the robustness settings in the client config: `temporal.max_spread_m` 0.025, the `hysteresis` section (8/5/2), `traversability.lethal_min_points` 2, `edges.slope_bin_m` 0.10 and `edges.slope_min_cells` 3. `test_config_keys_equal_the_shipped_yaml_keys` also covers the `guidance` block; `test_topics_match_their_producers` maps the cloud to the laser_filter output of the d435_obstacle_cloud cloud and the four guidance topics to head_rgbd_cpp (depth image and info, RGB) and realsense_d435 (`depth/camera_info`, the `filtered_depth.info_topic` of head_rgbd_cpp, whose `output_info_topic` the obstacle cloud reads); `test_guidance_block_is_in_the_client_config` pins the client block to the shipped yaml.
 
 ### `test_head_rgbd_deploy.py`
 
@@ -2364,7 +2364,7 @@ Static invariants of the head RGB-D adapter deploy (`head_rgbd_cpp` in `ansible/
 |---|---|
 | `test_node_type_keys` | Native, launch command `ros2 run head_rgbd_cpp head_rgbd_node`, empty `node_src_dir` and `src_paths`, no `ROS_STATIC_PEERS`. |
 | `test_apt_packages` | The build and runtime apt list is exactly what the adapter and `cloud.cpp` use; none of the ToF-only packages (`tf2`, `tf2-ros`, `tf2-eigen`, `camera-calibration-parsers`, `libopencv-contrib-dev`, `libeigen3-dev`). |
-| `test_background_tier_values` | Weights 100, `oom_score_adjust` 0, `memory_low` 48M, `memory_max` 256M. |
+| `test_normal_tier_values` | Normal tier like d435_obstacle_cloud (it feeds the obstacle cloud): weights 500, `oom_score_adjust` -500, `memory_low` 48M, `memory_max` 256M. |
 | `test_config_path_and_env` | `/etc/ros2/head_rgbd_cpp` and `HEAD_RGBD_CONFIG`. |
 | `test_colcon_sources_order_and_build` | `ros2_common_cpp` then `head_rgbd_cpp`, Release, `BUILD_TESTING=OFF`, `-j2`, `base_paths`; the `head_rgbd_cpp` `stamp_apt_packages` list is exact, installed, and carries no ToF-only package. |
 | `test_depth_output_feeds_ground_guidance` | `/head_rgbd` namespace, depth divisor 2, the 0.3-2 m floor inside the depth range, no `upsampling` block (deployed config and defaults). |
@@ -2725,7 +2725,7 @@ Static invariants of the cut-over to the C++ nodes (`ansible/group_vars/client.y
 | `test_python_node_stays_present_and_disabled_for_rollback` | `map_guard` stays `present: true`, `enabled: false` (rollback). |
 | `test_cpp_config_block_equals_the_python_block` | The parsed `_cpp` config equals the Python node's and keeps its metrics port (19110). |
 | `test_map_guard_cpp_keeps_dry_run` | The map_guard_cpp config still has `dry_run: true`. |
-| `test_background_tier_holds_only_throttles_and_previews` | Among running nodes the background tier (100/100/0) holds exactly `head_camera_cpp`, `head_rgbd_calibration`, `head_rgbd_cpp`, the two joint-state throttle nodes and `map3d_uplink`. |
+| `test_background_tier_holds_only_throttles_and_previews` | Among running nodes the background tier (100/100/0) holds exactly `head_camera_cpp`, `head_rgbd_calibration`, the two joint-state throttle nodes and `map3d_uplink`. |
 | `test_only_the_running_node_of_each_pair_is_scraped` | `monitoring_agent_node_targets` lists the `_cpp` names and not the disabled Python ones. |
 | `test_readme_documents_cutover_and_rollback` | `ansible/README.md` has a "Cut-over and rollback" section naming both nodes, `enabled: false` and `scripts/deploy-nodes.sh`. |
 
@@ -3130,12 +3130,12 @@ Keeps the web_ui 3D obstacles layer height bands (`OBSTACLE_MIN_Z`, `OBSTACLE_MA
 
 ### test_d435_obstacle_cloud_config.py
 
-Static checks of the `d435_obstacle_cloud` deployment (config-only rtabmap_util point_cloud_xyz on the full-FOV D435 depth, Client only, design D5) and of the uninstall of the retired `tof_obstacle_cloud`.
+Static checks of the `d435_obstacle_cloud` deployment (config-only rtabmap_util point_cloud_xyz on the full-FOV D435 depth as edge-masked by head_rgbd_cpp, Client only, design D5) and of the uninstall of the retired `tof_obstacle_cloud`.
 
 | Test | Covers |
 |---|---|
 | `test_launch_command_runs_point_cloud_xyz_with_params_file` | The launch command runs `ros2 run rtabmap_util point_cloud_xyz` with `nodes/d435_obstacle_cloud/config/point_cloud_xyz.yaml`. |
-| `test_remaps_read_the_d435_depth` | Remaps are exactly depth/image -> `/head/d435/depth/image_rect_raw`, depth/camera_info -> `/head/d435/depth/camera_info`, cloud -> `/head/d435/points` and `__node:=d435_obstacle_cloud`; not the aligned depth. |
+| `test_remaps_read_the_d435_depth` | Remaps are exactly depth/image -> `/head/d435/depth_filtered/image_raw`, depth/camera_info -> `/head/d435/depth_filtered/camera_info` (head_rgbd_cpp's edge-masked full-FOV depth), cloud -> `/head/d435/points` and `__node:=d435_obstacle_cloud`; not the aligned depth. |
 | `test_node_type_is_native_config_only_with_apt_package` | Native, no src dir, `src_paths` `[nodes/d435_obstacle_cloud]`, `ros-jazzy-rtabmap-util`, no pyproject. |
 | `test_node_type_is_normal_tier_with_estimated_memory` | Normal tier weights, `memory_low` 64M, `memory_max` 192M. |
 | `test_params_fit_the_d435_profile` | The realsense_d435 depth profile is 640x360; the params hold the expected values and types (decimation 4, min_depth 0.15, max_depth 3.0, voxel 0.05, NaN filter, exact sync, radius noise filter 0.1 m / 2, `qos` 0); the decimation divides 640x360 and gives at most 160x90; min_depth >= the D435 min-Z 0.15 m. |
@@ -3149,6 +3149,25 @@ Static checks of the `d435_obstacle_cloud` deployment (config-only rtabmap_util 
 | `test_old_node_type_keeps_only_what_the_uninstall_path_needs` | The `tof_obstacle_cloud` type has only `deploy_mode: native` and a launch command. |
 | `test_old_params_file_is_moved` | `nodes/tof_obstacle_cloud/config/point_cloud_xyz.yaml` is gone. |
 | `test_node_is_not_on_the_server` | Not in server.yml. |
+
+### test_d435_depth_filter_wiring.py
+
+Wiring of the full-rate filtered D435 depth: head_rgbd_cpp `filtered_depth` masks every frame of
+`/head/d435/depth/image_rect_raw` and republishes it on `/head/d435/depth_filtered/{image_raw, camera_info}`, which
+d435_obstacle_cloud turns into `/head/d435/points`. Reads the YAML and READMEs only.
+
+| Test | Covers |
+|---|---|
+| `test_obstacle_cloud_reads_the_head_rgbd_filtered_depth` | The d435_obstacle_cloud `depth/image` and `depth/camera_info` remaps equal `<filtered_depth.output_namespace>/image_raw` and `/camera_info` of the deployed and the default head_rgbd_cpp config (enabled); the cloud stays `/head/d435/points`; the raw depth is no longer a remap target. |
+| `test_filtered_stage_reads_the_full_fov_depth_the_camera_publishes` | `filtered_depth.depth_topic` / `info_topic` are `/head/d435/depth/image_rect_raw` / `/head/d435/depth/camera_info`, listed in the realsense_d435 `topics.yaml` with their types and one frame. |
+| `test_obstacle_chain_downstream_is_unchanged` | laser_filter still reads `/head/d435/points` and writes `/head/d435/points_filtered`. |
+| `test_point_cloud_xyz_pairs_image_and_info_exactly_with_a_reliable_match` | point_cloud_xyz keeps `approx_sync: false` and `qos: 0` (reliable, matching head_rgbd_cpp's reliable publishers) and its params comments name head_rgbd_cpp and depth_filtered. |
+| `test_edge_mask_and_pairing_defaults_are_deployed` | The `edge_mask`, `filtered_depth` and `pairing` blocks of client.yml equal the repo defaults; the mask is on, the policy `exact`, `max_interval_s` within half a 15 Hz frame. |
+| `test_deployed_config_is_the_repo_defaults` | The whole client.yml head_rgbd_cpp block equals `config/head_rgbd.yaml` plus `metrics_port` 19117. |
+| `test_head_rgbd_shares_the_obstacle_cloud_tier` | head_rgbd_cpp and d435_obstacle_cloud carry the normal tier (500/500/-500). |
+| `test_metrics_port_is_scraped` | Alloy scrapes `127.0.0.1:19117` for head_rgbd_cpp, the port of both configs. |
+| `test_common_cpp_builds_without_opencv_where_it_is_not_installed` | ros2_common_cpp's CMake finds OpenCV `QUIET` and builds `depth_mask` only `if(OpenCV_FOUND)` (map_guard_cpp and map3d_manager_cpp install no OpenCV); head_rgbd_cpp installs `libopencv-dev`. |
+| `test_docs_name_the_filtered_depth` | The head_rgbd_cpp README names the filtered namespace, `edge_mask`, `pairing.policy` and the stamp-delta histogram; the realsense bridge README has a Filters section naming the filtered namespace; this file has a section for the test. |
 
 ### test_d435_obstacle_wiring.py
 

@@ -1,7 +1,8 @@
 """Static invariants of the head_rgbd_cpp deploy: node type, build dependencies, ros2_nodes entry, D435 inputs, rate.
 
-head_rgbd_cpp adapts the D435 aligned depth and colour to the /head_rgbd contract. It is background work (a map input,
-not a safety path), so it gets the background cgroup tier, not protection.
+head_rgbd_cpp adapts the D435 aligned depth and colour to the /head_rgbd contract and republishes the full-FOV depth
+edge-masked for d435_obstacle_cloud. The obstacle cloud (collision monitor, Nav2) stops when it stops, so it gets the
+normal cgroup tier of d435_obstacle_cloud, not the background one.
 """
 
 from pathlib import Path
@@ -20,7 +21,7 @@ METRICS_PORT = 19117
 GROUND_METRICS_PORT = 19119
 # Floor distances the ground guidance needs in the depth range, m (design D2: the floor at 0.3-2 m).
 FLOOR_RANGE_M = (0.3, 2.0)
-TIER = {"cpu_weight": 100, "io_weight": 100, "oom_score_adjust": 0, "memory_low": "48M", "memory_max": "256M"}
+TIER = {"cpu_weight": 500, "io_weight": 500, "oom_score_adjust": -500, "memory_low": "48M", "memory_max": "256M"}
 REQUIRED_APT_PACKAGES = (
     "build-essential",
     "cmake",
@@ -117,7 +118,7 @@ def test_apt_packages() -> None:
     assert not set(TOF_ONLY_APT_PACKAGES) & set(apt)
 
 
-def test_background_tier_values() -> None:
+def test_normal_tier_values() -> None:
     entry = node_type()
     assert {k: entry[k] for k in TIER} == TIER
 

@@ -1,5 +1,7 @@
 # ROS params of rtabmap_util point_cloud_xyz (rtabmap_ros 0.23.13). Node name: d435_obstacle_cloud (set by -r __node).
-# Input: the full-FOV D435 depth (depth_module.depth_profile 640x360x15, nodes/bridges/realsense_d435/config).
+# Input: the full-FOV D435 depth (depth_module.depth_profile 640x360x15, nodes/bridges/realsense_d435/config) as
+# head_rgbd_cpp republishes it edge-masked on /head/d435/depth_filtered/{image_raw, camera_info} (filtered_depth,
+# every frame, the realsense header kept): the mixed pixels at object edges are already 0 (no depth).
 d435_obstacle_cloud:
   ros__parameters:
     # Keep every 4th pixel per axis: 640x360 depth -> 160x90 = 14400 points, the upper bound for obstacles on the
@@ -14,14 +16,15 @@ d435_obstacle_cloud:
     voxel_size: 0.05
     # Pixels with no valid depth (0 mm) become NaN; drop them so no placeholder point is published.
     filter_nans: true
-    # Depth image and depth camera_info come from one realsense2_camera stream with identical stamps: exact sync is
+    # head_rgbd_cpp publishes the depth image and its camera_info with one header (identical stamps): exact sync is
     # enough, no queue delay.
     approx_sync: false
-    # Radius filter: a point with fewer than min_neighbors inside 0.1 m is flying-pixel noise and is removed.
+    # Radius filter: a point with fewer than min_neighbors inside 0.1 m is isolated noise and is removed. Veils of
+    # mixed pixels at edges are dense enough to pass it; head_rgbd_cpp's edge mask removes them before this node.
     noise_filter_radius: 0.1
     # See noise_filter_radius: at least 2 neighbours keep real surfaces and drop isolated pixels.
     noise_filter_min_neighbors: 2
     # rmw reliability enum (0 system default, 1 reliable, 2 best effort) for the depth and camera_info subscriptions
-    # and the cloud publisher. realsense2_camera publishes depth with SYSTEM_DEFAULT (IMAGE_QOS) and camera_info with
-    # DEFAULT (reliable), so 0 matches both; the reliable cloud also reaches best-effort subscribers (laser_filter).
+    # and the cloud publisher. head_rgbd_cpp publishes the filtered depth and camera_info reliable, so 0 (reliable)
+    # matches both; the reliable cloud also reaches best-effort subscribers (laser_filter).
     qos: 0
