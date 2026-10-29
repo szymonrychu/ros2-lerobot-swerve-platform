@@ -165,6 +165,23 @@ def test_controller_recent_motion_rad_delegates_to_the_history() -> None:
     assert head.recent_motion_rad() == pytest.approx(0.05, abs=0.01)
 
 
+def test_refresh_hook_runs_before_every_read() -> None:
+    """The raw feed delivers samples at the monitor tick (0.25 s): readers flush it first, so the newest sample is in."""
+    hist = history()
+    pending = [(T0 + i / RATE_HZ, {"head_pan": 0.1, "head_tilt": 0.5}) for i in range(60)]
+
+    def flush() -> None:
+        while pending:
+            hist.add(*pending.pop(0))
+
+    hist.refresh = flush
+    assert hist.newest_stamp() == pytest.approx(T0 + 59 / RATE_HZ)
+    pending.append((T0 + 60 / RATE_HZ, {"head_pan": 0.1, "head_tilt": 0.5}))
+    assert hist.pose_at(T0 + 60 / RATE_HZ).pan == pytest.approx(0.1)
+    pending.append((T0 + 61 / RATE_HZ, {"head_pan": 0.1, "head_tilt": 0.5}))
+    assert hist.recent_motion() == pytest.approx(0.0, abs=1e-12) and not pending
+
+
 def test_defaults() -> None:
     s = McpServerConfig().head
     assert (s.history_s, s.stamp_window_s, s.max_motion_rad, s.max_sample_gap_s) == (10.0, 0.1, 0.002, 0.25)

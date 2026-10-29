@@ -5,6 +5,7 @@ import json
 import logging
 import math
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Protocol
@@ -77,6 +78,14 @@ class HeadHistory:
         self.stamps: list[float] = []
         self.pans: list[float] = []
         self.tilts: list[float] = []
+        # Called before every read: the robot's raw feed queues samples until the monitor tick (0.25 s), and a reader
+        # must see the newest ones.
+        self.refresh: Callable[[], None] | None = None
+
+    def sync(self) -> None:
+        """Pull the samples still queued in the feed (no-op without a refresh hook)."""
+        if self.refresh is not None:
+            self.refresh()
 
     def __len__(self) -> int:
         """Number of samples kept.
@@ -102,6 +111,7 @@ class HeadHistory:
         Returns:
             float | None: Seconds, None when empty.
         """
+        self.sync()
         with self.lock:
             return self.stamps[-1] if self.stamps else None
 
@@ -135,6 +145,7 @@ class HeadHistory:
         Returns:
             float | None: Radians; None with fewer than two samples in the window (the motion cannot be told).
         """
+        self.sync()
         with self.lock:
             if not self.stamps:
                 return None
@@ -161,6 +172,7 @@ class HeadHistory:
                 after the newest, or the samples around it are further apart than max_sample_gap_s.
         """
         cfg = self.settings
+        self.sync()
         with self.lock:
             stamps, pans, tilts = list(self.stamps), list(self.pans), list(self.tilts)
         if not stamps:

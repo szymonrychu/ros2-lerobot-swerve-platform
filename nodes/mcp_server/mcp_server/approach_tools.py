@@ -93,7 +93,8 @@ TARGET_HELP = (
     "Target (exactly one form): a map point x, y, z (z = height above the floor, m); object_id (a remembered object) "
     "or poi_id (a point, area or marker POI) plus z_m, the height of the grasp point above the floor (stored objects "
     "and point/area POIs have no height; a marker POI carries its own z, so z_m may be omitted for it and overrides it); or a camera pixel camera, u, v (pixels of the CALIBRATED image) plus surface_height_m, the height "
-    "of the surface the pixel lies on."
+    "of the surface the pixel lies on (the pixel is placed on that plane, so a wrong height shifts it: read the height "
+    "of the surface or the object top with pixel_to_point instead of guessing it)."
 )
 
 

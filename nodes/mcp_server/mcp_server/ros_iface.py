@@ -693,7 +693,13 @@ class RosRobot:
         )
         self.follower_rate.start()
         self.cache(JointState, t.follower_joint_currents, "joint_currents", SENSOR_QOS)
-        self.cache_raw(JointState, config.head.state_topic, "head_joint_states", SENSOR_QOS)
+        # Every head sample also lands in the history that places camera frames at their stamp. The queue is flushed by
+        # the monitor tick and, before each read, by the history itself (the newest sample must be in).
+        self.head_history = HeadHistory(config.head)
+        self.cache_raw(
+            JointState, config.head.state_topic, "head_joint_states", SENSOR_QOS, self.on_head_state, keep_all=True
+        )
+        self.head_history.refresh = self.feeds[-1].flush
         self.cache(
             String, t.active_source, "active_source", SENSOR_QOS, lambda msg: self.monitor.on_active_source(msg.data)
         )
@@ -821,8 +827,6 @@ class RosRobot:
         self.cmd_pub = self.node.create_publisher(JointState, t.autonomy_command, COMMAND_QOS)
         self.release_pub = self.node.create_publisher(Bool, t.autonomy_release, COMMAND_QOS)
         self.head_cmd_pub = self.node.create_publisher(JointState, config.head.command_topic, COMMAND_QOS)
-        self.head_history = HeadHistory(config.head)
-        self.subscribe(JointState, config.head.state_topic, self.on_head_state)
         self.head = HeadController(
             self,
             AppliedHeadKinematics(config.head.urdf_path, config.head.applied_dir),

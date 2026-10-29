@@ -58,6 +58,8 @@ ALLOWED_ARGS: dict[str, dict[str, Any]] = {
     "get_body_state": {},
     "get_arm_reach": {},
     "pixel_to_ground": {"camera": "front", "u": 100.0, "v": 100.0},
+    "pixel_to_point": {"camera": "front", "u": 100.0, "v": 100.0},
+    "camera_point_to_arm": {"frame": "d435_color_optical_frame", "x": 0.0, "y": 0.0, "z": 0.4},
     "get_annotated_camera_image": {"camera": "front"},
     "mark_candidate_points": {"camera": "front"},
     "resolve_candidate": {"set_id": "c1", "n": 1},

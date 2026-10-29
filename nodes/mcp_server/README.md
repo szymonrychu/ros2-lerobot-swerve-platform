@@ -348,7 +348,8 @@ Accuracy target: below 5 mm camera to arm frame.
    15 fps), else the call fails naming both stamps ("not the same frameset"). The depth image must have the colour
    size and its CameraInfo the colour fx, fy, cx, cy (0.5 px), else it is "not registered".
 2. The head pose comes from `HeadHistory` (`head.py`): every `/head/joint_states` sample at its header stamp (the
-   bridge stamps the request time of its oldest reading), `head.history_s` (10 s) kept; pan and tilt are linearly
+   bridge stamps the request time of its oldest reading; the samples come from the existing raw feed on the feeds node, queued
+   until the 0.25 s monitor tick and flushed by the history before each read, so no second subscription wakes the main executor), `head.history_s` (10 s) kept; pan and tilt are linearly
    interpolated at the frame stamp. Refused (`HeadHistoryError`, a tool error) when the stamp is older than the
    history, more than `head.max_sample_gap_s` (0.25 s) after the newest sample, or inside a sample gap; and refused when the
    head moved more than `head.max_motion_rad` (0.002 rad = 0.11 deg) within +- `head.stamp_window_s` (0.1 s) of the
@@ -1022,7 +1023,10 @@ Tests: `tests/test_torque_gate.py`.
 `head_tools.py` (`set_head_angles`, `head_look_at`, `head_home`) drives the pan/tilt head through `head.HeadController`
 (`RosRobot.head`). Config section `head` (`HeadSettings`): `urdf_path`, `joint_names` (`head_pan`, `head_tilt`),
 `command_topic` (`/head/joint_commands`), `state_topic` (`/head/joint_states`), `home_pan_rad` / `home_tilt_rad` (home
-looks forward and down, must lie inside the URDF limits), `tolerance_rad`, `move_timeout_s`, `state_max_age_s`. The tools
+looks forward and down, must lie inside the URDF limits), `tolerance_rad`, `move_timeout_s`, `state_max_age_s`, and the
+joint-state history that places camera frames (`history_s`, `stamp_window_s`, `max_motion_rad`, `max_sample_gap_s`; see
+Camera to arm). The camera-to-arm tools are configured by the `camera_arm` section (`CameraArmSettings`, explicit in
+client.yml) and the topics `head_depth` / `head_depth_info`. The tools
 need either the arm or the base lease (`TOOL_SUBSYSTEM` `"any"`), are in `MOTION_TOOLS` and are deliberately absent from
 `RATE_SUBSYSTEMS` (the head is on neither joint-state stream). `get_robot_state` carries `head: {pan_deg, tilt_deg}` only
 from a fresh `/head/joint_states` sample.
