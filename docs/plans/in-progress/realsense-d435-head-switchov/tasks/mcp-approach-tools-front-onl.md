@@ -64,3 +64,4 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+- 2026-10-29: frontier_tools.py:70,591 still has the dead gripper branch, GRIPPER_NOTE and a "front or gripper" docstring; remove them here.
