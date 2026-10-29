@@ -65,3 +65,4 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+- 2026-10-29: client.yml arm-tab comment (~line 2591) says "a test pins them equal" but that test was deleted by mcp-gripper-camera-config-re; fix the comment here.
