@@ -501,7 +501,8 @@ depth grows faster than `rel` per pixel (far floor near the horizon) is removed 
 floor beyond about 3.5 m, outside the obstacle cloud's 3 m.
 
 The target is built only when OpenCV (core, imgproc) is installed: map_guard_cpp and map3d_manager_cpp build this
-package on hosts without OpenCV and do not get it. The test build (`scripts/cpp-node-test.sh`, CI) requires OpenCV.
+package on hosts without OpenCV and do not get it. The test build (`scripts/cpp-node-test.sh`, CI) requires OpenCV, so
+`package.xml` declares `libopencv-dev` as a `test_depend` only; a node that links `depth_mask` declares and installs it.
 User: head_rgbd_cpp (`edge_mask` config; nodes/head_rgbd_cpp/README.md). Tests: `test/test_depth_mask.cpp`.
 
 ### Adding a C++ node
