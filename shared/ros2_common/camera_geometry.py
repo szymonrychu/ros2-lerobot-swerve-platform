@@ -256,6 +256,22 @@ def pixel_to_ray_camera(intr: CameraIntrinsics, u: float, v: float) -> np.ndarra
     return ray / np.linalg.norm(ray)
 
 
+def pixel_to_point_camera(intr: CameraIntrinsics, u: float, v: float, z: float) -> np.ndarray:
+    """Point in the camera optical frame seen at a pixel with a measured z-depth (distortion removed).
+
+    Args:
+        intr: Camera intrinsics (the depth image is registered to this camera).
+        u: Pixel x.
+        v: Pixel y.
+        z: Depth along the optical axis in metres.
+
+    Returns:
+        np.ndarray: (x right, y down, z forward) in metres.
+    """
+    x_n, y_n = undistort_pixel(intr, u, v)
+    return np.array([x_n * z, y_n * z, z])
+
+
 def camera_ray_in_frame(t_frame_camera_optical: np.ndarray, ray_cam: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Express a camera-frame ray in another frame.
 

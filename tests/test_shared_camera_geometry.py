@@ -23,7 +23,9 @@ from shared.ros2_common.camera_geometry import (  # noqa: E402
     intersect_ground,
     optical_from_mount,
     pixel_to_ground,
+    pixel_to_point_camera,
     pixel_to_ray_camera,
+    project_raw,
     project_point_to_pixel,
     solve_mount_pose,
     undistort_pixel,
@@ -295,3 +297,24 @@ def test_depth_to_points_size_mismatch_and_step() -> None:
     pts = depth_to_points(depth, intr, step=4)
     assert pts.shape == (120 * 160, 3)
     assert np.allclose(pts[1], [(4 - 320.0) / 640.0 * 0.5, (0 - 240.0) / 600.0 * 0.5, 0.5], atol=1e-6)
+
+
+def test_pixel_to_point_camera_matches_depth_to_points_without_distortion() -> None:
+    """The z-depth deprojection of one pixel equals the deprojected depth image point of that pixel."""
+    intr = make_intr()
+    depth = np.full((HEIGHT, WIDTH), 700, dtype=np.uint16)  # 0.7 m
+    pts = depth_to_points(depth, intr)
+    u, v = 123, 321
+    point = pixel_to_point_camera(intr, u, v, 0.7)
+    assert point == pytest.approx(pts[v * WIDTH + u], abs=1e-12)
+    assert point[2] == 0.7
+
+
+def test_pixel_to_point_camera_round_trips_with_distortion() -> None:
+    """Projecting the deprojected point returns the pixel, also with plumb_bob distortion."""
+    intr = make_intr([-0.05, 0.02, 0.001, -0.001, 0.0])
+    for u, v in ((10.0, 20.0), (320.0, 240.0), (600.5, 450.25)):
+        point = pixel_to_point_camera(intr, u, v, 0.45)
+        pu, pv, depth = project_raw(intr, IDENTITY, point)
+        assert (pu, pv) == pytest.approx((u, v), abs=1e-6)
+        assert depth == pytest.approx(0.45)

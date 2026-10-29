@@ -167,6 +167,9 @@ class TopicSettings(StrictModel):
     compute_path_action: str = "/compute_path_to_pose"  # Nav2 planner_server, checks one frontier observation pose
     planner_id: str = "GridBased"  # planner_server plugin id used by compute_path_action
     head_camera: str = "/head/d435/color/image_raw/compressed"  # head D435 colour (640x360), tool camera `front`
+    # D435 depth registered to the colour image (16UC1 mm) and its CameraInfo: subscribed on demand by pixel_to_point.
+    head_depth: str = "/head/d435/aligned_depth_to_color/image_raw"
+    head_depth_info: str = "/head/d435/aligned_depth_to_color/camera_info"
     local_costmap: str = "/local_costmap/costmap"  # subscribed lazily by get_topdown_view, latest message only
     # head D435 cloud (laser_filter self-filtered), subscribed lazily by get_map_summary, latest message only
     depth_points: str = "/head/d435/points_filtered"
@@ -800,6 +803,47 @@ class CamerasSettings(StrictModel):
                 f"cameras.front: mount.parent_frame {cam.mount.parent_frame!r} differs from parent_frame "
                 f"{cam.parent_frame!r}"
             )
+        return self
+
+
+class CameraArmSettings(StrictModel):
+    """pixel_to_point / camera_point_to_arm: aligned-depth reading, ranges and the calibration residual gate."""
+
+    max_pair_dt_s: float = Field(
+        default=0.033, gt=0.0
+    )  # colour and aligned depth stamps must agree within half a frame
+    min_range_m: float = Field(default=0.15, gt=0.0)  # nearer than the D435 min-Z the depth is not trusted
+    max_range_m: float = Field(default=1.0, gt=0.0)  # beyond it the z^2 depth error exceeds the 5 mm target
+    default_window_px: int = Field(default=5, ge=1)  # pixels (odd) of the square window the depth is read from
+    max_window_px: int = Field(default=31, ge=1)
+    edge_kernel_px: int = Field(default=3, ge=3)  # neighbourhood (odd) of the depth discontinuity rule
+    edge_abs_m: float = Field(default=0.02, gt=0.0)  # a pixel differing from a neighbour by more than
+    edge_rel: float = Field(default=0.02, ge=0.0)  # max(edge_abs_m, edge_rel * z) is a flying/mixed pixel
+    spread_factor: float = Field(default=2.0, gt=0.0)  # kept window depths may span at most this x that threshold
+    min_valid_fraction: float = Field(default=0.5, gt=0.0, le=1.0)  # kept pixels / window pixels needed
+    baseline_m: float = Field(default=0.05, gt=0.0)  # D435 stereo baseline of the z^2 error model
+    subpixel_px: float = Field(default=0.08, gt=0.0)  # D435 subpixel disparity error of the z^2 error model
+    # Direct grasps whose position came from the camera (ObjectSpec.position_source "camera") need the applied head
+    # calibration's arm-frame residual (held-out board error of the head-from-arm fit) at or below this.
+    max_residual_mm: float = Field(default=5.0, gt=0.0)
+
+    @model_validator(mode="after")
+    def check_windows(self) -> "CameraArmSettings":
+        """Require odd window sizes and a default window inside the maximum.
+
+        Returns:
+            CameraArmSettings: The validated settings.
+
+        Raises:
+            ValueError: For an even window or kernel, or default_window_px above max_window_px, or min_range_m above max_range_m.
+        """
+        for name in ("default_window_px", "max_window_px", "edge_kernel_px"):
+            if getattr(self, name) % 2 == 0:
+                raise ValueError(f"camera_arm.{name} must be odd")
+        if self.default_window_px > self.max_window_px:
+            raise ValueError("camera_arm.default_window_px must not exceed max_window_px")
+        if self.min_range_m >= self.max_range_m:
+            raise ValueError("camera_arm.min_range_m must be below max_range_m")
         return self
 
 
@@ -1680,6 +1724,7 @@ class McpServerConfig(StrictModel):
     battery: BatteryConfig | None = None  # absent: battery cut-off gate off, nothing refused
     monitor: MonitorSettings = MonitorSettings()
     cameras: CamerasSettings = CamerasSettings()
+    camera_arm: CameraArmSettings = CameraArmSettings()
     footprint: FootprintSettings = FootprintSettings()
     topdown: TopdownSettings = TopdownSettings()
     objects: ObjectSettings = ObjectSettings()
