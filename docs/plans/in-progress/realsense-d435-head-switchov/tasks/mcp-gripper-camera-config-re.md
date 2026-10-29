@@ -1,6 +1,6 @@
 ---
 title: MCP gripper camera config removed
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: No MCP config or calibration file refers to the retired gripper camera.
 files: [nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/calibration/gripper_camera.yaml, ansible/group_vars/client.yml, nodes/mcp_server/tests/test_config.py, nodes/mcp_server/tests/test_on_demand_subscriptions.py, tests/test_mcp_server_config.py, tests/README.md]
@@ -8,15 +8,15 @@ verify: "cd nodes/mcp_server && uv run --frozen pytest tests/test_config.py test
 depends_on: [mcp-approach-tools-front-onl, mcp-grasp-check-on-d435, mcp-zoom-retired]
 model: opus
 review: ""
-verified_head: ""
+verified_head: f49b1f7f
 points: 3
 expected_minutes: 34
 expected_tokens: 2250000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 3
+actual_minutes: 31
+actual_tokens: 4035402
+actual_roles: "impl 20, review 11"
+actual_role_tokens: "impl 3714841, review 320561"
 ---
 
 # MCP gripper camera config removed
@@ -66,3 +66,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-29 done
