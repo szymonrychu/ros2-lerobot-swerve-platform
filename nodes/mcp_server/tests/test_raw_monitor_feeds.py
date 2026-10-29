@@ -141,3 +141,49 @@ def test_queued_feed_counts_dropped_samples() -> None:
     assert seen == [3, 4]
     assert feed.dropped == 3
     assert feed.flush() is False
+
+
+def test_queued_feed_can_stay_silent_about_dropped_samples(caplog: pytest.LogCaptureFixture) -> None:
+    seen: list[Any] = []
+    feed = QueuedMonitorFeed(seen.append, max_samples=2, report_drops=False)
+    for i in range(5):
+        feed.offer(SimpleNamespace(value=i))  # type: ignore[arg-type]
+    with caplog.at_level(logging.WARNING):
+        feed.flush()
+    assert seen == [3, 4] and feed.dropped == 3 and "dropped" not in caplog.text
+
+
+def head_message(raw: bytes) -> SimpleNamespace:
+    """Fake JointState for raw b'<sec>:<pan>' with a header stamp."""
+    sec, pan = raw.decode().split(":")
+    return SimpleNamespace(
+        header=SimpleNamespace(stamp=SimpleNamespace(sec=int(sec), nanosec=0)),
+        name=["head_pan", "head_tilt"],
+        position=[float(pan), 0.5],
+    )
+
+
+def test_head_history_decodes_the_raw_head_samples_only_when_read(rig: Rig, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The head samples feed the history that places camera frames, but a monitor tick must not decode them."""
+    decoded: list[bytes] = []
+
+    def deserialize(raw: bytes, msg_type: type) -> SimpleNamespace:
+        decoded.append(raw)
+        return head_message(raw)
+
+    monkeypatch.setattr(rig.module, "deserialize_message", deserialize)
+    cb = rig.callback(HEAD_TOPIC)
+    for i in range(10):
+        cb(f"{100 + i}:{0.1}".encode())
+    rig.tick()
+    assert decoded == [] and len(rig.robot.head_history) == 0  # the tick neither decodes nor fills the history
+    assert rig.robot.head_history.newest_stamp() == 109.0  # a read flushes the queue first
+    assert len(decoded) == 10 and len(rig.robot.head_history) == 10
+    assert rig.robot.head_history.pose_at(105.0).pan == pytest.approx(0.1)
+    cb(b"110:0.1")
+    assert rig.robot.head_history.newest_stamp() == 110.0 and len(decoded) == 11
+
+
+def test_head_history_queue_covers_the_whole_history_window(rig: Rig) -> None:
+    cfg = rig.robot.cfg.head
+    assert rig.robot.head_feed.queue.maxlen >= cfg.history_s * 100  # 100 Hz is above any head joint-state rate

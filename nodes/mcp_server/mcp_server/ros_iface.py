@@ -159,6 +159,7 @@ COMMAND_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=History
 EVENT_QOS = QoSProfile(reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST, depth=50)
 MONITOR_TICK_S = 0.25
 IMU_FEED_MAX_SAMPLES = 100  # queued /imu/data samples between two monitor ticks (25 Hz x 0.25 s = about 7)
+HEAD_FEED_MAX_RATE_HZ = 100  # above any /head/joint_states rate: the head feed queue holds history_s of samples
 STATUS_SUFFIX = "/_action/status"
 PLAN_TIMEOUT_S = 5.0  # wait for one ComputePathToPose plan
 NAV_POLL_S = 0.05
@@ -696,10 +697,11 @@ class RosRobot:
         # Every head sample also lands in the history that places camera frames at their stamp. The queue is flushed by
         # the monitor tick and, before each read, by the history itself (the newest sample must be in).
         self.head_history = HeadHistory(config.head)
-        self.cache_raw(
-            JointState, config.head.state_topic, "head_joint_states", SENSOR_QOS, self.on_head_state, keep_all=True
+        self.head_feed = QueuedMonitorFeed(
+            self.on_head_state, math.ceil(config.head.history_s * HEAD_FEED_MAX_RATE_HZ), config.head.state_topic, False
         )
-        self.head_history.refresh = self.feeds[-1].flush
+        self.head_history.refresh = self.head_feed.flush
+        self.cache_raw(JointState, config.head.state_topic, "head_joint_states", SENSOR_QOS, feed=self.head_feed)
         self.cache(
             String, t.active_source, "active_source", SENSOR_QOS, lambda msg: self.monitor.on_active_source(msg.data)
         )
@@ -1205,6 +1207,7 @@ class RosRobot:
         qos: QoSProfile,
         hook: Callable[[Any], None] | None = None,
         keep_all: bool = False,
+        feed: MonitorFeed | None = None,
     ) -> Any:
         """Raw (serialized) subscription keeping only the latest bytes; deserialized lazily, at most once per message.
 
@@ -1219,14 +1222,14 @@ class RosRobot:
             hook (Callable[[Any], None] | None): Monitor feed called with the decoded latest message.
             keep_all (bool): Feed the hook every message received since the previous tick, in arrival order (bounded
                 by IMU_FEED_MAX_SAMPLES, oldest dropped and logged), instead of only the latest.
+            feed (MonitorFeed | None): A feed the caller flushes itself (not by the monitor tick), offered every message;
+                replaces hook and keep_all.
 
         Returns:
             Any: The rclpy subscription.
         """
-        feed: MonitorFeed | None = None
-        if hook is not None:
+        if feed is None and hook is not None:
             feed = QueuedMonitorFeed(hook, IMU_FEED_MAX_SAMPLES, topic) if keep_all else MonitorFeed(hook)
-        if feed is not None:
             self.feeds.append(feed)
         store = self.raw_store(msg_type, key, feed)
         return self.feeds_node.create_subscription(

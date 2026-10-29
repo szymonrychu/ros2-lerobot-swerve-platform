@@ -348,8 +348,9 @@ Accuracy target: below 5 mm camera to arm frame.
    15 fps), else the call fails naming both stamps ("not the same frameset"). The depth image must have the colour
    size and its CameraInfo the colour fx, fy, cx, cy (0.5 px), else it is "not registered".
 2. The head pose comes from `HeadHistory` (`head.py`): every `/head/joint_states` sample at its header stamp (the
-   bridge stamps the request time of its oldest reading; the samples come from the existing raw feed on the feeds node, queued
-   until the 0.25 s monitor tick and flushed by the history before each read, so no second subscription wakes the main executor), `head.history_s` (10 s) kept; pan and tilt are linearly
+   bridge stamps the request time of its oldest reading; the samples come from the existing raw `/head/joint_states` subscription on the feeds node and
+   stay serialized in `head_feed` (`history_s` x 100 Hz deep) until a reader flushes it, so a monitor tick decodes nothing and no
+   second subscription wakes the main executor), `head.history_s` (10 s) kept; pan and tilt are linearly
    interpolated at the frame stamp. Refused (`HeadHistoryError`, a tool error) when the stamp is older than the
    history, more than `head.max_sample_gap_s` (0.25 s) after the newest sample, or inside a sample gap; and refused when the
    head moved more than `head.max_motion_rad` (0.002 rad = 0.11 deg) within +- `head.stamp_window_s` (0.1 s) of the
