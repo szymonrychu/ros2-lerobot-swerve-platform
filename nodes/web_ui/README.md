@@ -569,7 +569,7 @@ calibration:
   imu_stale_s: 3.0                    # > 0
   imu_service_timeout_s: 5.0          # > 0, wait for the save / reset Trigger response
   rgbd_url: http://127.0.0.1:18400    # optional http(s) base URL of the head RGB-D calibration node; absent: no RGB-D section
-  rgbd_timeout_s: 10.0                # > 0, wait for one forwarded RGB-D call
+  rgbd_timeout_s: 10.0                # > 0, wait for one forwarded RGB-D call (client.yml: 600, the floor and head-from-arm computes run inside the request)
 ```
 
 RGB-D pose list (`frontend/src/calibrate/RgbdCapture.tsx`): each pose card shows its capture hints (`hints` from the

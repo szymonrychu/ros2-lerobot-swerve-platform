@@ -19,6 +19,7 @@ from ros2_common.head_rgbd_calibration.chain import UrdfChain
 from ros2_common.head_rgbd_calibration.urdf_text import APPLIED_MARKER_FILE, HEAD_CHAIN_FILE, apply_overrides
 
 from head_rgbd_calibration import floor_results
+from head_rgbd_calibration.apply import NotApplicable
 from head_rgbd_calibration.config import NodeConfig
 from head_rgbd_calibration.head_arm_results import apply_head_arm, compute_head_arm
 from head_rgbd_calibration.store import SessionStore
@@ -103,6 +104,17 @@ def test_the_chain_file_is_in_place_before_the_marker_changes(
     assert chain_when_marker_written == [result["id"]]
     assert marker.stat().st_mtime_ns != before
     assert json.loads(marker.read_text())["head_chain"]["result"] == result["id"]
+
+
+def test_apply_without_an_accepted_check_tells_the_operator_which_button_to_press(
+    cfg: NodeConfig, state: Path, store: SessionStore, ready: str
+) -> None:
+    """The head chain can only be applied after the RGB-D section's Accept check created applied.json."""
+    result = compute_head_arm(cfg, store, ready, NOW)
+    (state / "applied" / APPLIED_MARKER_FILE).unlink()
+    with pytest.raises(NotApplicable, match=r"Accept check.*RGB-D section"):
+        apply_head_arm(cfg, store, ready, result["id"], NOW, fake_run)
+    assert not (state / "applied" / HEAD_CHAIN_FILE).exists()
 
 
 def test_mcp_server_reads_the_applied_directory_the_node_writes() -> None:

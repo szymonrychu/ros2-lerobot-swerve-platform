@@ -170,7 +170,8 @@ non-finite or wrong-length `k` or a model other than `plumb_bob`/empty; `from_ca
 pixels, centred principal point, no distortion), `MountPose` (`to_matrix()`), `CameraModel` (`calibrated`);
 functions `undistort_pixel`, `pixel_to_ray_camera`, `camera_ray_in_frame`, `intersect_ground` (None if parallel or
 behind), `pixel_to_ground(intr, T_frame_optical, u, v, ground_z)` (None if the ray misses the floor),
-`project_point_to_pixel` (None if behind the camera or off-image), `optical_from_mount`, and
+`project_point_to_pixel` (None if behind the camera or off-image), `pixel_to_point_camera(intr, u, v, z)` (the optical-frame
+point seen at a pixel with a measured z-depth, distortion removed; used by mcp_server `pixel_to_point`), `optical_from_mount`, and
 `solve_mount_pose(samples, intr, initial)` returning `(MountPose, rms_px)` (RMS Euclidean reprojection error per
 sample; at least 3 samples, each `(T_frame_parent, (u, v), (x, y, z))`), and
 `depth_to_points(depth, intrinsics, depth_scale_m=0.001, step=1, min_m=None, max_m=None)`: numpy-only deprojection of a

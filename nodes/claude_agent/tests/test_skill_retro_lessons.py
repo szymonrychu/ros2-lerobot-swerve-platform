@@ -32,6 +32,7 @@ def test_survey_object_positions_from_pixel_to_ground() -> None:
     for word in ("pixel_to_ground", "mark_candidate_points", "get_camera_image", "montage", "not calibrated", "rough"):
         assert word in body
     assert "fresh" in body and "current pose" in body
+    assert "pixel_to_point" in body and "interior" in body and "height" in body
 
 
 def test_recover_stopbox_translate_first() -> None:

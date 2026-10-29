@@ -813,7 +813,7 @@ class CameraArmSettings(StrictModel):
         default=0.033, gt=0.0
     )  # colour and aligned depth stamps must agree within half a frame
     min_range_m: float = Field(default=0.15, gt=0.0)  # nearer than the D435 min-Z the depth is not trusted
-    max_range_m: float = Field(default=1.0, gt=0.0)  # beyond it the z^2 depth error exceeds the 5 mm target
+    max_range_m: float = Field(default=1.0, gt=0.0)  # beyond it the z^2 depth error approaches the 5 mm target
     default_window_px: int = Field(default=5, ge=1)  # pixels (odd) of the square window the depth is read from
     max_window_px: int = Field(default=31, ge=1)
     edge_kernel_px: int = Field(default=3, ge=3)  # neighbourhood (odd) of the depth discontinuity rule

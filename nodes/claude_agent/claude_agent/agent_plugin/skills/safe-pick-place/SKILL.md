@@ -13,6 +13,7 @@ Follow these steps in order. The arm is fragile and the object is unknown: use t
 - `check_guard_rules`: no rule refuses the planned action. A refusal is a safety rule; do not work around it.
 - Not already carrying something: the gripper is empty.
 - Points near the body: call `get_arm_reach` before planning; if the target is outside reach, drive closer (approach-and-verify) instead of stretching.
+- Measure the object with `pixel_to_point` (a pixel in the interior of its top face, never on the outline; closer than 1 m): its arm-frame position and z give x, y, `support_z` and `height_m`, so do not guess the height with `surface_height_m`. A grasp built from it sets `position_source` to `camera` on the object; `grasp_object` then refuses unless `grasp_ready` was true (the applied head calibration's camera-to-arm residual known and within the 5 mm gate). If `grasp_ready` is false, do not work around it: report that the head-from-arm calibration has to be run on the web UI Calibrate page, and grasp only from a position a person gave you.
 - Choose the wrist roll and the object width before planning. Estimate the width from the images. Keep wrist roll small; never use wrist roll fully open, never command an unchecked elbow pose, and never stretch the elbow negative without checking reach.
 - The control lease is held for the arm and the base; if not, take it before moving.
 

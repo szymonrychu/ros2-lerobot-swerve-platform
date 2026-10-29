@@ -336,6 +336,7 @@ stops capture, kills a running compute child and destroys the node.
   `test_error_result_has_empty_pose_lists`).
 - `tests/test_robot_client.py` - the tool helpers' names and arguments, structured data, the move timeout, tool errors, unreachable (also inside an exception group), a missing token file, the token never in any text, `release_arm(keep_position)`, and the board-park admin route (own transport and token file, bearer header, missing token file).
 - `tests/test_head_arm_api.py` - the `/api/head-arm/*` routes over a fake sequencer: state and sessions bodies against the contract fixtures, the confirms (base, park, big joints), 409 for busy and wrong-phase requests, sequencer errors mapped to 400, only head_arm sessions listed, compute and apply, a failed result not applicable, an rgbd session 400 on the result routes, unknown ids 404.
+- `tests/test_applied_chain_for_mcp.py` - the page's output consumed by mcp_server (2026-10-29): a synthetic session computed and applied, then the repo head URDF with `apply_overrides` on `applied/` through `mcp_server/head_kinematics.py` places the D435 colour optical frame within 5 mm of the truth chain at 5 head poses (`test_applied_files_place_the_camera_for_the_mcp_kinematics_within_the_target`), `head_chain.json` is in place before `applied.json` changes (mcp_server reloads on that mtime), an apply without an accepted check names the Accept check button, `state_dir/applied` is the directory mcp_server (`head.applied_dir`) and web_ui read, and the web_ui `rgbd_timeout_s` is not below `compute_timeout_s`. `test_head_arm_results.py` also pins the `residual` block of `head_chain.json`.
 - `tests/test_head_arm_results.py` - compute writes `result.json`, `report.md` and (passed only) `head_chain.json`, fitted joints merged over the applied chain, the pan axis, the d435_joint fitted from the stills' camera_info in `camera_frame` with no `tof_joint.json` (`test_result_fits_the_d435_joint`), a still without camera_info, stills with different camera_info and a session without stills as error results, a failed limit writes no chain, floor values from the applied record (also the legacy record, and none failing the cross-check), apply writes the applied chain and the record with `source` and `floor`, `head_chain.json` lands in `applied/` before `applied.json` (`test_head_arm_apply_writes_the_head_chain_before_applied_json`, `tests/applied_writes.py` records the order), a failed result refused, `latest_board_mount`, `head_arm_session_exists`.
 - `tests/test_floor_api.py`, `tests/test_floor_results.py` - the floor fit routes and results, including that a floor compute keeps the applied `head_pan` origin that apply writes `source: floor`, and that the floor apply lands `head_chain.json` before `applied.json` (`test_floor_apply_writes_the_head_chain_before_applied_json`: the apply path unit fires on `applied.json` and compares `head_chain.json`).
 - `tests/test_runtime_deps.py` - `httpx`, imported at runtime by the robot client, is a runtime dependency in `pyproject.toml`.
@@ -500,13 +501,17 @@ directory `results/<rid>/` holds:
 - `report.md`: the human-readable report.
 - `head_chain.json`: only when the result passed; the applied chain's joints with the fitted `head_mount_joint`,
   `head_tilt` and (with the pan axis) `head_pan` origins merged over them.
+  It also carries `residual {kind: "head_arm", holdout_board_mm, holdout_rms_px, rms_px}`: the camera-to-arm accuracy
+  the fit measured on held-out views. mcp_server reports it as `calibration.residual_mm` in `pixel_to_point` /
+  `camera_point_to_arm` and gates camera-derived direct grasps on it (`camera_arm.max_residual_mm`, 5 mm; a passed fit is
+  at most `fit.limits.holdout_board_mm`, 4.5). A floor-fit chain carries no residual.
 
 `POST .../sessions/{sid}/results/{rid}/apply` goes through the writer shared with the floor fit,
 `floor_results.apply_head_chain_file`: it copies `head_chain.json` into `applied/` and records it in `applied/applied.json`
 as `head_chain: {session, result, applied_at, source, floor}`, which starts the apply path unit that restarts the head
 nodes (`restart_units`); the answer lists each unit's state. `source` is `head_arm` for this fit and `floor` for a floor
 fit; `floor` is the floor result the applied chain was checked against, carried forward from the current record. A
-result that did not pass, or an apply while no RGB-D calibration is applied, is refused with 409.
+result that did not pass, or an apply while no RGB-D calibration is applied, is refused with 409 (the message names the RGB-D section's Accept check, which creates `applied.json`). The web_ui proxy waits `calibration.rgbd_timeout_s` (600 in client.yml) for the synchronous compute.
 
 ### Routes
 

@@ -56,7 +56,9 @@ on the feeds node (`dual_rate_topic(node=feeds_node)`). Config `feeds_executor: 
 | `suggest_approach_pose(x, y, z \| object_id, z_m \| poi_id, z_m \| camera, u, v, surface_height_m, pitch_deg, max_results<=10, check_path=true)` | Where to park the base for a grasp (sensor, no lease, no motion). Exactly one target form; `z` / `z_m` is the grasp height above the floor (stored objects and point/area POIs have none, so it is required: nothing is invented; a marker `poi_id` takes the marker's own `z` when `z_m` is omitted, and `z_m` still overrides it). Inverts the committed reach map (`data/reach_map.npz`, loaded at start-up: a stale or missing file is logged as an error and both approach tools then refuse with the regenerate command) over every base yaw, scores the poses on the global costmap with the CURRENT `NavFootprint` points (dock pose, staging pose `approach.staging_offset_m` behind it, corridor between), verifies the top `approach.verify_top_k` with `point_reach` and plans the top `approach.path_check_k` with `ComputePathToPose` (planning only). Returns ranked `candidates` (`pose`, `staging_pose`, `reach` with margins, `costmap`, `verified`, `path`, `score`), `rejected` counts (`out_of_reach`, `collision`, `unknown_space`, `staging_blocked`, `corridor_blocked`, `below_margin`, `not_verified`, `no_path`), `costmap_age_s`, `reach_map {key, created_at}`, `docking {server_ready, action}` and `notes`. Refuses without a global costmap newer than `approach.costmap_stale_s`. |
 | `approach_for_grasp(target, pose, pitch_deg, prefer_mode='auto', timeout_s, dry_run=false)` | Drive to the best approach pose (motion, needs the base lease, battery gate, tilt gate `nav`, refused while the motion queue runs). Runs the suggest pipeline (or re-validates the given candidate `pose`; one that is no longer valid is refused), then picks the mode: `servoed` only when the calibrated front camera (at the current measured head angles) sees the target from both the staging and the dock pose (`edge_margin_px` from every border), else `navigate` (a precise Nav2 goal) with the reason in `mode_reason`; `prefer_mode='servoed'` is refused when it is not possible. Servoed: a `DetectionLoop` (`approach.tracker`) publishes real detections on `/grasp/detected_dock_pose` while `RobotApi.dock` runs the DockRobot goal (`dock_type grasp_servoed`, `navigate_to_staging_pose`), and is stopped in a `finally`. The base motion lock, `monitor.base_motion()` and the `BASE_INTERRUPTS` watch are those of `navigate_to_pose` (stop, a critical event or the timeout cancel the goal and zero the base). After a success the target is re-checked with `point_reach` at the measured pose (`reach_after`); unreachable is `arrived_out_of_reach`, never `succeeded`. Result: `status` (`succeeded`, `arrived_out_of_reach`, `failed`, `rejected`, `interrupted`, `canceled`, `timeout`, `planned` for a dry run), `mode`, `mode_reason`, `error_code` / `error_name` / `num_retries` (DockRobot 90x; a failed servoed dock suggests `prefer_mode='navigate'`), `goal`, `final_pose`, `reach_after` (with the `point_reach` `suggestion` when out of reach), `detections_published`, `detections_rejected` (tracker jumps beyond `max_correction_m`), `duration_s`. `dry_run=true` sends no goal and publishes no detection or twist: it returns `plan`, `mode`, `would_send` (the DockRobot goal or the navigate goal), `docking` readiness and, in servoed mode, `tracker` (one step on a fresh frame: the detection pose it would publish, or why none). |
 | `arm_home` / `arm_set_home` | Move to / store the home pose. `arm_home` needs the arm lease and keeps it afterwards (also after a failed motion); the `/arm/home` service (web UI Home button) still always releases. |
-| `pixel_to_ground(camera, u, v, surface_height_m=0.0, image_width, image_height)` | Point seen at a pixel (sensor). **u, v are pixels of the calibrated image size** (the intrinsics' size: front 640x360; `get_annotated_camera_image` and `mark_candidate_points` images) unless `image_width` / `image_height` give the size of the image the pixel came from: `get_camera_image` returns 384x216 (front) by default, and an unscaled small-image pixel lands at the wrong place (2026-10-10). Both sizes are needed and must keep the calibrated aspect (a crop is refused); the result then also reports `pixel_input` (what was passed and the scale). Returns `pixel` (calibrated size), `image` (calibrated size), `surface_height_m`, `ground_base_link`, `ground_map` (when the map pose is known), `distance_from_base_m`, `bearing_deg`, `method`, `uncertainty_note`. `surface_height_m` (-0.5..0.5) is the height of the surface the pixel lies on relative to the robot's floor (positive above, negative below; top of a 3 cm box 0.03, a floor 10 cm lower -0.10): the ray is intersected with the plane at floor + that height and the returned z is on it. Error `camera <name> not calibrated: ...` until intrinsics and mount are configured. See [Camera tools and calibration](#camera-tools-and-calibration). |
+| `pixel_to_point(camera, u, v, window_px=5, image_width, image_height)` | MEASURED 3D position of a colour pixel from the D435 aligned depth (sensor): `camera_optical`, `base_link`, `arm` (the frame of `move_arm_cartesian` and `ObjectSpec frame 'arm'`) and `map` points (each names its `frame`), `depth`, `uncertainty_m`, `error_budget_mm`, `head_pose_at_capture`, `calibration {residual_mm, gate_mm, within_gate}` and `grasp_ready`. Refuses a hole, a depth edge, a range outside 0.15 to 1 m, unpaired colour and depth frames and a moving head. See Camera to arm. |
+| `camera_point_to_arm(frame, x, y, z, stamp_s)` | A point already in `d435_color_optical_frame` or `d435_depth_optical_frame` converted to `base_link` and the arm base frame through the head pan/tilt at `stamp_s` (sensor). Same result blocks as `pixel_to_point`. See Camera to arm. |
+| `pixel_to_ground(camera, u, v, surface_height_m=0.0, image_width, image_height, image_stamp_s)` | Point seen at a pixel (sensor). Intersects the pixel ray with a plane at a GUESSED height; also `ground_arm`, `head_pose_at_capture`, `head_moving` and `calibration`; `image_stamp_s` (the `stamp_s` of the picture) places the ray with the head pose at that stamp. **u, v are pixels of the calibrated image size** (the intrinsics' size: front 640x360; `get_annotated_camera_image` and `mark_candidate_points` images) unless `image_width` / `image_height` give the size of the image the pixel came from: `get_camera_image` returns 384x216 (front) by default, and an unscaled small-image pixel lands at the wrong place (2026-10-10). Both sizes are needed and must keep the calibrated aspect (a crop is refused); the result then also reports `pixel_input` (what was passed and the scale). Returns `pixel` (calibrated size), `image` (calibrated size), `surface_height_m`, `ground_base_link`, `ground_map` (when the map pose is known), `distance_from_base_m`, `bearing_deg`, `method`, `uncertainty_note`. `surface_height_m` (-0.5..0.5) is the height of the surface the pixel lies on relative to the robot's floor (positive above, negative below; top of a 3 cm box 0.03, a floor 10 cm lower -0.10): the ray is intersected with the plane at floor + that height and the returned z is on it. Error `camera <name> not calibrated: ...` until intrinsics and mount are configured. See [Camera tools and calibration](#camera-tools-and-calibration). |
 | `get_annotated_camera_image(camera, overlays=['grid'], planned_gripper, grid_step_m=0.1)` | JPEG with metric overlays (`grid`, `reach`, `gripper`, `planned_gripper`, `lidar`) plus metadata. |
 | `mark_candidate_points(camera, region, spacing_px=40, max_points=40, surface_height_m=0.0, image_width, image_height)` | Image (calibrated size) with numbered dots on a pixel grid plus a table `{set_id, surface_height_m, image {width, height}, points:[{n, u, v, ground_base_link{x,y,z}, ground_map}]}`; the points are intersected with the plane at floor + `surface_height_m` (as in `pixel_to_ground`); the last 10 sets are kept. `region` is in calibrated pixels unless `image_width` / `image_height` give the size it was read in. |
 | `resolve_candidate(set_id, n)` | Stored coordinates of one numbered point (its u, v in the calibrated `image` size), with its age and whether the base or the head moved since. |
@@ -156,9 +158,12 @@ distortion): results then say `approximate intrinsics`. `capture_calibration_sam
 |---|---|---|---|
 | `front` (head D435 colour) | `base_link` (x forward, y left, z up) | `z = 0`: base_link is the ground-projected centre between the wheels (the static TF puts the lidar 0.20 m above it) | a link of the head URDF `head.urdf_path` (default and deployed `d435_color_frame`; moves with the pan/tilt head) |
 
-`T_base_link_d435_color_frame` comes from the CURRENT measured `head_pan` / `head_tilt`
-(`HeadKinematics.link_pose`, `camera_scene.head_parent_transform`), so the camera tools need fresh
-`/head/joint_states` (an error naming them otherwise, never a fixed-pose fallback). Lookups record the head-composed
+`T_base_link_d435_color_frame` comes from the head `head_pan` / `head_tilt` (`HeadKinematics.link_pose`,
+`camera_scene.head_parent_transform_at`). The tools that capture a frame (`get_annotated_camera_image`,
+`mark_candidate_points`, `pixel_to_point`) use the pan/tilt AT THE FRAME STAMP, interpolated from the
+`/head/joint_states` history (see Camera to arm); `pixel_to_ground` uses the stamp of the picture you pass as
+`image_stamp_s`, else the CURRENT measured angles (`camera_scene.head_parent_transform`) and refuses while the head is
+moving. Either way they need `/head/joint_states` (an error naming them otherwise, never a fixed-pose fallback). Lookups record the head-composed
 `camera_pose_base` the same way (null when the head joints are stale), and the approach tools' camera view check
 (`camera_view_problem`) builds the front scene with the current measured head pose, assuming the head keeps it while
 the base moves; stale head joints give the reason `head joint states stale`. The deployed front mount is the
@@ -196,8 +201,10 @@ The applied head chain is reloaded, not read once: `AppliedHeadKinematics` (`mcp
 
 ### Tools
 
-- `pixel_to_ground`: gives `ground_base_link`. `ground_map` comes from the live map -> base_link TF; it is omitted
-  when the pose is unknown. Errors for pixels outside the image or rays that miss the floor (sky, behind).
+- `pixel_to_ground`: gives `ground_base_link` and `ground_arm` (the same point in the arm base frame, when
+  `arm.base_in_base_link` is set). `ground_map` comes from the live map -> base_link TF; it is omitted
+  when the pose is unknown. Errors for pixels outside the image or rays that miss the floor (sky, behind). The height
+  of the plane is a guess; `pixel_to_point` measures it (below).
 - `get_annotated_camera_image`: overlays are drawn with `project_point_to_pixel` maths in the camera's reference frame:
   `grid` (floor grid, `(x,y)` metre labels, `grid_step_m` 0.05 to 1), `reach` (floor annulus `arm.reach_inner_m` to
   `arm.reach_outer_m` around the shoulder pan axis; approximate, measure and set), `gripper` (tool point circle and its
@@ -308,6 +315,101 @@ centre pushes the fixed jaw into the object.
   below the floor: `{shoulder_lift: [-1.74533, 2.6]}`. Check on the robot that the wider range is mechanically safe.
 - **Speed.** `limits.arm_max_joint_velocity_rps` now defaults to 1.0 rad/s (`le` 1.5); tool descriptions derive the number
   from the config. `gripper_velocity_rps` is unchanged (0.5).
+
+## Camera to arm
+
+Decision 2026-10-29 (user): an object to pick up is MEASURED with the D435 depth, not placed on a plane at a guessed
+height. This reverses the realsense-d435-head-switchover epic's earlier "no per-pixel depth tool" decision (design D8).
+Accuracy target: below 5 mm camera to arm frame.
+
+### Tools
+
+- `pixel_to_point(camera, u, v, window_px=5, image_width, image_height)` reads the registered depth
+  (`/head/d435/aligned_depth_to_color/image_raw`, 16UC1 mm, subscribed on demand with its CameraInfo) at the colour
+  pixel and returns, each position naming its frame: `camera_optical` (`d435_color_optical_frame`: x right, y down,
+  z forward), `base_link` (z up from the floor), `arm` (the arm base frame: what `move_arm_cartesian` and
+  `ObjectSpec frame: 'arm'` take; null without `arm.base_in_base_link`) and `map` (x, y from the map pose, z from
+  base_link; null without a pose). Further fields: `depth {z_m, spread_m, valid_fraction, n_valid, n_flagged,
+  window_px, sigma_m}`, `uncertainty_m` (the D435 z^2 depth error, 1 sigma: `z^2 * subpixel_px / (fx * baseline_m)`,
+  0.9 mm at 0.5 m, 3.5 mm at 1 m with fx 455), `error_budget_mm` (`hypot(calibration residual, depth sigma)`),
+  `head_pose_at_capture {pan_deg, tilt_deg, stamp_s, nearest_sample_gap_s, window_motion_deg}`, `head_moving`,
+  `depth_frame {stamp_s, colour_stamp_s, pair_dt_s, age_s}`, `calibration` and `grasp_ready`.
+- `camera_point_to_arm(frame, x, y, z, stamp_s)` converts a point already in `d435_color_optical_frame` or
+  `d435_depth_optical_frame` (a marker pose, a cloud point; z > 0) through the same helper
+  (`camera_point.frames_of_point`). Without `stamp_s` it uses the newest joint state and says so in `notes`.
+- `pixel_to_ground` gains `ground_arm`, `head_pose_at_capture`, `head_moving`, `calibration` and the optional
+  `image_stamp_s`; `get_annotated_camera_image` and `mark_candidate_points` place their rays with the pose at the
+  frame stamp.
+
+### How a pixel becomes a point
+
+1. `ros_iface.aligned_depth` (`depth_source.DepthSource`) waits for a fresh aligned depth frame and pairs it with the
+   newest colour frame by header stamp: they must agree within `camera_arm.max_pair_dt_s` (0.033 s, half a frame at
+   15 fps), else the call fails naming both stamps ("not the same frameset"). The depth image must have the colour
+   size and its CameraInfo the colour fx, fy, cx, cy (0.5 px), else it is "not registered".
+2. The head pose comes from `HeadHistory` (`head.py`): every `/head/joint_states` sample at its header stamp (the
+   bridge stamps the request time of its oldest reading), `head.history_s` (10 s) kept; pan and tilt are linearly
+   interpolated at the frame stamp. Refused (`HeadHistoryError`, a tool error) when the stamp is older than the
+   history, more than `head.max_sample_gap_s` (0.25 s) after the newest sample, or inside a sample gap; and refused when the
+   head moved more than `head.max_motion_rad` (0.002 rad = 0.11 deg) within +- `head.stamp_window_s` (0.1 s) of the
+   stamp ("head moved ... deg within +-0.1 s of the depth frame"): a moving head, or a joint-state to image clock
+   offset, never silently shifts the point. The D435 stamp against `/head/joint_states` stamp offset is not measured
+   yet (live check below); a static head makes it irrelevant.
+3. `depth_point.window_depth` takes the `window_px` square (odd, at most `camera_arm.max_window_px`), drops flying and
+   mixed pixels with the depth-discontinuity rule (a pixel differing from a neighbour in the `edge_kernel_px` square by
+   more than `max(edge_abs_m, edge_rel * z)`; holes are never neighbours), and returns the median of what is left. It
+   refuses: `no valid depth` (fewer than `min_valid_fraction` of the window has depth), `depth edge` (the pixel is on an
+   outline: aim at the interior), a surface that slants beyond `spread_factor` x the rule (use a smaller window),
+   nearer than `camera_arm.min_range_m` (0.15, the D435 minimum distance) or farther than `max_range_m` (1.0 m, where
+   the z^2 error approaches the 5 mm target).
+4. The point is deprojected with the colour intrinsics (`ros2_common.camera_geometry.pixel_to_point_camera`, distortion
+   removed) and converted by `camera_point.frames_of_point`: `T_base_link_optical` is the head chain
+   (`AppliedHeadKinematics`: repo `head.urdf` plus the applied `head_chain.json`) at that pan/tilt, `T_arm_base_link`
+   the inverse of `arm.base_in_base_link`.
+
+### Single source of truth with the calibration
+
+The head-from-arm fit (`shared/ros2_common/head_rgbd_calibration/head_arm_fit.py`) solves the chain with
+`UrdfChain` + `arm_in_robot_base(base_in_base_link)` in the frame `d435_color_optical_frame`. `tests/test_camera_arm_chain.py`
+composes the MCP chain and that library chain at 8 pan/tilt poses with an applied `head_chain.json` of fit-sized origins:
+`HeadKinematics.link_pose` and `frames_of_point` equal the library to 1e-9 m for both optical frames, and the front
+scene (zero mount on `d435_color_frame` plus the camera-body to optical rotation) to 1e-7 (head.urdf writes the optical
+rotation as 1.5707963, the scene uses pi/2). `tests/test_pixel_to_point.py` is the round trip: an arm forward-kinematics
+tool point at 4 joint sets x 3 head poses is projected into the colour image with the calibration chain and the factory
+K, a synthetic aligned depth image of a small object is drawn there, and `pixel_to_point` returns the arm point within
+2 mm (no noise) or within 3 sigma of the z^2 model with D435 noise at 0.35, 0.6 and 0.9 m.
+
+### Calibration residual and the grasp gate
+
+`head_chain.json` (written by the Calibrate page's Head from arm compute, copied into `applied/` by Apply) carries
+`residual {kind: head_arm, holdout_board_mm, holdout_rms_px, rms_px}`: the held-out board centre distance between arm
+forward kinematics and the camera through the fitted chain, which is the camera-to-arm accuracy in mm. A floor-fit chain
+carries none. `AppliedHeadKinematics.calibration()` reads it with the `applied.json` record (reloaded with the chain on
+the marker mtime) and every camera-to-arm result reports it in `calibration`: `applied`, `source` (`head_arm` or
+`floor`), `session`, `result`, `applied_at`, `residual_mm` (null when unknown), `gate_mm` and `within_gate` (null when
+the residual is unknown).
+
+`camera_arm.max_residual_mm` (default 5.0, user decision 2026-10-29) gates direct grasps: `ObjectSpec.position_source`
+(`manual` default, or `camera` when x, y and `support_z` were read with `pixel_to_point`, `camera_point_to_arm` or
+`pixel_to_ground`). `grasp_object` with `position_source: camera` is refused (nothing moves) unless the residual is
+known and at most the gate; `plan_grasp` still plans and adds a note that `grasp_object` will refuse. `pixel_to_point`
+reports `grasp_ready` (residual within the gate and an arm point). A head-from-arm result only passes (and can only be
+applied) with `holdout_board_mm` at most the fit limit 4.5, below the 5 mm gate (`tests/test_mcp_camera_arm_config.py`);
+the real session calib-20261023-074418 refitted to 2.89 to 3.77 mm. The server cannot know where numbers came from, so
+the agent sets `position_source`; the skills and the prompt tell it to. A manual position is not gated.
+
+### Calibration page flow (what must be done on the robot)
+
+Page (`web_ui` Calibrate, #/calibrate) -> `/api/calibration/rgbd/*` proxy (`rgbd_timeout_s` 600: the fit runs inside the
+request) -> `head_rgbd_calibration` node -> `shared/ros2_common/head_rgbd_calibration` fit -> `applied/head_chain.json`
++ `applied/applied.json` (marker written last, so a reload sees the new chain) -> this server rebuilds its head
+kinematics on the marker mtime without a restart (`AppliedHeadKinematics`), `head_state_publisher` and web_ui read the same
+directory. Steps: RGB-D section, run a D435 intrinsics check and press Accept check (creates `applied.json`; Apply of the
+chain refuses without it); Head floor fit and Apply (the start chain and the cross-check); Head from arm: attach the
+board, start the sequence, Compute, read `holdout_board_mm` (the page shows it as the held-out board error) and Apply;
+check `pixel_to_point` reports `residual_mm` at or below 5. `arm.joint_offsets_rad` and `arm.base_in_base_link` in
+`client.yml` must equal the fit's trusted values (pinned by `tests/test_head_rgbd_calibration_deploy.py`): they are not
+produced by the page yet (the arm offsets fit has no page).
 
 ## Body awareness: monitor, events, digest, early return
 

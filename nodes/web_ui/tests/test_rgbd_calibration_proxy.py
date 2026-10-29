@@ -174,3 +174,31 @@ def test_unreachable_node_is_503() -> None:
 
 def test_not_configured_is_404() -> None:
     test_unconfigured_is_404()
+
+
+FRONTEND_CALIBRATE = Path(__file__).resolve().parents[1] / "frontend" / "src" / "calibrate"
+HEAD_ARM_PAGE_CALLS = (
+    ("POST", "sessions/s1/compute", "/api/head-arm/sessions/s1/compute"),
+    ("GET", "sessions/s1/results/r1", "/api/head-arm/sessions/s1/results/r1"),
+    ("POST", "sessions/s1/results/r1/apply", "/api/head-arm/sessions/s1/results/r1/apply"),
+    ("GET", "state", "/api/head-arm/state"),
+)
+
+
+def test_the_head_arm_page_calls_reach_the_node_head_arm_routes() -> None:
+    """Compute and Apply of Head from arm (page -> proxy -> node), the calls that write the applied head chain."""
+    for method, path, upstream in HEAD_ARM_PAGE_CALLS:
+        seen: list[httpx.Request] = []
+        client = make_client(recording(httpx.Response(200, json={"ok": True}), seen))
+        response = client.request(method, PREFIX + "head-arm/" + path)
+        assert response.status_code == 200
+        assert (seen[0].method, seen[0].url.path) == (method, upstream)
+
+
+def test_the_page_builds_its_head_arm_urls_on_the_proxy_prefix() -> None:
+    """headArmApi.ts BASE is the proxy route plus head-arm, and compute / apply are the node paths above."""
+    source = (FRONTEND_CALIBRATE / "headArmApi.ts").read_text()
+    assert f'const BASE = "{PREFIX}head-arm";' in source
+    assert "`${sessionPath(sid)}/compute`" in source
+    assert "`${sessionPath(sid)}/results/${seg(rid)}/apply`" in source
+    assert "`${BASE}/sessions/${seg(sid)}`" in source

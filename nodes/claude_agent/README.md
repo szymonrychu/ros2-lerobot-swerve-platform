@@ -75,7 +75,7 @@ A `Skills and workflows:` paragraph follows the working method: skills (`robot-s
 Besides the budget and working method, the system prompt (`prompt.py`) has compact sections (about 1.4 k characters
 added) on body awareness (`robot_events_since_last_call`, `vitals`, `get_body_state`, `interrupted_by`, ROBOT EVENT
 interrupts), the tilt guard (warning: drive back manually; error: base disabled, report and wait), the spatial perception workflow (`get_topdown_view`, `look_around`, `get_annotated_camera_image`,
-`mark_candidate_points` + `resolve_candidate`, `pixel_to_ground`, fallback when a camera is "not calibrated"), a `3D map:` paragraph (`query_3d_map_at` for obstacle heights and what is at a spot, `get_3d_free_space` for clearance above the floor, e.g. under a table, `get_3d_map_status` for age and alignment; a lidar-only result has unknown height and unknown is never free; the 3D map refreshes about every 10 s and only where the head looked), an `Exploration:` paragraph (find something not on the map: `list_frontiers` or the numbered cyan markers of `get_topdown_view`; rank frontiers from room layout, POIs and `last_lookup_facing`, preferring unlooked ones; `look_toward_frontier` first, then `plan_frontier_visit` / `go_to_frontier`; ids are stable, a gone id means explored or merged, use the successor; both motion tools need the base lease), pixel
+`mark_candidate_points` + `resolve_candidate`, `pixel_to_ground` for a guessed floor height, `pixel_to_point` / `camera_point_to_arm` for measured positions, fallback when a camera is "not calibrated"), a `3D map:` paragraph (`query_3d_map_at` for obstacle heights and what is at a spot, `get_3d_free_space` for clearance above the floor, e.g. under a table, `get_3d_map_status` for age and alignment; a lidar-only result has unknown height and unknown is never free; the 3D map refreshes about every 10 s and only where the head looked), an `Exploration:` paragraph (find something not on the map: `list_frontiers` or the numbered cyan markers of `get_topdown_view`; rank frontiers from room layout, POIs and `last_lookup_facing`, preferring unlooked ones; `look_toward_frontier` first, then `plan_frontier_visit` / `go_to_frontier`; ids are stable, a gone id means explored or merged, use the successor; both motion tools need the base lease), pixel
 sizes (`Pixel sizes:`: the pixel tools work in the calibrated 640x360 size of the head D435 colour stream while `get_camera_image` returns 384x216 for `front` by
 default, so pixels from it always go with `image_width` / `image_height`, or are picked on `get_annotated_camera_image`; a `Detail:` line says to aim the head at the detail with `head_look_at` first, then ask for a larger `max_px` (up to 640, the stream width) or drive closer;
 added after the 2026-10-10 grip session placed objects from unscaled small-image pixels), memory
@@ -286,15 +286,20 @@ phases at the top of the guidance sum to rw 116 and turns 150, which fits `max_r
 raises (the maxima were 100 and 150 before).
 
 Three prompt paragraphs cover grasping. `Gripper:` explains the fixed and the moving jaw, that the fixed jaw goes beside or
-under the object and never onto it, that `object_width_m` (estimated e.g. with `pixel_to_ground` on both object edges) makes
+under the object and never onto it, that `object_width_m` (estimated e.g. with `pixel_to_point` on both object edges) makes
 `move_arm_cartesian` target the object centre, and that the agent chooses the `wrist_roll` per object before each grasp (most often
 -1.57 rad). `Rolling the wrist:` is the protocol (gripper about half open, arm lifted clear, open wider only for the grasp; the arm
 tools refuse a roll with a wide open gripper). `Grasping:` makes the agent take several front camera pictures of the object
 with the head aimed at it (`head_look_at`; re-aim the head or move the base a little for another view, arm clear of the
-object), convert the object centre pixel of each picture to floor coordinates with
-`pixel_to_ground` (or `mark_candidate_points` + `resolve_candidate`), average the estimates when they agree within about 1 cm
-(otherwise take another picture), aim at the object centre and not its edge, correct the target by the observed offset after a
-miss (seen with the head aimed at the gripper) and record what worked in `NOTES.md`. `Surfaces and speed:` tells it to pass `surface_height_m` for objects above or below
+object), measure the object with `pixel_to_point` (a pixel in the interior of its top face, never on the outline,
+closer than 1 m: it returns the arm-frame position and the height, so `support_z` and `height_m` are measured, not guessed
+with `surface_height_m`), average the estimates when they agree within about 1 cm (otherwise take another picture; with
+depth they usually agree within a few mm), use `pixel_to_ground` (or `mark_candidate_points` + `resolve_candidate`) only for
+a floor target without a depth reading, aim at the object centre and not its edge, set `position_source: camera` on the
+`ObjectSpec` of a grasp built from a camera position (`grasp_object` then needs `grasp_ready` true: the applied head
+calibration's camera-to-arm residual within the 5 mm gate; otherwise report that the head-from-arm calibration must be run
+on the Calibrate page), correct the target by the observed offset after a
+miss (seen with the head aimed at the gripper) and record what worked in `NOTES.md`. `Surfaces and speed:` takes the surface height from `pixel_to_point` and tells it to pass `surface_height_m` to `pixel_to_ground` only for a known height of objects above or below
 the robot's floor, that the arm reaches somewhat below floor level within its joint limits, and that the arm is fast by default
 (a lower `speed_scale` only for the last centimetres of a grasp or near obstacles). Each is asserted in `tests/test_prompt.py`.
 
@@ -364,7 +369,7 @@ loads them on demand under the qualified name `robot-skills:<name>`. `claude_age
 - **Retrospective lessons (2026-10-22).** `sightseeing` skips frontiers behind mirror, window or glass problem POIs
   (asks once for a keep-out over ghost areas), re-reads `get_exploration_status` after the last survey and re-reads it
   after a `map_epoch_reset` / `map_reset` event (frontier ids restart). `survey` takes object positions from
-  `pixel_to_ground` on a fresh picture, never a montage tile, and says so when the camera is not calibrated.
+  `pixel_to_point` (or `pixel_to_ground` without depth) on a fresh picture, never a montage tile, and says so when the camera is not calibrated.
   `recover-from-failure` translates away (short `drive` nudge or backing `move_relative`) before any turn after a
   StopBox stop or refusal, and treats an 'invalid source' stop as a sensor outage. The `discovery` visit phase has
   `turn_cap` 80 and asks to batch independent calls; its summary phase parks the arm first. Pinned by

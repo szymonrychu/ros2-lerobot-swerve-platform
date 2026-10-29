@@ -304,7 +304,10 @@ def apply_head_chain_file(
     marker = target / APPLIED_MARKER
     with LOCK:
         if not marker.is_file():
-            raise NotApplicable("no RGB-D calibration is applied; apply one before the head chain")
+            raise NotApplicable(
+                "no D435 intrinsics check is accepted yet: press Accept check on a passed check in the RGB-D section "
+                "of the Calibrate page, then apply the head chain"
+            )
         info = json.loads(marker.read_text())
         tmp = target / f"{TEMP_PREFIX}{HEAD_CHAIN_FILE}"
         try:

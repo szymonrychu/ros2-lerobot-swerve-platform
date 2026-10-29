@@ -2864,7 +2864,7 @@ ros2_nodes:
       # pixel_to_point / camera_point_to_arm (nodes/mcp_server/README.md, "Camera to arm"): explicit values equal to the
       # defaults. The D435 aligned depth is read in a window with the depth-discontinuity rule (a pixel differing from a
       # neighbour by more than max(edge_abs_m, edge_rel * z) is a flying/mixed pixel); the trusted range is
-      # min_range_m..max_range_m (the z^2 depth error is 4 mm at 1 m); baseline_m / subpixel_px are the D435 error model.
+      # min_range_m..max_range_m (the z^2 depth error is 3.5 mm at 1 m); baseline_m / subpixel_px are the D435 error model.
       # max_residual_mm is the grasp gate (user decision 2026-10-29): a grasp whose ObjectSpec position_source is
       # 'camera' needs the applied head-from-arm calibration's held-out camera-to-arm residual at or below it.
       camera_arm:
