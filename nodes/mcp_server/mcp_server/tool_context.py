@@ -17,6 +17,7 @@ from .base_dock import DockGoal, DockResult
 from .base_motion import DriveOutcome, SpinOutcome
 from .camera_scene import CameraInfoData
 from .config import McpServerConfig
+from .depth_source import DepthFrame
 from .frontiers import FrontierTracker, MapGrid
 from .head import HeadController
 from .models import (
@@ -115,6 +116,12 @@ class RobotApi(Protocol):
     def camera_info(self, camera: str) -> CameraInfoData | None:
         """Latest CameraInfo of a camera with a camera_info_topic (subscribed on demand); None without one or before
         a first message."""
+        ...
+
+    def aligned_depth(self, camera: str) -> DepthFrame:
+        """Fresh depth frame registered to the camera's colour image, paired with the colour frame of the same
+        frameset by header stamp (subscribed on demand); RobotError when none arrives, the stamps differ by more than
+        half a frame, or the camera has no depth."""
         ...
 
     def scan_points(self) -> ScanPoints | None:

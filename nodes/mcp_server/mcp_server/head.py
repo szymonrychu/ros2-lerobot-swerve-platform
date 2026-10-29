@@ -129,6 +129,21 @@ class HeadHistory:
             if keep_from:
                 del self.stamps[:keep_from], self.pans[:keep_from], self.tilts[:keep_from]
 
+    def recent_motion(self) -> float | None:
+        """Largest pan or tilt excursion among the samples within stamp_window_s before the newest one.
+
+        Returns:
+            float | None: Radians; None with fewer than two samples in the window (the motion cannot be told).
+        """
+        with self.lock:
+            if not self.stamps:
+                return None
+            lo = bisect.bisect_left(self.stamps, self.stamps[-1] - self.settings.stamp_window_s)
+            pans, tilts = self.pans[lo:], self.tilts[lo:]
+        if len(pans) < 2:
+            return None
+        return max(max(pans) - min(pans), max(tilts) - min(tilts))
+
     def pose_at(self, stamp_s: float) -> HeadPoseAtStamp:
         """Pan and tilt at a stamp by linear interpolation, with the head motion within +- stamp_window_s.
 
@@ -437,6 +452,14 @@ class HeadController:
         self.provider = kinematics
         self.settings = settings
         self.history = history if history is not None else HeadHistory(settings)
+
+    def recent_motion_rad(self) -> float | None:
+        """Head motion in the newest stamp_window_s of joint-state samples (rad).
+
+        Returns:
+            float | None: As HeadHistory.recent_motion.
+        """
+        return self.history.recent_motion()
 
     def calibration(self) -> CalibrationInfo:
         """The applied head calibration (identity and arm-frame residual), reloaded when the marker changed.

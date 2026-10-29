@@ -17,6 +17,7 @@ from mcp_server.approach import CostGrid, PathInfo
 from mcp_server.arm import JointSample
 from mcp_server.base_dock import DockGoal, DockResult
 from mcp_server.camera_scene import CameraInfoData
+from mcp_server.depth_source import DepthFrame
 from mcp_server.frontiers import MapGrid
 from mcp_server.map_client import MapRequests
 from mcp_server.models import BasePose, DepthPoints, GroundState, Map3dCloud, PathPlan, RobotError
@@ -287,6 +288,10 @@ class PerceptionFakeMixin:
         # camera_info: the latest CameraInfo per camera (absent = none received) and every camera asked for.
         self.camera_infos: dict[str, CameraInfoData] = {}
         self.camera_info_calls: list[str] = []
+        # aligned_depth: the frame to answer (None = none arrives), an error to raise instead and every camera asked for.
+        self.depth_frame: DepthFrame | None = None
+        self.depth_error: str | None = None
+        self.depth_calls: list[str] = []
         # Grasp docking (no motion): goals counted, detections recorded, costmap and planner results set by the test.
         self.dock_goals: list[tuple[DockGoal, float]] = []
         self.dock_result: DockResult | None = None  # None = succeeded
@@ -439,6 +444,14 @@ class PerceptionFakeMixin:
     def camera_info(self, camera: str) -> CameraInfoData | None:
         self.camera_info_calls.append(camera)
         return self.camera_infos.get(camera)
+
+    def aligned_depth(self, camera: str) -> DepthFrame:
+        self.depth_calls.append(camera)
+        if self.depth_error is not None:
+            raise RobotError(self.depth_error)
+        if self.depth_frame is None:
+            raise RobotError("no aligned depth frame")
+        return self.depth_frame
 
     def poi_list(self) -> tuple[list[dict], int]:
         if not self.poi_store_up:

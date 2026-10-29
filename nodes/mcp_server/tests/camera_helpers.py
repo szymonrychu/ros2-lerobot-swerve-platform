@@ -43,6 +43,24 @@ def fresh_head(cfg: McpServerConfig, pan: float = 0.0, tilt: float = 0.0) -> Hea
     return HeadController(backend, AppliedHeadKinematics(cfg.head.urdf_path, None), cfg.head)
 
 
+def sync_head_history(head: HeadController, around_s: float, span_s: float = 0.5, rate_hz: float = 50.0) -> None:
+    """Make the head joint-state history report the backend's current pose around a frame stamp (a still head).
+
+    A real robot's /head/joint_states history holds the pose the head had when the frame was captured; the fake
+    camera frames carry a fixed stamp, so the tests that move the fake head set the history from it per frame.
+
+    Args:
+        head (HeadController): Head whose history is replaced.
+        around_s (float): Frame stamp (s).
+        span_s (float): History kept on each side of the stamp (s).
+        rate_hz (float): Joint-state rate (Hz).
+    """
+    positions = head.backend.head_sample().positions
+    head.history.stamps.clear(), head.history.pans.clear(), head.history.tilts.clear()
+    for i in range(round(2 * span_s * rate_hz) + 1):
+        head.history.add(around_s - span_s + i / rate_hz, dict(positions))
+
+
 def front_mount() -> MountPose:
     return MountPose(**FRONT_MOUNT)
 

@@ -37,7 +37,7 @@ from rclpy.time import Time
 from ros2_common.battery import BatteryGuard
 from ros2_common.maps import MapResult, MapStatus
 from scipy.spatial.transform import Rotation
-from sensor_msgs.msg import BatteryState, CameraInfo, CompressedImage, Imu, JointState, LaserScan, PointCloud2
+from sensor_msgs.msg import BatteryState, CameraInfo, CompressedImage, Image, Imu, JointState, LaserScan, PointCloud2
 from std_msgs.msg import Bool, String
 from std_srvs.srv import Trigger
 from tf2_msgs.msg import TFMessage
@@ -65,6 +65,7 @@ from .base_motion import (
 from .camera_scene import CameraInfoData
 from .config import McpServerConfig
 from .control import ControlManager, LeaderActivity, NavGoalRegistry
+from .depth_source import DepthFrame, DepthSource
 from .feeds import FeedsSpinner
 from .floor_guard import monitor_tilt_sample
 from .footprint import costmap_node, published_footprint_topic
@@ -72,7 +73,7 @@ from .footprint_geometry import Point2
 from .frontiers import MapGrid
 from .geometry import compose_relative, integrate_twist, quaternion_from_yaw, relative_pose, yaw_from_quaternion
 from .grasp_tools import GraspService
-from .head import HEAD_FRAME_ID, AppliedHeadKinematics, HeadController
+from .head import HEAD_FRAME_ID, AppliedHeadKinematics, HeadController, HeadHistory
 from .ik import ArmKinematics, load_joint_limits
 from .look_around import check_clearance, escape_translation, nearest_inside, read_sectors, required_clearance_m
 from .map3d import cloud_from_message
@@ -129,6 +130,7 @@ NODE_NAME = "mcp_server"
 FEEDS_NODE_NAME = "mcp_server_feeds"
 GROUND_DEFAULT_AGE: Any = object()  # sentinel: use timeouts.ground_state_stale_s
 CAMERA_INFO_KEY = "camera_info_{camera}"  # cache key of a camera's latest CameraInfo
+DEPTH_INFO_KEY = "camera_info_front_depth"  # cache key of the aligned depth stream's latest CameraInfo
 # Best effort subscribers match both reliable and best-effort publishers.
 SENSOR_QOS = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST, depth=1)
 # slam_toolbox publishes /map reliable + transient_local (latched).
@@ -241,6 +243,25 @@ def parameter_msg(name: str, value: str | bool | float) -> Parameter:
     if isinstance(value, float):
         return Parameter(name=name, value=ParameterValue(type=ParameterType.PARAMETER_DOUBLE, double_value=value))
     return Parameter(name=name, value=ParameterValue(type=ParameterType.PARAMETER_STRING, string_value=value))
+
+
+def camera_info_data(msg: CameraInfo) -> CameraInfoData:
+    """The CameraInfo fields the camera tools use.
+
+    Args:
+        msg (CameraInfo): Message.
+
+    Returns:
+        CameraInfoData: Size, K, D, distortion model and header stamp.
+    """
+    return CameraInfoData(
+        width=int(msg.width),
+        height=int(msg.height),
+        k=tuple(float(v) for v in msg.k),
+        d=tuple(float(v) for v in msg.d),
+        distortion_model=str(msg.distortion_model),
+        stamp=msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9,
+    )
 
 
 def twist_xyw(msg: Odometry) -> tuple[float, float, float]:
@@ -758,6 +779,30 @@ class RosRobot:
             )
             for name, topic in self.camera_info_topics.items()
         }
+        # On-demand aligned depth of the front camera (pixel_to_point): the Image, its CameraInfo and the colour stream
+        # it is paired with by header stamp. Reaped like the other camera subscriptions.
+        self.depth_frames = FrameCache()
+        self.depth_sub = self.on_demand_subscription(
+            functools.partial(self.subscribe, Image, t.head_depth, self.depth_frames.update),
+            config.timeouts.image_timeout_s,
+        )
+        self.depth_info_sub = self.on_demand_subscription(
+            functools.partial(self.cache, CameraInfo, t.head_depth_info, DEPTH_INFO_KEY, SENSOR_QOS),
+            config.timeouts.image_timeout_s,
+            functools.partial(self.drop_sample, DEPTH_INFO_KEY),
+        )
+        self.depth_source = DepthSource(
+            depth_cache=self.depth_frames,
+            colour_cache=self.camera_frames["front"],
+            read_info=self.depth_info,
+            touch=self.touch_depth,
+            ros_age=self.ros_age,
+            cfg=config.camera_arm,
+            first_message_s=config.timeouts.image_timeout_s,
+            max_age_s=config.timeouts.image_max_age_s,
+            depth_topic=t.head_depth,
+            colour_topic=t.head_camera,
+        )
 
         if config.battery is not None and battery_guard is not None:
 
@@ -776,8 +821,13 @@ class RosRobot:
         self.cmd_pub = self.node.create_publisher(JointState, t.autonomy_command, COMMAND_QOS)
         self.release_pub = self.node.create_publisher(Bool, t.autonomy_release, COMMAND_QOS)
         self.head_cmd_pub = self.node.create_publisher(JointState, config.head.command_topic, COMMAND_QOS)
+        self.head_history = HeadHistory(config.head)
+        self.subscribe(JointState, config.head.state_topic, self.on_head_state)
         self.head = HeadController(
-            self, AppliedHeadKinematics(config.head.urdf_path, config.head.applied_dir), config.head
+            self,
+            AppliedHeadKinematics(config.head.urdf_path, config.head.applied_dir),
+            config.head,
+            self.head_history,
         )
         self.twist_pub = self.node.create_publisher(Twist, t.cmd_vel, COMMAND_QOS)
         self.poi_command_pub = self.node.create_publisher(String, t.poi_command, COMMAND_QOS)
@@ -1907,17 +1957,49 @@ class RosRobot:
         while self.get(key) is None and self.demand_clock() < deadline:
             self.demand_sleep(NAV_POLL_S)
         item = self.get(key)
-        if item is None:
-            return None
-        msg = item.value
-        return CameraInfoData(
-            width=int(msg.width),
-            height=int(msg.height),
-            k=tuple(float(v) for v in msg.k),
-            d=tuple(float(v) for v in msg.d),
-            distortion_model=str(msg.distortion_model),
-            stamp=msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9,
-        )
+        return None if item is None else camera_info_data(item.value)
+
+    def on_head_state(self, msg: JointState) -> None:
+        """Record a /head/joint_states sample in the history at its header stamp (the receive time when it has none).
+
+        Args:
+            msg (JointState): Head joint state.
+        """
+        seconds = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9
+        if not seconds:
+            seconds = self.node.get_clock().now().nanoseconds / 1e9
+        self.head_history.add(seconds, dict(zip(msg.name, (float(p) for p in msg.position), strict=False)))
+
+    def touch_depth(self) -> None:
+        """Subscribe the aligned depth, its CameraInfo and the colour stream (on demand; the reaper destroys them)."""
+        self.depth_sub.touch()
+        self.depth_info_sub.touch()
+        self.camera_subs["front"].touch()
+
+    def depth_info(self) -> CameraInfoData | None:
+        """Latest CameraInfo of the aligned depth stream.
+
+        Returns:
+            CameraInfoData | None: Its fields; None before the first message.
+        """
+        item = self.get(DEPTH_INFO_KEY)
+        return None if item is None else camera_info_data(item.value)
+
+    def aligned_depth(self, camera: str) -> DepthFrame:
+        """Fresh aligned depth frame of the camera, paired with the colour frame of the same frameset.
+
+        Args:
+            camera (str): Camera name ('front').
+
+        Returns:
+            DepthFrame: Depth with its stamps and CameraInfo.
+
+        Raises:
+            RobotError: As DepthSource.read, or for a camera without aligned depth.
+        """
+        if camera != "front":
+            raise RobotError(f"camera {camera!r} has no aligned depth")
+        return self.depth_source.read()
 
     def scan_points(self) -> ScanPoints | None:
         """Latest fresh lidar scan as points in base_link (full 3D laser mount from TF, not just the planar pose).

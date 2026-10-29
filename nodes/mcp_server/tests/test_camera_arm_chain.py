@@ -21,9 +21,9 @@ D435_MOUNT = {"parent_frame": "d435_color_frame", "x": 0, "y": 0, "z": 0, "roll"
 ARM_BASE = {"x": 0.0592, "y": -0.05, "z": 0.100, "yaw": 0.0}
 # The applied chain: every joint a calibration writes, moved off the repo URDF by realistic fit-sized amounts.
 APPLIED = {
-    "head_mount_joint": Origin((0.151, 0.012, 0.309), (0.004, -0.021, 0.026)),
-    "head_pan": Origin((0.003, -0.002, 0.018), (0.0, 0.0, 0.0)),
-    "head_tilt": Origin((0.0, 0.0, 0.0412), (0.011, 0.083, 0.0)),
+    "head_mount_joint": Origin((0.158, 0.106, 0.312), (0.004, -0.021, 0.026)),
+    "head_pan": Origin((-0.03, -0.01, 0.0), (0.0, 0.0, 0.0)),
+    "head_tilt": Origin((0.03, 0.01, 0.0412), (0.011, 0.083, 0.0)),
     "d435_joint": Origin((0.021, 0.0, 0.012), (0.002, 0.0, -0.011)),
 }
 POSES = [(-1.3, -0.4), (-0.6, 0.1), (0.0, 0.0), (0.0, 0.5236), (0.4, 0.2), (0.9, 0.7), (1.4, -0.3), (-0.2, 0.78)]

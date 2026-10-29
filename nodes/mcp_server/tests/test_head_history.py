@@ -148,6 +148,23 @@ def test_controller_pose_at_uses_its_own_history() -> None:
     assert pose.pan == pytest.approx(-0.2) and not pose.moving
 
 
+def test_recent_motion_of_the_newest_samples() -> None:
+    hist = history()
+    assert hist.recent_motion() is None  # no samples
+    hist.add(T0, {"head_pan": 0.0, "head_tilt": 0.5})
+    assert hist.recent_motion() is None  # one sample cannot tell
+    feed(hist, T0 + 0.02, T0 + 4.0, lambda t: 0.3)  # the first sample (pan 0) is long outside the window
+    assert hist.recent_motion() == pytest.approx(0.0, abs=1e-12)
+    feed(hist, T0 + 4.02, T0 + 5.0, lambda t: 0.3 + 0.5 * (t - T0 - 4.0))
+    assert hist.recent_motion() == pytest.approx(0.05, abs=0.01)  # 0.5 rad/s over the 0.1 s window
+
+
+def test_controller_recent_motion_rad_delegates_to_the_history() -> None:
+    head = HeadController(FakeHeadBackend(), AppliedHeadKinematics(DEFAULT_HEAD_URDF, None), McpServerConfig().head)
+    feed(head.history, T0, T0 + 1.0, lambda t: 0.5 * (t - T0))
+    assert head.recent_motion_rad() == pytest.approx(0.05, abs=0.01)
+
+
 def test_defaults() -> None:
     s = McpServerConfig().head
     assert (s.history_s, s.stamp_window_s, s.max_motion_rad, s.max_sample_gap_s) == (10.0, 0.1, 0.002, 0.25)
