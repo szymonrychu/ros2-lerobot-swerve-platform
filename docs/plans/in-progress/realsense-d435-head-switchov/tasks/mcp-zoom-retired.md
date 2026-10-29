@@ -1,6 +1,6 @@
 ---
 title: MCP zoom retired
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The agent no longer has a zoom option that no camera can serve.
 files: [nodes/mcp_server/mcp_server/tools.py, nodes/mcp_server/mcp_server/zoom_client.py, nodes/mcp_server/mcp_server/tool_context.py, nodes/mcp_server/mcp_server/ros_iface.py, nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/tests/test_camera_zoom_tool.py, nodes/mcp_server/tests/test_zoom_client.py, nodes/mcp_server/tests/fakes.py]
@@ -8,15 +8,15 @@ verify: "cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run poe li
 depends_on: [mcp-depth-summary-on-d435-cl]
 model: opus
 review: ""
-verified_head: ""
+verified_head: 5647188d
 points: 3
 expected_minutes: 34
 expected_tokens: 2250000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 3
+actual_minutes: 25
+actual_tokens: 3330491
+actual_roles: "impl 14, review 11"
+actual_role_tokens: "impl 2920264, review 410227"
 ---
 
 # MCP zoom retired
@@ -65,3 +65,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-29 done: deploy together with agent-prompt-and-config-on-d: prompt.py:185 and survey SKILL still pass zoom, which now raises ToolError
