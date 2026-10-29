@@ -1,5 +1,6 @@
 """Calibration sample store and mount solver wiring."""
 
+import inspect
 import json
 import math
 
@@ -36,11 +37,11 @@ def test_add_creates_file_and_counts(tmp_path) -> None:
 
 
 def test_load_returns_solver_tuples_and_survives_new_store(tmp_path) -> None:
-    SampleStore(tmp_path).add("gripper", "gripper_link", np.eye(4), (1.0, 2.0), (0.1, 0.2, -0.165))
-    parent, samples = SampleStore(tmp_path).load("gripper")
-    assert parent == "gripper_link"
+    SampleStore(tmp_path).add("front", "d435_color_frame", np.eye(4), (1.0, 2.0), (0.9, 0.2, 0.03))
+    parent, samples = SampleStore(tmp_path).load("front")
+    assert parent == "d435_color_frame"
     t, pix, ground = samples[0]
-    assert np.allclose(t, np.eye(4)) and pix == (1.0, 2.0) and ground == (0.1, 0.2, -0.165)
+    assert np.allclose(t, np.eye(4)) and pix == (1.0, 2.0) and ground == (0.9, 0.2, 0.03)
 
 
 def test_load_empty_and_clear(tmp_path) -> None:
@@ -60,9 +61,9 @@ def test_cameras_are_stored_separately(tmp_path) -> None:
 
 def test_parent_frame_change_is_refused(tmp_path) -> None:
     store = SampleStore(tmp_path)
-    store.add("gripper", "gripper_link", np.eye(4), (1.0, 1.0), (0.2, 0.0, -0.165))
+    store.add("front", "d435_color_frame", np.eye(4), (1.0, 1.0), (0.9, 0.0, 0.0))
     with pytest.raises(CalibrationError, match="clear"):
-        store.add("gripper", "wrist_link", np.eye(4), (1.0, 1.0), (0.2, 0.0, -0.165))
+        store.add("front", "head_link", np.eye(4), (1.0, 1.0), (0.9, 0.0, 0.0))
 
 
 def test_non_finite_values_are_refused(tmp_path) -> None:
@@ -109,14 +110,9 @@ def test_mount_yaml_pastes_under_cameras_with_rounded_floats() -> None:
     assert set(mount) == {"parent_frame", "x", "y", "z", "roll", "pitch", "yaw"}
 
 
-def test_add_stores_optional_raw_joints(tmp_path) -> None:
+def test_samples_store_no_arm_joints(tmp_path) -> None:
+    # The front camera hangs on the head: its samples carry the head link pose, never measured arm joints.
+    assert "joints" not in inspect.signature(SampleStore.add).parameters
     store = SampleStore(tmp_path)
-    store.add("gripper", "gripper_link", np.eye(4), (1.0, 2.0), (0.1, 0.2, -0.165), joints={"shoulder_lift": 0.7})
-    store.add("front", "base_link", np.eye(4), (1.0, 2.0), (1.0, 0.0, 0.0))
-    assert store.read("gripper")["samples"][0]["joints"] == {"shoulder_lift": 0.7}
-    assert "joints" not in store.read("front")["samples"][0]
-    assert len(store.load("gripper")[1]) == 1  # solver form is unchanged
-    with pytest.raises(CalibrationError):
-        store.add(
-            "gripper", "gripper_link", np.eye(4), (1.0, 2.0), (0.1, 0.2, 0.0), joints={"shoulder_lift": float("nan")}
-        )
+    store.add("front", "d435_color_frame", np.eye(4), (1.0, 2.0), (1.0, 0.0, 0.0))
+    assert set(store.read("front")["samples"][0]) == {"t_frame_parent", "pixel", "ground", "captured_at"}

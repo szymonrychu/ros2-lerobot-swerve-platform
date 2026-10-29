@@ -23,19 +23,12 @@ FRONT_MOUNT = {
     "pitch": FRONT_PITCH,
     "yaw": 0.0,
 }
-GRIPPER_MOUNT = {"parent_frame": "gripper_link", "x": 0.0, "y": 0.0, "z": 0.0, "roll": 0.0, "pitch": 0.0, "yaw": 0.0}
 HFOV = {"hfov_deg": HFOV_DEG, "width": WIDTH, "height": HEIGHT}
 
 
-def camera_config(
-    front: bool = True, gripper: bool = True, arm_offset: bool = False, **extra: object
-) -> McpServerConfig:
-    """Config with hfov-based intrinsics and known mounts for the requested cameras."""
-    cameras: dict[str, object] = {}
-    if front:
-        cameras["front"] = {"intrinsics": HFOV, "mount": FRONT_MOUNT}
-    if gripper:
-        cameras["gripper"] = {"intrinsics": HFOV, "mount": GRIPPER_MOUNT}
+def camera_config(front: bool = True, arm_offset: bool = False, **extra: object) -> McpServerConfig:
+    """Config with hfov-based intrinsics and the known FRONT_MOUNT for the front camera (none when front is False)."""
+    cameras: dict[str, object] = {"front": {"intrinsics": HFOV, "mount": FRONT_MOUNT}} if front else {}
     data: dict[str, object] = {"cameras": cameras, **extra}
     # These tests use their own synthetic arm mount (16.5 cm high), or none at all.
     data["arm"] = {"arm_base_height_m": 0.165, "base_in_base_link": None}

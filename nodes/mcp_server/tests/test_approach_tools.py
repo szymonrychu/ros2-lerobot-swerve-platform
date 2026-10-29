@@ -146,7 +146,7 @@ class Rig:
 
 
 def calibrated() -> McpServerConfig:
-    return camera_config(front=True, gripper=False)
+    return camera_config()
 
 
 @pytest.fixture

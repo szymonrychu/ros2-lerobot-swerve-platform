@@ -9,10 +9,10 @@ from ros2_common.camera_geometry import CameraIntrinsics
 
 from mcp_core_cpp import camera as core_camera
 
-from .camera_scene import FRAME_ARM, FRAME_BASE, Scene
+from .camera_scene import FRAME_BASE, Scene
 
 # Floor extent drawn per reference frame: (x_min, x_max, y_min, y_max) in metres.
-GRID_EXTENT = {FRAME_BASE: (-0.3, 1.5, -0.9, 0.9), FRAME_ARM: (-0.3, 0.7, -0.7, 0.7)}
+GRID_EXTENT = {FRAME_BASE: (-0.3, 1.5, -0.9, 0.9)}
 LINE_SAMPLE_M = 0.04  # spacing of samples along a grid line (curved by lens distortion)
 LABEL_MIN_SPACING_PX = 70.0
 CIRCLE_SEGMENTS = 96

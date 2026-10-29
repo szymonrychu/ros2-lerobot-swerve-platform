@@ -170,19 +170,18 @@ def planner() -> GraspPlanner:
 
 
 @cache
-def scene(camera: str) -> camera_scene.Scene:
-    """Camera scene of the deployed config (front at base_link, gripper at GRIPPER_VIEW).
+def scene(camera: camera_scene.Camera) -> camera_scene.Scene:
+    """Camera scene of the deployed config at the zero head pose.
 
     Args:
-        camera (str): 'front' or 'gripper'.
+        camera (camera_scene.Camera): Camera name ('front').
 
     Returns:
         camera_scene.Scene: The scene.
     """
     cfg = config()
     setup = camera_scene.camera_setup(cfg, camera)
-    parent = camera_scene.parent_transform(cfg, camera, kinematics(), GRIPPER_VIEW, head=fresh_head(cfg))
-    return camera_scene.build_scene(setup, cfg, parent)
+    return camera_scene.build_scene(setup, cfg, camera_scene.head_parent_transform(cfg, fresh_head(cfg)))
 
 
 def grasp_cases() -> list[dict[str, Any]]:
@@ -382,25 +381,7 @@ def build_scene_call() -> Call:
 
     def call() -> Any:
         setup = camera_scene.camera_setup(cfg, "front")
-        parent = camera_scene.parent_transform(cfg, "front", kinematics(), None, head=head)
-        return camera_scene.build_scene(setup, cfg, parent)
-
-    return call
-
-
-def gripper_scene_call() -> Call:
-    """build_scene of the gripper camera: forward kinematics of the parent link plus the scene.
-
-    Returns:
-        Call: One scene build.
-    """
-    cfg = config()
-
-    def call() -> Any:
-        setup = camera_scene.camera_setup(cfg, "gripper")
-        return camera_scene.build_scene(
-            setup, cfg, camera_scene.parent_transform(cfg, "gripper", kinematics(), GRIPPER_VIEW)
-        )
+        return camera_scene.build_scene(setup, cfg, camera_scene.head_parent_transform(cfg, head))
 
     return call
 
@@ -675,8 +656,8 @@ def render_map_crop_cases() -> list[dict[str, Any]]:
 
 
 def draw_lidar_cases() -> list[dict[str, Any]]:
-    """draw_lidar inputs: the bench scan in the deployed front and gripper scenes, the front camera with plumb-bob and
-    rational distortion, a scan with invalid rows, an unknown arm offset and an empty scan.
+    """draw_lidar inputs: the bench scan in the deployed front scene, the front camera with plumb-bob and rational
+    distortion, a scan with invalid rows, an unknown base_link pose and an empty scan.
 
     Returns:
         list[dict[str, Any]]: Keyword arguments of reference.camera.lidar_case.
@@ -691,7 +672,6 @@ def draw_lidar_cases() -> list[dict[str, Any]]:
     cases = []
     for camera, points, distortion in (
         ("front", pts, None),
-        ("gripper", pts, None),
         ("front", pts[:DISTORTED_POINTS], PLUMB_BOB),
         ("front", pts[:DISTORTED_POINTS], RATIONAL),
         ("front", odd, None),

@@ -11,11 +11,10 @@ from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import ValidationError
 from ros2_common.head_rgbd_calibration.urdf_text import Origin, head_chain_json
 
-from mcp_server.camera_scene import CameraInfoData, Scene, build_scene, camera_setup, parent_transform
+from mcp_server.camera_scene import CameraInfoData, Scene, build_scene, camera_setup, head_parent_transform
 from mcp_server.config import REPO_ROOT, McpServerConfig
 from mcp_server.head import AppliedHeadKinematics, HeadController
 from mcp_server.head_kinematics import CAMERA_FRAME, HeadKinematics
-from mcp_server.ik import ArmKinematics
 
 from .camera_helpers import HEIGHT, HFOV, WIDTH, fresh_head
 from .fakes import FakeHeadBackend
@@ -64,24 +63,19 @@ def head_at(cfg: McpServerConfig, pan_deg: float, tilt_deg: float) -> tuple[Head
     return head, head.backend
 
 
-@pytest.fixture(scope="module")
-def kin() -> ArmKinematics:
-    return ArmKinematics(McpServerConfig().arm.urdf_path, margin=0.05)
+def front_scene(cfg: McpServerConfig, head: HeadController) -> Scene:
+    return build_scene(camera_setup(cfg, "front"), cfg, head_parent_transform(cfg, head))
 
 
-def front_scene(cfg: McpServerConfig, kin: ArmKinematics, head: HeadController) -> Scene:
-    return build_scene(camera_setup(cfg, "front"), cfg, parent_transform(cfg, "front", kin, None, head=head))
-
-
-def test_front_scene_at_pan_0_tilt_0_equals_the_urdf_camera_pose(kin: ArmKinematics) -> None:
+def test_front_scene_at_pan_0_tilt_0_equals_the_urdf_camera_pose() -> None:
     cfg = head_config()
     head, _ = head_at(cfg, 0.0, 0.0)
     expected = HeadKinematics(cfg.head.urdf_path).link_pose(0.0, 0.0, CAMERA_FRAME)
     assert CAMERA_FRAME == "d435_color_optical_frame"
-    assert np.allclose(front_scene(cfg, kin, head).t_ref_optical, expected, atol=URDF_ATOL)
+    assert np.allclose(front_scene(cfg, head).t_ref_optical, expected, atol=URDF_ATOL)
 
 
-def test_front_pose_follows_the_head_through_the_d435_frame(kin: ArmKinematics) -> None:
+def test_front_pose_follows_the_head_through_the_d435_frame() -> None:
     """The deployed front camera (client.yml: zero mount on d435_color_frame, CameraInfo intrinsics) is posed at the
     URDF d435_color_optical_frame for every measured head pose, so it moves with the pan/tilt head."""
     cfg = deployed_config()
@@ -92,7 +86,7 @@ def test_front_pose_follows_the_head_through_the_d435_frame(kin: ArmKinematics) 
     poses = []
     for pan_deg, tilt_deg in HEAD_POSES_DEG:
         head, _ = head_at(cfg, pan_deg, tilt_deg)
-        pose = build_scene(setup, cfg, parent_transform(cfg, "front", kin, None, head=head)).t_ref_optical
+        pose = build_scene(setup, cfg, head_parent_transform(cfg, head)).t_ref_optical
         expected = urdf.link_pose(math.radians(pan_deg), math.radians(tilt_deg), CAMERA_FRAME)
         assert np.allclose(pose, expected, atol=URDF_ATOL), (pan_deg, tilt_deg)
         poses.append(pose)
@@ -100,18 +94,18 @@ def test_front_pose_follows_the_head_through_the_d435_frame(kin: ArmKinematics) 
     assert all(not np.allclose(axes[0], axis, atol=1e-2) for axis in axes[1:])
 
 
-def test_pan_plus_30_yaws_the_optical_axis_left_30_deg(kin: ArmKinematics) -> None:
+def test_pan_plus_30_yaws_the_optical_axis_left_30_deg() -> None:
     cfg = ideal_head_config()
     head, _ = head_at(cfg, 30.0, 0.0)
-    axis = front_scene(cfg, kin, head).t_ref_optical[:3, 2]  # optical +z in base_link
+    axis = front_scene(cfg, head).t_ref_optical[:3, 2]  # optical +z in base_link
     assert math.degrees(math.atan2(axis[1], axis[0])) == pytest.approx(30.0, abs=0.01)
     assert axis[2] == pytest.approx(0.0, abs=1e-4)
 
 
-def test_tilt_plus_30_centre_pixel_hits_the_floor_about_0_6_m_ahead(kin: ArmKinematics) -> None:
+def test_tilt_plus_30_centre_pixel_hits_the_floor_about_0_6_m_ahead() -> None:
     cfg = ideal_head_config()
     head, _ = head_at(cfg, 0.0, 30.0)
-    scene = front_scene(cfg, kin, head)
+    scene = front_scene(cfg, head)
     ground = scene.ground_point(WIDTH / 2, HEIGHT / 2)
     assert ground is not None
     tilt = math.radians(30.0)
@@ -125,26 +119,26 @@ def test_tilt_plus_30_centre_pixel_hits_the_floor_about_0_6_m_ahead(kin: ArmKine
     assert ground[1] == pytest.approx(camera[1], abs=1e-3) and ground[2] == 0.0
 
 
-def test_stale_head_joints_raise_naming_the_head_joint_states(kin: ArmKinematics) -> None:
+def test_stale_head_joints_raise_naming_the_head_joint_states() -> None:
     cfg = head_config()
     head, backend = head_at(cfg, 0.0, 0.0)
     backend.stale_after = backend.t - 2 * cfg.head.state_max_age_s
     with pytest.raises(ValueError, match="head joint states") as err:
-        parent_transform(cfg, "front", kin, None, head=head)
+        head_parent_transform(cfg, head)
     assert cfg.head.state_topic in str(err.value)
 
 
-def test_missing_head_joints_raise(kin: ArmKinematics) -> None:
+def test_missing_head_joints_raise() -> None:
     cfg = head_config()
     head, backend = head_at(cfg, 0.0, 0.0)
     backend.no_samples = True
     with pytest.raises(ValueError, match="head joint states"):
-        parent_transform(cfg, "front", kin, None, head=head)
+        head_parent_transform(cfg, head)
 
 
-def test_no_head_raises_instead_of_an_identity_pose(kin: ArmKinematics) -> None:
+def test_no_head_raises_instead_of_an_identity_pose() -> None:
     with pytest.raises(ValueError, match="head joint states"):
-        parent_transform(head_config(), "front", kin, None)
+        head_parent_transform(head_config(), None)
 
 
 def test_front_parent_defaults_to_the_d435_colour_frame() -> None:
@@ -227,16 +221,16 @@ def test_deployed_front_camera_is_the_d435_colour_with_camera_info_intrinsics() 
     assert front.intrinsics.calibration_file is None and front.intrinsics.image_width is None
 
 
-def test_front_pose_follows_the_applied_d435_joint(kin: ArmKinematics, tmp_path: Path) -> None:
+def test_front_pose_follows_the_applied_d435_joint(tmp_path: Path) -> None:
     """An applied head chain that lifts d435_joint lifts the front camera, read without a restart."""
     cfg = head_config()
     provider = AppliedHeadKinematics(cfg.head.urdf_path, tmp_path)
     backend = FakeHeadBackend({"head_pan": 0.0, "head_tilt": 0.0})
     head = HeadController(backend, provider, cfg.head)
-    before = front_scene(cfg, kin, head).t_ref_optical.copy()
+    before = front_scene(cfg, head).t_ref_optical.copy()
     origins = {"d435_joint": Origin((0.02, 0.0, 0.03), (0.0, 0.0, 0.0))}
     (tmp_path / "head_chain.json").write_text(head_chain_json(origins, "test", "s2", "ok"))
     (tmp_path / "applied.json").write_text(json.dumps({"session": "s2"}))
-    after = front_scene(cfg, kin, head).t_ref_optical
+    after = front_scene(cfg, head).t_ref_optical
     assert np.allclose(after[:3, 3] - before[:3, 3], [0.0, 0.0, 0.03], atol=1e-6)
     assert np.allclose(after[:3, :3], before[:3, :3], atol=1e-9)

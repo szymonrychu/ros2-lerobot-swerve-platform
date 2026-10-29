@@ -13,6 +13,7 @@ import yaml
 from mcp.server.mcpserver.exceptions import ToolError
 from ros2_common.camera_geometry import CameraIntrinsics, MountPose, optical_from_mount, project_raw
 
+from mcp_server.camera_scene import head_parent_transform
 from mcp_server.camera_tools import TOOL_NAMES
 from mcp_server.config import McpServerConfig
 from mcp_server.models import BasePose, CameraFrame, RobotState, ScanPoints
@@ -21,6 +22,23 @@ from mcp_server.tools import build_mcp_server
 from .camera_helpers import FRONT_MOUNT, HEIGHT, WIDTH, camera_config, front_ground_of_center, jpeg_blank
 from .test_tools import TOKEN, FakeRobot, call
 
+# Every camera tool takes the camera argument, except resolve_candidate (the set remembers its camera).
+CAMERA_TOOLS = (
+    "pixel_to_ground",
+    "get_annotated_camera_image",
+    "mark_candidate_points",
+    "capture_calibration_sample",
+    "solve_camera_calibration",
+    "clear_calibration_samples",
+)
+GRIPPER_ARGS: dict[str, dict[str, Any]] = {
+    "pixel_to_ground": {"u": 320.0, "v": 400.0},
+    "get_annotated_camera_image": {},
+    "mark_candidate_points": {},
+    "capture_calibration_sample": {"u": 1.0, "v": 1.0, "ground_x": 0.2, "ground_y": 0.0},
+    "solve_camera_calibration": {},
+    "clear_calibration_samples": {},
+}
 NOT_CALIBRATED = "camera {} not calibrated: set intrinsics and mount in mcp_server config (see README calibration)"
 INTR = CameraIntrinsics.from_hfov(WIDTH, HEIGHT, 90.0)
 
@@ -95,6 +113,27 @@ def test_tool_names_are_the_contract() -> None:
     )
 
 
+def schema_values(prop: dict[str, Any]) -> list[Any]:
+    """Values a JSON schema property allows: its enum, or its const (pydantic writes a one-value Literal as const)."""
+    return list(prop["enum"]) if "enum" in prop else [prop["const"]]
+
+
+def test_gripper_camera_is_rejected(tmp_path: Path) -> None:
+    import anyio
+
+    server, robot, cfg = make(tmp_path)
+    tools = {t.name: t for t in anyio.run(server.list_tools)}
+    for name in CAMERA_TOOLS:
+        prop = tools[name].input_schema["properties"]["camera"]
+        assert schema_values(prop) == ["front"], name
+        assert "gripper" not in prop.get("description", ""), name
+        assert "gripper camera" not in (tools[name].description or ""), name
+        with pytest.raises(ToolError):
+            call(server, name, {"camera": "gripper", **GRIPPER_ARGS[name]})
+    assert not [c for c in robot.calls if c[0] == "camera_image"]  # rejected before any capture
+    assert not (cfg.cameras.calibration_dir / "gripper.json").exists()
+
+
 def test_tools_are_registered_with_descriptions(tmp_path: Path) -> None:
     import anyio
 
@@ -148,44 +187,14 @@ def test_pixel_to_ground_without_map_pose_omits_ground_map(tmp_path: Path) -> No
     assert "ground_map" not in data and "ground_base_link" in data
 
 
-def test_pixel_to_ground_gripper_uses_current_joints_and_arm_frame(tmp_path: Path) -> None:
-    server, robot, cfg = make(tmp_path, camera_config(front=False))
-    robot.arm_backend.positions.update({"shoulder_lift": 1.0, "elbow_flex": 0.9, "wrist_flex": 1.0})
-    hit = None
-    for v in range(HEIGHT - 10, 0, -40):
-        try:
-            hit = call(
-                server, "pixel_to_ground", {"camera": "gripper", "u": WIDTH / 2, "v": float(v)}
-            ).structured_content
-            break
-        except ToolError:
-            continue
-    assert hit is not None, "no pixel of the synthetic gripper camera sees the floor"
-    assert hit["ground_arm_base"]["z"] == pytest.approx(cfg.arm.floor_z_m)
-    assert "ground_base_link" not in hit
-
-
-def test_pixel_to_ground_gripper_adds_base_link_with_arm_offset(tmp_path: Path) -> None:
-    server, robot, _ = make(tmp_path, camera_config(front=False, arm_offset=True))
-    robot.arm_backend.positions.update({"shoulder_lift": 1.0, "elbow_flex": 0.9, "wrist_flex": 1.0})
-    for v in range(HEIGHT - 10, 0, -40):
-        try:
-            data = call(
-                server, "pixel_to_ground", {"camera": "gripper", "u": WIDTH / 2, "v": float(v)}
-            ).structured_content
-        except ToolError:
-            continue
-        assert data["ground_base_link"]["z"] == pytest.approx(0.0, abs=1e-6)
-        assert "ground_map" in data
-        return
-    pytest.fail("no pixel sees the floor")
-
-
-def test_pixel_to_ground_gripper_needs_fresh_joints(tmp_path: Path) -> None:
-    server, robot, _ = make(tmp_path, camera_config(front=False))
-    robot.arm_backend.no_samples = True
-    with pytest.raises(ToolError, match="joint_states"):
-        call(server, "pixel_to_ground", {"camera": "gripper", "u": 320.0, "v": 400.0})
+def test_pixel_to_ground_front_does_not_need_arm_joints(tmp_path: Path) -> None:
+    server, robot, _ = make(tmp_path, camera_config(arm_offset=True))
+    robot.arm_backend.no_samples = True  # the front camera hangs on the head, not on the arm
+    data = call(server, "pixel_to_ground", {"camera": "front", "u": WIDTH / 2, "v": HEIGHT / 2}).structured_content
+    ex, _ = front_ground_of_center()
+    assert data["ground_base_link"]["x"] == pytest.approx(ex, abs=1e-3)
+    assert "ground_arm_base" not in data
+    assert "arm joints" not in data["uncertainty_note"]
 
 
 def test_pixel_to_ground_rejects_sky_and_off_image(tmp_path: Path) -> None:
@@ -260,13 +269,16 @@ def test_annotated_image_rejects_unknown_overlay_and_bad_step(tmp_path: Path) ->
         call(server, "get_annotated_camera_image", {"camera": "front", "grid_step_m": 0.001})
 
 
-def test_annotated_gripper_image_draws_in_the_arm_frame(tmp_path: Path) -> None:
-    server, robot, _ = make(tmp_path, camera_config(front=False))
+def test_annotated_front_image_draws_the_tool_point_in_base_link(tmp_path: Path) -> None:
+    server, robot, _ = make(tmp_path, camera_config(arm_offset=True))
     robot.arm_backend.positions.update({"shoulder_lift": 1.0, "elbow_flex": 0.9, "wrist_flex": 1.0})
-    res = call(server, "get_annotated_camera_image", {"camera": "gripper", "overlays": ["grid", "reach", "gripper"]})
+    res = call(server, "get_annotated_camera_image", {"camera": "front", "overlays": ["grid", "reach", "gripper"]})
     meta = text_json(res)
-    assert meta["frame"] == "arm_base"
+    assert meta["frame"] == "base_link"
     assert "tool_point" in meta
+    robot.arm_backend.no_samples = True
+    stale = text_json(call(server, "get_annotated_camera_image", {"camera": "front", "overlays": ["gripper"]}))
+    assert "tool_point" not in stale and any("no fresh arm joint states" in n for n in stale["notes"])
 
 
 def test_mark_candidate_points_returns_image_and_table(tmp_path: Path) -> None:
@@ -279,7 +291,7 @@ def test_mark_candidate_points_returns_image_and_table(tmp_path: Path) -> None:
     assert 0 < len(pts) <= 30
     assert [p["n"] for p in pts] == list(range(1, len(pts) + 1))
     for p in pts:
-        assert p["ground_map"] is not None
+        assert p["ground_map"] is not None and "ground_arm_base" not in p
         back = front_pixel((p["ground_base_link"]["x"], p["ground_base_link"]["y"], 0.0))
         assert back == pytest.approx((p["u"], p["v"]), abs=0.5)  # ground rounded to 1 mm
 
@@ -375,29 +387,29 @@ def test_capture_counts_samples_and_writes_file(tmp_path: Path) -> None:
     assert len(data["samples"]) == 2 and data["parent_frame"] == "d435_color_frame"
 
 
-def test_capture_gripper_stores_the_current_arm_pose(tmp_path: Path) -> None:
+def test_capture_front_stores_the_head_parent_pose_without_arm_joints(tmp_path: Path) -> None:
     server, robot, cfg = make(tmp_path, McpServerConfig())
     robot.arm_backend.positions.update({"shoulder_lift": 0.7})
     call(
         server,
         "capture_calibration_sample",
-        {"camera": "gripper", "u": 100.0, "v": 200.0, "ground_x": 0.2, "ground_y": 0.0, "ground_z": -0.165},
+        {"camera": "front", "u": 100.0, "v": 200.0, "ground_x": 1.0, "ground_y": 0.0},
     )
-    sample = json.loads((cfg.cameras.calibration_dir / "gripper.json").read_text())["samples"][0]
-    t = np.array(sample["t_frame_parent"])
-    assert t.shape == (4, 4) and not np.allclose(t, np.eye(4))
-    assert sample["ground"] == [0.2, 0.0, -0.165]
-    robot.arm_backend.no_samples = True
-    with pytest.raises(ToolError, match="joint_states"):
-        call(
-            server,
-            "capture_calibration_sample",
-            {"camera": "gripper", "u": 1.0, "v": 1.0, "ground_x": 0.2, "ground_y": 0.0},
-        )
+    data = json.loads((cfg.cameras.calibration_dir / "front.json").read_text())
+    sample = data["samples"][0]
+    expected = head_parent_transform(cfg, robot.head)
+    np.testing.assert_allclose(np.array(sample["t_frame_parent"]), expected, atol=1e-9)
+    assert set(sample) == {"t_frame_parent", "pixel", "ground", "captured_at"}  # no arm joints: not on the arm
+    robot.arm_backend.no_samples = True  # stale arm joint states do not matter to the front camera
+    call(
+        server,
+        "capture_calibration_sample",
+        {"camera": "front", "u": 1.0, "v": 1.0, "ground_x": 0.9, "ground_y": 0.0},
+    )
 
 
 def test_solve_returns_yaml_and_rms_and_never_edits_config(tmp_path: Path) -> None:
-    cfg = camera_config(gripper=False)
+    cfg = camera_config()
     cfg.cameras.front.mount = None  # solving works from an initial guess, not only the configured mount
     server, _, cfg = make(tmp_path, cfg)
     capture_all(server, GROUNDS)
@@ -412,7 +424,7 @@ def test_solve_returns_yaml_and_rms_and_never_edits_config(tmp_path: Path) -> No
 
 
 def test_solve_defaults_to_the_configured_mount_as_initial(tmp_path: Path) -> None:
-    server, _, _ = make(tmp_path, camera_config(gripper=False))
+    server, _, _ = make(tmp_path, camera_config())
     capture_all(server, GROUNDS)
     data = call(server, "solve_camera_calibration", {"camera": "front"}).structured_content
     assert data["rms_px"] < 0.1
@@ -450,30 +462,6 @@ def test_camera_argument_is_validated(tmp_path: Path) -> None:
     server, _, _ = make(tmp_path)
     with pytest.raises(ToolError):
         call(server, "pixel_to_ground", {"camera": "rear", "u": 1.0, "v": 1.0})
-
-
-def test_capture_gripper_stores_raw_joints_and_offset_corrected_parent_pose(tmp_path: Path) -> None:
-    from mcp_server.ik import ArmKinematics
-
-    cfg = McpServerConfig()
-    cfg.cameras.calibration_dir = tmp_path / "calib"
-    robot = CameraRobot(tmp_path)
-    offsets = {"shoulder_lift": -0.12, "elbow_flex": 0.09, "wrist_flex": 0.2}
-    robot.arm.kin = ArmKinematics(cfg.arm.urdf_path, margin=cfg.limits.arm_limit_margin_rad, joint_offsets=offsets)
-    measured = {"shoulder_lift": 0.7, "elbow_flex": 0.3, "wrist_flex": 0.1}
-    robot.arm_backend.positions.update(measured)
-    server = build_mcp_server(robot, cfg, TOKEN)
-    call(
-        server,
-        "capture_calibration_sample",
-        {"camera": "gripper", "u": 100.0, "v": 200.0, "ground_x": 0.2, "ground_y": 0.0, "ground_z": -0.165},
-    )
-    sample = json.loads((cfg.cameras.calibration_dir / "gripper.json").read_text())["samples"][0]
-    assert sample["joints"] == robot.arm_backend.positions
-    plain = ArmKinematics(cfg.arm.urdf_path, margin=cfg.limits.arm_limit_margin_rad)
-    corrected = {j: robot.arm_backend.positions[j] + offsets.get(j, 0.0) for j in robot.arm_backend.positions}
-    expected = plain.link_frame(corrected, "gripper_link")
-    np.testing.assert_allclose(np.array(sample["t_frame_parent"]), expected, atol=1e-9)
 
 
 def test_pixel_to_ground_surface_height_hits_the_raised_plane(tmp_path: Path) -> None:

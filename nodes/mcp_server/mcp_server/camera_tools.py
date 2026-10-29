@@ -37,13 +37,14 @@ from .camera_overlay import (
 )
 from .camera_scene import (
     APPROX_NOTE,
+    Camera,
     CameraSetup,
     Scene,
     build_scene,
     camera_setup,
     ground_fields,
     ground_report,
-    parent_transform,
+    head_parent_transform,
     picture_sizes,
     pixel_input,
     pixel_scale,
@@ -62,7 +63,6 @@ TOOL_NAMES = (
     "solve_camera_calibration",
     "clear_calibration_samples",
 )
-Camera = Literal["gripper", "front"]
 SurfaceHeight = Annotated[
     float,
     Field(
@@ -81,8 +81,9 @@ ImageWidth = Annotated[
         le=4096,
         description=(
             "Width (px) of the image the pixel was read from, e.g. 384 for a default get_camera_image picture "
-            "(each camera's default size is in the tool description); with image_height the pixel is scaled to the calibrated image size. Omit only for pixels read from the "
-            "calibrated-size image (get_annotated_camera_image, mark_candidate_points)"
+            "(each camera's default size is in the tool description); with image_height the pixel is scaled to the "
+            "calibrated image size. Omit only for pixels read from the calibrated-size image "
+            "(get_annotated_camera_image, mark_candidate_points)"
         ),
     ),
 ]
@@ -194,15 +195,7 @@ def register(ctx: ToolContext) -> None:
     candidates = CandidateStore()
     samples = SampleStore(config.cameras.calibration_dir)
     kin = robot.arm.kin
-    floor_note = (
-        f"Frames: the front camera reports in base_link (x forward, y left, floor z = 0); the gripper camera in the arm "
-        f"base frame (z = 0 at the arm mount plane, floor z = {config.arm.floor_z_m:.3f} m)"
-        + (
-            "; base_link coordinates are added because arm.base_in_base_link is configured."
-            if config.arm.base_in_base_link is not None
-            else "; arm.base_in_base_link is not configured, so gripper results have no base_link/map coordinates."
-        )
-    )
+    floor_note = "Frame: base_link (x forward, y left, floor z = 0)."
 
     def map_pose() -> BasePose | None:
         """Current map pose, None when unknown."""
@@ -211,19 +204,17 @@ def register(ctx: ToolContext) -> None:
         except RobotError:
             return None
 
-    def arm_joints(required: bool) -> dict[str, float] | None:
-        """Measured arm joints; an error when required and stale, else None."""
-        sample = robot.arm.require_sample() if required else robot.arm.fresh_sample()
+    def arm_joints() -> dict[str, float] | None:
+        """Measured arm joints from a fresh sample, None when stale (the tool point overlay, candidate snapshots)."""
+        sample = robot.arm.fresh_sample()
         return None if sample is None else robot.arm.measured(sample)
 
-    def scene_for(camera: str) -> tuple[Scene, CameraSetup, dict[str, float] | None]:
-        """Scene of a calibrated camera at the current arm pose (gripper) or measured head pose (front)."""
+    def scene_for(camera: Camera) -> tuple[Scene, CameraSetup]:
+        """Scene of a calibrated camera at the measured head pose."""
         setup = camera_setup(config, camera, source=robot)
-        joints = arm_joints(required=camera == "gripper")
-        t_parent = parent_transform(config, camera, kin, joints, head=robot.head)
-        return build_scene(setup, config, t_parent), setup, joints
+        return build_scene(setup, config, head_parent_transform(config, robot.head)), setup
 
-    def grab(camera: str, setup: CameraSetup) -> np.ndarray:
+    def grab(camera: Camera, setup: CameraSetup) -> np.ndarray:
         """Fresh frame as a BGR image at the calibrated size."""
         intr = setup.intrinsics
         frame = robot.camera_image(camera, min(HARD_MAX_IMAGE_PX, max(intr.width, intr.height)))
@@ -240,11 +231,7 @@ def register(ctx: ToolContext) -> None:
             raise RobotError("cannot encode the annotated image")
         return buf.tobytes()
 
-    def arm_point_in_ref(scene: Scene, point: np.ndarray) -> np.ndarray | None:
-        """Arm-base-frame point in the scene's reference frame (None when the arm offset is unknown)."""
-        return point if scene.camera == "gripper" else scene.arm_to_ref(point)
-
-    def candidate_image(camera: str) -> dict[str, int] | None:
+    def candidate_image(camera: Camera) -> dict[str, int] | None:
         """Calibrated image size the candidate pixels refer to (None when the camera has no intrinsics)."""
         try:
             intr = camera_setup(config, camera, need_mount=False, source=robot).intrinsics
@@ -272,8 +259,8 @@ def register(ctx: ToolContext) -> None:
             "model and mount onto a horizontal plane: the flat floor by default, or the surface the pixel lies on when "
             "surface_height_m is given (height relative to the robot's floor, positive above, negative below: the top "
             "of a 3 cm box is 0.03, a floor 10 cm lower is -0.10); the result reports surface_height_m and the "
-            "coordinates have z = floor + surface_height_m. 'gripper' uses the CURRENT measured arm joints (the camera moves with "
-            "the arm); 'front' is the head RGB camera (Camera Module 3 on the pan/tilt head, 16:9). Returns ground_base_link {x,y,z} (m, x forward, y left, "
+            "coordinates have z = floor + surface_height_m. 'front' is the D435 colour camera on the pan/tilt head, "
+            "posed from the CURRENT measured head angles. Returns ground_base_link {x,y,z} (m, x forward, y left, "
             "floor z = 0), ground_map {x,y} when the map pose is known, distance_from_base_m, bearing_deg, method and "
             f"uncertainty_note. {floor_note} Pixel (u right, v down). {pixel_size_note} The result reports pixel "
             "(calibrated size), image (calibrated size) and pixel_input (what you passed) when scaled. Errors if the "
@@ -281,7 +268,7 @@ def register(ctx: ToolContext) -> None:
         )
     )
     def pixel_to_ground(
-        camera: Annotated[Camera, Field(description="'gripper' or 'front'")],
+        camera: Annotated[Camera, Field(description="'front' (the head D435 colour camera)")],
         u: Annotated[float, Field(description="Pixel x (right)")],
         v: Annotated[float, Field(description="Pixel y (down)")],
         surface_height_m: SurfaceHeight = 0.0,
@@ -290,7 +277,7 @@ def register(ctx: ToolContext) -> None:
     ) -> CallToolResult:
         """Pixel -> floor point; the tool description is passed to the decorator (it states the frames)."""
         with camera_errors():
-            scene, _, _ = scene_for(camera)
+            scene, _ = scene_for(camera)
             scale = pixel_scale(image_width, image_height, scene.intr.width, scene.intr.height, default_px)
             if scale is None:
                 return data_result(ground_report(scene, camera, u, v, map_pose(), surface_height_m))
@@ -302,18 +289,17 @@ def register(ctx: ToolContext) -> None:
     @server.tool(
         structured_output=False,
         description=(
-            "Take a fresh photo from a camera and draw metric overlays on it (read-only): 'grid' floor grid with "
-            "(x,y) metre labels every grid_step_m in the camera's frame (base_link for 'front', the arm base frame for "
-            "'gripper'); 'reach' the arm's reachable floor annulus; 'gripper' the current gripper tool point plus its "
-            "projection straight down onto the floor; 'planned_gripper' a marker for planned_gripper {x,y,z} (arm base "
-            "frame, as in move_arm_cartesian) so you can check the target BEFORE moving; 'lidar' latest scan points as "
-            "range-coloured dots (red near, blue far; needs base_link coordinates). Returns a JPEG plus metadata "
-            "(frame, overlays drawn, notes for overlays that could not be drawn). Errors if the camera is not "
-            "calibrated."
+            "Take a fresh photo from a camera and draw metric overlays on it (read-only): 'grid' floor grid with (x,y) "
+            "metre labels every grid_step_m in base_link; 'reach' the arm's reachable floor annulus; 'gripper' the "
+            "current gripper tool point plus its projection straight down onto the floor; 'planned_gripper' a marker "
+            "for planned_gripper {x,y,z} (arm base frame, as in move_arm_cartesian) so you can check the target BEFORE "
+            "moving; 'lidar' latest scan points as range-coloured dots (red near, blue far; needs base_link "
+            "coordinates). Returns a JPEG plus metadata (frame, overlays drawn, notes for overlays that could not be "
+            "drawn). Errors if the camera is not calibrated."
         ),
     )
     def get_annotated_camera_image(
-        camera: Annotated[Camera, Field(description="'gripper' or 'front'")],
+        camera: Annotated[Camera, Field(description="'front' (the head D435 colour camera)")],
         overlays: Annotated[
             list[Overlay], Field(description="Overlays to draw: grid, reach, gripper, planned_gripper, lidar")
         ] = Field(default_factory=lambda: ["grid"]),
@@ -328,7 +314,7 @@ def register(ctx: ToolContext) -> None:
             wanted = list(dict.fromkeys(overlays))
             if "planned_gripper" in wanted and planned_gripper is None:
                 raise ValueError("the planned_gripper overlay needs the planned_gripper {x, y, z} argument")
-            scene, setup, joints = scene_for(camera)
+            scene, setup = scene_for(camera)
             img = grab(camera, setup)
             notes: list[str] = []
             meta: dict[str, Any] = {"camera": camera, "frame": scene.frame_name}
@@ -338,7 +324,7 @@ def register(ctx: ToolContext) -> None:
                 legend.append(f"grid {grid_step_m:g} m, labels (x,y) m")
             if "reach" in wanted:
                 pan = kin.pan_axis_xy
-                centre = arm_point_in_ref(scene, np.array([pan[0], pan[1], 0.0]))
+                centre = scene.arm_to_ref(np.array([pan[0], pan[1], 0.0]))
                 if centre is None:
                     notes.append("reach not drawn: arm.base_in_base_link is not configured")
                 else:
@@ -347,14 +333,13 @@ def register(ctx: ToolContext) -> None:
                             draw_polylines(img, circle_runs(scene, (centre[0], centre[1]), radius), COLOR_REACH)
                     legend.append(f"reach floor annulus {config.arm.reach_inner_m:g}-{config.arm.reach_outer_m:g} m")
             if "gripper" in wanted:
-                if joints is None:
-                    joints = arm_joints(required=False)
+                joints = arm_joints()
                 if joints is None:
                     notes.append("gripper not drawn: no fresh arm joint states")
                 else:
                     pose = kin.forward(joints)
                     meta["tool_point"] = {"x": round(pose.x, 3), "y": round(pose.y, 3), "z": round(pose.z, 3)}
-                    ref = arm_point_in_ref(scene, np.array([pose.x, pose.y, pose.z]))
+                    ref = scene.arm_to_ref(np.array([pose.x, pose.y, pose.z]))
                     if ref is None:
                         notes.append("gripper not drawn: arm.base_in_base_link is not configured")
                     elif draw_point_with_floor(img, scene, ref, COLOR_GRIPPER, "circle", "tool"):
@@ -362,7 +347,7 @@ def register(ctx: ToolContext) -> None:
                     else:
                         notes.append("gripper tool point is outside the camera view")
             if "planned_gripper" in wanted and planned_gripper is not None:
-                ref = arm_point_in_ref(scene, np.array([planned_gripper.x, planned_gripper.y, planned_gripper.z]))
+                ref = scene.arm_to_ref(np.array([planned_gripper.x, planned_gripper.y, planned_gripper.z]))
                 if ref is None:
                     notes.append("planned_gripper not drawn: arm.base_in_base_link is not configured")
                 elif draw_point_with_floor(img, scene, ref, COLOR_PLANNED, "circle", "plan"):
@@ -400,7 +385,7 @@ def register(ctx: ToolContext) -> None:
         description=(
             "Take a fresh photo and overlay numbered dots on a pixel grid (read-only) so you can pick floor targets "
             "by number: returns the JPEG and a table {set_id, surface_height_m, points:[{n, u, v, "
-            "ground_base_link{x,y,z}|null, ground_map{x,y}|null}]} (the gripper camera also gives ground_arm_base). "
+            "ground_base_link{x,y,z}|null, ground_map{x,y}|null}]}. "
             "Pass surface_height_m (height of the surface the dots lie on relative to the floor, positive above, "
             "negative below; 0 = the floor) when the target is on a box top or another level, so the points are "
             "intersected with that plane. Dots whose pixel does not see "
@@ -415,7 +400,7 @@ def register(ctx: ToolContext) -> None:
         ),
     )
     def mark_candidate_points(
-        camera: Annotated[Camera, Field(description="'gripper' or 'front'")],
+        camera: Annotated[Camera, Field(description="'front' (the head D435 colour camera)")],
         region: Annotated[Region | None, Field(description="Pixel rectangle; the whole image when omitted")] = None,
         spacing_px: Annotated[
             int, Field(ge=8, le=320, description="Grid spacing in pixels of the calibrated image")
@@ -427,7 +412,7 @@ def register(ctx: ToolContext) -> None:
     ) -> list[ImageContent | TextContent]:
         """Numbered candidate dots; the tool description is passed to the decorator."""
         with camera_errors():
-            scene, setup, joints = scene_for(camera)
+            scene, setup = scene_for(camera)
             scale = pixel_scale(image_width, image_height, scene.intr.width, scene.intr.height, default_px) or 1.0
             pose = map_pose()
             img = grab(camera, setup)
@@ -444,21 +429,16 @@ def register(ctx: ToolContext) -> None:
                     continue
                 fields = ground_fields(scene, ground, pose)
                 base = fields.get("ground_base_link")
-                point: dict[str, Any] = {
-                    "u": round(u, 1),
-                    "v": round(v, 1),
-                    "ground_base_link": None if base is None else {"x": base["x"], "y": base["y"], "z": base["z"]},
-                    "ground_map": fields.get("ground_map"),
-                }
-                if scene.camera == "gripper":
-                    arm = fields["ground_arm_base"]
-                    point["ground_arm_base"] = {"x": arm["x"], "y": arm["y"], "z": arm["z"]}
-                valid.append(point)
+                valid.append(
+                    {
+                        "u": round(u, 1),
+                        "v": round(v, 1),
+                        "ground_base_link": None if base is None else {"x": base["x"], "y": base["y"], "z": base["z"]},
+                        "ground_map": fields.get("ground_map"),
+                    }
+                )
             kept = [{"n": n, **p} for n, p in enumerate(thin(valid, max_points), start=1)]
-            snapshot = RobotSnapshot(
-                None if pose is None else (pose.x, pose.y, pose.yaw),
-                joints if joints is not None else arm_joints(False),
-            )
+            snapshot = RobotSnapshot(None if pose is None else (pose.x, pose.y, pose.yaw), arm_joints())
             item = candidates.add(camera, snapshot, kept, surface_height_m)
             draw_candidates(img, [(p["n"], p["u"], p["v"]) for p in kept])
             draw_legend(img, [f"{camera} camera: {len(kept)} candidates, set {item.set_id}"])
@@ -500,7 +480,7 @@ def register(ctx: ToolContext) -> None:
             pose = map_pose()
             now_pose = None if pose is None else (pose.x, pose.y, pose.yaw)
             robot_moved = base_moved(item.snapshot.pose, now_pose)
-            arm_moved_flag = arm_moved(item.snapshot.joints, arm_joints(required=False))
+            arm_moved_flag = arm_moved(item.snapshot.joints, arm_joints())
             note = ["values are the ones stored when the set was made"]
             if robot_moved:
                 note.append("the base moved since: ground_base_link is stale, ground_map is still valid")
@@ -525,24 +505,22 @@ def register(ctx: ToolContext) -> None:
     @server.tool(
         description=(
             "Store one calibration sample (read-only for the robot; writes a JSON file): the pixel (u, v) of a marker "
-            "whose floor position you measured, with that ground point in the camera's reference frame (arm base "
-            f"frame for 'gripper', where the floor is z = {config.arm.floor_z_m:.3f}; base_link for 'front', floor z = 0) "
-            "and the parent-link pose at this moment (current arm joints for 'gripper', current head pan/tilt for 'front', "
-            "whose parent is a head link: keep the head still or capture views at several head poses). Returns "
-            "the sample count. Use several well spread markers (and for 'gripper' several arm poses), then call "
-            "solve_camera_calibration. Works before the camera is calibrated. The pixel is in the calibrated image "
-            "size (the intrinsics' width x height) unless image_width / image_height give the size of the image it "
-            "came from (default get_camera_image pictures: "
+            "whose floor position you measured, with that ground point in base_link (floor z = 0) and the parent-link "
+            "pose at this moment (the current head pan/tilt: the front camera's parent is a head link, so keep the "
+            "head still or capture views at several head poses). Returns the sample count. Use several well spread "
+            "markers, then call solve_camera_calibration. Works before the camera is calibrated. The pixel is in the "
+            "calibrated image size (the intrinsics' width x height) unless image_width / image_height give the size "
+            "of the image it came from (default get_camera_image pictures: "
             f"{picture_text}; scaling needs the intrinsics)."
         )
     )
     def capture_calibration_sample(
-        camera: Annotated[Camera, Field(description="'gripper' or 'front'")],
+        camera: Annotated[Camera, Field(description="'front' (the head D435 colour camera)")],
         u: Annotated[float, Field(description="Marker pixel x in the image")],
         v: Annotated[float, Field(description="Marker pixel y in the image")],
-        ground_x: Annotated[float, Field(description="Marker x (m) in the camera's reference frame")],
-        ground_y: Annotated[float, Field(description="Marker y (m) in the camera's reference frame")],
-        ground_z: Annotated[float, Field(description="Marker z (m); 0 for the front camera on the floor")] = 0.0,
+        ground_x: Annotated[float, Field(description="Marker x (m) in base_link")],
+        ground_y: Annotated[float, Field(description="Marker y (m) in base_link")],
+        ground_z: Annotated[float, Field(description="Marker z (m) in base_link; 0 on the floor")] = 0.0,
         image_width: ImageWidth = None,
         image_height: ImageHeight = None,
     ) -> CallToolResult:
@@ -553,9 +531,8 @@ def register(ctx: ToolContext) -> None:
                 scale = pixel_scale(image_width, image_height, intr.width, intr.height, default_px) or 1.0
                 u, v = u * scale, v * scale
             parent = str(getattr(config.cameras, camera).parent_frame)
-            joints = arm_joints(required=camera == "gripper")
-            t_parent = parent_transform(config, camera, kin, joints, head=robot.head)
-            count = samples.add(camera, parent, t_parent, (u, v), (ground_x, ground_y, ground_z), joints=joints)
+            t_parent = head_parent_transform(config, robot.head)
+            count = samples.add(camera, parent, t_parent, (u, v), (ground_x, ground_y, ground_z))
             return data_result(
                 {
                     "camera": camera,
@@ -576,7 +553,7 @@ def register(ctx: ToolContext) -> None:
         )
     )
     def solve_camera_calibration(
-        camera: Annotated[Camera, Field(description="'gripper' or 'front'")],
+        camera: Annotated[Camera, Field(description="'front' (the head D435 colour camera)")],
         initial: Annotated[
             MountGuess | None, Field(description="Starting mount; defaults to the configured one")
         ] = None,
@@ -624,7 +601,7 @@ def register(ctx: ToolContext) -> None:
         )
     )
     def clear_calibration_samples(
-        camera: Annotated[Camera, Field(description="'gripper' or 'front'")],
+        camera: Annotated[Camera, Field(description="'front' (the head D435 colour camera)")],
     ) -> CallToolResult:
         """Delete calibration samples; the tool description is passed to the decorator."""
         with camera_errors():

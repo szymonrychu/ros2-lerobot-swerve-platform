@@ -45,7 +45,7 @@ from .camera_scene import (
     base_to_map,
     build_scene,
     camera_setup,
-    parent_transform,
+    head_parent_transform,
 )
 from .config import HARD_MAX_IMAGE_PX, McpServerConfig
 from .models import BasePose, NavigationResult, RobotError
@@ -283,11 +283,10 @@ def camera_scene(robot: RobotApi, config: McpServerConfig, camera: str) -> tuple
 
     Raises:
         CameraNotCalibratedError: When intrinsics or mount are missing.
-        ArmError: When the gripper camera needs joint states and they are stale.
+        ValueError: When the head joint states are missing or stale, or for a camera without a scene.
     """
     setup = camera_setup(config, camera, source=robot)
-    joints = robot.arm.measured(robot.arm.require_sample()) if camera == "gripper" else None
-    return build_scene(setup, config, parent_transform(config, camera, robot.arm.kin, joints, head=robot.head)), setup
+    return build_scene(setup, config, head_parent_transform(config, robot.head)), setup
 
 
 def grab_frame(robot: RobotApi, setup: CameraSetup) -> tuple[np.ndarray, int]:

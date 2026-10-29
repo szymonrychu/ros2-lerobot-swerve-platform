@@ -42,7 +42,7 @@ STAMP_NS = 1_700_000_000_123_456_789
 
 @pytest.fixture(scope="module")
 def scene() -> Scene:
-    cfg = camera_config(gripper=False)
+    cfg = camera_config()
     return build_scene(camera_setup(cfg, "front"), cfg, np.eye(4))
 
 

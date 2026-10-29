@@ -1,13 +1,18 @@
 """Pixel <-> ground scene logic with synthetic cameras of known mounts."""
 
+import ast
+import inspect
 import math
 from dataclasses import replace
 from pathlib import Path
+from typing import get_args
 
 import numpy as np
 import pytest
 
+from mcp_server import camera_scene, camera_tools
 from mcp_server.camera_scene import (
+    CAMERAS,
     NOT_CALIBRATED,
     CameraInfoData,
     CameraNotCalibratedError,
@@ -16,11 +21,11 @@ from mcp_server.camera_scene import (
     build_scene,
     camera_setup,
     ground_report,
+    head_parent_transform,
     load_intrinsics,
-    parent_transform,
+    picture_sizes,
 )
 from mcp_server.config import McpServerConfig
-from mcp_server.ik import ArmKinematics, load_joint_limits
 from mcp_server.models import BasePose
 
 from .camera_helpers import FRONT_MOUNT, HEIGHT, WIDTH, camera_config, fresh_head, front_ground_of_center
@@ -50,11 +55,37 @@ def camera_info_config(**intrinsics: object) -> McpServerConfig:
     )
 
 
-@pytest.fixture(scope="module")
-def kin() -> ArmKinematics:
-    cfg = McpServerConfig()
-    assert load_joint_limits(cfg.arm.urdf_path)
-    return ArmKinematics(cfg.arm.urdf_path, margin=0.05)
+def module_camera_definitions(module: object) -> list[str]:
+    """Names of the module-level ``Camera`` assignments in a module's source."""
+    tree = ast.parse(inspect.getsource(module))
+    return [
+        target.id
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Name) and target.id == "Camera"
+    ]
+
+
+def test_camera_literal_is_defined_once() -> None:
+    assert get_args(camera_scene.Camera) == ("front",)
+    assert CAMERAS == ("front",)
+    assert module_camera_definitions(camera_scene) == ["Camera"]
+    assert module_camera_definitions(camera_tools) == []  # imported from camera_scene, not redefined
+    assert camera_tools.Camera is camera_scene.Camera
+
+
+def test_picture_sizes_offer_the_front_camera_at_the_d435_colour_size() -> None:
+    # The deployed front camera takes its intrinsics from the D435 colour CameraInfo: before one arrives the tool
+    # descriptions use the nominal 640x360 colour stream.
+    assert camera_scene.NOMINAL_IMAGE_SIZE == {"front": (640, 360)}
+    assert picture_sizes(McpServerConfig()) == {"front": (384, 216)}
+    assert picture_sizes(camera_config()) == {"front": (384, 288)}  # the synthetic 640x480 camera
+
+
+def test_gripper_camera_geometry_is_gone() -> None:
+    assert not hasattr(camera_scene, "parent_transform")  # the gripper / front dispatch; the head pose remains
+    assert "gripper" not in inspect.getsource(camera_scene).lower()
 
 
 def test_load_intrinsics_none_and_hfov() -> None:
@@ -136,29 +167,27 @@ def test_not_calibrated_errors_use_the_documented_message() -> None:
 
 def test_mount_is_optional_when_not_needed() -> None:
     cfg = McpServerConfig.model_validate(
-        {"cameras": {"gripper": {"intrinsics": {"hfov_deg": 60.0, "width": 640, "height": 480}}}}
+        {"cameras": {"front": {"intrinsics": {"hfov_deg": 60.0, "width": 640, "height": 360}}}}
     )
-    setup = camera_setup(cfg, "gripper", need_mount=False)
+    setup = camera_setup(cfg, "front", need_mount=False)
     assert setup.mount is None and setup.approximate
     with pytest.raises(CameraNotCalibratedError):
-        camera_setup(cfg, "gripper")
+        camera_setup(cfg, "front")
 
 
-def test_front_scene_centre_pixel_hits_analytic_floor_point(kin: ArmKinematics) -> None:
+def test_front_scene_centre_pixel_hits_analytic_floor_point() -> None:
     cfg = camera_config()
     setup = camera_setup(cfg, "front")
-    scene = build_scene(setup, cfg, parent_transform(cfg, "front", kin, None, head=fresh_head(cfg)))
+    scene = build_scene(setup, cfg, head_parent_transform(cfg, fresh_head(cfg)))
     assert scene.frame_name == "base_link" and scene.ground_z == 0.0
     hit = scene.ground_point(WIDTH / 2, HEIGHT / 2)
     ex, ey = front_ground_of_center()
     assert hit is not None and hit == pytest.approx([ex, ey, 0.0], abs=1e-6)
 
 
-def test_front_scene_project_and_ground_round_trip(kin: ArmKinematics) -> None:
+def test_front_scene_project_and_ground_round_trip() -> None:
     cfg = camera_config()
-    scene = build_scene(
-        camera_setup(cfg, "front"), cfg, parent_transform(cfg, "front", kin, None, head=fresh_head(cfg))
-    )
+    scene = build_scene(camera_setup(cfg, "front"), cfg, head_parent_transform(cfg, fresh_head(cfg)))
     for point in ([0.9, 0.2, 0.0], [0.6, -0.3, 0.0], [1.2, 0.0, 0.0]):
         uv = scene.project(np.array(point))
         assert uv is not None
@@ -166,46 +195,41 @@ def test_front_scene_project_and_ground_round_trip(kin: ArmKinematics) -> None:
         assert back is not None and back == pytest.approx(point, abs=1e-6)
 
 
-def test_above_horizon_pixel_has_no_ground(kin: ArmKinematics) -> None:
+def test_above_horizon_pixel_has_no_ground() -> None:
     cfg = camera_config()
-    scene = build_scene(
-        camera_setup(cfg, "front"), cfg, parent_transform(cfg, "front", kin, None, head=fresh_head(cfg))
-    )
+    scene = build_scene(camera_setup(cfg, "front"), cfg, head_parent_transform(cfg, fresh_head(cfg)))
     assert scene.ground_point(WIDTH / 2, 0.0) is not None  # pitch 1.0 rad, vfov/2 ~ 36.9 deg: top edge hits the floor
     steep = camera_config(front=True)
     steep.cameras.front.mount.pitch = 0.2
-    scene2 = build_scene(
-        camera_setup(steep, "front"), steep, parent_transform(steep, "front", kin, None, head=fresh_head(steep))
-    )
+    scene2 = build_scene(camera_setup(steep, "front"), steep, head_parent_transform(steep, fresh_head(steep)))
     assert scene2.ground_point(WIDTH / 2, 0.0) is None
 
 
-def test_gripper_scene_uses_the_current_joint_pose(kin: ArmKinematics) -> None:
-    cfg = camera_config(front=False)
-    joints = {"shoulder_pan": 0.0, "shoulder_lift": 0.0, "elbow_flex": 0.0, "wrist_flex": 0.0, "wrist_roll": 0.0}
-    t0 = parent_transform(cfg, "gripper", kin, joints)
-    moved = parent_transform(cfg, "gripper", kin, {**joints, "shoulder_lift": 0.8, "elbow_flex": 0.8})
-    assert not np.allclose(t0, moved)
-    scene = build_scene(camera_setup(cfg, "gripper"), cfg, moved)
-    assert scene.frame_name == "arm_base" and scene.ground_z == pytest.approx(cfg.arm.floor_z_m)
-    # A floor point the camera sees projects and comes back at floor height.
-    hit = scene.ground_point(WIDTH / 2, HEIGHT - 5)
-    if hit is not None:
-        assert hit[2] == pytest.approx(cfg.arm.floor_z_m)
-
-
-def test_gripper_parent_transform_requires_joints(kin: ArmKinematics) -> None:
-    cfg = camera_config(front=False)
-    with pytest.raises(ValueError, match="joint"):
-        parent_transform(cfg, "gripper", kin, None)
-
-
-def test_front_parent_on_base_link_is_identity_at_any_head_pose(kin: ArmKinematics) -> None:
+def test_front_parent_on_base_link_is_identity_at_any_head_pose() -> None:
     cfg = camera_config()  # synthetic mount on base_link, the head URDF root
-    assert np.allclose(parent_transform(cfg, "front", kin, None, head=fresh_head(cfg, 0.5, 0.3)), np.eye(4))
+    assert np.allclose(head_parent_transform(cfg, fresh_head(cfg, 0.5, 0.3)), np.eye(4))
 
 
-def test_frame_conversions_with_and_without_arm_offset(kin: ArmKinematics) -> None:
+def test_front_scene_is_in_base_link_with_or_without_the_arm_offset() -> None:
+    for offset in (False, True):
+        cfg = camera_config(arm_offset=offset)
+        scene = build_scene(camera_setup(cfg, "front"), cfg, np.eye(4))
+        assert (scene.camera, scene.frame_name, scene.ground_z) == ("front", "base_link", 0.0)
+        assert scene.t_base_ref is not None and np.allclose(scene.t_base_ref, np.eye(4))
+        rep = ground_report(scene, "front", WIDTH / 2, HEIGHT / 2, POSE)
+        assert "ground_arm_base" not in rep and "ground_base_link" in rep and "ground_map" in rep
+        assert "arm joints" not in rep["uncertainty_note"] and "arm base frame" not in rep["uncertainty_note"]
+        assert "ground_base_link is in base_link (floor z = 0)" in rep["uncertainty_note"]
+
+
+def test_build_scene_refuses_a_camera_that_is_not_on_the_head() -> None:
+    cfg = camera_config()
+    other = replace(camera_setup(cfg, "front"), name="wrist", parent_frame="wrist_link")
+    with pytest.raises(ValueError, match="wrist"):
+        build_scene(other, cfg, np.eye(4))
+
+
+def test_frame_conversions_with_and_without_arm_offset() -> None:
     plain = camera_config()
     scene = build_scene(camera_setup(plain, "front"), plain, np.eye(4))
     assert scene.ref_to_base(np.array([1.0, 2.0, 0.0])) == pytest.approx([1.0, 2.0, 0.0])
@@ -214,9 +238,7 @@ def test_frame_conversions_with_and_without_arm_offset(kin: ArmKinematics) -> No
     scene2 = build_scene(camera_setup(offset, "front"), offset, np.eye(4))
     assert scene2.arm_to_ref(np.array([0.1, 0.2, 0.0])) == pytest.approx([0.2, 0.2, 0.165])
     assert scene2.ref_to_arm(np.array([0.2, 0.2, 0.165])) == pytest.approx([0.1, 0.2, 0.0])
-    grip = build_scene(camera_setup(offset, "gripper"), offset, np.eye(4))
-    assert grip.ref_to_base(np.array([0.0, 0.0, -0.165])) == pytest.approx([0.1, 0.0, 0.0])
-    assert grip.base_to_ref(np.array([0.1, 0.0, 0.0])) == pytest.approx([0.0, 0.0, -0.165])
+    assert scene2.base_to_ref(np.array([0.1, 0.0, 0.0])) == pytest.approx([0.1, 0.0, 0.0])
 
 
 def test_base_to_map_rotates_by_the_robot_yaw() -> None:
@@ -224,7 +246,7 @@ def test_base_to_map_rotates_by_the_robot_yaw() -> None:
     assert base_to_map(POSE, 0.0, 1.0) == pytest.approx((0.0, 2.0))
 
 
-def test_ground_report_front_view(kin: ArmKinematics) -> None:
+def test_ground_report_front_view() -> None:
     cfg = camera_config()
     scene = build_scene(camera_setup(cfg, "front"), cfg, np.eye(4))
     ex, _ = front_ground_of_center()
@@ -238,28 +260,13 @@ def test_ground_report_front_view(kin: ArmKinematics) -> None:
     assert rep["method"] and "approximate intrinsics" in rep["uncertainty_note"]
 
 
-def test_ground_report_without_pose_omits_map(kin: ArmKinematics) -> None:
+def test_ground_report_without_pose_omits_map() -> None:
     cfg = camera_config()
     scene = build_scene(camera_setup(cfg, "front"), cfg, np.eye(4))
     assert "ground_map" not in ground_report(scene, "front", WIDTH / 2, HEIGHT / 2, None)
 
 
-def test_ground_report_gripper_reports_arm_frame_and_base_when_offset(kin: ArmKinematics) -> None:
-    joints = {"shoulder_pan": 0.0, "shoulder_lift": 0.9, "elbow_flex": 0.9, "wrist_flex": 1.2, "wrist_roll": 0.0}
-    for offset in (False, True):
-        cfg = camera_config(front=False, arm_offset=offset)
-        scene = build_scene(camera_setup(cfg, "gripper"), cfg, parent_transform(cfg, "gripper", kin, joints))
-        uv = scene.project(np.array([0.2, 0.0, cfg.arm.floor_z_m]))
-        if uv is None:
-            pytest.skip("synthetic pose does not see the point")
-        rep = ground_report(scene, "gripper", uv[0], uv[1], POSE)
-        assert rep["ground_arm_base"]["z"] == pytest.approx(cfg.arm.floor_z_m)
-        assert rep["ground_arm_base"]["x"] == pytest.approx(0.2, abs=2e-3)
-        assert ("ground_base_link" in rep) is offset
-        assert ("ground_map" in rep) is offset
-
-
-def test_ground_report_rejects_off_image_and_sky(kin: ArmKinematics) -> None:
+def test_ground_report_rejects_off_image_and_sky() -> None:
     cfg = camera_config()
     scene = build_scene(camera_setup(cfg, "front"), cfg, np.eye(4))
     with pytest.raises(PixelError, match="outside the image"):
@@ -271,7 +278,7 @@ def test_ground_report_rejects_off_image_and_sky(kin: ArmKinematics) -> None:
         ground_report(scene2, "front", WIDTH / 2, 5, None)
 
 
-def test_ground_point_intersects_the_plane_at_the_surface_height(kin: ArmKinematics) -> None:
+def test_ground_point_intersects_the_plane_at_the_surface_height() -> None:
     cfg = camera_config()
     scene = build_scene(camera_setup(cfg, "front"), cfg, np.eye(4))
     box_top = np.array([0.8, 0.1, 0.03])
@@ -284,19 +291,17 @@ def test_ground_point_intersects_the_plane_at_the_surface_height(kin: ArmKinemat
     assert not np.allclose(on_floor[:2], on_box[:2], atol=1e-3)
 
 
-def test_ground_point_below_the_floor_and_gripper_frame_offset(kin: ArmKinematics) -> None:
-    joints = {"shoulder_pan": 0.0, "shoulder_lift": 0.9, "elbow_flex": 0.9, "wrist_flex": 1.2, "wrist_roll": 0.0}
-    cfg = camera_config(front=False)
-    scene = build_scene(camera_setup(cfg, "gripper"), cfg, parent_transform(cfg, "gripper", kin, joints))
-    target = np.array([0.2, 0.0, cfg.arm.floor_z_m - 0.10])
+def test_ground_point_below_the_floor() -> None:
+    cfg = camera_config()
+    scene = build_scene(camera_setup(cfg, "front"), cfg, np.eye(4))
+    target = np.array([1.0, 0.1, -0.10])
     uv = scene.project(target)
-    if uv is None:
-        pytest.skip("synthetic pose does not see the point")
+    assert uv is not None
     hit = scene.ground_point(*uv, surface_height_m=-0.10)
     assert hit is not None and hit == pytest.approx(target, abs=1e-6)
 
 
-def test_ground_report_reports_the_surface_height_used(kin: ArmKinematics) -> None:
+def test_ground_report_reports_the_surface_height_used() -> None:
     cfg = camera_config()
     scene = build_scene(camera_setup(cfg, "front"), cfg, np.eye(4))
     uv = scene.project(np.array([0.8, 0.0, 0.05]))

@@ -1,19 +1,19 @@
-"""Camera scene geometry for the pixel -> ground tools: calibrated setup, reference frames, ground reports.
+"""Camera scene geometry for the pixel -> ground tools: calibrated setup, reference frame, ground reports.
 
-Reference frames (documented in the README): the front camera works in ``base_link`` (x forward, y left, z up,
-z = 0 is the floor); the gripper camera works in the arm base frame (URDF ``base_link`` of the arm, z = 0 on the arm
-mount plane, the floor at ``arm.floor_z_m`` < 0). When ``arm.base_in_base_link`` is configured both frames convert.
+The one camera is ``front``, the D435 colour camera on the pan/tilt head. It works in ``base_link`` (x forward, y
+left, z up, z = 0 is the floor); arm-frame points (the measured or a planned tool point) convert into it when
+``arm.base_in_base_link`` is configured.
 
-The front camera is the head RGB camera and moves with the pan/tilt head: its parent (``cameras.front.parent_frame``,
-default ``head_link``) is a link of the head URDF, posed in base_link from the measured ``head_pan`` / ``head_tilt``
-angles (``HeadKinematics.link_pose``), just as the gripper camera's parent is posed from the measured arm joints.
+The camera moves with the head: its parent (``cameras.front.parent_frame``, default ``d435_color_frame``) is a link
+of the head URDF, posed in base_link from the measured ``head_pan`` / ``head_tilt`` angles
+(``HeadKinematics.link_pose``).
 """
 
 import logging
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 import numpy as np
 import yaml
@@ -27,20 +27,21 @@ from ros2_common.camera_geometry import pixel_to_ground as geometry_pixel_to_gro
 
 from .config import ArmBaseOffset, HeadSettings, IntrinsicsSettings, McpServerConfig
 from .head_kinematics import HeadKinematics
-from .ik import ArmKinematics
 from .models import BasePose
+
+Camera = Literal["front"]
+CAMERAS: tuple[Camera, ...] = ("front",)
 
 NOT_CALIBRATED = (
     "camera {camera} not calibrated: set intrinsics and mount in mcp_server config (see README calibration)"
 )
 FRAME_BASE = "base_link"
-FRAME_ARM = "arm_base"
 GROUND_METHOD = (
     "pinhole ray through the pixel intersected with the horizontal plane at floor + surface_height_m (camera_geometry)"
 )
-# Calibrated image size shown in tool descriptions while a camera has no readable intrinsics (head_camera_cpp stream,
-# gripper camera frame).
-NOMINAL_IMAGE_SIZE = {"front": (1152, 648), "gripper": (640, 480)}
+# Calibrated image size shown in tool descriptions while a camera has no readable intrinsics (the D435 colour stream
+# before its first CameraInfo).
+NOMINAL_IMAGE_SIZE: dict[Camera, tuple[int, int]] = {"front": (640, 360)}
 ASPECT_TOLERANCE = 0.005  # relative aspect-ratio difference within which a calibration scales to the image size
 logger = logging.getLogger(__name__)
 # (path, mtime_ns) -> parsed file; an apply rewrites the file, so the next camera call sees the new mtime.
@@ -116,23 +117,23 @@ def default_picture_size(width: int, height: int, longest_px: int) -> tuple[int,
     return round(width * factor), round(height * factor)
 
 
-def picture_sizes(cfg: McpServerConfig) -> dict[str, tuple[int, int]]:
+def picture_sizes(cfg: McpServerConfig) -> dict[Camera, tuple[int, int]]:
     """Default get_camera_image picture size of each camera, from its calibrated aspect.
 
     Args:
         cfg (McpServerConfig): Node configuration (intrinsics, limits.default_camera_px).
 
     Returns:
-        dict[str, tuple[int, int]]: Camera name -> (width, height); a camera without readable intrinsics uses its
+        dict[Camera, tuple[int, int]]: Camera name -> (width, height); a camera without readable intrinsics uses its
             nominal frame size (NOMINAL_IMAGE_SIZE) for the aspect.
     """
-    sizes: dict[str, tuple[int, int]] = {}
-    for name, nominal in NOMINAL_IMAGE_SIZE.items():
+    sizes: dict[Camera, tuple[int, int]] = {}
+    for name in CAMERAS:
         try:
             intr = camera_setup(cfg, name, need_mount=False).intrinsics
             size = (intr.width, intr.height)
         except CameraNotCalibratedError:
-            size = nominal
+            size = NOMINAL_IMAGE_SIZE[name]
         sizes[name] = default_picture_size(*size, cfg.limits.default_camera_px)
     return sizes
 
@@ -357,13 +358,13 @@ def load_intrinsics(
 
 
 def camera_setup(
-    cfg: McpServerConfig, camera: str, need_mount: bool = True, source: CameraInfoSource | None = None
+    cfg: McpServerConfig, camera: Camera, need_mount: bool = True, source: CameraInfoSource | None = None
 ) -> CameraSetup:
     """Resolve a camera's calibration from the config.
 
     Args:
         cfg (McpServerConfig): Node configuration.
-        camera (str): 'gripper' or 'front'.
+        camera (Camera): Camera name ('front').
         need_mount (bool): Require the mount pose (False for capture and the solver, which determine it).
         source (CameraInfoSource | None): The robot, asked for the camera's latest CameraInfo when its intrinsics
             come from a camera_info_topic; None when no CameraInfo is available (such a camera is not calibrated).
@@ -424,49 +425,20 @@ def head_parent_transform(cfg: McpServerConfig, head: MeasuredHead | None) -> np
     return head.kinematics.link_pose(pan, tilt, str(cfg.cameras.front.parent_frame))
 
 
-def parent_transform(
-    cfg: McpServerConfig,
-    camera: str,
-    kin: ArmKinematics,
-    joints: dict[str, float] | None,
-    head: MeasuredHead | None = None,
-) -> np.ndarray:
-    """T_reference_parent: the camera's parent link in its reference frame at this moment.
-
-    Args:
-        cfg (McpServerConfig): Node configuration.
-        camera (str): 'gripper' (parent link pose from the measured arm joints) or 'front' (head link pose in
-            base_link from the measured head angles).
-        kin (ArmKinematics): Arm kinematics on the URDF.
-        joints (dict[str, float] | None): Measured arm joints (required for the gripper camera).
-        head (MeasuredHead | None): Pan/tilt head with fresh joint states (required for the front camera).
-
-    Returns:
-        np.ndarray: 4x4 transform.
-
-    Raises:
-        ValueError: When the needed arm joints or head joint states are missing or stale.
-    """
-    if camera == "front":
-        return head_parent_transform(cfg, head)
-    if joints is None:
-        raise ValueError("the gripper camera pose needs the measured arm joint positions")
-    return kin.link_frame(joints, str(cfg.cameras.gripper.parent_frame))
-
-
 @dataclass(frozen=True)
 class Scene:
     """A camera at one moment: its optical pose in the reference frame plus conversions to and from the other frames.
 
     Attributes:
         camera: Camera name.
-        frame_name: Reference frame name, 'base_link' (front) or 'arm_base' (gripper).
+        frame_name: Reference frame name ('base_link').
         ground_z: Floor height in the reference frame (m).
         intr: Intrinsics at the working image size.
         approximate: Intrinsics are hfov-based.
         t_ref_optical: 4x4 pose of the optical frame in the reference frame.
-        t_base_ref: 4x4 pose of the reference frame in base_link, None when unknown (arm offset not configured).
-        t_arm_ref: 4x4 pose of the reference frame in the arm base frame, None when unknown.
+        t_base_ref: 4x4 pose of the reference frame in base_link, None when unknown.
+        t_arm_ref: 4x4 pose of the reference frame in the arm base frame, None when unknown (arm.base_in_base_link
+            not configured).
     """
 
     camera: str
@@ -565,37 +537,27 @@ def transform_point(t: np.ndarray, point: np.ndarray) -> np.ndarray:
     return (t @ np.append(np.asarray(point, dtype=np.float64), 1.0))[:3]
 
 
-def build_scene(setup: CameraSetup, cfg: McpServerConfig, t_ref_parent: np.ndarray) -> Scene:
-    """Assemble the scene of a calibrated camera.
+def build_scene(setup: CameraSetup, cfg: McpServerConfig, t_base_parent: np.ndarray) -> Scene:
+    """Assemble the base_link scene of a calibrated camera.
 
     Args:
         setup (CameraSetup): Calibrated camera (mount required).
-        cfg (McpServerConfig): Node configuration (arm offset, floor height).
-        t_ref_parent (np.ndarray): Pose of the camera's parent link in the reference frame (parent_transform).
+        cfg (McpServerConfig): Node configuration (arm offset, for arm-frame points).
+        t_base_parent (np.ndarray): Pose of the camera's parent link in base_link (head_parent_transform).
 
     Returns:
-        Scene: The scene.
+        Scene: The scene; t_arm_ref is None while arm.base_in_base_link is not configured.
+
+    Raises:
+        ValueError: For a camera that is not one of CAMERAS (only those hang on the head and work in base_link).
     """
+    if setup.name not in CAMERAS:
+        raise ValueError(f"camera {setup.name!r} has no scene: the camera tools use {', '.join(CAMERAS)}")
     assert setup.mount is not None
-    t_ref_optical = optical_from_mount(t_ref_parent @ setup.mount.to_matrix())
+    t_ref_optical = optical_from_mount(t_base_parent @ setup.mount.to_matrix())
     offset = cfg.arm.base_in_base_link
-    t_base_arm = None if offset is None else offset_matrix(offset)
-    if setup.name == "front":
-        t_base_ref = np.eye(4)
-        t_arm_ref = None if t_base_arm is None else np.linalg.inv(t_base_arm)
-        return Scene(
-            "front", FRAME_BASE, 0.0, setup.intrinsics, setup.approximate, t_ref_optical, t_base_ref, t_arm_ref
-        )
-    return Scene(
-        "gripper",
-        FRAME_ARM,
-        cfg.arm.floor_z_m,
-        setup.intrinsics,
-        setup.approximate,
-        t_ref_optical,
-        t_base_arm,
-        np.eye(4),
-    )
+    t_arm_ref = None if offset is None else np.linalg.inv(offset_matrix(offset))
+    return Scene(setup.name, FRAME_BASE, 0.0, setup.intrinsics, setup.approximate, t_ref_optical, np.eye(4), t_arm_ref)
 
 
 def base_to_map(pose: BasePose, x: float, y: float) -> tuple[float, float]:
@@ -626,11 +588,10 @@ def xyz(point: np.ndarray) -> dict[str, float]:
 
 
 def ground_fields(scene: Scene, ground: np.ndarray, pose: BasePose | None) -> dict[str, Any]:
-    """Ground coordinates of a floor point in every known frame plus distance and bearing from the robot base.
+    """Ground coordinates of a floor point in base_link and the map plus distance and bearing from the robot base.
 
-    The point is given in the scene's reference frame. base_link coordinates (and so the map position) exist for the
-    front camera always and for the gripper camera only when ``arm.base_in_base_link`` is configured; otherwise the
-    distance and bearing are measured from the arm base origin in the arm base frame.
+    The point is given in the scene's reference frame; a scene whose frame has no known base_link pose reports only
+    the distance and bearing, measured from its own origin.
 
     Args:
         scene (Scene): The camera scene.
@@ -638,34 +599,30 @@ def ground_fields(scene: Scene, ground: np.ndarray, pose: BasePose | None) -> di
         pose (BasePose | None): Robot map pose, None when unknown.
 
     Returns:
-        dict[str, Any]: ground_base_link / ground_arm_base / ground_map / distance_from_base_m / bearing_deg.
+        dict[str, Any]: ground_base_link / ground_map / distance_from_base_m / bearing_deg.
     """
     out: dict[str, Any] = {}
     in_base = scene.ref_to_base(ground)
-    in_arm = scene.ref_to_arm(ground)
-    if in_arm is not None and scene.camera == "gripper":
-        out["ground_arm_base"] = xyz(in_arm)
+    origin = ground
     if in_base is not None:
         out["ground_base_link"] = xyz(in_base)
         origin = in_base
         if pose is not None:
             mx, my = base_to_map(pose, float(in_base[0]), float(in_base[1]))
             out["ground_map"] = {"x": round(mx, 3), "y": round(my, 3)}
-    else:
-        origin = in_arm if in_arm is not None else ground
     out["distance_from_base_m"] = round(math.hypot(float(origin[0]), float(origin[1])), 3)
     out["bearing_deg"] = round(math.degrees(math.atan2(float(origin[1]), float(origin[0]))), 2)
     return out
 
 
 def ground_report(
-    scene: Scene, camera: str, u: float, v: float, pose: BasePose | None, surface_height_m: float = 0.0
+    scene: Scene, camera: Camera, u: float, v: float, pose: BasePose | None, surface_height_m: float = 0.0
 ) -> dict[str, Any]:
     """The pixel_to_ground tool result for one pixel.
 
     Args:
         scene (Scene): The camera scene.
-        camera (str): Camera name.
+        camera (Camera): Camera name.
         u (float): Pixel x.
         v (float): Pixel y.
         pose (BasePose | None): Robot map pose, None when unknown.
@@ -690,15 +647,9 @@ def ground_report(
         "assumes a flat floor and the configured mount; error grows with distance from the camera "
         "(about 1 px of pixel error is several cm far from the camera)"
     ]
-    if scene.camera == "gripper":
-        notes.append("uses the measured arm joints (servo sag and backlash shift the real camera pose by a few mm)")
     if scene.approximate:
         notes.append(APPROX_NOTE)
-    frame_note = (
-        f"ground_arm_base is in the arm base frame (floor z = {scene.ground_z:.3f} m)"
-        if scene.camera == "gripper"
-        else "ground_base_link is in base_link (floor z = 0)"
-    )
+    frame_note = "ground_base_link is in base_link (floor z = 0)"
     if surface_height_m != 0.0:
         frame_note += f"; the pixel was intersected with a surface {surface_height_m:+g} m from the floor"
     return {

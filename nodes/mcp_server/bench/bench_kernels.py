@@ -155,7 +155,6 @@ MAP_TOOLS = ("get_map_summary", "get_topdown_view", "get_robot_state")
 
 KERNELS: tuple[KernelSpec, ...] = (
     KernelSpec("camera_scene.build_scene", "camera", CAMERA_TOOLS, inputs.build_scene_call),
-    KernelSpec("camera_scene.build_scene_gripper", "camera", CAMERA_TOOLS, inputs.gripper_scene_call),
     KernelSpec("camera_candidates.candidate_store", "camera", ("mark_candidate_points",), inputs.candidate_store_call),
     KernelSpec(
         "geometry.pixel_to_ground", "camera", ("pixel_to_ground", "mark_candidate_points"), inputs.pixel_to_ground_call
