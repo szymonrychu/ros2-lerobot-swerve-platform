@@ -71,3 +71,4 @@ Context the implementer needs: pitfalls, existing code to reuse, decisions alrea
 - 2026-10-28: ansible/README.md lines ~367/371 still say head_rgbd_cpp / ground_estimator_cpp read the ToF.
 - 2026-10-29: nodes/mcp_server/README.md still documents the gripper camera and calibration sample joints.
 - 2026-10-29: nodes/mcp_server/README.md:34 still describes the gripper camera for get_camera_image.
+- 2026-10-29: nodes/mcp_server/README.md lines ~57 (approach_for_grasp: add target_lost status/field), ~704 (look_toward_frontier gripper note), ~2769 (look_camera front only).
