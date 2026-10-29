@@ -14,10 +14,9 @@ from mcp_server.head_kinematics import HeadKinematics
 MOUNT = {"parent_frame": "gripper_link", "x": 0.0, "y": 0.0, "z": 0.05, "roll": 0.0, "pitch": 0.1, "yaw": 0.0}
 
 
-def test_default_gripper_not_calibrated_front_is_the_d435_colour() -> None:
+def test_default_front_is_the_d435_colour_and_the_only_camera() -> None:
     cams = McpServerConfig().cameras
-    assert cams.gripper.intrinsics is None and cams.gripper.mount is None
-    assert cams.gripper.parent_frame == "gripper_link"
+    assert set(type(cams).model_fields) == {"calibration_dir", "front"}  # the gripper camera is retired
     # The front camera is the head D435 colour: factory CameraInfo intrinsics, zero mount on d435_color_frame.
     assert cams.front.parent_frame == "d435_color_frame"
     assert cams.front.intrinsics == IntrinsicsSettings(camera_info_topic="/head/d435/color/camera_info")
@@ -73,10 +72,14 @@ def test_camera_info_topic_is_an_exclusive_source() -> None:
 
 
 def test_mount_parent_frame_is_adopted_and_must_match() -> None:
-    cfg = McpServerConfig.model_validate({"cameras": {"gripper": {"mount": MOUNT}}})
-    assert cfg.cameras.gripper.mount is not None and cfg.cameras.gripper.mount.z == 0.05
-    with pytest.raises(ValidationError, match="parent_frame"):
-        McpServerConfig.model_validate({"cameras": {"gripper": {"parent_frame": "wrist_link", "mount": MOUNT}}})
+    head_mount = {**MOUNT, "parent_frame": "head_link"}
+    cfg = McpServerConfig.model_validate({"cameras": {"front": {"mount": head_mount}}})
+    assert cfg.cameras.front.parent_frame == "head_link"
+    assert cfg.cameras.front.mount is not None and cfg.cameras.front.mount.z == 0.05
+    with pytest.raises(ValidationError, match="differs from parent_frame"):
+        McpServerConfig.model_validate(
+            {"cameras": {"front": {"parent_frame": "d435_color_frame", "mount": head_mount}}}
+        )
 
 
 def test_front_view_camera_must_be_mounted_on_a_head_urdf_link() -> None:

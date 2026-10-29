@@ -735,7 +735,7 @@ class RosRobot:
         self.subscribe(String, t.base_servo_registers, self.on_servo_registers)
         # On-demand camera subscriptions, destroyed only by the reaper timer: per-call subscriptions destroyed from tool
         # threads raced the executor's wait set (rclpy InvalidHandle killed the executor thread, 2026-10-08).
-        self.camera_topics = {"gripper": t.gripper_camera, "front": t.head_camera}
+        self.camera_topics = {"front": t.head_camera}
         self.camera_frames = {name: FrameCache() for name in self.camera_topics}
         self.camera_subs = {
             name: self.on_demand_subscription(
@@ -744,13 +744,12 @@ class RosRobot:
             )
             for name, topic in self.camera_topics.items()
         }
-        # On-demand CameraInfo of each camera whose intrinsics come from a camera_info_topic (the D435 factory
+        # On-demand CameraInfo of the front camera when its intrinsics come from a camera_info_topic (the D435 factory
         # calibration); the latest message is kept until the subscription is reaped.
-        self.camera_info_topics = {
-            name: cam.intrinsics.camera_info_topic
-            for name, cam in (("gripper", config.cameras.gripper), ("front", config.cameras.front))
-            if cam.intrinsics is not None and cam.intrinsics.camera_info_topic is not None
-        }
+        front = config.cameras.front.intrinsics
+        self.camera_info_topics = (
+            {"front": front.camera_info_topic} if front is not None and front.camera_info_topic is not None else {}
+        )
         self.camera_info_subs = {
             name: self.on_demand_subscription(
                 functools.partial(self.cache, CameraInfo, topic, CAMERA_INFO_KEY.format(camera=name), SENSOR_QOS),

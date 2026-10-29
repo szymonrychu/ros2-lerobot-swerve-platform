@@ -2,6 +2,7 @@
 
 import ast
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -35,9 +36,35 @@ def test_default_topics_follow_the_robot_graph() -> None:
     assert t.follower_joint_states == "/follower/joint_states"
     assert t.cmd_vel == "/cmd_vel_nav"
     assert t.scan == "/scan_filtered"
-    assert t.gripper_camera == "/camera_0/image_raw/compressed"
     assert t.head_camera == "/head/d435/color/image_raw/compressed"
     assert t.navigate_action == "/navigate_to_pose"
+
+
+@pytest.mark.parametrize(
+    "section, key, yaml_text",
+    [
+        ("topics", "gripper_camera", "topics:\n  gripper_camera: /camera_0/image_raw/compressed\n"),
+        ("cameras", "gripper", "cameras:\n  gripper:\n    parent_frame: gripper_link\n"),
+    ],
+    ids=["topics.gripper_camera", "cameras.gripper"],
+)
+def test_gripper_camera_key_is_rejected(tmp_path: Path, section: str, key: str, yaml_text: str) -> None:
+    """The gripper camera is retired: its topic and its camera settings are unknown keys."""
+    assert not hasattr(getattr(McpServerConfig(), section), key)
+    path = tmp_path / "c.yaml"
+    path.write_text(yaml_text)
+    with pytest.raises(ValidationError, match=key):
+        load_config(path)
+
+
+def test_gripper_calibration_file_is_gone() -> None:
+    """The 2026-10-10 gripper intrinsics left with the camera (the session record stays under docs/calibration/)."""
+    path = "nodes/mcp_server/calibration/gripper_camera.yaml"
+    tracked = subprocess.run(
+        ["git", "ls-files", "--", path], cwd=REPO_ROOT, capture_output=True, text=True, check=True
+    ).stdout
+    assert tracked == ""
+    assert not (REPO_ROOT / path).exists()
 
 
 def test_retired_camera_topic_key_is_rejected() -> None:

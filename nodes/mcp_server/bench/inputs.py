@@ -38,7 +38,6 @@ from tests.camera_helpers import FRONT_MOUNT, HFOV, fresh_head
 
 Call = Callable[[], Any]
 
-REPO_PLACEHOLDER = "{{ ros2_repo_dest }}"
 CLIENT_GROUP_VARS = REPO_ROOT / "ansible" / "group_vars" / "client.yml"
 GRASP_GOLDEN = Path(__file__).resolve().parents[1] / "tests" / "data" / "grasp_golden.json"
 SEED = {"shoulder_pan": 0.0, "shoulder_lift": 0.0, "elbow_flex": 1.2, "wrist_flex": 0.3, "wrist_roll": 0.0}
@@ -113,8 +112,6 @@ def config() -> McpServerConfig:
     node = next(n for n in group_vars["ros2_nodes"] if n["name"] == "mcp_server")
     data = yaml.safe_load(node["config"]) if isinstance(node["config"], str) else node["config"]
     data["arm"]["urdf_path"] = str(REPO_ROOT / data["arm"]["urdf_path"])
-    gripper = data["cameras"]["gripper"]["intrinsics"]
-    gripper["calibration_file"] = gripper["calibration_file"].replace(REPO_PLACEHOLDER, str(REPO_ROOT))
     # The front camera is not calibrated on the robot: use the tests' synthetic hfov camera and mount.
     data["cameras"]["front"] = {"parent_frame": "base_link", "intrinsics": HFOV, "mount": FRONT_MOUNT}
     return McpServerConfig.model_validate(data)

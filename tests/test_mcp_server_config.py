@@ -548,14 +548,13 @@ def test_web_ui_tab_set() -> None:
     assert poi["label"] == "POI"
 
 
-def test_web_ui_arm_tab_mount_equals_mcp_server_gripper_camera_mount() -> None:
-    """The Arm tab places the gripper camera with the mount mcp_server calibrated (client.yml cameras.gripper.mount)."""
-    mount = node_config("mcp_server")["cameras"]["gripper"]["mount"]
-    arm = node_config("web_ui")["tabs"][3]
-    assert arm["gripper_camera_mount"] == {
-        "xyz": [mount["x"], mount["y"], mount["z"]],
-        "rpy": [mount["roll"], mount["pitch"], mount["yaw"]],
-    }
+def test_mcp_server_has_no_gripper_camera() -> None:
+    """The gripper camera is retired (user decision 4): no topic, no camera settings, no intrinsics file."""
+    cfg = node_config("mcp_server")
+    assert "gripper_camera" not in cfg["topics"]
+    assert set(cfg["cameras"]) == {"calibration_dir", "front"}
+    assert "gripper_camera" not in node_entry("mcp_server")["config"]
+    assert not (NODE_DIR / "calibration" / "gripper_camera.yaml").exists()
 
 
 def test_web_ui_map_tab_uses_contract_fields() -> None:

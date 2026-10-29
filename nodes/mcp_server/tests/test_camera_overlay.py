@@ -142,9 +142,6 @@ def test_draw_candidates_numbers_the_points() -> None:
 
 
 def test_default_config_has_no_cameras_to_draw() -> None:
-    """The gripper is not calibrated by default and the front (D435 colour) camera needs its CameraInfo first."""
-    cfg = McpServerConfig()
-    assert cfg.cameras.gripper.mount is None
-    for camera in ("front", "gripper"):
-        with pytest.raises(CameraNotCalibratedError):
-            camera_setup(cfg, camera)
+    """The front (D435 colour) camera, the only one, needs its CameraInfo first."""
+    with pytest.raises(CameraNotCalibratedError):
+        camera_setup(McpServerConfig(), "front")

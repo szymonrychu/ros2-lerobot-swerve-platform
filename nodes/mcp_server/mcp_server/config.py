@@ -24,7 +24,6 @@ DEFAULT_URDF = Path("nodes/web_ui/urdf/so101_arm.urdf")
 DEFAULT_HOME_FILE = Path("/var/lib/ros2/arm/home.yaml")
 DEFAULT_CALIBRATION_STALE_MARKER = Path("/var/lib/ros2/arm/calibration_stale.json")
 DEFAULT_CALIBRATION_DIR = Path("/var/lib/ros2/camera_calibration")
-GRIPPER_CAMERA_PARENT = "gripper_link"  # URDF link of so101_arm.urdf the gripper camera is mounted on
 FRONT_CAMERA_PARENT = "d435_color_frame"  # head URDF link (head.urdf_path) the front (D435 colour) camera hangs on
 FRONT_CAMERA_INFO_TOPIC = "/head/d435/color/camera_info"  # D435 factory colour intrinsics of the front camera
 DEFAULT_OBJECTS_FILE = Path("/var/lib/ros2/objects/objects.json")
@@ -167,7 +166,6 @@ class TopicSettings(StrictModel):
     navigate_action: str = "/navigate_to_pose"
     compute_path_action: str = "/compute_path_to_pose"  # Nav2 planner_server, checks one frontier observation pose
     planner_id: str = "GridBased"  # planner_server plugin id used by compute_path_action
-    gripper_camera: str = "/camera_0/image_raw/compressed"
     head_camera: str = "/head/d435/color/image_raw/compressed"  # head D435 colour (640x360), tool camera `front`
     local_costmap: str = "/local_costmap/costmap"  # subscribed lazily by get_topdown_view, latest message only
     # head D435 cloud (laser_filter self-filtered), subscribed lazily by get_map_summary, latest message only
@@ -770,37 +768,33 @@ def d435_colour_camera() -> CameraSettings:
 
 
 class CamerasSettings(StrictModel):
-    """Camera geometry for the pixel -> ground tools; the gripper defaults to not calibrated, the front camera to the
-    D435 colour (calibrated once its CameraInfo arrives)."""
+    """Camera geometry for the pixel -> ground tools: the front camera, the head D435 colour (calibrated once its
+    CameraInfo arrives), is the only camera."""
 
     calibration_dir: Path = DEFAULT_CALIBRATION_DIR
-    gripper: CameraSettings = CameraSettings()
     front: CameraSettings = Field(default_factory=d435_colour_camera)
 
     @model_validator(mode="after")
-    def resolve_parent_frames(self) -> "CamerasSettings":
-        """Fill in each camera's parent frame and require a mount to agree with it.
+    def resolve_parent_frame(self) -> "CamerasSettings":
+        """Fill in the front camera's parent frame and require its mount to agree with it.
 
-        The gripper camera hangs on an arm URDF link (default gripper_link); the front camera on a head URDF link
-        (default d435_color_frame, checked against head.urdf_path by McpServerConfig).
+        The front camera hangs on a head URDF link (default d435_color_frame, checked against head.urdf_path by
+        McpServerConfig).
 
         Returns:
             CamerasSettings: The validated settings.
 
         Raises:
-            ValueError: When a mount's parent_frame differs from the camera's parent_frame.
+            ValueError: When the mount's parent_frame differs from the camera's parent_frame.
         """
-        for name, cam, default in (
-            ("gripper", self.gripper, GRIPPER_CAMERA_PARENT),
-            ("front", self.front, FRONT_CAMERA_PARENT),
-        ):
-            if cam.parent_frame is None:
-                cam.parent_frame = cam.mount.parent_frame if cam.mount is not None else default
-            if cam.mount is not None and cam.mount.parent_frame != cam.parent_frame:
-                raise ValueError(
-                    f"cameras.{name}: mount.parent_frame {cam.mount.parent_frame!r} differs from parent_frame "
-                    f"{cam.parent_frame!r}"
-                )
+        cam = self.front
+        if cam.parent_frame is None:
+            cam.parent_frame = cam.mount.parent_frame if cam.mount is not None else FRONT_CAMERA_PARENT
+        if cam.mount is not None and cam.mount.parent_frame != cam.parent_frame:
+            raise ValueError(
+                f"cameras.front: mount.parent_frame {cam.mount.parent_frame!r} differs from parent_frame "
+                f"{cam.parent_frame!r}"
+            )
         return self
 
 

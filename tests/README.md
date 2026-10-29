@@ -1044,7 +1044,10 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   `MCP_SERVER_CONFIG` lookup, `MCP_SERVER_TOKEN` refused when missing/blank/short and stripped otherwise, settle
   tolerance default 0.08 and validated between the converge tolerance and the tracking abort (defaults 0.25 rad + 0 s x velocity: the delay window carries the lag); the `imu_level_reference` code default equals the swerve tilt guard's `DEFAULT_LEVEL_REFERENCE_*_DEG` (parity test reading its source); arm velocity default 1.0
   rad/s with the 1.5 cap, roll guard defaults (0.1 / 0.8) and validation, `arm.jaw_open_axis` default and normalisation
-  (zero and wrong-length vectors rejected), `arm.joint_limit_overrides_rad` default empty with name and lower < upper checks
+  (zero and wrong-length vectors rejected), `arm.joint_limit_overrides_rad` default empty with name and lower < upper checks;
+  `test_gripper_camera_key_is_rejected`: `topics.gripper_camera` and `cameras.gripper` are unknown keys (the gripper
+  camera is retired); `test_gripper_calibration_file_is_gone`: `nodes/mcp_server/calibration/gripper_camera.yaml` is
+  neither tracked nor present
 - trajectory (`test_trajectory.py`): quintic blend endpoints/monotonicity, limit clamping with margin, duration from the
   quintic peak velocity, sampled trajectory ends exactly at the goal without exceeding the velocity cap, tracking error
 - staleness (`test_staleness.py`), home store (`test_home_store.py`: missing file, atomic round trip, corrupt file,
@@ -1209,7 +1212,7 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   `filter_node reports no active source (restarted?)` after an active source `none` (L2); the home pose is read once
   until the file changes (L1); `NavGoalRegistry` cancels only registered goals, a discarded goal is skipped, nothing to
   cancel is a success and an unanswered cancel reports failure; the registry is thread-safe (M2)
-- camera config (`test_camera_config.py`): the gripper defaults to not calibrated on `gripper_link`, the front camera to
+- camera config (`test_camera_config.py`): the front camera is the only camera (no gripper settings) and defaults to
   the D435 colour (CameraInfo intrinsics from `/head/d435/color/camera_info`, zero mount on `d435_color_frame`);
   intrinsics source rules (exactly one of calibration file, camera_info_topic, or hfov with width and height), mount parent
   frame adopted and checked, front camera restricted to a head URDF link, unknown camera keys rejected,
@@ -1274,7 +1277,8 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   integration and relative pose; navigation via a fake Nav port (success, interrupt cancels goal and zeroes the base,
   stop, timeout, rejected, unavailable, real monitor collision stop)
 - on-demand subscriptions (`test_on_demand_subscriptions.py`, `conftest.py` `ros_iface` fixture): an idle `RosRobot`
-  has no camera, `/scan_filtered` or `/tf` subscription (only `/tf_static`); `camera_image` subscribes the asked camera
+  has no camera, `/scan_filtered` or `/tf` subscription (only `/tf_static`); `camera_topics` is only `front` (the head
+  D435 colour) and `camera_image("gripper")` is an unknown camera that subscribes nothing; `camera_image` subscribes the camera
   and returns a real JPEG frame from a fake publisher thread, or fails after `image_timeout_s` without one; the reaper
   destroys a camera subscription only after `on_demand.linger_s` unused (a call restarts the linger) and the next call
   subscribes again; `scan_points` subscribes, waits at most `timeouts.state_stale_s` for a first scan (once) and a
@@ -2074,9 +2078,8 @@ Static checks of the mcp_server camera tools wiring (YAML and README only; no RO
 | Test (group) | Description |
 |------|-------------|
 | `test_setup_tasks_create_the_calibration_directory_owned_by_the_node_user` | `tasks/mcp_server_setup.yml` creates `/var/lib/ros2/camera_calibration` owned by `ansible_user`. |
-| `test_cameras_config_front_on_the_d435_gripper_calibrated` | The mcp_server `cameras` block has `calibration_dir`; the front camera sits on `d435_color_frame` with a zero mount and `camera_info_topic: /head/d435/color/camera_info` intrinsics, the gripper camera has intrinsics and a mount on `gripper_link`. |
+| `test_cameras_config_front_on_the_d435` | The mcp_server `cameras` block is only `calibration_dir` and `front` (the gripper camera is retired); the front camera sits on `d435_color_frame` with a zero mount and `camera_info_topic: /head/d435/color/camera_info` intrinsics. |
 | `test_front_camera_is_the_d435_colour` | `topics.head_camera` is `/head/d435/color/image_raw/compressed` (a CompressedImage in `d435_color_optical_frame` per `nodes/bridges/realsense_d435/config/topics.yaml`); `cameras.front.parent_frame` is the head.urdf link `d435_color_frame` whose only child is `d435_color_optical_frame`, with the zero mount on it; the intrinsics are the colour CameraInfo topic, published in the same frame as the stream. |
-| `test_gripper_parent_frame_is_a_link_of_the_arm_urdf` | `cameras.gripper.parent_frame` names a link in the arm URDF. |
 | `test_front_parent_frame_is_a_head_urdf_link_and_the_mount_is_the_zero_offset_on_it` | `head.urdf_path` is `nodes/web_ui/urdf/head.urdf`; `cameras.front.parent_frame` (`d435_color_frame`) names a link of it and the front mount is the all-zero offset on that link. |
 | `test_arm_reach_keys_are_ordered` | `arm.reach_inner_m` is positive and below `arm.reach_outer_m`. |
 | `test_readme_documents_the_camera_tools_frames_and_calibration` | `nodes/mcp_server/README.md` documents the seven camera tools, frames, the not-calibrated default, `base_in_base_link`, the calibration directory and the procedure. |
@@ -2103,7 +2106,7 @@ fake `ssh`; no ROS needed).
 | `test_mcp_server_monitor_block_has_ordered_thresholds` | mcp_server `monitor` block: servo 60/70 C, CPU 75/82 C, bump warning below critical, stall 1.0 s, tilt 10 deg, battery warning margin 0.2 V/cell. |
 | `test_mcp_server_monitor_topics_match_their_producers` | mcp_server monitor topics: `/follower/servo_registers`, `base_servo_registers` equals `/swerve_drive/servo_registers`, `/imu/data`, `/robot_events`, `swerve_odom` equals the swerve controller `odom_topic`, `rf2o_twist` equals the rf2o relay `output_topic`. |
 | `test_mcp_server_readme_documents_monitor_and_events_contract` | `nodes/mcp_server/README.md` documents get_body_state, the per-call digest, the `/robot_events` contract, early-return (`interrupted_by`, expected/achieved), event types and the `monitor` thresholds. |
-| `test_web_ui_arm_tab_mount_equals_mcp_server_gripper_camera_mount` | The arm tab's `gripper_camera_mount` (`xyz`, `rpy`) equals mcp_server `cameras.gripper.mount` in client.yml. |
+| `test_mcp_server_has_no_gripper_camera` | The client.yml mcp_server config has no `topics.gripper_camera`, its `cameras` block is only `calibration_dir` and `front`, nothing in it names `gripper_camera`, and `nodes/mcp_server/calibration/gripper_camera.yaml` is gone (the gripper camera is retired). |
 | `test_web_ui_tab_set` | web_ui tabs are exactly map (map_nav, first), agent (agent_chat), arm (type `arm`, label `Arm`, `gripper_camera_topic` `/camera_0/image_raw/compressed`, `head_camera_topic` (`/head_camera/image_raw/compressed`), no `topic`), head (type `head`, `/head/d435/color/image_raw/compressed`, depth `/head/d435/depth/image_rect_raw`, no ToF keys, `depth_range_m` 4.0), poi (type `poi`, label `POI`); arm_servos, local_nav, gps_nav, scene3d and robot_status are gone. |
 | `test_mcp_server_head_camera_is_the_head_camera_stream` | mcp_server `topics.head_camera` is the D435 colour `/head/d435/color/image_raw/compressed`, no `front_camera` or `realsense_camera` key remains. |
 | `test_mcp_server_states_no_hardcoded_front_camera_size` | mcp_server `tools.py` states no 640x480 front camera size; the mcp_server README gives 640x360 and 384x216 for the head D435 colour and drops "640x480 for both" and the pi_cameras 640x480 wording. |

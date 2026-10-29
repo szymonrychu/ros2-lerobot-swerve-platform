@@ -58,18 +58,16 @@ def test_setup_tasks_create_the_calibration_directory_owned_by_the_node_user() -
     assert calib["owner"] == "{{ ansible_user }}" and calib["group"] == "{{ ansible_user }}"
 
 
-def test_cameras_config_front_on_the_d435_gripper_calibrated() -> None:
+def test_cameras_config_front_on_the_d435() -> None:
     cameras = mcp_config()["cameras"]
     assert cameras["calibration_dir"] == CALIBRATION_DIR
-    assert set(cameras) == {"calibration_dir", "gripper", "front"}
+    assert set(cameras) == {"calibration_dir", "front"}  # the gripper camera is retired
     # The front camera is the D435 colour stream: on d435_color_frame with a zero mount and its CameraInfo intrinsics.
     assert cameras["front"] == {
         "parent_frame": D435_COLOUR_FRAME,
         "intrinsics": D435_FRONT_INTRINSICS,
         "mount": D435_COLOUR_MOUNT,
     }
-    assert cameras["gripper"]["parent_frame"] == "gripper_link"
-    assert cameras["gripper"]["intrinsics"] is not None and cameras["gripper"]["mount"] is not None
 
 
 def test_front_camera_is_the_d435_colour() -> None:
@@ -95,12 +93,6 @@ def test_front_camera_is_the_d435_colour() -> None:
     info = live[front["intrinsics"]["camera_info_topic"]]
     assert info["type"] == "sensor_msgs/msg/CameraInfo"
     assert info["frame_id"] == live[topic]["frame_id"]
-
-
-def test_gripper_parent_frame_is_a_link_of_the_arm_urdf() -> None:
-    cfg = mcp_config()
-    urdf = (REPO_ROOT / cfg["arm"]["urdf_path"]).read_text()
-    assert f'<link name="{cfg["cameras"]["gripper"]["parent_frame"]}"' in urdf
 
 
 def test_front_parent_frame_is_a_head_urdf_link_and_the_mount_is_the_zero_offset_on_it() -> None:
@@ -132,26 +124,6 @@ def test_readme_documents_the_camera_tools_frames_and_calibration() -> None:
         "solve_camera_calibration",
     ):
         assert needle in text, needle
-
-
-def test_gripper_camera_is_calibrated_with_a_repo_intrinsics_file() -> None:
-    """2026-10-08 calibration (ruler + Lego, 20 points, RMS 3.97 px): the gripper camera has a mount on gripper_link
-    and intrinsics from nodes/mcp_server/calibration/gripper_camera.yaml (deployed with the repo)."""
-    import yaml as _yaml
-
-    cfg = _yaml.safe_load(
-        next(n for n in _yaml.safe_load(CLIENT_VARS.read_text())["ros2_nodes"] if n["name"] == "mcp_server")["config"]
-    )
-    gripper = cfg["cameras"]["gripper"]
-    assert gripper["mount"]["parent_frame"] == "gripper_link"
-    for key in ("x", "y", "z", "roll", "pitch", "yaw"):
-        assert isinstance(gripper["mount"][key], float)
-    path = gripper["intrinsics"]["calibration_file"]
-    assert path.endswith("nodes/mcp_server/calibration/gripper_camera.yaml")
-    local = REPO_ROOT / "nodes" / "mcp_server" / "calibration" / "gripper_camera.yaml"
-    data = _yaml.safe_load(local.read_text())
-    assert (data["image_width"], data["image_height"]) == (640, 480)
-    assert len(data["camera_matrix"]["data"]) == 9 and len(data["distortion_coefficients"]["data"]) == 5
 
 
 def test_camera_image_wait_covers_discovery_on_a_loaded_pi() -> None:
