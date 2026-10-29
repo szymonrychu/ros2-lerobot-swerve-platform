@@ -65,3 +65,4 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+- 2026-10-29: ansible arducam_tof_sdk.yml still runs on every client deploy; remove/retire it with the source here.

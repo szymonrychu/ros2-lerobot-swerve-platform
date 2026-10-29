@@ -65,3 +65,4 @@ What is true and observable when the task is done.
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
 - 2026-10-28: scripts/node_cpu_compare.yaml:21 still lists tof_obstacle_cloud (retired by d435-obstacle-cloud-node, now d435_obstacle_cloud) - replace that entry here.
+- 2026-10-29: scripts/node_cpu_compare.yaml still lists arducam_tof.

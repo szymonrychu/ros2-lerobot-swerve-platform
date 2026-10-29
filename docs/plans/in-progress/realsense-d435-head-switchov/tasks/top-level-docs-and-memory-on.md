@@ -73,3 +73,4 @@ Context the implementer needs: pitfalls, existing code to reuse, decisions alrea
 - 2026-10-29: nodes/mcp_server/README.md:34 still describes the gripper camera for get_camera_image.
 - 2026-10-29: nodes/mcp_server/README.md lines ~57 (approach_for_grasp: add target_lost status/field), ~704 (look_toward_frontier gripper note), ~2769 (look_camera front only).
 - 2026-10-29: nodes/mcp_server/README.md lines ~40 and ~2737 still say tof_points and /tof/points_filtered (now depth_points, /head/d435/points_filtered); mcp ground-estimate texts still say "head ToF/RGB-D".
+- 2026-10-29: ansible/README.md says arducam_tof present: true port 19112; docs/runbooks/head-remount-floor-check.md still deploys arducam_tof.
