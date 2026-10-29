@@ -1,6 +1,6 @@
 ---
 title: MCP image tools front only
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "get_camera_image, look_around and the lookups use the D435 front camera only."
 files: [nodes/mcp_server/mcp_server/tools.py, nodes/mcp_server/mcp_server/perception_tools.py, nodes/mcp_server/mcp_server/look_around.py, nodes/mcp_server/mcp_server/lookup_tools.py, nodes/mcp_server/tests/test_tools.py, nodes/mcp_server/tests/test_look_around.py, nodes/mcp_server/tests/test_perception_tools.py, nodes/mcp_server/tests/test_lookup_tools.py]
@@ -8,15 +8,15 @@ verify: "cd nodes/mcp_server && uv run --frozen pytest tests/test_tools.py tests
 depends_on: [mcp-camera-tools-front-only]
 model: opus
 review: ""
-verified_head: ""
+verified_head: 8ecbfa2a
 points: 3
 expected_minutes: 34
 expected_tokens: 2250000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 3
+actual_minutes: 26
+actual_tokens: 4109175
+actual_roles: "impl 18, review 9"
+actual_role_tokens: "impl 3969850, review 139325"
 ---
 
 # MCP image tools front only
@@ -66,3 +66,5 @@ What is true and observable when the task is done.
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
 - 2026-10-29 carried from mcp-camera-tools-front-only: remove the unused `joints` parameter of camera_pose_base; drop build_scene_gripper from nodes/mcp_server/bench/REPORT.md and report.json.
+
+- 2026-10-29 done
