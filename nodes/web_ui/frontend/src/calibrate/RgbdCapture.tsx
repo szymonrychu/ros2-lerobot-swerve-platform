@@ -41,7 +41,7 @@ interface Props {
   onState: (state: RgbdState) => void
 }
 
-/** Capture part of the RGB-D section: start/stop, live status, pose thumbnails with delete, coverage. */
+/** Capture part of the D435 intrinsics check: start/stop, live status, colour and depth thumbnails with delete, coverage. */
 export function RgbdCapture({ capture, compute, sessionId, onState }: Props) {
   const [detail, setDetail] = useState<SessionDetail | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -129,13 +129,13 @@ export function RgbdCapture({ capture, compute, sessionId, onState }: Props) {
                   </IconButton>
                 </Box>
                 <Box sx={{ display: 'flex', gap: 0.5 }}>
-                  <Box component="img" alt={`RGB ${p.id}`} src={thumbnailUrl(detail.id, p.id, 'rgb')} sx={{ width: THUMB_PX }} />
+                  <Box component="img" alt={`Colour ${p.id}`} src={thumbnailUrl(detail.id, p.id, 'rgb')} sx={{ width: THUMB_PX }} />
                   <Box component="img" alt={`Depth ${p.id}`} src={thumbnailUrl(detail.id, p.id, 'depth')} sx={{ width: THUMB_PX }} />
                 </Box>
                 <Typography variant="caption" component="div">
-                  {`RGB ${p.rgb_corners} corners, ${p.plane_bias_samples} depth px on the board`}
+                  {`${p.rgb_corners} colour corners, ${p.plane_bias_samples} depth px on the board`}
                 </Typography>
-                {(p.hints ?? []).map((h) => (
+                {p.hints.map((h) => (
                   <Typography key={h} variant="caption" component="div" color="warning.main">
                     {h}
                   </Typography>

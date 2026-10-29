@@ -9,13 +9,18 @@ import { CaptureState, ComputeState, RgbdState, getState } from './rgbdApi'
 
 /** State poll period: 1 Hz. */
 export const RGBD_POLL_MS = 1000
+/** What the operator does: board distance and coverage, then what Compute compares and what Accept check records. */
+const HELP_TEXT =
+  'Hold the ChArUco board 0.3-0.6 m in front of the head camera and move it until every cell of the coverage grid has ' +
+  'corners. Compute fits the colour intrinsics, compares them with the D435 factory values and measures the depth ' +
+  'bias on the board plane; Accept check records a passed check.'
 
 interface Live {
   capture: CaptureState
   compute: ComputeState
 }
 
-/** RGB-D calibration section of the Calibrate page: owns the capture/compute state and its poll. */
+/** D435 intrinsics check section of the Calibrate page: owns the capture/compute state and its poll. */
 export function RgbdCalibration() {
   const [live, setLive] = useState<Live | null>(null)
   const [sessionId, setSessionId] = useState<string | null>(null)
@@ -75,7 +80,10 @@ export function RgbdCalibration() {
   return (
     <Box component="section" sx={{ mb: 2 }}>
       <Typography variant="h6" component="h2">
-        RGB-D calibration
+        D435 intrinsics check
+      </Typography>
+      <Typography variant="body2" data-testid="rgbd-help" sx={{ mb: 1 }}>
+        {HELP_TEXT}
       </Typography>
       {error && <Alert severity="error">{error}</Alert>}
       {live && <RgbdCapture capture={live.capture} compute={live.compute} sessionId={sessionId} onState={apply} />}

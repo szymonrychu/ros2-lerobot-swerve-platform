@@ -21,7 +21,7 @@ export interface ComputeState {
   error: string | null
 }
 
-/** One restarted consumer unit after an apply. */
+/** State of one consumer unit, as the node reports it next to applied.json (an intrinsics accept restarts none). */
 export interface UnitRestart {
   name: string
   active_state?: string
@@ -56,13 +56,15 @@ export interface SessionSummary {
   result_count: number
 }
 
+/** One stored still of a D435 intrinsics session. */
 export interface PoseSummary {
   id: string
+  /** ChArUco corners detected in the colour image. */
   rgb_corners: number
   /** Aligned depth pixels with a value inside the detected board corners (the plane bias samples). */
   plane_bias_samples: number
-  /** Capture-time quality hints; absent on a node from before the hints. */
-  hints?: string[]
+  /** Capture-time quality hints. */
+  hints: string[]
 }
 
 /** Image-area grid; counts[row][col] is the number of stored poses covering the cell. */
@@ -80,14 +82,36 @@ export interface PoseError {
   plane_spread_mm: number | null
 }
 
-/** result.json of one intrinsics check run. */
+/** Acceptance limits recorded in result.json (`limits`, the node's D435 limit keys). */
+export interface CheckLimits {
+  plane_max_bias_mm: number
+  plane_max_spread_mm: number
+  min_views: number
+  intrinsics_max_rms_px: number
+  intrinsics_max_focal_diff_pct: number
+  intrinsics_max_principal_diff_px: number
+}
+
+/** result.json of one D435 intrinsics check; metrics are null where an input error stopped the check. */
 export interface ResultSummary {
   id: string
-  created?: string | number
+  session: string
+  created: string
+  kind: 'intrinsics'
   passed: boolean
-  /** Per-still errors; absent on a result from before the pose errors. */
-  poses?: PoseError[]
-  [key: string]: unknown
+  /** One description per exceeded limit, each starting with its `limits.<key>:`. */
+  failed_limits: string[]
+  rms_px: number | null
+  focal_diff_pct: number | null
+  principal_diff_px: number | null
+  plane_bias_median_mm: number | null
+  plane_bias_spread_mm: number | null
+  views: number | null
+  pose_ids: string[]
+  poses: PoseError[]
+  limits: CheckLimits
+  /** Input error (too few views, no factory camera_info, ...); set only when the check could not run. */
+  error?: string
 }
 
 export interface ResultDetail extends ResultSummary {
@@ -143,7 +167,7 @@ const isApplied = (v: unknown) =>
   isStr(v.applied_at) &&
   (v.units === undefined || isArrayOf(isUnit)(v.units))
 
-/** applied.json is read back with `units`; the apply answer without it is rejected so the UI never shows a guess. */
+/** The apply answer and GET /applied carry the node's `units` next to applied.json. */
 const isAppliedWithUnits = (v: unknown) => isApplied(v) && isArrayOf(isUnit)((v as Record<string, unknown>).units)
 
 const isState = (v: unknown) =>
@@ -153,11 +177,7 @@ const isSessionSummary = (v: unknown) =>
   isObj(v) && isStr(v.id) && (isStr(v.created) || isNum(v.created)) && isNum(v.pose_count) && isNum(v.result_count)
 
 const isPose = (v: unknown) =>
-  isObj(v) &&
-  isStr(v.id) &&
-  isNum(v.rgb_corners) &&
-  isNum(v.plane_bias_samples) &&
-  (v.hints === undefined || isArrayOf(isStr)(v.hints))
+  isObj(v) && isStr(v.id) && isNum(v.rgb_corners) && isNum(v.plane_bias_samples) && isArrayOf(isStr)(v.hints)
 
 const isCoverage = (v: unknown) =>
   isObj(v) && isNum(v.cols) && isNum(v.rows) && isArrayOf(isArrayOf(isNum))(v.counts)
@@ -169,11 +189,38 @@ const isPoseError = (v: unknown) =>
   isNullOr(isNum)(v.plane_bias_mm) &&
   isNullOr(isNum)(v.plane_spread_mm)
 
+const LIMIT_KEYS: (keyof CheckLimits)[] = [
+  'plane_max_bias_mm',
+  'plane_max_spread_mm',
+  'min_views',
+  'intrinsics_max_rms_px',
+  'intrinsics_max_focal_diff_pct',
+  'intrinsics_max_principal_diff_px',
+]
+const METRIC_KEYS = [
+  'rms_px',
+  'focal_diff_pct',
+  'principal_diff_px',
+  'plane_bias_median_mm',
+  'plane_bias_spread_mm',
+  'views',
+] as const
+
+const isLimits = (v: unknown) => isObj(v) && LIMIT_KEYS.every((k) => isNum(v[k]))
+
 const isResult = (v: unknown) =>
   isObj(v) &&
   isStr(v.id) &&
+  isStr(v.session) &&
+  isStr(v.created) &&
+  v.kind === 'intrinsics' &&
   typeof v.passed === 'boolean' &&
-  (v.poses === undefined || isArrayOf(isPoseError)(v.poses))
+  isArrayOf(isStr)(v.failed_limits) &&
+  METRIC_KEYS.every((k) => isNullOr(isNum)(v[k])) &&
+  isArrayOf(isStr)(v.pose_ids) &&
+  isArrayOf(isPoseError)(v.poses) &&
+  isLimits(v.limits) &&
+  (v.error === undefined || isStr(v.error))
 
 const isSession = (v: unknown) =>
   isObj(v) &&

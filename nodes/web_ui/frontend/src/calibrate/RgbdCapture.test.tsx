@@ -7,6 +7,7 @@ import type { CaptureState, Coverage } from './rgbdApi'
 import { RgbdCapture } from './RgbdCapture'
 import captureStartFx from '../../../../head_rgbd_calibration/tests/fixtures/api/capture_start.json'
 import captureStopFx from '../../../../head_rgbd_calibration/tests/fixtures/api/capture_stop.json'
+import resultFx from '../../../../head_rgbd_calibration/tests/fixtures/api/result.json'
 
 const IDLE: CaptureState = { running: false, session_id: null, status: 'idle', pose_count: 0, started_at: null, stops_at: null }
 const COMPUTE = { running: false, session_id: null, result_id: null, started_at: null, error: null }
@@ -14,7 +15,7 @@ const cov = (counts: number[][]): Coverage => ({ cols: counts[0].length, rows: c
 
 interface World {
   capture: typeof IDLE
-  poses: { id: string; rgb_corners: number; plane_bias_samples: number }[]
+  poses: { id: string; rgb_corners: number; plane_bias_samples: number; hints: string[] }[]
   calls: string[]
 }
 
@@ -54,7 +55,7 @@ function install(w: World): void {
   )
 }
 
-const pose = (id: string) => ({ id, rgb_corners: 12, plane_bias_samples: 4200 })
+const pose = (id: string) => ({ id, rgb_corners: 12, plane_bias_samples: 4200, hints: [] as string[] })
 const stateCalls = (w: World) => w.calls.filter((c) => c.endsWith('/state')).length
 
 describe('RgbdCapture', () => {
@@ -75,7 +76,7 @@ describe('RgbdCapture', () => {
     const before = stateCalls(w)
     await act(async () => { await vi.advanceTimersByTimeAsync(2100) })
     expect(stateCalls(w)).toBeGreaterThan(before)
-    await screen.findByAltText('RGB p1')
+    await screen.findByAltText('Colour p1')
   })
 
   it('start shows status and count, a new pose shows thumbnails', async () => {
@@ -90,11 +91,22 @@ describe('RgbdCapture', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(1100) })
     await screen.findByText(/pose 1 captured/)
     expect(screen.getByText(/Poses: 1/)).toBeTruthy()
-    const rgb = await screen.findByAltText('RGB p1')
+    const rgb = await screen.findByAltText('Colour p1')
     expect(rgb.getAttribute('src')).toBe('/api/calibration/rgbd/sessions/s1/poses/p1/rgb.jpg')
+  })
+
+  it('shows colour corners and a depth thumbnail, no ToF thumbnail', async () => {
+    const w: World = { capture: { ...IDLE, running: true, session_id: 's1', status: 'moving', pose_count: 1 }, poses: [pose('p1')], calls: [] }
+    install(w)
+    render(<RgbdCalibration />)
+    const card = await screen.findByTestId('pose-card-p1')
+    expect(screen.getByAltText('Colour p1').getAttribute('src')).toBe('/api/calibration/rgbd/sessions/s1/poses/p1/rgb.jpg')
     expect(screen.getByAltText('Depth p1').getAttribute('src')).toBe('/api/calibration/rgbd/sessions/s1/poses/p1/depth.jpg')
-    expect(screen.queryByAltText('ToF p1')).toBeNull()
-    expect(screen.getByText('RGB 12 corners, 4200 depth px on the board')).toBeTruthy()
+    expect(card.querySelectorAll('img')).toHaveLength(2)
+    expect(screen.getByText('12 colour corners, 4200 depth px on the board')).toBeTruthy()
+    expect(card.textContent).not.toMatch(/ToF/)
+    expect(screen.queryByAltText(/ToF/)).toBeNull()
+    expect(screen.queryByText(/ToF/)).toBeNull()
   })
 
   it('delete goes through the dialog, calls DELETE and refreshes', async () => {
@@ -102,13 +114,13 @@ describe('RgbdCapture', () => {
     install(w)
     w.capture = { ...IDLE, running: true, session_id: 's1', status: 'moving', pose_count: 2 }
     render(<RgbdCalibration />)
-    await screen.findByAltText('RGB p2')
+    await screen.findByAltText('Colour p2')
     fireEvent.click(screen.getByRole('button', { name: 'Delete pose p2' }))
     expect(w.calls.some((c) => c.startsWith('DELETE'))).toBe(false)
     fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
     await waitFor(() => expect(w.calls).toContain('DELETE /api/calibration/rgbd/sessions/s1/poses/p2'))
-    await waitFor(() => expect(screen.queryByAltText('RGB p2')).toBeNull())
-    expect(screen.getByAltText('RGB p1')).toBeTruthy()
+    await waitFor(() => expect(screen.queryByAltText('Colour p2')).toBeNull())
+    expect(screen.getByAltText('Colour p1')).toBeTruthy()
   })
 
   it('delete failure shows the server message', async () => {
@@ -118,7 +130,7 @@ describe('RgbdCapture', () => {
     vi.stubGlobal('fetch', vi.fn(async (u: string, i?: RequestInit) =>
       i?.method === 'DELETE' ? new Response(JSON.stringify({ message: 'pose is busy' }), { status: 409 }) : base(u, i)))
     render(<RgbdCalibration />)
-    await screen.findByAltText('RGB p1')
+    await screen.findByAltText('Colour p1')
     fireEvent.click(screen.getByRole('button', { name: 'Delete pose p1' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
     await screen.findByText(/pose is busy/)
@@ -252,7 +264,7 @@ describe('RgbdCapture pose hints and errors', () => {
   })
 
   it('shows the error caption and skips poses absent from the result', async () => {
-    serve(() => detailWith([{ id: 'r2', passed: false, poses: [pe('p1'), { ...pe('p2'), plane_bias_mm: null }] }]))
+    serve(() => detailWith([{ ...resultFx, id: 'r2', passed: false, poses: [pe('p1'), { ...pe('p2'), plane_bias_mm: null }] }]))
     mount()
     expect(await screen.findByText('RGB 0.210 px / plane bias -1.5 mm')).toBeTruthy()
     expect(screen.getByText('RGB 0.210 px / plane bias - mm')).toBeTruthy()
@@ -264,10 +276,10 @@ describe('RgbdCapture pose hints and errors', () => {
     let results: unknown[] = []
     const f = serve(() => detailWith(results))
     const { rerender } = mount({ ...COMPUTE, running: true })
-    await screen.findByAltText('RGB p2')
+    await screen.findByAltText('Colour p2')
     expect(screen.queryByText(/plane bias/)).toBeNull()
     const before = f.mock.calls.length
-    results = [{ id: 'r2', passed: false, poses: [pe('p2')] }]
+    results = [{ ...resultFx, id: 'r2', passed: false, poses: [pe('p2')] }]
     rerender(<RgbdCapture capture={IDLE} compute={COMPUTE} sessionId="s1" onState={vi.fn()} />)
     await screen.findByText('RGB 0.210 px / plane bias -1.5 mm')
     expect(f.mock.calls.length).toBeGreaterThan(before)

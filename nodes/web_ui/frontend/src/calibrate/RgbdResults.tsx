@@ -15,33 +15,25 @@ import Typography from '@mui/material/Typography'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import { ConfirmDialog } from '../layout/ConfirmDialog'
 import { TOUCH_TARGET_PX } from '../theme'
-import {
-  AppliedState,
-  ComputeState,
-  ResultSummary,
-  applyResult,
-  downloadUrl,
-  getApplied,
-  getResult,
-  getSession,
-} from './rgbdApi'
+import { AppliedRecord, CheckLimits, ComputeState, ResultSummary, applyResult, downloadUrl, getResult, getSession } from './rgbdApi'
 
-/** Applied-state poll period after an apply. */
-export const APPLIED_POLL_MS = 2000
-/** Longest wait for the unit restarts after an apply. */
-export const APPLIED_POLL_MAX_MS = 60000
-/** Units restarted by an apply, named in the confirmation. */
-const RESTART_UNITS = ['head_camera_cpp', 'head_rgbd_cpp', 'head_state_publisher']
+/** Explanation in the Accept check confirmation: accepting records the check and changes nothing on the robot. */
+const ACCEPT_BODY =
+  'Records this passed check as the accepted D435 intrinsics check. The D435 factory intrinsics stay in use; nothing on the robot changes.'
+
+type Metric = 'rms_px' | 'focal_diff_pct' | 'principal_diff_px' | 'plane_bias_median_mm' | 'plane_bias_spread_mm' | 'views'
+type Verdict = 'pass' | 'fail' | '-'
+
 interface Row {
   label: string
-  field: string
-  limitKey: string
+  field: Metric
+  limitKey: keyof CheckLimits
   limitPrefix: string
   unit: string
 }
 
 const ROWS: Row[] = [
-  { label: 'RGB RMS', field: 'rms_px', limitKey: 'intrinsics_max_rms_px', limitPrefix: '<=', unit: 'px' },
+  { label: 'Colour RMS', field: 'rms_px', limitKey: 'intrinsics_max_rms_px', limitPrefix: '<=', unit: 'px' },
   { label: 'Focal difference', field: 'focal_diff_pct', limitKey: 'intrinsics_max_focal_diff_pct', limitPrefix: '<=', unit: '%' },
   {
     label: 'Principal point difference',
@@ -52,25 +44,26 @@ const ROWS: Row[] = [
   },
   { label: 'Plane bias', field: 'plane_bias_median_mm', limitKey: 'plane_max_bias_mm', limitPrefix: '|bias| <=', unit: 'mm' },
   { label: 'Plane spread', field: 'plane_bias_spread_mm', limitKey: 'plane_max_spread_mm', limitPrefix: '<=', unit: 'mm' },
-  { label: 'RGB views', field: 'views', limitKey: 'min_views', limitPrefix: '>=', unit: '' },
+  { label: 'Colour views', field: 'views', limitKey: 'min_views', limitPrefix: '>=', unit: '' },
 ]
 
-const isRec = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null
-
-/** Limit as recorded in the result's own `limits` object; undefined when the result carries none. */
-function limitOf(result: ResultSummary, key: string): number | undefined {
-  const own = isRec(result.limits) ? result.limits[key] : undefined
-  return typeof own === 'number' ? own : undefined
-}
-
-/** Metrics value as shown: numbers trimmed to 2 decimals, missing as a dash. */
-function show(v: unknown): string {
-  if (typeof v !== 'number') return '-'
+/** Metrics value as shown: numbers trimmed to 2 decimals, unmeasured as a dash. */
+function show(v: number | null): string {
+  if (v === null) return '-'
   return Number.isInteger(v) ? String(v) : String(Math.round(v * 100) / 100)
 }
 
-const failedLimits = (r: ResultSummary): string[] =>
-  Array.isArray(r.failed_limits) ? r.failed_limits.filter((x): x is string => typeof x === 'string') : []
+/**
+ * Pass/fail of one limit of a check.
+ *
+ * @param result the check result.
+ * @param row the row of the limit.
+ * @returns 'fail' when a failed_limits entry names the row's `limits.<key>`, '-' when the value was not measured, else 'pass'.
+ */
+function verdict(result: ResultSummary, row: Row): Verdict {
+  if (result.failed_limits.some((f) => f.startsWith(`limits.${row.limitKey}:`))) return 'fail'
+  return result[row.field] === null ? '-' : 'pass'
+}
 
 interface Props {
   /** Open session id, or null. */
@@ -78,15 +71,14 @@ interface Props {
   compute: ComputeState
 }
 
-/** Results of the open session, newest first, with report, Apply and Download. */
+/** Check results of the open session, newest first, with the per-limit rows, report, Accept check and Download. */
 export function RgbdResults({ sessionId, compute }: Props) {
   const [results, setResults] = useState<ResultSummary[]>([])
   const [reports, setReports] = useState<Record<string, string>>({})
   const [error, setError] = useState<string | null>(null)
-  const [pendingApply, setPendingApply] = useState<string | null>(null)
-  const [applied, setApplied] = useState<AppliedState | null>(null)
-  const [applying, setApplying] = useState(false)
-  const poll = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [pendingAccept, setPendingAccept] = useState<string | null>(null)
+  const [accepted, setAccepted] = useState<AppliedRecord | null>(null)
+  const [accepting, setAccepting] = useState(false)
 
   const refresh = useCallback(async () => {
     if (sessionId === null) {
@@ -95,7 +87,7 @@ export function RgbdResults({ sessionId, compute }: Props) {
     }
     const r = await getSession(sessionId)
     if (r.ok) {
-      setResults([...r.value.results].sort((a, b) => (String(a.created ?? a.id) < String(b.created ?? b.id) ? 1 : -1)))
+      setResults([...r.value.results].sort((a, b) => (a.created < b.created ? 1 : -1)))
       setError(null)
     } else setError(r.message)
   }, [sessionId])
@@ -110,13 +102,6 @@ export function RgbdResults({ sessionId, compute }: Props) {
     wasComputing.current = compute.running
   }, [compute.running, refresh])
 
-  const stopPoll = useCallback(() => {
-    if (poll.current !== null) clearInterval(poll.current)
-    poll.current = null
-    setApplying(false)
-  }, [])
-  useEffect(() => stopPoll, [stopPoll])
-
   const loadReport = async (rid: string) => {
     if (sessionId === null || reports[rid] !== undefined) return
     const r = await getResult(sessionId, rid)
@@ -124,29 +109,18 @@ export function RgbdResults({ sessionId, compute }: Props) {
     else setError(r.message)
   }
 
-  const confirmApply = async () => {
-    const rid = pendingApply
-    setPendingApply(null)
+  // Accepting records the check in applied.json and restarts nothing, so the answer is final: no wait follows it.
+  const confirmAccept = async () => {
+    const rid = pendingAccept
+    setPendingAccept(null)
     if (rid === null || sessionId === null) return
+    setAccepting(true)
     const r = await applyResult(sessionId, rid)
-    if (!r.ok) {
-      setError(r.message)
-      return
-    }
-    setError(null)
-    setApplied(r.value)
-    stopPoll()
-    setApplying(true)
-    const started = Date.now()
-    poll.current = setInterval(() => {
-      void getApplied().then((a) => {
-        if (a.ok) {
-          setApplied(a.value)
-          if (a.value.units.every((u) => u.restarted)) stopPoll()
-        } else setError(a.message)
-      })
-      if (Date.now() - started >= APPLIED_POLL_MAX_MS) stopPoll()
-    }, APPLIED_POLL_MS)
+    setAccepting(false)
+    if (r.ok) {
+      setError(null)
+      setAccepted(r.value)
+    } else setError(r.message)
   }
 
   if (sessionId === null) return null
@@ -161,7 +135,7 @@ export function RgbdResults({ sessionId, compute }: Props) {
       )}
       {results.length === 0 && <Typography variant="body2">No results yet.</Typography>}
       {results.map((res) => (
-        <Box key={res.id} sx={{ border: 1, borderColor: 'divider', p: 1, mb: 1 }}>
+        <Box key={res.id} data-testid={`result-card-${res.id}`} sx={{ border: 1, borderColor: 'divider', p: 1, mb: 1 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
             <Typography>{res.id}</Typography>
             <Chip
@@ -170,41 +144,38 @@ export function RgbdResults({ sessionId, compute }: Props) {
               color={res.passed ? 'success' : 'error'}
               label={res.passed ? 'passed' : 'failed'}
             />
-            {res.created !== undefined && <Typography variant="caption">{String(res.created)}</Typography>}
-            {res.passed && (
-              <Button variant="contained" sx={btn} disabled={applying} onClick={() => setPendingApply(res.id)}>
-                Apply
-              </Button>
-            )}
+            <Typography variant="caption">{res.created}</Typography>
+            <Button variant="contained" sx={btn} disabled={!res.passed || accepting} onClick={() => setPendingAccept(res.id)}>
+              Accept check
+            </Button>
             <Button component="a" variant="outlined" sx={btn} href={downloadUrl(sessionId, res.id)} download>
               Download
             </Button>
           </Box>
-          {typeof res.error === 'string' && <Alert severity="error">{res.error}</Alert>}
+          {res.error !== undefined && <Alert severity="error">{res.error}</Alert>}
           <Table size="small">
             <TableHead>
               <TableRow>
                 <TableCell>Item</TableCell>
                 <TableCell>Value</TableCell>
                 <TableCell>Limit</TableCell>
+                <TableCell>Check</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {ROWS.map((row) => {
-                const lim = limitOf(res, row.limitKey)
-                return (
-                  <TableRow key={row.label}>
-                    <TableCell>{row.label}</TableCell>
-                    <TableCell>{`${show(res[row.field])}`}</TableCell>
-                    <TableCell>{lim === undefined ? '-' : `${row.limitPrefix} ${lim}${row.unit ? ` ${row.unit}` : ''}`}</TableCell>
-                  </TableRow>
-                )
-              })}
+              {ROWS.map((row) => (
+                <TableRow key={row.label}>
+                  <TableCell>{row.label}</TableCell>
+                  <TableCell>{show(res[row.field])}</TableCell>
+                  <TableCell>{`${row.limitPrefix} ${res.limits[row.limitKey]}${row.unit ? ` ${row.unit}` : ''}`}</TableCell>
+                  <TableCell>{verdict(res, row)}</TableCell>
+                </TableRow>
+              ))}
             </TableBody>
           </Table>
-          {failedLimits(res).length > 0 && (
+          {res.failed_limits.length > 0 && (
             <Alert severity="warning" sx={{ mt: 1 }}>
-              {failedLimits(res).map((f) => (
+              {res.failed_limits.map((f) => (
                 <div key={f}>{f}</div>
               ))}
             </Alert>
@@ -219,21 +190,18 @@ export function RgbdResults({ sessionId, compute }: Props) {
           </Accordion>
         </Box>
       ))}
-      {applied && (
-        <Alert severity={applied.units.every((u) => u.restarted) ? 'success' : 'info'} sx={{ mt: 1 }}>
-          <div>{`Applied result ${applied.result} of session ${applied.session}`}</div>
-          {applied.units.map((u) => (
-            <div key={u.name}>{`${u.name}: ${u.restarted ? 'restarted' : 'restarting'}`}</div>
-          ))}
+      {accepted && (
+        <Alert severity="success" sx={{ mt: 1 }}>
+          {`Accepted check ${accepted.result} of session ${accepted.session}`}
         </Alert>
       )}
       <ConfirmDialog
-        open={pendingApply !== null}
-        title={`Apply result ${pendingApply ?? ''}?`}
-        body={`Applying restarts ${RESTART_UNITS.join(', ')} on the robot.`}
-        confirmLabel="Apply"
-        onConfirm={() => void confirmApply()}
-        onCancel={() => setPendingApply(null)}
+        open={pendingAccept !== null}
+        title={`Accept check ${pendingAccept ?? ''}?`}
+        body={ACCEPT_BODY}
+        confirmLabel="Accept check"
+        onConfirm={() => void confirmAccept()}
+        onCancel={() => setPendingAccept(null)}
       />
     </Box>
   )

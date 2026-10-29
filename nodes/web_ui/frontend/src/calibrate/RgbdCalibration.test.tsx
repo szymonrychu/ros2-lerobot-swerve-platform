@@ -22,6 +22,19 @@ const state = {
 }
 
 describe('RgbdCalibration', () => {
+  it('titles the section as the D435 intrinsics check with its board instructions', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(state), { status: 200 })))
+    render(<RgbdCalibration />)
+    await act(async () => {})
+    expect(screen.getByRole('heading', { name: 'D435 intrinsics check' })).toBeTruthy()
+    expect(screen.queryByText('RGB-D calibration')).toBeNull()
+    const help = screen.getByTestId('rgbd-help').textContent ?? ''
+    expect(help).toContain('0.3-0.6 m')
+    expect(help).toContain('coverage grid')
+    expect(help).toContain('factory')
+    expect(help).not.toMatch(/ToF|stereo|restart/i)
+  })
+
   it('keeps an opened past session while the capture keeps polling', async () => {
     vi.useFakeTimers()
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(state), { status: 200 })))

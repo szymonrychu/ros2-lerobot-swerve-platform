@@ -19,12 +19,13 @@ const state = {
   applied: null,
 }
 const coverage = { cols: 2, rows: 2, counts: [[1, 0], [0, 3]] }
+const check = { ...resultFx, kind: 'intrinsics' as const, id: 'r1', created: 'c' }
 const detail = {
   id: 's1', created: 'c',
-  poses: [{ id: 'p1', rgb_corners: 30, plane_bias_samples: 4200 }],
-  coverage: { rgb: coverage }, results: [{ id: 'r1', created: 'c', passed: true }],
+  poses: [{ id: 'p1', rgb_corners: 30, plane_bias_samples: 4200, hints: [] }],
+  coverage: { rgb: coverage }, results: [check],
 }
-const result = { id: 'r1', created: 'c', passed: false, report: '# rep' }
+const result = { ...check, passed: false, report: '# rep' }
 const applied = appliedFx
 
 function stub(status: number, body: unknown) {
@@ -195,18 +196,64 @@ describe('rgbdApi pose hints and errors', () => {
     stub(200, resultFx)
     expect(await getResult('s', 'r')).toEqual({ ok: true, value: resultFx })
   })
-  it('accepts a session and a result without the new fields', async () => {
-    stub(200, detail)
-    expect((await getSession('s')).ok).toBe(true)
-    stub(200, result)
-    expect((await getResult('s', 'r1')).ok).toBe(true)
+  it('getResult exposes the intrinsics check fields of result.json', async () => {
+    stub(200, resultFx)
+    const r = await getResult('s', 'r')
+    expect(r.ok).toBe(true)
+    if (r.ok) {
+      expect(r.value.kind).toBe('intrinsics')
+      expect(r.value.rms_px).toBe(resultFx.rms_px)
+      expect(r.value.focal_diff_pct).toBe(resultFx.focal_diff_pct)
+      expect(r.value.principal_diff_px).toBe(resultFx.principal_diff_px)
+      expect(r.value.plane_bias_median_mm).toBe(resultFx.plane_bias_median_mm)
+      expect(r.value.plane_bias_spread_mm).toBe(resultFx.plane_bias_spread_mm)
+      expect(r.value.failed_limits).toEqual([])
+      expect(r.value.limits.intrinsics_max_rms_px).toBe(resultFx.limits.intrinsics_max_rms_px)
+    }
+  })
+  it('accepts a failed input check with null metrics and an error', async () => {
+    const failed = {
+      ...resultFx, passed: false, error: 'calibration needs at least 12 views, got 3 views', rms_px: null,
+      focal_diff_pct: null, principal_diff_px: null, plane_bias_median_mm: null, plane_bias_spread_mm: null, views: null, poses: [],
+    }
+    stub(200, failed)
+    expect(await getResult('s', 'r')).toEqual({ ok: true, value: failed })
+  })
+  it('rejects a result that is not an intrinsics check', async () => {
+    const { rms_px: _r, ...noRms } = resultFx
+    void _r
+    const { limits: _l, ...noLimits } = resultFx
+    void _l
+    const { failed_limits: _f, ...noFailed } = resultFx
+    void _f
+    const { poses: _p, ...noPoses } = resultFx
+    void _p
+    for (const bad of [
+      { ...resultFx, kind: 'rgbd' },
+      noRms,
+      noLimits,
+      noFailed,
+      noPoses,
+      { ...resultFx, rms_px: '0.2' },
+      { ...resultFx, failed_limits: [1] },
+      { ...resultFx, views: 'many' },
+      { ...resultFx, limits: { ...resultFx.limits, min_views: 'x' } },
+      { ...resultFx, error: 3 },
+    ]) {
+      stub(200, bad)
+      expect((await getResult('s', 'r')).ok).toBe(false)
+    }
+  })
+  it('rejects a pose without hints', async () => {
+    stub(200, { ...detail, poses: [{ id: 'p1', rgb_corners: 30, plane_bias_samples: 4200 }] })
+    expect((await getSession('s')).ok).toBe(false)
   })
   it('rejects a non-array hints / poses and wrong-typed entries', async () => {
     stub(200, { ...detail, poses: [{ ...detail.poses[0], hints: 'few' }] })
     expect((await getSession('s')).ok).toBe(false)
     stub(200, { ...detail, poses: [{ ...detail.poses[0], hints: [1] }] })
     expect((await getSession('s')).ok).toBe(false)
-    stub(200, { ...detail, results: [{ id: 'r1', passed: true, poses: 'x' }] })
+    stub(200, { ...detail, results: [{ ...check, poses: 'x' }] })
     expect((await getSession('s')).ok).toBe(false)
     stub(200, { ...result, poses: {} })
     expect((await getResult('s', 'r1')).ok).toBe(false)
@@ -221,10 +268,10 @@ describe('poseErrors', () => {
   const pe = { id: '001', error_px: 0.2, plane_bias_mm: -1.5, plane_spread_mm: null }
   it('is empty without results or without poses', () => {
     expect(poseErrors({ ...detail, results: [] }).size).toBe(0)
-    expect(poseErrors(detail).size).toBe(0)
+    expect(poseErrors({ ...detail, results: [{ ...check, poses: [] }] }).size).toBe(0)
   })
   it('keys the newest result poses by id', () => {
-    const d = { ...detail, results: [{ id: 'new', passed: false, poses: [pe] }, { id: 'old', passed: true, poses: [{ ...pe, id: '002' }] }] }
+    const d = { ...detail, results: [{ ...check, id: 'new', passed: false, poses: [pe] }, { ...check, id: 'old', poses: [{ ...pe, id: '002' }] }] }
     const m = poseErrors(d)
     expect([...m.keys()]).toEqual(['001'])
     expect(m.get('001')).toEqual(pe)

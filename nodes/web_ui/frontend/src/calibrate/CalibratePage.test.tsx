@@ -70,7 +70,7 @@ describe('CalibratePage', () => {
     }))
     render(<CalibratePage onBack={() => {}} />)
     await screen.findByText('IMU calibration')
-    await screen.findByText('RGB-D calibration')
+    await screen.findByText('D435 intrinsics check')
   })
 
   it('shows the Head floor fit step after the RGB-D section only with rgbd configured', async () => {
@@ -87,7 +87,7 @@ describe('CalibratePage', () => {
       return new Response(JSON.stringify({ imu: false, rgbd: true }))
     }))
     render(<CalibratePage onBack={() => {}} />)
-    const rgbd = await screen.findByText('RGB-D calibration')
+    const rgbd = await screen.findByText('D435 intrinsics check')
     const floor = await screen.findByText('Head floor fit')
     expect(rgbd.compareDocumentPosition(floor) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     cleanup()
@@ -131,7 +131,7 @@ describe('CalibratePage', () => {
     respond(200, { imu: true, rgbd: false })
     render(<CalibratePage onBack={() => {}} />)
     await screen.findByText('IMU calibration')
-    expect(screen.queryByText('RGB-D calibration')).toBeNull()
+    expect(screen.queryByText('D435 intrinsics check')).toBeNull()
   })
 
   it('back button clears the hash and calls onBack', async () => {

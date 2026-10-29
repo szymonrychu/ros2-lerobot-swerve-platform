@@ -5,56 +5,41 @@ import { RgbdResults } from './RgbdResults'
 import type { ComputeState } from './rgbdApi'
 import resultFx from '../../../../head_rgbd_calibration/tests/fixtures/api/result.json'
 import applyFx from '../../../../head_rgbd_calibration/tests/fixtures/api/apply.json'
-import appliedFx from '../../../../head_rgbd_calibration/tests/fixtures/api/applied.json'
 
 const NOT_RUNNING: ComputeState = { running: false, session_id: null, result_id: null, started_at: null, error: null }
 const cov = { cols: 1, rows: 1, counts: [[1]] }
 
 const PASSED = {
-  id: 'r2', created: '2026-10-19T11:00:00', kind: 'intrinsics', passed: true, failed_limits: [],
+  ...resultFx, id: 'r2', created: '2026-10-19T11:00:00', passed: true, failed_limits: [],
   rms_px: 0.31, focal_diff_pct: 0.4, principal_diff_px: 1.5, plane_bias_median_mm: 4.5, plane_bias_spread_mm: 2, views: 14,
 }
 const FAILED = {
-  id: 'r1', created: '2026-10-19T10:00:00', kind: 'intrinsics', passed: false,
+  ...resultFx, id: 'r1', created: '2026-10-19T10:00:00', passed: false,
   failed_limits: ['limits.intrinsics_max_rms_px: RMS 0.700 px exceeds 0.5 px'],
   rms_px: 0.7, focal_diff_pct: 0.4, principal_diff_px: 1.5, plane_bias_median_mm: 3, plane_bias_spread_mm: 2, views: 14,
 }
+const D435_ROWS = ['Colour RMS', 'Focal difference', 'Principal point difference', 'Plane bias', 'Plane spread', 'Colour views']
 
-interface World {
-  applied: { name: string; restarted: boolean }[]
-  appliedCalls: number
-  calls: string[]
-}
-
-function install(w: World): void {
+function serve(results: unknown[], calls: string[] = []): void {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
-      w.calls.push(`${init?.method ?? 'GET'} ${url}`)
+      calls.push(`${init?.method ?? 'GET'} ${url}`)
       const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status })
-      if (url.endsWith('/sessions/s1'))
-        return json({ id: 's1', created: 'x', poses: [], coverage: { rgb: cov }, results: [FAILED, PASSED] })
-      if (url.endsWith('/apply')) return json({ ...appliedFx, units: [{ name: 'head_camera_cpp', restarted: false }] })
-      if (url.endsWith('/applied')) {
-        w.appliedCalls += 1
-        const done = w.appliedCalls >= 2
-        return json({ ...appliedFx, units: w.applied.map((u) => ({ ...u, restarted: done })) })
-      }
+      if (url.endsWith('/sessions/s1')) return json({ id: 's1', created: 'x', poses: [], coverage: { rgb: cov }, results })
+      if (url.endsWith('/apply')) return json(applyFx)
       if (url.endsWith('/results/r2')) return json({ ...PASSED, report: '# Report text' })
       return json({ message: 'nope' }, 404)
     }),
   )
 }
 
-const world = (): World => ({
-  applied: [
-    { name: 'head_camera_cpp', restarted: false },
-    { name: 'head_rgbd_cpp', restarted: false },
-    { name: 'head_state_publisher', restarted: false },
-  ],
-  appliedCalls: 0,
-  calls: [],
-})
+/** Cells of the row labelled `label` in the card of result `rid`: [item, value, limit, check]. */
+function cells(rid: string, label: string): string[] {
+  const card = screen.getByTestId(`result-card-${rid}`)
+  const row = within(card).getByText(label).closest('tr') as HTMLElement
+  return [...row.querySelectorAll('td')].map((td) => td.textContent ?? '')
+}
 
 describe('RgbdResults', () => {
   beforeEach(() => {
@@ -66,115 +51,117 @@ describe('RgbdResults', () => {
     vi.unstubAllGlobals()
   })
 
-  it('shows newest first with chips, the metrics table with limits, failed limits and the report', async () => {
-    install(world())
+  it('shows the D435 check rows and no ToF or stereo row', async () => {
+    serve([resultFx])
+    render(<RgbdResults sessionId="s1" compute={NOT_RUNNING} />)
+    await screen.findAllByTestId('result-chip')
+    const card = screen.getByTestId(`result-card-${resultFx.id}`)
+    const labels = [...card.querySelectorAll('tbody tr')].map((tr) => tr.querySelector('td')?.textContent)
+    expect(labels).toEqual(D435_ROWS)
+    expect(card.textContent).not.toMatch(/ToF|stereo/i)
+    const lim = resultFx.limits
+    expect(cells(resultFx.id, 'Colour RMS')).toEqual(['Colour RMS', '0.21', `<= ${lim.intrinsics_max_rms_px} px`, 'pass'])
+    expect(cells(resultFx.id, 'Focal difference')).toEqual(['Focal difference', '0.35', `<= ${lim.intrinsics_max_focal_diff_pct} %`, 'pass'])
+    expect(cells(resultFx.id, 'Principal point difference')).toEqual([
+      'Principal point difference', '1.2', `<= ${lim.intrinsics_max_principal_diff_px} px`, 'pass',
+    ])
+    expect(cells(resultFx.id, 'Plane bias')).toEqual(['Plane bias', '-1.5', `|bias| <= ${lim.plane_max_bias_mm} mm`, 'pass'])
+    expect(cells(resultFx.id, 'Plane spread')).toEqual(['Plane spread', '2.1', `<= ${lim.plane_max_spread_mm} mm`, 'pass'])
+    expect(cells(resultFx.id, 'Colour views')).toEqual(['Colour views', '18', `>= ${lim.min_views}`, 'pass'])
+  })
+
+  it('shows the result rows of a passed and a failed check, newest first, with the failed limit', async () => {
+    serve([FAILED, PASSED])
     render(<RgbdResults sessionId="s1" compute={NOT_RUNNING} />)
     const chips = await screen.findAllByTestId('result-chip')
     expect(chips.map((c) => c.textContent)).toEqual(['passed', 'failed'])
-    expect(screen.getAllByText('0.31').length).toBeGreaterThan(0)
-    expect(screen.getAllByText(/0\.5/).length).toBeGreaterThan(0)
+    for (const label of D435_ROWS) expect(cells('r2', label)[3]).toBe('pass')
+    expect(cells('r1', 'Colour RMS')).toEqual(['Colour RMS', '0.7', '<= 0.5 px', 'fail'])
+    for (const label of D435_ROWS.slice(1)) expect(cells('r1', label)[3]).toBe('pass')
     expect(screen.getByText(/RMS 0\.700 px exceeds/)).toBeTruthy()
+  })
+
+  it('an unmeasured plane bias fails its row, an input error shows no check per row', async () => {
+    const unmeasured = {
+      ...FAILED, id: 'r3', plane_bias_median_mm: null, plane_bias_spread_mm: null,
+      failed_limits: ['limits.plane_max_bias_mm: board plane depth bias not measured'],
+    }
+    const inputError = {
+      ...resultFx, id: 'r4', passed: false, error: 'calibration needs at least 12 views, got 3 views', rms_px: null,
+      focal_diff_pct: null, principal_diff_px: null, plane_bias_median_mm: null, plane_bias_spread_mm: null, views: null, poses: [],
+    }
+    serve([unmeasured, inputError])
+    render(<RgbdResults sessionId="s1" compute={NOT_RUNNING} />)
+    await screen.findAllByTestId('result-chip')
+    expect(cells('r3', 'Plane bias')).toEqual(['Plane bias', '-', `|bias| <= ${resultFx.limits.plane_max_bias_mm} mm`, 'fail'])
+    expect(cells('r3', 'Plane spread')[3]).toBe('-')
+    for (const label of D435_ROWS) {
+      const [, value, , verdict] = cells('r4', label)
+      expect([value, verdict]).toEqual(['-', '-'])
+    }
+    expect(screen.getByText('calibration needs at least 12 views, got 3 views')).toBeTruthy()
+  })
+
+  it('accept disabled on a failed check', async () => {
+    serve([FAILED, PASSED])
+    render(<RgbdResults sessionId="s1" compute={NOT_RUNNING} />)
+    await screen.findAllByTestId('result-chip')
+    const failedAccept = within(screen.getByTestId('result-card-r1')).getByRole('button', { name: 'Accept check' })
+    const passedAccept = within(screen.getByTestId('result-card-r2')).getByRole('button', { name: 'Accept check' })
+    expect((failedAccept as HTMLButtonElement).disabled).toBe(true)
+    expect((passedAccept as HTMLButtonElement).disabled).toBe(false)
+    expect(screen.queryByRole('button', { name: 'Apply' })).toBeNull()
+  })
+
+  it('Accept check goes through the dialog, records the check and waits for no restart', async () => {
+    const calls: string[] = []
+    serve([PASSED], calls)
+    render(<RgbdResults sessionId="s1" compute={NOT_RUNNING} />)
+    await screen.findAllByTestId('result-chip')
+    fireEvent.click(screen.getByRole('button', { name: 'Accept check' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog.textContent).not.toMatch(/restart/i)
+    expect(dialog.textContent).toContain('factory intrinsics')
+    expect(calls.some((c) => c.endsWith('/apply'))).toBe(false)
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Accept check' }))
+    await screen.findByText(`Accepted check ${applyFx.result} of session ${applyFx.session}`)
+    expect(calls).toContain('POST /api/calibration/rgbd/sessions/s1/results/r2/apply')
+    expect(screen.queryByText(/restart/i)).toBeNull()
+    expect(screen.queryByText(/Unexpected calibration response/)).toBeNull()
+    const n = calls.length
+    await act(async () => { await vi.advanceTimersByTimeAsync(10000) })
+    expect(calls.length).toBe(n)
+    expect((screen.getByRole('button', { name: 'Accept check' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('an Accept refusal shows the server message', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) =>
+      url.endsWith('/apply')
+        ? new Response(JSON.stringify({ message: 'a compute is running; wait for it to finish' }), { status: 409 })
+        : new Response(JSON.stringify({ id: 's1', created: 'x', poses: [], coverage: { rgb: cov }, results: [PASSED] })),
+    ))
+    render(<RgbdResults sessionId="s1" compute={NOT_RUNNING} />)
+    await screen.findAllByTestId('result-chip')
+    fireEvent.click(screen.getByRole('button', { name: 'Accept check' }))
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Accept check' }))
+    await screen.findByText('a compute is running; wait for it to finish')
+    expect(screen.queryByText(/Accepted check/)).toBeNull()
+  })
+
+  it('opens the report on demand', async () => {
+    serve([FAILED, PASSED])
+    render(<RgbdResults sessionId="s1" compute={NOT_RUNNING} />)
+    await screen.findAllByTestId('result-chip')
     fireEvent.click(screen.getAllByText('Report')[0])
     await screen.findByText('# Report text')
   })
 
-  it('Apply is offered for passed results only', async () => {
-    install(world())
-    render(<RgbdResults sessionId="s1" compute={NOT_RUNNING} />)
-    await screen.findAllByTestId('result-chip')
-    expect(screen.getAllByRole('button', { name: 'Apply' })).toHaveLength(1)
-  })
-
-  it('Apply goes through the dialog, then shows each unit restart state until all restarted', async () => {
-    const w = world()
-    install(w)
-    render(<RgbdResults sessionId="s1" compute={NOT_RUNNING} />)
-    await screen.findAllByTestId('result-chip')
-    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
-    const dialog = await screen.findByRole('dialog')
-    expect(dialog.textContent).toContain('head_camera_cpp')
-    expect(dialog.textContent).toContain('head_rgbd_cpp')
-    expect(dialog.textContent).toContain('head_state_publisher')
-    expect(w.calls.some((c) => c.endsWith('/apply'))).toBe(false)
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Apply' }))
-    await screen.findByText(/head_camera_cpp: restarting/)
-    await act(async () => { await vi.advanceTimersByTimeAsync(2100) })
-    await act(async () => { await vi.advanceTimersByTimeAsync(2100) })
-    await screen.findByText(/head_state_publisher: restarted/)
-    const n = w.appliedCalls
-    await act(async () => { await vi.advanceTimersByTimeAsync(6000) })
-    expect(w.appliedCalls).toBe(n)
-  })
-
   it('Download is an anchor to the result zip with the download attribute', async () => {
-    install(world())
+    serve([FAILED, PASSED])
     render(<RgbdResults sessionId="s1" compute={NOT_RUNNING} />)
     await screen.findAllByTestId('result-chip')
     const a = screen.getAllByRole('link', { name: 'Download' })[0]
     expect(a.getAttribute('href')).toBe('/api/calibration/rgbd/sessions/s1/results/r2/download')
     expect(a.hasAttribute('download')).toBe(true)
-  })
-})
-
-describe('RgbdResults with the node contract fixtures', () => {
-  afterEach(() => {
-    cleanup()
-    vi.useRealTimers()
-    vi.unstubAllGlobals()
-  })
-
-  function serve(): void {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: string) => {
-        const json = (b: unknown) => new Response(JSON.stringify(b), { status: 200 })
-        if (url.endsWith('/sessions/s1'))
-          return json({ id: 's1', created: 'x', poses: [], coverage: { rgb: cov }, results: [resultFx] })
-        if (url.endsWith('/apply')) return json(applyFx)
-        if (url.endsWith('/applied')) return json(appliedFx)
-        return json({ message: 'nope' })
-      }),
-    )
-  }
-
-  it('shows every limit from result.json including the plane bias limit', async () => {
-    serve()
-    render(<RgbdResults sessionId="s1" compute={NOT_RUNNING} />)
-    await screen.findAllByTestId('result-chip')
-    const row = (label: string) => screen.getByText(label).closest('tr') as HTMLElement
-    expect(row('Plane bias').textContent).toContain(String(resultFx.plane_bias_median_mm))
-    expect(row('Plane bias').textContent).toContain(String(resultFx.limits.plane_max_bias_mm))
-    expect(row('Plane spread').textContent).toContain(String(resultFx.limits.plane_max_spread_mm))
-    expect(row('RGB RMS').textContent).toContain(String(resultFx.limits.intrinsics_max_rms_px))
-    expect(row('Focal difference').textContent).toContain(String(resultFx.limits.intrinsics_max_focal_diff_pct))
-    expect(row('Principal point difference').textContent).toContain(String(resultFx.limits.intrinsics_max_principal_diff_px))
-    expect(row('RGB views').textContent).toContain(String(resultFx.limits.min_views))
-  })
-
-  it('shows no limit when result.json carries no limits object', async () => {
-    const { limits: _l, ...bare } = resultFx
-    void _l
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () =>
-        new Response(JSON.stringify({ id: 's1', created: 'x', poses: [], coverage: { rgb: cov }, results: [bare] })),
-      ),
-    )
-    render(<RgbdResults sessionId="s1" compute={NOT_RUNNING} />)
-    await screen.findAllByTestId('result-chip')
-    const cells = (screen.getByText('RGB RMS').closest('tr') as HTMLElement).querySelectorAll('td')
-    expect(cells[2].textContent).toBe('-')
-  })
-
-  it('Apply with apply.json shows the applied state and unit restarts without error', async () => {
-    serve()
-    render(<RgbdResults sessionId="s1" compute={NOT_RUNNING} />)
-    await screen.findAllByTestId('result-chip')
-    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
-    const dialog = await screen.findByRole('dialog')
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Apply' }))
-    await screen.findByText(/ros2-head_camera_cpp\.service: restarted/)
-    expect(screen.getByText(`Applied result ${applyFx.result} of session ${applyFx.session}`)).toBeTruthy()
-    expect(screen.queryByText(/Unexpected calibration response/)).toBeNull()
   })
 })
