@@ -2681,6 +2681,10 @@ ros2_nodes:
         # Head camera (tool camera `front`): the D435 colour on the pan/tilt head (realsense_d435), 640x360 at 15 fps,
         # 16:9. The key name stays: tests/test_head_camera_live_refs.py forbids `front_camera` names.
         head_camera: /head/d435/color/image_raw/compressed
+        # D435 depth registered to the colour image (16UC1 mm) and its CameraInfo: pixel_to_point reads them on demand
+        # and pairs the frame with the colour frame of the same frameset by header stamp.
+        head_depth: /head/d435/aligned_depth_to_color/image_raw
+        head_depth_info: /head/d435/aligned_depth_to_color/camera_info
         # Body monitor feeds (get_body_state, /robot_events): servo register dumps, swerve odom (twist covariance = slip
         # residual), rf2o twist, BNO055 IMU.
         # servo_registers: arm servos (follower bus); base_servo_registers: swerve servos (base bus bridge).
@@ -2846,6 +2850,33 @@ ros2_nodes:
         tolerance_rad: 0.03
         move_timeout_s: 4.0
         state_max_age_s: 0.5
+        # Joint-state history that places a camera frame (pixel_to_point, camera_point_to_arm, pixel_to_ground with
+        # image_stamp_s, annotated images, candidate points): pan/tilt interpolated at the image header stamp. A head
+        # that moved more than max_motion_rad within +- stamp_window_s of the stamp refuses the tool.
+        history_s: 10.0
+        stamp_window_s: 0.1
+        max_motion_rad: 0.002
+        max_sample_gap_s: 0.25
+      # pixel_to_point / camera_point_to_arm (nodes/mcp_server/README.md, "Camera to arm"): explicit values equal to the
+      # defaults. The D435 aligned depth is read in a window with the depth-discontinuity rule (a pixel differing from a
+      # neighbour by more than max(edge_abs_m, edge_rel * z) is a flying/mixed pixel); the trusted range is
+      # min_range_m..max_range_m (the z^2 depth error is 4 mm at 1 m); baseline_m / subpixel_px are the D435 error model.
+      # max_residual_mm is the grasp gate (user decision 2026-10-29): a grasp whose ObjectSpec position_source is
+      # 'camera' needs the applied head-from-arm calibration's held-out camera-to-arm residual at or below it.
+      camera_arm:
+        max_pair_dt_s: 0.033
+        min_range_m: 0.15
+        max_range_m: 1.0
+        default_window_px: 5
+        max_window_px: 31
+        edge_kernel_px: 3
+        edge_abs_m: 0.02
+        edge_rel: 0.02
+        spread_factor: 2.0
+        min_valid_fraction: 0.5
+        baseline_m: 0.05
+        subpixel_px: 0.08
+        max_residual_mm: 5.0
       # Camera geometry for pixel_to_ground, annotated images and candidate points (nodes/mcp_server/README.md, "Camera
       # tools and calibration"). A camera is NOT calibrated until it has intrinsics and a mount. intrinsics is
       # {calibration_file: <camera_calibration yaml>}, {camera_info_topic: <sensor_msgs/CameraInfo topic>} or an
@@ -3466,6 +3497,8 @@ ros2_nodes:
         - get_body_state
         - get_arm_reach
         - pixel_to_ground
+        - pixel_to_point
+        - camera_point_to_arm
         - get_annotated_camera_image
         - mark_candidate_points
         - resolve_candidate

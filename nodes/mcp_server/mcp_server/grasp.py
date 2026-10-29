@@ -88,10 +88,14 @@ class ObjectSpec(BaseModel):
             rests on something narrower than itself. 0 = flat on its support, which rules out a scoop.
         surfaces: Surface regions around the object (heights relative to the robot floor); the grasp tools add them
             after the call-level surfaces, so they shape the plan and the slow zone of the whole grasp.
+        position_source: Where x, y and support_z came from: 'manual' (measured or given) or 'camera' (read from the
+            D435 with pixel_to_point, camera_point_to_arm or pixel_to_ground). A 'camera' position is only grasped
+            while the applied head calibration's camera-to-arm residual is within camera_arm.max_residual_mm.
     """
 
     model_config = ConfigDict(extra="forbid")
 
+    position_source: Literal["manual", "camera"] = "manual"
     frame: Literal["arm", "base_link"] = "arm"
     x: float
     y: float

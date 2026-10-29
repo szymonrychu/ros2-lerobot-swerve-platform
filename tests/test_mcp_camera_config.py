@@ -31,6 +31,8 @@ D435_COLOUR_MOUNT = {
 }
 CAMERA_TOOLS = (
     "pixel_to_ground",
+    "pixel_to_point",
+    "camera_point_to_arm",
     "get_annotated_camera_image",
     "mark_candidate_points",
     "resolve_candidate",

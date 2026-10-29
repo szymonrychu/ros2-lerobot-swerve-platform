@@ -39,6 +39,8 @@ PERCEPTION_TOOLS = frozenset(
         "get_camera_image",
         "get_annotated_camera_image",
         "pixel_to_ground",
+        "pixel_to_point",
+        "camera_point_to_arm",
         "mark_candidate_points",
         "resolve_candidate",
         "plan_grasp",

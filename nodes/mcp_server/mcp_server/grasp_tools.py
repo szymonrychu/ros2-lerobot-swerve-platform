@@ -22,6 +22,7 @@ from mcp.types import CallToolResult, ContentBlock, ImageContent, TextContent
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .arm import ROLL_JOINT, ArmController, ArmError, finite_effort
+from .camera_point import gate_refusal
 from .camera_scene import build_scene, camera_setup, head_parent_transform
 from .config import HARD_MAX_IMAGE_PX, GripProfileOverride, McpServerConfig
 from .floor_guard import FloorOverride, TiltOverrideDeg
@@ -1187,7 +1188,10 @@ def register(ctx: ToolContext) -> None:
         "of the object's bottom = the surface it stands on, m), width_m (across the jaws), depth_m (along the "
         "approach), height_m, yaw (rad, direction of the width axis; omit = across the approach), gap_below_m (clear "
         "height under the object's bottom, m: an overhang or a raised object; default 0 = resting flat), surfaces "
-        "(optional regions around the object, as the surfaces argument). With surfaces, support_z must match the "
+        "(optional regions around the object, as the surfaces argument), position_source ('manual' default, or "
+        "'camera' when x, y, support_z were read with pixel_to_point / camera_point_to_arm / pixel_to_ground: "
+        f"grasp_object then refuses unless the applied head calibration's camera-to-arm residual is known and at most "
+        f"{config.camera_arm.max_residual_mm:g} mm; plan_grasp only notes it). With surfaces, support_z must match the "
         "region under the object centre (else infeasible)}"
     )
     strategy_desc = (
@@ -1237,6 +1241,13 @@ def register(ctx: ToolContext) -> None:
         except (ArmError, ValueError) as exc:
             raise ToolError(str(exc)) from exc
 
+    def camera_gate(obj: ObjectSpec) -> str | None:
+        """Why a camera-derived position may not be grasped (the applied calibration's arm-frame residual against
+        camera_arm.max_residual_mm); None for a manual position or a residual within the gate."""
+        if obj.position_source != "camera":
+            return None
+        return gate_refusal(robot.head.calibration(), config.camera_arm.max_residual_mm)
+
     @ctx.server.tool(
         description=(
             "Dry run of a grasp (no motion): plans waypoints pre_grasp (lifted; roll set here with the gripper at most "
@@ -1273,6 +1284,9 @@ def register(ctx: ToolContext) -> None:
             grasp_call = grasp_params(grasp, params, grip_profile)
             grip = executor.resolve_grip(grasp_call)
             plan, notes = executor.plan(object, strategy, grasp_call, approach_pitch_deg, floor)
+            refusal = camera_gate(object)
+            if refusal is not None:
+                notes = [*notes, f"grasp_object will refuse this camera position: {refusal}"]
             GRASP_PLANS.labels(strategy, "feasible" if plan.feasible else "infeasible").inc()
             return plan_result(plan, notes, grip)
 
@@ -1323,6 +1337,11 @@ def register(ctx: ToolContext) -> None:
         baseline = robot.stop_count()
 
         def body() -> GraspResult:
+            refusal = camera_gate(object)
+            if refusal is not None:
+                raise ValueError(
+                    f"grasp refused (nothing moved): the object position comes from the camera and {refusal}"
+                )
             floor = floor_override(surface_z_m, tilt_override_deg, surfaces, use_ground_estimate)
             return executor.grasp(
                 object,
