@@ -4,7 +4,8 @@ The D435 adapter of the head RGB-D contract (design D1). It pairs the RealSense 
 image (exact or approximate stamps), throttles the sets to `output.rate_hz`, removes the mixed pixels at depth edges,
 downscales the depth, JPEG-encodes the colour and publishes the `/head_rgbd/*` topics that RTAB-Map (through
 map3d_uplink), ground guidance, marker_detector and web_ui read, plus a coloured point cloud. A second, independent
-stage republishes every frame of the full-FOV D435 depth with the same edge mask on `/head/d435/depth_filtered/*`, the
+stage republishes every frame of the full-FOV D435 depth with the same edge mask on
+`/head/d435/depth_filtered/image_raw` (and `camera_info`), the
 input of `d435_obstacle_cloud` (and so of laser_filter, ground_estimator_cpp, Nav2 and the collision monitor).
 Registration is done by the camera (`align_depth.enable: true` of `realsense_d435`); the node has no calibration file
 and needs no TF. The executable is `head_rgbd_node` (ROS node name `head_rgbd`).
@@ -25,7 +26,8 @@ and needs no TF. The executable is `head_rgbd_node` (ROS node name `head_rgbd`).
 ## Topics
 
 The set outputs are best_effort, depth 1, under `output_namespace` (default `/head_rgbd`). The filtered depth outputs
-are reliable, depth 1, under `filtered_depth.output_namespace` (default `/head/d435/depth_filtered`): reliable because
+are reliable, depth 1, on `filtered_depth.output_image_topic` and `output_info_topic` (default
+`/head/d435/depth_filtered/image_raw` and `/head/d435/depth_filtered/camera_info`): reliable because
 `d435_obstacle_cloud` (rtabmap_util point_cloud_xyz, `qos: 0`) subscribes with the system default; best-effort
 subscribers match it too.
 
@@ -41,8 +43,8 @@ subscribers match it too.
 | out | `<ns>/rgb/image_raw/compressed` | `sensor_msgs/CompressedImage` | the colour at full size, JPEG `output.jpeg_quality`, format `bgr8; jpeg compressed bgr8` |
 | out | `<ns>/rgb/camera_info` | `sensor_msgs/CameraInfo` | the colour camera_info |
 | out | `<ns>/points` | `sensor_msgs/PointCloud2` XYZRGB | only when `cloud.enabled`; at most `cloud.rate_hz`, only while it has subscribers |
-| out | `<filtered ns>/image_raw` | `sensor_msgs/Image` 16UC1, mm | every input frame, edge-masked, same header, size and encoding as the input |
-| out | `<filtered ns>/camera_info` | `sensor_msgs/CameraInfo` | the latest input camera_info with the image header (point_cloud_xyz pairs them exactly) |
+| out | `filtered_depth.output_image_topic` | `sensor_msgs/Image` 16UC1, mm | every input frame, edge-masked, same header, size and encoding as the input |
+| out | `filtered_depth.output_info_topic` | `sensor_msgs/CameraInfo` | the latest input camera_info with the image header (point_cloud_xyz pairs them exactly) |
 
 `<ns>/depth_upsampled/*` is not advertised: the aligned depth already has the colour geometry. With
 `filtered_depth.enabled: false` the filtered topics are not advertised.
@@ -130,7 +132,8 @@ any error exits 78 with one `<key>: <problem>` line per error.
 | `filtered_depth.enabled` | true | advertise the full-rate filtered depth |
 | `filtered_depth.depth_topic` | `/head/d435/depth/image_rect_raw` | full-FOV depth input (16UC1, mm) |
 | `filtered_depth.info_topic` | `/head/d435/depth/camera_info` | its camera_info |
-| `filtered_depth.output_namespace` | `/head/d435/depth_filtered` | outputs `<ns>/image_raw` and `<ns>/camera_info` |
+| `filtered_depth.output_image_topic` | `/head/d435/depth_filtered/image_raw` | masked depth output |
+| `filtered_depth.output_info_topic` | `/head/d435/depth_filtered/camera_info` | its camera_info output |
 | `pairing.policy` | `exact` | `exact` (ExactTime) or `approximate` (ApproximateTime) |
 | `pairing.max_interval_s` | 0.02 | widest colour-to-depth stamp spread of an approximate pair, s (0 < v <= 1/30) |
 | `metrics_port` | 19117 | Prometheus port, `null` disables |
@@ -181,10 +184,10 @@ Likewise a full-FOV depth frame is republished only when it is little-endian 16U
 filtered topics then simply have no new sample. The mask only ever sets pixels to 0 (no depth); it never invents a
 depth.
 
-Failure mode: the obstacle cloud now depends on this node. If head_rgbd_cpp stops, `/head/d435/depth_filtered` and so
-`/head/d435/points` stop, and the collision monitor's D435 sources time out (`source_timeout` 1.0 s), which stops
-motion as a D435 outage does (nodes/nav2_bringup/README.md). The node runs in the normal cgroup tier for that reason
-(ansible `head_rgbd_cpp` node type), like d435_obstacle_cloud.
+Failure mode: the obstacle cloud now depends on this node. If head_rgbd_cpp stops,
+`/head/d435/depth_filtered/image_raw` and so `/head/d435/points` stop, and the collision monitor's D435 sources time
+out (`source_timeout` 1.0 s), which stops motion as a D435 outage does (nodes/nav2_bringup/README.md). The node runs
+in the normal cgroup tier for that reason (ansible `head_rgbd_cpp` node type), like d435_obstacle_cloud.
 
 ## Test
 

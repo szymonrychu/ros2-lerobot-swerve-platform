@@ -40,14 +40,15 @@ edge_mask:
   rel: 0.025    # jump that removes a pixel per metre of its depth (0..1; abs_m or rel must be > 0)
   grow_px: 0    # widen the removed region by this many pixels (0..2)
 
-# Full-rate filtered depth: every frame of depth_topic, masked, republished with its own header on
-# <output_namespace>/image_raw and the latest camera_info of info_topic (same size) on <output_namespace>/camera_info.
-# The input of d435_obstacle_cloud. Subscribed only while an output has subscribers (lazy.idle_unsubscribe_s).
+# Full-rate filtered depth: every frame of depth_topic, masked, republished with its own header on output_image_topic
+# and the latest camera_info of info_topic (same size) on output_info_topic. The input of d435_obstacle_cloud.
+# Subscribed only while an output has subscribers (lazy.idle_unsubscribe_s).
 filtered_depth:
-  enabled: true                                   # advertise the filtered depth
-  depth_topic: /head/d435/depth/image_rect_raw    # sensor_msgs/Image 16UC1 full-FOV depth, mm
-  info_topic: /head/d435/depth/camera_info        # sensor_msgs/CameraInfo of that depth
-  output_namespace: /head/d435/depth_filtered     # outputs <ns>/image_raw and <ns>/camera_info
+  enabled: true                                              # advertise the filtered depth
+  depth_topic: /head/d435/depth/image_rect_raw               # sensor_msgs/Image 16UC1 full-FOV depth, mm
+  info_topic: /head/d435/depth/camera_info                   # sensor_msgs/CameraInfo of that depth
+  output_image_topic: /head/d435/depth_filtered/image_raw    # the masked depth, same header as the input
+  output_info_topic: /head/d435/depth_filtered/camera_info   # the camera_info with the image header
 
 # Pairing of the aligned depth with the colour frame (message_filters). exact: equal stamps (ExactTime). approximate:
 # stamps at most max_interval_s apart (ApproximateTime). The set carries the colour header either way. Choose from

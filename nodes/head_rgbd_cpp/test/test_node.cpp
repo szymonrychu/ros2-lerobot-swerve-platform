@@ -211,6 +211,9 @@ protected:
     executor_.add_node(node_);
     executor_.add_node(probe_);
     spinner_ = std::thread([this] { executor_.spin(); });
+    // A cancel() before spin() started is lost and the join in TearDown would hang: a test that ends within
+    // milliseconds (the advertise checks) would otherwise race the spinner thread.
+    ASSERT_TRUE(wait_for([this] { return executor_.is_spinning(); }));
   }
 
   void subscribe_outputs()

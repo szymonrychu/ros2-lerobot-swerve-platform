@@ -2,7 +2,7 @@
 // approximate stamps), throttles the sets to output.rate_hz, masks the depth edges, downscales the depth,
 // JPEG-encodes the colour and publishes the /head_rgbd contract (every message of a set with the colour header), only
 // while an output has subscribers and only from real, paired inputs with a camera_info. A second, independent stage
-// masks every frame of the full-FOV depth and republishes it with its camera_info on filtered_depth.output_namespace
+// masks every frame of the full-FOV depth and republishes it with its camera_info on the filtered_depth output topics
 // (the obstacle cloud input), again only while that output has subscribers.
 #ifndef HEAD_RGBD_CPP__HEAD_RGBD_NODE_HPP_
 #define HEAD_RGBD_CPP__HEAD_RGBD_NODE_HPP_

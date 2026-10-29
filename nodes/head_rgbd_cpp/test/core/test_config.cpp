@@ -60,7 +60,8 @@ TEST(Config, DefaultsMatchTheSpecification)
   EXPECT_TRUE(c.filtered_depth.enabled);
   EXPECT_EQ(c.filtered_depth.depth_topic, "/head/d435/depth/image_rect_raw");
   EXPECT_EQ(c.filtered_depth.info_topic, "/head/d435/depth/camera_info");
-  EXPECT_EQ(c.filtered_depth.output_namespace, "/head/d435/depth_filtered");
+  EXPECT_EQ(c.filtered_depth.output_image_topic, "/head/d435/depth_filtered/image_raw");
+  EXPECT_EQ(c.filtered_depth.output_info_topic, "/head/d435/depth_filtered/camera_info");
   EXPECT_EQ(c.pairing.policy, head_rgbd_cpp::PairingPolicy::EXACT);
   EXPECT_DOUBLE_EQ(c.pairing.max_interval_s, 0.02);
 }
@@ -93,7 +94,8 @@ TEST(Config, ShippedYamlLoadsAndEqualsTheDefaults)
   EXPECT_EQ(shipped.filtered_depth.enabled, defaults.filtered_depth.enabled);
   EXPECT_EQ(shipped.filtered_depth.depth_topic, defaults.filtered_depth.depth_topic);
   EXPECT_EQ(shipped.filtered_depth.info_topic, defaults.filtered_depth.info_topic);
-  EXPECT_EQ(shipped.filtered_depth.output_namespace, defaults.filtered_depth.output_namespace);
+  EXPECT_EQ(shipped.filtered_depth.output_image_topic, defaults.filtered_depth.output_image_topic);
+  EXPECT_EQ(shipped.filtered_depth.output_info_topic, defaults.filtered_depth.output_info_topic);
   EXPECT_EQ(shipped.pairing.policy, defaults.pairing.policy);
   EXPECT_DOUBLE_EQ(shipped.pairing.max_interval_s, defaults.pairing.max_interval_s);
 }
@@ -110,7 +112,8 @@ TEST(Config, ValidOverridesAreRead)
     "cloud: {enabled: false, rate_hz: 10}\n"
     "lazy: {idle_unsubscribe_s: 0}\n"
     "edge_mask: {enabled: false, window_px: 5, abs_m: 0, rel: 0.05, grow_px: 1}\n"
-    "filtered_depth: {enabled: false, depth_topic: /fd, info_topic: /fi, output_namespace: /fo}\n"
+    "filtered_depth: {enabled: false, depth_topic: /fd, info_topic: /fi, output_image_topic: /oi, "
+    "output_info_topic: /oc}\n"
     "pairing: {policy: approximate, max_interval_s: 0.01}\n"
     "metrics_port: null\n";
   EXPECT_TRUE(errors_of(text).empty());
@@ -136,7 +139,8 @@ TEST(Config, ValidOverridesAreRead)
   EXPECT_FALSE(c.filtered_depth.enabled);
   EXPECT_EQ(c.filtered_depth.depth_topic, "/fd");
   EXPECT_EQ(c.filtered_depth.info_topic, "/fi");
-  EXPECT_EQ(c.filtered_depth.output_namespace, "/fo");
+  EXPECT_EQ(c.filtered_depth.output_image_topic, "/oi");
+  EXPECT_EQ(c.filtered_depth.output_info_topic, "/oc");
   EXPECT_EQ(c.pairing.policy, head_rgbd_cpp::PairingPolicy::APPROXIMATE);
   EXPECT_DOUBLE_EQ(c.pairing.max_interval_s, 0.01);
   EXPECT_TRUE(errors_of("output: {jpeg_quality: 1}").empty());
@@ -176,7 +180,9 @@ TEST(Config, EveryRangeIsRejectedWithTheKeyNamed)
   expect_rejected("filtered_depth: {enabled: maybe}", "filtered_depth.enabled");
   expect_rejected("filtered_depth: {depth_topic: [a]}", "filtered_depth.depth_topic");
   expect_rejected("filtered_depth: {info_topic: [a]}", "filtered_depth.info_topic");
-  expect_rejected("filtered_depth: {output_namespace: [a]}", "filtered_depth.output_namespace");
+  expect_rejected("filtered_depth: {output_image_topic: [a]}", "filtered_depth.output_image_topic");
+  expect_rejected("filtered_depth: {output_info_topic: [a]}", "filtered_depth.output_info_topic");
+  expect_rejected("filtered_depth: {output_namespace: /x}", "filtered_depth.output_namespace");
   expect_rejected("pairing: {policy: nearest}", "pairing.policy");
   expect_rejected("pairing: {max_interval_s: 0}", "pairing.max_interval_s");
   // Half a frame period of the 15 Hz D435 at most: a wider window could pair a colour frame with the next depth.
@@ -224,6 +230,4 @@ TEST(Config, DerivedTopicsFollowTheNamespace)
   EXPECT_EQ(c.points(), "/head_rgbd/points");
   c.output_namespace = "/other";
   EXPECT_EQ(c.points(), "/other/points");
-  EXPECT_EQ(c.filtered_depth.image(), "/head/d435/depth_filtered/image_raw");
-  EXPECT_EQ(c.filtered_depth.camera_info(), "/head/d435/depth_filtered/camera_info");
 }

@@ -125,15 +125,17 @@ Config parse(const YAML::Node & node, Errors & errors)
     ros2_common_cpp::le<int>(p + "grow_px", m.grow_px, MAX_GROW_PX, errors);
   }
 
-  if (const YAML::Node s =
-        section(node, "filtered_depth", {"enabled", "depth_topic", "info_topic", "output_namespace"}, errors);
+  if (const YAML::Node s = section(
+        node, "filtered_depth", {"enabled", "depth_topic", "info_topic", "output_image_topic", "output_info_topic"},
+        errors);
       s.IsDefined()) {
     const std::string p = "filtered_depth.";
     FilteredDepthConfig & f = c.filtered_depth;
     f.enabled = read<bool>(s, p, "enabled", f.enabled, errors);
     f.depth_topic = read<std::string>(s, p, "depth_topic", f.depth_topic, errors);
     f.info_topic = read<std::string>(s, p, "info_topic", f.info_topic, errors);
-    f.output_namespace = read<std::string>(s, p, "output_namespace", f.output_namespace, errors);
+    f.output_image_topic = read<std::string>(s, p, "output_image_topic", f.output_image_topic, errors);
+    f.output_info_topic = read<std::string>(s, p, "output_info_topic", f.output_info_topic, errors);
   }
 
   if (const YAML::Node s = section(node, "pairing", {"policy", "max_interval_s"}, errors); s.IsDefined()) {

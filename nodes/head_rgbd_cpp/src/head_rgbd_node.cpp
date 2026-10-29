@@ -148,8 +148,8 @@ HeadRgbdNode::HeadRgbdNode(const Config & config, const rclcpp::NodeOptions & op
     // Reliable: d435_obstacle_cloud (point_cloud_xyz, qos 0) subscribes with the system default, reliable; best-effort
     // subscribers match it too.
     const rclcpp::QoS filtered_qos = rclcpp::QoS(1).reliable();
-    filtered_pub_ = create_publisher<Image>(config_.filtered_depth.image(), filtered_qos);
-    filtered_info_pub_ = create_publisher<CameraInfo>(config_.filtered_depth.camera_info(), filtered_qos);
+    filtered_pub_ = create_publisher<Image>(config_.filtered_depth.output_image_topic, filtered_qos);
+    filtered_info_pub_ = create_publisher<CameraInfo>(config_.filtered_depth.output_info_topic, filtered_qos);
     filtered_published_ =
       &metrics_.counter("head_rgbd_filtered_depth_published_total", "Full-FOV depth frames republished masked");
     for (const char * reason : FILTERED_DROP_REASONS) {

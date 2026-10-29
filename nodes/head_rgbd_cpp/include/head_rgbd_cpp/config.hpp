@@ -53,18 +53,16 @@ struct EdgeMaskConfig : ros2_common_cpp::DepthEdgeMaskParams
   bool enabled = true;
 };
 
-// Full-rate filtered copy of the full-FOV D435 depth: every frame of depth_topic, masked, on
-// <output_namespace>/image_raw with the frame's own header, and the latest camera_info of info_topic (same size) on
-// <output_namespace>/camera_info with that header. The input of d435_obstacle_cloud.
+// Full-rate filtered copy of the full-FOV D435 depth: every frame of depth_topic, masked, on output_image_topic with
+// the frame's own header, and the latest camera_info of info_topic (same size) on output_info_topic with that header.
+// The input of d435_obstacle_cloud.
 struct FilteredDepthConfig
 {
   bool enabled = true;
   std::string depth_topic = "/head/d435/depth/image_rect_raw";
   std::string info_topic = "/head/d435/depth/camera_info";
-  std::string output_namespace = "/head/d435/depth_filtered";
-
-  std::string image() const { return output_namespace + "/image_raw"; }
-  std::string camera_info() const { return output_namespace + "/camera_info"; }
+  std::string output_image_topic = "/head/d435/depth_filtered/image_raw";
+  std::string output_info_topic = "/head/d435/depth_filtered/camera_info";
 };
 
 enum class PairingPolicy
