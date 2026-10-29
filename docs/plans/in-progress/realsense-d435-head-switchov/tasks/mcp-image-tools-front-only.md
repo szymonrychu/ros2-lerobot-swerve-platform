@@ -65,3 +65,4 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+- 2026-10-29 carried from mcp-camera-tools-front-only: remove the unused `joints` parameter of camera_pose_base; drop build_scene_gripper from nodes/mcp_server/bench/REPORT.md and report.json.

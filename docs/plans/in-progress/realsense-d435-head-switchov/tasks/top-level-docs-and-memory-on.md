@@ -69,3 +69,4 @@ Context the implementer needs: pitfalls, existing code to reuse, decisions alrea
 - 2026-10-28: nodes/README.md, docs/markers.md and the ansible-deploy skill still describe marker_detector zoom stills (retired by marker-detector-zoom-retired).
 - 2026-10-28: MEMORY.md:228 still names the collision sources tof_obstacles/tof_cliff (now depth_obstacles/depth_cliff) and the voxel layer tof_voxel_layer (now depth_voxel_layer).
 - 2026-10-28: ansible/README.md lines ~367/371 still say head_rgbd_cpp / ground_estimator_cpp read the ToF.
+- 2026-10-29: nodes/mcp_server/README.md still documents the gripper camera and calibration sample joints.
