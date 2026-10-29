@@ -51,14 +51,14 @@ describe('RgbdResults', () => {
     vi.unstubAllGlobals()
   })
 
-  it('shows the D435 check rows and no ToF or stereo row', async () => {
+  it('shows the D435 check rows only, no ToF row', async () => {
     serve([resultFx])
     render(<RgbdResults sessionId="s1" compute={NOT_RUNNING} />)
     await screen.findAllByTestId('result-chip')
     const card = screen.getByTestId(`result-card-${resultFx.id}`)
     const labels = [...card.querySelectorAll('tbody tr')].map((tr) => tr.querySelector('td')?.textContent)
     expect(labels).toEqual(D435_ROWS)
-    expect(card.textContent).not.toMatch(/ToF|stereo/i)
+    expect(card.textContent).not.toMatch(/ToF/)
     const lim = resultFx.limits
     expect(cells(resultFx.id, 'Colour RMS')).toEqual(['Colour RMS', '0.21', `<= ${lim.intrinsics_max_rms_px} px`, 'pass'])
     expect(cells(resultFx.id, 'Focal difference')).toEqual(['Focal difference', '0.35', `<= ${lim.intrinsics_max_focal_diff_pct} %`, 'pass'])

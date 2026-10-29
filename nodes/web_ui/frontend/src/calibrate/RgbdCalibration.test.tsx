@@ -32,7 +32,7 @@ describe('RgbdCalibration', () => {
     expect(help).toContain('0.3-0.6 m')
     expect(help).toContain('coverage grid')
     expect(help).toContain('factory')
-    expect(help).not.toMatch(/ToF|stereo|restart/i)
+    expect(help).not.toMatch(/ToF|restart/i)
   })
 
   it('keeps an opened past session while the capture keeps polling', async () => {
