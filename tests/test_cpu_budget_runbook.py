@@ -62,5 +62,5 @@ def test_cpu_compare_lists_every_changed_unit() -> None:
         assert f"ros2-{name}.service" in units, name
     assert "client-cpu-budget.md" in CPU_COMPARE.read_text()
     assert config["window_h"] * 3600 <= 86400
-    for existing in ("map_guard", "web_ui", "arducam_tof"):
+    for existing in ("map_guard", "web_ui"):
         assert any(e["name"] == existing for e in config["entries"])

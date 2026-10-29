@@ -28,7 +28,6 @@ CONFIG_METRICS_PORTS = {
     "map_guard": 19110,
     "costmap_zones": 19111,
     "marker_detector": 19118,
-    "arducam_tof": 19112,
     "map_manager": 19113,
     "base_servos": 19115,
     # Side-by-side C++ ports: the Python node's port (the same config block); only one of a pair is ever enabled.
@@ -283,12 +282,12 @@ def test_every_enabled_contract_node_has_a_matching_scrape_target() -> None:
         assert target.get("path", "/metrics") == "/metrics", name
         checked += 1
     disabled = {n for n in CONTRACT_NODES if not is_running(nodes[n])}
-    # topic_scraper_api disabled 2026-10-11; arducam_tof and gripper_uvc_camera disabled 2026-10-28 (memory room for
-    # the D435 ground nodes). Of each <name>/<name>_cpp pair exactly one runs
-    # (test_a_python_and_cpp_pair_is_never_both_enabled).
+    # topic_scraper_api disabled 2026-10-11; gripper_uvc_camera disabled 2026-10-28 (memory room for the D435 ground
+    # nodes); arducam_tof is retired (present: false, no config, so no contract port). Of each <name>/<name>_cpp pair
+    # exactly one runs (test_a_python_and_cpp_pair_is_never_both_enabled).
     pair_members = {n for n in CONTRACT_NODES if n.endswith(CPP_SUFFIX)}
     pair_members |= {n[: -len(CPP_SUFFIX)] for n in pair_members}
-    assert disabled - pair_members == {"topic_scraper_api", "arducam_tof", "gripper_uvc_camera"}
+    assert disabled - pair_members == {"topic_scraper_api", "gripper_uvc_camera"}
     assert checked == len(CONTRACT_NODES - disabled)
     # Only enabled nodes are scraped: a disabled target would read as down. Add a target when enabling the node.
     assert set(targets) == CONTRACT_NODES - disabled

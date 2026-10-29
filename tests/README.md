@@ -1841,18 +1841,15 @@ Static checks of the D7 retirement of the Pi stereo pipeline: `stereo_depth` and
 
 ### test_arducam_tof_config.py
 
-Static checks of the `arducam_tof` deployment (Arducam ToF depth camera for the web UI head tab, Client only, installed but disabled (user 2026-10-28, memory room for the D435 ground nodes)).
+Static checks of the `arducam_tof` deployment (Arducam ToF depth camera, Client only), retired by the D435 switchover: the node type stays declared for the uninstall path, the entry is `present: false`.
 
 | Test | Covers |
 |---|---|
 | `test_node_type_is_declared_on_the_client` | Native node type `python3 -m arducam_tof`, `nodes/bridges/arducam_tof`, `/etc/ros2/arducam_tof`, `ARDUCAM_TOF_CONFIG`. |
 | `test_node_type_is_in_the_normal_cgroup_tier_with_memory_limits` | Normal-tier cgroup weights with `memory_low` and `memory_max`. |
 | `test_node_type_has_no_dds_peer` | No `ROS_STATIC_PEERS` on the node type. |
-| `test_ros2_nodes_entry_deploys_disabled` | `ros2_nodes` entry is `present: true`, `enabled: false` (user 2026-10-28) with a `config` string. |
-| `test_deployed_config_holds_only_keys_the_driver_accepts` | Deployed YAML keys are exactly the driver config keys (including the three `flying_pixel_*` keys and `min_range_m`; unknown keys are rejected by the driver), `csi_device: 1f00128000.csi`, metrics port, `range_mode` near or far. |
-| `test_deployed_config_loads_in_the_real_driver_load_config` | The deployed YAML loads in the driver's real `load_config`; runs unconditionally. |
-| `test_head_tab_topics_are_documented_in_the_config_comments` | The fixed depth, amplitude and camera_info topics are listed in the config comments. |
-| `test_metrics_port_is_scraped_exactly_when_the_node_is_enabled` | The metrics port is in `monitoring_agent_node_targets` when the node is enabled, and absent while it is disabled. |
+| `test_ros2_nodes_entry_is_retired` | `ros2_nodes` entry is `present: false` with no `config` (the next deploy uninstalls the unit, venv and config). |
+| `test_metrics_port_is_scraped_exactly_when_the_node_is_enabled` | The metrics port is in `monitoring_agent_node_targets` only when the node is present and enabled, so the retired node is unscraped. |
 | `test_sdk_task_adds_the_arducam_repo_and_installs_the_sdk` | `arducam_tof_sdk.yml` adds the Arducam apt repo and installs `arducam-tof-sdk-dev`. |
 | `test_sdk_task_is_idempotent_and_never_fails_the_deploy` | The SDK task tolerates an unavailable repo or package. |
 | `test_client_playbook_includes_the_sdk_task_and_deploys_the_node` | `deploy_nodes_client.yml` includes the SDK task and the tagged `Deploy arducam_tof` block. |
@@ -2373,7 +2370,7 @@ Static invariants of the head RGB-D adapter deploy (`head_rgbd_cpp` in `ansible/
 | `test_inputs_are_the_d435_aligned_pair` | The deployed config and the defaults read `/head/d435/aligned_depth_to_color/image_raw`, `/head/d435/color/image_raw` and `/head/d435/color/camera_info` at `output.rate_hz` 2.0; `realsense_d435` launches as `head`/`d435` with `align_depth.enable: true`. |
 | `test_output_rate_matches_the_mapping_budget` | `output.rate_hz` equals the `expected_rate_hz` of all four `/head_rgbd/*` uplink streams of `nodes/rtabmap_mapping/config/map3d_topics.yaml`. |
 | `test_client_playbook_step_order` | `Deploy head_rgbd_cpp` after the head_camera_cpp and arducam_tof steps, tags `[head_rgbd_cpp, apt, python, build, config]`. |
-| `test_rgbd_and_ground_nodes_are_enabled` | User 2026-10-28: `head_rgbd_cpp`, `ground_estimator_cpp`, `realsense_d435`, `d435_obstacle_cloud` and `head_camera_cpp` are present and enabled and the two are scraped; `arducam_tof` and `gripper_uvc_camera` are present and disabled (memory_low room, D14) and not scraped. |
+| `test_rgbd_and_ground_nodes_are_enabled` | User 2026-10-28: `head_rgbd_cpp`, `ground_estimator_cpp`, `realsense_d435`, `d435_obstacle_cloud` and `head_camera_cpp` are present and enabled and the two are scraped; `gripper_uvc_camera` is present and disabled (memory_low room, D14), `arducam_tof` is retired (`present: false`), and neither is scraped. |
 
 ### `test_pi_camera_boot_config.py`
 
@@ -2513,7 +2510,7 @@ Node metrics wiring in `ansible/group_vars/client.yml` against the port contract
 
 | Test | Description |
 |------|-------------|
-| `test_config_metrics_port` | (lerobot_follower, filter_node, bno055_imu, gps_rtk_rover, swerve_controller, rf2o_odom_relay, poi_store, map_manager, map_guard, costmap_zones, arducam_tof, the side-by-side C++ port map_guard_cpp 19110, and the standalone C++ nodes head_camera_cpp 19116 and head_rgbd_cpp 19117) `metrics_port` 19101-19112; base_servos 19115; marker_detector 19118 (added by the marker epic, which also lists `marker_detector` among the `src_shared` node types of `test_node_types_using_ros2_metrics_declare_src_shared`). |
+| `test_config_metrics_port` | (lerobot_follower, filter_node, bno055_imu, gps_rtk_rover, swerve_controller, rf2o_odom_relay, poi_store, map_manager, map_guard, costmap_zones, the side-by-side C++ port map_guard_cpp 19110, and the standalone C++ nodes head_camera_cpp 19116 and head_rgbd_cpp 19117) `metrics_port` from 19101 up (the retired arducam_tof no longer holds 19112); base_servos 19115; marker_detector 19118 (added by the marker epic, which also lists `marker_detector` among the `src_shared` node types of `test_node_types_using_ros2_metrics_declare_src_shared`). |
 | `test_env_metrics_port` | gripper_uvc_camera `METRICS_PORT=19105`, rplidar_a1 `METRICS_PORT=19106`. |
 | `test_http_nodes_keep_their_port` | web_ui 8080, test_joint_api 18080, topic_scraper_api 18100, mcp_server 18200, claude_agent 18300, without a `metrics_port` key. |
 | `test_rplidar_imports_ros2_metrics_without_a_venv` | rplidar_a1 (no venv): `python3-prometheus-client` apt package, `shared/ros2_metrics` in `src_extra_paths`, `PYTHONPATH` starting with `<ros2_repo_dest>/shared/ros2_metrics`. |
@@ -2521,7 +2518,7 @@ Node metrics wiring in `ansible/group_vars/client.yml` against the port contract
 | `test_server_group_vars_untouched` | No metrics port in `group_vars/server.yml`; the server's and the agent defaults' node target lists are empty. |
 | `test_a_port_is_shared_only_by_a_python_and_cpp_pair` | Two contract nodes share a port only as `<name>`/`<name>_cpp` (at least one such pair exists). |
 | `test_a_python_and_cpp_pair_is_never_both_enabled` | Of every `<name>`/`<name>_cpp` pair in `ros2_nodes` (map_guard at least) at most one is present and enabled: both would bind the same port and publish the same topics. |
-| `test_every_enabled_contract_node_has_a_matching_scrape_target` | Each enabled contract node (count derived from the port contract minus disabled nodes) has a target `127.0.0.1:<configured port>` with path `/metrics`, and no other targets exist. Disabled nodes other than topic_scraper_api, arducam_tof and gripper_uvc_camera (user 2026-10-28) are only members of a Python/C++ pair. |
+| `test_every_enabled_contract_node_has_a_matching_scrape_target` | Each enabled contract node (count derived from the port contract minus disabled nodes) has a target `127.0.0.1:<configured port>` with path `/metrics`, and no other targets exist. Disabled nodes other than topic_scraper_api and gripper_uvc_camera (user 2026-10-28) are only members of a Python/C++ pair; the retired arducam_tof has no contract port. |
 
 ### `monitoring_helpers.py`
 
@@ -3300,6 +3297,14 @@ Retirement pins for the ToF-only code paths of `nodes/head_rgbd_cpp` (the D435 p
 | `test_head_rgbd_tof_fixtures_are_gone` | `git ls-files` returns nothing for the synthetic ToF scene `test/core/synthetic_scene.hpp` and the `test/data` dir (the ToF calibration fixture `tof_calibration.yaml`), and no tracked file under `nodes/head_rgbd_cpp` names `synthetic_scene.hpp`, `test/data` or `HEAD_RGBD_TEST_DATA_DIR`. |
 | `test_head_rgbd_tof_build_dependencies_are_gone` | `nodes/head_rgbd_cpp/CMakeLists.txt`, `package.xml` and `scripts/cpp-node-test.Dockerfile` name none of the ToF-only build dependencies: OpenCV `calib3d`, `ximgproc` / opencv contrib, `camera_calibration_parsers`, `tf2*`, Eigen. |
 
+### `test_old_sensors_retired.py`
+
+Retirement pins for the old head sensors of the D435 switchover (design D11: retired only after every consumer reads the D435). Reads `ansible/group_vars/client.yml` and `nodes/nav2_bringup/config/nav2_params.yaml` only.
+
+| Test | What it checks |
+|---|---|
+| `test_arducam_tof_is_retired` | The `arducam_tof` entry is exactly `name`, `node_type` and `present: false` (no `config`) under the comment "Retired (D435 switchover): present: false uninstalls the unit, venv and config on the next deploy"; no `monitoring_agent_node_targets` entry names it or port 19112; no present and enabled node's config, node or type env or type launch command, and no nav2 parameter, names a `/tof/` topic. |
+
 ### `test_head_rgbd_urdf_handoff.py`
 
 Tests for `shared/ros2_common/head_rgbd_calibration/urdf_handoff.py` on a copy of `nodes/web_ui/urdf/head.urdf`.
@@ -3456,7 +3461,7 @@ Static pins for `docs/runbooks/head-remount-floor-check.md`, the robot runbook a
 | Test | Covers |
 |---|---|
 | `test_runbook_has_every_section_in_order` | The eight sections Preconditions to Results, in order. |
-| `test_deploy_uses_the_script_never_ansible_playbook` | Deploys name `scripts/deploy-nodes.sh`, tee to `.logs/`, the ansible-deploy skill and all six nodes; no `ansible-playbook`. |
+| `test_runbook_deploys_only_through_deploy_nodes` | Deploys name `scripts/deploy-nodes.sh`, tee to `.logs/`, the ansible-deploy skill and the five live nodes (head_rgbd_calibration, base_servos, ground_estimator_cpp, nav2_bringup, mcp_server; arducam_tof is retired); no `ansible-playbook`. |
 | `test_preconditions_name_the_setup_and_the_agent_session_check` | Not on blocks, flat floor, ChArUco board, agent session check before mcp_server. |
 | `test_pan_direction_check` | +0.3 rad turns the head left (CCW), user confirms. |
 | `test_rezero_and_recalibration_reference_their_runbooks` | Links to servo-torque-neutral and head-rgbd-fusion; plane bias +-10 mm and the 40 mm limit. |
@@ -3477,7 +3482,7 @@ Static pins for `docs/runbooks/client-cpu-budget.md` (client CPU budget measurem
 |---|---|
 | `test_runbook_has_every_section` | Before, Deploy, After, Checks, Expected savings, Rollback in order; the eight savings and the measurement queries. |
 | `test_runbook_deploys_only_through_deploy_nodes` | Deploy lines use `scripts/deploy-nodes.sh` with a tee to `.logs/`; no `ansible-playbook`. |
-| `test_cpu_compare_lists_every_changed_unit` | node_cpu_compare.yaml has an entry for each of the eleven changed units and keeps the existing ones. |
+| `test_cpu_compare_lists_every_changed_unit` | node_cpu_compare.yaml has an entry for each of the eleven changed units and keeps the existing map_guard and web_ui ones (the retired arducam_tof is no longer required). |
 
 ### `test_ground_record.py`
 

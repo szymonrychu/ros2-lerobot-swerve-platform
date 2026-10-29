@@ -142,8 +142,8 @@ ros2_node_type_defaults:
     # the node dir itself.
     # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
     src_shared: true
-    # Estimate, no series yet (deployed disabled): a 240x180 ToF frame pair at publish_rate_hz is small, so MemoryLow
-    # follows uvc_camera (p50 66.7 MiB) with the SDK and numpy, MemoryMax 2x or more. Re-measure once enabled.
+    # Retired (D435 switchover, ros2_nodes entry present: false). Estimate, never measured: a 240x180 ToF frame pair is
+    # small, so MemoryLow follows uvc_camera (p50 66.7 MiB) with the SDK and numpy, MemoryMax 2x or more.
     memory_low: "64M"
     memory_max: "192M"
     cpu_weight: 500
@@ -1364,47 +1364,11 @@ ros2_nodes:
       - UVC_MAX_FPS=10
       # Prometheus /metrics on 127.0.0.1 (scraped by Alloy).
       - METRICS_PORT=19105
-  # Arducam ToF camera on CSI cam1 (dtoverlay=arducam-pivariety,cam1, playbooks/tasks/pi_camera_boot_config.yml): depth,
-  # amplitude and camera_info for the web UI head tab.
-  # Disabled (user 2026-10-28): stopped, still installed, so the enabled memory_low sum stays <= 2560 MiB with
-  # head_rgbd_cpp and ground_estimator_cpp enabled on the D435; the retirement makes it present: false after the MCP
-  # re-point.
+  # Head ToF on CSI cam1: the D435 replaces it and every former consumer reads /head/d435/*.
+  # Retired (D435 switchover): present: false uninstalls the unit, venv and config on the next deploy.
   - name: arducam_tof
     node_type: arducam_tof
-    present: true
-    enabled: false
-    config: |
-      # Prometheus /metrics on 127.0.0.1 (scraped by Alloy: monitoring_agent_node_targets).
-      metrics_port: 19112
-      # Pi 5 cam1 controller; the node opens its csi2_ch0 video node, found in sysfs at every open (the /dev/video
-      # number changes between kernels: video8 on 6.8.0-1051, video10 on 6.8.0-1065).
-      csi_device: 1f00128000.csi
-      # near or far (the driver rejects anything else, and any key not listed here).
-      range_mode: far
-      confidence_threshold: 30
-      frame_id: tof_optical_frame
-      publish_rate_hz: 10.0
-      # Capture-to-return latency of the SDK frame, ms: the frame is stamped with its return time minus this. 0.0 means
-      # unset; the pan-sweep procedure in nodes/head_rgbd_cpp/README.md yields the measured value for this key.
-      stamp_latency_ms: 0.0
-      # ToF intrinsics for the radial-to-z conversion and camera_info: the applied file Apply on the Calibrate page
-      # writes (ros2-head-rgbd-calibration-apply restarts this node); a missing file falls back to the SDK factory K.
-      tof_calibration_file: /var/lib/ros2/head_rgbd_calibration/applied/tof_calibration.yaml
-      # The SDK depth is the distance along each pixel ray; true converts it to z-depth with that K.
-      depth_is_radial: true
-      # Zero ToF flying (mixed) pixels at depth discontinuities on the full-resolution z-depth: a valid pixel goes to 0
-      # when a valid 3x3 neighbour differs by more than max(min_jump_mm, ratio * its depth). Without it every object
-      # edge drags a 10-25 cm tail of intermediate heights into /tof/points_filtered (fake ramps and steps).
-      flying_pixel_filter: false  # off 2026-10-22: removed ~70% of live pixels (ground fits starved), retune on real frames first
-      flying_pixel_jump_ratio: 0.05
-      flying_pixel_min_jump_mm: 30
-      # Pixels nearer than this ray distance (m) are published as 0: the camera sits ~0.27 m above the floor, so nothing
-      # nearer is floor; it is the robot's own arm/gripper and its shadow in the depth map. 0 = off.
-      min_range_m: 0.25
-      # Topics are fixed in the driver (the web_ui head tab subscribes to them):
-      # /tof/depth/image_raw
-      # /tof/amplitude/image_raw
-      # /tof/camera_info
+    present: false
   # Retired (D5): d435_obstacle_cloud builds the head obstacle cloud from the D435 depth. present: false uninstalls the
   # unit and launcher on the next deploy.
   - name: tof_obstacle_cloud
@@ -3679,7 +3643,7 @@ monitoring_agent_node_targets:
   - {node: head_camera_cpp, address: "127.0.0.1:19116", path: /metrics}
   - {node: head_rgbd_cpp, address: "127.0.0.1:19117", path: /metrics}
   - {node: ground_estimator_cpp, address: "127.0.0.1:19119", path: /metrics}
-  # gripper_uvc_camera (19105) and arducam_tof (19112) are disabled (user 2026-10-28): a disabled target reads as down.
+  # gripper_uvc_camera (19105) is disabled (user 2026-10-28): a disabled target reads as down.
   - {node: base_servos, address: "127.0.0.1:19115", path: /metrics}
   - {node: web_ui, address: "127.0.0.1:8080", path: /metrics}
   - {node: test_joint_api, address: "127.0.0.1:18080", path: /metrics}

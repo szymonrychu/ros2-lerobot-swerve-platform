@@ -30,7 +30,6 @@ SECTIONS = (
     "Results",
 )
 DEPLOY_NODES = (
-    "arducam_tof",
     "head_rgbd_calibration",
     "base_servos",
     "ground_estimator_cpp",
