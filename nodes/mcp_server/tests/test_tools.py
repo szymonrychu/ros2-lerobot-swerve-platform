@@ -1,6 +1,7 @@
 """Tests for mcp_server.tools: tool registry, argument validation, structured outputs and bearer-token auth."""
 
 import json
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +15,7 @@ from starlette.testclient import TestClient
 from mcp_server import camera_scene, tools
 from mcp_server.arm import ArmController
 from mcp_server.base_motion import DriveOutcome, SpinOutcome
-from mcp_server.config import McpServerConfig
+from mcp_server.config import REPO_ROOT, McpServerConfig
 from mcp_server.head import AppliedHeadKinematics, HeadController
 from mcp_server.ik import ArmKinematics, load_joint_limits
 from mcp_server.models import (
@@ -476,6 +477,32 @@ def test_get_camera_image_offers_only_front(server: Any, robot: FakeRobot) -> No
     with pytest.raises(ToolError):
         call(server, "get_camera_image", {"camera": "gripper"})
     assert robot.calls == []
+
+
+def test_get_camera_image_has_no_zoom(server: Any, robot: FakeRobot) -> None:
+    """Zoom is retired with head_camera_cpp: no zoom in the schema or description, and a zoom argument is refused."""
+
+    async def run() -> Any:
+        return await server.list_tools()
+
+    tool = next(t for t in anyio.run(run) if t.name == "get_camera_image")
+    assert "zoom" not in tool.input_schema["properties"]
+    assert "zoom" not in ((tool.description or "") + json.dumps(tool.input_schema)).lower()
+    with pytest.raises(ToolError):
+        call(server, "get_camera_image", {"camera": "front", "zoom": {"u": 0.5, "v": 0.5, "factor": 2}})
+    assert robot.calls == []
+
+
+def test_zoom_client_is_gone() -> None:
+    """The head camera zoom client is retired with head_camera_cpp: the module is no longer tracked."""
+    tracked = subprocess.run(
+        ["git", "ls-files", "nodes/mcp_server/mcp_server/zoom_client.py"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert tracked == ""
 
 
 def tool_schema_text(server: Any, name: str) -> str:

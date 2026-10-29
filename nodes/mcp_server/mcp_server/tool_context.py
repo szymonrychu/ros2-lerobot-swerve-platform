@@ -22,7 +22,6 @@ from .head import HeadController
 from .models import (
     BasePose,
     CameraFrame,
-    CameraZoomFrame,
     DepthPoints,
     GroundState,
     Map3dCloud,
@@ -116,10 +115,6 @@ class RobotApi(Protocol):
     def camera_info(self, camera: str) -> CameraInfoData | None:
         """Latest CameraInfo of a camera with a camera_info_topic (subscribed on demand); None without one or before
         a first message."""
-        ...
-
-    def camera_zoom(self, camera: str, u: float, v: float, zoom: int, max_px: int) -> CameraZoomFrame:
-        """Autofocused full-resolution zoom crop around (u, v) of the default view (head camera only)."""
         ...
 
     def scan_points(self) -> ScanPoints | None:

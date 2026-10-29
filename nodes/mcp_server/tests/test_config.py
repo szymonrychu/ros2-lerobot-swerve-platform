@@ -567,17 +567,23 @@ def test_contact_load_delta_appears_in_the_resolved_grip_report() -> None:
     assert custom.name == "firm+custom"
 
 
-def test_zoom_config_defaults_and_validation(tmp_path: Path) -> None:
-    cfg = McpServerConfig()
-    assert cfg.topics.head_camera_zoom_command == "/head_camera/zoom/command"
-    assert cfg.topics.head_camera_zoom_result == "/head_camera/zoom/result"
-    assert cfg.topics.head_camera_zoom_image == "/head_camera/zoom/image"
-    assert cfg.timeouts.zoom_timeout_s == 8.0 and cfg.timeouts.zoom_image_grace_s == 1.0
-    for key in ("zoom_timeout_s", "zoom_image_grace_s"):
-        path = tmp_path / "c.yaml"
-        path.write_text(f"timeouts:\n  {key}: 0\n")
-        with pytest.raises(ValidationError):
-            load_config(path)
+@pytest.mark.parametrize(
+    "section, key",
+    [
+        ("topics", "head_camera_zoom_command"),
+        ("topics", "head_camera_zoom_result"),
+        ("topics", "head_camera_zoom_image"),
+        ("timeouts", "zoom_timeout_s"),
+        ("timeouts", "zoom_image_grace_s"),
+    ],
+)
+def test_zoom_config_keys_are_rejected(tmp_path: Path, section: str, key: str) -> None:
+    """Zoom is retired with head_camera_cpp: its topics and timeouts are unknown keys."""
+    assert not hasattr(getattr(McpServerConfig(), section), key)
+    path = tmp_path / "c.yaml"
+    path.write_text(f"{section}:\n  {key}: x\n")
+    with pytest.raises(ValidationError, match=key):
+        load_config(path)
 
 
 def test_head_defaults_and_home_validation() -> None:

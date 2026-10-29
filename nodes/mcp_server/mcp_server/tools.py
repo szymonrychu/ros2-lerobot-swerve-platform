@@ -16,7 +16,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError, UnexpectedToolError
 from mcp.server.streamable_http import MCP_SESSION_ID_HEADER
 from mcp.types import CallToolResult, ImageContent, TextContent
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import Field, TypeAdapter
 from ros2_common.battery import BatteryGuard
 from ros2_metrics import render_latest
 from starlette.applications import Starlette
@@ -61,7 +61,6 @@ from .metrics import TOOL_CALLS, TOOL_DURATION
 from .models import (
     ArmMotionResult,
     ArmState,
-    CameraZoomFrame,
     ControlState,
     HomeSetResult,
     NavigationResult,
@@ -258,6 +257,9 @@ DIGEST_VITALS_KEY = "vitals"
 # is reported as a nav_abort robot event (a stuck spot for auto_poi.AutoPoiMarker) before the digest is taken.
 NAV_RESULT_TOOLS = frozenset({"navigate_to_pose", "move_relative", "go_to_frontier"})
 NAV_ABORTED = "aborted"
+# Tools that refuse unknown arguments instead of dropping them: get_camera_image lost zoom with head_camera_cpp, and a
+# stale zoom must fail rather than silently return the plain picture.
+STRICT_ARGUMENT_TOOLS = frozenset({"get_camera_image"})
 # Tools whose results count toward the poi_hint nudge: once auto_poi.hint_after_images of them returned since the last
 # POI write (add_poi, update_poi, remember_object, annotate_lookup reset the count), their result carries poi_hint.
 POI_HINT_TOOLS = frozenset({"get_camera_image", "look_around"})
@@ -353,34 +355,6 @@ def image_content(data: bytes, mime_type: str) -> ImageContent:
         ImageContent: Content block.
     """
     return ImageContent(type="image", data=base64.b64encode(data).decode(), mime_type=mime_type)
-
-
-class CameraZoom(BaseModel):
-    """Where and how much to zoom on the head camera's default picture."""
-
-    u: float = Field(ge=0.0, le=1.0, description="Horizontal point, fraction of the default picture width (0 = left)")
-    v: float = Field(ge=0.0, le=1.0, description="Vertical point, fraction of the default picture height (0 = top)")
-    factor: Literal[2, 4, 8] = Field(description="Zoom factor: the crop covers 1/factor of the picture width")
-
-
-def zoom_metadata(frame: CameraZoomFrame) -> dict[str, Any]:
-    """get_camera_image metadata for a zoom crop.
-
-    Args:
-        frame (CameraZoomFrame): The zoom crop.
-
-    Returns:
-        dict[str, Any]: JSON-ready metadata (status, crop, full, out, size, focus, timing, request, af note).
-    """
-    meta = frame.model_dump(mode="json")
-    meta.pop("camera", None)
-    meta.pop("topic", None)
-    if frame.status == "af_failed":
-        meta["note"] = (
-            "autofocus did not converge: the crop may be out of focus. It is still returned; taking the zoom "
-            "again (same point, or a slightly different one) is allowed."
-        )
-    return meta
 
 
 def camera_image_scale(
@@ -548,6 +522,24 @@ class RobotMCPServer(MCPServer):
                 logging.getLogger("mcp_server.tools").warning("%s refused: %s", name, message)
                 raise ToolError(message)
 
+    def reject_unknown_arguments(self, name: str, arguments: dict[str, Any]) -> None:
+        """Refuse arguments a STRICT_ARGUMENT_TOOLS tool does not take (MCPServer drops them silently).
+
+        Args:
+            name (str): Tool name.
+            arguments (dict[str, Any]): Tool arguments.
+
+        Raises:
+            ToolError: An argument is not in the tool's input schema.
+        """
+        schema = self._tool_input_schema(name) if name in STRICT_ARGUMENT_TOOLS else None
+        if schema is None:
+            return
+        known = schema.get("properties", {})
+        unknown = sorted(set(arguments) - set(known))
+        if unknown:
+            raise ToolError(f"{name} has no argument {', '.join(unknown)}; it takes {', '.join(known)}")
+
     async def call_tool_with_digest(self, name: str, arguments: dict[str, Any], context: Any = None) -> Any:
         """Run a tool, then attach the digest to its result (or to its error message).
 
@@ -562,6 +554,7 @@ class RobotMCPServer(MCPServer):
         exclusive = name in QUEUE_EXCLUSIVE_TOOLS
         need = TOOL_SUBSYSTEM.get(name)
         try:
+            self.reject_unknown_arguments(name, arguments)
             refusal = None if need is None or self.control is None else self.control.refusal(name, need)
             if refusal is not None:
                 logging.getLogger("mcp_server.tools").warning("%s", refusal)
@@ -886,15 +879,7 @@ def register_core_tools(ctx: ToolContext) -> None:
             "scale_to_calibrated: a pixel read from this picture must go to pixel_to_ground (and the other "
             "pixel-taking tools) WITH image_width / image_height, or be read from get_annotated_camera_image instead. "
             "Fails (instead of returning an old picture) when no frame arrives within the timeout or the newest frame "
-            "is older than 1 s. Optional zoom {u, v, factor} (front camera only): an autofocused full-resolution "
-            "crop around the point (u, v), fractions 0..1 of the default picture with the origin top-left, at "
-            "factor 2, 4 or 8 (the crop covers 1/factor of the picture width); use it to read small text or see "
-            "detail the default picture cannot show. max_px caps the crop (default 1024, at most 1024). The cost: "
-            "the camera stream pauses about 1 s and a call takes 1-2.5 s, so take one crop per call and zoom "
-            "only when needed. The metadata gives status (ok or af_failed: focus did not converge, the crop is "
-            "still returned and re-taking is allowed), crop, full, out, width, height, af_state, lens_position, "
-            "phase_ms and the request. A zoom crop is not saved as a lookup; errors (busy, timeout, camera_error, "
-            "invalid, head camera not running) are tool errors."
+            "is older than 1 s."
         ),
     )
     def get_camera_image(
@@ -914,26 +899,8 @@ def register_core_tools(ctx: ToolContext) -> None:
                 "ask for more only to read fine detail, larger images cost more context)",
             ),
         ] = None,
-        zoom: Annotated[
-            CameraZoom | None,
-            Field(
-                description="Autofocused full-resolution crop of the head camera ('front' only): point u, v "
-                "(0..1 of the default picture, top-left origin) and factor 2, 4 or 8. Pauses the stream about 1 s "
-                "(1-2.5 s per call); one crop per call; max_px (default 1024, at most 1024) caps the crop. "
-                "Not saved as a lookup."
-            ),
-        ] = None,
     ) -> list[ImageContent | TextContent]:
         """Photo of a camera; the tool description is passed to the decorator so it can state the default size."""
-        if zoom is not None:
-            with tool_errors():
-                crop = robot.camera_zoom(
-                    camera, zoom.u, zoom.v, zoom.factor, min(max_px or HARD_MAX_IMAGE_PX, config.limits.max_image_px)
-                )
-            return [
-                image_content(crop.jpeg, "image/jpeg"),
-                TextContent(type="text", text=json.dumps(zoom_metadata(crop))),
-            ]
         with tool_errors():
             size = config.limits.default_camera_px if max_px is None else max_px
             frame = robot.camera_image(camera, min(size, config.limits.max_image_px))
