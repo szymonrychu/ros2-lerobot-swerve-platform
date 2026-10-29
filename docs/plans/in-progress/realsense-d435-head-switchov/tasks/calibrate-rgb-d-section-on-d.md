@@ -1,6 +1,6 @@
 ---
 title: Calibrate RGB-D section on D435
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: The calibration screen runs and shows the D435 intrinsics check.
 files: [nodes/web_ui/frontend/src/calibrate/rgbdApi.ts, nodes/web_ui/frontend/src/calibrate/RgbdCalibration.tsx, nodes/web_ui/frontend/src/calibrate/RgbdCapture.tsx, nodes/web_ui/frontend/src/calibrate/RgbdResults.tsx, nodes/web_ui/frontend/src/calibrate/RgbdCalibration.test.tsx, nodes/web_ui/frontend/src/calibrate/RgbdCapture.test.tsx, nodes/web_ui/frontend/src/calibrate/RgbdResults.test.tsx, nodes/web_ui/frontend/src/calibrate/rgbdApi.test.ts]
@@ -8,15 +8,15 @@ verify: "cd nodes/web_ui/frontend && npx vitest run src/calibrate/RgbdCalibratio
 depends_on: [d435-intrinsics-check-comput]
 model: opus
 review: ""
-verified_head: ""
+verified_head: 463a8bc1
 points: 5
 expected_minutes: 57
 expected_tokens: 3750000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 5
+actual_minutes: 36
+actual_tokens: 5627509
+actual_roles: "impl 28, review 8"
+actual_role_tokens: "impl 5290954, review 336555"
 ---
 
 # Calibrate RGB-D section on D435
@@ -68,3 +68,5 @@ What is true and observable when the task is done.
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
 - 2026-10-28: calibration-config-on-d435 made only the minimal frontend changes the new fixtures need; the RGB-D section redesign is here.
 - 2026-10-29 (from calibration-apply-restart-un): an intrinsics Accept now restarts nothing (restart only on head_chain.json change), but RgbdResults.tsx still polls and shows "restarting" until timeout; fix the UI to not wait for a restart after an intrinsics accept.
+
+- 2026-10-29 done
