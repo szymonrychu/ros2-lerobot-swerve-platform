@@ -29,8 +29,8 @@ from .grasp import GraspParams, GraspPlan, GraspPlanner, ObjectSpec, Waypoint, g
 from .grasp_check import Band, CropInfo, FusedOutcome, GraspCheck, GripEvidence, ImageState, ImageVerdict
 from .grip import ResolvedGrip, resolve_grip_profile
 from .head import HeadError
-from .head_kinematics import HeadAimError
-from .jaw_crop import crop_jpeg, jaw_crop, tool_point_in_base
+from .head_kinematics import PAN_JOINT, TILT_JOINT, HeadAimError
+from .jaw_crop import JawCropError, crop_jpeg, jaw_crop, tool_point_in_base
 from .jog import Jogger, JogSpec
 from .lookup_tools import record_lookup
 from .metrics import GRASP_ATTEMPTS, GRASP_PLANS, GRASP_RESULT_BY_OUTCOME, GRASP_VERDICTS
@@ -57,7 +57,7 @@ FUSE_NOTE = (
 )
 
 USE_GROUND_DESC = (
-    "use the measured floor regions (steps, drop-offs) from the head ToF ground estimate; refused when no fresh "
+    "use the measured floor regions (steps, drop-offs) from the head D435 ground estimate; refused when no fresh "
     "estimate exists"
 )
 # How the agent describes stairs, tables and holes (shared by the grasp and arm motion tools).
@@ -76,6 +76,7 @@ StrategyChoice = Literal["auto", "scoop", "angled", "top_down"]
 # What an 'unverified' reason tells the agent to do on the paths that attach no image (queued grasp, web UI).
 LOOK_CALL = "call get_camera_image 'front' and look at it"
 GRASP_CAMERA = "front"  # the head D435 colour camera, aimed at the FK tool point for the jaw crop
+JAW_AT_LIMIT = "jaw outside view at the head limit"  # the clamped aim did not bring the jaw into a croppable view
 GraspOutcome = Literal["planned", "infeasible", "grasped", "unverified", "missed", "aborted", "released"]
 
 
@@ -945,12 +946,14 @@ def jpeg_size(jpeg: bytes) -> tuple[int, int]:
     return img.shape[1], img.shape[0]
 
 
-def aim_head_at_tool_point(ctx: ToolContext, tool: str, joints: dict[str, float] | None) -> str | None:
+def aim_head_at_tool_point(ctx: ToolContext, tool: str, joints: dict[str, float] | None) -> tuple[str | None, bool]:
     """Aim the head D435 colour camera at the FK tool point and wait for the head to settle.
 
-    The head moves only while the agent holds a lease that commands it (the arm or the base lease, as the head tools);
-    look_at never clamps, so an aim beyond the head limits is refused. HeadController.move waits until both joints are
-    within head.tolerance_rad or head.move_timeout_s passes.
+    The head moves only while the agent holds a lease that commands it (the arm or the base lease, as the head tools).
+    When the aim needs angles beyond the head limits (a tool point low in front of the robot needs more tilt than the
+    head has), the head aims at the nearest in-limit pose instead (each angle clamped to its limits): the jaw may still
+    be in the image, and the crop decides. HeadController.move waits until both joints are within head.tolerance_rad
+    or head.move_timeout_s passes.
 
     Args:
         ctx (ToolContext): Shared registration context (robot, config, control).
@@ -958,35 +961,45 @@ def aim_head_at_tool_point(ctx: ToolContext, tool: str, joints: dict[str, float]
         joints (dict[str, float] | None): Measured arm joints; None without fresh joint states.
 
     Returns:
-        str | None: None when the head settled on the aim, else why it was not aimed (nothing moved) or did not settle.
+        tuple[str | None, bool]: (None when the head settled on the aim, else why it was not aimed (nothing moved) or
+            did not settle; whether the aim was clamped to the head limits).
     """
     robot, config = ctx.robot, ctx.config
     if joints is None:
-        return "no fresh arm joint states to place the tool point: the head was not aimed"
+        return "no fresh arm joint states to place the tool point: the head was not aimed", False
     offset = config.arm.base_in_base_link
     if offset is None:
-        return "arm.base_in_base_link is not configured: the tool point cannot be placed for the head aim"
+        return "arm.base_in_base_link is not configured: the tool point cannot be placed for the head aim", False
     refusal = None if ctx.control is None else ctx.control.refusal(tool, "any")
     if refusal is not None:
-        return f"head not aimed at the tool point: {refusal}"
+        return f"head not aimed at the tool point: {refusal}", False
+    kin = robot.head.kinematics
+    at_limit = False
     try:
-        pan, tilt = robot.head.kinematics.look_at(tool_point_in_base(robot.arm.kin, robot.arm.jaw, joints, offset))
+        try:
+            pan, tilt = kin.look_at(tool_point_in_base(robot.arm.kin, robot.arm.jaw, joints, offset))
+        except HeadAimError as exc:
+            if kin.within_limits(exc.pan, exc.tilt):
+                raise  # too near the camera, or no solve: not a limit the clamp can help with
+            (lo_pan, hi_pan), (lo_tilt, hi_tilt) = kin.limits[PAN_JOINT], kin.limits[TILT_JOINT]
+            pan, tilt, at_limit = min(max(exc.pan, lo_pan), hi_pan), min(max(exc.tilt, lo_tilt), hi_tilt), True
         result = robot.head.move(pan, tilt)
     except (HeadAimError, HeadError) as exc:
-        return f"head not aimed at the tool point: {exc}"
+        return f"head not aimed at the tool point: {exc}", False
     if result.status != "converged":
         head = config.head
         return (
             f"the head did not settle on the tool point ({result.status}: not within head.tolerance_rad "
             f"{head.tolerance_rad:g} rad after head.move_timeout_s {head.move_timeout_s:g} s)"
-        )
-    return None
+        ), at_limit
+    return None, at_limit
 
 
 def jaw_crop_jpeg(ctx: ToolContext, tool: str) -> tuple[bytes, int, int, CropInfo]:
     """A fresh front camera frame, the head aimed at the tool point, cropped to the region between the jaws.
 
-    The head is aimed first (aim_head_at_tool_point); the frame is newer than the motion and the aim that just ended
+    The head is aimed first (aim_head_at_tool_point, clamped to the head limits when the tool point lies beyond them);
+    the frame is newer than the motion and the aim that just ended
     (camera_image waits for the next frame). The box is projected through the front camera scene at the measured head
     angles in the calibrated image size and scaled to the frame's size. When the head could not aim, the camera is
     uncalibrated or the jaw cannot be cropped (outside the image, inside the D435 min-Z, too small), the image is the
@@ -1007,7 +1020,7 @@ def jaw_crop_jpeg(ctx: ToolContext, tool: str) -> tuple[bytes, int, int, CropInf
     settings = config.grasp_check
     max_px = min(settings.image_px, config.limits.max_image_px)
     before = robot.arm.fresh_sample()
-    reason = aim_head_at_tool_point(ctx, tool, None if before is None else robot.arm.measured(before))
+    reason, at_limit = aim_head_at_tool_point(ctx, tool, None if before is None else robot.arm.measured(before))
     try:
         setup = camera_setup(config, GRASP_CAMERA, source=robot)
         calibrated: tuple[int, int] | None = (setup.intrinsics.width, setup.intrinsics.height)
@@ -1025,7 +1038,9 @@ def jaw_crop_jpeg(ctx: ToolContext, tool: str) -> tuple[bytes, int, int, CropInf
             x0, y0, x1, y1 = jaw_crop(scene, robot.arm.kin, robot.arm.jaw, robot.arm.measured(sample), settings)
             sx, sy = frame.width / calibrated[0], frame.height / calibrated[1]
             box = (round(x0 * sx), round(y0 * sy), round(x1 * sx), round(y1 * sy))
-        except ValueError as exc:  # JawCropError, or stale head joint states for the scene
+        except JawCropError as exc:
+            reason = f"{JAW_AT_LIMIT}: {exc}" if at_limit else str(exc)
+        except ValueError as exc:  # no fresh arm sample, or stale head joint states for the scene
             reason = str(exc)
     if box is not None:
         try:
@@ -1276,10 +1291,11 @@ def register(ctx: ToolContext) -> None:
             "Outcome: every close that holds something (a verified contact, or a jaw that closed into the empty band, "
             "within gripper_empty_stall_rad of closed, where the load cannot tell a soft, squashed object from empty "
             "jaws) stays closed with the profile squeeze, lifts and retreats and comes back 'unverified': the result "
-            "carries a fresh front camera image (the head D435 aimed at the tool point first; only the head moves) "
+            "carries a fresh front camera image (the head D435 aimed at the tool point first, at the nearest pose "
+            "inside the head limits when it lies beyond them; only the head moves) "
             f"cropped to the jaws (max {grasp_check.image_px} px; the full frame with grasp_check.crop.full_frame_reason "
-            "when the head cannot aim there (limits, no lease, not settled), the camera is uncalibrated or the jaw lies "
-            "outside the image or inside the D435 min-Z) and grasp_check.grasp_id. Look "
+            "when the head cannot aim (no lease, not settled), the camera is uncalibrated or the jaw lies outside the "
+            "image (also at the head limit) or inside the D435 min-Z) and grasp_check.grasp_id. Look "
             "at the attached crop and call confirm_grasp(grasp_id, yes|no|unsure, evidence) before anything else. "
             f"{FUSE_NOTE} missed (a contact that failed verification: opened and retreated - check a picture and "
             "correct the object position), aborted (stopped and held; reasons say why) and infeasible (nothing "

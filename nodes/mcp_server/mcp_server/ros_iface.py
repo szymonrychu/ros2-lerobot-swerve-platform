@@ -1873,7 +1873,7 @@ class RosRobot:
         """Wait for the next frame on the camera's on-demand subscription (subscribed by the first call).
 
         Args:
-            camera (str): 'gripper' or 'front' (the head RGB camera); both are CompressedImage topics.
+            camera (str): A camera_topics name ('front' is the head D435 colour camera); CompressedImage topics.
             max_px (int): Longest side.
 
         Returns:

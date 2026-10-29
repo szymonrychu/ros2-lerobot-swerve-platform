@@ -1621,7 +1621,8 @@ class ExplorationSettings(StrictModel):
 
 
 class GraspCheckSettings(StrictModel):
-    """Post-lift visual grasp check: the gripper camera frame cropped to the region between the jaws."""
+    """Post-lift visual grasp check: the front camera (head D435 colour) frame, the head aimed at the FK tool point,
+    cropped to the region between the jaws."""
 
     crop_depth_m: float = Field(default=0.045, ge=0.0, le=0.2)  # how far into the jaws (toward gripper_link) it reaches
     crop_margin_px: int = Field(default=24, ge=0, le=512)  # added on every side of the projected jaw box

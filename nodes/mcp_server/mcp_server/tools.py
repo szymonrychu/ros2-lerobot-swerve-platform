@@ -832,7 +832,7 @@ def register_core_tools(ctx: ToolContext) -> None:
         "for a stair or hole below) to allow normal speed down to that surface, tilt_override_deg to replace the IMU, "
         "or surfaces (stair / table / hole regions with their step edges) when the floor under the arm is not one "
         "plane: the local region height is used and the arm also slows near a step edge. Pass "
-        "use_ground_estimate=true to add the measured floor regions (steps, drop-offs) from the head ToF ground "
+        "use_ground_estimate=true to add the measured floor regions (steps, drop-offs) from the head D435 ground "
         f"estimate; it is refused when /ground/state is older than {slow.ground_max_age_s:g} s or has no ground plane."
     )
     settle_desc = (
@@ -1295,7 +1295,8 @@ def register_core_tools(ctx: ToolContext) -> None:
         relaxed to about 0 load with the jaw short of closed is stepped once further toward closed, never beyond
         the squeeze cap from the contact or past closed). Any other close outcome, every open and release_control
         restore the default torque limit. A close that grasps (status 'grasped') is not trusted on the sensors alone:
-        the result carries a fresh gripper camera image cropped to the jaws (grasp_check.crop) and the hold stays
+        the result carries a fresh front camera image (the head D435 aimed at the tool point; only the head moves)
+        cropped to the jaws (grasp_check.crop) and the hold stays
         unverified until confirm_grasp(grasp_check.grasp_id, yes|no|unsure, evidence) fuses your look with the sensor
         band (grasp_check.band): band object + yes = grasped; band empty + no = missed (call release_object); anything
         else, also unsure and every ambiguous band, stays unverified (look again or release_object and retry)."""
