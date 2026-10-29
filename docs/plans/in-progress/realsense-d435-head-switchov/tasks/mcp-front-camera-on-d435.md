@@ -1,6 +1,6 @@
 ---
 title: MCP front camera on D435
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "The agent's front camera is the D435 colour, posed through the pan/tilt chain."
 files: [ansible/group_vars/client.yml, nodes/mcp_server/mcp_server/config.py, tests/test_mcp_camera_config.py, tests/test_mcp_server_config.py, nodes/mcp_server/tests/test_camera_scene_head.py, nodes/mcp_server/README.md, tests/README.md]
@@ -8,15 +8,15 @@ verify: "uv run pytest tests/test_mcp_camera_config.py tests/test_mcp_server_con
 depends_on: [mcp-intrinsics-from-camera-i, d435-frames-on-the-head-urdf, d435-live-bring-up-and-topic]
 model: opus
 review: ""
-verified_head: ""
+verified_head: 0493218d
 points: 3
 expected_minutes: 34
 expected_tokens: 2250000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 3
+actual_minutes: 30
+actual_tokens: 7637891
+actual_roles: "impl 21, review 9"
+actual_role_tokens: "impl 7327619, review 310272"
 ---
 
 # MCP front camera on D435
@@ -64,3 +64,5 @@ What is true and observable when the task is done.
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
 - 2026-10-29 (from calibration-apply-restart-un): mcp_server front.intrinsics.calibration_file still reads applied/head_camera_calibration.yaml (no longer written); switch the D435 camera to camera_info_topic intrinsics (mcp-intrinsics-from-camera-i).
+
+- 2026-10-29 done
