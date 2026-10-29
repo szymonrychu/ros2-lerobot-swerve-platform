@@ -189,6 +189,7 @@ def test_mcp_server_node_entry_and_config() -> None:
         "nav",
         "arm",
         "head",
+        "camera_arm",
         "battery",
         "monitor",
         "footprint",
