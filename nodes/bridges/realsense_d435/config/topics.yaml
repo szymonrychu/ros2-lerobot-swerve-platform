@@ -5,6 +5,8 @@
 #
 # Per topic: type, frame_id (header frame of the live messages; head.urdf owns every frame, design D4) and node (the
 # ros2_nodes instance that publishes it). published: false marks a topic that is advertised but never carries a message.
+# The depth topics carry raw, compressedDepth and zstd only: realsense_d435.yaml drops the compressed and theora
+# plugins on them (they cannot encode 16UC1).
 topics:
   # Colour stream, 640x360 @ 15 (rgb8).
   /head/d435/color/camera_info:
@@ -48,16 +50,8 @@ topics:
     type: sensor_msgs/msg/Image
     frame_id: d435_depth_optical_frame
     node: realsense_d435
-  /head/d435/depth/image_rect_raw/compressed:
-    type: sensor_msgs/msg/CompressedImage
-    frame_id: d435_depth_optical_frame
-    node: realsense_d435
   /head/d435/depth/image_rect_raw/compressedDepth:
     type: sensor_msgs/msg/CompressedImage
-    frame_id: d435_depth_optical_frame
-    node: realsense_d435
-  /head/d435/depth/image_rect_raw/theora:
-    type: theora_image_transport/msg/Packet
     frame_id: d435_depth_optical_frame
     node: realsense_d435
   /head/d435/depth/image_rect_raw/zstd:
@@ -77,16 +71,8 @@ topics:
     type: sensor_msgs/msg/Image
     frame_id: d435_color_optical_frame
     node: realsense_d435
-  /head/d435/aligned_depth_to_color/image_raw/compressed:
-    type: sensor_msgs/msg/CompressedImage
-    frame_id: d435_color_optical_frame
-    node: realsense_d435
   /head/d435/aligned_depth_to_color/image_raw/compressedDepth:
     type: sensor_msgs/msg/CompressedImage
-    frame_id: d435_color_optical_frame
-    node: realsense_d435
-  /head/d435/aligned_depth_to_color/image_raw/theora:
-    type: theora_image_transport/msg/Packet
     frame_id: d435_color_optical_frame
     node: realsense_d435
   /head/d435/aligned_depth_to_color/image_raw/zstd:

@@ -163,6 +163,15 @@ def test_pinned_frame_ids_are_head_urdf_links() -> None:
             assert entry["frame_id"] in links, f"{topic}: {entry.get('frame_id')}"
 
 
+def test_depth_topics_list_no_compressed_or_theora_transport() -> None:
+    """The 16UC1 depth topics advertise raw, compressedDepth and zstd only; the colour keeps compressed."""
+    pinned = pinned_topics()
+    for base in ("/head/d435/depth/image_rect_raw", "/head/d435/aligned_depth_to_color/image_raw"):
+        transports = {topic[len(base) + 1 :] for topic in pinned if topic.startswith(base + "/")}
+        assert transports == {"compressedDepth", "zstd"}, base
+    assert "/head/d435/color/image_raw/compressed" in pinned
+
+
 def test_factory_extrinsics_are_mutual_inverses() -> None:
     """The two captured extrinsics invert each other, so the capture is self-consistent."""
     r_cd, t_cd = np.array(COLOR_TO_DEPTH_ROTATION), np.array(COLOR_TO_DEPTH_TRANSLATION)

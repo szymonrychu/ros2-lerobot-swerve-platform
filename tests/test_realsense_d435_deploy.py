@@ -25,6 +25,14 @@ EXPECTED_LAUNCH_COMMAND = (
 )
 # NORMAL tier of tests/test_unit_cgroups.py: CPUWeight, IOWeight, OOMScoreAdjust.
 NORMAL_WEIGHTS = (500, 500, -500)
+# rs_launch.py camera_namespace:=head camera_name:=d435: the node is d435 in namespace /head.
+NODE_NAMESPACE = "/head"
+# 16UC1 depth topics of the D435 (base topics of their image_transport publishers).
+DEPTH_TOPICS = ("/head/d435/depth/image_rect_raw", "/head/d435/aligned_depth_to_color/image_raw")
+# image_transport plugins that carry 16UC1: raw, compressedDepth (PNG/RVL) and zstd (lossless bytes).
+DEPTH_PUB_PLUGINS = ["image_transport/raw", "image_transport/compressedDepth", "image_transport/zstd"]
+# Plugins that cannot encode 16UC1 (cv_bridge 16UC1 conversion errors when subscribed).
+NON_DEPTH_PLUGINS = ("image_transport/compressed", "image_transport/theora")
 
 
 def load(path: Path) -> object:
@@ -72,6 +80,37 @@ def playbook_tasks(tasks: list[dict]) -> list[dict]:
         for section in ("block", "rescue", "always"):
             flat.extend(playbook_tasks(task.get(section, [])))
     return flat
+
+
+def pub_plugins_param(topic: str, namespace: str) -> str:
+    """Return the enable_pub_plugins parameter image_transport (Jazzy) declares for a publisher's base topic.
+
+    image_transport::Publisher strips the node's effective namespace from the resolved topic, turns every / into .
+    and drops a leading dot (image_common jazzy, image_transport/src/publisher.cpp).
+
+    Args:
+        topic (str): Resolved base topic of the image publisher.
+        namespace (str): Effective namespace of the publishing node.
+
+    Returns:
+        str: Parameter name, e.g. d435.depth.image_rect_raw.enable_pub_plugins.
+    """
+    return topic[len(namespace) :].replace("/", ".").lstrip(".") + ".enable_pub_plugins"
+
+
+def test_pub_plugins_param_follows_image_transport() -> None:
+    """The parameter name rule reproduces image_transport's naming for the D435 depth topic."""
+    assert pub_plugins_param(DEPTH_TOPICS[0], NODE_NAMESPACE) == "d435.depth.image_rect_raw.enable_pub_plugins"
+
+
+def test_depth_topics_publish_only_16uc1_transports() -> None:
+    """Both D435 depth publishers allow only raw, compressedDepth and zstd; colour keeps every plugin (compressed)."""
+    params = load(CONFIG_FILE)
+    for topic in DEPTH_TOPICS:
+        plugins = params[pub_plugins_param(topic, NODE_NAMESPACE)]
+        assert plugins == DEPTH_PUB_PLUGINS, topic
+        assert not set(plugins) & set(NON_DEPTH_PLUGINS), topic
+    assert pub_plugins_param("/head/d435/color/image_raw", NODE_NAMESPACE) not in params
 
 
 def test_launch_command_names_the_camera_and_config_file() -> None:

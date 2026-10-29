@@ -19,3 +19,8 @@ enable_color: true
 enable_depth: true
 # No TF from the driver: head.urdf owns every d435 frame (D4).
 publish_tf: false
+# image_transport plugins of the 16UC1 depth: raw, compressedDepth and zstd. compressed and theora cannot encode 16UC1
+# (cv_bridge conversion errors when subscribed). Parameter <topic minus /head/, / as .>.enable_pub_plugins.
+d435.depth.image_rect_raw.enable_pub_plugins: [image_transport/raw, image_transport/compressedDepth, image_transport/zstd]
+# The same three plugins on the aligned depth; colour keeps every plugin (consumers read its compressed transport).
+d435.aligned_depth_to_color.image_raw.enable_pub_plugins: [image_transport/raw, image_transport/compressedDepth, image_transport/zstd]
