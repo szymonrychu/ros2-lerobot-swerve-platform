@@ -116,22 +116,22 @@ def test_default_store_dir_is_next_to_poi_json() -> None:
 def test_get_camera_image_writes_exactly_one_record_and_returns_lookup_id(
     server: Any, robot: FakeRobot, store_dir: Path
 ) -> None:
-    res = call(server, "get_camera_image", {"camera": "gripper"})
+    res = call(server, "get_camera_image", {"camera": "front"})
     meta = payload(res)
     rows = index_rows(store_dir)
     assert len(rows) == 1
     row = rows[0]
     assert meta["lookup_id"] == row["id"]
-    assert row["tool"] == "get_camera_image" and row["camera"] == "gripper"
+    assert row["tool"] == "get_camera_image" and row["camera"] == "front"
     assert (row["width"], row["height"]) == (20, 10)
     assert (store_dir / row["file"]).read_bytes() == image_bytes(res)  # exactly the JPEG the model received
     assert row["bytes"] == len(image_bytes(res))
     assert row["base_pose_map"] == {"x": 1.0, "y": 2.0, "yaw": 0.5}
     assert set(row["arm_joints"]) >= {"shoulder_pan", "elbow_flex"}
-    assert row["camera_pose_base"] is None  # no mount configured
+    assert row["camera_pose_base"] is None  # no CameraInfo yet: the front camera is not calibrated
     assert row["mcp_session"] == "" and row["note"] == "" and row["poi_ids"] == []
     assert (row["kind"], row["status"], row["created_by"]) == ("photo", "open", "agent")
-    # no gripper mount: the view is the base position and heading, nothing invented
+    # no camera pose: the view is the base position and heading, nothing invented
     assert row["view"] == {
         "x": 1.0,
         "y": 2.0,
@@ -223,14 +223,15 @@ def test_list_lookups_filters(server: Any, robot: FakeRobot) -> None:
     robot.pois = [{"id": "dock"}]
     near_id = payload(call(server, "get_camera_image", {"camera": "front"}))["lookup_id"]  # pose (1, 2)
     robot.pose = robot.pose.model_copy(update={"x": 10.0, "y": 10.0})
-    far_id = payload(call(server, "get_camera_image", {"camera": "gripper"}))["lookup_id"]
+    far_id = payload(call(server, "get_camera_image", {"camera": "front"}))["lookup_id"]
     call(server, "annotate_lookup", {"lookup_id": near_id, "note": "Charger by the door", "poi_ids": ["dock"]})
 
     def listed(args: dict[str, Any]) -> list[str]:
         return [r["id"] for r in call(server, "list_lookups", args).structured_content["lookups"]]
 
     assert listed({"near": {"x": 1.0, "y": 2.0, "radius_m": 0.5}}) == [near_id]
-    assert listed({"camera": "gripper"}) == [far_id]
+    assert listed({"camera": "front"}) == [far_id, near_id]
+    assert listed({"camera": "gripper"}) == []
     assert listed({"poi_id": "dock"}) == [near_id]
     assert listed({"text": "charger"}) == [near_id]
     assert listed({"since": 0.0, "until": 1.0}) == []
@@ -419,10 +420,10 @@ def test_record_lookup_keeps_its_positional_contract(robot: FakeRobot) -> None:
 
     ctx = cast(ToolContext, SimpleNamespace(lookups=Spy()))
     assert record_lookup(ctx, "t", "front", JPEG, 20, 10) == "id"
-    assert record_lookup(ctx, "t", "gripper", JPEG, 4, 2, full_frame=False) == "id"
+    assert record_lookup(ctx, "t", "front", JPEG, 4, 2, full_frame=False) == "id"
     assert calls == [
         (("t", "front", JPEG, 20, 10), {"full_frame": True}),
-        (("t", "gripper", JPEG, 4, 2), {"full_frame": False}),
+        (("t", "front", JPEG, 4, 2), {"full_frame": False}),
     ]
     assert record_lookup(cast(ToolContext, SimpleNamespace(lookups=None)), "t", "front", JPEG, 20, 10) is None
 
@@ -474,6 +475,48 @@ def test_list_and_get_lookup_image_derive_the_view_of_legacy_lines(server: Any, 
     assert (row["view"]["x"], row["view"]["y"], row["view"]["yaw"]) == (1.0, 2.0, 0.5)
     meta = payload(call(server, "get_lookup_image", {"lookup_id": lid}))
     assert meta["view"] == row["view"]
+
+
+def test_old_gripper_lookups_are_still_listed(server: Any, store_dir: Path) -> None:
+    """A photo saved by the retired gripper camera is data: listed, filtered and returned under its own name."""
+    lid = "fedcba9876543210fedcba9876543210"
+    store_dir.mkdir(parents=True, exist_ok=True)
+    (store_dir / f"{lid}.jpg").write_bytes(JPEG)
+    old = {
+        "id": lid,
+        "ts": 1760000000.5,
+        "tool": "get_camera_image",
+        "camera": "gripper",
+        "width": 640,
+        "height": 480,
+        "file": f"{lid}.jpg",
+        "bytes": len(JPEG),
+        "base_pose_map": {"x": 1.0, "y": 2.0, "yaw": 0.5},
+        "arm_joints": None,
+        "camera_pose_base": None,
+        "mcp_session": "sess-1",
+        "note": "",
+        "poi_ids": [],
+    }
+    with (store_dir / INDEX_FILE).open("a") as fh:
+        fh.write(json.dumps(old) + "\n")
+    new_id = payload(call(server, "get_camera_image", {"camera": "front"}))["lookup_id"]
+
+    def listed(args: dict[str, Any]) -> list[tuple[str, str]]:
+        return [(r["id"], r["camera"]) for r in call(server, "list_lookups", args).structured_content["lookups"]]
+
+    assert listed({}) == [(new_id, "front"), (lid, "gripper")]
+    assert listed({"camera": "gripper"}) == [(lid, "gripper")]
+    taken = call(server, "get_lookup_image", {"lookup_id": lid})
+    assert image_bytes(taken) == JPEG and payload(taken)["camera"] == "gripper"
+
+    async def run() -> Any:
+        return await server.list_tools()
+
+    tool = next(t for t in anyio.run(run) if t.name == "list_lookups")
+    camera = tool.input_schema["properties"]["camera"]
+    assert "enum" not in json.dumps(camera)  # any stored name filters, the retired ones too
+    assert "new photos are 'front'" in camera["description"] and "'gripper'" in camera["description"]
 
 
 def test_annotate_lookup_refuses_a_non_photo_id(server: Any, robot: FakeRobot) -> None:

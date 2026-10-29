@@ -21,6 +21,7 @@ from ros2_common.poi_categories import (
     parse_tags,
 )
 
+from .camera_scene import Camera
 from .config import HARD_MAX_IMAGE_PX, McpServerConfig
 from .frontiers import FrontierTracker, cells_to_map, frontier_keepout, update_recorded
 from .look_around import LookMode, montage_jpeg, run_look_around
@@ -53,7 +54,6 @@ SENSOR_TOOL_NAMES = (
 )
 TOOL_NAMES = (*SENSOR_TOOL_NAMES, "look_around")
 Layer = Literal["map", "costmap", "lidar", "footprint", "reach", "path", "pois", "objects", "frontiers"]
-Camera = Literal["front", "gripper"]
 PoiKind = Literal["point", "area"]
 ClearCreator = Literal["agent", "user", "all"]
 ClearKind = Literal["point", "area", "object", "photo"]
@@ -464,7 +464,9 @@ def register(ctx: ToolContext) -> None:
         captures: Annotated[
             int, Field(ge=la.min_captures, le=la.max_captures, description="Number of stops (equal steps)")
         ] = la.default_captures,
-        camera: Annotated[Camera, Field(description="'front' (head RGB camera) or 'gripper' camera")] = "front",
+        camera: Annotated[
+            Camera, Field(description="'front': the D435 colour camera on the pan/tilt head (the only camera)")
+        ] = "front",
         mode: Annotated[
             LookMode | None, Field(description="'spin' (continuous, fast) or 'steps' (Nav2 per heading)")
         ] = None,

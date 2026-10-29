@@ -41,7 +41,7 @@ from . import (
 from .arm import MAX_OBJECT_WIDTH_M, ArmError
 from .base_motion import STRAIGHT_MOVE_MAX_M, DriveError, DriveOutcome
 from .calibration_board import BoardPark
-from .camera_scene import camera_setup, pixel_scale
+from .camera_scene import Camera, camera_setup, pixel_scale
 from .config import (
     HARD_MAX_DRIVE_S,
     HARD_MAX_IMAGE_PX,
@@ -302,8 +302,6 @@ map and the costmap, checked with the current footprint), then approach_for_gras
 shows the plan and mode first), then plan_grasp / grasp_object. approach_for_grasp servos on the camera when it sees
 the target, else navigates; status arrived_out_of_reach means the arm cannot reach the target from where the base
 stopped."""
-
-Camera = Literal["gripper", "front"]
 
 
 class StaticTokenVerifier:
@@ -879,10 +877,9 @@ def register_core_tools(ctx: ToolContext) -> None:
         structured_output=False,
         description=(
             "Take one fresh photo from a robot camera and return it as a JPEG image plus its capture timestamp. "
-            "'gripper' looks out of the gripper (use it to aim grasps); 'front' is the head RGB camera (Camera "
-            "Module 3 on the pan/tilt head, 16:9, default picture 384x216, autofocus): the best view for the "
-            "surroundings and for judging gripper-to-object position (take it first for an overview, then use "
-            "'gripper' to aim). The default size "
+            "'front' is the only camera: the colour stream of the RealSense D435 on the pan/tilt head (640x360, "
+            "16:9, default picture 384x216): the view of the surroundings and for judging gripper-to-object "
+            "position (aim the head at the object with head_look_at). The default size "
             f"is {config.limits.default_camera_px} px on the longest side (cheap, fine for aiming checks): pass a "
             "larger max_px only when you must read fine detail, images are what fills the context. The metadata "
             "states the picture's width x height, the calibrated_image size the camera tools use and "
@@ -904,8 +901,8 @@ def register_core_tools(ctx: ToolContext) -> None:
         camera: Annotated[
             Camera,
             Field(
-                description="'gripper' (USB camera on the gripper) or 'front' (head RGB camera on the pan/tilt head, "
-                "16:9, default picture 384x216; the only camera that supports zoom)"
+                description="'front': the D435 colour camera on the pan/tilt head (640x360, 16:9, default picture "
+                "384x216)"
             ),
         ],
         max_px: Annotated[
@@ -930,8 +927,6 @@ def register_core_tools(ctx: ToolContext) -> None:
         """Photo of a camera; the tool description is passed to the decorator so it can state the default size."""
         if zoom is not None:
             with tool_errors():
-                if camera != "front":
-                    raise ValueError("zoom is only available on the front (head) camera, not on the gripper camera")
                 crop = robot.camera_zoom(
                     camera, zoom.u, zoom.v, zoom.factor, min(max_px or HARD_MAX_IMAGE_PX, config.limits.max_image_px)
                 )

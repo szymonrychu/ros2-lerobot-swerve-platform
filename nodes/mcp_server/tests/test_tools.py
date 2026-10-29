@@ -11,6 +11,7 @@ import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 from starlette.testclient import TestClient
 
+from mcp_server import camera_scene, tools
 from mcp_server.arm import ArmController
 from mcp_server.base_motion import DriveOutcome, SpinOutcome
 from mcp_server.config import McpServerConfig
@@ -236,19 +237,19 @@ def test_get_robot_state_is_structured(server: Any) -> None:
 
 
 def test_get_camera_image_returns_jpeg_and_stamp(server: Any, robot: FakeRobot) -> None:
-    res = call(server, "get_camera_image", {"camera": "gripper", "max_px": 512})
+    res = call(server, "get_camera_image", {"camera": "front", "max_px": 512})
     kinds = [c.type for c in res.content]
     assert "image" in kinds and "text" in kinds
     img = next(c for c in res.content if c.type == "image")
     assert img.mime_type == "image/jpeg"
     text = next(c for c in res.content if c.type == "text").text
     assert "123.5" in text
-    assert robot.calls[-1] == ("camera_image", ("gripper", 512))
+    assert robot.calls[-1] == ("camera_image", ("front", 512))
 
 
 def test_get_camera_image_validates_arguments(server: Any) -> None:
     with pytest.raises(ToolError):
-        call(server, "get_camera_image", {"camera": "gripper", "max_px": 2048})
+        call(server, "get_camera_image", {"camera": "front", "max_px": 2048})
     with pytest.raises(ToolError):
         call(server, "get_camera_image", {"camera": "thermal"})
 
@@ -460,6 +461,23 @@ def test_camera_tool_offers_the_head_front_camera_not_realsense_or_stereo(server
         call(server, "get_camera_image", {"camera": "realsense"})
 
 
+def test_get_camera_image_offers_only_front(server: Any, robot: FakeRobot) -> None:
+    async def run() -> Any:
+        return await server.list_tools()
+
+    assert tools.Camera is camera_scene.Camera  # one Camera definition, no copy in tools
+    tool = next(t for t in anyio.run(run) if t.name == "get_camera_image")
+    prop = tool.input_schema["properties"]["camera"]
+    assert prop.get("enum", [prop.get("const")]) == ["front"]
+    description = tool.description or ""
+    assert "D435" in description and "640x360" in description
+    assert "'gripper'" not in description + json.dumps(tool.input_schema)
+    assert "Camera Module 3" not in description and "USB camera" not in json.dumps(tool.input_schema)
+    with pytest.raises(ToolError):
+        call(server, "get_camera_image", {"camera": "gripper"})
+    assert robot.calls == []
+
+
 def tool_schema_text(server: Any, name: str) -> str:
     async def run() -> Any:
         return await server.list_tools()
@@ -660,10 +678,10 @@ def test_arm_motion_tools_take_surfaces(server: Any, robot: FakeRobot) -> None:
 
 
 def test_get_camera_image_defaults_to_384_px_and_larger_can_be_requested(server: Any, robot: FakeRobot) -> None:
-    call(server, "get_camera_image", {"camera": "gripper"})
-    assert robot.calls[-1] == ("camera_image", ("gripper", 384))
-    call(server, "get_camera_image", {"camera": "gripper", "max_px": 768})
-    assert robot.calls[-1] == ("camera_image", ("gripper", 768))
+    call(server, "get_camera_image", {"camera": "front"})
+    assert robot.calls[-1] == ("camera_image", ("front", 384))
+    call(server, "get_camera_image", {"camera": "front", "max_px": 768})
+    assert robot.calls[-1] == ("camera_image", ("front", 768))
     assert McpServerConfig().limits.default_camera_px == 384
     assert "384" in tool_descriptions(server)["get_camera_image"]
 

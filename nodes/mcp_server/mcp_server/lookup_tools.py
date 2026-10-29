@@ -349,7 +349,13 @@ def register(ctx: ToolContext) -> None:
         text: Annotated[
             str | None, Field(description="Case-insensitive substring of the note (set with annotate_lookup)")
         ] = None,
-        camera: Annotated[str | None, Field(description="'gripper' or 'front'")] = None,
+        camera: Annotated[
+            str | None,
+            Field(
+                description="Camera name the photo was saved with: new photos are 'front' (the D435 colour camera); "
+                "older ones may be 'gripper' (the retired gripper camera)"
+            ),
+        ] = None,
         mcp_session: Annotated[str | None, Field(description="Only lookups taken in this MCP session")] = None,
         limit: Annotated[int, Field(ge=1, le=MAX_QUERY_LIMIT, description="Most lookups returned")] = 10,
     ) -> CallToolResult:

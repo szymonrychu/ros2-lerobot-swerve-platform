@@ -8,6 +8,7 @@ from typing import Literal
 import cv2
 import numpy as np
 
+from .camera_scene import Camera
 from .config import FootprintSettings, LookAroundSettings
 from .geometry import normalize_angle
 from .models import BaseMotionBusyError, BasePose, MapSummary, NavigationResult, RobotError, SectorObstacle
@@ -263,7 +264,7 @@ def run_look_around(
     settings: LookAroundSettings,
     footprint: FootprintSettings,
     captures: int,
-    camera: str,
+    camera: Camera,
     yaw_tolerance_deg: float = DEFAULT_YAW_TOLERANCE_DEG,
     mode: LookMode = "steps",
     return_to_start: bool = True,
@@ -293,7 +294,7 @@ def run_look_around(
         settings (LookAroundSettings): Step timeout, frame size, margins and capture limits.
         footprint (FootprintSettings): Robot outer frame.
         captures (int): Number of stops.
-        camera (str): 'front' or 'gripper'.
+        camera (Camera): 'front', the D435 colour camera on the pan/tilt head.
         yaw_tolerance_deg (float): Largest final heading error still counted as back at the start (nav.goal_yaw_tolerance_deg).
 
     Returns:
@@ -446,7 +447,7 @@ def run_spin_mode(
     settings: LookAroundSettings,
     plan: LookPlan,
     required: float,
-    camera: str,
+    camera: Camera,
     start: BasePose,
     run: LookAroundRun,
     return_to_start: bool,
@@ -465,7 +466,7 @@ def run_spin_mode(
         settings (LookAroundSettings): Spin speed, rate, timeout margin and frame size.
         plan (LookPlan): Headings.
         required (float): Free radius needed for the rotation (m).
-        camera (str): Camera.
+        camera (Camera): 'front', the D435 colour camera on the pan/tilt head.
         start (BasePose): Start pose.
         run (LookAroundRun): Result and frames to fill.
         return_to_start (bool): Turn the full circle back to the start heading.

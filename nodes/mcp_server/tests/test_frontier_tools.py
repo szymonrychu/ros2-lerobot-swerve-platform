@@ -423,9 +423,9 @@ def test_look_toward_frontier_never_moves_the_arm(server: Any, robot: FrontierRo
     take(server, "base")
     robot.pose = robot.pose.model_copy(update={"yaw": math.pi / 2})
     before = len(robot.arm_backend.commands)
-    data = out(call(server, "look_toward_frontier", {"id": 1, "camera": "gripper"}))
+    data = out(call(server, "look_toward_frontier", {"id": 1, "camera": "front"}))
     assert len(robot.arm_backend.commands) == before
-    assert data["camera"] == "gripper" and any("current pose" in n for n in data["notes"])
+    assert data["camera"] == "front"
 
 
 def test_look_toward_frontier_needs_the_base_lease(server: Any, robot: FrontierRobot) -> None:

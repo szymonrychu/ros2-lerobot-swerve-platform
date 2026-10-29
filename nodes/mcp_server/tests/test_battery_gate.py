@@ -48,7 +48,7 @@ MOTION_ARGS: dict[str, dict[str, Any]] = {
 }
 ALLOWED_ARGS: dict[str, dict[str, Any]] = {
     "get_robot_state": {},
-    "get_camera_image": {"camera": "gripper"},
+    "get_camera_image": {"camera": "front"},
     "get_map_summary": {},
     "stop": {},
     "get_arm_state": {},

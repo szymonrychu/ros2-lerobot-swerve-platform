@@ -141,7 +141,7 @@ def test_digest_covers_events_raised_during_the_call(server: Any, monitor: Robot
 
 def test_image_tool_keeps_image_and_gets_text_digest(server: Any, monitor: RobotMonitor) -> None:
     overheat(monitor)
-    res = call(server, "get_camera_image", {"camera": "gripper"})
+    res = call(server, "get_camera_image", {"camera": "front"})
     assert [c.type for c in res.content].count("image") == 1
     assert digest_in_text(res)[DIGEST_KEY][0]["type"] == "overheat"
     assert res.meta[DIGEST_KEY][0]["type"] == "overheat"
@@ -236,7 +236,7 @@ def test_get_body_state_is_a_sensor_tool_never_refused_in_cutoff(robot: FakeRobo
 # --- poi_hint nudge: camera and look_around results after N images without a POI write ---
 
 HINT_KEY = "poi_hint"
-CAMERA = ("get_camera_image", {"camera": "gripper"})
+CAMERA = ("get_camera_image", {"camera": "front"})
 
 
 def hint_of(res: Any) -> str | None:

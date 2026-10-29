@@ -2,14 +2,18 @@
 
 import math
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
+import anyio
 import cv2
 import numpy as np
 import pytest
+from mcp.server.mcpserver.exceptions import ToolError
 
+from mcp_server import camera_scene, look_around, perception_tools
 from mcp_server.base_motion import SpinOutcome
-from mcp_server.config import FootprintSettings, LookAroundSettings
+from mcp_server.config import FootprintSettings, LookAroundSettings, McpServerConfig
 from mcp_server.look_around import (
     build_montage,
     check_clearance,
@@ -27,6 +31,10 @@ from mcp_server.models import (
     RobotError,
     SectorObstacle,
 )
+from mcp_server.tools import build_mcp_server
+
+from .test_perception_tools import RotatingRobot
+from .test_tools import TOKEN, call, take
 
 FOOTPRINT = FootprintSettings()
 SETTINGS = LookAroundSettings()
@@ -232,7 +240,7 @@ def test_obstacle_appearing_mid_scan_aborts_before_rotating() -> None:
 def test_camera_failure_is_recorded_not_fabricated() -> None:
     robot = ScriptRobot()
     robot.camera_fail_at = {1}
-    run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="gripper")
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="front")
     assert run.result.status == "completed"
     assert run.frames[1][1] is None
     assert any("no frame" in n for n in run.result.notes)
@@ -446,3 +454,25 @@ def test_spin_mode_interrupted_by_a_critical_event() -> None:
     assert run.result.status == "interrupted" and run.result.interrupted_by == "bump"
     assert not run.result.returned_to_start
     assert not any(c[0] == "move" for c in robot.calls)  # never a corrective rotation after a critical event
+
+
+# --- camera: the D435 front camera only -------------------------------------------------------------------------
+
+
+def test_look_around_uses_the_front_camera(tmp_path: Path) -> None:
+    assert look_around.Camera is camera_scene.Camera and perception_tools.Camera is camera_scene.Camera
+    robot = RotatingRobot(tmp_path)
+    server = build_mcp_server(robot, McpServerConfig(), TOKEN)
+
+    async def run() -> Any:
+        return await server.list_tools()
+
+    tool = next(t for t in anyio.run(run) if t.name == "look_around")
+    prop = tool.input_schema["properties"]["camera"]
+    assert prop.get("enum", [prop.get("const")]) == ["front"] and prop["default"] == "front"
+    assert "gripper" not in prop["description"] and "D435" in prop["description"]
+    take(server, "base")
+    with pytest.raises(ToolError):
+        call(server, "look_around", {"captures": 4, "camera": "gripper"})
+    call(server, "look_around", {"captures": 4, "mode": "steps"})
+    assert [c[1][0] for c in robot.calls if c[0] == "camera_image"] == ["front"] * 4

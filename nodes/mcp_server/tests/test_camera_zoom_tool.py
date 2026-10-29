@@ -59,7 +59,7 @@ def test_zoom_passes_max_px(server: Any, lookup_robot: FakeRobot) -> None:
 
 
 def test_zoom_on_gripper_is_a_tool_error_and_calls_nothing(server: Any, lookup_robot: FakeRobot) -> None:
-    with pytest.raises(ToolError, match="only available on the front"):
+    with pytest.raises(ToolError, match="'front'"):  # the schema offers the front camera only
         call(server, "get_camera_image", {"camera": "gripper", "zoom": ZOOM})
     assert lookup_robot.zoom_calls == [] and lookup_robot.calls == []
 
