@@ -397,6 +397,13 @@ def test_mcp_server_perception_topics_match_their_producers() -> None:
     assert cfg["topics"]["poi_result"] == poi["result_topic"]
 
 
+def test_mcp_server_depth_points_is_the_d435_cloud() -> None:
+    """get_map_summary obstacles_3d reads the self-filtered head D435 cloud under topics.depth_points (no ToF key)."""
+    topics = node_config("mcp_server")["topics"]
+    assert topics["depth_points"] == "/head/d435/points_filtered"
+    assert "tof_points" not in topics
+
+
 def test_mcp_server_perception_config_sections() -> None:
     cfg = node_config("mcp_server")
     assert cfg["objects"]["store_path"] == OBJECTS_FILE

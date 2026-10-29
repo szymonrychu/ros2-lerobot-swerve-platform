@@ -1368,7 +1368,7 @@ ros2_nodes:
   # amplitude and camera_info for the web UI head tab.
   # Disabled (user 2026-10-28): stopped, still installed, so the enabled memory_low sum stays <= 2560 MiB with
   # head_rgbd_cpp and ground_estimator_cpp enabled on the D435; the retirement makes it present: false after the MCP
-  # re-point. Until mcp_server reads the D435 cloud, its ToF depth summary (/tof/points_filtered) has no data.
+  # re-point.
   - name: arducam_tof
     node_type: arducam_tof
     present: true
@@ -2730,9 +2730,9 @@ ros2_nodes:
         follower_joint_currents: /follower/joint_currents
         # get_topdown_view: local costmap (subscribed lazily, latest message only) and the current Nav2 plan.
         local_costmap: /local_costmap/costmap
-        # get_map_summary obstacles_3d: head ToF cloud (filtered /tof/points), subscribed lazily, latest
-        # message only.
-        tof_points: /tof/points_filtered
+        # get_map_summary obstacles_3d: D435 cloud (the head D435 cloud self-filtered by laser_filter), subscribed
+        # lazily, latest message only.
+        depth_points: /head/d435/points_filtered
         # get_map_summary ground: ground_estimator_cpp state JSON (its output_namespace + /state), subscribed at start.
         ground_state: /ground/state
         plan: /plan

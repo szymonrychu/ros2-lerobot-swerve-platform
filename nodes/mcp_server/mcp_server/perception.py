@@ -8,7 +8,7 @@ import numpy as np
 
 from mcp_core_cpp import camera as core_camera
 
-from .models import MapStats, Obstacles3d, SectorObstacle, TofPoints, TofSector
+from .models import DepthPoints, DepthSector, MapStats, Obstacles3d, SectorObstacle
 
 # Eight 45 deg sectors counter-clockwise from the robot's front (base_link +x), centred on their direction.
 SECTOR_NAMES = ("front", "front_left", "left", "rear_left", "rear", "rear_right", "right", "front_right")
@@ -118,10 +118,10 @@ def summarize_scan(
     return out
 
 
-def tof_obstacle_sectors(
+def depth_obstacle_sectors(
     points_base: np.ndarray, obstacle_band: tuple[float, float], cliff_max_z: float, max_range_m: float
-) -> list[TofSector]:
-    """Nearest 3D obstacle and nearest cliff per sector from a ToF cloud in base_link.
+) -> list[DepthSector]:
+    """Nearest 3D obstacle and nearest cliff per sector from a head depth (D435) cloud in base_link.
 
     Args:
         points_base (np.ndarray): Nx3 (x forward, y left, z up) points in base_link (m).
@@ -130,7 +130,7 @@ def tof_obstacle_sectors(
         max_range_m (float): Points farther than this horizontal distance are ignored (m).
 
     Returns:
-        list[TofSector]: One entry per SECTOR_NAMES item; fields are None when the sector has no such point.
+        list[DepthSector]: One entry per SECTOR_NAMES item; fields are None when the sector has no such point.
     """
     pts = np.asarray(points_base, dtype=float).reshape(-1, 3)
     pts = pts[np.isfinite(pts).all(axis=1)]
@@ -142,7 +142,7 @@ def tof_obstacle_sectors(
     sector_idx = sector_indices(bearing)
     obstacle = (z >= obstacle_band[0]) & (z <= obstacle_band[1])
     cliff = z < cliff_max_z
-    out: list[TofSector] = []
+    out: list[DepthSector] = []
     for i, name in enumerate(SECTOR_NAMES):
         in_sector = sector_idx == i
         obs = in_sector & obstacle
@@ -150,13 +150,13 @@ def tof_obstacle_sectors(
         cliff_m = round(float(cliff_dist.min()), 3) if cliff_dist.size else None
         if not obs.any():
             out.append(
-                TofSector(sector=name, nearest_m=None, bearing_rad=None, min_z=None, max_z=None, cliff_m=cliff_m)
+                DepthSector(sector=name, nearest_m=None, bearing_rad=None, min_z=None, max_z=None, cliff_m=cliff_m)
             )
             continue
         k = int(np.argmin(np.where(obs, dist, np.inf)))
         near = obs & (dist <= dist[k] + TOF_HEIGHT_WINDOW_M)
         out.append(
-            TofSector(
+            DepthSector(
                 sector=name,
                 nearest_m=round(float(dist[k]), 3),
                 bearing_rad=float(bearing[k]),
@@ -168,18 +168,18 @@ def tof_obstacle_sectors(
     return out
 
 
-def summarize_tof(cloud: TofPoints) -> Obstacles3d:
-    """Obstacles3d of a base_link ToF cloud with the STVL bands.
+def summarize_depth(cloud: DepthPoints) -> Obstacles3d:
+    """Obstacles3d of a base_link head depth (D435) cloud with the STVL bands.
 
     Args:
-        cloud (TofPoints): Cloud in base_link.
+        cloud (DepthPoints): Cloud in base_link.
 
     Returns:
         Obstacles3d: Per-sector nearest obstacle and cliff within TOF_SUMMARY_RANGE_M.
     """
     pts = np.asarray(cloud.points, dtype=float).reshape(-1, 3)
     return Obstacles3d(
-        sectors=tof_obstacle_sectors(pts, TOF_OBSTACLE_BAND_M, TOF_CLIFF_MAX_Z_M, TOF_SUMMARY_RANGE_M),
+        sectors=depth_obstacle_sectors(pts, TOF_OBSTACLE_BAND_M, TOF_CLIFF_MAX_Z_M, TOF_SUMMARY_RANGE_M),
         cloud_age_s=round(cloud.age_s, 3),
         frame=cloud.frame,
         point_count=int(np.isfinite(pts).all(axis=1).sum()),

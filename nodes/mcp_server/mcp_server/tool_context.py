@@ -23,6 +23,7 @@ from .models import (
     BasePose,
     CameraFrame,
     CameraZoomFrame,
+    DepthPoints,
     GroundState,
     Map3dCloud,
     MapSummary,
@@ -31,7 +32,6 @@ from .models import (
     RobotState,
     ScanPoints,
     StopResult,
-    TofPoints,
 )
 from .monitor import BaseUse, RobotMonitor
 from .topdown import TopdownInputs
@@ -134,8 +134,8 @@ class RobotApi(Protocol):
         """Latest /ground/state with its receive age (s); None when absent or stale."""
         ...
 
-    def tof_points(self) -> TofPoints | None:
-        """Latest head ToF cloud in base_link (TF at the cloud stamp); None when missing, stale or no TF."""
+    def depth_points(self) -> DepthPoints | None:
+        """Latest head depth (D435) cloud in base_link (TF at the cloud stamp); None when missing, stale or no TF."""
         ...
 
     def navigate(

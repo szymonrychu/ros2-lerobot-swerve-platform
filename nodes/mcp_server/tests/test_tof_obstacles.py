@@ -1,10 +1,10 @@
-"""Tests for mcp_server.perception.tof_obstacle_sectors (3D obstacle and cliff summary per 45 deg sector)."""
+"""Tests for mcp_server.perception.depth_obstacle_sectors (3D obstacle and cliff summary per 45 deg sector)."""
 
 import math
 
 import numpy as np
 
-from mcp_server.perception import SECTOR_NAMES, tof_obstacle_sectors
+from mcp_server.perception import SECTOR_NAMES, depth_obstacle_sectors
 
 BAND = (0.05, 1.5)
 CLIFF_Z = -0.05
@@ -18,11 +18,11 @@ def polar(dist: float, bearing_deg: float, z: float) -> list[float]:
 
 def run(points: list[list[float]]) -> dict:
     arr = np.array(points, dtype=float).reshape(-1, 3)
-    return {s.sector: s for s in tof_obstacle_sectors(arr, BAND, CLIFF_Z, MAX_R)}
+    return {s.sector: s for s in depth_obstacle_sectors(arr, BAND, CLIFF_Z, MAX_R)}
 
 
 def test_empty_cloud_gives_all_none_sectors() -> None:
-    sectors = tof_obstacle_sectors(np.empty((0, 3)), BAND, CLIFF_Z, MAX_R)
+    sectors = depth_obstacle_sectors(np.empty((0, 3)), BAND, CLIFF_Z, MAX_R)
     assert [s.sector for s in sectors] == list(SECTOR_NAMES)
     for s in sectors:
         assert (s.nearest_m, s.bearing_rad, s.min_z, s.max_z, s.cliff_m) == (None,) * 5

@@ -2115,6 +2115,7 @@ fake `ssh`; no ROS needed).
 | `test_web_ui_tile_cache_dir_task_owned_by_node_user` | `playbooks/tasks/web_ui_tile_cache_dir.yml` creates `/var/cache/web_ui` and `/var/cache/web_ui/tiles` as directories owned by `ansible_user`. |
 | `test_playbooks_create_tile_cache_before_deploying_web_ui` | `deploy_nodes_client.yml` includes the tile cache task before deploying web_ui. |
 | `test_mcp_server_perception_topics_match_their_producers` | mcp_server `topics` `local_costmap` `/local_costmap/costmap`, `plan` `/plan` and `poi_list` / `poi_command` / `poi_result` equal the poi_store entry's topics. |
+| `test_mcp_server_depth_points_is_the_d435_cloud` | mcp_server `topics.depth_points` (get_map_summary `obstacles_3d`) is the self-filtered head D435 cloud `/head/d435/points_filtered`; no `tof_points` key is left. |
 | `test_mcp_server_perception_config_sections` | mcp_server config carries `objects` (`/var/lib/ros2/objects/objects.json`, merge radius 0.25 m), `footprint` 0.47 x 0.386 m, `look_around` defaults (4 captures, positive clearance margin), `topdown` defaults and `poi.request_timeout_s` 3 s. |
 | `test_mcp_server_readme_documents_perception_tools` | `nodes/mcp_server/README.md` documents get_topdown_view, the object memory tools, look_around, the POI tools, the objects file, the robot-up convention, `layers_missing` and the `MOTION_TOOLS` classification. |
 | `test_mcp_server_readme_lookups_example_has_only_store_dir` | The README config reference `lookups:` example lists only `store_dir` (no removed `max_records`/`max_bytes`/`max_age_days`). |

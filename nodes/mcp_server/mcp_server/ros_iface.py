@@ -85,6 +85,7 @@ from .models import (
     CameraFrame,
     CameraZoomFrame,
     CollisionMonitorInfo,
+    DepthPoints,
     GroundState,
     Map3dCloud,
     MapSummary,
@@ -96,7 +97,6 @@ from .models import (
     RobotState,
     ScanPoints,
     StopResult,
-    TofPoints,
     Twist2D,
     released_groups,
     torque_off_message,
@@ -709,7 +709,7 @@ class RosRobot:
         self.cache(GoalStatusArray, t.navigate_action + STATUS_SUFFIX, "nav_status", SENSOR_QOS)
         self.cache(Path, t.plan, "plan", SENSOR_QOS)
         self.cache(String, t.poi_list, "poi_list", MAP_QOS)  # poi_store latches it (reliable + transient_local)
-        self.tof_subscribed = False  # /tof/points_filtered is subscribed on the first get_map_summary
+        self.depth_subscribed = False  # topics.depth_points is subscribed on the first get_map_summary
         self.costmap_subscribed = False  # /local_costmap/costmap is subscribed on the first get_topdown_view
         self.init_steer_states()  # /swerve_drive/joint_states is subscribed on the first steer_positions
         self.joint_rates = {"follower_joint_states": self.follower_rate, "swerve_joint_states": self.steer_rate}
@@ -2039,26 +2039,26 @@ class RosRobot:
             return None
         return item.value, item.age(time.monotonic())
 
-    def tof_points(self) -> TofPoints | None:
-        """Latest head ToF cloud in base_link, lazily subscribed (latest message only).
+    def depth_points(self) -> DepthPoints | None:
+        """Latest head depth (D435) cloud in base_link, lazily subscribed (latest message only).
 
-        The first call subscribes and waits up to timeouts.tof_points_stale_s for a message. The head moves, so the
+        The first call subscribes and waits up to timeouts.depth_points_stale_s for a message. The head moves, so the
         cloud is placed with the TF at its header stamp.
 
         Returns:
-            TofPoints | None: Finite points with receive age and cloud stamp, or None when there is no cloud, it is
-                older than timeouts.tof_points_stale_s or the base_link <- cloud frame transform is unavailable.
+            DepthPoints | None: Finite points with receive age and cloud stamp, or None when there is no cloud, it is
+                older than timeouts.depth_points_stale_s or the base_link <- cloud frame transform is unavailable.
         """
-        stale = self.cfg.timeouts.tof_points_stale_s
+        stale = self.cfg.timeouts.depth_points_stale_s
         with self.lock:
-            first = not self.tof_subscribed
-            self.tof_subscribed = True
+            first = not self.depth_subscribed
+            self.depth_subscribed = True
         if first:
-            self.cache(PointCloud2, self.cfg.topics.tof_points, "tof_points", SENSOR_QOS)
+            self.cache(PointCloud2, self.cfg.topics.depth_points, "depth_points", SENSOR_QOS)
             deadline = time.monotonic() + stale
-            while self.get("tof_points", stale) is None and time.monotonic() < deadline:
+            while self.get("depth_points", stale) is None and time.monotonic() < deadline:
                 time.sleep(NAV_POLL_S)
-        item = self.get("tof_points", stale)
+        item = self.get("depth_points", stale)
         if item is None:
             return None
         msg = item.value
@@ -2082,7 +2082,7 @@ class RosRobot:
         xyz = xyz[np.isfinite(xyz).all(axis=1)]
         t, q = tf.transform.translation, tf.transform.rotation
         points = Rotation.from_quat([q.x, q.y, q.z, q.w]).apply(xyz) + np.array([t.x, t.y, t.z])
-        return TofPoints(
+        return DepthPoints(
             points=points,
             age_s=round(item.age(time.monotonic()), 3),
             frame=self.cfg.topics.base_frame,

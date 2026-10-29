@@ -74,8 +74,8 @@ class SectorObstacle(BaseModel):
     bearing_rad: float | None = Field(description="Bearing of that return in base_link (0 = ahead, + = left)")
 
 
-class TofSector(BaseModel):
-    """Nearest 3D obstacle and nearest cliff (drop-off) from the head ToF depth in one 45 deg sector around base_link."""
+class DepthSector(BaseModel):
+    """Nearest 3D obstacle and nearest cliff (drop-off) from the head depth (D435) in one 45 deg sector around base_link."""
 
     sector: str = Field(description="front, front_left, left, rear_left, rear, rear_right, right or front_right")
     nearest_m: float | None = Field(
@@ -96,17 +96,19 @@ class TofSector(BaseModel):
 
 
 class Obstacles3d(BaseModel):
-    """Nearby 3D obstacles and cliffs per direction, from the head ToF cloud in base_link."""
+    """Nearby 3D obstacles and cliffs per direction, from the head depth (D435) cloud in base_link."""
 
-    sectors: list[TofSector] = Field(description="One entry per 45 deg sector, counter-clockwise from the front")
-    cloud_age_s: float | None = Field(description="Age of the ToF cloud (s); large means the data is stale")
+    sectors: list[DepthSector] = Field(description="One entry per 45 deg sector, counter-clockwise from the front")
+    cloud_age_s: float | None = Field(
+        description="Age of the head depth (D435) cloud (s); large means the data is stale"
+    )
     frame: str = Field(description="Frame the distances and bearings are expressed in (base_link)")
     point_count: int = Field(description="Number of finite cloud points considered")
 
 
 @dataclass
-class TofPoints:
-    """Latest head ToF cloud transformed to base_link (internal; summarised as Obstacles3d)."""
+class DepthPoints:
+    """Latest head depth (D435) cloud transformed to base_link (internal; summarised as Obstacles3d)."""
 
     points: np.ndarray  # Nx3 (x forward, y left, z up), metres
     age_s: float  # receive age (s)
@@ -448,7 +450,8 @@ class MapSummary(BaseModel):
     map_age_s: float | None = None
     robot_pose: BasePose | None = None
     obstacles_3d: Obstacles3d | None = Field(
-        default=None, description="Head ToF obstacles and cliffs per sector; null when no fresh cloud (see notes)"
+        default=None,
+        description="Head depth (D435) obstacles and cliffs per sector; null when no fresh cloud (see notes)",
     )
     ground: GroundSummary | None = Field(
         default=None,
