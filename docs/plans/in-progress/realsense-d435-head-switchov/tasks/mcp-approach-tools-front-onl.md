@@ -1,6 +1,6 @@
 ---
 title: MCP approach tools front only
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Approach and frontier looking work from the D435, and stop honestly when it cannot see the target."
 files: [nodes/mcp_server/mcp_server/approach_tools.py, nodes/mcp_server/mcp_server/frontier_tools.py, nodes/mcp_server/mcp_server/target_tracker.py, nodes/mcp_server/mcp_server/config.py, nodes/mcp_server/tests/test_approach_tools.py, nodes/mcp_server/tests/test_approach.py, nodes/mcp_server/tests/test_frontier_tools.py]
@@ -8,15 +8,15 @@ verify: "cd nodes/mcp_server && uv run --frozen pytest tests/test_approach_tools
 depends_on: [mcp-camera-tools-front-only]
 model: opus
 review: ""
-verified_head: ""
+verified_head: 19f4bf26
 points: 3
 expected_minutes: 34
 expected_tokens: 2250000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 3
+actual_minutes: 26
+actual_tokens: 5194150
+actual_roles: "impl 17, review 10"
+actual_role_tokens: "impl 4839151, review 354999"
 ---
 
 # MCP approach tools front only
@@ -65,3 +65,5 @@ What is true and observable when the task is done.
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
 - 2026-10-29: frontier_tools.py:70,591 still has the dead gripper branch, GRIPPER_NOTE and a "front or gripper" docstring; remove them here.
+
+- 2026-10-29 done
