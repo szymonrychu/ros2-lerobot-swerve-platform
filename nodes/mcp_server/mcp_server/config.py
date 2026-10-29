@@ -600,6 +600,11 @@ class HeadSettings(StrictModel):
     tolerance_rad: float = Field(default=0.03, gt=0.0)
     move_timeout_s: float = Field(default=4.0, gt=0.0)
     state_max_age_s: float = Field(default=0.5, gt=0.0)
+    # Joint-state history that places a camera frame: pan/tilt are interpolated at the image header stamp.
+    history_s: float = Field(default=10.0, gt=0.0)  # how long /head/joint_states samples are kept
+    stamp_window_s: float = Field(default=0.1, gt=0.0)  # +- window around the image stamp checked for head motion
+    max_motion_rad: float = Field(default=0.002, ge=0.0)  # larger pan/tilt excursion in the window = head moving
+    max_sample_gap_s: float = Field(default=0.25, gt=0.0)  # farthest a joint sample may be from the stamp
 
     @field_validator("urdf_path")
     @classmethod
