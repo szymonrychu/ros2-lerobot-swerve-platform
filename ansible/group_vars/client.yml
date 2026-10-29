@@ -2468,6 +2468,10 @@ ros2_nodes:
         imu_reset_service: /imu/calibration/reset
         # RGB-D section: head_rgbd_calibration HTTP API (its http_port).
         rgbd_url: http://127.0.0.1:18110
+        # Wait for one forwarded call. The head-from-arm and floor computes run inside the request (minutes on the Pi 5);
+        # the default 10 s answered "calibration node unreachable" while the fit was still running. Not below the
+        # node's compute_timeout_s (tests/test_applied_chain_for_mcp.py).
+        rgbd_timeout_s: 600.0
         # Servo torque and neutral section: one card per feetech bridge group (state /<namespace>/torque_state).
         # Publishes to command_topics are refused while the group is released.
         servo_groups:
