@@ -1,6 +1,6 @@
 ---
 title: MCP grasp check on D435
-status: in-progress
+status: done
 repo: ros2-lerobot-sverve-platform
 value: "Grasps are still verified by an image of the jaws, now from the head D435."
 files: [nodes/mcp_server/mcp_server/grasp_tools.py, nodes/mcp_server/mcp_server/jaw_crop.py, nodes/mcp_server/mcp_server/grasp_check.py, nodes/mcp_server/tests/test_jaw_crop.py, nodes/mcp_server/tests/test_grasp_check.py, nodes/mcp_server/tests/test_grasp_tools.py]
@@ -8,15 +8,15 @@ verify: "cd nodes/mcp_server && uv run --frozen pytest tests/test_jaw_crop.py te
 depends_on: [mcp-camera-tools-front-only, mcp-head-kinematics-on-d435]
 model: opus
 review: ""
-verified_head: ""
+verified_head: e7534c79
 points: 5
 expected_minutes: 57
 expected_tokens: 3750000
-points_actual: ""
-actual_minutes: ""
-actual_tokens: ""
-actual_roles: ""
-actual_role_tokens: ""
+points_actual: 5
+actual_minutes: 45
+actual_tokens: 14515558
+actual_roles: "impl 37, review 9"
+actual_role_tokens: "impl 14154434, review 361124"
 ---
 
 # MCP grasp check on D435
@@ -63,3 +63,5 @@ What is true and observable when the task is done.
 ## Notes
 
 Context the implementer needs: pitfalls, existing code to reuse, decisions already made.
+
+- 2026-10-29 done
