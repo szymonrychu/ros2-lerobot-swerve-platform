@@ -8,7 +8,7 @@ See [CLAUDE.md](../CLAUDE.md): use Python 3 type hints and extend unit tests as 
 A second, separate package lives in [ros2_metrics/](ros2_metrics/README.md): `ros2-metrics`, the Prometheus
 exporter helper of our nodes (only `prometheus-client`).
 
-The C++ nodes share [ros2_common_cpp/](ros2_common_cpp/), an ament_cmake package with config validation and metrics;
+The C++ nodes share [ros2_common_cpp/](ros2_common_cpp/), an ament_cmake package with config validation, metrics and the depth edge mask;
 see [ros2_common_cpp (C++)](#ros2_common_cpp-c) below.
 
 ## Using it from a node
@@ -428,7 +428,7 @@ Tests: `tests/test_arm_offsets_fit.py` (scenes from `tests/head_arm_synthetic.py
 
 ## ros2_common_cpp (C++)
 
-An ament_cmake package with two plain library targets, `ros2_common_cpp::config` and `ros2_common_cpp::metrics`. None links rclcpp, so a node's pure-logic library can use them. Headers are in
+An ament_cmake package with plain library targets `ros2_common_cpp::config`, `ros2_common_cpp::metrics` and `ros2_common_cpp::depth_mask`. None links rclcpp, so a node's pure-logic library can use them. Headers are in
 [include/ros2_common_cpp/](ros2_common_cpp/include/ros2_common_cpp/); C++17; formatted with the root `.clang-format`
 (ament style, 120 columns).
 
@@ -479,6 +479,30 @@ ourselves (CLAUDE.md, "Use the right libraries").
 prometheus-cpp has no upstream rosdep rule. `package.xml` declares `<depend>prometheus-cpp</depend>`, and
 `scripts/cpp-node-test.Dockerfile` maps that key to `prometheus-cpp-dev`. On the Pi, a C++ node type must list
 `libyaml-cpp-dev` and `prometheus-cpp-dev` in its apt packages.
+
+### depth_mask (`depth_mask.hpp`, OpenCV)
+
+The depth-discontinuity ("veil") mask of a D435 depth image (`CV_16UC1`, mm, 0 = no depth): it removes the mixed and
+flying pixels a stereo camera puts between the edge of a nearer object and the background behind it. A valid pixel is
+removed when a valid pixel of its `window_px` x `window_px` neighbourhood is nearer by more than
+`max(abs_m, rel x z)` (z its own depth); `grow_px` > 0 then dilates the removed region into the valid pixels.
+
+| Function | Behaviour |
+|---|---|
+| `depth_edge_mask(depth_mm, params)` | `CV_8UC1` mask, 255 where a pixel is removed. Missing pixels are never a nearer neighbour and never set. Throws `std::invalid_argument` on another type or invalid params. |
+| `apply_depth_edge_mask(depth_mm, params)` | Sets the masked pixels to 0 in place and returns how many. |
+| `check_depth_edge_mask_params(params)` | `window_px` odd and >= 3, `abs_m`, `rel`, `grow_px` >= 0, `abs_m` or `rel` > 0. |
+
+Only the far side of a jump goes: the nearer object keeps its edge pixels (each mixed pixel is behind its neighbour
+towards the object, and so is the first background pixel), which is why the rule is one-sided rather than "differs
+from any neighbour". The window minimum is OpenCV's grey erosion (`cv::erode`, missing depth set to +max first), the
+threshold and comparison are whole-image OpenCV operations; there is no hand-written loop. A grazing surface whose
+depth grows faster than `rel` per pixel (far floor near the horizon) is removed too; at the head home pose that is
+floor beyond about 3.5 m, outside the obstacle cloud's 3 m.
+
+The target is built only when OpenCV (core, imgproc) is installed: map_guard_cpp and map3d_manager_cpp build this
+package on hosts without OpenCV and do not get it. The test build (`scripts/cpp-node-test.sh`, CI) requires OpenCV.
+User: head_rgbd_cpp (`edge_mask` config; nodes/head_rgbd_cpp/README.md). Tests: `test/test_depth_mask.cpp`.
 
 ### Adding a C++ node
 
