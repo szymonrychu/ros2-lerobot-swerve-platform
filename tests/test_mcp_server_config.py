@@ -822,26 +822,26 @@ def test_claude_agent_nav_tolerances_match_mcp_server() -> None:
 
 
 def test_mcp_server_head_camera_is_the_head_camera_stream() -> None:
-    """mcp_server's `front` camera reads the head RGB camera JPEG stream (CompressedImage)."""
+    """mcp_server's `front` camera reads the head D435 colour JPEG stream (CompressedImage)."""
     topics = node_config("mcp_server").get("topics", {})
-    assert topics["head_camera"] == "/head_camera/image_raw/compressed"
+    assert topics["head_camera"] == "/head/d435/color/image_raw/compressed"
     assert "front_camera" not in topics
     assert "realsense_camera" not in topics
 
 
 def test_mcp_server_states_no_hardcoded_front_camera_size() -> None:
-    """Tool descriptions name no size; the mcp_server README gives 1152x648 / 384x216 for the head camera."""
+    """Tool descriptions name no size; the mcp_server README gives 640x360 / 384x216 for the head D435 colour."""
     tools_source = (REPO_ROOT / "nodes" / "mcp_server" / "mcp_server" / "tools.py").read_text()
     assert "overhead camera (640x480)" not in tools_source
     assert "front of the robot, 640x480" not in tools_source
     mcp_readme = (REPO_ROOT / "nodes" / "mcp_server" / "README.md").read_text()
     assert "640x480 for both" not in mcp_readme
-    assert "1152x648" in mcp_readme and "384x216" in mcp_readme
+    assert "640x360" in mcp_readme and "384x216" in mcp_readme
     assert "pi_cameras front Camera Module 3 streaming 640x480" not in mcp_readme
 
 
-def test_mcp_server_get_camera_image_docs_name_the_front_camera_module_3() -> None:
-    """The get_camera_image row names the head Camera Module 3 at 1152x648; no IMX219, 480x360 or 640x480 front size."""
+def test_mcp_server_get_camera_image_docs_name_the_front_d435_colour() -> None:
+    """The get_camera_image row names the head D435 colour at 640x360; no IMX219, 480x360 or 640x480 front size."""
     mcp_dir = REPO_ROOT / "nodes" / "mcp_server"
     texts = {str(p): p.read_text() for p in [mcp_dir / "README.md", *(mcp_dir / "mcp_server").glob("*.py")]}
     for name, text in texts.items():
@@ -851,8 +851,9 @@ def test_mcp_server_get_camera_image_docs_name_the_front_camera_module_3() -> No
         assert "/front_camera" not in text, name
     readme_lines = texts[str(mcp_dir / "README.md")].splitlines()
     row = next(line for line in readme_lines if line.startswith("| `get_camera_image("))
-    assert "Camera Module 3" in row and "1152x648" in row and "384x216" in row
-    assert "head_camera" in row
+    assert "D435" in row and "640x360" in row and "384x216" in row
+    assert "head_camera" in row and "/head/d435/color/image_raw/compressed" in row
+    assert "Camera Module 3" not in row
     assert "front`: 640x480" not in row and "640x480 at 10 fps" not in row and "overhead" not in row
     assert "640x480" not in row
     assert "defaults to 384x288" not in texts[str(mcp_dir / "README.md")]

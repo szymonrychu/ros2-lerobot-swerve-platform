@@ -1,7 +1,6 @@
 """Camera settings in the mcp_server config: intrinsics sources, mount parent frames, arm base offset and reach."""
 
 import logging
-import re
 from pathlib import Path
 
 import pytest
@@ -9,18 +8,21 @@ import yaml
 from pydantic import ValidationError
 
 from mcp_server.camera_scene import CameraNotCalibratedError, camera_setup, intrinsics_cache, warned
-from mcp_server.config import REPO_ROOT, McpServerConfig
+from mcp_server.config import REPO_ROOT, IntrinsicsSettings, McpServerConfig
 from mcp_server.head_kinematics import HeadKinematics
 
 MOUNT = {"parent_frame": "gripper_link", "x": 0.0, "y": 0.0, "z": 0.05, "roll": 0.0, "pitch": 0.1, "yaw": 0.0}
 
 
-def test_default_cameras_are_not_calibrated() -> None:
+def test_default_gripper_not_calibrated_front_is_the_d435_colour() -> None:
     cams = McpServerConfig().cameras
-    for cam in (cams.gripper, cams.front):
-        assert cam.intrinsics is None and cam.mount is None
+    assert cams.gripper.intrinsics is None and cams.gripper.mount is None
     assert cams.gripper.parent_frame == "gripper_link"
-    assert cams.front.parent_frame == "head_link"  # the front camera is the head RGB camera
+    # The front camera is the head D435 colour: factory CameraInfo intrinsics, zero mount on d435_color_frame.
+    assert cams.front.parent_frame == "d435_color_frame"
+    assert cams.front.intrinsics == IntrinsicsSettings(camera_info_topic="/head/d435/color/camera_info")
+    assert cams.front.mount is not None and cams.front.mount.parent_frame == "d435_color_frame"
+    assert [getattr(cams.front.mount, k) for k in ("x", "y", "z", "roll", "pitch", "yaw")] == [0.0] * 6
     assert str(cams.calibration_dir) == "/var/lib/ros2/camera_calibration"
 
 
@@ -102,7 +104,8 @@ def test_arm_base_offset_and_reach_defaults() -> None:
 
 
 CLIENT_YML = REPO_ROOT / "ansible" / "group_vars" / "client.yml"
-HEAD_CAMERA_DEFAULT_SIZE = (1152, 648)  # nodes/head_camera_cpp/include/head_camera_cpp/config.hpp StreamConfig
+STREAM_SIZE = (1152, 648)  # a stream of the calibration's aspect at twice its size
+D435_TOPICS = REPO_ROOT / "nodes" / "bridges" / "realsense_d435" / "config" / "topics.yaml"
 CALIB_576 = {
     "image_width": 576,
     "image_height": 324,
@@ -121,10 +124,10 @@ def front_cfg(path: Path, size: tuple[int, int]) -> McpServerConfig:
         {
             "cameras": {
                 "front": {
-                    "parent_frame": "head_camera_link",
+                    "parent_frame": "d435_color_frame",
                     "intrinsics": {"calibration_file": str(path), "image_width": size[0], "image_height": size[1]},
                     "mount": {
-                        "parent_frame": "head_camera_link",
+                        "parent_frame": "d435_color_frame",
                         "x": 0,
                         "y": 0,
                         "z": 0,
@@ -152,26 +155,24 @@ def write_calib(path: Path, data: dict) -> Path:
 def test_client_yml_front_block_validates_with_a_head_urdf_parent() -> None:
     cfg = McpServerConfig.model_validate(client_node_config("mcp_server"))
     front = cfg.cameras.front
-    assert front.parent_frame == "head_camera_link" and front.mount is not None
+    assert front.parent_frame == "d435_color_frame" and front.mount is not None
     assert HeadKinematics(cfg.head.urdf_path).link_pose(0.0, 0.0, front.parent_frame) is not None
-    assert front.intrinsics is not None and front.intrinsics.calibration_file is not None
+    assert front.intrinsics is not None and front.intrinsics.camera_info_topic is not None
 
 
-def test_client_yml_front_image_size_is_the_head_camera_stream() -> None:
-    head_cfg = client_node_config("head_camera_cpp")
-    size = (head_cfg.get("width", HEAD_CAMERA_DEFAULT_SIZE[0]), head_cfg.get("height", HEAD_CAMERA_DEFAULT_SIZE[1]))
+def test_client_yml_front_intrinsics_are_the_live_d435_colour_camera_info() -> None:
+    """The front intrinsics come from the live D435 colour CameraInfo at its own size (no rescale to another stream)."""
     intr = McpServerConfig.model_validate(client_node_config("mcp_server")).cameras.front.intrinsics
-    assert intr is not None and (intr.image_width, intr.image_height) == size
-    assert re.search(
-        r"int width = 1152;\s+int height = 648;",
-        (REPO_ROOT / "nodes/head_camera_cpp/include/head_camera_cpp/config.hpp").read_text(),
-    )
+    live = yaml.safe_load(D435_TOPICS.read_text())["topics"]
+    assert intr is not None and intr.camera_info_topic == "/head/d435/color/camera_info"
+    assert live[intr.camera_info_topic]["type"] == "sensor_msgs/msg/CameraInfo"
+    assert (intr.image_width, intr.image_height) == (None, None)
 
 
 def test_front_intrinsics_scaled_to_stream_size(tmp_path: Path) -> None:
     path = write_calib(tmp_path / "c.yaml", CALIB_576)
-    intr = camera_setup(front_cfg(path, HEAD_CAMERA_DEFAULT_SIZE), "front").intrinsics
-    assert (intr.width, intr.height) == HEAD_CAMERA_DEFAULT_SIZE
+    intr = camera_setup(front_cfg(path, STREAM_SIZE), "front").intrinsics
+    assert (intr.width, intr.height) == STREAM_SIZE
     assert (intr.fx, intr.cx, intr.fy, intr.cy) == (800.0, 580.0, 820.0, 320.0)
     assert intr.distortion == [0.1, -0.2, 0.0, 0.0, 0.05]
 
@@ -198,7 +199,7 @@ def test_different_aspect_ratio_is_uncalibrated_and_warns_with_both_sizes(
 def test_missing_file_is_uncalibrated_warns_once_and_never_crashes_at_startup(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    cfg = front_cfg(tmp_path / "absent.yaml", HEAD_CAMERA_DEFAULT_SIZE)
+    cfg = front_cfg(tmp_path / "absent.yaml", STREAM_SIZE)
     with caplog.at_level(logging.WARNING):
         for _ in range(2):
             with pytest.raises(CameraNotCalibratedError):
@@ -225,7 +226,7 @@ def test_an_apply_is_picked_up_without_a_restart(tmp_path: Path) -> None:
 
 
 def test_front_intrinsics_missing_or_mismatched_uncalibrated(tmp_path: Path) -> None:
-    missing = front_cfg(tmp_path / "absent.yaml", HEAD_CAMERA_DEFAULT_SIZE)
+    missing = front_cfg(tmp_path / "absent.yaml", STREAM_SIZE)
     with pytest.raises(CameraNotCalibratedError):
         camera_setup(missing, "front")
     path = write_calib(tmp_path / "c.yaml", CALIB_576)

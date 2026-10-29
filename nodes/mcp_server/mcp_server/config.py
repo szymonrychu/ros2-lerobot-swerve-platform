@@ -25,7 +25,8 @@ DEFAULT_HOME_FILE = Path("/var/lib/ros2/arm/home.yaml")
 DEFAULT_CALIBRATION_STALE_MARKER = Path("/var/lib/ros2/arm/calibration_stale.json")
 DEFAULT_CALIBRATION_DIR = Path("/var/lib/ros2/camera_calibration")
 GRIPPER_CAMERA_PARENT = "gripper_link"  # URDF link of so101_arm.urdf the gripper camera is mounted on
-FRONT_CAMERA_PARENT = "head_link"  # default head URDF link (head.urdf_path) the front (head RGB) camera hangs on
+FRONT_CAMERA_PARENT = "d435_color_frame"  # head URDF link (head.urdf_path) the front (D435 colour) camera hangs on
+FRONT_CAMERA_INFO_TOPIC = "/head/d435/color/camera_info"  # D435 factory colour intrinsics of the front camera
 DEFAULT_OBJECTS_FILE = Path("/var/lib/ros2/objects/objects.json")
 DEFAULT_LOOKUPS_DIR = Path("/var/lib/ros2/poi/lookups")  # camera lookups, next to poi_store's poi.json
 # Offline inverse reachability map (reach_map.py), committed inside the package so it deploys with the git checkout.
@@ -167,7 +168,7 @@ class TopicSettings(StrictModel):
     compute_path_action: str = "/compute_path_to_pose"  # Nav2 planner_server, checks one frontier observation pose
     planner_id: str = "GridBased"  # planner_server plugin id used by compute_path_action
     gripper_camera: str = "/camera_0/image_raw/compressed"
-    head_camera: str = "/head_camera/image_raw/compressed"  # head RGB camera (Camera Module 3), tool camera `front`
+    head_camera: str = "/head/d435/color/image_raw/compressed"  # head D435 colour (640x360), tool camera `front`
     local_costmap: str = "/local_costmap/costmap"  # subscribed lazily by get_topdown_view, latest message only
     tof_points: str = "/tof/points_filtered"  # subscribed lazily by get_map_summary, latest message only
     # ground_estimator_cpp state JSON (std_msgs/String, latched), subscribed at start: get_map_summary ground
@@ -758,19 +759,34 @@ class CameraSettings(StrictModel):
     mount: MountPose | None = None
 
 
+def d435_colour_camera() -> CameraSettings:
+    """The front camera default: the D435 colour, zero mount on d435_color_frame, intrinsics from its CameraInfo.
+
+    Returns:
+        CameraSettings: The default front camera (head.urdf supplies the mount pose at the measured head angles).
+    """
+    zero = dict.fromkeys(("x", "y", "z", "roll", "pitch", "yaw"), 0.0)
+    return CameraSettings(
+        intrinsics=IntrinsicsSettings(camera_info_topic=FRONT_CAMERA_INFO_TOPIC),
+        parent_frame=FRONT_CAMERA_PARENT,
+        mount=MountPose(parent_frame=FRONT_CAMERA_PARENT, **zero),
+    )
+
+
 class CamerasSettings(StrictModel):
-    """Camera geometry for the pixel -> ground tools; both cameras default to not calibrated."""
+    """Camera geometry for the pixel -> ground tools; the gripper defaults to not calibrated, the front camera to the
+    D435 colour (calibrated once its CameraInfo arrives)."""
 
     calibration_dir: Path = DEFAULT_CALIBRATION_DIR
     gripper: CameraSettings = CameraSettings()
-    front: CameraSettings = CameraSettings()
+    front: CameraSettings = Field(default_factory=d435_colour_camera)
 
     @model_validator(mode="after")
     def resolve_parent_frames(self) -> "CamerasSettings":
         """Fill in each camera's parent frame and require a mount to agree with it.
 
         The gripper camera hangs on an arm URDF link (default gripper_link); the front camera on a head URDF link
-        (default head_link, checked against head.urdf_path by McpServerConfig).
+        (default d435_color_frame, checked against head.urdf_path by McpServerConfig).
 
         Returns:
             CamerasSettings: The validated settings.

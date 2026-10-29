@@ -2714,9 +2714,9 @@ ros2_nodes:
         margin_m: 0.09 # clearance from the body: 0.03 pose-check margin + 0.05 nominal-mount allowance + 0.01 sag
         min_height_m: 0.06 # lowest board point above the floor: 0.05 + 0.01 sag
       topics:
-        # Head RGB camera (tool camera `front`): Camera Module 3 on the pan/tilt head with the ToF, head_camera_cpp,
-        # 1152x648 at 15 fps, 16:9.
-        head_camera: /head_camera/image_raw/compressed
+        # Head camera (tool camera `front`): the D435 colour on the pan/tilt head (realsense_d435), 640x360 at 15 fps,
+        # 16:9. The key name stays: tests/test_head_camera_live_refs.py forbids `front_camera` names.
+        head_camera: /head/d435/color/image_raw/compressed
         # Body monitor feeds (get_body_state, /robot_events): servo register dumps, swerve odom (twist covariance = slip
         # residual), rf2o twist, BNO055 IMU.
         # servo_registers: arm servos (follower bus); base_servo_registers: swerve servos (base bus bridge).
@@ -2866,15 +2866,10 @@ ros2_nodes:
         # No extra lag * velocity term on top of the delay window (it double-counted the lag: a jam at 1 rad/s aborted
         # only 0.85 rad behind the newest setpoint); a jam now aborts about 0.6 rad behind it.
         arm_tracking_lag_s: 0.0
-      # Camera geometry for pixel_to_ground, annotated images and candidate points (nodes/mcp_server/README.md, "Camera
-      # tools and calibration"). Both cameras are NOT calibrated until intrinsics and mount are set. intrinsics is
-      # {calibration_file: <camera_calibration yaml>} or an approximation {hfov_deg: 66.0, width: 640, height: 480};
       # Camera calls subscribe per call: on the loaded Pi, DDS discovery can exceed the 2 s default.
       timeouts:
         image_timeout_s: 5.0
         servo_torque_stale_s: 3.0
-      # mount is the solve_camera_calibration output (parent_frame x y z roll pitch yaw, body frame x fwd / y left / z up).
-      # The gripper mount is relative to the URDF link gripper_link of so101_arm.urdf, the front mount to base_link.
       # Pan/tilt head (head tools, front camera pose): explicit values equal to the defaults. Joint names, topics and the
       # home pose match the base_servos head group (startup_position_rad) and nodes/web_ui/urdf/head.urdf.
       head:
@@ -2887,6 +2882,12 @@ ros2_nodes:
         tolerance_rad: 0.03
         move_timeout_s: 4.0
         state_max_age_s: 0.5
+      # Camera geometry for pixel_to_ground, annotated images and candidate points (nodes/mcp_server/README.md, "Camera
+      # tools and calibration"). A camera is NOT calibrated until it has intrinsics and a mount. intrinsics is
+      # {calibration_file: <camera_calibration yaml>}, {camera_info_topic: <sensor_msgs/CameraInfo topic>} or an
+      # approximation {hfov_deg: 66.0, width: 640, height: 480}; mount is the solve_camera_calibration output
+      # (parent_frame x y z roll pitch yaw, body frame x fwd / y left / z up). The gripper mount is relative to the URDF
+      # link gripper_link of so101_arm.urdf, the front mount to a link of head.urdf.
       cameras:
         calibration_dir: /var/lib/ros2/camera_calibration
         # Mount re-solved 2026-10-08 (afternoon) from 15 views at wrist_roll 0, -0.8, -1.57, -2.3, -2.69 over a steel
@@ -2907,20 +2908,18 @@ ros2_nodes:
             roll: -1.5622
             pitch: 1.1950
             yaw: -1.4466
-        # Front = the head RGB camera (Camera Module 3) on the pan/tilt head: its pose follows the measured head angles
-        # (/head/joint_states). The camera hangs on head_camera_link with a zero mount, so the head.urdf
-        # head_camera_joint (the applied head_chain.json override, reloaded by HeadKinematics) IS the mount and an
-        # Apply on the Calibrate page reaches the tools without a restart. Intrinsics are the applied head RGB
-        # calibration (576x324, read at each camera call, mtime cached); they are scaled to the 1152x648
-        # head_camera_cpp stream (same aspect). A missing file: the camera tools answer 'not calibrated'.
+        # Front = the D435 colour camera on the pan/tilt head (topics.head_camera, 640x360): its pose follows the
+        # measured head angles (/head/joint_states). The camera hangs on d435_color_frame with a zero mount, so head.urdf
+        # (d435_joint, the applied head_chain.json override reloaded by HeadKinematics, plus the factory colour
+        # extrinsic d435_color_joint) IS the mount and an Apply on the Calibrate page reaches the tools without a
+        # restart. Intrinsics are the D435 factory colour intrinsics from the latest /head/d435/color/camera_info
+        # (640x360, the stream size). No CameraInfo yet: the camera tools answer 'not calibrated'.
         front:
-          parent_frame: head_camera_link
+          parent_frame: d435_color_frame
           intrinsics:
-            calibration_file: /var/lib/ros2/head_rgbd_calibration/applied/head_camera_calibration.yaml
-            image_width: 1152
-            image_height: 648
+            camera_info_topic: /head/d435/color/camera_info
           mount:
-            parent_frame: head_camera_link
+            parent_frame: d435_color_frame
             x: 0.0
             y: 0.0
             z: 0.0

@@ -372,7 +372,7 @@ def test_capture_counts_samples_and_writes_file(tmp_path: Path) -> None:
     res = capture_all(server, GROUNDS[:2])
     assert res.structured_content["samples"] == 2
     data = json.loads((cfg.cameras.calibration_dir / "front.json").read_text())
-    assert len(data["samples"]) == 2 and data["parent_frame"] == "head_link"
+    assert len(data["samples"]) == 2 and data["parent_frame"] == "d435_color_frame"
 
 
 def test_capture_gripper_stores_the_current_arm_pose(tmp_path: Path) -> None:

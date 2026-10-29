@@ -1209,9 +1209,21 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   `filter_node reports no active source (restarted?)` after an active source `none` (L2); the home pose is read once
   until the file changes (L1); `NavGoalRegistry` cancels only registered goals, a discarded goal is skipped, nothing to
   cancel is a success and an unanswered cancel reports failure; the registry is thread-safe (M2)
-- camera config (`test_camera_config.py`): cameras default to not calibrated with parent frames `gripper_link` / `base_link`,
-  intrinsics source rules (calibration file XOR hfov with width and height), mount parent frame adopted and checked, front
-  camera restricted to `base_link`, unknown camera keys rejected, `arm.base_in_base_link` and reach ordering
+- camera config (`test_camera_config.py`): the gripper defaults to not calibrated on `gripper_link`, the front camera to
+  the D435 colour (CameraInfo intrinsics from `/head/d435/color/camera_info`, zero mount on `d435_color_frame`);
+  intrinsics source rules (exactly one of calibration file, camera_info_topic, or hfov with width and height), mount parent
+  frame adopted and checked, front camera restricted to a head URDF link, unknown camera keys rejected,
+  `arm.base_in_base_link` and reach ordering; the client.yml front block is on `d435_color_frame` with the live D435
+  colour CameraInfo topic and no rescale size; calibration-file intrinsics are scaled to the image size, a missing file
+  or another aspect is not calibrated and an Apply is read without a restart
+- front camera on the head (`test_camera_scene_head.py`): the front scene equals the URDF `d435_color_optical_frame` pose
+  at pan/tilt 0 and, for the deployed config with D435 CameraInfo intrinsics, at every measured head pose
+  (`test_front_pose_follows_the_head_through_the_d435_frame`); a rotation-free head_link camera yaws with the pan and
+  hits the floor 0.6 m ahead at tilt 30 deg; stale, missing or absent head joint states raise naming
+  `/head/joint_states`; the front parent defaults to `d435_color_frame` and must be a head URDF link that agrees with
+  the mount; `pixel_to_ground` uses the measured pan and refuses stale joints; a calibration sample stores the
+  `d435_color_frame` pose; the deployed head section and front camera equal the code defaults; an applied `d435_joint`
+  override moves the front camera without a restart
 - camera scene (`test_camera_scene.py`): intrinsics loading (hfov approximate, calibration yaml), not-calibrated error text,
   synthetic front camera with a known mount (analytic centre-pixel floor point, project/ground round trip, sky pixels),
   gripper camera pose from measured joints, frame conversions with and without the arm offset, map position from the
@@ -2065,9 +2077,10 @@ Static checks of the mcp_server camera tools wiring (YAML and README only; no RO
 | Test (group) | Description |
 |------|-------------|
 | `test_setup_tasks_create_the_calibration_directory_owned_by_the_node_user` | `tasks/mcp_server_setup.yml` creates `/var/lib/ros2/camera_calibration` owned by `ansible_user`. |
-| `test_cameras_config_front_uses_applied_head_calibration_gripper_calibrated` | The mcp_server `cameras` block has `calibration_dir`; the front (head RGB) camera sits on `head_camera_link` with a zero mount and the applied head RGB calibration file (1152x648), the gripper camera has intrinsics and a mount on `gripper_link`. |
+| `test_cameras_config_front_on_the_d435_gripper_calibrated` | The mcp_server `cameras` block has `calibration_dir`; the front camera sits on `d435_color_frame` with a zero mount and `camera_info_topic: /head/d435/color/camera_info` intrinsics, the gripper camera has intrinsics and a mount on `gripper_link`. |
+| `test_front_camera_is_the_d435_colour` | `topics.head_camera` is `/head/d435/color/image_raw/compressed` (a CompressedImage in `d435_color_optical_frame` per `nodes/bridges/realsense_d435/config/topics.yaml`); `cameras.front.parent_frame` is the head.urdf link `d435_color_frame` whose only child is `d435_color_optical_frame`, with the zero mount on it; the intrinsics are the colour CameraInfo topic, published in the same frame as the stream. |
 | `test_gripper_parent_frame_is_a_link_of_the_arm_urdf` | `cameras.gripper.parent_frame` names a link in the arm URDF. |
-| `test_front_parent_frame_is_a_head_urdf_link_and_the_mount_is_the_zero_offset_on_it` | `head.urdf_path` is `nodes/web_ui/urdf/head.urdf`; `cameras.front.parent_frame` (`head_camera_link`) names a link of it and the front mount is the all-zero offset on that link. |
+| `test_front_parent_frame_is_a_head_urdf_link_and_the_mount_is_the_zero_offset_on_it` | `head.urdf_path` is `nodes/web_ui/urdf/head.urdf`; `cameras.front.parent_frame` (`d435_color_frame`) names a link of it and the front mount is the all-zero offset on that link. |
 | `test_arm_reach_keys_are_ordered` | `arm.reach_inner_m` is positive and below `arm.reach_outer_m`. |
 | `test_readme_documents_the_camera_tools_frames_and_calibration` | `nodes/mcp_server/README.md` documents the seven camera tools, frames, the not-calibrated default, `base_in_base_link`, the calibration directory and the procedure. |
 
@@ -2095,9 +2108,9 @@ fake `ssh`; no ROS needed).
 | `test_mcp_server_readme_documents_monitor_and_events_contract` | `nodes/mcp_server/README.md` documents get_body_state, the per-call digest, the `/robot_events` contract, early-return (`interrupted_by`, expected/achieved), event types and the `monitor` thresholds. |
 | `test_web_ui_arm_tab_mount_equals_mcp_server_gripper_camera_mount` | The arm tab's `gripper_camera_mount` (`xyz`, `rpy`) equals mcp_server `cameras.gripper.mount` in client.yml. |
 | `test_web_ui_tab_set` | web_ui tabs are exactly map (map_nav, first), agent (agent_chat), arm (type `arm`, label `Arm`, `gripper_camera_topic` `/camera_0/image_raw/compressed`, `head_camera_topic` (`/head_camera/image_raw/compressed`), no `topic`), head (type `head`, `/head/d435/color/image_raw/compressed`, depth `/head/d435/depth/image_rect_raw`, no ToF keys, `depth_range_m` 4.0), poi (type `poi`, label `POI`); arm_servos, local_nav, gps_nav, scene3d and robot_status are gone. |
-| `test_mcp_server_head_camera_is_the_head_camera_stream` | mcp_server `topics.head_camera` is `/head_camera/image_raw/compressed`, no `front_camera` or `realsense_camera` key remains. |
-| `test_mcp_server_states_no_hardcoded_front_camera_size` | mcp_server `tools.py` states no 640x480 front camera size; the mcp_server README gives 1152x648 and 384x216 for the head camera and drops "640x480 for both" and the pi_cameras 640x480 wording. |
-| `test_mcp_server_get_camera_image_docs_name_the_front_camera_module_3` | No mcp_server README or source text names IMX219, 480x360 or `front_camera`; the `get_camera_image` docs row names `topics.head_camera`, Camera Module 3, 1152x648 and 384x216, with no 640x480 front size, 10 fps or overhead wording. |
+| `test_mcp_server_head_camera_is_the_head_camera_stream` | mcp_server `topics.head_camera` is the D435 colour `/head/d435/color/image_raw/compressed`, no `front_camera` or `realsense_camera` key remains. |
+| `test_mcp_server_states_no_hardcoded_front_camera_size` | mcp_server `tools.py` states no 640x480 front camera size; the mcp_server README gives 640x360 and 384x216 for the head D435 colour and drops "640x480 for both" and the pi_cameras 640x480 wording. |
+| `test_mcp_server_get_camera_image_docs_name_the_front_d435_colour` | No mcp_server README or source text names IMX219, 480x360 or `front_camera`; the `get_camera_image` docs row names `topics.head_camera` with its default `/head/d435/color/image_raw/compressed`, the D435, 640x360 and 384x216 and no Camera Module 3, with no 640x480 front size, 10 fps or overhead wording. |
 | `test_web_ui_map_tab_uses_contract_fields` | The map tab carries no legacy keys (`urdf_file`, `topic`, `arm_urdf_file`, `arm_joint_topic`, `scan_topic`, `costmap_topic`), uses the frontend contract names, points `arm_home_service` / `arm_set_home_service` at the services mcp_server serves, and keeps the tile cache at `/var/cache/web_ui/tiles`. |
 | `test_web_ui_tile_cache_dir_task_owned_by_node_user` | `playbooks/tasks/web_ui_tile_cache_dir.yml` creates `/var/cache/web_ui` and `/var/cache/web_ui/tiles` as directories owned by `ansible_user`. |
 | `test_playbooks_create_tile_cache_before_deploying_web_ui` | `deploy_nodes_client.yml` includes the tile cache task before deploying web_ui. |

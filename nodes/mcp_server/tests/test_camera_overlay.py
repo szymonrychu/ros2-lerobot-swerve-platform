@@ -16,7 +16,7 @@ from mcp_server.camera_overlay import (
     project_points,
     range_color,
 )
-from mcp_server.camera_scene import build_scene, camera_setup
+from mcp_server.camera_scene import CameraNotCalibratedError, build_scene, camera_setup
 from mcp_server.config import McpServerConfig
 
 from .camera_helpers import HEIGHT, WIDTH, camera_config, jpeg_blank
@@ -142,4 +142,9 @@ def test_draw_candidates_numbers_the_points() -> None:
 
 
 def test_default_config_has_no_cameras_to_draw() -> None:
-    assert McpServerConfig().cameras.front.mount is None
+    """The gripper is not calibrated by default and the front (D435 colour) camera needs its CameraInfo first."""
+    cfg = McpServerConfig()
+    assert cfg.cameras.gripper.mount is None
+    for camera in ("front", "gripper"):
+        with pytest.raises(CameraNotCalibratedError):
+            camera_setup(cfg, camera)

@@ -29,7 +29,7 @@ from mcp_server.monitor import RobotMonitor
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CLIENT_VARS = REPO_ROOT / "ansible" / "group_vars" / "client.yml"
-CAMERA_TOPICS = ("/camera_0/image_raw/compressed", "/head_camera/image_raw/compressed")
+CAMERA_TOPICS = ("/camera_0/image_raw/compressed", "/head/d435/color/image_raw/compressed")
 SCAN_TOPIC = "/scan_filtered"
 TF_TOPIC = "/tf"
 TF_STATIC_TOPIC = "/tf_static"
