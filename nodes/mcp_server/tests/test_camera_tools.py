@@ -334,13 +334,32 @@ def test_resolve_candidate_returns_stored_values_with_age_and_motion_flags(tmp_p
     data = res.structured_content
     assert data["point"] == stored and data["camera"] == "front"
     assert data["age_s"] >= 0.0
-    assert data["robot_moved_since"] is False and data["arm_moved_since"] is False
+    assert data["robot_moved_since"] is False and data["head_moved_since"] is False
+    assert "arm_moved_since" not in data  # the front camera hangs on the head, not on the arm
     robot.pose = BasePose(frame="map", x=1.5, y=2.0, yaw=math.pi / 2, age_s=0.05)
-    robot.arm_backend.positions["elbow_flex"] = 0.5
+    robot.head_backend.positions["head_tilt"] += 0.1
     moved = call(server, "resolve_candidate", {"set_id": table["set_id"], "n": 2}).structured_content
     assert moved["point"] == stored  # stored values, not recomputed
-    assert moved["robot_moved_since"] is True and moved["arm_moved_since"] is True
-    assert "moved" in moved["note"]
+    assert moved["robot_moved_since"] is True and moved["head_moved_since"] is True
+    assert "the head moved since" in moved["note"]
+
+
+def test_resolve_candidate_ignores_arm_motion_and_small_head_jitter(tmp_path: Path) -> None:
+    server, robot, _ = make(tmp_path)
+    set_id = text_json(call(server, "mark_candidate_points", {"camera": "front", "spacing_px": 160}))["set_id"]
+    robot.arm_backend.positions["elbow_flex"] = 0.5  # the arm does not carry the front camera
+    robot.head_backend.positions["head_pan"] += 0.01  # within the head motion tolerance
+    data = call(server, "resolve_candidate", {"set_id": set_id, "n": 1}).structured_content
+    assert data["head_moved_since"] is False and "moved" not in data["note"]
+
+
+def test_resolve_candidate_head_check_incomplete_without_fresh_head_joints(tmp_path: Path) -> None:
+    server, robot, _ = make(tmp_path)
+    set_id = text_json(call(server, "mark_candidate_points", {"camera": "front", "spacing_px": 160}))["set_id"]
+    robot.head_backend.no_samples = True
+    data = call(server, "resolve_candidate", {"set_id": set_id, "n": 1}).structured_content
+    assert data["head_moved_since"] is None
+    assert "motion check incomplete" in data["note"]
 
 
 def test_resolve_candidate_errors(tmp_path: Path) -> None:

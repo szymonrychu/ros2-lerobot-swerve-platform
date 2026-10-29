@@ -409,22 +409,6 @@
       ]
     },
     {
-      "kernel": "camera_scene.build_scene_gripper",
-      "family": "camera",
-      "median_ms": 0.5301249912008643,
-      "p95_ms": 0.5804292857646942,
-      "cpu_median_ms": 0.5306250000000068,
-      "cpu_p95_ms": 0.5809038000000211,
-      "calls_per_day": 7.522388059701493,
-      "verdict": "below threshold",
-      "tools": [
-        "get_camera_image",
-        "get_annotated_camera_image",
-        "pixel_to_ground",
-        "mark_candidate_points"
-      ]
-    },
-    {
       "kernel": "body_model.signed_distance",
       "family": "collision",
       "median_ms": 0.45720802154392004,

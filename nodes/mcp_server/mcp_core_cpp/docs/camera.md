@@ -14,7 +14,6 @@ to `mcp_core_cpp.camera`; `tests/test_core_parity_camera.py` checks this table a
 | `perception.recompress_jpeg` | 1.302 | below threshold, not ported |
 | `perception.encode_jpeg` | 1.025 | below threshold, not ported |
 | `camera_overlay.draw_grid` | 0.766 | below threshold, not ported |
-| `camera_scene.build_scene_gripper` | 0.530 | below threshold, not ported |
 | `camera_overlay.grid_polylines` | 0.325 | below threshold, not ported |
 | `perception.summarize_scan` | 0.091 | below threshold, not ported |
 | `camera_overlay.project_points` | 0.065 | below threshold, not ported |

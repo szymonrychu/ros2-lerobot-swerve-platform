@@ -54,13 +54,13 @@ on the feeds node (`dual_rate_topic(node=feeds_node)`). Config `feeds_executor: 
 | `release_object(params, surface_z_m, tilt_override_deg, surfaces)` | Open to `release_open_fraction` and lift `release_lift_m` straight up (motion): outcome `released` / `aborted`. The way out of an `unverified` grasp whose image shows empty jaws, or of a `confirm_grasp` that came back `missed` (then retry). |
 | `confirm_grasp(grasp_id, object_between_fingers: yes\|no\|unsure, evidence: 1..500 chars)` | Record your look at the jaw crop of the last held close (sensor class: moves nothing, needs no lease, not a motion tool) and get `{grasp_id, band, image, fused, evidence, carrying, next}`. Fuse table in Grasp verification. An unknown or superseded `grasp_id` (a later close or an open) is a tool error and changes nothing; calling again overwrites the earlier verdict. |
 | `suggest_approach_pose(x, y, z \| object_id, z_m \| poi_id, z_m \| camera, u, v, surface_height_m, pitch_deg, max_results<=10, check_path=true)` | Where to park the base for a grasp (sensor, no lease, no motion). Exactly one target form; `z` / `z_m` is the grasp height above the floor (stored objects and point/area POIs have none, so it is required: nothing is invented; a marker `poi_id` takes the marker's own `z` when `z_m` is omitted, and `z_m` still overrides it). Inverts the committed reach map (`data/reach_map.npz`, loaded at start-up: a stale or missing file is logged as an error and both approach tools then refuse with the regenerate command) over every base yaw, scores the poses on the global costmap with the CURRENT `NavFootprint` points (dock pose, staging pose `approach.staging_offset_m` behind it, corridor between), verifies the top `approach.verify_top_k` with `point_reach` and plans the top `approach.path_check_k` with `ComputePathToPose` (planning only). Returns ranked `candidates` (`pose`, `staging_pose`, `reach` with margins, `costmap`, `verified`, `path`, `score`), `rejected` counts (`out_of_reach`, `collision`, `unknown_space`, `staging_blocked`, `corridor_blocked`, `below_margin`, `not_verified`, `no_path`), `costmap_age_s`, `reach_map {key, created_at}`, `docking {server_ready, action}` and `notes`. Refuses without a global costmap newer than `approach.costmap_stale_s`. |
-| `approach_for_grasp(target, pose, pitch_deg, prefer_mode='auto', timeout_s, dry_run=false)` | Drive to the best approach pose (motion, needs the base lease, battery gate, tilt gate `nav`, refused while the motion queue runs). Runs the suggest pipeline (or re-validates the given candidate `pose`; one that is no longer valid is refused), then picks the mode: `servoed` only when a calibrated camera (front, or the gripper camera at the current measured joints) sees the target from both the staging and the dock pose (`edge_margin_px` from every border), else `navigate` (a precise Nav2 goal) with the reason in `mode_reason`; `prefer_mode='servoed'` is refused when it is not possible. Servoed: a `DetectionLoop` (`approach.tracker`) publishes real detections on `/grasp/detected_dock_pose` while `RobotApi.dock` runs the DockRobot goal (`dock_type grasp_servoed`, `navigate_to_staging_pose`), and is stopped in a `finally`. The base motion lock, `monitor.base_motion()` and the `BASE_INTERRUPTS` watch are those of `navigate_to_pose` (stop, a critical event or the timeout cancel the goal and zero the base). After a success the target is re-checked with `point_reach` at the measured pose (`reach_after`); unreachable is `arrived_out_of_reach`, never `succeeded`. Result: `status` (`succeeded`, `arrived_out_of_reach`, `failed`, `rejected`, `interrupted`, `canceled`, `timeout`, `planned` for a dry run), `mode`, `mode_reason`, `error_code` / `error_name` / `num_retries` (DockRobot 90x; a failed servoed dock suggests `prefer_mode='navigate'`), `goal`, `final_pose`, `reach_after` (with the `point_reach` `suggestion` when out of reach), `detections_published`, `detections_rejected` (tracker jumps beyond `max_correction_m`), `duration_s`. `dry_run=true` sends no goal and publishes no detection or twist: it returns `plan`, `mode`, `would_send` (the DockRobot goal or the navigate goal), `docking` readiness and, in servoed mode, `tracker` (one step on a fresh frame: the detection pose it would publish, or why none). |
+| `approach_for_grasp(target, pose, pitch_deg, prefer_mode='auto', timeout_s, dry_run=false)` | Drive to the best approach pose (motion, needs the base lease, battery gate, tilt gate `nav`, refused while the motion queue runs). Runs the suggest pipeline (or re-validates the given candidate `pose`; one that is no longer valid is refused), then picks the mode: `servoed` only when the calibrated front camera (at the current measured head angles) sees the target from both the staging and the dock pose (`edge_margin_px` from every border), else `navigate` (a precise Nav2 goal) with the reason in `mode_reason`; `prefer_mode='servoed'` is refused when it is not possible. Servoed: a `DetectionLoop` (`approach.tracker`) publishes real detections on `/grasp/detected_dock_pose` while `RobotApi.dock` runs the DockRobot goal (`dock_type grasp_servoed`, `navigate_to_staging_pose`), and is stopped in a `finally`. The base motion lock, `monitor.base_motion()` and the `BASE_INTERRUPTS` watch are those of `navigate_to_pose` (stop, a critical event or the timeout cancel the goal and zero the base). After a success the target is re-checked with `point_reach` at the measured pose (`reach_after`); unreachable is `arrived_out_of_reach`, never `succeeded`. Result: `status` (`succeeded`, `arrived_out_of_reach`, `failed`, `rejected`, `interrupted`, `canceled`, `timeout`, `planned` for a dry run), `mode`, `mode_reason`, `error_code` / `error_name` / `num_retries` (DockRobot 90x; a failed servoed dock suggests `prefer_mode='navigate'`), `goal`, `final_pose`, `reach_after` (with the `point_reach` `suggestion` when out of reach), `detections_published`, `detections_rejected` (tracker jumps beyond `max_correction_m`), `duration_s`. `dry_run=true` sends no goal and publishes no detection or twist: it returns `plan`, `mode`, `would_send` (the DockRobot goal or the navigate goal), `docking` readiness and, in servoed mode, `tracker` (one step on a fresh frame: the detection pose it would publish, or why none). |
 | `arm_home` / `arm_set_home` | Move to / store the home pose. `arm_home` needs the arm lease and keeps it afterwards (also after a failed motion); the `/arm/home` service (web UI Home button) still always releases. |
-| `pixel_to_ground(camera, u, v, surface_height_m=0.0, image_width, image_height)` | Point seen at a pixel (sensor). **u, v are pixels of the calibrated image size** (the intrinsics' size: front 640x360, gripper 640x480; `get_annotated_camera_image` and `mark_candidate_points` images) unless `image_width` / `image_height` give the size of the image the pixel came from: `get_camera_image` returns 384x216 (front) or 384x288 (gripper) by default, and an unscaled small-image pixel lands at the wrong place (2026-10-10). Both sizes are needed and must keep the calibrated aspect (a crop is refused); the result then also reports `pixel_input` (what was passed and the scale). Returns `pixel` (calibrated size), `image` (calibrated size), `surface_height_m`, `ground_base_link`, `ground_map` (when the map pose is known), `distance_from_base_m`, `bearing_deg`, `method`, `uncertainty_note`. `surface_height_m` (-0.5..0.5) is the height of the surface the pixel lies on relative to the robot's floor (positive above, negative below; top of a 3 cm box 0.03, a floor 10 cm lower -0.10): the ray is intersected with the plane at floor + that height and the returned z is on it. Error `camera <name> not calibrated: ...` until intrinsics and mount are configured. See [Camera tools and calibration](#camera-tools-and-calibration). |
+| `pixel_to_ground(camera, u, v, surface_height_m=0.0, image_width, image_height)` | Point seen at a pixel (sensor). **u, v are pixels of the calibrated image size** (the intrinsics' size: front 640x360; `get_annotated_camera_image` and `mark_candidate_points` images) unless `image_width` / `image_height` give the size of the image the pixel came from: `get_camera_image` returns 384x216 (front) by default, and an unscaled small-image pixel lands at the wrong place (2026-10-10). Both sizes are needed and must keep the calibrated aspect (a crop is refused); the result then also reports `pixel_input` (what was passed and the scale). Returns `pixel` (calibrated size), `image` (calibrated size), `surface_height_m`, `ground_base_link`, `ground_map` (when the map pose is known), `distance_from_base_m`, `bearing_deg`, `method`, `uncertainty_note`. `surface_height_m` (-0.5..0.5) is the height of the surface the pixel lies on relative to the robot's floor (positive above, negative below; top of a 3 cm box 0.03, a floor 10 cm lower -0.10): the ray is intersected with the plane at floor + that height and the returned z is on it. Error `camera <name> not calibrated: ...` until intrinsics and mount are configured. See [Camera tools and calibration](#camera-tools-and-calibration). |
 | `get_annotated_camera_image(camera, overlays=['grid'], planned_gripper, grid_step_m=0.1)` | JPEG with metric overlays (`grid`, `reach`, `gripper`, `planned_gripper`, `lidar`) plus metadata. |
 | `mark_candidate_points(camera, region, spacing_px=40, max_points=40, surface_height_m=0.0, image_width, image_height)` | Image (calibrated size) with numbered dots on a pixel grid plus a table `{set_id, surface_height_m, image {width, height}, points:[{n, u, v, ground_base_link{x,y,z}, ground_map}]}`; the points are intersected with the plane at floor + `surface_height_m` (as in `pixel_to_ground`); the last 10 sets are kept. `region` is in calibrated pixels unless `image_width` / `image_height` give the size it was read in. |
-| `resolve_candidate(set_id, n)` | Stored coordinates of one numbered point (its u, v in the calibrated `image` size), with its age and whether the base/arm moved since. |
-| `capture_calibration_sample(camera, u, v, ground_x, ground_y, ground_z=0.0, image_width, image_height)` | Store one marker sample (u, v scaled from `image_width` x `image_height` to the intrinsics' size when given; needs the intrinsics) (pixel + measured floor point + parent-link pose + the raw measured arm `joints` when fresh joint states exist) in `cameras.calibration_dir`. |
+| `resolve_candidate(set_id, n)` | Stored coordinates of one numbered point (its u, v in the calibrated `image` size), with its age and whether the base or the head moved since. |
+| `capture_calibration_sample(camera, u, v, ground_x, ground_y, ground_z=0.0, image_width, image_height)` | Store one marker sample (u, v scaled from `image_width` x `image_height` to the intrinsics' size when given; needs the intrinsics) (pixel + measured floor point + parent-link pose at the measured head angles) in `cameras.calibration_dir`. |
 | `solve_camera_calibration(camera, initial)` | Fit the mount pose to the stored samples; returns `rms_px` and a YAML snippet for `client.yml` (never edits the config). |
 | `clear_calibration_samples(camera)` | Delete the stored samples of a camera. |
 | `get_topdown_view(radius_m=2.5, layers=all, px=480)` | Robot-up PNG centred on the robot (see Perception and memory) plus metadata `pose`, `scale_m_per_px`, `layers_present`, `layers_missing` (reason each), `data_ages`. Sensor. |
@@ -140,8 +140,8 @@ All camera tools are read-only (sensor class: allowed in battery cut-off, never 
 is intersected with the flat floor. Pixel coordinates `(u right, v down)` are in the **calibrated image size**
 (the intrinsics `width x height`; every image these tools return has that size, resized if the camera delivers another).
 
-A camera without intrinsics or a mount is **not calibrated** (the gripper default: `intrinsics: null`, `mount: null`):
-the tools then fail with `camera <name> not calibrated: set intrinsics and mount in mcp_server config (see README
+The camera tools take `camera: "front"`, the D435 colour camera on the pan/tilt head (`camera_scene.Camera`; any other
+name fails validation). A camera without intrinsics or a mount is **not calibrated**: the tools then fail with `camera <name> not calibrated: set intrinsics and mount in mcp_server config (see README
 calibration)`. The front camera defaults to the D435 colour (`cameras.front` in `config.py` and client.yml: zero mount
 on `d435_color_frame`, intrinsics from `/head/d435/color/camera_info`). `intrinsics` is `{calibration_file:
 <camera_calibration yaml>}`, `{camera_info_topic: <sensor_msgs/CameraInfo topic>}` (the camera's factory intrinsics:
@@ -155,12 +155,9 @@ distortion): results then say `approximate intrinsics`. `capture_calibration_sam
 | Camera | Reference frame of results | Floor | Mount `parent_frame` |
 |---|---|---|---|
 | `front` (head D435 colour) | `base_link` (x forward, y left, z up) | `z = 0`: base_link is the ground-projected centre between the wheels (the static TF puts the lidar 0.20 m above it) | a link of the head URDF `head.urdf_path` (default and deployed `d435_color_frame`; moves with the pan/tilt head) |
-| `gripper` (on the wrist) | arm base frame (URDF `base_link` of `so101_arm.urdf`, `z = 0` on the arm mount plane) | `z = -arm_base_height_m` (`floor_z_m`, -0.100 m with the measured mount) | URDF link `gripper_link` (child of `wrist_roll`, the rigid gripper body carrying the fixed jaw; `gripper_frame_link` is only the tool point at the jaw tips and `moving_jaw_so101_v1_link` moves with the gripper joint, so neither is a valid mount) |
 
-For the gripper camera `T_arm_base_gripper_link` is computed from the CURRENT measured joints with the same ikpy chain
-as IK/FK (`ArmKinematics.link_frame`), so the tools need fresh `/follower/joint_states`. The front camera works the
-same way on the head: `T_base_link_d435_color_frame` comes from the CURRENT measured `head_pan` / `head_tilt`
-(`HeadKinematics.link_pose`, `camera_scene.parent_transform(..., head=...)`), so the front camera tools need fresh
+`T_base_link_d435_color_frame` comes from the CURRENT measured `head_pan` / `head_tilt`
+(`HeadKinematics.link_pose`, `camera_scene.head_parent_transform`), so the camera tools need fresh
 `/head/joint_states` (an error naming them otherwise, never a fixed-pose fallback). Lookups record the head-composed
 `camera_pose_base` the same way (null when the head joints are stale), and the approach tools' camera view check
 (`camera_view_problem`) builds the front scene with the current measured head pose, assuming the head keeps it while
@@ -171,8 +168,8 @@ REP-103 camera body frame (x forward, y left, z up), fixed-axis RPY in `parent_f
 
 `arm.base_in_base_link` (`x`, `y`, `z`, `yaw` of the arm base frame in base_link; z must equal `arm_base_height_m`)
 defaults to the mount measured on the robot 2026-10-10 `{x: 0.0592, y: -0.05, z: 0.100, yaw: 0.0}` (5.92 cm forward,
-5 cm right, 10 cm above the robot plane). Set it to `null` to disable the arm <-> base_link conversions. Without it, gripper results are in the arm base frame only (`ground_arm_base`; no `ground_base_link`, no
-`ground_map`; distance and bearing are measured from the arm base) and the front camera cannot place arm overlays.
+5 cm right, 10 cm above the robot plane). Set it to `null` to disable the arm <-> base_link conversions. Without it the camera cannot place the arm overlays
+(`reach`, `gripper`, `planned_gripper`).
 
 ### Front camera object positions
 
@@ -187,7 +184,8 @@ return floor points with `approximate_intrinsics: false`; an Apply on the Calibr
 The applied head chain is reloaded, not read once: `AppliedHeadKinematics` (`mcp_server/head.py`, `head.applied_dir`, default `/var/lib/ros2/head_rgbd_calibration/applied`) builds `HeadKinematics` from the repo `head.urdf` with `apply_overrides` (the `head_chain.json` of the floor fit or of the head-from-arm fit, then `tof_joint.json`) and compares the mtime of `applied/applied.json` on each `current()` call. A new, changed or removed marker rebuilds it on the next call, with a log line naming the applied session and result; a failed rebuild is logged and the previous kinematics stay. So an Apply of either fit moves `head_look_at`, the head limits, the front camera pose and the pixel-to-floor maths without restarting mcp_server. The front camera is mounted on `d435_color_frame` (zero mount; the applied chain supplies its pose at the measured `head_pan` / `head_tilt`), with the D435 factory colour intrinsics.
 
 - Picture sizes: `get_camera_image` returns `limits.default_camera_px` on the longest side at the camera's calibrated
-  aspect: 384x216 for `front`, 384x288 for the 4:3 gripper (`camera_scene.default_picture_size` / `picture_sizes`). The
+  aspect: 384x216 for `front` (`camera_scene.default_picture_size` / `picture_sizes`; before the first CameraInfo the
+  nominal D435 colour size 640x360, `camera_scene.NOMINAL_IMAGE_SIZE`). The
   tool descriptions name these sizes. Pass a pixel of that picture with `image_width` / `image_height`; it is scaled to the
   calibrated size, and the same pixel on the calibrated-size image gives the same floor point (within 1 mm). A size of
   another aspect (384x288 for `front`) is refused with a message naming the right size.
@@ -198,8 +196,7 @@ The applied head chain is reloaded, not read once: `AppliedHeadKinematics` (`mcp
 
 ### Tools
 
-- `pixel_to_ground`: `front` gives `ground_base_link`; `gripper` gives `ground_arm_base` (plus `ground_base_link` and
-  `ground_map` when `arm.base_in_base_link` is set). `ground_map` comes from the live map -> base_link TF; it is omitted
+- `pixel_to_ground`: gives `ground_base_link`. `ground_map` comes from the live map -> base_link TF; it is omitted
   when the pose is unknown. Errors for pixels outside the image or rays that miss the floor (sky, behind).
 - `get_annotated_camera_image`: overlays are drawn with `project_point_to_pixel` maths in the camera's reference frame:
   `grid` (floor grid, `(x,y)` metre labels, `grid_step_m` 0.05 to 1), `reach` (floor annulus `arm.reach_inner_m` to
@@ -210,32 +207,34 @@ The applied head chain is reloaded, not read once: `AppliedHeadKinematics` (`mcp
   the front camera without `arm.base_in_base_link`). A short legend is drawn in the image.
 - `mark_candidate_points` / `resolve_candidate`: dots whose pixel does not see the surface plane (floor, or the one at `surface_height_m`), or whose floor point is farther
   than 6 m, are skipped (`skipped_no_ground`). Sets live in memory (last 10, lost on restart). `resolve_candidate` returns
-  the STORED values with `age_s`, `robot_moved_since` and `arm_moved_since`: after the base moved `ground_base_link` is stale
-  (`ground_map` stays valid); after the arm moved the pixel no longer matches the live image. `resolve_candidate` also
+  the STORED values with `age_s`, `robot_moved_since` and `head_moved_since`: after the base moved `ground_base_link` is
+  stale (`ground_map` stays valid); after the pan/tilt head moved (a measured `head_pan` / `head_tilt` change above
+  `camera_candidates.MOVE_HEAD_RAD`, 0.02 rad) the pixel no longer matches the live image. Either flag is null, with
+  `motion check incomplete` in the note, when the map pose or fresh head joint states are missing. Arm motion is not
+  checked: the camera is not on the arm. `resolve_candidate` also
   returns the `surface_height_m` the set was made with.
-- Image sizes: the pixel tools work in the calibrated image size (the intrinsics' width x height: 640x480 for the
-  gripper camera; 640x360 for the front camera, the D435 colour CameraInfo size). `get_camera_image` defaults to 384 px on the longest side (`limits.default_camera_px`; 384x216 for the head camera, 384x288 for the gripper), so a pixel read from it must be passed
+- Image sizes: the pixel tools work in the calibrated image size (the intrinsics' width x height: 640x360, the D435
+  colour CameraInfo size). `get_camera_image` defaults to 384 px on the longest side (`limits.default_camera_px`;
+  384x216), so a pixel read from it must be passed
   with `image_width` / `image_height` (scaled by `camera_scene.pixel_scale`; both or neither, same aspect within 2 %).
   Without them the pixel is taken as a calibrated-size pixel (the behaviour before 2026-10-10, kept for pixels from
   `get_annotated_camera_image` / `mark_candidate_points`). The claude_agent prompt tells the agent to always pass the
   size or to pick pixels on the annotated image.
-- Uncertainty: flat floor assumed; error grows with distance (about 1 px of pixel error is several cm far away); the
-  gripper camera pose comes from measured joints (servo sag shifts it by millimetres); hfov intrinsics are approximate.
+- Uncertainty: flat floor assumed; error grows with distance (about 1 px of pixel error is several cm far away); hfov
+  intrinsics are approximate.
 
 ### Calibration procedure
 
 1. Set intrinsics: `cameras.<camera>.intrinsics` (a `camera_calibration` yaml, or an approximate `hfov_deg` with the
    image size) and redeploy `mcp_server`. Start the solver from a rough guess of the mount (measure it with a ruler).
 2. Place a marker (a coloured dot or tape cross) on the floor at points whose position you measured with a ruler from
-   the robot: for `front` in `base_link` (x forward, y left, floor `z = 0`), for `gripper` in the arm base frame
-   (`z = -arm_base_height_m`, -0.100 with the measured mount, for the floor). Spread at least 6 points across the field of view and over distance.
+   the robot, in `base_link` (x forward, y left, floor `z = 0`). Spread at least 6 points across the field of view and over distance.
 3. Take a photo (`get_camera_image` or `get_annotated_camera_image`; the annotated image works once an approximate mount is
    set and shows how far off it is), read the marker pixel `(u, v)` and call
-   `capture_calibration_sample(camera, u, v, ground_x, ground_y, ground_z)`. For the `gripper` camera repeat this at
-   several arm poses (move the arm to look at the markers from different joint configurations); for `front` the sample
-   stores the `head_link` pose at the measured head angles, so views at several head poses can be mixed. Each sample
-   stores the parent-link pose of that moment (computed with `arm.joint_offsets_rad`) and the raw measured joint positions as
-   `joints` (optional field of the sample JSON), so the joint offsets can be re-solved from the same samples.
+   `capture_calibration_sample(camera, u, v, ground_x, ground_y, ground_z)`. The sample stores the pose of the mount
+   parent link (`cameras.front.parent_frame`) at the measured head angles, so views at several head poses can be mixed.
+   A sample JSON holds `t_frame_parent`, `pixel`, `ground` and `captured_at`; no arm joints (the camera is not on the
+   arm).
 4. `solve_camera_calibration(camera, initial)` (`initial` = `{x, y, z, roll, pitch, yaw}`, or the configured mount) returns
    `rms_px` (aim for about 1 px or less) and a YAML snippet.
 5. Paste the snippet under `cameras:` in the `mcp_server` section of `ansible/group_vars/client.yml`, redeploy
@@ -250,17 +249,16 @@ the URDF model angles by a constant per joint. `arm.joint_offsets_rad` (`shoulde
 `wrist_flex`, `wrist_roll`; default all 0.0; the gripper has none) defines `urdf_angle = measured_angle + offset`.
 
 - Applied in ONE place, `ArmKinematics` (`ik.py`, `to_urdf` / `to_measured`): forward kinematics (`tool_pose`, any link
-  frame such as the gripper camera's `gripper_link`, the calibration `T_frame_parent`), IK (the seed is converted to
+  frame such as `gripper_link`), IK (the seed is converted to
   URDF space, the solution back: command = urdf_angle - offset) and URDF joint-limit clamping (limits are URDF values:
   `move_arm_joints` targets are converted to URDF space, clamped, converted back).
 - NOT changed: joint targets of `move_arm_joints`, reported joint positions, `arm_home` poses and every command stay in
   MEASURED space; only kinematics use URDF space.
-- How offsets are obtained: capture gripper-camera calibration samples at several arm poses (each stores the raw measured
-  `joints`). Per-pose reprojection errors that are consistent with wrong joint zeros indicate the offsets; the offsets
-  are then re-solved from the stored samples (jointly with the mount, minimising reprojection error over the samples'
-  `joints`), written to `arm.joint_offsets_rad` in `ansible/group_vars/client.yml` and `mcp_server` redeployed. After
-  changing them, redo the camera mount solve (the stored `t_frame_parent` of old samples used the old offsets).
-- Grid calibration 2026-10-10 (current): joint offsets, gripper camera mount and intrinsics and the tool point were
+- How offsets are obtained: the arm offsets fit of `head_rgbd_calibration` (a gripper-held plate seen by the D435
+  colour camera plus floor planes; see `nodes/head_rgbd_calibration/README.md`). The result is written to
+  `arm.joint_offsets_rad` in `ansible/group_vars/client.yml` and `mcp_server` redeployed. The camera calibration samples
+  of `capture_calibration_sample` carry no arm joints and do not determine the offsets.
+- Grid calibration 2026-10-10 (with the gripper camera, retired 2026-10-29): joint offsets, gripper camera mount and intrinsics and the tool point were
   solved jointly on a 50 mm grid sheet (234 camera points from 20 views, 6 tip touch-downs, floor fixed at the measured
   `z = -0.104`): pan 0.0182, lift -0.0345, elbow -0.1070, wrist_flex 0.0988 rad (wrist_roll -0.0710 kept: not
   identifiable from these data); camera mount (-0.0046, 0.0364, -0.0364) m rpy (-1.5622, 1.1950, -1.4466) on
@@ -615,7 +613,7 @@ writes and deletes all happen in poi_store.
 | `camera`, `width`, `height`, `file`, `bytes` | camera, image size (px), JPEG file name relative to the store, JPEG size |
 | `base_pose_map` | `{x, y, yaw}` in map at capture, null when the pose is unknown |
 | `arm_joints` | measured arm joints (rad), null when stale |
-| `camera_pose_base` | `{xyz, rpy}` of the camera body in base_link (fixed-axis rpy), when the camera has a mount (the gripper camera also needs `arm.base_in_base_link` and fresh joints; the front camera is composed with the measured head angles and needs fresh head joint states); null otherwise |
+| `camera_pose_base` | `{xyz, rpy}` of the camera body in base_link (fixed-axis rpy), when the camera has a mount (the front camera is composed with the measured head angles and needs fresh head joint states); null otherwise and for any other camera |
 | `view` | camera pose in map from `ros2_common.photos.camera_view`: `x`, `y`, `z`, `yaw` (camera forward axis), `pitch` (positive looking down), `hfov`, `source` (`camera_mount`, or `base_heading` without a mount: base position and yaw, z / pitch / hfov null); null without a map pose |
 | `mcp_session` | Mcp-Session-Id of the call (a contextvar set in `RobotMCPServer.call_tool_with_digest`; empty without one). mcp_server cannot see claude_agent's instruction id: time range plus session stand in for it |
 | `kind`, `name`, `status`, `created_by`, `updated_at` | `photo`, label, `open` / `done` / `cancelled`, `agent` / `user`, unix time of the last edit (0 = never) |

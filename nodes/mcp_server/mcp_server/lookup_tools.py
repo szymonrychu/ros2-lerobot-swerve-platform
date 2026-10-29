@@ -117,13 +117,12 @@ class LookupRecorder:
             return None
         return None if joints is None else {name: round(value, ROUND_DIGITS) for name, value in joints.items()}
 
-    def camera_pose_base(self, camera: str, joints: dict[str, float] | None) -> dict[str, list[float]] | None:
+    def camera_pose_base(self, camera: str) -> dict[str, list[float]] | None:
         """Camera body pose in base_link when the camera has a mount (the front camera sits on the pan/tilt head and
         needs fresh head joint states: stale ones give None, never a base_link guess; another camera gives None).
 
         Args:
             camera (str): Camera name.
-            joints (dict[str, float] | None): Measured arm joints (unused: no camera hangs on the arm).
 
         Returns:
             dict[str, list[float]] | None: {xyz (m), rpy (rad, fixed axis)}, None when unknown.
@@ -180,7 +179,7 @@ class LookupRecorder:
         """
         joints = self.arm_joints()
         pose = self.base_pose_map()
-        mount = self.camera_pose_base(camera, joints)
+        mount = self.camera_pose_base(camera)
         base_pose = None if pose is None else PlanarPose.model_validate(pose)
         camera_pose = None if mount is None else CameraPose.model_validate(mount)
         return PhotoAdd(

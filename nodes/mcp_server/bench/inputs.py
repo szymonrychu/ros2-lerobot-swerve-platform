@@ -394,7 +394,7 @@ def candidate_store_call() -> Call:
     """
     sc = scene("front")
     store = CandidateStore()
-    snapshot = RobotSnapshot(pose=(0.0, 0.0, 0.0), joints=dict(SEED))
+    snapshot = RobotSnapshot(pose=(0.0, 0.0, 0.0), head={"head_pan": 0.0, "head_tilt": 0.0})
 
     def call() -> None:
         points = []

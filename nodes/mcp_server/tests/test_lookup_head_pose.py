@@ -40,7 +40,7 @@ def view_yaw(pose: dict[str, list[float]]) -> float:
 
 def test_front_lookup_records_the_head_composed_camera_pose(tmp_path: Path) -> None:
     rec, _ = recorder_at(tmp_path, 45.0)
-    pose = rec.camera_pose_base("front", None)
+    pose = rec.camera_pose_base("front")
     assert pose is not None
     assert view_yaw(pose) == pytest.approx(math.radians(45.0), abs=1e-2)
     assert pose["xyz"][2] > 0.2  # on the head, well above the base_link origin (not the bare mount)
@@ -55,11 +55,11 @@ def test_front_lookup_records_the_head_composed_camera_pose(tmp_path: Path) -> N
 def test_stale_head_joints_record_no_camera_pose(tmp_path: Path) -> None:
     rec, robot = recorder_at(tmp_path, 45.0)
     robot.head_backend.no_samples = True
-    assert rec.camera_pose_base("front", None) is None
+    assert rec.camera_pose_base("front") is None
     robot.head_backend.no_samples = False
     robot.head_backend.stale_after = 0.0
     robot.head_backend.t = 500.0
-    assert rec.camera_pose_base("front", None) is None
+    assert rec.camera_pose_base("front") is None
 
 
 def test_frontier_facing_uses_the_recorded_head_pose_not_the_base_heading() -> None:

@@ -10,15 +10,15 @@ from typing import Any
 MAX_SETS = 10
 MOVE_BASE_M = 0.02
 MOVE_BASE_RAD = 0.03
-MOVE_ARM_RAD = 0.02
+MOVE_HEAD_RAD = 0.02
 
 
 @dataclass(frozen=True)
 class RobotSnapshot:
-    """Where the robot and arm were (map pose, arm joints) when a set was created."""
+    """Where the robot and the head were (map pose, measured head angles) when a set was created."""
 
     pose: tuple[float, float, float] | None
-    joints: dict[str, float] | None
+    head: dict[str, float] | None
 
 
 @dataclass(frozen=True)
@@ -63,19 +63,19 @@ def base_moved(before: tuple[float, float, float] | None, now: tuple[float, floa
     return translated or angle_diff(now[2], before[2]) > MOVE_BASE_RAD
 
 
-def arm_moved(before: dict[str, float] | None, now: dict[str, float] | None) -> bool | None:
-    """Whether any arm joint moved between two snapshots.
+def head_moved(before: dict[str, float] | None, now: dict[str, float] | None) -> bool | None:
+    """Whether a head joint (pan or tilt) moved more than MOVE_HEAD_RAD between two snapshots.
 
     Args:
-        before (dict[str, float] | None): Joints at creation.
-        now (dict[str, float] | None): Joints now.
+        before (dict[str, float] | None): Measured head angles at creation (joint name -> rad).
+        now (dict[str, float] | None): Measured head angles now.
 
     Returns:
-        bool | None: None when either snapshot is unknown.
+        bool | None: None when either snapshot is unknown (missing or stale head joint states).
     """
     if before is None or now is None:
         return None
-    return any(abs(now.get(j, v) - v) > MOVE_ARM_RAD for j, v in before.items())
+    return any(abs(now.get(j, v) - v) > MOVE_HEAD_RAD for j, v in before.items())
 
 
 class CandidateStore:

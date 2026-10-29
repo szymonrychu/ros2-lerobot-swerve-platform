@@ -3,6 +3,8 @@
 Run 2026-10-13 06:51 UTC on arm64 (Darwin), Python 3.12.13, 15 timed calls per kernel (some capped lower), after one warm-up call.
 Verdict: **port** when the median wall time is >= 5 ms (5 ms on the dev Mac, about 15 ms on the Pi 5), else below threshold. calls/day from Mimir over a window of 22.3 h, scaled to 24 h.
 
+The `camera_scene.build_scene_gripper` row was removed on 2026-10-29 with the gripper camera (that kernel no longer exists); the other rows are the 2026-10-13 run, not re-measured.
+
 Kernels to port: `reach_map.build`, `grasp.plan_auto`, `camera_overlay.draw_lidar`, `frontiers.tracker_update`, `self_collision.path`, `frontiers.geodesic_from`, `arm_reach.point_reach`, `perception.render_map_crop`, `perception.map_stats`, `frontiers.traversability`, `self_collision.pose`, `frontiers.frontier_field`
 
 | kernel | family | median ms | p95 ms | calls/day | verdict |
@@ -29,7 +31,6 @@ Kernels to port: `reach_map.build`, `grasp.plan_auto`, `camera_overlay.draw_lida
 | camera_overlay.draw_grid | camera | 0.766 | 0.868 | 0 | below threshold |
 | ik.inverse_flange | ik_reach | 0.674 | 0.768 | 4 | below threshold |
 | arm_geometry.box_surface_points | ik_reach | 0.546 | 0.557 | 6 | below threshold |
-| camera_scene.build_scene_gripper | camera | 0.530 | 0.580 | 8 | below threshold |
 | body_model.signed_distance | collision | 0.457 | 0.481 | 6 | below threshold |
 | footprint_geometry.shapes | collision | 0.439 | 0.682 | 0 | below threshold |
 | camera_overlay.grid_polylines | camera | 0.325 | 0.338 | 0 | below threshold |

@@ -20,7 +20,7 @@ from ros2_common.camera_geometry import MountPose
 
 from .arm import ArmError
 from .camera_calib import CalibrationError, SampleStore, mount_yaml, solve_samples
-from .camera_candidates import CandidateStore, RobotSnapshot, arm_moved, base_moved
+from .camera_candidates import CandidateStore, RobotSnapshot, base_moved, head_moved
 from .camera_overlay import (
     COLOR_GRIPPER,
     COLOR_PLANNED,
@@ -205,7 +205,7 @@ def register(ctx: ToolContext) -> None:
             return None
 
     def arm_joints() -> dict[str, float] | None:
-        """Measured arm joints from a fresh sample, None when stale (the tool point overlay, candidate snapshots)."""
+        """Measured arm joints from a fresh sample, None when stale (the tool point overlay)."""
         sample = robot.arm.fresh_sample()
         return None if sample is None else robot.arm.measured(sample)
 
@@ -438,7 +438,7 @@ def register(ctx: ToolContext) -> None:
                     }
                 )
             kept = [{"n": n, **p} for n, p in enumerate(thin(valid, max_points), start=1)]
-            snapshot = RobotSnapshot(None if pose is None else (pose.x, pose.y, pose.yaw), arm_joints())
+            snapshot = RobotSnapshot(None if pose is None else (pose.x, pose.y, pose.yaw), robot.head.measured())
             item = candidates.add(camera, snapshot, kept, surface_height_m)
             draw_candidates(img, [(p["n"], p["u"], p["v"]) for p in kept])
             draw_legend(img, [f"{camera} camera: {len(kept)} candidates, set {item.set_id}"])
@@ -458,8 +458,9 @@ def register(ctx: ToolContext) -> None:
         description=(
             "Coordinates of a numbered candidate point from mark_candidate_points (read-only). Returns the values "
             "STORED when the set was made (they are not recomputed), age_s since then, and whether the base "
-            "(robot_moved_since) or the arm (arm_moved_since) moved since; if the base moved, base_link coordinates "
-            "are stale (ground_map stays valid), and if the arm moved the pixel no longer matches the live image. "
+            "(robot_moved_since) or the pan/tilt head carrying the camera (head_moved_since) moved since; if the base "
+            "moved, base_link coordinates are stale (ground_map stays valid), and if the head moved the pixel no "
+            "longer matches the live image. "
             "surface_height_m is the plane the set was intersected with (given to mark_candidate_points). "
             "Only the last 10 sets are kept."
         )
@@ -480,14 +481,14 @@ def register(ctx: ToolContext) -> None:
             pose = map_pose()
             now_pose = None if pose is None else (pose.x, pose.y, pose.yaw)
             robot_moved = base_moved(item.snapshot.pose, now_pose)
-            arm_moved_flag = arm_moved(item.snapshot.joints, arm_joints())
+            head_moved_flag = head_moved(item.snapshot.head, robot.head.measured())
             note = ["values are the ones stored when the set was made"]
             if robot_moved:
                 note.append("the base moved since: ground_base_link is stale, ground_map is still valid")
-            if arm_moved_flag:
-                note.append("the arm moved since: the pixel no longer matches the live image")
-            if robot_moved is None or arm_moved_flag is None:
-                note.append("motion check incomplete: the pose or joint states were unavailable")
+            if head_moved_flag:
+                note.append("the head moved since: the pixel no longer matches the live image")
+            if robot_moved is None or head_moved_flag is None:
+                note.append("motion check incomplete: the map pose or the head joint states were unavailable")
             return data_result(
                 {
                     "set_id": set_id,
@@ -497,7 +498,7 @@ def register(ctx: ToolContext) -> None:
                     "image": candidate_image(item.camera),
                     "age_s": round(time.monotonic() - item.created, 1),
                     "robot_moved_since": robot_moved,
-                    "arm_moved_since": arm_moved_flag,
+                    "head_moved_since": head_moved_flag,
                     "note": "; ".join(note),
                 }
             )
