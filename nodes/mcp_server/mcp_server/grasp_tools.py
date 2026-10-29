@@ -2,9 +2,10 @@
 plan_grasp / grasp_object / release_object, and GraspService, the JSON request handler behind the /grasp/command and
 /grasp/result topics the web UI uses (contract in the README, "Grasp macros").
 
-Held closes of the agent tools (grasp_object, set_gripper) are not trusted on the sensors alone: attach_jaw_crop takes a
-fresh gripper frame after the motion, crops it to the jaws and leaves the hold 'unverified' until the agent looks at it
-and calls confirm_grasp, which fuses its verdict with the sensor band (grasp_check.fuse)."""
+Held closes of the agent tools (grasp_object, set_gripper) are not trusted on the sensors alone: attach_jaw_crop aims the
+head D435 at the FK tool point, takes a fresh front frame after the motion, crops it to the jaws and leaves the hold
+'unverified' until the agent looks at it and calls confirm_grasp, which fuses its verdict with the sensor band
+(grasp_check.fuse). Only the head moves for the image; the arm keeps its hold."""
 
 import base64
 import json
@@ -21,13 +22,15 @@ from mcp.types import CallToolResult, ContentBlock, ImageContent, TextContent
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .arm import ROLL_JOINT, ArmController, ArmError, finite_effort
-from .camera_scene import camera_setup
+from .camera_scene import build_scene, camera_setup, head_parent_transform
 from .config import HARD_MAX_IMAGE_PX, GripProfileOverride, McpServerConfig
 from .floor_guard import FloorOverride, TiltOverrideDeg
 from .grasp import GraspParams, GraspPlan, GraspPlanner, ObjectSpec, Waypoint, grasp_params
 from .grasp_check import Band, CropInfo, FusedOutcome, GraspCheck, GripEvidence, ImageState, ImageVerdict
 from .grip import ResolvedGrip, resolve_grip_profile
-from .jaw_crop import crop_jpeg, jaw_crop
+from .head import HeadError
+from .head_kinematics import HeadAimError
+from .jaw_crop import crop_jpeg, jaw_crop, tool_point_in_base
 from .jog import Jogger, JogSpec
 from .lookup_tools import record_lookup
 from .metrics import GRASP_ATTEMPTS, GRASP_PLANS, GRASP_RESULT_BY_OUTCOME, GRASP_VERDICTS
@@ -36,7 +39,7 @@ from .surfaces import MAX_REGIONS, SurfaceRegion
 from .tool_context import ToolContext
 
 TOOL_NAMES = ("plan_grasp", "grasp_object", "release_object", "confirm_grasp")
-# IK seed when no fresh joint states are available for a dry-run plan (folded arm, gripper camera looking forward).
+# IK seed when no fresh joint states are available for a dry-run plan (the folded arm).
 DEFAULT_SEED = {"shoulder_pan": 0.0, "shoulder_lift": 0.0, "elbow_flex": 1.2, "wrist_flex": 0.3, "wrist_roll": 0.0}
 MOTION_OK = frozenset({"converged"})
 CLOSE_OK = frozenset({"grasped", "closed_no_contact", "blocked"})
@@ -49,7 +52,7 @@ FUSE_NOTE = (
     "empty: jaw in the empty band without load; ambiguous: anything else) and confirm_grasp fuses your answer with "
     "it: band object + yes = grasped; band empty + no = missed (nothing held: call release_object); every other "
     "combination, also unsure and every ambiguous band, stays unverified (look again from another wrist roll or "
-    "get_camera_image 'gripper', or release_object and retry). The image alone never proves a grasp, and only fused "
+    "get_camera_image 'front', or release_object and retry). The image alone never proves a grasp, and only fused "
     "'grasped' counts as success."
 )
 
@@ -71,7 +74,8 @@ SURFACES_DESC = (
 )
 StrategyChoice = Literal["auto", "scoop", "angled", "top_down"]
 # What an 'unverified' reason tells the agent to do on the paths that attach no image (queued grasp, web UI).
-LOOK_CALL = "call get_camera_image 'gripper' and look at it"
+LOOK_CALL = "call get_camera_image 'front' and look at it"
+GRASP_CAMERA = "front"  # the head D435 colour camera, aimed at the FK tool point for the jaw crop
 GraspOutcome = Literal["planned", "infeasible", "grasped", "unverified", "missed", "aborted", "released"]
 
 
@@ -112,7 +116,7 @@ class GraspResult(BaseModel):
         "unverified (holding but not confirmed: the jaw closed into the empty band, kept closed with the profile "
         "squeeze, lifted and retreated, and the object may be soft and squashed or absent; a grasp_object result also "
         "stays unverified after a verified contact until confirm_grasp: look at the attached jaw crop (otherwise "
-        "call get_camera_image 'gripper') and call confirm_grasp(grasp_id, ...), release_object and retry when "
+        "call get_camera_image 'front') and call confirm_grasp(grasp_id, ...), release_object and retry when "
         "nothing is held), missed (a contact that failed verification or a "
         "blocked close: opened and retreated), aborted (stopped and held; see reasons), released"
     )
@@ -158,7 +162,7 @@ class GraspResult(BaseModel):
         description="Grasp verification of the close: {grasp_id (confirm_grasp takes it), band (sensor verdict: "
         "object / empty / ambiguous), evidence (baseline load, which contact ended the close, load and current "
         "deltas, jaw gap), image (pending: a jaw crop is attached and confirm_grasp is awaited; not_attached: the "
-        "camera failed, call get_camera_image 'gripper'; not_requested: web UI / queue grasps, band-only; then the "
+        "camera failed, call get_camera_image 'front'; not_requested: web UI / queue grasps, band-only; then the "
         "confirm_grasp verdict), crop {lookup_id, box_px, full_frame_reason}, fused (null until confirm_grasp)}; "
         "null when no close ran",
     )
@@ -915,7 +919,7 @@ def awaiting_confirm(check: GraspCheck) -> str:
     where = (
         "look at the attached jaw crop"
         if check.image == "pending"
-        else "no image could be attached: call get_camera_image 'gripper' and look at it"
+        else "no image could be attached: call get_camera_image 'front' and look at it"
     )
     return (
         f"awaiting confirm_grasp(grasp_id={check.grasp_id!r}): is the object between the fingers? {where}, then "
@@ -937,18 +941,60 @@ def jpeg_size(jpeg: bytes) -> tuple[int, int]:
     """
     img = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
     if img is None:
-        raise ValueError("the gripper camera frame is not a decodable image")
+        raise ValueError("the front camera frame is not a decodable image")
     return img.shape[1], img.shape[0]
 
 
-def jaw_crop_jpeg(ctx: ToolContext) -> tuple[bytes, int, int, CropInfo]:
-    """A fresh gripper camera frame cropped to the region between the jaws (the full frame when it cannot be cropped).
+def aim_head_at_tool_point(ctx: ToolContext, tool: str, joints: dict[str, float] | None) -> str | None:
+    """Aim the head D435 colour camera at the FK tool point and wait for the head to settle.
 
-    The frame is newer than the motion that just ended (camera_image waits for the next frame). The box is projected
-    in the calibrated image size and scaled to the frame's size.
+    The head moves only while the agent holds a lease that commands it (the arm or the base lease, as the head tools);
+    look_at never clamps, so an aim beyond the head limits is refused. HeadController.move waits until both joints are
+    within head.tolerance_rad or head.move_timeout_s passes.
 
     Args:
-        ctx (ToolContext): Shared registration context (robot, config).
+        ctx (ToolContext): Shared registration context (robot, config, control).
+        tool (str): Calling tool (named in a lease refusal).
+        joints (dict[str, float] | None): Measured arm joints; None without fresh joint states.
+
+    Returns:
+        str | None: None when the head settled on the aim, else why it was not aimed (nothing moved) or did not settle.
+    """
+    robot, config = ctx.robot, ctx.config
+    if joints is None:
+        return "no fresh arm joint states to place the tool point: the head was not aimed"
+    offset = config.arm.base_in_base_link
+    if offset is None:
+        return "arm.base_in_base_link is not configured: the tool point cannot be placed for the head aim"
+    refusal = None if ctx.control is None else ctx.control.refusal(tool, "any")
+    if refusal is not None:
+        return f"head not aimed at the tool point: {refusal}"
+    try:
+        pan, tilt = robot.head.kinematics.look_at(tool_point_in_base(robot.arm.kin, robot.arm.jaw, joints, offset))
+        result = robot.head.move(pan, tilt)
+    except (HeadAimError, HeadError) as exc:
+        return f"head not aimed at the tool point: {exc}"
+    if result.status != "converged":
+        head = config.head
+        return (
+            f"the head did not settle on the tool point ({result.status}: not within head.tolerance_rad "
+            f"{head.tolerance_rad:g} rad after head.move_timeout_s {head.move_timeout_s:g} s)"
+        )
+    return None
+
+
+def jaw_crop_jpeg(ctx: ToolContext, tool: str) -> tuple[bytes, int, int, CropInfo]:
+    """A fresh front camera frame, the head aimed at the tool point, cropped to the region between the jaws.
+
+    The head is aimed first (aim_head_at_tool_point); the frame is newer than the motion and the aim that just ended
+    (camera_image waits for the next frame). The box is projected through the front camera scene at the measured head
+    angles in the calibrated image size and scaled to the frame's size. When the head could not aim, the camera is
+    uncalibrated or the jaw cannot be cropped (outside the image, inside the D435 min-Z, too small), the image is the
+    full frame and the crop info carries the reason.
+
+    Args:
+        ctx (ToolContext): Shared registration context (robot, config, control).
+        tool (str): Calling tool (named in a lease refusal).
 
     Returns:
         tuple[bytes, int, int, CropInfo]: (JPEG, width, height, crop info without the lookup id).
@@ -960,29 +1006,27 @@ def jaw_crop_jpeg(ctx: ToolContext) -> tuple[bytes, int, int, CropInfo]:
     robot, config = ctx.robot, ctx.config
     settings = config.grasp_check
     max_px = min(settings.image_px, config.limits.max_image_px)
+    before = robot.arm.fresh_sample()
+    reason = aim_head_at_tool_point(ctx, tool, None if before is None else robot.arm.measured(before))
     try:
-        setup = camera_setup(config, "gripper", source=robot)
+        setup = camera_setup(config, GRASP_CAMERA, source=robot)
         calibrated: tuple[int, int] | None = (setup.intrinsics.width, setup.intrinsics.height)
-        reason = ""
     except ValueError as exc:  # not calibrated: no projection, the full frame is the image
-        setup, calibrated, reason = None, None, str(exc)
+        setup, calibrated, reason = None, None, reason or str(exc)
     request_px = max_px if calibrated is None else min(HARD_MAX_IMAGE_PX, max(calibrated))
-    frame = robot.camera_image("gripper", request_px)
-    sample = robot.arm.fresh_sample()
+    frame = robot.camera_image(GRASP_CAMERA, request_px)
     box: tuple[int, int, int, int] | None = None
-    if sample is None:
-        reason = reason or "no fresh arm joint states to project the jaws"
-    else:
-        size = calibrated or (frame.width, frame.height)
-        box = jaw_crop(setup, robot.arm.kin, robot.arm.jaw, robot.arm.measured(sample), *size, settings)
-        if box is None:
-            reason = reason or (
-                "the jaw region is not in front of the camera or smaller than "
-                f"grasp_check.crop_min_px {settings.crop_min_px}"
-            )
-    if box is not None and calibrated is not None:
-        sx, sy = frame.width / calibrated[0], frame.height / calibrated[1]
-        box = (round(box[0] * sx), round(box[1] * sy), round(box[2] * sx), round(box[3] * sy))
+    if reason is None and setup is not None and calibrated is not None:
+        sample = robot.arm.fresh_sample()
+        try:
+            if sample is None:
+                raise ValueError("no fresh arm joint states to project the jaws")
+            scene = build_scene(setup, config, head_parent_transform(config, robot.head))
+            x0, y0, x1, y1 = jaw_crop(scene, robot.arm.kin, robot.arm.jaw, robot.arm.measured(sample), settings)
+            sx, sy = frame.width / calibrated[0], frame.height / calibrated[1]
+            box = (round(x0 * sx), round(y0 * sy), round(x1 * sx), round(y1 * sy))
+        except ValueError as exc:  # JawCropError, or stale head joint states for the scene
+            reason = str(exc)
     if box is not None:
         try:
             jpeg = crop_jpeg(frame.jpeg, box, max_px)
@@ -1002,9 +1046,9 @@ def attach_jaw_crop(
 ) -> tuple[ImageContent | None, GraspCheck, str | None]:
     """Attach the jaw crop to a held close and leave its hold unverified until confirm_grasp.
 
-    Takes the frame (jaw_crop_jpeg), records it as a lookup, and marks the close's carry record unverified with a
-    pending verdict (ArmController.mark_visual_pending). A camera failure attaches nothing: image 'not_attached' and a
-    warning, the hold is still unverified.
+    Takes the frame (jaw_crop_jpeg: the head aimed at the tool point), records it as a lookup, and marks the close's
+    carry record unverified with a pending verdict (ArmController.mark_visual_pending). A camera failure attaches
+    nothing: image 'not_attached' and a warning, the hold is still unverified.
 
     Args:
         ctx (ToolContext): Shared registration context.
@@ -1019,15 +1063,14 @@ def attach_jaw_crop(
     warning: str | None = None
     updates: dict[str, Any]
     try:
-        jpeg, width, height, crop = jaw_crop_jpeg(ctx)
+        jpeg, width, height, crop = jaw_crop_jpeg(ctx, tool)
         # a crop's field of view is not the camera's: only the uncropped fallback frame records one
-        lookup_id = record_lookup(ctx, tool, "gripper", jpeg, width, height, full_frame=crop.box_px is None)
+        lookup_id = record_lookup(ctx, tool, GRASP_CAMERA, jpeg, width, height, full_frame=crop.box_px is None)
         image = ImageContent(type="image", data=base64.b64encode(jpeg).decode(), mime_type="image/jpeg")
         updates = {"image": "pending", "crop": crop.model_copy(update={"lookup_id": lookup_id})}
     except (RobotError, ValueError) as exc:
         warning = (
-            f"no gripper camera image attached: {exc}; call get_camera_image 'gripper', look at it and call "
-            "confirm_grasp"
+            f"no front camera image attached: {exc}; call get_camera_image 'front', look at it and call confirm_grasp"
         )
         updates = {"image": "not_attached", "crop": None}
     try:
@@ -1079,7 +1122,7 @@ def verdict_next(fused: FusedOutcome, band: Band, image: ImageVerdict, relaxed: 
         )
     return (
         f"unverified: band {band} with image {image} does not confirm a grasp: look again (another wrist roll, "
-        "get_camera_image 'gripper') and call confirm_grasp again, or release_object and retry"
+        "get_camera_image 'front') and call confirm_grasp again, or release_object and retry"
     )
 
 
@@ -1233,8 +1276,10 @@ def register(ctx: ToolContext) -> None:
             "Outcome: every close that holds something (a verified contact, or a jaw that closed into the empty band, "
             "within gripper_empty_stall_rad of closed, where the load cannot tell a soft, squashed object from empty "
             "jaws) stays closed with the profile squeeze, lifts and retreats and comes back 'unverified': the result "
-            f"carries a fresh gripper camera image cropped to the jaws (max {grasp_check.image_px} px; the full frame "
-            "when the camera is uncalibrated, with grasp_check.crop.full_frame_reason) and grasp_check.grasp_id. Look "
+            "carries a fresh front camera image (the head D435 aimed at the tool point first; only the head moves) "
+            f"cropped to the jaws (max {grasp_check.image_px} px; the full frame with grasp_check.crop.full_frame_reason "
+            "when the head cannot aim there (limits, no lease, not settled), the camera is uncalibrated or the jaw lies "
+            "outside the image or inside the D435 min-Z) and grasp_check.grasp_id. Look "
             "at the attached crop and call confirm_grasp(grasp_id, yes|no|unsure, evidence) before anything else. "
             f"{FUSE_NOTE} missed (a contact that failed verification: opened and retreated - check a picture and "
             "correct the object position), aborted (stopped and held; reasons say why) and infeasible (nothing "
@@ -1257,7 +1302,7 @@ def register(ctx: ToolContext) -> None:
         ] = None,
     ) -> Annotated[CallToolResult, GraspResult]:
         """Grasp an object; the tool description is passed to the decorator. A held close is 'unverified' and carries
-        a jaw crop of a fresh gripper camera frame until the agent calls confirm_grasp."""
+        a jaw crop of a fresh front camera frame (head aimed at the tool point) until the agent calls confirm_grasp."""
         ctx.battery_gate("grasp_object")
         baseline = robot.stop_count()
 

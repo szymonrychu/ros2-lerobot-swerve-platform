@@ -834,7 +834,7 @@ def test_set_gripper_close_attaches_the_jaw_crop_and_awaits_confirm_grasp(server
     assert "confirm_grasp" in data["message"] and check["grasp_id"] in data["message"]
     record = robot.arm.carry.get()
     assert record.grasp_kind == "unverified" and record.image == "pending" and record.grasp_id == check["grasp_id"]
-    assert ("camera_image", ("gripper", McpServerConfig().grasp_check.image_px)) in robot.calls
+    assert ("camera_image", ("front", McpServerConfig().grasp_check.image_px)) in robot.calls
     confirmed = call(
         server,
         "confirm_grasp",

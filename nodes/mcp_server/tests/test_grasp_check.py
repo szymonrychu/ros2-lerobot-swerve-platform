@@ -4,8 +4,9 @@ current ingestion (JointSample.currents from /follower/joint_currents).
 Covers: band_verdict rules (object / empty / ambiguous) with the load-delta vote, the hold_effort_min fallback on
 |holding_load| for a profile without contact_load_delta, current voting (None = no vote), unmeasured (None or NaN)
 loads never giving object, unknown in_empty_band; the full 3x3 fuse table; GripEvidence / CropInfo / GraspCheck
-round-trips; ros_iface subscribes topics.follower_joint_currents and fills JointSample.currents only from a
-joint_currents message received within timeouts.follower_stale_s of the joint sample (non-finite values dropped);
+round-trips (a front camera jaw crop, or the full front frame with the reason the head aim or the crop failed);
+ros_iface subscribes topics.follower_joint_currents and fills JointSample.currents only from a joint_currents message
+received within timeouts.follower_stale_s of the joint sample (non-finite values dropped);
 FakeArmBackend supplies currents.
 """
 
@@ -255,7 +256,11 @@ def test_grasp_check_round_trips_through_json() -> None:
     again = GraspCheck.model_validate_json(check.model_dump_json())
     assert again == check
     assert again.crop is not None and again.crop.box_px == (10, 20, 300, 260)
-    full = CropInfo(lookup_id=None, box_px=None, full_frame_reason="camera not calibrated")
+    full = CropInfo(
+        lookup_id=None,
+        box_px=None,
+        full_frame_reason="head not aimed at the tool point: point lies outside the head limits",
+    )
     assert GraspCheck(**{**check.model_dump(), "crop": full.model_dump(), "image": "not_requested"}).crop == full
 
 

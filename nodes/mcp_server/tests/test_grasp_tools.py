@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any
 
 import anyio
+import cv2
+import numpy as np
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ImageContent, TextContent
@@ -24,11 +26,15 @@ from mcp_server.grasp_tools import (
     floor_override,
 )
 from mcp_server.ik import ArmKinematics, load_joint_limits
+from mcp_server.jaw_crop import tool_point_in_base
+from mcp_server.models import CameraFrame
 from mcp_server.surfaces import SurfaceRegion
+from mcp_server.tool_context import ToolContext
 from mcp_server.tools import ALWAYS_ALLOWED_TOOLS, MOTION_TOOLS, build_mcp_server
 
 from .fakes import FakeArmBackend
-from .test_tools import TOKEN, FakeRobot, call, take
+from .test_camera_scene import D435_INFO
+from .test_tools import TOKEN, FakeRobot, call, close_on_object, take
 
 CONFIG = McpServerConfig()
 KIN = ArmKinematics(CONFIG.arm.urdf_path, margin=CONFIG.limits.arm_limit_margin_rad)
@@ -46,6 +52,13 @@ OBJECT_STOP_RAD = 0.22  # jaw angle of a 3 cm gap (JawModel)
 HOLD_EFFORT = 400.0
 PLUSH_SHORT_RAD = 0.05  # 2026-10-11 plush croc: the jaw squashed it to 0.05 rad short of closed
 PLUSH_LOAD = 140.0
+# Arm poses for the head-aimed grasp image (FakeRobot kinematics): REACH puts the tool point 0.43 m ahead and 0.44 m
+# up (the head aims there at about pan -36 deg, tilt -15 deg); NEAR keeps the tool point 0.17 m from the aimed D435
+# colour camera while the region into the jaws comes to 0.13 m, inside the D435 min-Z. START (the folded pose) needs
+# a tilt of 62 deg, beyond the 45 deg head_tilt limit.
+REACH = {"shoulder_pan": 0.1, "shoulder_lift": 0.0, "elbow_flex": -0.4, "wrist_flex": 0.0, "wrist_roll": 0.0}
+NEAR = {"shoulder_pan": -0.51, "shoulder_lift": -0.63, "elbow_flex": 0.15, "wrist_flex": 0.36, "wrist_roll": 0.35}
+D435_SIZE = (D435_INFO.width, D435_INFO.height)
 
 
 def make(tmp_path: Path, start: dict[str, float] | None = None) -> tuple[ArmController, FakeArmBackend]:
@@ -319,6 +332,114 @@ def test_release_object_tool(server: Any, robot: FakeRobot) -> None:
     assert res.structured_content["outcome"] == "released"
 
 
+def front_camera(robot: FakeRobot, monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """Calibrate the front camera from the D435 colour CameraInfo and serve 640x360 frames.
+
+    Returns:
+        list[int]: Head commands published before each frame, appended per camera_image call.
+    """
+    robot.camera_infos["front"] = D435_INFO
+    head_commands_at_frame: list[int] = []
+    ok, jpg = cv2.imencode(".jpg", np.full((D435_SIZE[1], D435_SIZE[0], 3), 90, np.uint8))
+    assert ok
+
+    def frame(camera: str, max_px: int) -> CameraFrame:
+        robot.calls.append(("camera_image", (camera, max_px)))
+        head_commands_at_frame.append(len(robot.head_backend.commands))
+        return CameraFrame(
+            camera=camera,
+            topic="/head/d435",
+            jpeg=jpg.tobytes(),
+            width=D435_SIZE[0],
+            height=D435_SIZE[1],
+            stamp_s=1.0,
+            age_s=0.05,
+        )
+
+    monkeypatch.setattr(robot, "camera_image", frame)
+    return head_commands_at_frame
+
+
+@pytest.fixture
+def ctx(robot: FakeRobot) -> ToolContext:
+    """The ToolContext the grasp tools register with (captured through an extra tool module)."""
+    contexts: list[ToolContext] = []
+    build_mcp_server(robot, McpServerConfig(), TOKEN, extra_modules=(contexts.append,))
+    return contexts[0]
+
+
+def aim_at_tool_point(robot: FakeRobot) -> dict[str, float]:
+    """Head command that aims the D435 colour axis at the measured FK tool point."""
+    sample = robot.arm.fresh_sample()
+    assert sample is not None and CONFIG.arm.base_in_base_link is not None
+    point = tool_point_in_base(robot.arm.kin, robot.arm.jaw, robot.arm.measured(sample), CONFIG.arm.base_in_base_link)
+    pan, tilt = robot.head.kinematics.look_at(point)
+    return {"head_pan": pan, "head_tilt": tilt}
+
+
+def test_grasp_image_aims_head_and_crops_front_frame(robot: FakeRobot, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A held close aims the head at the FK tool point, waits for it, then crops the jaws from the front frame."""
+    head_commands_at_frame = front_camera(robot, monkeypatch)
+    robot.arm_backend.positions.update(REACH)  # before take_control, which holds the measured pose
+    server = build_mcp_server(robot, McpServerConfig(), TOKEN)
+    expected = aim_at_tool_point(robot)
+    recorded: list[str] = []
+    real = grasp_tools.record_lookup
+
+    def spy(ctx: Any, tool: str, camera: str, *args: Any, full_frame: bool = True) -> str | None:
+        recorded.append(camera)
+        return real(ctx, tool, camera, *args, full_frame=full_frame)
+
+    monkeypatch.setattr("mcp_server.grasp_tools.record_lookup", spy)
+    res = close_on_object(server, robot)
+    data = res.structured_content
+    assert data["status"] == "grasped", data["message"]
+    assert len(robot.head_backend.commands) == 1
+    assert robot.head_backend.commands[0] == pytest.approx(expected)
+    assert head_commands_at_frame == [1]  # the frame was taken after the head aim
+    assert ("camera_image", ("front", max(D435_SIZE))) in robot.calls
+    crop = data["grasp_check"]["crop"]
+    assert crop["full_frame_reason"] is None and crop["box_px"] is not None, crop
+    x0, y0, x1, y1 = crop["box_px"]
+    assert 0 <= x0 < D435_INFO.k[2] < x1 <= D435_SIZE[0] and 0 <= y0 < D435_INFO.k[5] < y1 <= D435_SIZE[1]
+    image = cv2.imdecode(np.frombuffer(base64.b64decode(only_image(res).data), np.uint8), cv2.IMREAD_COLOR)
+    assert image.shape[:2] == (y1 - y0, x1 - x0)
+    assert recorded == ["front"] and data["grasp_check"]["image"] == "pending"
+
+
+@pytest.mark.parametrize(
+    ("case", "pose", "reason", "aimed"),
+    [
+        ("lease", REACH, "arm or base control not held", False),
+        ("limits", START, "outside the head limits", False),
+        ("min_z", NEAR | {"gripper": 0.3}, "inside the D435 min-Z (0.15 m)", True),
+        ("timeout", REACH, "did not settle", True),
+    ],
+)
+def test_grasp_image_reports_why_it_did_not_crop(
+    ctx: ToolContext,
+    robot: FakeRobot,
+    monkeypatch: pytest.MonkeyPatch,
+    case: str,
+    pose: dict[str, float],
+    reason: str,
+    aimed: bool,
+) -> None:
+    """No lease for the head, an aim beyond the head limits, a jaw inside the D435 min-Z or a head that does not
+    settle: the full front frame, with the reason, and no box."""
+    front_camera(robot, monkeypatch)
+    robot.arm_backend.positions.update(pose)
+    if case != "lease":
+        take(ctx.server, "arm")
+    if case == "timeout":
+        robot.head_backend.speed = 0.0  # stuck follower
+    jpeg, width, height, crop = grasp_tools.jaw_crop_jpeg(ctx, "grasp_object")
+    assert crop.box_px is None and crop.full_frame_reason is not None and reason in crop.full_frame_reason
+    assert (width, height) == D435_SIZE and grasp_tools.jpeg_size(jpeg) == D435_SIZE
+    assert ("camera_image", ("front", max(D435_SIZE))) in robot.calls
+    assert len(robot.head_backend.commands) == (1 if aimed else 0)
+
+
 def only_image(res: Any) -> ImageContent:
     images = [c for c in res.content if isinstance(c, ImageContent)]
     assert len(images) == 1 and images[0].mime_type == "image/jpeg" and images[0].data
@@ -331,7 +452,7 @@ def test_an_empty_band_hold_attaches_the_jaw_crop_and_awaits_confirm_grasp(serve
     data = res.structured_content
     assert data["outcome"] == "unverified", data["reasons"]
     only_image(res)
-    assert ("camera_image", ("gripper", CONFIG.grasp_check.image_px)) in robot.calls
+    assert ("camera_image", ("front", CONFIG.grasp_check.image_px)) in robot.calls
     check = data["grasp_check"]
     text = " ".join(data["reasons"])
     assert "confirm_grasp" in text and check["grasp_id"] in text and "get_camera_image" not in text
@@ -368,6 +489,8 @@ def test_the_crop_box_is_cropped_recorded_and_reported(
     server: Any, robot: FakeRobot, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     object_in_jaws(robot.arm_backend)
+    front_camera(robot, monkeypatch)
+    monkeypatch.setattr("mcp_server.grasp_tools.aim_head_at_tool_point", lambda *a, **k: None)
     boxes: list[tuple[int, int, int, int]] = [(2, 1, 12, 9)]
     monkeypatch.setattr("mcp_server.grasp_tools.jaw_crop", lambda *a, **k: boxes[0])
     recorded: list[tuple[Any, ...]] = []
@@ -382,7 +505,7 @@ def test_the_crop_box_is_cropped_recorded_and_reported(
     assert crop == {"lookup_id": "lk-1", "box_px": [2, 1, 12, 9], "full_frame_reason": None}
     assert len(recorded) == 1
     tool, camera, jpeg, width, height, full_frame = recorded[0]
-    assert (tool, camera, (width, height)) == ("grasp_object", "gripper", (10, 8))
+    assert (tool, camera, (width, height)) == ("grasp_object", "front", (10, 8))
     assert full_frame is False  # a crop: its field of view is not the camera's
     assert base64.b64decode(only_image(res).data) == jpeg
 
@@ -413,7 +536,7 @@ def test_a_camera_failure_gives_not_attached_and_a_warning_but_stays_unverified(
     data = res.structured_content
     assert data["outcome"] == "unverified"
     assert data["grasp_check"]["image"] == "not_attached" and data["grasp_check"]["crop"] is None
-    assert any("gripper camera image" in w and "no frame" in w for w in data["warnings"])
+    assert any("front camera image" in w and "no frame" in w for w in data["warnings"])
     text = " ".join(data["reasons"])
     assert "confirm_grasp" in text and data["grasp_check"]["grasp_id"] in text
     assert not [c for c in res.content if isinstance(c, ImageContent)]
@@ -684,7 +807,7 @@ def test_queue_path_reason_claims_no_image(tmp_path: Path) -> None:
     result = run_grasp(arm)
     assert result.outcome == "unverified"
     text = " ".join(result.reasons)
-    assert "get_camera_image" in text and "'gripper'" in text
+    assert "get_camera_image" in text and "'front'" in text
     assert "attached" not in text
 
 

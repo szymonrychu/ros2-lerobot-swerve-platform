@@ -57,7 +57,7 @@ class GripEvidence(GripMeasurements):
 
 
 class CropInfo(BaseModel):
-    """Jaw crop of the attached gripper camera image."""
+    """Jaw crop of the attached front (head D435 colour) image, taken with the head aimed at the FK tool point."""
 
     lookup_id: str | None
     box_px: tuple[int, int, int, int] | None  # u0, v0, u1, v1 in the source frame; None = full frame

@@ -42,7 +42,7 @@ REPO_PLACEHOLDER = "{{ ros2_repo_dest }}"
 CLIENT_GROUP_VARS = REPO_ROOT / "ansible" / "group_vars" / "client.yml"
 GRASP_GOLDEN = Path(__file__).resolve().parents[1] / "tests" / "data" / "grasp_golden.json"
 SEED = {"shoulder_pan": 0.0, "shoulder_lift": 0.0, "elbow_flex": 1.2, "wrist_flex": 0.3, "wrist_roll": 0.0}
-# A gripper-camera pose with the arm raised and the jaws half open (joints in measured space, rad).
+# A raised-arm pose with the jaws half open (joints in measured space, rad): a seed of the IK golden cases.
 GRIPPER_VIEW = {
     "shoulder_pan": 0.0,
     "shoulder_lift": -0.6,
@@ -51,6 +51,8 @@ GRIPPER_VIEW = {
     "wrist_roll": 0.0,
     "gripper": 0.4,
 }
+# An arm pose with the jaws half open in view of the bench front camera, cropped at full size (measured space, rad).
+JAW_VIEW = GRIPPER_VIEW | {"shoulder_lift": -0.9, "elbow_flex": 0.6}
 RNG_SEED = 20261013
 SCAN_BEAMS = 1440
 MAP_SIDE_CELLS = 800
@@ -347,16 +349,16 @@ def band_verdict_call() -> Call:
 
 
 def jaw_crop_call() -> Call:
-    """jaw_crop of the gripper camera at GRIPPER_VIEW.
+    """jaw_crop of the front camera scene at JAW_VIEW.
 
     Returns:
         Call: One crop box computation.
     """
     cfg = config()
-    setup = camera_scene.camera_setup(cfg, "gripper")
+    sc = scene("front")
 
     def call() -> Any:
-        return jaw_crop(setup, kinematics(), jaw(), GRIPPER_VIEW, IMAGE_W, IMAGE_H, cfg.grasp_check)
+        return jaw_crop(sc, kinematics(), jaw(), JAW_VIEW, cfg.grasp_check)
 
     return call
 
