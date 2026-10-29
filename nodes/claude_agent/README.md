@@ -76,15 +76,15 @@ Besides the budget and working method, the system prompt (`prompt.py`) has compa
 added) on body awareness (`robot_events_since_last_call`, `vitals`, `get_body_state`, `interrupted_by`, ROBOT EVENT
 interrupts), the tilt guard (warning: drive back manually; error: base disabled, report and wait), the spatial perception workflow (`get_topdown_view`, `look_around`, `get_annotated_camera_image`,
 `mark_candidate_points` + `resolve_candidate`, `pixel_to_ground`, fallback when a camera is "not calibrated"), a `3D map:` paragraph (`query_3d_map_at` for obstacle heights and what is at a spot, `get_3d_free_space` for clearance above the floor, e.g. under a table, `get_3d_map_status` for age and alignment; a lidar-only result has unknown height and unknown is never free; the 3D map refreshes about every 10 s and only where the head looked), an `Exploration:` paragraph (find something not on the map: `list_frontiers` or the numbered cyan markers of `get_topdown_view`; rank frontiers from room layout, POIs and `last_lookup_facing`, preferring unlooked ones; `look_toward_frontier` first, then `plan_frontier_visit` / `go_to_frontier`; ids are stable, a gone id means explored or merged, use the successor; both motion tools need the base lease), pixel
-sizes (`Pixel sizes:`: the pixel tools work in the calibrated 640x480 size while `get_camera_image` returns 384x216 for the head camera (`front`, 384x288 for the gripper) by
-default, so pixels from it always go with `image_width` / `image_height`, or are picked on `get_annotated_camera_image`; a zoom paragraph covers `get_camera_image(camera='front', zoom={u, v, factor})` (u, v as fractions of the default front picture, factor 2/4/8, crop up to 1024 px, about 1-2.5 s and a ~1 s stream pause per call; use it for detail instead of a large `max_px`, retry once on `af_failed`);
+sizes (`Pixel sizes:`: the pixel tools work in the calibrated 640x360 size of the head D435 colour stream while `get_camera_image` returns 384x216 for `front` by
+default, so pixels from it always go with `image_width` / `image_height`, or are picked on `get_annotated_camera_image`; a `Detail:` line says to aim the head at the detail with `head_look_at` first, then ask for a larger `max_px` (up to 640, the stream width) or drive closer;
 added after the 2026-10-10 grip session placed objects from unscaled small-image pixels), memory
 (`remember_object`/`list_objects`, POIs via `list_pois`/`add_poi`/`update_poi`, `NOTES.md`; positions are refined when a better location estimate exists: `remember_object` averages comparable sightings, `update_poi` x/y replaces the position for a clearly better estimate or a moved object, noting "position refined from"; on the person's POIs only the position; POIs persist across sessions and `NOTES.md` holds no map coordinates; never a nav goal inside a keepout, cancel a zone only with the person's consent, re-check zones after a map reset). A short "Map marking" section right after the safety rules names the moments to mark the map: after `look_around` or a camera image showing an object, after a `collision_stop` or Nav2 abort (upgrade the auto stuck point to a `keepout` or `slow` area when the problem is lasting), before `complete_phase`, and when an object has moved; asserted in order in `tests/test_prompt.py`, the calibration tools
 (only when the person asks), the approach tools (`suggest_approach_pose` before driving to grasp, then `approach_for_grasp`, which needs the base lease), the grasp macros (`plan_grasp` first, then `grasp_object`; strategies scoop / angled /
 top_down / auto, radial approach only, `release_object`, outcomes grasped / unverified / missed / aborted / infeasible, where every held `grasp_object` / `set_gripper` close returns
-unverified with a jaw crop: the agent looks at the crop and calls the `confirm_grasp(grasp_id, yes|no|unsure, evidence)`
+unverified with a jaw crop (a front camera image, the head aimed at the tool point): the agent looks at the crop and calls the `confirm_grasp(grasp_id, yes|no|unsure, evidence)`
 sensor tool before `complete_phase`; only the fused `grasped` counts as success, the image alone never proves a grasp;
-unverified means look again (another wrist roll or `get_camera_image`) or `release_object` and retry, missed means
+unverified means look again (`head_look_at` the gripper and `get_camera_image`) or `release_object` and retry, missed means
 `release_object`; top_down and
 angled centre the object between the jaws, so the waypoints are the jaw centre and the reported tool point (fixed jaw,
 `tool_point`, `grasp_shift`) sits `shift_m` (half the width plus the fixed jaw clearance, both jaws clear of the object
@@ -274,7 +274,7 @@ Gate (`tools.py`, `can_use_tool`):
 - The SDK `max_turns` is not a config key: it is `max_turn_cap + 10` (`TURN_MARGIN`), a backstop above the hard maximum. The old keys
   `max_turns` and `effector_call_cap` are rejected as unknown.
 
-The system prompt also covers (each asserted in `tests/test_prompt.py`): control leases (`take_control` arm or base before any motion, `release_control(subsystem, keep_position=false)` resets by default, `get_control_state`, `arm_set_home` denied); the end-of-job rule (arm parked, leases released, plan finished; repeated `JOB END REFUSED` replies, forced park after `job_end_max_followups` of them); the dynamic footprint (`release_control(subsystem='arm', keep_position=true, carried_object_radius_m=0..0.3)` before driving with the arm out, parking refused while carrying: `release_object` first); the plan tree (`seq` / `if` / `while` / `phase`, the `pickloop` retry example, `ask` vs `outcome_of` conditions, `answer_condition` before effectors); retry fields (`p_retry_success`, `retry_change`, `Automatic retry n/m - apply: ...`); more POIs (objects, areas, critical obstacles as area POIs); pick verification (gripper camera, `holding_load` / `slipping`, jaw position via `get_arm_state`, `unverified` means look again and `confirm_grasp`); lookups (every camera image is a photo POI with the camera view; reviewed with `list_lookups` / `get_lookup_image`, annotated or linked with `annotate_lookup`, deleted only when asked or clearly useless with `delete_photos` / `delete_poi`; photos survive sessions and restarts, belong to the live map, travel with saved maps and are deleted with the map or by POI cleanups that include them; `lookup_id`); and the bump / lift interrupts (warning bump after in-flight tools, lifted / carried are critical: stop and report).
+The system prompt also covers (each asserted in `tests/test_prompt.py`): control leases (`take_control` arm or base before any motion, `release_control(subsystem, keep_position=false)` resets by default, `get_control_state`, `arm_set_home` denied); the end-of-job rule (arm parked, leases released, plan finished; repeated `JOB END REFUSED` replies, forced park after `job_end_max_followups` of them); the dynamic footprint (`release_control(subsystem='arm', keep_position=true, carried_object_radius_m=0..0.3)` before driving with the arm out, parking refused while carrying: `release_object` first); the plan tree (`seq` / `if` / `while` / `phase`, the `pickloop` retry example, `ask` vs `outcome_of` conditions, `answer_condition` before effectors); retry fields (`p_retry_success`, `retry_change`, `Automatic retry n/m - apply: ...`); more POIs (objects, areas, critical obstacles as area POIs); pick verification (a front camera image with the head aimed at the gripper, `holding_load` / `slipping`, jaw position via `get_arm_state`, `unverified` means look again and `confirm_grasp`); lookups (every camera image is a photo POI with the camera view; reviewed with `list_lookups` / `get_lookup_image`, annotated or linked with `annotate_lookup`, deleted only when asked or clearly useless with `delete_photos` / `delete_poi`; photos survive sessions and restarts, belong to the live map, travel with saved maps and are deleted with the map or by POI cleanups that include them; `lookup_id`); and the bump / lift interrupts (warning bump after in-flight tools, lifted / carried are critical: stop and report).
 
 The system prompt explains the planning with the example "put plushie tomato into toy car" (1 Locate mentioned objects, 2 Drive
 towards tomato within 10 cm, 3 Pick up tomato, 4 Drive towards toy car within 10 cm, 5 Drop tomato into the toy car, 6 Get back to
@@ -285,17 +285,16 @@ unlimited, the maxima, explicit honest `complete_phase` calls and starting work 
 phases at the top of the guidance sum to rw 116 and turns 150, which fits `max_rw_cap` 400 and `max_turn_cap` 500 with room for
 raises (the maxima were 100 and 150 before).
 
-Three prompt paragraphs cover grasping. `Gripper:` explains the fixed and the moving jaw (at wrist roll 0 the fixed jaw is the dark
-shape at the lower right of the gripper camera image, the moving jaw closes in from the top), that the fixed jaw goes beside or
+Three prompt paragraphs cover grasping. `Gripper:` explains the fixed and the moving jaw, that the fixed jaw goes beside or
 under the object and never onto it, that `object_width_m` (estimated e.g. with `pixel_to_ground` on both object edges) makes
 `move_arm_cartesian` target the object centre, and that the agent chooses the `wrist_roll` per object before each grasp (most often
 -1.57 rad). `Rolling the wrist:` is the protocol (gripper about half open, arm lifted clear, open wider only for the grasp; the arm
-tools refuse a roll with a wide open gripper). `Grasping:` makes the agent photograph the object from several viewpoints by
-changing the wrist roll (-90 deg camera nearly straight down, +90 deg parallel to the ground, near -154 deg the other side,
-upside down; `pixel_to_ground` works at any roll), convert the object centre pixel of each picture to floor coordinates with
+tools refuse a roll with a wide open gripper). `Grasping:` makes the agent take several front camera pictures of the object
+with the head aimed at it (`head_look_at`; re-aim the head or move the base a little for another view, arm clear of the
+object), convert the object centre pixel of each picture to floor coordinates with
 `pixel_to_ground` (or `mark_candidate_points` + `resolve_candidate`), average the estimates when they agree within about 1 cm
 (otherwise take another picture), aim at the object centre and not its edge, correct the target by the observed offset after a
-miss and record what worked in `NOTES.md`. `Surfaces and speed:` tells it to pass `surface_height_m` for objects above or below
+miss (seen with the head aimed at the gripper) and record what worked in `NOTES.md`. `Surfaces and speed:` tells it to pass `surface_height_m` for objects above or below
 the robot's floor, that the arm reaches somewhat below floor level within its joint limits, and that the arm is fast by default
 (a lower `speed_scale` only for the last centimetres of a grasp or near obstacles). Each is asserted in `tests/test_prompt.py`.
 
@@ -510,8 +509,7 @@ and API) carries `workflow`, and each phase whose id is mandatory carries `manda
 session has `mcp__robot__head_look_at` and `mcp__robot__get_3d_map_status` (`unknown` for both before the session
 reported its tools). The runner records the session's tool names from the CLI's `init` system message
 (`AgentRunner.session_tools`, cleared when the session is dropped) and passes `lambda: self.session_tools` to
-`build_plan_tools` through `build_options`. Zoom is not in the line: it is a `get_camera_image` parameter the agent
-reads from the tool description.
+`build_plan_tools` through `build_options`.
 
 **Adding a template.** Create `workflow_templates/<name>.yaml` with `name` (= file name), `title`, a one-line
 `description`, `complexity`, `params` (`name`, `description`, `required`, and `default` for an optional param) and
@@ -750,7 +748,7 @@ unknown keys are rejected.
 | `arm_base_height_m` | `0.100` | Arm base height above the floor (stated as 10 cm; corrected 2026-10-10, equal to mcp_server `arm.arm_base_height_m`) |
 | `nav_goal_xy_tolerance_cm` / `nav_goal_yaw_tolerance_deg` | `1.0` / `2.0` | Nav2 goal precision stated in the prompt (keep equal to the Nav2 goal checker and mcp_server `nav`) |
 | `nav_intermediate_xy_tolerance_cm` / `nav_intermediate_yaw_tolerance_deg` | `3.0` / `5.0` | Tolerance at which a default navigation goal ends early (stated in the prompt; `precise=true` gives the values above; keep equal to mcp_server `nav.intermediate_*`) |
-| `camera_note` | see `config.py` | Camera mounting (angled gripper camera looks slightly from left to right, upright images) and the `front` camera, which is the head camera (Camera Module 3 on the pan/tilt head next to the ToF, 16:9, 384x216 default, autofocus, looks at the front of the robot and the arm; overview first, judge arm-to-object distance; `zoom` parameter for sharp crops) |
+| `camera_note` | see `config.py` | The only camera, `front`: the Intel RealSense D435 colour stream on the pan/tilt head (640x360, 15 fps; its pose follows the head angles; looks at the front of the robot and the arm; overview first, judge arm-to-object distance; aim with `head_look_at`). The D435 has depth: obstacles below and above the lidar come from it through `get_map_summary`. There is no gripper camera: to look at the gripper, aim the head at it |
 | `instruction_timeout_s` | `900` | Pre-plan watchdog per instruction; once `set_task_plan` declares `time_budget_min` the watchdog fires at that budget instead |
 | `max_instruction_time_min` | `120` | Ceiling of the declared `time_budget_min`: `set_task_plan` refuses more, raises and revisions are limited to it |
 | `workflow_time_budget_min` | `{discovery: 30, drive_to_target: 10, pick_place: 15}` | Minutes per workflow template, declared by `agent.start_workflow` unless the agent passes its own; exactly one key per template, each above 0 and at most `max_instruction_time_min`; the discovery budget is also the sightseeing time limit (see "Workflows") |
@@ -867,7 +865,7 @@ and re-encoded as JPEG.
 
 ## Authentication and deployment
 
-System prompt summary: persona and tone; the tool lists; the task plan workflow (phases with goals and caps, `set_task_plan`, `complete_phase` with its typed failure fields: `failure_type` (`execution_failure` vs `plan_failure`, which is revised, not retried), `eai_error_type`, an `explanation` citing what was observed and `evidence_lookup_ids`, `revise_plan`, `raise_phase_budget`, guidance, maxima); the working method (top-level view first, then gentle exploration with small moves, then the task); notes in `NOTES.md`; hardware facts (SO-101, small reach from `arm_reach_cm`, base `arm_base_height_m` above the floor, angled gripper camera, upright images, base goals finishing within the nav tolerances and sideways goals rotating first); the safety rules.
+System prompt summary: persona and tone; the tool lists; the task plan workflow (phases with goals and caps, `set_task_plan`, `complete_phase` with its typed failure fields: `failure_type` (`execution_failure` vs `plan_failure`, which is revised, not retried), `eai_error_type`, an `explanation` citing what was observed and `evidence_lookup_ids`, `revise_plan`, `raise_phase_budget`, guidance, maxima); the working method (top-level view first, then gentle exploration with small moves, then the task); notes in `NOTES.md`; hardware facts (SO-101, small reach from `arm_reach_cm`, base `arm_base_height_m` above the floor, the head D435 front camera with depth and no gripper camera, base goals finishing within the nav tolerances and sideways goals rotating first); the safety rules.
 
 The agent authenticates with a Claude subscription OAuth token (`CLAUDE_CODE_OAUTH_TOKEN`, from `claude setup-token`),
 read by the service from the systemd `EnvironmentFile=/etc/ros2/claude_agent/env`. `ANTHROPIC_API_KEY` and

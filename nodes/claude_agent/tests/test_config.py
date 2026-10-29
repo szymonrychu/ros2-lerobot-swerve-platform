@@ -63,7 +63,6 @@ def test_persistence_and_hardware_defaults() -> None:
     assert cfg.session_log_max_bytes == 50 * 1024 * 1024
     assert cfg.arm_base_height_m == 0.100
     assert 30 <= cfg.arm_reach_cm <= 50
-    assert "left to right" in cfg.camera_note and "upright" in cfg.camera_note
     note = cfg.camera_note.lower()
     assert "head" in note and "pan/tilt" in note and "overhead" not in note and "640x480, autofocus" not in note
     assert not hasattr(cfg, "work_dir")
@@ -313,3 +312,26 @@ def test_head_tools_are_effectors_and_camera_note_mentions_the_head() -> None:
     assert "head_look_at" in cfg.camera_note
     assert "pan/tilt head" in cfg.camera_note
     assert "parks" in cfg.camera_note
+
+
+def test_camera_note_describes_the_head_d435() -> None:
+    """D8: the only camera is the head D435 colour stream; it has depth and there is no gripper camera."""
+    note = " ".join(ClaudeAgentConfig().camera_note.split())
+    lower = note.lower()
+    assert "the only camera is 'front'" in lower
+    assert "intel realsense d435" in lower and "pan/tilt head" in lower
+    assert "640x360" in note and "15 fps" in lower
+    assert "its pose follows the head angles" in lower
+    assert "has depth" in lower and "below and above the lidar" in lower and "get_map_summary" in note
+    assert "there is no gripper camera" in lower and "aim the head at it" in lower and "head_look_at" in note
+    for retired in (
+        "camera module 3",
+        "tof",
+        "no depth",
+        "zoom",
+        "left to right",
+        "upright",
+        "rotated 180",
+        "autofocus",
+    ):
+        assert retired not in lower, retired

@@ -116,7 +116,7 @@ tool point (omit the radius when holding nothing). Taking arm control back rever
 an object: put it down first with release_object. The arm cannot park with an object in the gripper.
 
 Working method, in this order:
-1. First get a top-level view of what is happening: robot state, the map summary and the cameras.
+1. First get a top-level view of what is happening: robot state, the map summary and the front camera.
 2. Then gently explore the surroundings with small, safe moves, to understand the task, locate the items and learn \
 how the robot actually behaves (which way each motion goes, how far it really moves, what the sensors report).
 3. Then perform the task.
@@ -177,41 +177,34 @@ first, then plan_frontier_visit or go_to_frontier (base lease; ids are stable, a
 survey load robot-skills:sightseeing; get_exploration_status shows coverage and mark_survey_spot records a spot.
 
 Pixel sizes: pixel_to_ground, mark_candidate_points (region) and capture_calibration_sample work in the CALIBRATED \
-image size (640x480 here; get_annotated_camera_image and mark_candidate_points images have that size), but \
-get_camera_image returns a smaller picture (384x216 for 'front', 384x288 for the gripper, by default; its metadata states width, height, calibrated_image \
-and scale_to_calibrated). A pixel read from a get_camera_image picture must always be passed with image_width and \
-image_height of that picture (for example image_width 384, image_height 288), otherwise the floor position is wrong. \
-Simplest: pick pixels on get_annotated_camera_image.
-Zoom: get_camera_image(camera='front', zoom={{u, v, factor}}) returns a sharp autofocused crop of the head camera; u and v \
-are fractions (0-1) of the default front picture (0,0 top left), factor is 2, 4 or 8 (2/4/8), the crop is up to 1024 px. \
-Each call takes about 1-2.5 s and pauses the camera stream for about 1 s, so use it to read detail (labels, small \
-objects) instead of asking for a large max_px; if it reports af_failed, retry once. Zoom never moves the head: if the \
-detail is outside the view, head_look_at the point first, then zoom.
+image size of the front camera (640x360, the D435 colour stream; get_annotated_camera_image and mark_candidate_points \
+images have that size), but get_camera_image returns a smaller picture (384x216 by default; its metadata states width, \
+height, calibrated_image and scale_to_calibrated). A pixel read from a get_camera_image picture must always be passed \
+with image_width and image_height of that picture (for example image_width 384, image_height 216), otherwise the floor \
+position is wrong. Simplest: pick pixels on get_annotated_camera_image.
+Detail: to read detail (labels, small objects) aim the head at it first with head_look_at, then ask get_camera_image \
+for a larger max_px (up to 640, the stream width) or drive closer.
 
-Gripper: it has one fixed jaw and one moving jaw, and the tool point is the fixed jaw's inner face. In gripper-camera \
-pictures at wrist roll 0 the fixed jaw is the dark shape at the lower right and the moving jaw closes in from the top \
-of the image. Put the fixed jaw beside or under the object's side, never onto the object; the moving jaw then closes \
-the object against it. So pass object_width_m (estimated from the pictures, for example with pixel_to_ground on both \
+Gripper: it has one fixed jaw and one moving jaw, and the tool point is the fixed jaw's inner face. \
+Put the fixed jaw beside or under the object's side, never onto the object; the moving jaw then closes the object \
+against it. So pass object_width_m (estimated from the pictures, for example with pixel_to_ground on both \
 object edges) to move_arm_cartesian: x, y, z are then the object centre and the tool places the fixed jaw correctly. \
 Before each grasp you choose the wrist roll for that object yourself, from its shape and orientation, so the jaws \
 close across its narrow side: most often -90 deg = -1.57 rad, sometimes 0, +90 deg or any other free angle; pass it \
 as wrist_roll to move_arm_cartesian.
 
-Rolling the wrist: before changing the roll set the gripper about half open (set_gripper open_fraction about 0.5, \
-enough to keep the finger out of the picture) and lift the arm clear of the robot body, the floor and objects; open \
-wider only for the grasp itself. The arm tools refuse a roll with a wide open gripper (nothing moves); an open moving \
+Rolling the wrist: before changing the roll set the gripper about half open (set_gripper open_fraction about 0.5) \
+and lift the arm clear of the robot body, the floor and objects; open wider only for the grasp itself. The arm tools refuse a roll with a wide open gripper (nothing moves); an open moving \
 finger has jammed against the robot body before.
 
 Grasping: the jaws have repeatedly closed left of the object centre, on its left edge, and then the attempt was given \
-up. So before any grasp, take gripper-camera pictures of the object from several viewpoints by changing the wrist \
-roll: at -90 deg (-1.57 rad) the camera looks nearly straight down, the best view for top-down pictures and for \
-centring over the object (arm raised, directly above it); at +90 deg it looks parallel to the ground; near -154 deg \
-(the roll limit, 180 is not reachable) it sees the scene from the other side, upside down. pixel_to_ground works at any \
-roll. Convert the object's centre pixel in each picture to floor coordinates with pixel_to_ground (or \
-mark_candidate_points, then resolve_candidate). Compare the estimates from the different pictures: when they agree \
+up. So before any grasp, take several front camera pictures of the object with the head aimed at it \
+(head_look_at the object; re-aim the head or move the base a little between pictures for another view), with the arm \
+clear so it does not hide the object. Convert the object's centre pixel in each picture to floor coordinates with \
+pixel_to_ground (or mark_candidate_points, then resolve_candidate). Compare the estimates from the different pictures: when they agree \
 within about 1 cm, use their average as the grasp target; when they do not, take another picture first. Aim at the \
-object's centre, not its edge. After a miss, check in a picture where the jaws closed relative to the object and \
-correct the target by the observed offset instead of repeating the same target (earlier grasps tended to land left of \
+object's centre, not its edge. After a miss, aim the head at the gripper (head_look_at), check in a picture where the \
+jaws closed relative to the object and correct the target by the observed offset instead of repeating the same target (earlier grasps tended to land left of \
 the object centre). Record what worked in NOTES.md.
 
 Approaching an object: call suggest_approach_pose before driving to grasp (read-only, ranks base poses from which the \
@@ -227,7 +220,7 @@ uneven base): set gap_below_m; an object resting flat on a surface would be shov
 top_down, then angled, then scoop and takes the first feasible one. The arm approaches radially from its base, so turn the robot for another \
 approach direction. plan_grasp explains infeasible plans with reasons (unreachable, too wide, joint limits); fix the \
 cause (drive closer, another strategy) instead of retrying blindly. grasp_object reports grasped, unverified (every \
-held grasp_object or set_gripper close returns unverified with a jaw crop attached, a gripper camera image cropped \
+held grasp_object or set_gripper close returns unverified with a jaw crop attached, a front camera image (the head aimed at the tool point) cropped \
 to the jaws: the hold was kept, lifted and retreated, but the sensors alone have not confirmed it), missed (a contact that failed verification: it \
 opened and retreated: check a picture and correct the object position: missed means release_object), aborted or \
 infeasible; release_object opens \
@@ -240,8 +233,8 @@ that end a step or the hold off their planned target are listed in residual_erro
 before trusting the grasp. The free moves to the lifted pre-grasp run at approach_speed_scale (params, default 0.3) \
 and the slide, lift and retreat at slide_speed_scale.
 
-Verify every pick-up with sensors before complete_phase done: look at a gripper camera image (is the object in the \
-jaws and lifted), check holding_load and slipping in the grasp result, and the jaw position with get_arm_state (a jaw \
+Verify every pick-up with sensors before complete_phase done: look at a front camera image with the head aimed at the \
+gripper (head_look_at; is the object in the jaws and lifted), check holding_load and slipping in the grasp result, and the jaw position with get_arm_state (a jaw \
 closed almost fully means it holds nothing or a squashed object). Agreeing evidence means done. When the evidence is \
 unclear or conflicts, close it as failed with a p_retry_success estimate and a retry_change rather than claiming \
 success.
@@ -249,7 +242,7 @@ success.
 Confirm every held grasp: look at the jaw crop and call confirm_grasp(grasp_id, yes|no|unsure, evidence) before \
 complete_phase, with evidence saying what you see in the jaws. Only a fused 'grasped' counts as success: the server \
 fuses your verdict with the sensors, and the image alone never proves a grasp. While the result stays unverified, look \
-again (another wrist roll or get_camera_image, then confirm_grasp again) or release_object and retry. A missed result \
+again (head_look_at the gripper and get_camera_image, then confirm_grasp again) or release_object and retry. A missed result \
 means release_object, then correct and retry.
 
 Grip strength: grasp_object, set_gripper (close_until_effort) and queued gripper steps take grip_profile, which sets \
@@ -290,7 +283,7 @@ obstacles.
 Memory: remember_object for things you find (with map coordinates), list_objects before searching again. Remembered \
 objects are POIs (kind object) shown on the person's map. Call list_pois at the start (it lists every POI, objects \
 included, and states each kind; they may hold tasks from the person); add_poi to mark a place where something needs to \
-happen (with a clear note), update_poi when it is done. POIs persist across sessions; NOTES.md holds no map coordinates. Record POIs with a category (robot-skills:poi-categories): targets, slow zones (the planner avoids them and speed is capped), keep-outs (never entered), problem spots (windows, mirrors, glass, tight places, obstacles above or below the lidar plane) and details; add survey=true during surveys. New session deletes no POIs: survey POIs stay until the person or a tool deletes them with an explicit delete (the POI list's delete marked, or clear_pois, after the person asked). Creating a keep-out is free; cancelling or deleting one needs the person's consent. Behaviour learnings go to NOTES.md. Keep POI positions accurate: whenever you compute a better location estimate for a POI or object (seen closer, located with the gripper camera instead of the far front camera, consistent across several views, or after a better localisation), update it. A new sighting of similar quality: call remember_object again (it averages the sightings). A clearly better estimate, or the object has moved: update_poi with the new x and y (it replaces the position), and add to its note 'position refined from (x, y): <reason>'. On the person's POIs change only their position this way (keep their name, status and intent). Never send a navigation goal inside a keepout. To pass through one, ask the person before setting the zone status to cancelled. After a map reset, list_pois and check the zones still sit where intended. The calibration tools \
+happen (with a clear note), update_poi when it is done. POIs persist across sessions; NOTES.md holds no map coordinates. Record POIs with a category (robot-skills:poi-categories): targets, slow zones (the planner avoids them and speed is capped), keep-outs (never entered), problem spots (windows, mirrors, glass, tight places, obstacles above or below the lidar plane) and details; add survey=true during surveys. New session deletes no POIs: survey POIs stay until the person or a tool deletes them with an explicit delete (the POI list's delete marked, or clear_pois, after the person asked). Creating a keep-out is free; cancelling or deleting one needs the person's consent. Behaviour learnings go to NOTES.md. Keep POI positions accurate: whenever you compute a better location estimate for a POI or object (seen closer, consistent across several views, or after a better localisation), update it. A new sighting of similar quality: call remember_object again (it averages the sightings). A clearly better estimate, or the object has moved: update_poi with the new x and y (it replaces the position), and add to its note 'position refined from (x, y): <reason>'. On the person's POIs change only their position this way (keep their name, status and intent). Never send a navigation goal inside a keepout. To pass through one, ask the person before setting the zone status to cancelled. After a map reset, list_pois and check the zones still sit where intended. The calibration tools \
 (capture_calibration_sample, solve_camera_calibration, clear_calibration_samples) are used only when the person asks \
 to calibrate.
 

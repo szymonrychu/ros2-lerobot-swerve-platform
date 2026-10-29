@@ -1,6 +1,9 @@
 """System prompt is built from the config values."""
 
-from claude_agent.config import ClaudeAgentConfig
+import re
+from pathlib import Path
+
+from claude_agent.config import ARM_REACH_CM, ClaudeAgentConfig
 from claude_agent.prompt import build_system_prompt
 
 
@@ -60,7 +63,8 @@ def test_prompt_teaches_accurate_grasping() -> None:
     text = build_system_prompt(ClaudeAgentConfig())
     section = text[text.index("Grasping:") :]
     lower = section.lower()
-    assert "directly above" in lower and "several viewpoints" in lower and "changing the wrist roll" in lower
+    assert "several front camera pictures" in lower and "head aimed at it" in lower and "head_look_at" in lower
+    assert "changing the wrist roll" not in lower and "directly above" not in lower
     assert "pixel_to_ground" in section and "mark_candidate_points" in section and "resolve_candidate" in section
     assert "centre" in lower and "not its edge" in lower
     assert "within about 1 cm" in lower and "average" in lower and "take another picture" in lower
@@ -124,14 +128,11 @@ def test_prompt_hardware_facts_from_config(config: ClaudeAgentConfig) -> None:
     assert "SO-101" in text
     assert f"{config.arm_reach_cm:g} cm" in text
     assert "10 cm above the floor" in text
-    assert "left to right" in text and "upright" in text
-    assert (
-        "front" in text
-        and "head" in text
-        and "overhead" not in text.lower()
-        and "realsense" not in text.lower()
-        and "stereo" not in text.lower()
-    )
+    assert "front" in text and "head" in text and "D435" in text and "has depth" in text
+    lower = text.lower()
+    assert "overhead" not in lower and "stereo" not in lower
+    assert lower.count("gripper camera") == lower.count("there is no gripper camera") == 1
+    assert re.search(r"\btof\b", lower) is None and "zoom" not in lower
     assert "overview first" in text and "arm-to-object distance" in text
     custom = build_system_prompt(ClaudeAgentConfig(arm_reach_cm=33, arm_base_height_m=0.2, camera_note="faces down"))
     assert "33 cm" in custom and "20 cm above the floor" in custom and "faces down" in custom
@@ -139,11 +140,6 @@ def test_prompt_hardware_facts_from_config(config: ClaudeAgentConfig) -> None:
 
 
 def test_arm_reach_default_matches_urdf_link_lengths() -> None:
-    import re
-    from pathlib import Path
-
-    from claude_agent.config import ARM_REACH_CM
-
     urdf = (Path(__file__).resolve().parents[3] / "nodes/web_ui/urdf/so101_arm.urdf").read_text()
 
     def offset(joint: str) -> float:
@@ -269,8 +265,7 @@ def prompt_lower() -> str:
 def test_prompt_explains_the_fixed_and_moving_jaw() -> None:
     lower = prompt_lower()
     assert "one fixed jaw and one moving jaw" in lower
-    assert "dark shape at the lower right" in lower and "closes in from the top" in lower
-    assert "roll 0" in lower
+    assert "dark shape at the lower right" not in lower and "gripper-camera" not in lower
     assert "beside or under the object's side, never onto the object" in lower
     assert "closes the object against it" in lower
     assert "object_width_m" in lower and "move_arm_cartesian" in lower
@@ -284,19 +279,21 @@ def test_prompt_makes_the_agent_choose_the_grasp_roll() -> None:
     assert "pass it as wrist_roll to move_arm_cartesian" in lower
 
 
-def test_prompt_describes_camera_views_by_roll_in_the_grasping_paragraph() -> None:
-    text = build_system_prompt(ClaudeAgentConfig())
-    lower = " ".join(text.lower().split())
-    assert "nearly straight down" in lower and "parallel to the ground" in lower
-    assert "-154 deg" in lower and "upside down" in lower and "180 is not reachable" in lower
-    assert "pixel_to_ground works at any roll" in lower
-    assert lower.count("directly above") == 1  # merged into the one Grasping paragraph
+def test_prompt_takes_grasp_pictures_with_the_head_camera() -> None:
+    """D8: no wrist camera views by roll; grasp pictures come from the front camera with the head aimed at the object."""
+    lower = prompt_lower()
+    para = lower[lower.index("grasping:") :]
+    para = para[: para.index("approaching an object:")]
+    assert "head_look_at the object" in para and "re-aim the head or move the base a little" in para
+    assert "aim the head at the gripper" in para
+    for retired in ("nearly straight down", "parallel to the ground", "-154 deg", "upside down", "at any roll"):
+        assert retired not in lower, retired
 
 
 def test_prompt_has_the_rolling_protocol() -> None:
     lower = prompt_lower()
     assert "before changing the roll" in lower
-    assert "about half open" in lower and "keep the finger out of the picture" in lower
+    assert "about half open" in lower and "keep the finger out of the picture" not in lower
     assert "lift the arm clear of the robot body" in lower
     assert "open wider only for the grasp" in lower
     assert "refuse a roll with a wide open gripper" in lower
@@ -451,25 +448,23 @@ def test_prompt_tells_the_agent_to_refine_poi_positions_with_better_estimates() 
 
 
 def test_prompt_says_to_pass_the_image_size_with_pixels() -> None:
-    """2026-10-10: get_camera_image returns 384x288 but the pixel tools expect the calibrated 640x480 pixels."""
+    """2026-10-10: get_camera_image returns a smaller picture than the calibrated pixels the pixel tools expect."""
     lower = prompt_lower()
-    assert "image_width" in lower and "image_height" in lower
-    assert "384x288" in lower and "get_annotated_camera_image" in lower
+    assert "image_width 384, image_height 216" in lower and "get_annotated_camera_image" in lower
+    assert "384x216" in lower and "640x360" in lower and "384x288" not in lower and "640x480 here" not in lower
     para = lower[lower.index("pixel sizes:") :]
     para = para[: para.index("gripper: it has")]
     assert "pixel_to_ground" in para and "mark_candidate_points" in para
     assert "calibrated" in para
 
 
-def test_prompt_explains_front_camera_zoom() -> None:
-    """The front camera is the head camera: 384x216 by default, zoom crops on demand."""
+def test_prompt_reads_detail_by_aiming_the_head() -> None:
+    """Q1: zoom is gone; detail comes from aiming the head and a larger max_px of the 640x360 D435 colour stream."""
     lower = prompt_lower()
-    para = lower[lower.index("pixel sizes:") :]
+    para = lower[lower.index("detail:") :]
     para = para[: para.index("gripper: it has")]
-    assert "384x216" in para and "384x288" in para
-    assert "zoom={u, v, factor}" in para and "fractions" in para
-    assert "2/4/8" in para and "1024" in para and "af_failed" in para
-    assert "max_px" in para and "stream" in para
+    assert "head_look_at" in para and "max_px" in para and "640" in para and "drive closer" in para
+    assert "zoom" not in para and "af_failed" not in para
     assert "overhead" not in lower and "front (head) camera" in lower
 
 
@@ -503,7 +498,9 @@ def test_prompt_explains_the_unverified_grasp_outcome() -> None:
     assert "confirm_grasp(grasp_id, yes|no|unsure, evidence)" in macros
     assert "before complete_phase" in macros
     assert "only a fused 'grasped'" in macros
-    assert "another wrist roll or get_camera_image" in macros
+    assert "a front camera image (the head aimed at the tool point) cropped to the jaws" in macros
+    assert "head_look_at the gripper and get_camera_image" in macros
+    assert "another wrist roll" not in macros
     assert "missed means release_object" in macros
     assert "image alone never proves" in macros
     assert "means look and decide" not in lower
@@ -669,7 +666,7 @@ def test_prompt_verifies_every_pick_up_with_sensors() -> None:
         lower,
         (
             "verify every pick-up",
-            "gripper camera",
+            "front camera image with the head aimed at the gripper",
             "holding_load",
             "slipping",
             "jaw position",
@@ -881,4 +878,14 @@ def test_prompt_teaches_head_tools_lease_rule_and_home_on_park(config: ClaudeAge
     assert "either the arm or the base lease" in text
     assert "reset.head" in text
     assert "A head tool (future)" not in text
-    assert "Zoom never moves the head" in text
+    assert "aim the head at it first with head_look_at" in text
+
+
+def test_prompt_has_no_retired_camera() -> None:
+    """D8: the prompt names only the head D435; no gripper camera (beyond saying there is none), ToF, CM3 or zoom."""
+    lower = prompt_lower()
+    assert lower.count("gripper camera") == lower.count("there is no gripper camera") == 1
+    for retired in ("gripper-camera", "wrist camera", "camera module 3", "zoom", "af_failed", "autofocus"):
+        assert retired not in lower, retired
+    assert re.search(r"\btof\b", lower) is None
+    assert "realsense d435" in lower and "640x360" in lower
