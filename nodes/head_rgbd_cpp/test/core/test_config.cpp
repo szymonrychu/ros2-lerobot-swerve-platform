@@ -52,6 +52,17 @@ TEST(Config, DefaultsMatchTheSpecification)
   EXPECT_DOUBLE_EQ(c.lazy.idle_unsubscribe_s, 5.0);
   ASSERT_TRUE(c.metrics_port.has_value());
   EXPECT_EQ(*c.metrics_port, head_rgbd_cpp::DEFAULT_METRICS_PORT);
+  EXPECT_TRUE(c.edge_mask.enabled);
+  EXPECT_EQ(c.edge_mask.window_px, 3);
+  EXPECT_DOUBLE_EQ(c.edge_mask.abs_m, 0.01);
+  EXPECT_DOUBLE_EQ(c.edge_mask.rel, 0.025);
+  EXPECT_EQ(c.edge_mask.grow_px, 0);
+  EXPECT_TRUE(c.filtered_depth.enabled);
+  EXPECT_EQ(c.filtered_depth.depth_topic, "/head/d435/depth/image_rect_raw");
+  EXPECT_EQ(c.filtered_depth.info_topic, "/head/d435/depth/camera_info");
+  EXPECT_EQ(c.filtered_depth.output_namespace, "/head/d435/depth_filtered");
+  EXPECT_EQ(c.pairing.policy, head_rgbd_cpp::PairingPolicy::EXACT);
+  EXPECT_DOUBLE_EQ(c.pairing.max_interval_s, 0.02);
 }
 
 TEST(Config, ShippedYamlLoadsAndEqualsTheDefaults)
@@ -74,6 +85,17 @@ TEST(Config, ShippedYamlLoadsAndEqualsTheDefaults)
   EXPECT_DOUBLE_EQ(shipped.cloud.rate_hz, defaults.cloud.rate_hz);
   EXPECT_DOUBLE_EQ(shipped.lazy.idle_unsubscribe_s, defaults.lazy.idle_unsubscribe_s);
   EXPECT_EQ(shipped.metrics_port, defaults.metrics_port);
+  EXPECT_EQ(shipped.edge_mask.enabled, defaults.edge_mask.enabled);
+  EXPECT_EQ(shipped.edge_mask.window_px, defaults.edge_mask.window_px);
+  EXPECT_DOUBLE_EQ(shipped.edge_mask.abs_m, defaults.edge_mask.abs_m);
+  EXPECT_DOUBLE_EQ(shipped.edge_mask.rel, defaults.edge_mask.rel);
+  EXPECT_EQ(shipped.edge_mask.grow_px, defaults.edge_mask.grow_px);
+  EXPECT_EQ(shipped.filtered_depth.enabled, defaults.filtered_depth.enabled);
+  EXPECT_EQ(shipped.filtered_depth.depth_topic, defaults.filtered_depth.depth_topic);
+  EXPECT_EQ(shipped.filtered_depth.info_topic, defaults.filtered_depth.info_topic);
+  EXPECT_EQ(shipped.filtered_depth.output_namespace, defaults.filtered_depth.output_namespace);
+  EXPECT_EQ(shipped.pairing.policy, defaults.pairing.policy);
+  EXPECT_DOUBLE_EQ(shipped.pairing.max_interval_s, defaults.pairing.max_interval_s);
 }
 
 TEST(Config, ValidOverridesAreRead)
@@ -87,6 +109,9 @@ TEST(Config, ValidOverridesAreRead)
     "depth: {min_m: 0.3, max_m: 2.5}\n"
     "cloud: {enabled: false, rate_hz: 10}\n"
     "lazy: {idle_unsubscribe_s: 0}\n"
+    "edge_mask: {enabled: false, window_px: 5, abs_m: 0, rel: 0.05, grow_px: 1}\n"
+    "filtered_depth: {enabled: false, depth_topic: /fd, info_topic: /fi, output_namespace: /fo}\n"
+    "pairing: {policy: approximate, max_interval_s: 0.01}\n"
     "metrics_port: null\n";
   EXPECT_TRUE(errors_of(text).empty());
   const Config c = head_rgbd_cpp::from_yaml(YAML::Load(text));
@@ -103,7 +128,19 @@ TEST(Config, ValidOverridesAreRead)
   EXPECT_DOUBLE_EQ(c.cloud.rate_hz, 10.0);
   EXPECT_DOUBLE_EQ(c.lazy.idle_unsubscribe_s, 0.0);
   EXPECT_FALSE(c.metrics_port.has_value());
+  EXPECT_FALSE(c.edge_mask.enabled);
+  EXPECT_EQ(c.edge_mask.window_px, 5);
+  EXPECT_DOUBLE_EQ(c.edge_mask.abs_m, 0.0);
+  EXPECT_DOUBLE_EQ(c.edge_mask.rel, 0.05);
+  EXPECT_EQ(c.edge_mask.grow_px, 1);
+  EXPECT_FALSE(c.filtered_depth.enabled);
+  EXPECT_EQ(c.filtered_depth.depth_topic, "/fd");
+  EXPECT_EQ(c.filtered_depth.info_topic, "/fi");
+  EXPECT_EQ(c.filtered_depth.output_namespace, "/fo");
+  EXPECT_EQ(c.pairing.policy, head_rgbd_cpp::PairingPolicy::APPROXIMATE);
+  EXPECT_DOUBLE_EQ(c.pairing.max_interval_s, 0.01);
   EXPECT_TRUE(errors_of("output: {jpeg_quality: 1}").empty());
+  EXPECT_TRUE(errors_of("pairing: {policy: exact, max_interval_s: 0.0333}").empty());
 }
 
 TEST(Config, EveryRangeIsRejectedWithTheKeyNamed)
@@ -126,6 +163,24 @@ TEST(Config, EveryRangeIsRejectedWithTheKeyNamed)
   expect_rejected("depth_topic: [a]", "depth_topic");
   expect_rejected("rgb_image_topic: [a]", "rgb_image_topic");
   expect_rejected("rgb_info_topic: [a]", "rgb_info_topic");
+  expect_rejected("edge_mask: {enabled: maybe}", "edge_mask.enabled");
+  expect_rejected("edge_mask: {window_px: 4}", "edge_mask.window_px");
+  expect_rejected("edge_mask: {window_px: 1}", "edge_mask.window_px");
+  expect_rejected("edge_mask: {window_px: 11}", "edge_mask.window_px");
+  expect_rejected("edge_mask: {abs_m: -0.01}", "edge_mask.abs_m");
+  expect_rejected("edge_mask: {rel: -0.01}", "edge_mask.rel");
+  expect_rejected("edge_mask: {rel: 1.5}", "edge_mask.rel");
+  expect_rejected("edge_mask: {abs_m: 0, rel: 0}", "edge_mask.rel");
+  expect_rejected("edge_mask: {grow_px: -1}", "edge_mask.grow_px");
+  expect_rejected("edge_mask: {grow_px: 3}", "edge_mask.grow_px");
+  expect_rejected("filtered_depth: {enabled: maybe}", "filtered_depth.enabled");
+  expect_rejected("filtered_depth: {depth_topic: [a]}", "filtered_depth.depth_topic");
+  expect_rejected("filtered_depth: {info_topic: [a]}", "filtered_depth.info_topic");
+  expect_rejected("filtered_depth: {output_namespace: [a]}", "filtered_depth.output_namespace");
+  expect_rejected("pairing: {policy: nearest}", "pairing.policy");
+  expect_rejected("pairing: {max_interval_s: 0}", "pairing.max_interval_s");
+  // Half a frame period of the 15 Hz D435 at most: a wider window could pair a colour frame with the next depth.
+  expect_rejected("pairing: {max_interval_s: 0.034}", "pairing.max_interval_s");
 }
 
 TEST(Config, MinDepthAtOrAboveMaxDepthIsRejected)
@@ -144,6 +199,9 @@ TEST(Config, UnknownKeysAreRejectedAtEveryLevel)
   expect_rejected("cloud: {bogus: 1}", "cloud.bogus");
   expect_rejected("lazy: {bogus: 1}", "lazy.bogus");
   expect_rejected("cloud: 3", "cloud");
+  expect_rejected("edge_mask: {bogus: 1}", "edge_mask.bogus");
+  expect_rejected("filtered_depth: {bogus: 1}", "filtered_depth.bogus");
+  expect_rejected("pairing: {bogus: 1}", "pairing.bogus");
 }
 
 TEST(Config, RemovedTofKeysAreRejected)
@@ -166,4 +224,6 @@ TEST(Config, DerivedTopicsFollowTheNamespace)
   EXPECT_EQ(c.points(), "/head_rgbd/points");
   c.output_namespace = "/other";
   EXPECT_EQ(c.points(), "/other/points");
+  EXPECT_EQ(c.filtered_depth.image(), "/head/d435/depth_filtered/image_raw");
+  EXPECT_EQ(c.filtered_depth.camera_info(), "/head/d435/depth_filtered/camera_info");
 }

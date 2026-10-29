@@ -1,6 +1,6 @@
-// HeadRgbdNode in-process: probe publishers of the D435 aligned depth, raw colour and colour camera_info, probe
-// subscribers of the /head_rgbd outputs; plus the pure helpers of the node (depth downscale, camera_info scale, set
-// throttle).
+// HeadRgbdNode in-process: probe publishers of the D435 aligned depth, raw colour and colour camera_info (and of the
+// full-FOV depth and its camera_info for the filtered stage), probe subscribers of the /head_rgbd and depth_filtered
+// outputs; plus the pure helpers of the node (depth downscale, camera_info scale, set throttle).
 #include <gtest/gtest.h>
 
 #include <array>
@@ -44,6 +44,11 @@ constexpr const char * NS = "/head_rgbd";
 constexpr const char * DEPTH_TOPIC = "/head/d435/aligned_depth_to_color/image_raw";
 constexpr const char * COLOR_TOPIC = "/head/d435/color/image_raw";
 constexpr const char * INFO_TOPIC = "/head/d435/color/camera_info";
+constexpr const char * RAW_DEPTH_TOPIC = "/head/d435/depth/image_rect_raw";
+constexpr const char * RAW_INFO_TOPIC = "/head/d435/depth/camera_info";
+constexpr const char * FILTERED_IMAGE_TOPIC = "/head/d435/depth_filtered/image_raw";
+constexpr const char * FILTERED_INFO_TOPIC = "/head/d435/depth_filtered/camera_info";
+constexpr const char * RAW_DEPTH_FRAME = "d435_depth_optical_frame";
 constexpr const char * COMPRESSED_FORMAT = "bgr8; jpeg compressed bgr8";
 constexpr int W = 160;
 constexpr int H = 90;
@@ -109,6 +114,13 @@ uint16_t scene_mm(int x, int y)
   }
   return in_range_mm(x, y);
 }
+
+// A depth step: NEAR_MM left of STEP_COLUMN, FAR_MM from it on. The edge mask removes the column STEP_COLUMN (the far
+// side of the jump) and keeps every other pixel.
+constexpr int STEP_COLUMN = 60;
+constexpr uint16_t NEAR_MM = 1000;
+constexpr uint16_t FAR_MM = 1500;
+uint16_t step_mm(int x, int /*y*/) { return x < STEP_COLUMN ? NEAR_MM : FAR_MM; }
 
 // The colour of the test image at (x, y) as R, G, B: a smooth gradient that survives JPEG.
 cv::Vec3b rgb_at(int x, int y) { return cv::Vec3b(static_cast<uint8_t>(x), static_cast<uint8_t>(2 * y), 128); }
@@ -179,6 +191,9 @@ protected:
     c.lazy.idle_unsubscribe_s = 1.0;
     c.output.rate_hz = 15.0;
     c.cloud.rate_hz = 1.0;
+    // The set plumbing tests compare the published depth with the input pixel for pixel; the edge mask has its own
+    // tests below (and in test/core/test_edge_mask_scene.cpp).
+    c.edge_mask.enabled = false;
     return c;
   }
 
@@ -191,6 +206,8 @@ protected:
     depth_pub_ = probe_->create_publisher<sensor_msgs::msg::Image>(DEPTH_TOPIC, qos);
     color_pub_ = probe_->create_publisher<sensor_msgs::msg::Image>(COLOR_TOPIC, qos);
     info_pub_ = probe_->create_publisher<sensor_msgs::msg::CameraInfo>(INFO_TOPIC, qos);
+    raw_depth_pub_ = probe_->create_publisher<sensor_msgs::msg::Image>(RAW_DEPTH_TOPIC, qos);
+    raw_info_pub_ = probe_->create_publisher<sensor_msgs::msg::CameraInfo>(RAW_INFO_TOPIC, qos);
     executor_.add_node(node_);
     executor_.add_node(probe_);
     spinner_ = std::thread([this] { executor_.spin(); });
@@ -218,6 +235,50 @@ protected:
       std::string(NS) + "/points", rclcpp::QoS(50).best_effort(),
       [this](sensor_msgs::msg::PointCloud2::ConstSharedPtr m) { cloud_.add(*m); });
   }
+
+  void subscribe_filtered()
+  {
+    const auto qos = rclcpp::QoS(50).best_effort();
+    filtered_sub_ = probe_->create_subscription<sensor_msgs::msg::Image>(
+      FILTERED_IMAGE_TOPIC, qos, [this](sensor_msgs::msg::Image::ConstSharedPtr m) { filtered_.add(*m); });
+    filtered_info_sub_ = probe_->create_subscription<sensor_msgs::msg::CameraInfo>(
+      FILTERED_INFO_TOPIC, qos, [this](sensor_msgs::msg::CameraInfo::ConstSharedPtr m) { filtered_info_.add(*m); });
+  }
+
+  bool wait_filtered_inputs_subscribed()
+  {
+    return wait_for(
+      [this] { return raw_depth_pub_->get_subscription_count() > 0 && raw_info_pub_->get_subscription_count() > 0; });
+  }
+
+  // Publishes full-FOV depth frames (with their camera_info unless spec.with_info is false) every PUBLISH_PERIOD until
+  // done() or the timeout; returns done().
+  bool pump_raw_until(const std::function<bool()> & done, const SetSpec & spec)
+  {
+    const auto end = std::chrono::steady_clock::now() + WAIT;
+    while (std::chrono::steady_clock::now() < end) {
+      if (done()) {
+        return true;
+      }
+      const double t = set_time(raw_index_++);
+      if (spec.with_info) {
+        auto info = camera_info(t, spec.fx);
+        info.header.frame_id = RAW_DEPTH_FRAME;
+        raw_info_pub_->publish(info);
+      }
+      auto depth = depth_image(t, spec);
+      depth.header.frame_id = RAW_DEPTH_FRAME;
+      raw_depth_pub_->publish(depth);
+      std::this_thread::sleep_for(PUBLISH_PERIOD);
+    }
+    return done();
+  }
+
+  double filtered_dropped(const std::string & reason)
+  {
+    return metric("head_rgbd_filtered_depth_dropped_total{reason=\"" + reason + "\"}");
+  }
+  double filtered_published() { return metric("head_rgbd_filtered_depth_published_total"); }
 
   void TearDown() override
   {
@@ -343,6 +404,7 @@ protected:
   }
 
   int index_ = 0;
+  int raw_index_ = 0;
   Config config_;
   std::shared_ptr<HeadRgbdNode> node_;
   std::shared_ptr<rclcpp::Node> probe_;
@@ -351,6 +413,12 @@ protected:
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr depth_pub_;
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr color_pub_;
   rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr info_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr raw_depth_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr raw_info_pub_;
+  rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr filtered_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr filtered_info_sub_;
+  Inbox<sensor_msgs::msg::Image> filtered_;
+  Inbox<sensor_msgs::msg::CameraInfo> filtered_info_;
   rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr depth_sub_;
   rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr depth_info_sub_, rgb_info_sub_;
   rclcpp::Subscription<sensor_msgs::msg::CompressedImage>::SharedPtr rgb_sub_;
@@ -699,4 +767,197 @@ TEST_F(NodeTest, CloudIsPublishedAtMostAtTheConfiguredRate)
   EXPECT_LE(cloud_.size(), static_cast<size_t>(std::ceil(span_s * c.cloud.rate_hz)) + 1u);
   const auto cloud = cloud_.first();
   EXPECT_EQ(cloud.header.frame_id, COLOR_FRAME);
+}
+
+// --- pairing ---------------------------------------------------------------------------------------------------------
+
+TEST_F(NodeTest, ApproximatePairingPublishesSetsOfAShiftedStream)
+{
+  Config c = base_config();
+  c.pairing.policy = head_rgbd_cpp::PairingPolicy::APPROXIMATE;
+  c.pairing.max_interval_s = 0.02;
+  start(c);
+  subscribe_outputs();
+  ASSERT_TRUE(wait_inputs_subscribed());
+  SetSpec spec;
+  spec.depth_offset_s = 0.003;
+  ASSERT_TRUE(pump_until([&] { return published() >= 3.0; }, spec));
+  // The set carries the colour header.
+  ASSERT_TRUE(wait_for([&] { return depth_.size() > 0; }));
+  const double t = seconds_of(depth_.first().header.stamp);
+  const double index = (t - set_time(0)) / STREAM_PERIOD_S;
+  EXPECT_NEAR(index, std::round(index), 1e-3);
+  EXPECT_EQ(depth_.first().header.frame_id, COLOR_FRAME);
+  EXPECT_GE(metric("head_rgbd_pair_stamp_delta_seconds_count"), 3.0);
+}
+
+TEST_F(NodeTest, ExactPairingCountsEachUnpairedFrameOnce)
+{
+  start(base_config());
+  subscribe_outputs();
+  ASSERT_TRUE(wait_inputs_subscribed());
+  SetSpec spec;
+  spec.depth_offset_s = 0.001;
+  const auto frames = [&] {
+    return metric("head_rgbd_frames_total{stream=\"depth\"}") + metric("head_rgbd_frames_total{stream=\"colour\"}");
+  };
+  ASSERT_TRUE(pump_until([&] { return frames() >= 40.0; }, spec));
+  std::this_thread::sleep_for(milliseconds(300));
+  const double received = frames();
+  const double unpaired = dropped("unpaired");
+  EXPECT_EQ(metric("head_rgbd_pairs_total"), 0.0);
+  EXPECT_LE(unpaired, received);
+  // At most the newest PAIR_QUEUE_SIZE frames of each stream are still waiting for a partner.
+  EXPECT_GE(unpaired, received - 2.0 * head_rgbd_cpp::PAIR_QUEUE_SIZE);
+  // The near miss is in the histogram: every unpaired colour frame had a depth frame 1 ms later.
+  EXPECT_GT(metric("head_rgbd_pair_stamp_delta_seconds_count"), 0.0);
+  EXPECT_EQ(
+    metric("head_rgbd_pair_stamp_delta_seconds_bucket{le=\"-0.0005\"}"),
+    metric("head_rgbd_pair_stamp_delta_seconds_count"));
+}
+
+TEST_F(NodeTest, ExactPairsFillTheZeroBucketOfTheStampDeltaHistogram)
+{
+  start(base_config());
+  subscribe_outputs();
+  ASSERT_TRUE(wait_inputs_subscribed());
+  ASSERT_TRUE(pump_until([&] { return metric("head_rgbd_pairs_total") >= 5.0; }));
+  const double pairs = metric("head_rgbd_pairs_total");
+  EXPECT_GE(metric("head_rgbd_pair_stamp_delta_seconds_count"), pairs);
+  EXPECT_EQ(metric("head_rgbd_pair_stamp_delta_seconds_bucket{le=\"-0.0005\"}"), 0.0);
+  EXPECT_GE(metric("head_rgbd_pair_stamp_delta_seconds_bucket{le=\"0.0005\"}"), pairs);
+}
+
+// --- edge mask on the aligned depth ----------------------------------------------------------------------------------
+
+TEST_F(NodeTest, AlignedDepthIsMaskedBeforeTheDownscale)
+{
+  Config c = base_config();
+  c.edge_mask.enabled = true;
+  c.output.divisor = 1;
+  start(c);
+  subscribe_outputs();
+  ASSERT_TRUE(wait_inputs_subscribed());
+  SetSpec spec;
+  spec.depth_mm = step_mm;
+  ASSERT_TRUE(pump_until([&] { return depth_.size() > 0; }, spec));
+  const auto depth = depth_.first();
+  const auto * px = reinterpret_cast<const uint16_t *>(depth.data.data());
+  for (int y = 0; y < H; ++y) {
+    for (int x = 0; x < W; ++x) {
+      const uint16_t want = x == STEP_COLUMN ? 0 : step_mm(x, y);
+      ASSERT_EQ(px[y * W + x], want) << x << "," << y;
+    }
+  }
+  EXPECT_GT(metric("head_rgbd_edge_mask_removed_ratio{stage=\"aligned\"}"), 0.0);
+}
+
+// --- full-rate filtered depth ----------------------------------------------------------------------------------------
+
+TEST_F(NodeTest, FilteredDepthInputsFollowItsOwnSubscribers)
+{
+  start(base_config());
+  std::this_thread::sleep_for(milliseconds(2500));
+  EXPECT_EQ(raw_depth_pub_->get_subscription_count(), 0u);
+  EXPECT_EQ(raw_info_pub_->get_subscription_count(), 0u);
+
+  subscribe_filtered();
+  ASSERT_TRUE(wait_filtered_inputs_subscribed());
+  // The /head_rgbd set inputs stay released: nobody reads the sets.
+  EXPECT_EQ(depth_pub_->get_subscription_count(), 0u);
+  EXPECT_EQ(color_pub_->get_subscription_count(), 0u);
+
+  filtered_sub_.reset();
+  filtered_info_sub_.reset();
+  EXPECT_TRUE(wait_for(
+    [this] { return raw_depth_pub_->get_subscription_count() == 0 && raw_info_pub_->get_subscription_count() == 0; }));
+}
+
+TEST_F(NodeTest, FilteredDepthKeepsTheHeaderAndRemovesTheVeil)
+{
+  Config c = base_config();
+  c.edge_mask.enabled = true;
+  start(c);
+  subscribe_filtered();
+  ASSERT_TRUE(wait_filtered_inputs_subscribed());
+  SetSpec spec;
+  spec.depth_mm = step_mm;
+  ASSERT_TRUE(pump_raw_until([&] { return filtered_.size() >= 3 && filtered_info_.size() >= 3; }, spec));
+
+  const auto image = filtered_.first();
+  EXPECT_EQ(image.header.frame_id, RAW_DEPTH_FRAME);
+  const double t = seconds_of(image.header.stamp);
+  const double index = (t - set_time(0)) / STREAM_PERIOD_S;
+  EXPECT_NEAR(index, std::round(index), 1e-3);
+  EXPECT_EQ(image.encoding, "16UC1");
+  EXPECT_FALSE(image.is_bigendian);
+  ASSERT_EQ(image.width, static_cast<uint32_t>(W));
+  ASSERT_EQ(image.height, static_cast<uint32_t>(H));
+  ASSERT_EQ(image.step, static_cast<uint32_t>(W * 2));
+  const auto * px = reinterpret_cast<const uint16_t *>(image.data.data());
+  for (int y = 0; y < H; ++y) {
+    for (int x = 0; x < W; ++x) {
+      const uint16_t want = x == STEP_COLUMN ? 0 : step_mm(x, y);
+      ASSERT_EQ(px[y * W + x], want) << x << "," << y;
+    }
+  }
+
+  ASSERT_TRUE(wait_for([&] { return find_stamp(filtered_info_, image.header.stamp).has_value(); }));
+  const auto info = *find_stamp(filtered_info_, image.header.stamp);
+  EXPECT_EQ(info.header, image.header);
+  EXPECT_EQ(info.k, camera_info(t, FX).k);
+  EXPECT_EQ(info.width, static_cast<uint32_t>(W));
+  // One output per input frame: never more images than frames sent.
+  EXPECT_LE(filtered_published(), static_cast<double>(raw_index_));
+  EXPECT_GT(metric("head_rgbd_edge_mask_removed_ratio{stage=\"filtered\"}"), 0.0);
+  EXPECT_EQ(published(), 0.0);
+}
+
+TEST_F(NodeTest, FilteredDepthPassesThroughWithTheMaskDisabled)
+{
+  start(base_config());
+  subscribe_filtered();
+  ASSERT_TRUE(wait_filtered_inputs_subscribed());
+  SetSpec spec;
+  spec.depth_mm = step_mm;
+  ASSERT_TRUE(pump_raw_until([&] { return filtered_.size() >= 1; }, spec));
+  const auto image = filtered_.first();
+  EXPECT_EQ(image.data, depth_image(seconds_of(image.header.stamp), spec).data);
+}
+
+TEST_F(NodeTest, FilteredDepthNeedsACameraInfo)
+{
+  start(base_config());
+  subscribe_filtered();
+  ASSERT_TRUE(wait_filtered_inputs_subscribed());
+  SetSpec spec;
+  spec.with_info = false;
+  ASSERT_TRUE(pump_raw_until([&] { return filtered_dropped("no_camera_info") >= 3.0; }, spec));
+  std::this_thread::sleep_for(milliseconds(300));
+  EXPECT_EQ(filtered_.size(), 0u);
+  EXPECT_EQ(filtered_info_.size(), 0u);
+  EXPECT_EQ(filtered_published(), 0.0);
+}
+
+TEST_F(NodeTest, FilteredDepthDropsNon16uc1Depth)
+{
+  start(base_config());
+  subscribe_filtered();
+  ASSERT_TRUE(wait_filtered_inputs_subscribed());
+  SetSpec spec;
+  spec.depth_encoding = "32FC1";
+  ASSERT_TRUE(pump_raw_until([&] { return filtered_dropped("bad_input") >= 3.0; }, spec));
+  std::this_thread::sleep_for(milliseconds(300));
+  EXPECT_EQ(filtered_.size(), 0u);
+  EXPECT_EQ(filtered_published(), 0.0);
+}
+
+TEST_F(NodeTest, DisabledFilteredDepthAdvertisesNothing)
+{
+  Config c = base_config();
+  c.filtered_depth.enabled = false;
+  start(c);
+  ASSERT_TRUE(wait_for([&] { return !probe_->get_publishers_info_by_topic(c.depth_image()).empty(); }));
+  EXPECT_EQ(probe_->get_publishers_info_by_topic(FILTERED_IMAGE_TOPIC).size(), 0u);
+  EXPECT_EQ(probe_->get_publishers_info_by_topic(FILTERED_INFO_TOPIC).size(), 0u);
 }

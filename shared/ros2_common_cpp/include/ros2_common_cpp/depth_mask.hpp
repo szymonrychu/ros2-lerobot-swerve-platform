@@ -16,8 +16,8 @@ namespace ros2_common_cpp
 struct DepthEdgeMaskParams
 {
   int window_px = 3;    // side of the square neighbourhood, odd, >= 3
-  double abs_m = 0.02;  // smallest jump that removes a pixel, m (>= 0)
-  double rel = 0.03;    // jump that removes a pixel per metre of its depth (>= 0); abs_m or rel must be > 0
+  double abs_m = 0.01;  // smallest jump that removes a pixel, m (>= 0)
+  double rel = 0.025;   // jump that removes a pixel per metre of its depth (>= 0); abs_m or rel must be > 0
   int grow_px = 0;      // dilation of the removed region, px (>= 0)
 };
 
