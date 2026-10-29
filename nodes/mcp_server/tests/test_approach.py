@@ -262,9 +262,9 @@ def test_resolve_target_each_form() -> None:
     assert (obj.x, obj.y, obj.z, obj.source) == (1.0, 2.0, 0.05, "object:cup-1")
     poi = resolve(ApproachTarget(poi_id="table", z_m=0.7))
     assert (poi.x, poi.y, poi.z, poi.source) == (3.0, -1.0, 0.7, "poi:table")
-    pix = resolve(ApproachTarget(pixel={"camera": "gripper", "u": 10, "v": 20, "surface_height_m": 0.03}))
-    assert (pix.x, pix.y, pix.z, pix.source) == (0.5, 0.25, 0.03, "pixel:gripper")
-    assert pixels == [("gripper", 10.0, 20.0, 0.03)]
+    pix = resolve(ApproachTarget(pixel={"camera": "front", "u": 10, "v": 20, "surface_height_m": 0.03}))
+    assert (pix.x, pix.y, pix.z, pix.source) == (0.5, 0.25, 0.03, "pixel:front")
+    assert pixels == [("front", 10.0, 20.0, 0.03)]
 
 
 @pytest.mark.parametrize(

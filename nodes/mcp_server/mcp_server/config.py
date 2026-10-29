@@ -1595,7 +1595,7 @@ class FrontierSettings(StrictModel):
     # A poi list older than this keeps the last keep-out zones (poi_store republishes only on change, so keep it long).
     keepout_poi_stale_s: float = Field(default=600.0, gt=0.0)
     look_timeout_s: float = Field(default=20.0, gt=0.0)  # look_toward_frontier rotation timeout
-    look_camera: Literal["front", "gripper"] = "front"  # look_toward_frontier default camera
+    look_camera: Literal["front"] = "front"  # look_toward_frontier default camera (the head D435 colour)
 
     @model_validator(mode="after")
     def standoff_window_not_empty(self) -> "FrontierSettings":

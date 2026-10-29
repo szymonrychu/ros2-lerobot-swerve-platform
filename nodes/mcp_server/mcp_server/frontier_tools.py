@@ -15,6 +15,7 @@ from mcp.types import CallToolResult, ImageContent, TextContent
 from pydantic import Field
 from ros2_common.poi_categories import SURVEY_SPOT_TAG, apply_tags, category_tags, has_tag
 
+from .camera_scene import Camera
 from .config import McpServerConfig
 from .exploration import coverage, reachable_mask
 from .frontiers import (
@@ -53,7 +54,7 @@ from .perception_models import (
     RetiredView,
     RotationClearance,
 )
-from .perception_tools import POI_CREATED_BY, POI_FRAME, Camera, image_block, pose_tuple, tool_errors, xy_pair
+from .perception_tools import POI_CREATED_BY, POI_FRAME, image_block, pose_tuple, tool_errors, xy_pair
 from .tool_context import ToolContext
 
 SENSOR_TOOL_NAMES = ("list_frontiers", "plan_frontier_visit", "get_exploration_status", "mark_survey_spot")
@@ -67,7 +68,6 @@ NO_POSE_NOTE = "robot pose unavailable: reachable, path_distance_m, straight_dis
 SURVEY_SPOT_NAME = "survey spot"
 NO_BATTERY_NOTE = "battery guard not configured: battery fields are null"
 NO_READING_NOTE = "battery: no fresh reading, battery fields are null"
-GRIPPER_NOTE = "gripper camera captured at its current pose: the arm never moves, only the base heading aims"
 MAX_STAMP_SEC = 4_000_000_000  # a version whose first two entries are not a plausible (sec, nanosec) stamp has no age
 
 
@@ -582,13 +582,13 @@ def run_go_to_frontier(ctx: ToolContext, frontier_id: int, timeout_s: float | No
     )
 
 
-def run_look_toward_frontier(ctx: ToolContext, frontier_id: int, camera: str) -> CallToolResult:
+def run_look_toward_frontier(ctx: ToolContext, frontier_id: int, camera: Camera) -> CallToolResult:
     """look_toward_frontier body: rotate in place to face the frontier target, then capture and record a lookup.
 
     Args:
         ctx (ToolContext): Shared registration context.
         frontier_id (int): Frontier id.
-        camera (str): 'front' or 'gripper' (captured at its current pose; the arm never moves).
+        camera (Camera): 'front', the head D435 colour camera (the arm never moves).
 
     Returns:
         CallToolResult: [image, JSON LookTowardFrontierResult] (no image when the rotation failed).
@@ -597,8 +597,6 @@ def run_look_toward_frontier(ctx: ToolContext, frontier_id: int, camera: str) ->
     frontier = resolve(fc.tracker, fc.snapshot, frontier_id)
     pose = fc.require_pose("look_toward_frontier")
     notes: list[str] = []
-    if camera == "gripper":
-        notes.append(GRIPPER_NOTE)
     dyaw = bearing_to(pose, frontier.target_xy)
     nav: NavigationResult | None = None
     status = "skipped"
@@ -913,13 +911,15 @@ def register(ctx: ToolContext) -> None:
             f"(skipped within {config.nav.goal_yaw_tolerance_deg:g} deg), refused without moving when the lidar shows "
             "an obstacle inside the rotation circle or no fresh scan. The image is recorded as a lookup (it then "
             "counts as last_lookup_facing). No image when the rotation failed or was interrupted (status passed "
-            f"through). camera default {fs.look_camera!r}; the arm never moves (the gripper camera is captured at its "
-            "current pose). Needs the base lease (take_control(subsystem='base'))."
+            f"through). camera default {fs.look_camera!r}, the D435 colour camera on the head at its current pan/tilt; "
+            "the arm never moves. Needs the base lease (take_control(subsystem='base'))."
         ),
     )
     def look_toward_frontier(
         id: Annotated[int, Field(description="Frontier id")],  # noqa: A002
-        camera: Annotated[Camera | None, Field(description="'front' or 'gripper' camera")] = None,
+        camera: Annotated[
+            Camera | None, Field(description="'front': the D435 colour camera on the pan/tilt head (the only camera)")
+        ] = None,
     ) -> CallToolResult:
         """Face a frontier and capture; the description is passed to the decorator."""
         ctx.battery_gate("look_toward_frontier")

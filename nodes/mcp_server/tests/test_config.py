@@ -457,6 +457,7 @@ def test_compute_path_topics_default_to_the_nav2_planner_server() -> None:
         {"epoch_reset_known_fraction": 1.5},
         {"los_candidates": 0},
         {"look_camera": "rear"},
+        {"look_camera": "gripper"},
         {"unknown_key": 1},
     ],
 )
@@ -472,11 +473,11 @@ def test_frontier_settings_accept_a_valid_override() -> None:
                 "standoff_min_m": 0.5,
                 "standoff_max_m": 2.0,
                 "geodesic_downsample": 3,
-                "look_camera": "gripper",
+                "look_camera": "front",
             }
         }
     ).frontiers
-    assert (f.standoff_min_m, f.standoff_max_m, f.geodesic_downsample, f.look_camera) == (0.5, 2.0, 3, "gripper")
+    assert (f.standoff_min_m, f.standoff_max_m, f.geodesic_downsample, f.look_camera) == (0.5, 2.0, 3, "front")
 
 
 def test_follower_joint_currents_topic_default() -> None:

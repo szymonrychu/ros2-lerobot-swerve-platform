@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
-from mcp_server import approach_tools
+from mcp_server import approach_tools, camera_scene
 from mcp_server.approach import CostGrid, PathInfo
 from mcp_server.base_dock import DockGoal, DockResult
 from mcp_server.config import McpServerConfig
@@ -24,7 +24,7 @@ from mcp_server.tools import ALWAYS_ALLOWED_TOOLS, MOTION_TOOLS, QUEUE_EXCLUSIVE
 from .camera_helpers import HEIGHT, WIDTH, camera_config
 from .test_battery_gate import LOW_V, make_guard
 from .test_tilt_guard import state
-from .test_tools import TOKEN, FakeRobot, call, take
+from .test_tools import TOKEN, FakeRobot, call, take, tool_schema_text
 
 SMALL_SQUARE = [(0.04, 0.04), (-0.04, 0.04), (-0.04, -0.04), (0.04, -0.04)]
 GRID_RES = 0.05
@@ -441,9 +441,25 @@ def test_prefer_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert not rig.moved()
 
 
-def test_gripper_camera_uncalibrated_or_without_joints_is_named_in_the_reason(rig: Rig) -> None:
+def test_uncalibrated_front_camera_is_named_in_the_reason(rig: Rig) -> None:
     res = rig.approach(dry_run=True)
-    assert "front" in res["mode_reason"] and "gripper" in res["mode_reason"]
+    assert res["mode"] == "navigate" and res["mode_reason"] == "front: not calibrated"
+
+
+def test_approach_offers_only_front(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    rig = Rig(tmp_path, monkeypatch, config=calibrated(), textured=True)
+    assert approach_tools.CAMERAS is camera_scene.CAMERAS == ("front",)
+    for name in approach_tools.TOOL_NAMES:
+        text = tool_schema_text(rig.server, name)
+        assert '"enum": ["front"]' in text or '"const": "front"' in text
+        assert "gripper camera" not in text and "'gripper'" not in text
+        with pytest.raises(ToolError):
+            call(rig.server, name, {"camera": "gripper", "u": 1, "v": 1, "dry_run": True})
+    assert not rig.moved()
+    res = rig.approach(**VISIBLE_TARGET, dry_run=True)
+    assert res["mode"] == "servoed" and res["mode_reason"].startswith("front camera")
+    assert res["tracker"]["camera"] == "front"
+    assert {c[1][0] for c in rig.robot.calls if c[0] == "camera_image"} == {"front"}
 
 
 # --- approach_for_grasp: running -------------------------------------------------------------------------------
@@ -565,6 +581,35 @@ def test_stop_during_dock_cancels_and_stops_the_loop(tmp_path: Path, monkeypatch
     assert res["status"] == "canceled" and res["mode"] == "servoed"
     assert res["reach_after"] is None and len(rig.reach.points) == 5  # verification only
     assert ("stop", ()) in rig.robot.calls
+    assert not any(t.name == "target-tracker" and t.is_alive() for t in threading.enumerate())
+
+
+def test_lost_target_inside_min_z_stops_with_reason(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    rig = Rig(tmp_path, monkeypatch, config=calibrated(), textured=True)
+    yaw = rig.robot.pose.yaw
+    # base_link with the target 0.78 m behind it: about 0.10 m of depth along the tilted-down optical axis of the
+    # synthetic front camera (0.8 m high, pitched 1 rad down, 0.25 m ahead of base_link), inside the D435 min-Z.
+    overshot = BasePose(
+        frame="map", x=VISIBLE_TARGET["x"] + 0.78 * math.cos(yaw), y=VISIBLE_TARGET["y"] + 0.78 * math.sin(yaw), yaw=yaw
+    )
+    published: list[int] = []
+
+    def dock(goal: DockGoal, timeout_s: float) -> DockResult:
+        rig.robot.dock_goals.append((goal, timeout_s))
+        assert wait_for(lambda: rig.robot.detections), "the tracker never matched before the overshoot"
+        published.append(len(rig.robot.detections))
+        rig.robot.pose = overshot
+        assert wait_for(lambda: rig.robot.base_resets), "the lost target did not stop the dock"
+        return DockResult(status="canceled", message="stop requested; dock cancelled", goal=goal, final_pose=overshot)
+
+    monkeypatch.setattr(rig.robot, "dock", dock)
+    res = rig.approach(**VISIBLE_TARGET)
+    assert res["status"] == "target_lost" and res["mode"] == "servoed"
+    assert "D435 min-Z" in res["target_lost"] and "0.15 m" in res["target_lost"]
+    assert res["target_lost"] in res["message"]
+    assert rig.robot.base_resets == 1
+    assert len(rig.robot.detections) == published[0]  # nothing published after the loss: no placeholder pixel
+    assert res["reach_after"] is None
     assert not any(t.name == "target-tracker" and t.is_alive() for t in threading.enumerate())
 
 

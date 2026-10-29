@@ -12,6 +12,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from prometheus_client import REGISTRY
 
+from mcp_server import frontier_tools
 from mcp_server.config import McpServerConfig
 from mcp_server.frontier_tools import map_age_s, view_clearance_m
 from mcp_server.frontiers import FrontierTracker, MapGrid
@@ -19,7 +20,7 @@ from mcp_server.look_around import required_clearance_m
 from mcp_server.models import BasePose, MapSummary, NavigationResult, PathPlan, SectorObstacle
 from mcp_server.tools import build_mcp_server, register_tools
 
-from .test_tools import TOKEN, FakeRobot, call, take
+from .test_tools import TOKEN, FakeRobot, call, take, tool_schema_text
 
 RES = 0.05
 SIZE = 80
@@ -426,6 +427,22 @@ def test_look_toward_frontier_never_moves_the_arm(server: Any, robot: FrontierRo
     data = out(call(server, "look_toward_frontier", {"id": 1, "camera": "front"}))
     assert len(robot.arm_backend.commands) == before
     assert data["camera"] == "front"
+
+
+def test_look_toward_frontier_uses_front(server: Any, robot: FrontierRobot) -> None:
+    text = tool_schema_text(server, "look_toward_frontier")
+    assert '"enum": ["front"]' in text or '"const": "front"' in text
+    assert "D435" in text and "gripper" not in text
+    assert not hasattr(frontier_tools, "GRIPPER_NOTE")
+    take(server, "base")
+    robot.pose = robot.pose.model_copy(update={"yaw": math.pi / 2})
+    with pytest.raises(ToolError):
+        call(server, "look_toward_frontier", {"id": 1, "camera": "gripper"})
+    assert motion_calls(robot) == []
+    data = out(call(server, "look_toward_frontier", {"id": 1}))
+    assert data["camera"] == "front" and data["image_captured"] is True
+    assert [c[1][0] for c in robot.calls if c[0] == "camera_image"] == ["front"]
+    assert not any("gripper" in n for n in data["notes"])
 
 
 def test_look_toward_frontier_needs_the_base_lease(server: Any, robot: FrontierRobot) -> None:

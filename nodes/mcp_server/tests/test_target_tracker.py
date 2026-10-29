@@ -23,6 +23,8 @@ from mcp_server.target_tracker import (
     TrackerInput,
     camera_distance,
     dock_pose_from_target,
+    lost_reason,
+    optical_depth,
     visible,
 )
 from mcp_server.topdown import map_to_base
@@ -37,6 +39,9 @@ DOCK_YAW = 0.0
 T_REL = (0.6, 0.0)
 FAR_POSE = BasePose(frame="map", x=1.0, y=0.0, yaw=0.0)  # target 1.0 m ahead of base_link
 NEAR_POSE = BasePose(frame="map", x=1.15, y=0.02, yaw=0.03)  # target about 0.85 m ahead, slightly turned
+# Target 0.78 m behind base_link: about 0.12 m of optical depth (camera 0.8 m high, pitched 1 rad down), inside min-Z.
+OVERSHOT_POSE = BasePose(frame="map", x=TARGET[0] + 0.78, y=TARGET[1], yaw=0.0)
+TURNED_POSE = BasePose(frame="map", x=1.0, y=0.0, yaw=1.2)  # target 69 deg to the right: outside the 90 deg hfov
 STAMP_NS = 1_700_000_000_123_456_789
 
 
@@ -107,6 +112,22 @@ def test_visible_false_behind_off_image_and_inside_the_edge_margin(scene: Scene)
     assert ground is not None
     assert visible(scene, ground, 0)
     assert not visible(scene, ground, 20)
+
+
+def test_visible_false_inside_the_d435_min_z(scene: Scene) -> None:
+    # A point 0.10 m in front of the optical centre on the optical axis: at the image centre, but inside min-Z.
+    axis = scene.t_ref_optical[:3, 2]
+    near = scene.t_ref_optical[:3, 3] + 0.10 * axis
+    assert scene.project(near) is not None and optical_depth(scene, near) == pytest.approx(0.10)
+    assert not visible(scene, near, 0)
+    assert lost_reason(scene, near) == "inside the D435 min-Z (0.15 m)"
+    far = scene.t_ref_optical[:3, 3] + 0.20 * axis
+    assert visible(scene, far, 0) and lost_reason(scene, far) is None
+
+
+def test_lost_reason_behind_or_off_image_is_out_of_the_colour_fov(scene: Scene) -> None:
+    assert lost_reason(scene, np.array([-1.0, 0.0, 0.0])) == "out of the D435 colour FOV"  # behind the camera
+    assert lost_reason(scene, np.array([1.0, 5.0, 0.0])) == "out of the D435 colour FOV"  # off to the side
 
 
 def test_visible_false_when_the_scene_cannot_reach_base_link(scene: Scene) -> None:
@@ -219,6 +240,30 @@ def test_target_out_of_view_does_not_seed(scene: Scene) -> None:
     assert not trk.seeded
 
 
+@pytest.mark.parametrize(
+    ("pose", "reason"),
+    [(OVERSHOT_POSE, "inside the D435 min-Z (0.15 m)"), (TURNED_POSE, "out of the D435 colour FOV")],
+)
+def test_seeded_target_lost_near_the_robot_is_latched_with_the_reason(
+    scene: Scene, pose: BasePose, reason: str
+) -> None:
+    texture = make_texture(11)
+    trk = tracker()
+    assert trk.step(render(scene, FAR_POSE, texture), STAMP_NS, scene, FAR_POSE, 0.0) is None
+    assert trk.seeded and trk.lost is None
+    assert trk.step(render(scene, pose, texture), STAMP_NS + 1, scene, pose, 0.0) is None
+    assert trk.lost == reason
+    # Latched: even a frame that would match again yields no detection, nothing stands in for the lost target.
+    assert trk.step(render(scene, NEAR_POSE, texture), STAMP_NS + 2, scene, NEAR_POSE, 0.0) is None
+    assert trk.accepted == 0 and trk.lost == reason
+
+
+def test_unseeded_target_out_of_view_is_not_lost(scene: Scene) -> None:
+    trk = tracker()
+    assert trk.step(render(scene, TURNED_POSE, make_texture(12)), STAMP_NS, scene, TURNED_POSE, 0.0) is None
+    assert not trk.seeded and trk.lost is None
+
+
 # --- detection loop -------------------------------------------------------------------------------------------------
 
 
@@ -293,3 +338,31 @@ def test_loop_skips_missing_frames_and_survives_source_errors(scene: Scene) -> N
     assert calls["n"] >= 6
     assert published == []
     assert loop.errors >= 3
+
+
+def test_loop_reports_a_lost_target_once_and_stops(scene: Scene) -> None:
+    texture = make_texture(13)
+    frames = [
+        TrackerInput(render(scene, FAR_POSE, texture), STAMP_NS, scene, FAR_POSE, 0.0),
+        TrackerInput(render(scene, NEAR_POSE, texture), STAMP_NS + 1, scene, NEAR_POSE, 0.0),
+        TrackerInput(render(scene, OVERSHOT_POSE, texture), STAMP_NS + 2, scene, OVERSHOT_POSE, 0.0),
+    ]
+    calls = {"n": 0}
+
+    def source() -> TrackerInput | None:
+        index = min(calls["n"], len(frames) - 1)
+        calls["n"] += 1
+        return frames[index]
+
+    published: list[Detection] = []
+    lost: list[str] = []
+    loop = DetectionLoop(tracker(), source, published.append, rate_hz=50.0, on_lost=lost.append)
+    loop.start()
+    deadline = time.monotonic() + 5.0
+    while loop.running and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert not loop.running  # the loop ended by itself once the target was lost
+    assert lost == ["inside the D435 min-Z (0.15 m)"]
+    assert len(published) == 1 and published[0].stamp_ns == STAMP_NS + 1
+    assert calls["n"] == 3
+    loop.stop()

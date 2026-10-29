@@ -4,8 +4,10 @@ suggest_approach_pose is read-only (no lease, battery and tilt independent): the
 (reach_map.py) gives candidate base poses, approach.py scores them on the global costmap with the current NavFootprint,
 the best are verified with point_reach (the grasp planner's IK and body check) and path-planned (ComputePathToPose,
 planning only). approach_for_grasp drives to the best candidate: servoed on the grasp docking server (DockRobot with the
-detection loop feeding it real camera detections) when a calibrated camera sees the target from the staging and the
-dock pose, else as a precise Nav2 goal. The base motion lock, monitor.base_motion and the BASE_INTERRUPTS watch live in
+detection loop feeding it real detections from front camera frames) when the calibrated front camera (the head D435
+colour) sees the target from the staging and the dock pose, else as a precise Nav2 goal. When the D435 loses the target
+during the servoed dock (inside its min-Z or out of the colour FOV) the dock is cancelled and the approach ends with
+status target_lost and the reason; no stored or guessed pixel stands in for the lost target. The base motion lock, monitor.base_motion and the BASE_INTERRUPTS watch live in
 RobotApi.dock / RobotApi.navigate (the same code path as navigate_to_pose). After a successful arrival the target is
 re-checked with point_reach at the measured pose: out of reach is never reported as success.
 """
@@ -39,6 +41,8 @@ from .arm import ArmError
 from .arm_reach import DEFAULT_SEED, ReachEnvelope, point_reach
 from .base_dock import DockGoal, DockResult
 from .camera_scene import (
+    CAMERAS,
+    Camera,
     CameraNotCalibratedError,
     CameraSetup,
     Scene,
@@ -52,14 +56,13 @@ from .models import BasePose, NavigationResult, RobotError
 from .object_memory import OBJECT_KIND
 from .reach_map import ReachMap, ReachMapMissing, ReachMapStale, pan_geometry
 from .self_collision import SelfCollisionChecker
-from .target_tracker import Detection, DetectionLoop, TargetTracker, TrackerInput, visible
+from .target_tracker import D435_MIN_Z_M, Detection, DetectionLoop, TargetTracker, TrackerInput, visible
 from .tool_context import RobotApi, ToolContext
 
 LOGGER = logging.getLogger(__name__)
 TOOL_NAMES = ("suggest_approach_pose", "approach_for_grasp")
 SENSOR_TOOL_NAMES = ("suggest_approach_pose",)
 GRASP_DOCK_TYPE = "grasp_servoed"
-CAMERAS = ("front", "gripper")
 POI_KINDS = ("point", "area", "marker")
 ALL_CANDIDATES = 100_000
 # A given pose counts as the same candidate within this distance / heading difference.
@@ -69,7 +72,15 @@ MAX_RESULTS_LIMIT = 10
 Mode = Literal["servoed", "navigate"]
 PreferMode = Literal["auto", "servoed", "navigate"]
 ApproachStatus = Literal[
-    "planned", "succeeded", "arrived_out_of_reach", "failed", "rejected", "interrupted", "canceled", "timeout"
+    "planned",
+    "succeeded",
+    "arrived_out_of_reach",
+    "target_lost",
+    "failed",
+    "rejected",
+    "interrupted",
+    "canceled",
+    "timeout",
 ]
 NAV_STATUS = {
     "succeeded": "succeeded",
@@ -101,7 +112,8 @@ class ApproachResult(BaseModel):
 
     status: ApproachStatus = Field(
         description="planned (dry_run), succeeded, arrived_out_of_reach (arrived, but the target is not reachable from "
-        "the measured pose), failed, rejected, interrupted, canceled or timeout"
+        "the measured pose), target_lost (servoed: the front camera lost the target, the dock was cancelled), failed, "
+        "rejected, interrupted, canceled or timeout"
     )
     dry_run: bool = False
     mode: Mode
@@ -124,6 +136,11 @@ class ApproachResult(BaseModel):
     detections_published: int = Field(default=0, description="Detections the tracker published during a servoed dock")
     detections_rejected: int = Field(
         default=0, description="Tracker matches skipped for jumping beyond max_correction_m during a servoed dock"
+    )
+    target_lost: str | None = Field(
+        default=None,
+        description="Servoed only: why the front D435 camera lost the target during the dock (inside the D435 min-Z, "
+        "out of the colour FOV); the dock was cancelled then",
     )
     duration_s: float = 0.0
 
@@ -182,7 +199,7 @@ def build_target(
     object_id: str | None,
     poi_id: str | None,
     z_m: float | None,
-    camera: str | None,
+    camera: Camera | None,
     u: float | None,
     v: float | None,
     surface_height_m: float | None,
@@ -196,7 +213,7 @@ def build_target(
         object_id (str | None): Remembered object id.
         poi_id (str | None): POI id.
         z_m (float | None): Height for object_id / poi_id (m).
-        camera (str | None): Camera of a pixel target.
+        camera (Camera | None): Camera of a pixel target ('front').
         u (float | None): Pixel x.
         v (float | None): Pixel y.
         surface_height_m (float | None): Surface height of a pixel target (m).
@@ -267,23 +284,23 @@ def poi_z_lookup(robot: RobotApi, kinds: tuple[str, ...]) -> Callable[[str], flo
     return lookup
 
 
-def camera_scene(robot: RobotApi, config: McpServerConfig, camera: str) -> tuple[Scene, CameraSetup]:
-    """Scene of a calibrated camera at the current arm pose and the current measured head pose.
+def camera_scene(robot: RobotApi, config: McpServerConfig, camera: Camera) -> tuple[Scene, CameraSetup]:
+    """Scene of the calibrated front camera at the current measured head pose.
 
-    The front scene uses the head angles measured now; the view checks built on it assume the head keeps that pose
-    while the base moves to the staging and dock poses.
+    The scene uses the head angles measured now; the view checks built on it assume the head keeps that pose while the
+    base moves to the staging and dock poses.
 
     Args:
-        robot (RobotApi): Robot (arm kinematics and measured joints).
+        robot (RobotApi): Robot (measured head joints).
         config (McpServerConfig): Node configuration.
-        camera (str): 'front' or 'gripper'.
+        camera (Camera): 'front' (the head D435 colour).
 
     Returns:
         tuple[Scene, CameraSetup]: The scene and the camera's setup.
 
     Raises:
         CameraNotCalibratedError: When intrinsics or mount are missing.
-        ValueError: When the head joint states are missing or stale, or for a camera without a scene.
+        ValueError: When the head joint states are missing or stale.
     """
     setup = camera_setup(config, camera, source=robot)
     return build_scene(setup, config, head_parent_transform(config, robot.head)), setup
@@ -376,7 +393,7 @@ def register(ctx: ToolContext) -> None:
         objects = poi_lookup(robot, (OBJECT_KIND,))
 
         def pixel_xy(camera: str, u: float, v: float, surface_height_m: float) -> tuple[float, float] | None:
-            scene, _ = camera_scene(robot, config, camera)
+            scene, _ = camera_scene(robot, config, "front")  # the tool schemas admit only 'front' (Camera)
             if not (0.0 <= u < scene.intr.width and 0.0 <= v < scene.intr.height):
                 raise ValueError(f"pixel ({u:g}, {v:g}) is outside the image ({scene.intr.width}x{scene.intr.height})")
             ground = scene.ground_point(u, v, surface_height_m)
@@ -450,7 +467,9 @@ def register(ctx: ToolContext) -> None:
             str | None, Field(description="Point, area or marker POI id (needs z_m, except a marker: its own z)")
         ] = None,
         z_m: Annotated[float | None, Field(description="Grasp height above the floor for object_id / poi_id")] = None,
-        camera: Annotated[str | None, Field(description="'front' or 'gripper' (pixel target)")] = None,
+        camera: Annotated[
+            Camera | None, Field(description="'front': the D435 colour camera on the head (pixel target)")
+        ] = None,
         u: Annotated[float | None, Field(description="Pixel x of the calibrated image (pixel target)")] = None,
         v: Annotated[float | None, Field(description="Pixel y of the calibrated image (pixel target)")] = None,
         surface_height_m: Annotated[
@@ -467,21 +486,23 @@ def register(ctx: ToolContext) -> None:
             resolved = resolve(build_target(x, y, z, object_id, poi_id, z_m, camera, u, v, surface_height_m))
             return plan(resolved, pitch_deg, max_results, check_path)
 
-    def camera_view_problem(camera: str, cand: Candidate, target: TargetPoint) -> str | None:
+    def camera_view_problem(camera: Camera, cand: Candidate, target: TargetPoint) -> str | None:
         """Why a camera cannot track the target from the staging and the dock pose, None when it can."""
         try:
             scene, _ = camera_scene(robot, config, camera)
         except CameraNotCalibratedError:
             return "not calibrated"
-        except (ArmError, RobotError, ValueError) as exc:
-            return "head joint states stale" if camera == "front" and isinstance(exc, ValueError) else str(exc)
+        except ValueError:
+            return "head joint states stale"
+        except (ArmError, RobotError) as exc:
+            return str(exc)
         margin = max(settings.tracker.edge_margin_px, settings.tracker.template_px / 2)
         for label, pose in (("staging", cand.staging_pose), ("dock", cand.pose)):
             if not visible(scene, np.array(target_in_base(target, (pose.x, pose.y, pose.yaw))), margin):
                 return f"target not in view from the {label} pose"
         return None
 
-    def choose_mode(prefer: PreferMode, cand: Candidate, target: TargetPoint) -> tuple[Mode, str, str | None]:
+    def choose_mode(prefer: PreferMode, cand: Candidate, target: TargetPoint) -> tuple[Mode, str, Camera | None]:
         """Servoed only when a calibrated camera sees the target from the staging and the dock pose."""
         if prefer == "navigate":
             return "navigate", "prefer_mode=navigate", None
@@ -519,8 +540,8 @@ def register(ctx: ToolContext) -> None:
         rel = target_in_base(target, (cand.pose.x, cand.pose.y, cand.pose.yaw))
         return TargetTracker((target.x, target.y), cand.pose.yaw, (rel[0], rel[1]), settings.tracker)
 
-    def tracker_source(camera: str, surface_z: float) -> Callable[[], TrackerInput | None]:
-        """Newest frame with its geometry (current arm pose, current robot pose), None without a robot pose."""
+    def tracker_source(camera: Camera, surface_z: float) -> Callable[[], TrackerInput | None]:
+        """Newest frame with its geometry (current head pose, current robot pose), None without a robot pose."""
 
         def source() -> TrackerInput | None:
             pose = robot.robot_pose()
@@ -532,7 +553,7 @@ def register(ctx: ToolContext) -> None:
 
         return source
 
-    def tracker_dry_run(camera: str, cand: Candidate, target: TargetPoint) -> dict[str, Any]:
+    def tracker_dry_run(camera: Camera, cand: Candidate, target: TargetPoint) -> dict[str, Any]:
         """One tracker step on a fresh frame (a second one when the first only seeded); nothing is published."""
         tracker = make_tracker(cand, target)
         source = tracker_source(camera, target.z)
@@ -596,11 +617,14 @@ def register(ctx: ToolContext) -> None:
         description=(
             "Drive the base to the best approach pose for a grasp (needs the base lease; Nav2 plans around "
             "obstacles; blocks until done). Runs suggest_approach_pose internally (or re-validates the candidate "
-            "`pose` you pass; a pose that is no longer valid is refused), then picks the mode: 'servoed' ONLY when a "
-            "calibrated camera (front, or the gripper camera at the current arm pose) sees the target from both the "
-            "staging and the dock pose: the grasp docking server (DockRobot, dock_type grasp_servoed) navigates to the "
-            "staging pose and then servos onto detections of the target that a tracker publishes from camera frames; "
-            "otherwise 'navigate' (a precise Nav2 goal), the reason is in mode_reason. prefer_mode forces one "
+            "`pose` you pass; a pose that is no longer valid is refused), then picks the mode: 'servoed' ONLY when the "
+            "calibrated front camera (the head D435 colour, at the current head pan/tilt) sees the target from both "
+            "the staging and the dock pose: the grasp docking server (DockRobot, dock_type grasp_servoed) navigates to "
+            "the staging pose and then servos onto detections of the target that a tracker publishes from front camera "
+            "frames; otherwise 'navigate' (a precise Nav2 goal), the reason is in mode_reason. When the D435 loses the "
+            f"target during the servoed dock (inside its {D435_MIN_Z_M:g} m min-Z or out of the colour FOV) the dock "
+            "is cancelled and the status is 'target_lost' with the reason in target_lost: nothing is published for a "
+            "lost target, no pixel is guessed. prefer_mode forces one "
             "(servoed is refused when it is not possible). After an arrival the target is re-checked with point_reach "
             "at the measured pose: status 'arrived_out_of_reach' means the base is parked but the arm cannot reach the "
             "target from there (never a success: suggest again and re-approach). A failed servoed dock (e.g. "
@@ -619,7 +643,9 @@ def register(ctx: ToolContext) -> None:
             str | None, Field(description="Point, area or marker POI id (needs z_m, except a marker: its own z)")
         ] = None,
         z_m: Annotated[float | None, Field(description="Grasp height above the floor for object_id / poi_id")] = None,
-        camera: Annotated[str | None, Field(description="'front' or 'gripper' (pixel target)")] = None,
+        camera: Annotated[
+            Camera | None, Field(description="'front': the D435 colour camera on the head (pixel target)")
+        ] = None,
         u: Annotated[float | None, Field(description="Pixel x of the calibrated image (pixel target)")] = None,
         v: Annotated[float | None, Field(description="Pixel y of the calibrated image (pixel target)")] = None,
         surface_height_m: Annotated[
@@ -690,6 +716,7 @@ def register(ctx: ToolContext) -> None:
                     tracker_source(tracking_camera, resolved.z),
                     lambda detection: robot.publish_detection(detection.pose, detection.stamp_ns),
                     settings.tracker.rate_hz,
+                    on_lost=lambda _reason: robot.reset_base(),  # cancels the dock goal and zeroes the base
                 )
                 loop.start()
                 try:
@@ -698,7 +725,15 @@ def register(ctx: ToolContext) -> None:
                     loop.stop()
                 status: ApproachStatus = docked.status
                 message = docked.message
-                if status == "failed":
+                lost = loop.tracker.lost
+                if lost is not None and status != "succeeded":
+                    status = "target_lost"
+                    message = (
+                        f"stopped: the {tracking_camera} camera lost the target ({lost}); dock cancelled, base zeroed; "
+                        "look again (get_camera_image) and call suggest_approach_pose, or retry with "
+                        "prefer_mode='navigate'"
+                    )
+                elif status == "failed":
                     message = f"{message}; retry with prefer_mode='navigate'".lstrip("; ")
                 extra: dict[str, Any] = {
                     "error_code": docked.error_code,
@@ -707,6 +742,7 @@ def register(ctx: ToolContext) -> None:
                     "interrupted_by": docked.interrupted_by,
                     "detections_published": loop.published,
                     "detections_rejected": loop.tracker.rejected,
+                    "target_lost": lost,
                 }
                 final = docked.final_pose
             else:

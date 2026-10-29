@@ -1,4 +1,4 @@
-"""Camera target tracker of the servoed grasp approach: visibility precheck and template-matching detections.
+"""Front camera target tracker of the servoed grasp approach: visibility precheck and template-matching detections.
 
 Pure module: frames, scenes (camera_scene.Scene), base poses and the surface height are passed in, nothing is read
 from ROS here. The tracker turns each camera frame into at most one real detection of the grasp target:
@@ -13,6 +13,11 @@ from ROS here. The tracker turns each camera frame into at most one real detecti
 
 No accepted match means no Detection: nothing is published for that frame, and a stored position is never
 re-stamped as a fresh detection (CLAUDE.md, no placeholder data).
+
+The frames come from the head D435 colour camera (camera_scene 'front'). Once seeded, a target whose predicted position
+lies inside the D435 min-Z (D435_MIN_Z_M of depth along the optical axis) or outside the colour image is lost: the
+tracker latches the reason in ``lost`` and returns no detection from then on, and the DetectionLoop reports it once
+(``on_lost``) and ends, so the approach stops with that reason instead of servoing on a guessed pixel.
 """
 
 import logging
@@ -24,8 +29,9 @@ from dataclasses import dataclass
 
 import cv2
 import numpy as np
+from ros2_common.head_rgbd_calibration.arm_pose_check import D435_MIN_Z_M
 
-from .camera_scene import Scene, base_to_map
+from .camera_scene import Scene, base_to_map, transform_point
 from .config import TrackerSettings
 from .models import BasePose
 from .topdown import map_to_base
@@ -35,6 +41,8 @@ FRAME_MAP = "map"
 MIN_TEMPLATE_PX = 8
 MIN_TEMPLATE_STD = 2.0  # grey levels: below this the patch has no texture to match
 JOIN_TIMEOUT_S = 2.0
+LOST_MIN_Z = f"inside the D435 min-Z ({D435_MIN_Z_M:g} m)"
+LOST_FOV = "out of the D435 colour FOV"
 
 
 @dataclass(frozen=True)
@@ -75,8 +83,39 @@ class TrackerInput:
     surface_z: float
 
 
+def optical_depth(scene: Scene, point_ref: np.ndarray) -> float:
+    """Depth of a reference-frame point along the camera's optical axis (the optical frame z, what min-Z bounds).
+
+    Args:
+        scene (Scene): Camera scene.
+        point_ref (np.ndarray): Point (3,) in the scene's reference frame.
+
+    Returns:
+        float: Depth (m); negative behind the camera.
+    """
+    return float(transform_point(np.linalg.inv(scene.t_ref_optical), point_ref)[2])
+
+
+def lost_reason(scene: Scene, point_ref: np.ndarray) -> str | None:
+    """Why the D435 colour camera cannot see a reference-frame point, None when it projects into the image.
+
+    Args:
+        scene (Scene): Camera scene.
+        point_ref (np.ndarray): Point (3,) in the scene's reference frame.
+
+    Returns:
+        str | None: LOST_MIN_Z when it lies in front of the camera but closer than D435_MIN_Z_M of depth, LOST_FOV when
+            it is behind the camera or off the image, None when in view.
+    """
+    if 0.0 < optical_depth(scene, point_ref) < D435_MIN_Z_M:
+        return LOST_MIN_Z
+    if scene.project(point_ref) is None:
+        return LOST_FOV
+    return None
+
+
 def visible(scene: Scene, point_base_link: np.ndarray, edge_margin_px: float) -> bool:
-    """Whether a base_link point projects into the image at least edge_margin_px away from every border.
+    """Whether a base_link point lies beyond the D435 min-Z and projects edge_margin_px inside every image border.
 
     Args:
         scene (Scene): Camera scene.
@@ -84,11 +123,11 @@ def visible(scene: Scene, point_base_link: np.ndarray, edge_margin_px: float) ->
         edge_margin_px (float): Required distance from the image borders (px).
 
     Returns:
-        bool: True when in view with the margin; False when behind the camera, off the image, inside the margin or
-            when the scene cannot express base_link points.
+        bool: True when in view with the margin; False when behind the camera, inside the min-Z, off the image,
+            inside the margin or when the scene cannot express base_link points.
     """
     ref = scene.base_to_ref(np.asarray(point_base_link, dtype=np.float64))
-    if ref is None:
+    if ref is None or lost_reason(scene, ref) is not None:
         return False
     pixel = scene.project(ref)
     if pixel is None:
@@ -185,6 +224,8 @@ class TargetTracker:
         rejected (int): Matches rejected for lying farther than max_correction_m from the planned target.
         low_score (int): Frames whose best match scored below min_score.
         last_scale (float | None): Template scale used by the last match attempt.
+        lost (str | None): Why the seeded target left the camera's view (LOST_MIN_Z, LOST_FOV); latched, None while
+            tracked.
     """
 
     def __init__(
@@ -214,6 +255,7 @@ class TargetTracker:
         self.rejected = 0
         self.low_score = 0
         self.last_scale: float | None = None
+        self.lost: str | None = None
 
     @property
     def seeded(self) -> bool:
@@ -324,7 +366,9 @@ class TargetTracker:
         """Track the target in one frame.
 
         An unseeded tracker seeds from this frame when the planned target is in view and returns None (a template
-        matched against its own frame would only echo the plan).
+        matched against its own frame would only echo the plan). A seeded tracker whose predicted target lies inside
+        the D435 min-Z or outside the image latches the reason in ``lost``; a lost tracker returns None for every
+        later frame.
 
         Args:
             frame_bgr (np.ndarray): Camera image.
@@ -340,6 +384,13 @@ class TargetTracker:
         if self.template is None:
             self.seed_from_projection(frame_bgr, scene, base_pose, surface_z)
             return None
+        if self.lost is not None:
+            return None
+        ref = self.target_ref(scene, base_pose, surface_z)
+        if ref is not None:
+            self.lost = lost_reason(scene, ref)
+            if self.lost is not None:
+                return None
         match = self.match(to_gray(frame_bgr), scene, base_pose, surface_z)
         if match is None:
             return None
@@ -412,7 +463,8 @@ class DetectionLoop:
     """Runs a TargetTracker on fresh frames at rate_hz in a thread and publishes only accepted detections.
 
     The source returns the newest frame with its geometry (or None when there is none); a frame whose stamp is not
-    newer than the last processed one is skipped, so a detection is never re-published with an old stamp.
+    newer than the last processed one is skipped, so a detection is never re-published with an old stamp. When the
+    tracker loses the target the loop calls on_lost once with the reason and ends.
 
     Attributes:
         tracker (TargetTracker): The tracker.
@@ -426,6 +478,7 @@ class DetectionLoop:
         source: Callable[[], TrackerInput | None],
         publish: Callable[[Detection], None],
         rate_hz: float,
+        on_lost: Callable[[str], None] | None = None,
     ) -> None:
         """Create a stopped loop.
 
@@ -434,12 +487,14 @@ class DetectionLoop:
             source (Callable[[], TrackerInput | None]): Newest frame with its geometry, None when unavailable.
             publish (Callable[[Detection], None]): Publishes one detection (e.g. DetectionPublisher.publish).
             rate_hz (float): Loop rate (Hz).
+            on_lost (Callable[[str], None] | None): Called once with TargetTracker.lost when the target is lost.
         """
         if rate_hz <= 0.0:
             raise ValueError(f"rate_hz must be positive, got {rate_hz}")
         self.tracker = tracker
         self.source = source
         self.publish = publish
+        self.on_lost = on_lost
         self.period_s = 1.0 / rate_hz
         self.stop_event = threading.Event()
         self.thread: threading.Thread | None = None
@@ -484,7 +539,8 @@ class DetectionLoop:
         self.stop()
 
     def tick(self) -> None:
-        """Process the newest frame once: track it and publish an accepted detection."""
+        """Process the newest frame once: track it and publish an accepted detection, or report a lost target and end
+        the loop."""
         sample = self.source()
         if sample is None:
             return
@@ -494,6 +550,11 @@ class DetectionLoop:
         detection = self.tracker.step(
             sample.frame_bgr, sample.stamp_ns, sample.scene, sample.base_pose, sample.surface_z
         )
+        if self.tracker.lost is not None:
+            self.stop_event.set()
+            if self.on_lost is not None:
+                self.on_lost(self.tracker.lost)
+            return
         if detection is None:
             return
         self.publish(detection)
