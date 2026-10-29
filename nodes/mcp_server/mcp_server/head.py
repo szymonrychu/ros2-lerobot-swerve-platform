@@ -10,7 +10,14 @@ from pathlib import Path
 from typing import Literal, Protocol
 
 from pydantic import BaseModel
-from ros2_common.head_rgbd_calibration.urdf_text import APPLIED_MARKER_FILE, apply_overrides
+from ros2_common.head_rgbd_calibration.urdf_text import (
+    APPLIED_MARKER_FILE,
+    HEAD_CHAIN_FILE,
+    ChainResidual,
+    apply_overrides,
+    parse_head_chain,
+    parse_residual,
+)
 
 from .arm import JointSample
 from .config import HeadSettings
@@ -178,6 +185,88 @@ class HeadHistory:
         return HeadPoseAtStamp(pan, tilt, stamp_s, gap, motion, motion > cfg.max_motion_rad)
 
 
+@dataclass(frozen=True)
+class CalibrationInfo:
+    """Which applied head calibration the camera-to-arm tools stand on, and how well it agrees with the arm.
+
+    Attributes:
+        applied (bool): A head_chain.json from the Calibrate page is in effect (False: the repo head.urdf chain).
+        source (str | None): The fit that produced it ("head_arm" or "floor"), None when unknown.
+        session (str | None): Calibration session id.
+        result (str | None): Result id.
+        applied_at (str | None): Apply time (ISO 8601) from the applied.json record.
+        residual (ChainResidual | None): The arm-frame residual the fit measured; None for a floor fit, a chain
+            written before the residual existed, or nothing applied.
+    """
+
+    applied: bool
+    source: str | None
+    session: str | None
+    result: str | None
+    applied_at: str | None
+    residual: ChainResidual | None
+
+    @property
+    def residual_mm(self) -> float | None:
+        """Held-out camera-to-arm error of the applied fit (mm).
+
+        Returns:
+            float | None: The head-from-arm held-out board error, None when there is none.
+        """
+        return None if self.residual is None else self.residual.holdout_board_mm
+
+    def describe(self) -> str:
+        """One line naming the chain and its residual, for tool results and refusals.
+
+        Returns:
+            str: Human-readable description.
+        """
+        if not self.applied:
+            return "no calibration applied: the repo head.urdf chain (no arm-frame residual)"
+        chain = f"{self.source or 'unknown'} fit {self.session}/{self.result}"
+        if self.residual is None:
+            return f"applied {chain}: no arm-frame residual (only a head-from-arm fit measures one)"
+        return f"applied {chain}: held-out camera-to-arm residual {self.residual.holdout_board_mm:.1f} mm"
+
+
+def read_calibration_info(applied_dir: Path | None) -> CalibrationInfo:
+    """The applied head chain's identity and residual, read from head_chain.json and the applied.json record.
+
+    Args:
+        applied_dir (Path | None): Applied calibration directory; None means nothing can be applied.
+
+    Returns:
+        CalibrationInfo: applied False when there is no readable head_chain.json.
+    """
+    none = CalibrationInfo(False, None, None, None, None, None)
+    if applied_dir is None:
+        return none
+    try:
+        chain = json.loads((applied_dir / HEAD_CHAIN_FILE).read_text())
+    except (OSError, ValueError):
+        return none
+    try:
+        parse_head_chain(chain)
+    except ValueError:
+        return none  # apply_overrides skips such a chain too, so it is not in effect
+    session, result = chain.get("session"), chain.get("result")
+    try:
+        record = json.loads((applied_dir / APPLIED_MARKER_FILE).read_text()).get("head_chain")
+    except (OSError, ValueError, AttributeError):
+        record = None
+    matches = isinstance(record, dict) and (record.get("session"), record.get("result")) == (session, result)
+    source = record.get("source") if matches else None
+    applied_at = record.get("applied_at") if matches else None
+    return CalibrationInfo(
+        True,
+        source if isinstance(source, str) else None,
+        session if isinstance(session, str) else None,
+        result if isinstance(result, str) else None,
+        applied_at if isinstance(applied_at, str) else None,
+        parse_residual(chain),
+    )
+
+
 class AppliedHeadKinematics:
     """Head kinematics on the repo URDF with the applied calibration overrides, rebuilt when the marker changes.
 
@@ -200,6 +289,7 @@ class AppliedHeadKinematics:
         self.lock = threading.Lock()
         self.stamp = self.marker_stamp()
         self.kinematics = self.build()
+        self.info = read_calibration_info(applied_dir)
 
     def marker_stamp(self) -> int | None:
         """Modification time of the applied marker.
@@ -264,9 +354,20 @@ class AppliedHeadKinematics:
             except Exception as error:
                 LOGGER.exception("head kinematics reload failed (%s), keeping the previous chain", error)
             else:
+                self.info = read_calibration_info(self.applied_dir)
                 session, result = self.marker_fields()
                 LOGGER.info("head kinematics reloaded: applied session %s, result %s", session, result)
             return self.kinematics
+
+    def calibration(self) -> CalibrationInfo:
+        """The applied calibration the current kinematics stand on (reloaded first when the marker changed).
+
+        Returns:
+            CalibrationInfo: Identity and arm-frame residual of the applied head chain.
+        """
+        self.current()
+        with self.lock:
+            return self.info
 
 
 class HeadBackend(Protocol):
@@ -336,6 +437,14 @@ class HeadController:
         self.provider = kinematics
         self.settings = settings
         self.history = history if history is not None else HeadHistory(settings)
+
+    def calibration(self) -> CalibrationInfo:
+        """The applied head calibration (identity and arm-frame residual), reloaded when the marker changed.
+
+        Returns:
+            CalibrationInfo: As AppliedHeadKinematics.calibration.
+        """
+        return self.provider.calibration()
 
     def pose_at(self, stamp_s: float) -> HeadPoseAtStamp:
         """Head pan/tilt at an image stamp from the joint-state history.
