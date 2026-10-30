@@ -69,6 +69,16 @@ def test_tool_names_include_the_depth_tools() -> None:
     assert "pixel_to_point" in TOOL_NAMES and "camera_point_to_arm" in TOOL_NAMES
 
 
+def test_description_says_the_pixel_must_come_from_a_current_picture(tmp_path: Path) -> None:
+    """The depth is read now, not at the stamp of the picture the pixel came from: a stale pixel lands on another spot."""
+    import anyio
+
+    server, *_ = make(tmp_path)
+    tools = anyio.run(server.list_tools)
+    text = next(t.description for t in tools if t.name == "pixel_to_point")
+    assert "just taken" in text and "get_camera_image" in text and "not moved since" in text
+
+
 def test_reports_every_frame_the_depth_and_the_calibration(tmp_path: Path) -> None:
     server, robot, _, applied = make(tmp_path)
     p_arm = POINT_ARM
