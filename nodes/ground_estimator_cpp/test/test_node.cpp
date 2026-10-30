@@ -64,7 +64,7 @@ constexpr int DECIMATION = 2;
 constexpr double TF_BEFORE_S = 5.0;
 constexpr double TF_SPAN_S = 120.0;
 constexpr double TF_STEP_S = 0.05;
-constexpr double TURN_TF_STEP_S = 0.02;  // TF step of a turning head
+constexpr double TURN_TF_STEP_S = 0.02;   // TF step of a turning head
 constexpr double TURN_RATE_DEG_S = 20.0;  // a turning head far above the 3 deg/s gate
 constexpr double TURN_SETTLE_S = 0.15;    // after a turn starts or stops until both ends of the 0.1 s rate window agree
 constexpr double CLOUD_PERIOD_S = 0.1;
@@ -1255,9 +1255,8 @@ TEST_F(NodeTest, CloudsCapturedWhileTheHeadTurnsDoNotVoteAndTheGateReleasesWhenI
     gated.push_back(publish_cloud(scene_cloud(box_scene())));
     std::this_thread::sleep_for(std::chrono::duration<double>(CLOUD_PERIOD_S));
   }
-  ASSERT_TRUE(wait_for([&] {
-    return metric("ground_head_moving_frames_total{input=\"cloud\"}").value_or(0.0) >= TURN_CLOUDS;
-  }));
+  ASSERT_TRUE(
+    wait_for([&] { return metric("ground_head_moving_frames_total{input=\"cloud\"}").value_or(0.0) >= TURN_CLOUDS; }));
   EXPECT_NEAR(metric("ground_head_rate_deg_s").value_or(0.0), TURN_RATE_DEG_S, 1.0);
   const auto moving = state_after(ns_of(gated.back()), [](const json & d) { return d["head_moving"] == true; });
   ASSERT_TRUE(moving.has_value());
@@ -1326,9 +1325,7 @@ TEST_F(NodeTest, RgbdCloudCapturedWhileTheHeadTurnsIsNotLabelled)
   set_turning_head(CAM_FRAME, BASE_T_CAM, TURN_RATE_DEG_S, t0_ - TF_BEFORE_S, turn_start_s, turn_start_s + 60.0);
   std::this_thread::sleep_for(std::chrono::duration<double>(TURN_SETTLE_S));
   publish_rgbd(false);
-  ASSERT_TRUE(wait_for([&] {
-    return metric("ground_head_moving_frames_total{input=\"rgbd\"}").value_or(0.0) >= 1.0;
-  }));
+  ASSERT_TRUE(wait_for([&] { return metric("ground_head_moving_frames_total{input=\"rgbd\"}").value_or(0.0) >= 1.0; }));
   std::this_thread::sleep_for(SETTLE);
   EXPECT_EQ(labelled_.size(), 0u);
   EXPECT_EQ(dropped("no_plane_rgbd"), 0.0);
