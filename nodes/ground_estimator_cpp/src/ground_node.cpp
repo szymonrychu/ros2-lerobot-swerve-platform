@@ -12,6 +12,7 @@
 #include <functional>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <initializer_list>
+#include <map>
 #include <sensor_msgs/msg/point_field.hpp>
 #include <sensor_msgs/point_cloud2_iterator.hpp>
 #include <tf2_eigen/tf2_eigen.hpp>
@@ -352,6 +353,7 @@ GroundNode::GroundNode(
   obstacle_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(config_.obstacle_points(), reliable);
   drop_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(config_.drop_points(), reliable);
   warnings_pub_ = create_publisher<std_msgs::msg::String>(config_.warning_areas(), reliable);
+  classified_pub_ = create_publisher<sensor_msgs::msg::PointCloud2>(config_.classified_points(), best_effort);
   state_pub_ =
     create_publisher<std_msgs::msg::String>(config_.state_topic(), rclcpp::QoS(1).reliable().transient_local());
 
@@ -593,6 +595,7 @@ void GroundNode::drop_occluded(const Plane & plane, const Eigen::Vector3d & sens
     occluded_mask(filtered_cloud_, floor_reference_.heights, sensor_base.head<2>(), sensor_height_m, config_.occlusion);
   floor_reference_.points.clear();
   floor_reference_.points.reserve(n);
+  occluded_points_.clear();
   std::size_t kept = 0;
   for (std::size_t i = 0; i < n; ++i) {
     // A shadowed point within the depth floor noise is floor whatever hides it: it cannot make a step, ramp or drop,
@@ -600,6 +603,8 @@ void GroundNode::drop_occluded(const Plane & plane, const Eigen::Vector3d & sens
     if (!occluded[i] || std::fabs(floor_reference_.heights[i]) <= FLOOR_NOISE_KEEP_M) {
       floor_reference_.points.push_back(filtered_cloud_[i]);
       floor_reference_.heights[kept++] = floor_reference_.heights[i];
+    } else {
+      occluded_points_.push_back(filtered_cloud_[i]);
     }
   }
   floor_reference_.heights.resize(kept);
@@ -613,14 +618,15 @@ void GroundNode::process_plane(
 {
   const Plane & plane = tracked.plane;
   const double edge_band_m = config_.traversability.edge_band_m;
-  filtered_cloud_ = cell_filter_.apply(base_cloud_, plane, fixed_T_base, stamp_s, &filtered_raw_h_);
+  split_overhang(plane);
+  filtered_cloud_ = cell_filter_.apply(below_robot_, plane, fixed_T_base, stamp_s, &filtered_raw_h_);
   raw_height_of_.clear();
   raw_height_of_.reserve(filtered_cloud_.size());
   for (std::size_t i = 0; i < filtered_cloud_.size(); ++i) {
     raw_height_of_.emplace(bits_of(filtered_cloud_[i]), filtered_raw_h_[i]);
   }
   if (config_.temporal.enabled) {
-    raw_heights_.add(base_cloud_, plane, fixed_T_base, stamp_s);
+    raw_heights_.add(below_robot_, plane, fixed_T_base, stamp_s);
   }
   set_gauge(METRIC_TEMPORAL_CELLS, static_cast<double>(cell_filter_.cell_count()));
   set_gauge(METRIC_TEMPORAL_GATED, static_cast<double>(cell_filter_.gated_cell_count()));
@@ -645,10 +651,11 @@ void GroundNode::process_plane(
 
   // Lethal clouds: only this frame's points, only those in stable lethal cells (a lethal observation in a cell that is
   // not yet stable is withheld; warning points in a stable lethal cell are lethal), and of those only the lethal marks.
-  lethal_marks_of(rule.obstacle, rule.warning_above, plane, fixed_T_base, stable_obstacle_);
-  lethal_marks_of(rule.drop, rule.warning_below, plane, fixed_T_base, stable_drop_);
+  lethal_marks_of(rule.obstacle, rule.warning_above, plane, fixed_T_base, config_.max_step_up_m(), stable_obstacle_);
+  lethal_marks_of(rule.drop, rule.warning_below, plane, fixed_T_base, config_.max_step_down_m(), stable_drop_);
   const int64_t stamp_ns = ns_of(msg.header.stamp);
   append_edge_points(fixed_T_base, stamp_ns);
+  publish_classified(plane, fixed_T_base, msg.header.stamp);
 
   cycle_ = Cycle{};
   cycle_.regions = std::move(rule.regions);
@@ -739,9 +746,102 @@ void GroundNode::observe_classes(const Traversability & rule, const Eigen::Isome
   cell_class_.end_frame();
 }
 
+void GroundNode::split_overhang(const Plane & plane)
+{
+  below_robot_.clear();
+  overhang_points_.clear();
+  below_robot_.reserve(base_cloud_.size());
+  const double robot_height_m = config_.traversability.robot_height_m;
+  for (const auto & p : base_cloud_) {
+    if (height_above(plane, Eigen::Vector3d(p.x, p.y, p.z)) > robot_height_m) {
+      overhang_points_.push_back(p);
+    } else {
+      below_robot_.push_back(p);
+    }
+  }
+}
+
+void GroundNode::publish_classified(
+  const Plane & plane, const Eigen::Isometry3d & fixed_T_base, const builtin_interfaces::msg::Time & stamp)
+{
+  if (classified_pub_->get_subscription_count() == 0) {
+    return;
+  }
+  const ClassLimits limits = class_limits(config_);
+  const double cell_m = config_.temporal.cell_size_m;
+  const auto in_range = [this](const pcl::PointXYZ & p) {
+    const double range = std::hypot(static_cast<double>(p.x), static_cast<double>(p.y));
+    return range >= config_.bands.min_range_m && range <= config_.bands.max_range_m;
+  };
+  const auto xy_of = [&fixed_T_base](const pcl::PointXYZ & p) {
+    return Eigen::Vector2d((fixed_T_base * Eigen::Vector3d(p.x, p.y, p.z)).head<2>());
+  };
+  // The top of each obstacle cell: a cell taller than the tallest step is a wall from its foot up.
+  std::map<CellKey, double> tops;
+  for (const auto & p : filtered_cloud_) {
+    const Eigen::Vector2d xy = xy_of(p);
+    if (cell_class_.stable_at(xy) == CellClass::obstacle) {
+      const double h = height_above(plane, Eigen::Vector3d(p.x, p.y, p.z));
+      auto [it, added] = tops.emplace(cell_key_of(xy, cell_m), h);
+      it->second = added ? h : std::max(it->second, h);
+    }
+  }
+  const auto cell_of = [&](const Eigen::Vector2d & xy) {
+    PointCell cell;
+    cell.cls = cell_class_.stable_at(xy);
+    if (cell.cls == CellClass::warning) {
+      cell.kind = cell_class_.kind_at(xy);
+    } else if (cell.cls == CellClass::obstacle) {
+      const auto top = tops.find(cell_key_of(xy, cell_m));
+      cell.top_m = top == tops.end() ? 0.0 : top->second;
+    }
+    return cell;
+  };
+  classified_points_.clear();
+  classes_.clear();
+  const auto add = [&](const Eigen::Vector3d & p_base, GroundClass cls) {
+    const Eigen::Vector3d p = fixed_T_base * p_base;
+    classified_points_.push_back(
+      pcl::PointXYZ(static_cast<float>(p.x()), static_cast<float>(p.y()), static_cast<float>(p.z())));
+    classes_.push_back(cls);
+  };
+  // The temporal median moves a point along the plane normal to its cell's height: it is published back at its own
+  // position, classed by the cell's height (its own height for the overhang test).
+  for (const auto & p : filtered_cloud_) {
+    if (!in_range(p)) {
+      continue;
+    }
+    const Eigen::Vector3d pb(p.x, p.y, p.z);
+    const double filtered_h = height_above(plane, pb);
+    const auto raw = raw_height_of_.find(bits_of(p));
+    const double raw_h = raw == raw_height_of_.end() ? filtered_h : raw->second;
+    add(pb - plane.normal * (filtered_h - raw_h), point_class(filtered_h, raw_h, cell_of(xy_of(p)), limits));
+  }
+  // In an occlusion shadow nothing is settled (the cell says nothing about a hidden surface).
+  for (const auto & p : occluded_points_) {
+    if (!in_range(p)) {
+      continue;
+    }
+    const Eigen::Vector3d pb(p.x, p.y, p.z);
+    const double filtered_h = height_above(plane, pb);
+    const auto raw = raw_height_of_.find(bits_of(p));
+    const double raw_h = raw == raw_height_of_.end() ? filtered_h : raw->second;
+    add(pb - plane.normal * (filtered_h - raw_h), point_class(filtered_h, raw_h, PointCell{}, limits));
+  }
+  for (const auto & p : overhang_points_) {
+    if (!in_range(p)) {
+      continue;
+    }
+    const Eigen::Vector3d pb(p.x, p.y, p.z);
+    const double h = height_above(plane, pb);
+    add(pb, point_class(h, h, cell_of(xy_of(p)), limits));
+  }
+  classified_pub_->publish(to_classified_msg(classified_points_, classes_, config_.fixed_frame, stamp));
+}
+
 void GroundNode::lethal_marks_of(
   const pcl::PointCloud<pcl::PointXYZ> & lethal, const pcl::PointCloud<pcl::PointXYZ> & warning, const Plane & plane,
-  const Eigen::Isometry3d & fixed_T_base, pcl::PointCloud<pcl::PointXYZ> & out)
+  const Eigen::Isometry3d & fixed_T_base, double limit_m, pcl::PointCloud<pcl::PointXYZ> & out)
 {
   lethal_candidates_.clear();
   candidate_filtered_h_.clear();
@@ -759,8 +859,8 @@ void GroundNode::lethal_marks_of(
     }
   }
   out = lethal_marks(
-    lethal_candidates_, candidate_filtered_h_, candidate_raw_h_, config_.max_step_m(),
-    config_.edges.cluster_tolerance_m, config_.traversability.lethal_min_points);
+    lethal_candidates_, candidate_filtered_h_, candidate_raw_h_, limit_m, config_.edges.cluster_tolerance_m,
+    config_.traversability.lethal_min_points);
 }
 
 void GroundNode::observe_steady(

@@ -56,20 +56,41 @@ struct BandsConfig
   double floor_band_m = 0.02;
 };
 
-// Obstacle versus warning rule.
+// Obstacle versus warning rule and the limits of the traversability classes (ground_classes.hpp, task T3).
 struct TraversabilityConfig
 {
-  double wheel_radius_m = 0.06;       // > 0
-  double max_step_fraction = 0.3333;  // 0 < v < 1 of the wheel diameter; 0.04 m up and down (user 2026-10-29)
-  double max_slope_deg = 15.0;        // 0 < v <= min(slope.roll_error_deg, slope.pitch_error_deg)
-  double edge_band_m = 0.05;          // > 0
-  int lethal_min_points = 2;          // 1..50; fewest unclustered lethal points within edges.cluster_tolerance_m
+  double wheel_radius_m = 0.06;            // > 0
+  double max_step_up_fraction = 0.3333;    // 0 < v < 1 of the wheel diameter; 0.04 m (user 2026-10-29)
+  double max_step_down_fraction = 0.3333;  // 0 < v < 1 of the wheel diameter; 0.04 m, a deeper drop is no-go
+  double max_slope_deg = 15.0;  // 0 < v <= min(slope.roll_error_deg, slope.pitch_error_deg) and the break-over angle
+  double edge_band_m = 0.05;    // > 0
+  int lethal_min_points = 2;    // 1..50; fewest unclustered lethal points within edges.cluster_tolerance_m
+  // Lowest point of the chassis above the floor (mcp_server body model: crossbar underside), > 0 and >= both steps.
+  double chassis_clearance_m = 0.06;
+  double wheelbase_m = 0.305;   // > 0; front to rear steering axes (Platform dimensions.md), for the break-over angle
+  double robot_height_m = 0.6;  // > 0, >= bands.obstacle_max_m; the head envelope: anything higher is an overhang
 };
 
-// Largest rideable step: max_step_fraction of the wheel diameter. The single definition of the threshold.
+// Largest rideable step up: max_step_up_fraction of the wheel diameter. The single definition of the threshold.
 // @param cfg the rule settings.
-// @return metres (0.04 for the 0.06 m wheel radius; the same limit for a step up and a drop).
-inline double max_step_m(const TraversabilityConfig & cfg) { return 2.0 * cfg.wheel_radius_m * cfg.max_step_fraction; }
+// @return metres (0.04 for the 0.06 m wheel radius).
+inline double max_step_up_m(const TraversabilityConfig & cfg)
+{
+  return 2.0 * cfg.wheel_radius_m * cfg.max_step_up_fraction;
+}
+
+// Largest rideable step down: max_step_down_fraction of the wheel diameter; a deeper drop is lethal.
+// @param cfg the rule settings.
+// @return metres (0.04 for the 0.06 m wheel radius).
+inline double max_step_down_m(const TraversabilityConfig & cfg)
+{
+  return 2.0 * cfg.wheel_radius_m * cfg.max_step_down_fraction;
+}
+
+// Steepest crest the chassis passes without touching it between the wheels: 2 atan(2 clearance / wheelbase).
+// @param cfg the rule settings.
+// @return degrees (42.9 for 0.06 m and 0.305 m).
+double break_over_deg(const TraversabilityConfig & cfg);
 
 // Published warning areas.
 struct WarningsConfig
@@ -242,8 +263,9 @@ struct Config
   MotionConfig motion;
   std::optional<long> metrics_port = DEFAULT_METRICS_PORT;  // NOLINT(runtime/int); nullopt disables metrics
 
-  // Largest step the base rides over, up or down: a third of the wheel diameter.
-  double max_step_m() const { return ground_estimator_cpp::max_step_m(traversability); }
+  // Largest step the base rides up and down: a third of the wheel diameter each (separate keys).
+  double max_step_up_m() const { return ground_estimator_cpp::max_step_up_m(traversability); }
+  double max_step_down_m() const { return ground_estimator_cpp::max_step_down_m(traversability); }
 
   // Output topics derived from output_namespace.
   std::string obstacle_points() const { return output_namespace + "/obstacle_points"; }
@@ -251,6 +273,7 @@ struct Config
   std::string labelled_points() const { return output_namespace + "/labelled_points"; }
   std::string state_topic() const { return output_namespace + "/state"; }
   std::string warning_areas() const { return output_namespace + "/warning_areas"; }
+  std::string classified_points() const { return output_namespace + "/classified_points"; }
 };
 
 // Every error of a YAML mapping as "<key>: <problem>" lines (nested keys as "fit.distance_m"); empty when valid.

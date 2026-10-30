@@ -254,9 +254,10 @@ TEST(GroundState, TraversabilityIsTheConfiguredRuleEvenWithoutPlane)
 {
   for (const StateInputs & in : {full_inputs(), planeless_inputs()}) {
     const json t = build_state(in).at("traversability");
-    EXPECT_DOUBLE_EQ(as_double(t.at("max_step_m")), 0.04);
+    EXPECT_DOUBLE_EQ(as_double(t.at("max_step_up_m")), 0.04);
+    EXPECT_DOUBLE_EQ(as_double(t.at("max_step_down_m")), 0.04);
     EXPECT_DOUBLE_EQ(as_double(t.at("max_slope_deg")), 15.0);
-    EXPECT_EQ(keys_in_order(t.dump()), (std::vector<std::string>{"max_step_m", "max_slope_deg"}));
+    EXPECT_EQ(keys_in_order(t.dump()), (std::vector<std::string>{"max_step_up_m", "max_step_down_m", "max_slope_deg"}));
   }
 }
 
@@ -365,7 +366,8 @@ TEST(GroundState, ExampleFixtureEqualsToStateString)
 {
   // The fixture is example data with an 8 deg limit, not the default rule.
   StateInputs in = full_inputs();
-  in.traversability.max_step_fraction = 0.3333;  // the example document predates the 60 mm step
+  in.traversability.max_step_up_fraction = 0.3333;
+  in.traversability.max_step_down_fraction = 0.3333;
   in.traversability.max_slope_deg = 8.0;
   EXPECT_EQ(read_file("state_example.json"), to_state_string(in));
 }

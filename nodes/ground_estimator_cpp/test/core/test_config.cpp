@@ -77,7 +77,11 @@ TEST(Config, DefaultsMatchTheSpecification)
   EXPECT_DOUBLE_EQ(c.bands.max_range_m, 2.0);
   EXPECT_DOUBLE_EQ(c.bands.min_range_m, 0.42);
   EXPECT_DOUBLE_EQ(c.traversability.wheel_radius_m, 0.06);
-  EXPECT_DOUBLE_EQ(c.traversability.max_step_fraction, 0.3333);
+  EXPECT_DOUBLE_EQ(c.traversability.max_step_up_fraction, 0.3333);
+  EXPECT_DOUBLE_EQ(c.traversability.max_step_down_fraction, 0.3333);
+  EXPECT_DOUBLE_EQ(c.traversability.chassis_clearance_m, 0.06);
+  EXPECT_DOUBLE_EQ(c.traversability.wheelbase_m, 0.305);
+  EXPECT_DOUBLE_EQ(c.traversability.robot_height_m, 0.6);
   EXPECT_DOUBLE_EQ(c.bands.floor_band_m, 0.02);
   EXPECT_DOUBLE_EQ(c.traversability.max_slope_deg, 15.0);
   EXPECT_DOUBLE_EQ(c.traversability.edge_band_m, 0.05);
@@ -149,11 +153,18 @@ TEST(Config, MaxStepIsAThirdOfTheWheelDiameterUpAndDown)
 {
   // User decision 2026-10-29: the climbable step is 0.04 m, the same limit up and down (a drop deeper than it is no-go).
   Config c = ground_estimator_cpp::from_yaml(YAML::Load("{}"));
-  EXPECT_NEAR(c.max_step_m(), 0.04, 1e-4);
+  EXPECT_NEAR(c.max_step_up_m(), 0.04, 1e-4);
+  EXPECT_NEAR(c.max_step_down_m(), 0.04, 1e-4);
   c = ground_estimator_cpp::from_yaml(YAML::Load("traversability: {wheel_radius_m: 0.09}"));
-  EXPECT_NEAR(c.max_step_m(), 0.06, 1e-4);
-  c = ground_estimator_cpp::from_yaml(YAML::Load("traversability: {max_step_fraction: 0.5}"));
-  EXPECT_NEAR(c.max_step_m(), 0.06, 1e-4);
+  EXPECT_NEAR(c.max_step_up_m(), 0.06, 1e-4);
+  EXPECT_NEAR(c.max_step_down_m(), 0.06, 1e-4);
+  // Task T3: the step up and the step down are separate keys.
+  c = ground_estimator_cpp::from_yaml(YAML::Load("traversability: {max_step_up_fraction: 0.5}"));
+  EXPECT_NEAR(c.max_step_up_m(), 0.06, 1e-4);
+  EXPECT_NEAR(c.max_step_down_m(), 0.04, 1e-4);
+  c = ground_estimator_cpp::from_yaml(YAML::Load("traversability: {max_step_down_fraction: 0.25}"));
+  EXPECT_NEAR(c.max_step_up_m(), 0.04, 1e-4);
+  EXPECT_NEAR(c.max_step_down_m(), 0.03, 1e-4);
 }
 
 TEST(Config, ShippedYamlDocumentsEveryKey)
@@ -205,7 +216,11 @@ TEST(Config, ShippedYamlLoadsWithTheDefaults)
   EXPECT_EQ(shipped.guidance.no_return.window_frames, defaults.guidance.no_return.window_frames);
   EXPECT_EQ(shipped.guidance.no_return.enter_frames, defaults.guidance.no_return.enter_frames);
   EXPECT_DOUBLE_EQ(shipped.fit.distance_m, defaults.fit.distance_m);
-  EXPECT_DOUBLE_EQ(shipped.traversability.max_step_fraction, defaults.traversability.max_step_fraction);
+  EXPECT_DOUBLE_EQ(shipped.traversability.max_step_up_fraction, defaults.traversability.max_step_up_fraction);
+  EXPECT_DOUBLE_EQ(shipped.traversability.max_step_down_fraction, defaults.traversability.max_step_down_fraction);
+  EXPECT_DOUBLE_EQ(shipped.traversability.chassis_clearance_m, defaults.traversability.chassis_clearance_m);
+  EXPECT_DOUBLE_EQ(shipped.traversability.wheelbase_m, defaults.traversability.wheelbase_m);
+  EXPECT_DOUBLE_EQ(shipped.traversability.robot_height_m, defaults.traversability.robot_height_m);
   EXPECT_DOUBLE_EQ(shipped.slope.pitch_error_deg, defaults.slope.pitch_error_deg);
   EXPECT_EQ(shipped.metrics_port, defaults.metrics_port);
 }
@@ -280,20 +295,39 @@ TEST(Config, RejectsFloorBandOutsideTheFitDistanceAndTheMaxStep)
   expect_rejected("bands: {floor_band_m: 0.05}", "bands.floor_band_m");  // above the 0.04 max step
   expect_accepted("bands: {floor_band_m: 0.02}");
   expect_accepted("bands: {floor_band_m: 0.04}");
-  expect_accepted("traversability: {max_step_fraction: 0.5}\nbands: {floor_band_m: 0.06}");  // 0.06 max step
+  expect_accepted(
+    "traversability: {max_step_up_fraction: 0.5, max_step_down_fraction: 0.5}\nbands: {floor_band_m: 0.06}");  // 0.06
 }
 
 TEST(Config, RejectsTraversabilityRules)
 {
   expect_rejected("traversability: {wheel_radius_m: 0}", "traversability.wheel_radius_m");
-  expect_rejected("traversability: {max_step_fraction: 0}", "traversability.max_step_fraction");
-  expect_rejected("traversability: {max_step_fraction: 1}", "traversability.max_step_fraction");
-  // max step 0.01 m is not above fit.distance_m 0.02.
-  expect_rejected("traversability: {max_step_fraction: 0.0834}", "traversability.max_step_fraction");
+  for (const std::string key : {"max_step_up_fraction", "max_step_down_fraction"}) {
+    expect_rejected("traversability: {" + key + ": 0}", "traversability." + key);
+    expect_rejected("traversability: {" + key + ": 1}", "traversability." + key);
+    // max step 0.01 m is not above fit.distance_m 0.02.
+    expect_rejected("traversability: {" + key + ": 0.0834}", "traversability." + key);
+  }
   expect_rejected("traversability: {max_slope_deg: 0}", "traversability.max_slope_deg");
   expect_rejected("traversability: {edge_band_m: 0}", "traversability.edge_band_m");
   // The step limit must stay below the band limits.
   expect_rejected("traversability: {wheel_radius_m: 1.0}", "bands.obstacle_max_m");
+}
+
+// Task T3: the chassis (crossbar underside 0.06 m, wheelbase 0.305 m) and the robot height (head envelope 0.6 m) bound
+// the rule: a climbable step must pass under the chassis, the steepest ramp must not high-centre it on its crest (the
+// break-over angle 2 atan(2 clearance / wheelbase), 42.9 deg here), and the obstacle band must end at the robot height.
+TEST(Config, RejectsChassisAndRobotHeightViolations)
+{
+  expect_accepted("traversability: {chassis_clearance_m: 0.04}");  // the 0.04 m step just passes under
+  expect_rejected("traversability: {chassis_clearance_m: 0.039}", "traversability.chassis_clearance_m");
+  expect_rejected("traversability: {chassis_clearance_m: 0}", "traversability.chassis_clearance_m");
+  expect_rejected("traversability: {wheelbase_m: 0}", "traversability.wheelbase_m");
+  expect_rejected("traversability: {wheelbase_m: 1.0}", "traversability.max_slope_deg");  // break-over 13.7 deg
+  expect_accepted("traversability: {wheelbase_m: 0.89}");                                 // break-over 15.4 deg
+  expect_rejected("traversability: {robot_height_m: 0}", "traversability.robot_height_m");
+  expect_rejected("traversability: {robot_height_m: 0.5}", "bands.obstacle_max_m");
+  expect_accepted("traversability: {robot_height_m: 0.8}");
 }
 
 TEST(Config, MaxSlopeAboveTheTiltGuardErrorLimitsIsRejected)
@@ -545,7 +579,8 @@ TEST(Config, RejectsGuidanceCrossKeyViolations)
   expect_rejected("guidance: {max_range_m: 2.5}", "guidance.max_range_m");
   expect_rejected("bands: {max_range_m: 1.5}", "guidance.max_range_m");
   expect_accepted(
-    "traversability: {wheel_radius_m: 0.09, max_step_fraction: 0.5}\nguidance: {edge: {min_height_m: 0.089}}");
+    "traversability: {wheel_radius_m: 0.09, max_step_up_fraction: 0.5, max_step_down_fraction: 0.5, "
+    "chassis_clearance_m: 0.1}\nguidance: {edge: {min_height_m: 0.089}}");
   expect_rejected("traversability: {wheel_radius_m: 0.02}\nfit: {distance_m: 0.01}", "guidance.edge.min_height_m");
   expect_rejected("guidance: {no_return: {enter_frames: 7}}", "guidance.no_return.enter_frames");
   expect_accepted("guidance: {no_return: {window_frames: 5, enter_frames: 5}}");

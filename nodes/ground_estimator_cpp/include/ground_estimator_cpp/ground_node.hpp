@@ -79,6 +79,7 @@
 #include "ground_estimator_cpp/config.hpp"
 #include "ground_estimator_cpp/edge_points.hpp"
 #include "ground_estimator_cpp/edges.hpp"
+#include "ground_estimator_cpp/ground_classes.hpp"
 #include "ground_estimator_cpp/guidance.hpp"
 #include "ground_estimator_cpp/no_return.hpp"
 #include "ground_estimator_cpp/plane_fit.hpp"
@@ -252,16 +253,24 @@ private:
   void process_plane(
     const sensor_msgs::msg::PointCloud2 & msg, const TrackedPlane & tracked, const Eigen::Isometry3d & fixed_T_base,
     const Eigen::Vector3d & sensor_base, double stamp_s, const std::chrono::steady_clock::time_point & started);
-  // Removes the points in an occlusion shadow from filtered_cloud_, sets floor_reference_ to what is left (points and
-  // plane-relative heights) and the ground_occluded_points gauge.
+  // Removes the points in an occlusion shadow from filtered_cloud_ (kept in occluded_points_), sets floor_reference_ to
+  // what is left (points and plane-relative heights) and the ground_occluded_points gauge.
   void drop_occluded(const Plane & plane, const Eigen::Vector3d & sensor_base);
+  // Split base_cloud_ by raw plane-relative height: below_robot_ (at most traversability.robot_height_m, the input of
+  // the temporal median and the rule) and overhang_points_ (above it: never an obstacle, task T3).
+  void split_overhang(const Plane & plane);
+  // Publish /ground/classified_points (only with a subscriber): this frame's measured points within the band range at
+  // their own positions, in the fixed frame, each with its GroundClass (ground_classes.hpp).
+  void publish_classified(
+    const Plane & plane, const Eigen::Isometry3d & fixed_T_base, const builtin_interfaces::msg::Time & stamp);
   void refine_slopes(std::vector<Cluster> & clusters, double sign, const Eigen::Isometry3d & fixed_T_base) const;
   void observe_classes(const Traversability & rule, const Eigen::Isometry3d & fixed_T_base, double stamp_s);
   // The lethal marks of one side of the floor (lethal_marks): the points of `lethal` and `warning` (this frame's rule
-  // output) in stable lethal cells that clear the step by their own height and the cell's median, with company.
+  // output) in stable lethal cells that clear the side's step limit (limit_m) by their own height and the cell's
+  // median, with company.
   void lethal_marks_of(
     const pcl::PointCloud<pcl::PointXYZ> & lethal, const pcl::PointCloud<pcl::PointXYZ> & warning, const Plane & plane,
-    const Eigen::Isometry3d & fixed_T_base, pcl::PointCloud<pcl::PointXYZ> & out);
+    const Eigen::Isometry3d & fixed_T_base, double limit_m, pcl::PointCloud<pcl::PointXYZ> & out);
   void observe_steady(
     const pcl::PointCloud<pcl::PointXYZ> & points, CellClass cls, const Eigen::Isometry3d & fixed_T_base);
   void publish_warning_areas(const builtin_interfaces::msg::Time & stamp, const Plane & plane_fixed);
@@ -304,9 +313,14 @@ private:
 
   // Reused between clouds (the 10 Hz path keeps its capacity).
   pcl::PointCloud<pcl::PointXYZ> base_cloud_;
-  FloorReference floor_reference_;                 // filtered_cloud_ with plane-relative heights
-  pcl::PointCloud<pcl::PointXYZ> filtered_cloud_;  // base_cloud_ after the temporal median
-  std::vector<float> filtered_raw_h_;              // own height of each filtered_cloud_ point before the median
+  pcl::PointCloud<pcl::PointXYZ> below_robot_;        // base_cloud_ at most the robot height above the plane
+  pcl::PointCloud<pcl::PointXYZ> overhang_points_;    // base_cloud_ above the robot height (classified only)
+  pcl::PointCloud<pcl::PointXYZ> occluded_points_;    // filtered points removed by the shadow gate (classified only)
+  pcl::PointCloud<pcl::PointXYZ> classified_points_;  // scratch of publish_classified (fixed frame)
+  std::vector<GroundClass> classes_;                  // scratch of publish_classified
+  FloorReference floor_reference_;                    // filtered_cloud_ with plane-relative heights
+  pcl::PointCloud<pcl::PointXYZ> filtered_cloud_;     // base_cloud_ after the temporal median
+  std::vector<float> filtered_raw_h_;                 // own height of each filtered_cloud_ point before the median
   std::unordered_map<PointBits, float, PointBitsHash> raw_height_of_;  // filtered point -> its own height
   pcl::PointCloud<pcl::PointXYZ> lethal_candidates_;                   // scratch of lethal_marks_of
   std::vector<float> candidate_filtered_h_, candidate_raw_h_;
@@ -328,6 +342,7 @@ private:
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr obstacle_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr drop_pub_;
   rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr labelled_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr classified_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr warnings_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr state_pub_;
   rclcpp::TimerBase::SharedPtr state_timer_;

@@ -341,6 +341,12 @@ CellClass CellClassFilter::stable_at(const Eigen::Vector2d & xy_fixed) const
   return it == cells_.end() ? CellClass::none : it->second.stable;
 }
 
+std::string CellClassFilter::kind_at(const Eigen::Vector2d & xy_fixed) const
+{
+  const auto it = cells_.find(key_of(xy_fixed));
+  return it == cells_.end() || !it->second.record ? std::string() : it->second.record->kind;
+}
+
 std::size_t CellClassFilter::count(CellClass cls) const
 {
   return static_cast<std::size_t>(

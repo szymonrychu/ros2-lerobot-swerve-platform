@@ -15,7 +15,9 @@
 #include <cstring>
 #include <functional>
 #include <geometry_msgs/msg/transform_stamped.hpp>
+#include <iostream>
 #include <limits>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <nlohmann/json.hpp>
@@ -40,12 +42,14 @@
 #include "core/synthetic_floor.hpp"
 #include "ground_estimator_cpp/cell_median.hpp"
 #include "ground_estimator_cpp/config.hpp"
+#include "ground_estimator_cpp/ground_classes.hpp"
 #include "ground_estimator_cpp/ground_node.hpp"
 
 namespace
 {
 
 using ground_estimator_cpp::Config;
+using ground_estimator_cpp::GroundClass;
 using ground_estimator_cpp::GroundNode;
 using ground_test::DEG;
 using ground_test::Scene;
@@ -191,6 +195,20 @@ std::vector<Eigen::Vector3f> xyz_of(const sensor_msgs::msg::PointCloud2 & msg)
   sensor_msgs::PointCloud2ConstIterator<float> x(msg, "x"), y(msg, "y"), z(msg, "z");
   for (; x != x.end(); ++x, ++y, ++z) {
     out.emplace_back(*x, *y, *z);
+  }
+  return out;
+}
+
+// The uint8 field `name` of every point of a cloud.
+std::vector<uint8_t> uint8_field(const sensor_msgs::msg::PointCloud2 & msg, const std::string & name)
+{
+  std::vector<uint8_t> out;
+  for (const auto & f : msg.fields) {
+    if (f.name == name) {
+      for (size_t i = 0; i < static_cast<size_t>(msg.width) * msg.height; ++i) {
+        out.push_back(msg.data[i * msg.point_step + f.offset]);
+      }
+    }
   }
   return out;
 }
@@ -354,7 +372,8 @@ void pin_ten_hz_windows(Config & c)
 void pin_legacy_rule(Config & c)
 {
   c.bands.floor_band_m = LEGACY_FLOOR_BAND_M;
-  c.traversability.max_step_fraction = LEGACY_STEP_FRACTION;
+  c.traversability.max_step_up_fraction = LEGACY_STEP_FRACTION;
+  c.traversability.max_step_down_fraction = LEGACY_STEP_FRACTION;
   c.guidance.edge.min_height_m = LEGACY_EDGE_MIN_HEIGHT_M;
 }
 
@@ -650,7 +669,8 @@ protected:
     Config c = base_config();
     const Config defaults;
     c.bands.floor_band_m = defaults.bands.floor_band_m;
-    c.traversability.max_step_fraction = defaults.traversability.max_step_fraction;
+    c.traversability.max_step_up_fraction = defaults.traversability.max_step_up_fraction;
+    c.traversability.max_step_down_fraction = defaults.traversability.max_step_down_fraction;
     c.guidance.edge.min_height_m = defaults.guidance.edge.min_height_m;
     return c;
   }
@@ -713,6 +733,9 @@ protected:
     labelled_sub_ = probe_->create_subscription<sensor_msgs::msg::PointCloud2>(
       config.labelled_points(), rclcpp::QoS(50).best_effort(),
       [this](sensor_msgs::msg::PointCloud2::ConstSharedPtr m) { labelled_.add(*m); });
+    classified_sub_ = probe_->create_subscription<sensor_msgs::msg::PointCloud2>(
+      config.classified_points(), rclcpp::QoS(50).best_effort(),
+      [this](sensor_msgs::msg::PointCloud2::ConstSharedPtr m) { classified_.add(*m); });
     warnings_sub_ = probe_->create_subscription<std_msgs::msg::String>(
       config.warning_areas(), reliable, [this](std_msgs::msg::String::ConstSharedPtr m) { warnings_.add(*m); });
     state_sub_ = probe_->create_subscription<std_msgs::msg::String>(
@@ -1025,9 +1048,10 @@ protected:
   rclcpp::Publisher<sensor_msgs::msg::CameraInfo>::SharedPtr info_pub_, tof_info_pub_;
   rclcpp::Publisher<sensor_msgs::msg::CompressedImage>::SharedPtr rgb_pub_;
   std::vector<std::unique_ptr<Twin>> twins_;
-  rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr obstacle_sub_, drop_sub_, labelled_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr obstacle_sub_, drop_sub_, labelled_sub_,
+    classified_sub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr warnings_sub_, state_sub_;
-  Inbox<sensor_msgs::msg::PointCloud2> obstacle_, drop_, labelled_;
+  Inbox<sensor_msgs::msg::PointCloud2> obstacle_, drop_, labelled_, classified_;
   Inbox<std_msgs::msg::String> warnings_, state_;
 };
 
@@ -1239,6 +1263,240 @@ TEST_F(NodeTest, FiftyMillimetreDipIsLethalAsADropDeeperThanTheStepLimit)
   EXPECT_EQ(xyz_of(*find_stamp(obstacle_, stamp)).size(), 0u);
 }
 
+// --- task T3: /ground/classified_points ------------------------------------------------------------------------
+
+// A classified point back in base_link.
+struct ClassedPoint
+{
+  Eigen::Vector3d p;
+  GroundClass cls;
+};
+
+// Per expected class share of a region of a scene.
+struct ClassShare
+{
+  std::size_t total = 0;
+  std::size_t expected = 0;
+  std::size_t lethal = 0;  // obstacle, wall or drop
+  std::map<std::string, std::size_t> by_class;
+};
+
+constexpr double CLASS_SHARE_MIN = 0.9;
+constexpr double ROBOT_HEIGHT_M = 0.6;
+
+ClassShare share_of(
+  const std::vector<ClassedPoint> & points, const std::function<bool(const Eigen::Vector3d &)> & region,
+  GroundClass expected)
+{
+  ClassShare s;
+  for (const ClassedPoint & c : points) {
+    if (!region(c.p)) {
+      continue;
+    }
+    ++s.total;
+    s.expected += c.cls == expected ? 1U : 0U;
+    s.lethal += ground_estimator_cpp::cost_of(c.cls) == ground_estimator_cpp::ClassCost::lethal ? 1U : 0U;
+    ++s.by_class[ground_estimator_cpp::to_string(c.cls)];
+  }
+  std::string line = "classes " + std::string(::testing::UnitTest::GetInstance()->current_test_info()->name()) +
+                     ", expected " + ground_estimator_cpp::to_string(expected) + ": " + std::to_string(s.expected) +
+                     " of " + std::to_string(s.total) + ":";
+  for (const auto & [name, n] : s.by_class) {
+    line += " " + name + "=" + std::to_string(n);
+  }
+  std::cout << line << std::endl;
+  return s;
+}
+
+std::string describe(const ClassShare & s)
+{
+  std::string out = std::to_string(s.expected) + " of " + std::to_string(s.total) + ":";
+  for (const auto & [name, n] : s.by_class) {
+    out += " " + name + "=" + std::to_string(n);
+  }
+  return out;
+}
+
+class ClassTest : public NodeTest
+{
+protected:
+  // Warm a scene with the shipped rule and return the classified points of the last frame in base_link.
+  std::vector<ClassedPoint> classify(const pcl::PointCloud<pcl::PointXYZ> & cloud)
+  {
+    const auto stamp = warm_cloud_and_wait(cloud);
+    EXPECT_TRUE(wait_for([&] { return find_stamp(classified_, stamp).has_value(); }));
+    const auto msg = find_stamp(classified_, stamp);
+    std::vector<ClassedPoint> out;
+    if (!msg) {
+      return out;
+    }
+    EXPECT_EQ(msg->header.frame_id, ODOM);
+    const auto xyz = xyz_of(*msg);
+    const auto classes = uint8_field(*msg, "class");
+    EXPECT_EQ(xyz.size(), classes.size());
+    const Eigen::Isometry3d base_T_odom = ODOM_T_BASE.inverse();
+    for (std::size_t i = 0; i < xyz.size() && i < classes.size(); ++i) {
+      EXPECT_LT(classes[i], ground_estimator_cpp::GROUND_CLASS_COUNT);
+      out.push_back({base_T_odom * xyz[i].cast<double>(), static_cast<GroundClass>(classes[i])});
+    }
+    return out;
+  }
+
+  void start_shipped()
+  {
+    fill_tf();
+    start(shipped_rule_config());
+  }
+};
+
+TEST_F(ClassTest, FlatFloorIsFloorInTheFixedFrame)
+{
+  start_shipped();
+  const auto points = classify(scene_cloud(ground_test::floor_scene()));
+  ASSERT_GT(points.size(), 200u);
+  const auto s = share_of(points, [](const Eigen::Vector3d &) { return true; }, GroundClass::floor);
+  EXPECT_EQ(s.expected, s.total) << describe(s);
+  for (const ClassedPoint & c : points) {
+    const double range = c.p.head<2>().norm();
+    EXPECT_GE(range, config_.bands.min_range_m - 1e-3);
+    EXPECT_LE(range, config_.bands.max_range_m + 1e-3);
+  }
+}
+
+// A box of the given height at x 0.85-1.15, y -0.2-0.2 (box_scene() is the 10 cm one): an obstacle over the 40 mm step.
+void expect_box_is_an_obstacle(const std::vector<ClassedPoint> & points, double height_m)
+{
+  const auto top = share_of(
+    points,
+    [&](const Eigen::Vector3d & p) {
+      return std::fabs(p.x() - 1.0) < 0.13 && std::fabs(p.y()) < 0.18 && p.z() > height_m - 0.01;
+    },
+    GroundClass::obstacle);
+  ASSERT_GT(top.total, 20u);
+  EXPECT_GE(top.expected, CLASS_SHARE_MIN * top.total) << describe(top);
+  const auto away = share_of(
+    points, [](const Eigen::Vector3d & p) { return p.x() < 0.75 || std::fabs(p.y()) > 0.35; }, GroundClass::floor);
+  EXPECT_EQ(away.lethal, 0u) << describe(away);
+  EXPECT_GE(away.expected, CLASS_SHARE_MIN * away.total) << describe(away);
+}
+
+TEST_F(ClassTest, TenCentimetreBoxIsAnObstacle)
+{
+  start_shipped();
+  expect_box_is_an_obstacle(classify(scene_cloud(box_scene())), 0.10);
+}
+
+TEST_F(ClassTest, FiveCentimetreBoxIsAnObstacle)
+{
+  start_shipped();
+  auto scene = ground_test::floor_scene();
+  ground_test::add_box(scene, Eigen::Vector3d(1.0, 0.0, 0.025), Eigen::Vector3d(0.3, 0.4, 0.05));
+  expect_box_is_an_obstacle(classify(scene_cloud(scene)), 0.05);
+}
+
+TEST_F(ClassTest, ThreeCentimetreSillIsAClimbableStepUp)
+{
+  start_shipped();
+  const auto points = classify(scene_cloud(sill_scene(WARNING_BUMP_M)));
+  const auto top = share_of(
+    points, [](const Eigen::Vector3d & p) { return p.x() > 1.02 && p.x() < 1.13 && p.z() > 0.025; },
+    GroundClass::step_up);
+  ASSERT_GT(top.total, 20u);
+  EXPECT_GE(top.expected, CLASS_SHARE_MIN * top.total) << describe(top);
+  EXPECT_EQ(share_of(points, [](const Eigen::Vector3d &) { return true; }, GroundClass::floor).lethal, 0u);
+}
+
+TEST_F(ClassTest, ThreeCentimetreDipIsAClimbableStepDown)
+{
+  start_shipped();
+  const auto points = classify(scene_cloud(drop_scene(WARNING_BUMP_M)));
+  const auto lower =
+    share_of(points, [](const Eigen::Vector3d & p) { return p.x() > 1.1 && p.z() < -0.025; }, GroundClass::step_down);
+  ASSERT_GT(lower.total, 20u);
+  EXPECT_GE(lower.expected, CLASS_SHARE_MIN * lower.total) << describe(lower);
+  EXPECT_EQ(share_of(points, [](const Eigen::Vector3d &) { return true; }, GroundClass::floor).lethal, 0u);
+}
+
+TEST_F(ClassTest, TenCentimetreStepUpIsAnObstacle)
+{
+  start_shipped();
+  auto step = ground_test::floor_until(1.0);
+  ground_test::add_step_up(step, 1.0, 0.10);
+  const auto points = classify(scene_cloud(step));
+  const auto top =
+    share_of(points, [](const Eigen::Vector3d & p) { return p.x() > 1.05 && p.z() > 0.09; }, GroundClass::obstacle);
+  ASSERT_GT(top.total, 20u);
+  EXPECT_GE(top.expected, CLASS_SHARE_MIN * top.total) << describe(top);
+}
+
+TEST_F(ClassTest, TwentyCentimetreDropIsADrop)
+{
+  start_shipped();
+  const auto points = classify(scene_cloud(drop_scene(0.20)));
+  const auto lower =
+    share_of(points, [](const Eigen::Vector3d & p) { return p.x() > 1.1 && p.z() < -0.19; }, GroundClass::drop);
+  ASSERT_GT(lower.total, 20u);
+  EXPECT_GE(lower.expected, CLASS_SHARE_MIN * lower.total) << describe(lower);
+  const auto before = share_of(points, [](const Eigen::Vector3d & p) { return p.x() < 0.9; }, GroundClass::floor);
+  EXPECT_EQ(before.lethal, 0u) << describe(before);
+}
+
+// The tiny_truth ramp: 63 mm over 25 cm (14 deg), a ramp and never lethal.
+TEST_F(ClassTest, FourteenDegreeRampIsARamp)
+{
+  start_shipped();
+  auto scene = ground_test::floor_scene();
+  ground_test::add_ramp(scene, 1.0, 0.25, 0.063, -0.3, 0.3);
+  const auto points = classify(scene_cloud(scene));
+  const auto incline = share_of(
+    points,
+    [](const Eigen::Vector3d & p) { return p.x() > 1.02 && p.x() < 1.23 && std::fabs(p.y()) < 0.25 && p.z() > 0.025; },
+    GroundClass::ramp);
+  ASSERT_GT(incline.total, 20u);
+  EXPECT_GE(incline.expected, CLASS_SHARE_MIN * incline.total) << describe(incline);
+  EXPECT_EQ(incline.lethal, 0u) << describe(incline);
+}
+
+TEST_F(ClassTest, WallIsAWallFromItsFootUp)
+{
+  start_shipped();
+  auto scene = ground_test::floor_until(1.5);
+  ground_test::add_wall(scene, 1.5);
+  const auto points = classify(scene_cloud(scene));
+  const auto wall =
+    share_of(points, [](const Eigen::Vector3d & p) { return p.x() > 1.45 && p.z() > 0.03; }, GroundClass::wall);
+  ASSERT_GT(wall.total, 20u);
+  EXPECT_GE(wall.expected, CLASS_SHARE_MIN * wall.total) << describe(wall);
+}
+
+// A table top at 0.7 m over the floor, seen by a head looking near level: an overhang (the robot is 0.6 m tall), never
+// an obstacle mark for Nav2, also with the temporal median on (the top and the floor under it share cells; the points
+// above the robot height stay out of the median).
+TEST_F(ClassTest, TableTopAtSeventyCentimetresIsAnOverhang)
+{
+  fill_tf();
+  Config config = shipped_rule_config();
+  config.temporal.enabled = true;
+  start(config);
+  auto scene = ground_test::floor_scene();
+  ground_test::add_table_top(scene, 0.7, 0.9, 1.6, -0.4, 0.4);
+  ground_test::Sensor level;
+  level.centre_down_deg = 5.0;
+  level.v_fov_deg = 60.0;
+  const auto cloud = ground_test::render(scene, SIGMA_M, 0.0, 1, DECIMATION, level);
+  const auto points = classify(cloud);
+  const auto top = share_of(points, [](const Eigen::Vector3d & p) { return p.z() > 0.65; }, GroundClass::overhang);
+  ASSERT_GT(top.total, 20u);
+  EXPECT_EQ(top.expected, top.total) << describe(top);
+  const auto under = share_of(
+    points, [](const Eigen::Vector3d & p) { return p.x() > 0.95 && p.x() < 1.55 && p.z() < 0.1; }, GroundClass::floor);
+  ASSERT_GT(under.total, 20u);
+  EXPECT_EQ(under.lethal, 0u) << describe(under);
+  const auto obstacle = find_stamp(obstacle_, classified_.all().back().header.stamp);
+  ASSERT_TRUE(obstacle.has_value());
+  EXPECT_EQ(xyz_of(*obstacle).size(), 0u);
+}
+
 // Head-motion gate (task T2): the TF of the cloud frame turns at 20 deg/s for two seconds. A cloud captured in the turn
 // feeds the plane fit but does not vote or publish, is counted, and /ground/state says head_moving; once the turn
 // stopped the next cloud votes again and the flag clears (the gate never holds on its own).
@@ -1434,6 +1692,7 @@ TEST_F(NodeTest, WallOnlyGivesNoCloudAndAPlaneNullState)
   EXPECT_EQ(obstacle_.size(), 0u);
   EXPECT_EQ(drop_.size(), 0u);
   EXPECT_EQ(warnings_.size(), 0u);
+  EXPECT_EQ(classified_.size(), 0u);  // no plane, no class (task T3)
   EXPECT_GE(metric("ground_fits_total{result=\"" + (*state)["reason"].get<std::string>() + "\"}").value_or(0.0), 1.0);
 }
 
@@ -2220,7 +2479,7 @@ TEST_F(NodeTest, PlacedBoxIsLethalWithinEnterFramesOfItsFirstFilteredBoxHeights)
     const FrameOutput f = run_frame(cloud);
     const auto filtered = reference.apply(cloud, floor, ODOM_T_BASE, static_cast<double>(ns_of(f.stamp)) * 1e-9);
     const bool box_heights = std::any_of(filtered.begin(), filtered.end(), [&](const pcl::PointXYZ & p) {
-      return on_box_footprint(Eigen::Vector3f(p.x, p.y, p.z)) && p.z > config.max_step_m();
+      return on_box_footprint(Eigen::Vector3f(p.x, p.y, p.z)) && p.z > config.max_step_up_m();
     });
     if (!with_box) {
       EXPECT_EQ(f.obstacle, 0u) << "frame " << i;

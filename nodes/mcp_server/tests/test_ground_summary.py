@@ -56,7 +56,10 @@ def test_fixture_parses() -> None:
     state = GroundState.model_validate(example())
     assert [r.name for r in state.regions] == ["step_0", "drop_0"]
     assert state.head_moving is False
-    assert state.regions[0].cls == "obstacle" and state.traversability.max_step_m == 0.04
+    assert (
+        state.regions[0].cls == "obstacle"
+        and state.traversability.max_step_up_m == state.traversability.max_step_down_m == 0.04
+    )
     assert state.warnings[0].kind == "ramp" and state.plane is not None
 
 
@@ -110,7 +113,10 @@ def test_summary_maps_and_rounds() -> None:
     assert summary.floor_height_m == -0.041 and summary.plane_source == "held"
     assert summary.slope_deg == 3.0 and summary.slope_level == "warning" and summary.plane_vs_base_deg == 3.0
     assert summary.colour_mismatch_ratio == 0.012 and summary.state_age_s == 0.346
-    assert summary.obstacle_rule.max_step_m == 0.04 and summary.obstacle_rule.max_slope_deg == 8.0
+    assert (
+        summary.obstacle_rule.max_step_up_m == summary.obstacle_rule.max_step_down_m == 0.04
+        and summary.obstacle_rule.max_slope_deg == 8.0
+    )
     step = summary.regions[0]
     assert (step.kind, step.classification, step.height_m, step.distance_m) == ("step", "obstacle", 0.099, 0.8)
     assert step.edge.point == (0.8, 0.0)

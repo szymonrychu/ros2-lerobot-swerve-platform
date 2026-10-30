@@ -40,6 +40,7 @@ below the tracked floor plane), so they stay correct on a slope or a tilted base
 | out | `/ground/labelled_points` | `sensor_msgs/PointCloud2` | best_effort, depth 1 | base_link | RGB-D cloud with a uint8 `label` field (see Labels); only with `colour.enabled` |
 | out | `/ground/state` | `std_msgs/String` (JSON) | reliable, transient_local, depth 1 | base_link | see State; published at `state.rate_hz` |
 | out | `/ground/warning_areas` | `std_msgs/String` (JSON) | reliable, depth 1 | `warnings.frame` | `{stamp_ns, frame, areas: [{kind, polygon, height_m, slope_deg, source}]}` for costmap_zones |
+| out | `/ground/classified_points` | `sensor_msgs/PointCloud2` (x, y, z float32, `class` uint8) | best_effort, depth 1 | `fixed_frame` (odom) | every measured point of the frame within the band range with its traversability class (see Traversability classes); only while subscribed, never without a plane or while the head moves |
 
 ## State
 
@@ -62,12 +63,51 @@ below the tracked floor plane), so they stay correct on a slope or a tilted base
 | `slope_level` | `ok`, `warning` or `error` against the `slope.*` limits | - |
 | `base_tilt_deg` | tilt of base_link against gravity | degrees |
 | `plane_vs_base_deg` | angle between the floor normal and base_link +z | degrees |
-| `traversability` | `{max_step_m, max_slope_deg}` in force | m, degrees |
+| `traversability` | `{max_step_up_m, max_step_down_m, max_slope_deg}` in force | m, degrees |
 | `obstacle_points` | points of the last obstacle cloud | count |
 | `drop_points` | points of the last drop cloud | count |
 | `regions` | step, threshold, drop and ramp regions: `name`, `kind`, `class` (`obstacle` or `warning`), `height_m`, `frame`, `edge {point, direction, side}`, `distance_m`, `points` | m |
 | `warnings` | warning areas: `kind` (`step`, `drop`, `ramp`, `colour` or `no_return`), `polygon` (base_link, m), `height_m` and `slope_deg` (null when not measured, always for `no_return`), `source` (`depth` for the head depth camera (D435), `colour` or `rgb`) | m, degrees |
 | `colour` | `{model_ok, floor_samples, mismatch_ratio, stamp_ns}` of the last labelled RGB-D cloud; null when colour is disabled or no cloud was labelled | ratio |
+
+## Traversability classes
+
+Every measured point of a frame carries one class the planner and the 3D map share (task T3,
+`include/ground_estimator_cpp/ground_classes.hpp`, mirrored in `shared/ros2_common/ground_classes.py` and pinned equal by
+`tests/test_ground_classes_contract.py`). The limits all come from this config: the floor band
+(`bands.floor_band_m` 0.02), the steps (`traversability.max_step_up_fraction` and `max_step_down_fraction`, 0.04 m each),
+the slope (`traversability.max_slope_deg` 15, every direction), the tallest step-like object (`edges.step_max_height_m`
+0.2) and the robot height (`traversability.robot_height_m` 0.6).
+
+| Value | Class | Rule | Planner (Nav2) |
+|---|---|---|---|
+| 0 | `unknown` | measured, but nothing is settled: the cell is not stable yet, spread-gated, has too few points to be lethal, lies in an occlusion shadow, or is a colour / no-return warning off the floor band | not marked |
+| 1 | `floor` | within the floor band of the plane | free |
+| 2 | `step_up` | a stable warning cell of kind step, above the floor band (at most 0.04 m) | slow-down area (costmap_zones) |
+| 3 | `step_down` | a stable warning cell of kind step or drop, below the floor band (at most 0.04 m) | slow-down area |
+| 4 | `ramp` | a stable warning cell of kind ramp (at most 15 degrees) | slow-down area |
+| 5 | `obstacle` | a stable obstacle cell whose top is at most `edges.step_max_height_m` | lethal (`/ground/obstacle_points`, STVL) |
+| 6 | `wall` | a stable obstacle cell taller than `edges.step_max_height_m`, from its foot up | lethal |
+| 7 | `drop` | a stable drop cell, below the floor band (deeper than 0.04 m) | lethal (`/ground/drop_points`) |
+| 8 | `overhang` | a point higher than `traversability.robot_height_m` above the plane over a cell that is not an obstacle cell | never marked |
+
+A point higher than the robot never enters the temporal median or the rule (`split_overhang`), so a table top at 0.7 m
+cannot lift the floor cells under it into the obstacle band. A cell's stable class comes from the hysteresis (Robustness),
+so the classes hold while the cells hold; a point is classed by its cell's temporal height (the overhang test uses its
+own height) and published at its own position. `/ground/classified_points` holds the points within
+`bands.min_range_m`..`bands.max_range_m` of base_link, in `fixed_frame` (odom) at the cloud stamp, and is built only
+while something subscribes (mcp_server's class voxels, the web_ui Ground layer).
+
+The chassis bounds the limits: `traversability.chassis_clearance_m` (0.06 m, the crossbar underside of the mcp_server body
+model) must be at least both steps, so a climbable step passes under the chassis, and `max_slope_deg` must be at most the
+break-over angle 2 atan(2 clearance / `traversability.wheelbase_m`) (42.9 degrees for 0.06 m and 0.305 m), so a ramp
+crest does not high-centre it. With the shipped numbers neither check binds; they refuse a config that would.
+
+Synthetic scenes (`test_node.cpp` `ClassTest.*`, shipped rule, 2026-10-30), share of the region's points with the
+expected class: flat floor 8880 of 8880 floor; 10 cm box top 473 of 473 and 5 cm box top 514 of 514 obstacle; 3 cm sill
+343 of 364 step_up (21 unknown); 3 cm dip 2296 of 2381 step_down (85 unknown); 10 cm step up 2027 of 2031 obstacle; 20 cm
+drop 1531 of 1531 drop; 63 mm / 14 degree ramp 335 of 355 ramp (20 unknown, none lethal); wall 2326 of 2460 wall (134
+unknown); table top at 0.7 m 945 of 945 overhang with the 2003 floor points under it floor and no obstacle mark.
 
 ## Labels
 
@@ -83,11 +123,13 @@ The `label` field of `/ground/labelled_points`:
 
 ## Obstacle or warning
 
-A step, drop or ramp is an obstacle when its edge step exceeds `traversability.max_step_fraction` of the wheel diameter
-(`2 * traversability.wheel_radius_m`; one third of it, 0.04 m, by default: user decision 2026-10-29) or its slope exceeds
-`traversability.max_slope_deg`. The limit is one number for both directions: a step up and a drop deeper than 0.04 m are
-equally no-go (the edge step of a drop is measured like that of a step), and the slope limit is 15 degrees whichever way
-the surface faces. Heights within `bands.floor_band_m` (0.02 m) of the plane are floor, so 0.02-0.04 m is the warning
+A step or ramp is an obstacle when its edge step exceeds `traversability.max_step_up_fraction` of the wheel diameter
+(`2 * traversability.wheel_radius_m`; one third of it, 0.04 m, by default: user decision 2026-10-29), a drop when its edge
+step exceeds `traversability.max_step_down_fraction` (also 0.04 m), and either when its slope exceeds
+`traversability.max_slope_deg`. The two step limits are separate keys with the same value (user decision: a step up and a
+drop deeper than 0.04 m are equally no-go; the edge step of a drop is measured like that of a step), and the slope limit
+is 15 degrees whichever way the surface faces. The config also refuses a step taller than the chassis clearance and a
+slope steeper than the chassis break-over angle (Traversability classes). Heights within `bands.floor_band_m` (0.02 m) of the plane are floor, so 0.02-0.04 m is the warning
 band. The floor band stays below the step on purpose: a cluster starts where the surface leaves the band, so a band equal
 to the step put the edge step of every ramp taller than the band at the step limit (with 0.04 m a 14 degree, 63 mm ramp
 read lethal in 18 of 29 frames of the synthetic D435 sweep).
@@ -210,8 +252,12 @@ Every key of `config/ground_estimator.yaml` (nested keys dotted). Unknown keys a
 | `bands.min_range_m` | `0.42` | nearest point (from base_link) in the bands: the robot's own parked gripper and its mixed pixels lie closer, metres, 0 <= v < max_range_m |
 | `bands.floor_band_m` | `0.02` | heights within this distance of the floor plane count as floor (no warning, lethal, step, drop or edge). Kept below the step (0.04) so a ramp's edge step is not read at the step limit; the plane fit keeps `fit.distance_m`. metres, `fit.distance_m` <= v <= max step |
 | `traversability.wheel_radius_m` | `0.06` | wheel radius, metres, same as swerve_drive_controller wheel_radius_m |
-| `traversability.max_step_fraction` | `0.3333` | max rideable step, up and down, as a fraction of the wheel diameter (0.3333 = 0.04 m, user decision 2026-10-29), 0 < v < 1 |
-| `traversability.max_slope_deg` | `15.0` | steepest rideable surface, degrees, <= slope.roll_error_deg and slope.pitch_error_deg |
+| `traversability.max_step_up_fraction` | `0.3333` | max rideable step up as a fraction of the wheel diameter (0.3333 = 0.04 m, user decision 2026-10-29), 0 < v < 1 |
+| `traversability.max_step_down_fraction` | `0.3333` | max rideable step down as a fraction of the wheel diameter (0.04 m); a deeper drop is no-go, 0 < v < 1 |
+| `traversability.max_slope_deg` | `15.0` | steepest rideable surface in any direction, degrees, <= slope.roll_error_deg, slope.pitch_error_deg and the break-over angle |
+| `traversability.chassis_clearance_m` | `0.06` | lowest chassis point above the floor (mcp_server body model: crossbar underside), metres, > 0 and >= both steps (a climbable step passes under the chassis) |
+| `traversability.wheelbase_m` | `0.305` | front to rear steering axes (Platform dimensions.md), metres, > 0; with the clearance it gives the break-over angle 2 atan(2 clearance / wheelbase) = 42.9 degrees |
+| `traversability.robot_height_m` | `0.6` | head envelope: a point higher than this above the plane is an overhang, never an obstacle, metres, >= bands.obstacle_max_m |
 | `traversability.edge_band_m` | `0.05` | width of the strip on each side of an edge that sets its step height, metres, > 0 |
 | `traversability.lethal_min_points` | `2` | fewest unclustered lethal points within edges.cluster_tolerance_m of each other for any to be lethal, 1..50 |
 | `warnings.frame` | `map` | frame of the published warning areas |

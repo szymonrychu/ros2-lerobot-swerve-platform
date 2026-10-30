@@ -238,11 +238,13 @@ class GroundPlane(BaseModel):
 
 
 class GroundTraversability(BaseModel):
-    """Obstacle rule of /ground/state: a step above max_step_m or a slope above max_slope_deg is an obstacle."""
+    """Obstacle rule of /ground/state: a step up above max_step_up_m, a step down (drop) deeper than max_step_down_m or a
+    slope above max_slope_deg is an obstacle."""
 
     model_config = ConfigDict(extra="forbid")
 
-    max_step_m: float
+    max_step_up_m: float
+    max_step_down_m: float
     max_slope_deg: float
 
 
@@ -345,7 +347,8 @@ class GroundSummaryWarning(BaseModel):
 class GroundObstacleRule(BaseModel):
     """What counts as an obstacle rather than a warning area."""
 
-    max_step_m: float = Field(description="A step, threshold or drop higher than this (m) is an obstacle")
+    max_step_up_m: float = Field(description="A step or threshold higher than this (m) is an obstacle")
+    max_step_down_m: float = Field(description="A drop deeper than this (m) is an obstacle (no-go)")
     max_slope_deg: float = Field(description="A surface steeper than this (deg) is an obstacle")
 
 
@@ -435,7 +438,9 @@ def summarize_ground(state: GroundState, age_s: float) -> GroundSummary:
             for w in state.warnings
         ],
         obstacle_rule=GroundObstacleRule(
-            max_step_m=state.traversability.max_step_m, max_slope_deg=state.traversability.max_slope_deg
+            max_step_up_m=state.traversability.max_step_up_m,
+            max_step_down_m=state.traversability.max_step_down_m,
+            max_slope_deg=state.traversability.max_slope_deg,
         ),
         colour_mismatch_ratio=None if state.colour is None else round(state.colour.mismatch_ratio, 3),
         state_age_s=round(age_s, 3),

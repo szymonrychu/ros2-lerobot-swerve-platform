@@ -12,13 +12,15 @@ namespace ground_estimator_cpp
 
 namespace
 {
-constexpr double STEP_TOLERANCE_M = 1e-5;  // absorbs the rounding of max_step_fraction 0.3333
+constexpr double STEP_TOLERANCE_M = 1e-5;  // absorbs the rounding of the step fractions 0.3333
 constexpr double SAME_EDGE_M = 1e-9;
 }  // namespace
 
-Verdict classify_cluster(double edge_step_m, double slope_deg, bool slope_known, const TraversabilityConfig & cfg)
+Verdict classify_cluster(
+  double edge_step_m, double slope_deg, bool slope_known, const TraversabilityConfig & cfg, StepSide side)
 {
-  if (edge_step_m > max_step_m(cfg) + STEP_TOLERANCE_M) {
+  const double limit = side == StepSide::down ? max_step_down_m(cfg) : max_step_up_m(cfg);
+  if (edge_step_m > limit + STEP_TOLERANCE_M) {
     return {Cls::obstacle, "step_height"};
   }
   if (slope_known && slope_deg > cfg.max_slope_deg) {
@@ -114,7 +116,8 @@ Traversability apply_rule(
   std::vector<Judged> judged;
   for (const auto * group : {&above, &below}) {
     for (const Cluster & c : *group) {
-      const Verdict v = classify_cluster(c.edge_step_m, c.slope_deg, c.slope_known, cfg);
+      const StepSide side = c.kind == "drop" ? StepSide::down : StepSide::up;
+      const Verdict v = classify_cluster(c.edge_step_m, c.slope_deg, c.slope_known, cfg, side);
       judged.push_back({&c, v.cls});
       if (v.cls == Cls::obstacle) {
         append(c.kind == "drop" ? out.drop : out.obstacle, c.points);
@@ -126,11 +129,12 @@ Traversability apply_rule(
       }
     }
   }
-  const double limit = max_step_m(cfg);
   lethal_unclustered(
-    unclustered_above, unclustered_above_h, limit, edges.cluster_tolerance_m, cfg.lethal_min_points, out.obstacle);
+    unclustered_above, unclustered_above_h, max_step_up_m(cfg), edges.cluster_tolerance_m, cfg.lethal_min_points,
+    out.obstacle);
   lethal_unclustered(
-    unclustered_below, unclustered_below_h, limit, edges.cluster_tolerance_m, cfg.lethal_min_points, out.drop);
+    unclustered_below, unclustered_below_h, max_step_down_m(cfg), edges.cluster_tolerance_m, cfg.lethal_min_points,
+    out.drop);
 
   for (Region & r : regions) {
     r.cls = "warning";

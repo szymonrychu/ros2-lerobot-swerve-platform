@@ -117,7 +117,8 @@ ordered_json build_state(const StateInputs & in)
   const bool has_slope = has_plane && in.slope.has_value();
 
   ordered_json traversability = ordered_json::object();
-  traversability["max_step_m"] = round_decimals(max_step_m(in.traversability));
+  traversability["max_step_up_m"] = round_decimals(max_step_up_m(in.traversability));
+  traversability["max_step_down_m"] = round_decimals(max_step_down_m(in.traversability));
   traversability["max_slope_deg"] = round_decimals(in.traversability.max_slope_deg);
 
   ordered_json regions = ordered_json::array();

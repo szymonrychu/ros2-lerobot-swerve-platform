@@ -45,6 +45,7 @@ Collect with `python scripts/topic_scraper_collect.py --source client=http://cli
 | `/ground/drop_points` | ~10 Hz |
 | `/ground/labelled_points` | ~1 Hz |
 | `/ground/state` | 2 Hz |
+| `/ground/classified_points` | the cloud rate (15 Hz) while mcp_server or the web_ui Ground layer subscribes; frame `odom`, a `class` per point (task T3) |
 
 Also record: the TF drop counter (`ground_clouds_dropped_total` on port 19119, by reason; it must stay flat while the head is still and
 rise only while the head moves) and the head joint_states rate (the head TF depends on it).
@@ -108,7 +109,7 @@ The values equal `nodes/ground_estimator_cpp/config/ground_estimator.yaml` and t
 | `fit.distance_m` | 0.02 | level floor plane height and slope |
 | `fit.max_normal_angle_deg` | 10 | level floor, fit never rejected on the floor |
 | `fit.max_offset_m` | 0.08 | level floor, fit never rejected on the floor |
-| `traversability.wheel_radius_m` | 0.06 | equals swerve_drive_controller; max step 1/3 of the diameter (`max_step_fraction`) = 0.04 m |
+| `traversability.wheel_radius_m` | 0.06 | equals swerve_drive_controller; max step 1/3 of the diameter, up (`max_step_up_fraction`) and down (`max_step_down_fraction`) = 0.04 m |
 | `traversability.max_slope_deg` | 15 | 13 deg ramp warning, ramp steeper than 15 deg obstacle |
 | `edges.step_max_height_m` | 0.2 | 3 cm and 5 cm sills and drops, box |
 | `colour.max_mahalanobis` | 3.0 | red sheet flagged, floor not flagged |

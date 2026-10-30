@@ -4,7 +4,7 @@
 cloud_topic: /head/d435/points_filtered  # D435 cloud, 15 Hz: PointCloud2 of the head D435, used for the plane fit
 imu_topic: /imu/data  # sensor_msgs/Imu, prior of the floor normal
 rgbd_cloud_topic: /head_rgbd/points  # coloured PointCloud2, used for the floor colour model
-output_namespace: /ground  # prefix of obstacle_points, drop_points, labelled_points, state, warning_areas
+output_namespace: /ground  # prefix of obstacle_points, drop_points, labelled_points, state, warning_areas, classified_points
 base_frame: base_link  # robot frame the plane is expressed in
 fixed_frame: odom  # world-fixed frame for stamping and warning areas
 tf_timeout_s: 0.1  # seconds to wait for a transform, 0..0.5
@@ -33,10 +33,14 @@ bands:  # bands settings
   min_range_m: 0.42  # nearest point from base_link in the bands (the parked gripper lies closer), metres, 0 <= v < max_range_m
   floor_band_m: 0.02  # heights within it are floor, metres, fit.distance_m <= v <= max step; below the step so a ramp is not read at the limit
 
-traversability:  # traversability settings
+traversability:  # traversability settings and the limits of the shared classes (/ground/classified_points)
   wheel_radius_m: 0.06  # wheel radius, metres, same as swerve_drive_controller wheel_radius_m
-  max_step_fraction: 0.3333  # max rideable step, up and down, as a fraction of the wheel diameter (0.04 m, user 2026-10-29), 0 < v < 1
-  max_slope_deg: 15.0  # steepest rideable surface, degrees, <= slope.roll_error_deg and slope.pitch_error_deg
+  max_step_up_fraction: 0.3333  # max rideable step up as a fraction of the wheel diameter (0.04 m, user 2026-10-29), 0 < v < 1
+  max_step_down_fraction: 0.3333  # max rideable step down, a deeper drop is no-go (0.04 m, user 2026-10-29), 0 < v < 1
+  max_slope_deg: 15.0  # steepest rideable surface in any direction, degrees, <= slope.roll_error_deg, slope.pitch_error_deg and the break-over angle
+  chassis_clearance_m: 0.06  # lowest chassis point above the floor (mcp_server body model crossbar underside), metres, > 0, >= both steps
+  wheelbase_m: 0.305  # front to rear steering axes (Platform dimensions.md), metres, > 0; break-over angle 2 atan(2 clearance / wheelbase)
+  robot_height_m: 0.6  # head envelope: a point higher is an overhang, never an obstacle, metres, >= bands.obstacle_max_m
   edge_band_m: 0.05  # width of the strip on each side of an edge that sets its step height, metres, > 0
   lethal_min_points: 2  # fewest unclustered lethal points within edges.cluster_tolerance_m of each other for any to be lethal, 1..50
 

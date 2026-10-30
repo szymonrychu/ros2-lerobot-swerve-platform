@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace ground_estimator_cpp
@@ -51,6 +52,7 @@ constexpr double MAX_HEAD_RATE_DEG_S = 90.0;
 constexpr double MIN_MOTION_WINDOW_S = 0.02;
 constexpr double MAX_MOTION_WINDOW_S = 0.5;
 constexpr double MAX_STEP_TOLERANCE_M = 1e-4;  // the default step is 0.039996 m, documented as 0.04
+constexpr double RAD_TO_DEG = 180.0 / M_PI;
 
 // The value under node[key] as T (fallback when missing or invalid) with the lax pydantic-style coercions; errors
 // name prefix + key.
@@ -169,8 +171,9 @@ void parse_bands(const YAML::Node & root, Config & c, Errors & errors)
 
 void parse_traversability(const YAML::Node & root, Config & c, Errors & errors)
 {
-  const std::vector<std::string> keys = {
-    "wheel_radius_m", "max_step_fraction", "max_slope_deg", "edge_band_m", "lethal_min_points"};
+  const std::vector<std::string> keys = {"wheel_radius_m",      "max_step_up_fraction", "max_step_down_fraction",
+                                         "max_slope_deg",       "edge_band_m",          "lethal_min_points",
+                                         "chassis_clearance_m", "wheelbase_m",          "robot_height_m"};
   const YAML::Node s = section(root, "traversability", keys, errors);
   if (!s.IsDefined()) {
     return;
@@ -179,11 +182,13 @@ void parse_traversability(const YAML::Node & root, Config & c, Errors & errors)
   TraversabilityConfig & t = c.traversability;
   t.wheel_radius_m = read<double>(s, p, "wheel_radius_m", t.wheel_radius_m, errors);
   rc::gt(p + "wheel_radius_m", t.wheel_radius_m, 0.0, errors);
-  t.max_step_fraction = read<double>(s, p, "max_step_fraction", t.max_step_fraction, errors);
-  rc::gt(p + "max_step_fraction", t.max_step_fraction, 0.0, errors);
-  require_that(
-    t.max_step_fraction < 1.0, p + "max_step_fraction", "must be < 1 (got " + std::to_string(t.max_step_fraction) + ")",
-    errors);
+  for (auto [key, value] :
+       {std::pair<const char *, double *>{"max_step_up_fraction", &t.max_step_up_fraction},
+        std::pair<const char *, double *>{"max_step_down_fraction", &t.max_step_down_fraction}}) {
+    *value = read<double>(s, p, key, *value, errors);
+    rc::gt(p + key, *value, 0.0, errors);
+    require_that(*value < 1.0, p + key, "must be < 1 (got " + std::to_string(*value) + ")", errors);
+  }
   t.max_slope_deg = read<double>(s, p, "max_slope_deg", t.max_slope_deg, errors);
   rc::gt(p + "max_slope_deg", t.max_slope_deg, 0.0, errors);
   t.edge_band_m = read<double>(s, p, "edge_band_m", t.edge_band_m, errors);
@@ -191,6 +196,12 @@ void parse_traversability(const YAML::Node & root, Config & c, Errors & errors)
   t.lethal_min_points = read<int>(s, p, "lethal_min_points", t.lethal_min_points, errors);
   rc::ge<int>(p + "lethal_min_points", t.lethal_min_points, 1, errors);
   rc::le<int>(p + "lethal_min_points", t.lethal_min_points, MAX_LETHAL_MIN_POINTS, errors);
+  t.chassis_clearance_m = read<double>(s, p, "chassis_clearance_m", t.chassis_clearance_m, errors);
+  rc::gt(p + "chassis_clearance_m", t.chassis_clearance_m, 0.0, errors);
+  t.wheelbase_m = read<double>(s, p, "wheelbase_m", t.wheelbase_m, errors);
+  rc::gt(p + "wheelbase_m", t.wheelbase_m, 0.0, errors);
+  t.robot_height_m = read<double>(s, p, "robot_height_m", t.robot_height_m, errors);
+  rc::gt(p + "robot_height_m", t.robot_height_m, 0.0, errors);
 }
 
 void parse_edges(const YAML::Node & root, Config & c, Errors & errors)
@@ -509,9 +520,10 @@ void check_guidance_rules(const Config & c, Errors & errors)
       std::to_string(g.max_range_m) + ")",
     errors);
   require_that(
-    g.edge.min_height_m <= c.max_step_m() + MAX_STEP_TOLERANCE_M, "guidance.edge.min_height_m",
-    "must be at most the max step (" + std::to_string(c.max_step_m()) + ", got " + std::to_string(g.edge.min_height_m) +
-      ")",
+    g.edge.min_height_m <= std::min(c.max_step_up_m(), c.max_step_down_m()) + MAX_STEP_TOLERANCE_M,
+    "guidance.edge.min_height_m",
+    "must be at most the smaller max step (" + std::to_string(std::min(c.max_step_up_m(), c.max_step_down_m())) +
+      ", got " + std::to_string(g.edge.min_height_m) + ")",
     errors);
   require_that(
     g.no_return.enter_frames <= g.no_return.window_frames, "guidance.no_return.enter_frames",
@@ -533,24 +545,35 @@ void check_cross_rules(const Config & c, Errors & errors)
     "must be at most temporal.window_frames (" + std::to_string(c.temporal.window_frames) + ", got " +
       std::to_string(c.temporal.min_frames) + ")",
     errors);
-  const double step = c.max_step_m();
-  require_that(
-    step > c.fit.distance_m, "traversability.max_step_fraction",
-    "max step 2 * wheel_radius_m * max_step_fraction (" + std::to_string(step) + ") must exceed fit.distance_m (" +
-      std::to_string(c.fit.distance_m) + ")",
-    errors);
+  const double up = c.max_step_up_m();
+  const double down = c.max_step_down_m();
+  for (auto [key, step] :
+       {std::pair<const char *, double>{"traversability.max_step_up_fraction", up},
+        std::pair<const char *, double>{"traversability.max_step_down_fraction", down}}) {
+    require_that(
+      step > c.fit.distance_m, key,
+      "max step 2 * wheel_radius_m * fraction (" + std::to_string(step) + ") must exceed fit.distance_m (" +
+        std::to_string(c.fit.distance_m) + ")",
+      errors);
+  }
   require_that(
     c.bands.floor_band_m >= c.fit.distance_m, "bands.floor_band_m",
     "must be at least fit.distance_m (" + std::to_string(c.fit.distance_m) + ", got " +
       std::to_string(c.bands.floor_band_m) + ")",
     errors);
   require_that(
-    c.bands.floor_band_m <= step + MAX_STEP_TOLERANCE_M, "bands.floor_band_m",
-    "must be at most the max step (" + std::to_string(step) + ", got " + std::to_string(c.bands.floor_band_m) + ")",
+    c.bands.floor_band_m <= std::min(up, down) + MAX_STEP_TOLERANCE_M, "bands.floor_band_m",
+    "must be at most the smaller max step (" + std::to_string(std::min(up, down)) + ", got " +
+      std::to_string(c.bands.floor_band_m) + ")",
     errors);
   require_that(
-    c.bands.obstacle_max_m > step, "bands.obstacle_max_m",
-    "must be above the max step (" + std::to_string(step) + ", got " + std::to_string(c.bands.obstacle_max_m) + ")",
+    c.bands.obstacle_max_m > up, "bands.obstacle_max_m",
+    "must be above the max step up (" + std::to_string(up) + ", got " + std::to_string(c.bands.obstacle_max_m) + ")",
+    errors);
+  require_that(
+    c.bands.obstacle_max_m <= c.traversability.robot_height_m, "bands.obstacle_max_m",
+    "must be at most traversability.robot_height_m (" + std::to_string(c.traversability.robot_height_m) +
+      ", anything higher is an overhang), got " + std::to_string(c.bands.obstacle_max_m),
     errors);
   require_that(
     c.bands.min_range_m < c.bands.max_range_m, "bands.min_range_m",
@@ -558,13 +581,25 @@ void check_cross_rules(const Config & c, Errors & errors)
       std::to_string(c.bands.min_range_m),
     errors);
   require_that(
-    c.bands.drop_max_m > step, "bands.drop_max_m",
-    "must be above the max step (" + std::to_string(step) + ", got " + std::to_string(c.bands.drop_max_m) + ")",
+    c.bands.drop_max_m > down, "bands.drop_max_m",
+    "must be above the max step down (" + std::to_string(down) + ", got " + std::to_string(c.bands.drop_max_m) + ")",
     errors);
   require_that(
-    c.edges.step_max_height_m > step && c.edges.step_max_height_m <= c.bands.obstacle_max_m, "edges.step_max_height_m",
-    "must be above the max step (" + std::to_string(step) + ") and at most bands.obstacle_max_m (" +
+    c.edges.step_max_height_m > up && c.edges.step_max_height_m <= c.bands.obstacle_max_m, "edges.step_max_height_m",
+    "must be above the max step up (" + std::to_string(up) + ") and at most bands.obstacle_max_m (" +
       std::to_string(c.bands.obstacle_max_m) + "), got " + std::to_string(c.edges.step_max_height_m),
+    errors);
+  require_that(
+    std::max(up, down) <= c.traversability.chassis_clearance_m + MAX_STEP_TOLERANCE_M,
+    "traversability.chassis_clearance_m",
+    "must be at least the larger max step (" + std::to_string(std::max(up, down)) +
+      ": a climbable step passes under the chassis), got " + std::to_string(c.traversability.chassis_clearance_m),
+    errors);
+  const double break_over = break_over_deg(c.traversability);
+  require_that(
+    c.traversability.max_slope_deg <= break_over, "traversability.max_slope_deg",
+    "must be at most the chassis break-over angle 2 atan(2 chassis_clearance_m / wheelbase_m) (" +
+      std::to_string(break_over) + ", got " + std::to_string(c.traversability.max_slope_deg) + ")",
     errors);
   const double slope_limit = std::min(c.slope.roll_error_deg, c.slope.pitch_error_deg);
   require_that(
@@ -655,6 +690,11 @@ Errors validate(const YAML::Node & node)
   Errors errors;
   parse(node, errors);
   return errors;
+}
+
+double break_over_deg(const TraversabilityConfig & cfg)
+{
+  return 2.0 * std::atan(2.0 * cfg.chassis_clearance_m / cfg.wheelbase_m) * RAD_TO_DEG;
 }
 
 Config from_yaml(const YAML::Node & node)

@@ -1,5 +1,6 @@
-// The obstacle versus warning rule: a cluster is lethal when its edge step (up or down) exceeds a third of the wheel diameter or its
-// measurable surface is steeper than traversability.max_slope_deg, otherwise the base rides over it at reduced speed.
+// The obstacle versus warning rule: a cluster is lethal when its edge step exceeds the step limit of its side (up:
+// traversability.max_step_up_fraction, down: max_step_down_fraction of the wheel diameter) or its measurable surface is
+// steeper than traversability.max_slope_deg, otherwise the base rides over it at reduced speed.
 #ifndef GROUND_ESTIMATOR_CPP__TRAVERSABILITY_HPP_
 #define GROUND_ESTIMATOR_CPP__TRAVERSABILITY_HPP_
 
@@ -54,14 +55,24 @@ struct Traversability
 
 constexpr double RAMP_MIN_SLOPE_DEG = 2.0;
 
+// Which side of the floor a cluster lies on: a step up (above) or a step down (below, a drop).
+enum class StepSide
+{
+  up,
+  down
+};
+
 // Classify one cluster.
 // @param edge_step_m height of the cluster at its edge line in metres.
 // @param slope_deg angle of the cluster surface to the floor in degrees.
 // @param slope_known whether slope_deg is measurable; an unknown slope is ignored and the edge step alone decides.
 // @param cfg the rule settings.
-// @return obstacle when edge_step_m > max_step_m(cfg) (with a 10 um tolerance for the rounded fraction 0.3333) or
-//         (slope_known and slope_deg > cfg.max_slope_deg); warning otherwise (exactly at a threshold is a warning).
-Verdict classify_cluster(double edge_step_m, double slope_deg, bool slope_known, const TraversabilityConfig & cfg);
+// @param side up: judged against max_step_up_m(cfg); down: against max_step_down_m(cfg).
+// @return obstacle when edge_step_m exceeds the side's limit (with a 10 um tolerance for the rounded fraction 0.3333)
+//         or (slope_known and slope_deg > cfg.max_slope_deg); warning otherwise (exactly at a threshold is a warning).
+Verdict classify_cluster(
+  double edge_step_m, double slope_deg, bool slope_known, const TraversabilityConfig & cfg,
+  StepSide side = StepSide::up);
 
 // Apply the rule to the clusters of one frame.
 // @param above step clusters.
@@ -72,7 +83,7 @@ Verdict classify_cluster(double edge_step_m, double slope_deg, bool slope_known,
 // @param edges clustering settings; edges.cluster_tolerance_m is the neighbour radius of the unclustered lethal points.
 // @param cfg the rule settings; cfg.lethal_min_points is the fewest same-group points (counting the point itself)
 //        within that radius for an unclustered point to be lethal.
-// @return the lethal clouds (obstacle clusters plus unclustered points with |h| > max_step_m that have enough
+// @return the lethal clouds (obstacle clusters plus unclustered points over the step limit of their side that have enough
 //         neighbours), the warning areas of the warning clusters (none of their points are lethal), their points
 //         (warning_above/warning_below) and the classed regions.
 Traversability apply_rule(
@@ -90,7 +101,7 @@ Traversability apply_rule(
 // @param points candidate points (in stable lethal cells) in base_link.
 // @param filtered_heights signed temporal heights above the floor, parallel to points.
 // @param raw_heights signed heights of the points in this frame, parallel to points.
-// @param limit the step limit in metres (max_step_m of the rule).
+// @param limit the step limit of the points' side in metres (max_step_up_m or max_step_down_m of the rule).
 // @param radius neighbour radius in metres (edges.cluster_tolerance_m).
 // @param min_points fewest marks within radius (traversability.lethal_min_points), <= 1 keeps every passing point.
 // @return the marks, in input order.

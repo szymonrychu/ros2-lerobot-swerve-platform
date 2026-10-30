@@ -100,6 +100,11 @@ public:
   // @return the stable class of its cell; none for an untracked cell.
   CellClass stable_at(const Eigen::Vector2d & xy_fixed) const;
 
+  // @param xy_fixed a point in the fixed frame.
+  // @return the kind of the cell's latest record ("step", "drop", "ramp", "colour", "no_return"); empty for an untracked
+  //         cell or one without a record.
+  std::string kind_at(const Eigen::Vector2d & xy_fixed) const;
+
   // @return one area per 8-connected component of stable warning cells, ordered by the component's smallest cell
   //         key (ix, then iy).
   std::vector<StableArea> warning_areas() const;

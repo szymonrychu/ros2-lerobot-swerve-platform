@@ -92,9 +92,9 @@ uplink -> rtabmap : UPLINK /uplink/head_rgbd/rgb/...compressed\n/uplink/head_rgb
 m3dview -> uplink : /map3d/command (save, load, reset)
 uplink -> m3dman : /uplink/map3d/command, /uplink/map_guard/map_reset
 m3dman -> rtabmap : RTAB-Map Empty services (reset, backup)
-rtabmap -> uplink : DOWNLINK /rtabmap/cloud_map as /map3d/cloud (0.1 Hz)
+rtabmap -> uplink : DOWNLINK /rtabmap/cloud_map as /map3d/cloud (0.1 Hz),\n/rtabmap/cloud_ground as /map3d/cloud_ground, /rtabmap/cloud_obstacles as /map3d/cloud_obstacles (0.05 Hz)
 m3dman -> uplink : DOWNLINK /map3d/status, /map3d/result
-uplink -> m3dview : /map3d/cloud, /map3d/status, /map3d/result\n(3D view in web_ui, agent tools)
+uplink -> m3dview : /map3d/cloud, /map3d/cloud_ground, /map3d/cloud_obstacles,\n/map3d/status, /map3d/result\n(3D view in web_ui, agent tools)
 
 == Ground estimation ==
 
@@ -104,7 +104,7 @@ participant "mcp_server / web_ui\n(Client)" as groundview #90CAF9
 
 rgbd -> ground : /tof/points_filtered (10 Hz, via laser_filter), /imu/data,\n/head_rgbd/points (colour model)
 ground -> groundnav : /ground/obstacle_points, /ground/drop_points (10 Hz)\n(ground_voxel_layer; /ground/warning_areas via costmap_zones)
-ground -> groundview : /ground/state (2 Hz), /ground/labelled_points (1 Hz),\n/ground/obstacle_points, /ground/drop_points
+ground -> groundview : /ground/state (2 Hz), /ground/labelled_points (1 Hz),\n/ground/obstacle_points, /ground/drop_points,\n/ground/classified_points (15 Hz, odom, class per point; mcp_server class voxels, web_ui Ground layer)
 
 == SteamDeck UI ==
 

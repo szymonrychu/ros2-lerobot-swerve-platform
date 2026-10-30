@@ -233,8 +233,9 @@ def test_limits_match_tilt_guard_and_swerve() -> None:
         assert ground["slope"][key] == tilt[key]
     trav = ground["traversability"]
     assert trav["wheel_radius_m"] == swerve["wheel_radius_m"] == 0.06
-    max_step = trav["wheel_radius_m"] * 2 * trav["max_step_fraction"]
-    assert math.isclose(max_step, MAX_STEP_M, abs_tol=1e-4)  # 0.04 m up and down (user decision 2026-10-29)
+    for key in ("max_step_up_fraction", "max_step_down_fraction"):  # separate keys since task T3
+        max_step = trav["wheel_radius_m"] * 2 * trav[key]
+        assert math.isclose(max_step, MAX_STEP_M, abs_tol=1e-4)  # 0.04 m up and down (user decision 2026-10-29)
     assert trav["max_slope_deg"] <= min(tilt["roll_error_deg"], tilt["pitch_error_deg"])
 
 
@@ -281,8 +282,9 @@ def test_step_limit_is_forty_millimetres_with_the_floor_band_below_it() -> None:
     surface leaves the band, so a band equal to the step put every ramp's edge step on the step limit."""
     for ground in (yaml.safe_load(DEFAULTS.read_text()), entry_config(NAME)):
         trav = ground["traversability"]
-        max_step = 2 * trav["wheel_radius_m"] * trav["max_step_fraction"]
+        max_step = 2 * trav["wheel_radius_m"] * trav["max_step_up_fraction"]
         assert math.isclose(max_step, MAX_STEP_M, abs_tol=1e-4)
+        assert math.isclose(2 * trav["wheel_radius_m"] * trav["max_step_down_fraction"], MAX_STEP_M, abs_tol=1e-4)
         assert ground["fit"]["distance_m"] <= ground["bands"]["floor_band_m"] < max_step
         assert ground["guidance"]["edge"]["min_height_m"] <= max_step
         assert trav["max_slope_deg"] == 15.0

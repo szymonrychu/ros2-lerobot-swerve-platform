@@ -42,11 +42,12 @@ constexpr int DECIMATION = 2;
 constexpr double LOW_SILL_M = 0.035;
 constexpr double HIGH_SILL_M = 0.045;
 
-// The 40 mm step rule (max_step_fraction 0.3333) the scenes below are calibrated for; the shipped rule is 60 mm.
+// The 40 mm step rule (max_step_up_fraction and max_step_down_fraction 0.3333) the scenes below are calibrated for.
 TraversabilityConfig legacy_rule()
 {
   TraversabilityConfig cfg;
-  cfg.max_step_fraction = 0.3333;
+  cfg.max_step_up_fraction = 0.3333;
+  cfg.max_step_down_fraction = 0.3333;
   return cfg;
 }
 
@@ -391,4 +392,19 @@ TEST(Traversability, ShippedRuleSplitsAtTheFortyMillimetreStep)
   EXPECT_EQ(classify_cluster(0.045, 0.0, true, cfg).cls, Cls::obstacle);
   EXPECT_EQ(classify_cluster(0.055, 0.0, true, cfg).cls, Cls::obstacle);
   EXPECT_EQ(classify_cluster(0.065, 0.0, true, cfg).cls, Cls::obstacle);
+}
+
+// Task T3: a step down is judged against traversability.max_step_down_fraction, a step up against the up fraction.
+TEST(Traversability, StepUpAndStepDownHaveTheirOwnLimits)
+{
+  TraversabilityConfig cfg = legacy_rule();
+  cfg.max_step_down_fraction = 0.25;  // 0.03 m down, 0.04 m up
+  using ground_estimator_cpp::StepSide;
+  EXPECT_EQ(classify_cluster(0.035, 0.0, true, cfg, StepSide::up).cls, Cls::warning);
+  EXPECT_EQ(classify_cluster(0.035, 0.0, true, cfg, StepSide::down).cls, Cls::obstacle);
+  EXPECT_EQ(classify_cluster(0.03, 0.0, true, cfg, StepSide::down).cls, Cls::warning);
+  // apply_rule judges a drop cluster by the down limit and a step cluster by the up limit.
+  EXPECT_GT(run(drop(0.035), over_the_lip(), FLOOR_DISTANCE_M, cfg).drop.size(), 20u);
+  EXPECT_EQ(run(drop(0.035), over_the_lip(), FLOOR_DISTANCE_M, legacy_rule()).drop.size(), 0u);
+  EXPECT_EQ(run(sill(0.035), overhead(), FLOOR_DISTANCE_M, cfg).obstacle.size(), 0u);
 }

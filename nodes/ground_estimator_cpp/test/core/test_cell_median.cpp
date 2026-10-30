@@ -744,8 +744,8 @@ TEST(CellMedian, SillEdgeCellsKeepTheirMedianHeight)
 TEST(CellMedian, BoxEdgeCellsKeepTheStep)
 {
   ground_estimator_cpp::TraversabilityConfig rule;
-  rule.max_step_fraction = LEGACY_STEP_FRACTION;  // the 5 cm box is judged against the 40 mm step
-  const double limit = ground_estimator_cpp::max_step_m(rule);
+  rule.max_step_up_fraction = LEGACY_STEP_FRACTION;  // the 5 cm box is judged against the 40 mm step
+  const double limit = ground_estimator_cpp::max_step_up_m(rule);
   for (unsigned seed = 1; seed <= STEP_SEEDS; ++seed) {
     const Eigen::Isometry3d fixed_T_base = random_cell_alignment(seed);
     CellMedianFilter filter{ten_hz()};

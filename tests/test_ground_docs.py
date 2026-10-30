@@ -31,7 +31,7 @@ REQUIRED_SECTIONS = [
     "Switch-over checklist",
     "Results",
 ]
-GROUND_TOPICS = ["obstacle_points", "drop_points", "labelled_points", "state"]
+GROUND_TOPICS = ["obstacle_points", "drop_points", "labelled_points", "state", "classified_points"]
 DESIGN_THRESHOLDS = ["0.10 core", "1 cm", "1 deg"]
 DEPLOY_COMMAND = (
     "./scripts/deploy-nodes.sh client ground_estimator_cpp costmap_zones nav2_bringup web_ui "
@@ -113,9 +113,11 @@ def test_threshold_validation_defaults_equal_the_shipped_config() -> None:
     for key, value in found.items():
         if key in config:
             assert config[key] == pytest.approx(value), key
-    # One third of the wheel diameter = 0.04 m, up and down (user decision 2026-10-29; 0.5 was the temporary value).
-    assert config["traversability.max_step_fraction"] == pytest.approx(0.3333, abs=1e-4)
-    assert "max_step_fraction" in section("Threshold validation")
+    # One third of the wheel diameter = 0.04 m, up and down (user decision 2026-10-29; 0.5 was the temporary value),
+    # separate keys since task T3.
+    for key in ("max_step_up_fraction", "max_step_down_fraction"):
+        assert config[f"traversability.{key}"] == pytest.approx(0.3333, abs=1e-4)
+        assert key in section("Threshold validation")
     assert "`ground_warning_speed_pct` | 40 |" in section("Threshold validation")
     assert "`ground_warning_mask_value` | 40 |" in section("Threshold validation")
 
