@@ -1220,19 +1220,22 @@ TEST_F(NodeTest, SixtyFiveMillimetreBumpIsLethal)
   EXPECT_GT(xyz_of(*find_stamp(obstacle_, stamp)).size(), 20u);
 }
 
-// A drop deeper than the 40 mm step limit is a lethal drop (user decision 2026-10-29: the same limit up and down). The
-// plane may not tilt more than 1 degree here: with the default 10 degrees the RANSAC plane of a scene that is half
-// upper and half lower floor tilts to catch both levels of a 5 cm drop (inlier ratio 0.83, plane 2 degrees off, drop
-// region of 27 mm), a limit of the plane fit that the 10 cm drop of TenCentimetreDropOffIsALethalDropRegion does not meet.
+// A drop deeper than the 40 mm step limit is a lethal drop (user decision 2026-10-29: the same limit up and down), with
+// the shipped fit (fit.max_normal_angle_deg 10). Before task T3 the RANSAC plane of this half upper, half lower scene
+// tilted about 2 degrees to catch both levels (inlier ratio 0.83) and the drop read 27 mm; T2 passed this test only with
+// the plane limited to 1 degree. The two-level rule of fit_plane keeps the level the robot stands on.
 TEST_F(NodeTest, FiftyMillimetreDipIsLethalAsADropDeeperThanTheStepLimit)
 {
   fill_tf();
-  Config config = shipped_rule_config();
-  config.fit.max_normal_angle_deg = 1.0;
-  start(config);
+  start(shipped_rule_config());
   const auto stamp = warm_cloud_and_wait(scene_cloud(drop_scene(LETHAL_DIP_M)));
   ASSERT_TRUE(wait_for([&] { return find_stamp(drop_, stamp).has_value(); }));
-  EXPECT_GT(xyz_of(*find_stamp(drop_, stamp)).size(), 20u);
+  const auto points = xyz_of(*find_stamp(drop_, stamp));
+  EXPECT_GT(points.size(), 20u);
+  for (const auto & p : points) {
+    EXPECT_GT(p.x(), 1.0);
+    EXPECT_NEAR(p.z(), -LETHAL_DIP_M, 0.02);
+  }
   EXPECT_EQ(xyz_of(*find_stamp(obstacle_, stamp)).size(), 0u);
 }
 

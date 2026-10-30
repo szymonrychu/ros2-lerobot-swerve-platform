@@ -59,7 +59,8 @@ enum Label : uint8_t
   BOARD = 2,
   BOX = 3,
   RAMP = 4,
-  MIXED = 5
+  MIXED = 5,
+  LOWER = 6  // the floor beyond a drop edge (World::drop_x)
 };
 
 // Head orientation: pan about +z (CCW from above), tilt about +y (positive looks down).
@@ -119,10 +120,14 @@ inline Solid wedge(double x0, double length_m, double height_m, double y0, doubl
   return s;
 }
 
+// The floor at floor_z; beyond the edge line x = drop_x it lies drop_depth_m lower (a drop; the riser faces away from
+// the head and is never seen).
 struct World
 {
   double floor_z = 0.0;
   std::vector<Solid> solids;
+  double drop_x = std::numeric_limits<double>::infinity();
+  double drop_depth_m = 0.0;
 };
 
 // tiny_truth.yaml: board x 0.37-0.57, y -0.12-0.14 (a 5 mm plate); box x 0.60-0.78, y 0.05-0.33, 5 cm; ramp x 0.85-1.10,
@@ -154,9 +159,15 @@ inline bool cast(const World & w, const Eigen::Vector3d & o, const Eigen::Vector
   label = NONE;
   if (d.z() < -1e-12) {
     const double t = (w.floor_z - o.z()) / d.z();
-    if (t > 0.0) {
+    if (t > 0.0 && o.x() + t * d.x() < w.drop_x) {
       t_hit = t;
       label = FLOOR;
+    } else if (t > 0.0) {
+      const double t_low = (w.floor_z - w.drop_depth_m - o.z()) / d.z();
+      if (o.x() + t_low * d.x() >= w.drop_x) {
+        t_hit = t_low;
+        label = LOWER;
+      }
     }
   }
   for (const Solid & s : w.solids) {
@@ -236,7 +247,8 @@ inline Frame render(const World & world, const HeadPose & pose, uint32_t seed, b
   if (!noise) {
     return f;
   }
-  // Mixed pixels: from each pixel along each image axis into a farther surface behind its edge.
+  // Mixed pixels: from each pixel along each image axis into a farther floor behind its edge (the floor itself is a
+  // foreground only at a drop edge, in front of the lower floor).
   std::uniform_int_distribution<int> width_px(1, MAX_BLEND_PX);
   const std::array<cv::Point, 4> dirs = {cv::Point(1, 0), cv::Point(-1, 0), cv::Point(0, 1), cv::Point(0, -1)};
   const cv::Mat label_before = f.label.clone();
@@ -244,21 +256,22 @@ inline Frame render(const World & world, const HeadPose & pose, uint32_t seed, b
   for (int v = 0; v < HEIGHT; ++v) {
     for (int u = 0; u < WIDTH; ++u) {
       const uint8_t l = label_before.at<uint8_t>(v, u);
-      if (l == NONE || l == FLOOR) {
+      if (l == NONE || l == LOWER) {
         continue;
       }
+      const uint8_t behind = l == FLOOR ? LOWER : FLOOR;  // the background a foreground blends into
       const double z_fg = true_m.at<float>(v, u);
       for (const cv::Point & step : dirs) {
         const cv::Point q(u + step.x, v + step.y);
         if (
-          !bounds.contains(q) || label_before.at<uint8_t>(q) != FLOOR ||
+          !bounds.contains(q) || label_before.at<uint8_t>(q) != behind ||
           true_m.at<float>(q) <= z_fg * (1.0 + EDGE_JUMP_REL)) {
           continue;
         }
         const int w = width_px(rng);
         for (int i = 0; i < w; ++i) {
           const cv::Point p(q.x + i * step.x, q.y + i * step.y);
-          if (!bounds.contains(p) || f.label.at<uint8_t>(p) != FLOOR) {
+          if (!bounds.contains(p) || f.label.at<uint8_t>(p) != behind) {
             break;
           }
           const double z_bg = true_m.at<float>(p);

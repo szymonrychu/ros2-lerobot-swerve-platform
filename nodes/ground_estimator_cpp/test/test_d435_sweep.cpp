@@ -167,6 +167,17 @@ constexpr Rect BOARD{0.37, 0.57, -0.12, 0.14};
 constexpr Rect BOX{0.60, 0.78, 0.05, 0.33};
 constexpr Rect RAMP{0.85, 1.10, -0.45, -0.15};
 constexpr Rect EMPTY{0.40, 0.70, -0.40, -0.20};
+// Task T3 (drop safety): the scene with the floor 5 cm lower beyond x = DROP_X, past the ramp's back face (1.10 m).
+constexpr double DROP_X = 1.15;
+constexpr double DROP_DEPTH_M = 0.05;
+
+d435_sim::World drop_world()
+{
+  d435_sim::World w = d435_sim::truth_world();
+  w.drop_x = DROP_X;
+  w.drop_depth_m = DROP_DEPTH_M;
+  return w;
+}
 constexpr double FOOTPRINT_MARGIN_M = 0.10;  // one cell: a lethal mark may lie on the cell that touches the box
 
 // --- the run --------------------------------------------------------------------------------------------------------
@@ -187,6 +198,7 @@ struct FrameRecord
   bool published = false;  // the node answered with the lethal clouds and the warning areas
   int box_pixels = 0;      // BOX pixels in the rendered frame (the box is in view)
   int ramp_pixels = 0;
+  int lower_pixels = 0;                         // the floor beyond a drop edge (drop_world)
   std::vector<Eigen::Vector2d> obstacle, drop;  // base_link xy
   json areas = json::array();                   // the warning areas (map == odom frame), polygons in odom
   bool head_moving_state = false;               // the newest /ground/state document says head_moving
@@ -525,6 +537,7 @@ protected:
       rec.pan_deg = plan(t);
       rec.box_pixels = cv::countNonZero(frame.label == d435_sim::BOX);
       rec.ramp_pixels = cv::countNonZero(frame.label == d435_sim::RAMP);
+      rec.lower_pixels = cv::countNonZero(frame.label == d435_sim::LOWER);
       const double before = processed();
       const double moving_before = metric("ground_head_moving_frames_total{input=\"cloud\"}");
       cloud_pub_->publish(msg);
@@ -804,4 +817,76 @@ TEST_F(D435SweepTest, WithoutTheGateTheSweepIsWorseOrEqual)
   EXPECT_EQ(open.moving_frames, 0.0);
   EXPECT_LE(vg.stray_lethal, vo.stray_lethal);
   EXPECT_LE(vg.flicker.blips, vo.flicker.blips);
+}
+
+// Task T3 (drop safety): a 5 cm drop beyond the scene is a lethal drop with the shipped config, head still and sweeping.
+// Before T3 the plane tilted to catch both floor levels: the drop was lethal in 0 of 60 still frames and the 14 deg ramp
+// lethal in 32. The box stays lethal, the ramp a warning and never lethal, and no drop mark lies before the edge. The
+// flicker is not bounded here (worst cell about 80 class changes per 10 s): the lower floor at 1.2-2 m clears the 40 mm
+// limit by 10 mm, about the D435 depth noise there.
+namespace
+{
+
+struct DropVerdict
+{
+  int visible = 0;    // settled frames with the lower floor in view
+  int lethal = 0;     // of those, frames with a drop mark beyond the edge
+  int misplaced = 0;  // published frames with a drop mark before the edge
+};
+
+DropVerdict judge_drop(const Recording & run, double from_s)
+{
+  DropVerdict d;
+  for (const FrameRecord & f : run.frames) {
+    if (f.t_s >= from_s && f.published) {
+      d.misplaced +=
+        std::any_of(
+          f.drop.begin(), f.drop.end(), [](const Eigen::Vector2d & p) { return p.x() < DROP_X - FOOTPRINT_MARGIN_M; })
+          ? 1
+          : 0;
+    }
+  }
+  for (const auto & stretch : settled_stretches(run, from_s)) {
+    for (const FrameRecord * f : stretch) {
+      if (f->lower_pixels < MIN_VISIBLE_PIXELS) {
+        continue;
+      }
+      ++d.visible;
+      d.lethal +=
+        std::any_of(f->drop.begin(), f->drop.end(), [](const Eigen::Vector2d & p) { return p.x() >= DROP_X; }) ? 1 : 0;
+    }
+  }
+  return d;
+}
+
+void expect_drop_scene(const char * name, const Recording & run, const Verdict & v)
+{
+  const DropVerdict d = judge_drop(run, WARM_UP_S);
+  print(name, run, v);
+  std::cout << "d435 sweep " << name << ": drop visible/lethal " << d.visible << "/" << d.lethal << ", misplaced "
+            << d.misplaced << std::endl;
+  ASSERT_GT(d.visible, 20);
+  EXPECT_EQ(d.lethal, d.visible) << "the 5 cm drop is lethal in every settled frame that sees it";
+  EXPECT_EQ(d.misplaced, 0) << "no drop mark before the edge";
+  ASSERT_GT(v.box_visible, 20);
+  EXPECT_EQ(v.box_lethal, v.box_visible);
+  EXPECT_EQ(v.board_lethal, 0);
+  EXPECT_EQ(v.ramp_lethal, 0) << "the 14 deg ramp is a warning, never lethal";
+  EXPECT_EQ(v.stray_lethal, 0);
+  ASSERT_GT(v.ramp_visible, 20);
+  EXPECT_EQ(v.ramp_warned, v.ramp_visible);
+}
+
+}  // namespace
+
+TEST_F(D435SweepTest, FiveCentimetreDropIsLethalWithTheShippedFitHeadStill)
+{
+  const Recording run = play(drop_world(), static_plan(0.0), 6.0, EXPOSURE_OFFSET_MAX_S, 21);
+  expect_drop_scene("drop static", run, judge(run, WARM_UP_S));
+}
+
+TEST_F(D435SweepTest, FiveCentimetreDropIsLethalWithTheShippedFitWhileTheHeadSweeps)
+{
+  const Recording run = play(drop_world(), sweep_plan(), sweep_duration_s(), EXPOSURE_OFFSET_MAX_S, 22);
+  expect_drop_scene("drop sweep", run, judge(run, WARM_UP_S));
 }

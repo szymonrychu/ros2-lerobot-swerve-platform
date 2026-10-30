@@ -176,3 +176,49 @@ TEST(PlaneFit, RejectNames)
   EXPECT_STREQ(ground_estimator_cpp::to_string(FitReject::low_inlier_ratio), "low_inlier_ratio");
   EXPECT_STREQ(ground_estimator_cpp::to_string(FitReject::no_plane), "no_plane");
 }
+
+// Task T3 (drop safety): a RANSAC plane within fit.max_normal_angle_deg (10 deg) of the prior can tilt about 2 deg to
+// pass within fit.distance_m of both levels of a 5 cm drop or step that splits the view (inlier ratio 0.83), and the
+// drop then reads 27 mm, under the 40 mm step limit. The fit must keep the level the robot stands on: the floor near
+// the robot, level and at the base_link origin, for every edge distance and RANSAC seed.
+TEST(PlaneFit, FiveCentimetreDropOrStepAcrossTheViewKeepsTheLevelTheRobotStandsOn)
+{
+  for (const double edge_x : {0.8, 1.0, 1.2, 1.5}) {
+    for (const double level_m : {-0.05, 0.05}) {
+      Scene scene = ground_test::floor_until(edge_x);
+      if (level_m < 0.0) {
+        ground_test::add_drop_off(scene, edge_x, -level_m);
+      } else {
+        ground_test::add_step_up(scene, edge_x, level_m);
+      }
+      const auto cloud = render(scene, DEFAULT_SIGMA_M, 0.0, 3);
+      for (unsigned seed = 1; seed <= 6; ++seed) {
+        const auto r = fit_plane(cloud, Eigen::Vector3d::UnitZ(), FitConfig{}, seed);
+        ASSERT_TRUE(r.plane.has_value()) << "edge " << edge_x << " level " << level_m << " seed " << seed;
+        EXPECT_LT(angle_deg(r.plane->normal, Eigen::Vector3d::UnitZ()), ANGLE_TOL_DEG)
+          << "edge " << edge_x << " level " << level_m << " seed " << seed;
+        EXPECT_NEAR(height_at_origin(*r.plane), 0.0, HEIGHT_TOL_M)
+          << "edge " << edge_x << " level " << level_m << " seed " << seed;
+      }
+    }
+  }
+}
+
+// The same rule must not turn a genuinely sloped floor into a level one, nor take a 14 deg ramp beyond the floor
+// (a surface steeper than the fit band) for the floor.
+TEST(PlaneFit, PitchedFloorAndARampBeyondTheFloorAreUnchangedByTheLevelRule)
+{
+  for (const double pitch_deg : {-4.0, 3.0}) {
+    const auto r = fit(floor_scene(0.0, pitch_deg), Eigen::Vector3d::UnitZ());
+    ASSERT_TRUE(r.plane.has_value()) << pitch_deg;
+    EXPECT_LT(angle_deg(r.plane->normal, tilted_normal(0.0, pitch_deg)), 1.0) << pitch_deg;
+  }
+  Scene ramp = ground_test::floor_until(1.0);
+  ramp.surfaces.push_back(ground_test::plane_surface(
+    Eigen::Vector3d(1.0, 0.0, 0.0), Eigen::Vector3d(-std::sin(14.0 * DEG), 0.0, std::cos(14.0 * DEG)),
+    [](const Eigen::Vector3d & p) { return p.x() >= 1.0; }));
+  const auto r = fit(ramp, Eigen::Vector3d::UnitZ());
+  ASSERT_TRUE(r.plane.has_value());
+  EXPECT_LT(angle_deg(r.plane->normal, Eigen::Vector3d::UnitZ()), ANGLE_TOL_DEG);
+  EXPECT_NEAR(height_at_origin(*r.plane), 0.0, HEIGHT_TOL_M);
+}

@@ -537,6 +537,15 @@ Prometheus on `metrics_port`.
   noise draws (`PlaneFit.BoxFaceFootDoesNotTiltThePlaneForAnyRansacSeed`). The trimmed plane never turns more than 2 degrees
   or moves more than `fit.distance_m` from the plain least squares plane and never keeps fewer than half of the inliers,
   so a noisy or sparse floor keeps the plain plane. The inlier count and ratio gates use the plain plane's.
+- Two levels (drop safety): a plane tilted 2 to 5 degrees passes within `fit.distance_m` of both levels of a 5 cm drop or
+  step that splits the view and wins the RANSAC count; the drop then read 27 mm, under the 40 mm step limit, so it was a
+  warning instead of a lethal drop. Before the trimmed refit, the fit checks whether the RANSAC inliers are two levels:
+  the near level (a thin RANSAC over the candidates within 0.4 m of the nearest one, grown by least squares) and, among
+  the inliers off it, a second level parallel to it (within 1 degree), more than `fit.distance_m` away and holding at
+  least 5 % of the inliers. Then the fit continues from the level nearer the nominal floor at the base_link origin (the
+  one the wheels stand on). A sloped floor is one plane near and far, and a ramp beyond the floor is not parallel, so
+  both keep the RANSAC plane (`PlaneFit.FiveCentimetreDropOrStepAcrossTheViewKeepsTheLevelTheRobotStandsOn`,
+  `PlaneFit.PitchedFloorAndARampBeyondTheFloorAreUnchangedByTheLevelRule`).
 - `PlaneTracker` keeps the recent fits and answers by stamp: the newest fit at or before the queried stamp, with
   `source` `fit` when it is that cloud's own fit and `held` when an older one is reused. A fit older than `fit.hold_s`
   is not used: there is no estimate beyond `hold_s`, and the plane is null with a reason.
@@ -732,10 +741,11 @@ counted frames. No threshold may be loosened; a failing metric is a finding.
 the frames); the board never lethal is strict (0 frames). The ramp's `ramp_warning_share` and slope error are not
 gates (D19). These ToF recordings stay as they are until `record-d435-ground-replay-fi` and `tune-ground-estimator-on-d43`
 replace them with D435 fixtures (live). Final lines (2026-10-30, `scripts/cpp-node-test.sh ground_estimator_cpp` on the
-shipped config: 20 mm floor band, 40 mm step both ways, the trimmed plane refit):
+shipped config: 20 mm floor band, 40 mm step both ways, the trimmed plane refit and the two-level rule; the rule moved
+home `churn_share` from 0.078 to 0.093):
 
 ```text
-replay home: plane_share=1.000 box_lethal_share=0.962 board_lethal_frames=0 stray_lethal_share=0.000 far_side_warning_frames=0 ramp_lethal_frames=0 churn_share=0.078
+replay home: plane_share=1.000 box_lethal_share=0.962 board_lethal_frames=0 stray_lethal_share=0.000 far_side_warning_frames=0 ramp_lethal_frames=0 churn_share=0.093
 replay box: plane_share=1.000 box_lethal_share=0.984 board_lethal_frames=0 stray_lethal_share=0.000 far_side_warning_frames=0 ramp_lethal_frames=0 churn_share=0.000
 replay ramp: plane_share=0.884 box_lethal_share=0.000 board_lethal_frames=0 stray_lethal_share=0.000 far_side_warning_frames=0 ramp_lethal_frames=0 churn_share=0.000
 ```
@@ -782,9 +792,12 @@ and 2 blips occur, so the gate is what keeps the sweep quiet in this model. The 
 behaviour (multipath, exposure, the actual stamp offset), so the live check
 (`scripts/ground_noise_report.py` with a still and a slowly panning head) decides.
 
-Known limit, found while writing the drop tests: in a scene half upper floor and half a 5 cm lower floor the RANSAC plane
-tilts 2 degrees to catch both levels (inlier ratio 0.83) and the drop reads 27 mm, a warning; a 10 cm drop is found.
-`NodeTest.FiftyMillimetreDipIsLethal...` therefore limits `fit.max_normal_angle_deg` to 1 degree. Noted, not changed here.
+Drop scenes (2026-10-30): the same scene with the floor 5 cm lower beyond x = 1.15 m (just past the ramp's back face).
+With the shipped fit the drop is lethal in every settled frame that sees it (static 60 of 60, sweeping 49 of 49), no drop
+mark lies before the edge, the box stays lethal and the ramp a warning in every frame. Before the two-level rule (Plane
+tracking) the plane tilted to catch both levels: the drop was lethal in 0 of 60 still frames and the ramp lethal in 32.
+The flicker is not bounded in these scenes: cells of the lower floor at 1.3-2 m change class up to about 80 times per
+10 s, since their 50 mm depth clears the 40 mm step limit by about the D435 depth noise at that range.
 
 ### Baseline
 
