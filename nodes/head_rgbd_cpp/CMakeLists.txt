@@ -13,6 +13,7 @@ find_package(ament_cmake REQUIRED)
 find_package(ros2_common_cpp REQUIRED)
 find_package(yaml-cpp REQUIRED)
 # imgproc: depth downscale and colour resize. imgcodecs: the JPEG encode of the colour and the decode of the cloud.
+# The depth edge mask itself is ros2_common_cpp::depth_mask (OpenCV core and imgproc).
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
@@ -31,6 +32,7 @@ target_include_directories(head_rgbd_core PUBLIC
 target_link_libraries(head_rgbd_core PUBLIC
   ros2_common_cpp::config
   ros2_common_cpp::metrics
+  ros2_common_cpp::depth_mask
   yaml-cpp::yaml-cpp
   opencv_core
   opencv_imgproc
@@ -40,9 +42,9 @@ ament_target_dependencies(head_rgbd_core PUBLIC sensor_msgs image_geometry depth
 target_include_directories(head_rgbd_core SYSTEM PUBLIC ${OpenCV_INCLUDE_DIRS})
 set_target_properties(head_rgbd_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-# The ROS wiring: HeadRgbdNode and the head_rgbd_node executable (single-threaded executor: the sync callback, the
-# 1 s lazy timer and the config are never touched concurrently).
-add_library(head_rgbd_node_lib STATIC src/head_rgbd_node.cpp)
+# The ROS wiring: FramePairer (message_filters), HeadRgbdNode and the head_rgbd_node executable (single-threaded
+# executor: the input callbacks, the 1 s lazy timer and the config are never touched concurrently).
+add_library(head_rgbd_node_lib STATIC src/pairing.cpp src/head_rgbd_node.cpp)
 target_link_libraries(head_rgbd_node_lib PUBLIC head_rgbd_core)
 ament_target_dependencies(head_rgbd_node_lib PUBLIC
   rclcpp sensor_msgs message_filters cv_bridge)
@@ -72,6 +74,8 @@ if(BUILD_TESTING)
 
   ament_add_gtest(test_node test/test_node.cpp TIMEOUT 300)
   target_link_libraries(test_node head_rgbd_node_lib)
+  ament_add_gtest(test_pairing test/test_pairing.cpp TIMEOUT 60)
+  target_link_libraries(test_pairing head_rgbd_node_lib)
 endif()
 
 ament_package()

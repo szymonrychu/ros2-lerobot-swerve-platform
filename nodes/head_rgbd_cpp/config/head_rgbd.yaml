@@ -1,5 +1,6 @@
-# head_rgbd_cpp: the D435 adapter. Pairs the aligned depth with the colour image by exact stamp, throttles the sets,
-# downscales the depth and JPEG-encodes the colour into the /head_rgbd contract. Unknown keys are rejected.
+# head_rgbd_cpp: the D435 adapter. Pairs the aligned depth with the colour image (pairing), throttles the sets, masks
+# the depth edges, downscales the depth and JPEG-encodes the colour into the /head_rgbd contract; republishes the
+# full-FOV depth masked at full rate (filtered_depth). Unknown keys are rejected.
 # Every key below is shown with its default.
 
 # Input topics (realsense_d435, camera_namespace head, camera_name d435, align_depth on).
@@ -26,5 +27,34 @@ cloud:
 
 lazy:
   idle_unsubscribe_s: 5.0 # drop the input subscriptions this long after the last output subscriber left, s (>= 0)
+
+# Depth edge ("veil") mask (ros2_common_cpp::depth_mask) on every depth this node publishes: the aligned depth of the
+# sets (before the downscale) and the full-rate filtered depth. A valid pixel is removed (0, no depth) when a valid
+# pixel of its window_px x window_px neighbourhood is nearer by more than max(abs_m, rel x its depth): the mixed and
+# flying pixels behind an object edge go, the object keeps its edge.
+edge_mask:
+  enabled: true # apply the mask
+  window_px: 3  # neighbourhood side, px (odd, 3..9)
+  abs_m: 0.01   # smallest jump that removes a pixel, m (>= 0)
+  # rel: the floor 2 m ahead of the head home pose deepens ~1.5 % per pixel row, a 3 px blend across a 5 cm box edge ~4 %.
+  rel: 0.025    # jump that removes a pixel per metre of its depth (0..1; abs_m or rel must be > 0)
+  grow_px: 0    # widen the removed region by this many pixels (0..2)
+
+# Full-rate filtered depth: every frame of depth_topic, masked, republished with its own header on output_image_topic
+# and the latest camera_info of info_topic (same size) on output_info_topic. The input of d435_obstacle_cloud.
+# Subscribed only while an output has subscribers (lazy.idle_unsubscribe_s).
+filtered_depth:
+  enabled: true                                              # advertise the filtered depth
+  depth_topic: /head/d435/depth/image_rect_raw               # sensor_msgs/Image 16UC1 full-FOV depth, mm
+  info_topic: /head/d435/depth/camera_info                   # sensor_msgs/CameraInfo of that depth
+  output_image_topic: /head/d435/depth_filtered/image_raw    # the masked depth, same header as the input
+  output_info_topic: /head/d435/depth_filtered/camera_info   # the camera_info with the image header
+
+# Pairing of the aligned depth with the colour frame (message_filters). exact: equal stamps (ExactTime). approximate:
+# stamps at most max_interval_s apart (ApproximateTime). The set carries the colour header either way. Choose from
+# the live head_rgbd_pair_stamp_delta_seconds histogram (README, Pairing).
+pairing:
+  policy: exact         # exact or approximate
+  max_interval_s: 0.02  # widest colour-to-depth stamp spread of an approximate pair, s (0 < v <= 0.0333 = 1/30)
 
 metrics_port: 19117 # Prometheus /metrics port (1..65535), null disables

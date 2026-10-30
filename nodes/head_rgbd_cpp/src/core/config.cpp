@@ -14,6 +14,12 @@ constexpr int MAX_DIVISOR = 2;
 constexpr double MAX_OUTPUT_RATE_HZ = 15.0;
 constexpr int MAX_JPEG_QUALITY = 100;
 constexpr double MAX_CLOUD_RATE_HZ = 10.0;
+constexpr int MIN_WINDOW_PX = 3;
+constexpr int MAX_WINDOW_PX = 9;
+constexpr double MAX_REL = 1.0;
+constexpr int MAX_GROW_PX = 2;
+constexpr const char * POLICY_EXACT = "exact";
+constexpr const char * POLICY_APPROXIMATE = "approximate";
 
 // The key as written in errors: "<prefix><key>".
 std::string full_key(const std::string & prefix, const char * key) { return prefix + key; }
@@ -48,7 +54,7 @@ Config parse(const YAML::Node & node, Errors & errors)
   ros2_common_cpp::forbid_unknown(
     node,
     {"depth_topic", "rgb_image_topic", "rgb_info_topic", "output_namespace", "output", "depth", "cloud", "lazy",
-     "metrics_port"},
+     "edge_mask", "filtered_depth", "pairing", "metrics_port"},
     errors);
   if (!node.IsMap()) {
     return c;
@@ -93,6 +99,58 @@ Config parse(const YAML::Node & node, Errors & errors)
   if (const YAML::Node s = section(node, "lazy", {"idle_unsubscribe_s"}, errors); s.IsDefined()) {
     c.lazy.idle_unsubscribe_s = read<double>(s, "lazy.", "idle_unsubscribe_s", c.lazy.idle_unsubscribe_s, errors);
     ros2_common_cpp::ge("lazy.idle_unsubscribe_s", c.lazy.idle_unsubscribe_s, 0.0, errors);
+  }
+
+  if (const YAML::Node s = section(node, "edge_mask", {"enabled", "window_px", "abs_m", "rel", "grow_px"}, errors);
+      s.IsDefined()) {
+    const std::string p = "edge_mask.";
+    EdgeMaskConfig & m = c.edge_mask;
+    m.enabled = read<bool>(s, p, "enabled", m.enabled, errors);
+    m.window_px = read<int>(s, p, "window_px", m.window_px, errors);
+    ros2_common_cpp::ge<int>(p + "window_px", m.window_px, MIN_WINDOW_PX, errors);
+    ros2_common_cpp::le<int>(p + "window_px", m.window_px, MAX_WINDOW_PX, errors);
+    if (m.window_px % 2 == 0) {
+      errors.push_back(p + "window_px: must be odd (got " + std::to_string(m.window_px) + ")");
+    }
+    m.abs_m = read<double>(s, p, "abs_m", m.abs_m, errors);
+    ros2_common_cpp::ge(p + "abs_m", m.abs_m, 0.0, errors);
+    m.rel = read<double>(s, p, "rel", m.rel, errors);
+    ros2_common_cpp::ge(p + "rel", m.rel, 0.0, errors);
+    ros2_common_cpp::le(p + "rel", m.rel, MAX_REL, errors);
+    if (m.abs_m == 0.0 && m.rel == 0.0) {
+      errors.push_back(p + "rel: abs_m or rel must be above 0 (a zero threshold removes every pixel behind another)");
+    }
+    m.grow_px = read<int>(s, p, "grow_px", m.grow_px, errors);
+    ros2_common_cpp::ge<int>(p + "grow_px", m.grow_px, 0, errors);
+    ros2_common_cpp::le<int>(p + "grow_px", m.grow_px, MAX_GROW_PX, errors);
+  }
+
+  if (const YAML::Node s = section(
+        node, "filtered_depth", {"enabled", "depth_topic", "info_topic", "output_image_topic", "output_info_topic"},
+        errors);
+      s.IsDefined()) {
+    const std::string p = "filtered_depth.";
+    FilteredDepthConfig & f = c.filtered_depth;
+    f.enabled = read<bool>(s, p, "enabled", f.enabled, errors);
+    f.depth_topic = read<std::string>(s, p, "depth_topic", f.depth_topic, errors);
+    f.info_topic = read<std::string>(s, p, "info_topic", f.info_topic, errors);
+    f.output_image_topic = read<std::string>(s, p, "output_image_topic", f.output_image_topic, errors);
+    f.output_info_topic = read<std::string>(s, p, "output_info_topic", f.output_info_topic, errors);
+  }
+
+  if (const YAML::Node s = section(node, "pairing", {"policy", "max_interval_s"}, errors); s.IsDefined()) {
+    const std::string p = "pairing.";
+    const std::string policy = read<std::string>(s, p, "policy", POLICY_EXACT, errors);
+    if (policy == POLICY_EXACT) {
+      c.pairing.policy = PairingPolicy::EXACT;
+    } else if (policy == POLICY_APPROXIMATE) {
+      c.pairing.policy = PairingPolicy::APPROXIMATE;
+    } else {
+      errors.push_back(p + "policy: must be exact or approximate (got " + policy + ")");
+    }
+    c.pairing.max_interval_s = read<double>(s, p, "max_interval_s", c.pairing.max_interval_s, errors);
+    ros2_common_cpp::gt(p + "max_interval_s", c.pairing.max_interval_s, 0.0, errors);
+    ros2_common_cpp::le(p + "max_interval_s", c.pairing.max_interval_s, MAX_PAIR_INTERVAL_S, errors);
   }
 
   if (const YAML::Node port = node["metrics_port"]; port.IsDefined()) {

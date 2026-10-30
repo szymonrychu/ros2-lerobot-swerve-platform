@@ -1125,7 +1125,8 @@ FOLDED_LAUNCH_COMMANDS = {
     "d435_obstacle_cloud": (
         "ros2 run rtabmap_util point_cloud_xyz --ros-args "
         "--params-file {{ ros2_repo_dest }}/nodes/d435_obstacle_cloud/config/point_cloud_xyz.yaml "
-        "-r depth/image:=/head/d435/depth/image_rect_raw -r depth/camera_info:=/head/d435/depth/camera_info "
+        "-r depth/image:=/head/d435/depth_filtered/image_raw "
+        "-r depth/camera_info:=/head/d435/depth_filtered/camera_info "
         "-r cloud:=/head/d435/points -r __node:=d435_obstacle_cloud"
     ),
     # Uninstall stub (present: false): the retired command, unchanged while the stub exists.

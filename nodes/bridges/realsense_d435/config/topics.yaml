@@ -107,7 +107,17 @@ topics:
   /head/d435/triggered_calibration/_action/status:
     type: action_msgs/msg/GoalStatusArray
     node: realsense_d435
-  # Obstacle cloud from the depth image, and its footprint-filtered copy.
+  # Edge-masked copy of the depth image (head_rgbd_cpp filtered_depth), the obstacle cloud input. Added 2026-10-29 from
+  # the head_rgbd_cpp config and code (the header and frame of /head/d435/depth/image_rect_raw), not yet captured live.
+  /head/d435/depth_filtered/camera_info:
+    type: sensor_msgs/msg/CameraInfo
+    frame_id: d435_depth_optical_frame
+    node: head_rgbd_cpp
+  /head/d435/depth_filtered/image_raw:
+    type: sensor_msgs/msg/Image
+    frame_id: d435_depth_optical_frame
+    node: head_rgbd_cpp
+  # Obstacle cloud from the filtered depth image, and its footprint-filtered copy.
   /head/d435/points:
     type: sensor_msgs/msg/PointCloud2
     frame_id: d435_depth_optical_frame

@@ -10,6 +10,7 @@
 #include <string>
 
 #include "ros2_common_cpp/config.hpp"
+#include "ros2_common_cpp/depth_mask.hpp"
 
 namespace head_rgbd_cpp
 {
@@ -19,6 +20,9 @@ using ros2_common_cpp::Errors;
 constexpr const char * ENV_CONFIG_PATH_KEY = "HEAD_RGBD_CONFIG";
 constexpr const char * DEFAULT_CONFIG_PATH = "/etc/ros2/head_rgbd_cpp/config.yaml";
 constexpr long DEFAULT_METRICS_PORT = 19117;  // NOLINT(runtime/int)
+// Widest colour-to-depth stamp spread of an approximate pair: half a frame period of the 15 Hz D435, so a colour frame
+// can never pair with the depth of the next frame.
+constexpr double MAX_PAIR_INTERVAL_S = 0.5 / 15.0;
 
 // Output sets: depth size, set rate and RGB JPEG quality.
 struct OutputConfig
@@ -42,6 +46,39 @@ struct CloudConfig
   double rate_hz = 1.0;  // 0 < v <= 10
 };
 
+// Depth edge ("veil") mask applied to every depth the node publishes (ros2_common_cpp::depth_mask): window_px odd
+// 3..9, abs_m >= 0, 0 <= rel <= 1 (not both 0), grow_px 0..2.
+struct EdgeMaskConfig : ros2_common_cpp::DepthEdgeMaskParams
+{
+  bool enabled = true;
+};
+
+// Full-rate filtered copy of the full-FOV D435 depth: every frame of depth_topic, masked, on output_image_topic with
+// the frame's own header, and the latest camera_info of info_topic (same size) on output_info_topic with that header.
+// The input of d435_obstacle_cloud.
+struct FilteredDepthConfig
+{
+  bool enabled = true;
+  std::string depth_topic = "/head/d435/depth/image_rect_raw";
+  std::string info_topic = "/head/d435/depth/camera_info";
+  std::string output_image_topic = "/head/d435/depth_filtered/image_raw";
+  std::string output_info_topic = "/head/d435/depth_filtered/camera_info";
+};
+
+enum class PairingPolicy
+{
+  EXACT,
+  APPROXIMATE
+};
+
+// How the aligned depth pairs with the colour frame: message_filters ExactTime (equal stamps) or ApproximateTime
+// (stamps at most max_interval_s apart, 0 < v <= MAX_PAIR_INTERVAL_S).
+struct PairingConfig
+{
+  PairingPolicy policy = PairingPolicy::EXACT;
+  double max_interval_s = 0.02;
+};
+
 // Lazy subscription.
 struct LazyConfig
 {
@@ -59,6 +96,9 @@ struct Config
   DepthConfig depth;
   CloudConfig cloud;
   LazyConfig lazy;
+  EdgeMaskConfig edge_mask;
+  FilteredDepthConfig filtered_depth;
+  PairingConfig pairing;
   std::optional<long> metrics_port = DEFAULT_METRICS_PORT;  // NOLINT(runtime/int); nullopt disables metrics
 
   // Output topics derived from output_namespace.
