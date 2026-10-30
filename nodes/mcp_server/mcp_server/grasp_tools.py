@@ -29,7 +29,7 @@ from .floor_guard import FloorOverride, TiltOverrideDeg
 from .grasp import GraspParams, GraspPlan, GraspPlanner, ObjectSpec, Waypoint, grasp_params
 from .grasp_check import Band, CropInfo, FusedOutcome, GraspCheck, GripEvidence, ImageState, ImageVerdict
 from .grip import ResolvedGrip, resolve_grip_profile
-from .head import HeadError
+from .head import CalibrationInfo, HeadError
 from .head_kinematics import PAN_JOINT, TILT_JOINT, HeadAimError
 from .jaw_crop import JawCropError, crop_jpeg, jaw_crop, tool_point_in_base
 from .jog import Jogger, JogSpec
@@ -258,15 +258,23 @@ def arm_only(samples: list[dict[str, float]], gripper: str) -> list[dict[str, fl
 class GraspExecutor:
     """Plans with GraspPlanner and runs plans through ArmController (lease, stop, all guards and the slow zone)."""
 
-    def __init__(self, arm: ArmController, config: McpServerConfig) -> None:
+    def __init__(
+        self,
+        arm: ArmController,
+        config: McpServerConfig,
+        calibration: Callable[[], CalibrationInfo] | None = None,
+    ) -> None:
         """Bind to the arm.
 
         Args:
             arm (ArmController): Arm controller.
             config (McpServerConfig): Node configuration.
+            calibration (Callable[[], CalibrationInfo] | None): The applied head calibration, checked against
+                camera_arm.max_residual_mm for an object whose position_source is 'camera'; None refuses such an object.
         """
         self.arm = arm
         self.cfg = config
+        self.calibration = calibration
         self.planner = GraspPlanner(arm.kin, config, arm.floor_guard, arm.jaw, arm.body_check)
 
     def fraction(self, angle: float) -> float:
@@ -326,6 +334,22 @@ class GraspExecutor:
         surface = self.arm.floor_surface(floor)
         return self.planner.plan(obj, strategy, params, surface, seed, approach_pitch_deg), notes
 
+    def camera_refusal(self, obj: ObjectSpec) -> str | None:
+        """Why a camera-derived position may not be grasped (the one gate every execute path goes through).
+
+        Args:
+            obj (ObjectSpec): Object.
+
+        Returns:
+            str | None: Refusal text for a 'camera' position whose applied calibration residual is unknown or above
+                camera_arm.max_residual_mm (or when no calibration source is bound); None otherwise.
+        """
+        if obj.position_source != "camera":
+            return None
+        if self.calibration is None:
+            return "no head calibration is available to check against the camera-to-arm residual gate"
+        return gate_refusal(self.calibration(), self.cfg.camera_arm.max_residual_mm)
+
     def grasp(
         self,
         obj: ObjectSpec,
@@ -347,8 +371,15 @@ class GraspExecutor:
 
         Returns:
             GraspResult: infeasible / grasped / unverified / missed / aborted.
+
+        Raises:
+            ValueError: For an invalid grip profile, or a camera-derived position the calibration residual gate
+                refuses (nothing moved).
         """
         grip = self.resolve_grip(params)  # an invalid profile refuses before anything moves
+        refusal = self.camera_refusal(obj)
+        if refusal is not None:
+            raise ValueError(f"grasp refused (nothing moved): the object position comes from the camera and {refusal}")
         floor = with_object_surfaces(floor, obj)
         plan, notes = self.plan(obj, strategy, params, approach_pitch_deg, floor)
         result = (
@@ -771,6 +802,7 @@ class GraspService:
         guard: CutoffGuard | None = None,
         stop_count: Callable[[], int] | None = None,
         publish: Callable[[dict[str, Any]], None] | None = None,
+        calibration: Callable[[], CalibrationInfo] | None = None,
     ) -> None:
         """Create the service.
 
@@ -781,12 +813,14 @@ class GraspService:
             stop_count (Callable[[], int] | None): Robot stop counter (a stop tool call aborts a running grasp).
             publish (Callable[[dict[str, Any]], None] | None): Sends an answer on /grasp/result outside handle's
                 return (coalesced jogs); None logs and drops such answers.
+            calibration (Callable[[], CalibrationInfo] | None): The applied head calibration for the camera-position
+                gate (GraspExecutor); None refuses camera positions.
         """
         self.arm = arm
         self.cfg = config
         self.guard = guard
         self.stop_count = stop_count or (lambda: 0)
-        self.executor = GraspExecutor(arm, config)
+        self.executor = GraspExecutor(arm, config, calibration)
         self.cancel = threading.Event()
         self.busy = threading.Lock()
         self.jogger = Jogger(arm, config.jog, guard, publish or unsent_answer)
@@ -857,9 +891,12 @@ class GraspService:
 
             if req.action == "execute":
                 assert req.object is not None
-                result = self.executor.grasp(
-                    req.object, req.strategy, params, req.approach_pitch_deg, floor, stop_requested
-                )
+                try:
+                    result = self.executor.grasp(
+                        req.object, req.strategy, params, req.approach_pitch_deg, floor, stop_requested
+                    )
+                except ValueError as exc:
+                    return head | {"ok": False, "error": str(exc)}
             else:
                 result = self.executor.release(params, floor, stop_requested)
         finally:
@@ -1178,7 +1215,7 @@ def register(ctx: ToolContext) -> None:
         ctx (ToolContext): Shared registration context.
     """
     robot, config = ctx.robot, ctx.config
-    executor = GraspExecutor(robot.arm, config)
+    executor = GraspExecutor(robot.arm, config, lambda: robot.head.calibration())
     grasp = config.grasp
     grasp_check = config.grasp_check
     slow = config.floor_guard
@@ -1241,13 +1278,6 @@ def register(ctx: ToolContext) -> None:
         except (ArmError, ValueError) as exc:
             raise ToolError(str(exc)) from exc
 
-    def camera_gate(obj: ObjectSpec) -> str | None:
-        """Why a camera-derived position may not be grasped (the applied calibration's arm-frame residual against
-        camera_arm.max_residual_mm); None for a manual position or a residual within the gate."""
-        if obj.position_source != "camera":
-            return None
-        return gate_refusal(robot.head.calibration(), config.camera_arm.max_residual_mm)
-
     @ctx.server.tool(
         description=(
             "Dry run of a grasp (no motion): plans waypoints pre_grasp (lifted; roll set here with the gripper at most "
@@ -1284,7 +1314,7 @@ def register(ctx: ToolContext) -> None:
             grasp_call = grasp_params(grasp, params, grip_profile)
             grip = executor.resolve_grip(grasp_call)
             plan, notes = executor.plan(object, strategy, grasp_call, approach_pitch_deg, floor)
-            refusal = camera_gate(object)
+            refusal = executor.camera_refusal(object)
             if refusal is not None:
                 notes = [*notes, f"grasp_object will refuse this camera position: {refusal}"]
             GRASP_PLANS.labels(strategy, "feasible" if plan.feasible else "infeasible").inc()
@@ -1337,11 +1367,6 @@ def register(ctx: ToolContext) -> None:
         baseline = robot.stop_count()
 
         def body() -> GraspResult:
-            refusal = camera_gate(object)
-            if refusal is not None:
-                raise ValueError(
-                    f"grasp refused (nothing moved): the object position comes from the camera and {refusal}"
-                )
             floor = floor_override(surface_z_m, tilt_override_deg, surfaces, use_ground_estimate)
             return executor.grasp(
                 object,

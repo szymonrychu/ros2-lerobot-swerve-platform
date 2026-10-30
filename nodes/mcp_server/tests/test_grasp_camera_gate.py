@@ -1,5 +1,6 @@
 """Direct grasps from a camera-derived position are gated on the applied calibration's arm-frame residual."""
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -9,7 +10,8 @@ from pydantic import ValidationError
 from ros2_common.head_rgbd_calibration.urdf_text import ChainResidual
 
 from mcp_server.config import McpServerConfig
-from mcp_server.grasp import ObjectSpec
+from mcp_server.grasp import ObjectSpec, grasp_params
+from mcp_server.grasp_tools import GraspExecutor, GraspService
 from mcp_server.head import AppliedHeadKinematics, HeadController
 from mcp_server.tools import build_mcp_server
 
@@ -115,3 +117,41 @@ def test_plan_grasp_within_the_gate_adds_no_refusal_note(robot: FakeRobot, tmp_p
     server = server_for(robot)
     data = call(server, "plan_grasp", {"object": CAMERA_OBJECT, "strategy": "top_down"}).structured_content
     assert data["outcome"] == "planned" and not any("will refuse" in reason for reason in data["reasons"])
+
+
+def test_a_queued_camera_grasp_is_gated_too(robot: FakeRobot, tmp_path: Path) -> None:
+    """enqueue_motions grasp steps run the same executor: the gate must hold there as well as in grasp_object."""
+    with_calibration(robot, tmp_path / "applied", ChainResidual("head_arm", 6.2, 3.0, 3.0))
+    server = server_for(robot)
+    commands_before = len(robot.arm_backend.commands)
+    call(server, "enqueue_motions", {"steps": [{"kind": "grasp", "object": CAMERA_OBJECT, "strategy": "top_down"}]})
+    waited = call(server, "wait_for_event", {"timeout_s": 5.0}).structured_content
+    assert waited["reason"] != "timeout", waited
+    failures = [e for e in waited["events"] if e["type"] == "step_failed"]
+    assert failures and "above the 5 mm gate" in json.dumps(failures), waited["events"]
+    assert len(robot.arm_backend.commands) == commands_before
+
+
+def test_a_camera_grasp_on_the_web_service_is_gated_too(robot: FakeRobot, tmp_path: Path) -> None:
+    """GraspService (/grasp/command) executes through the same executor."""
+    with_calibration(robot, tmp_path / "applied", None)
+    cfg = McpServerConfig()
+    service = GraspService(robot.arm, cfg, calibration=robot.head.calibration)
+    commands_before = len(robot.arm_backend.commands)
+    answer = service.handle({"action": "execute", "object": CAMERA_OBJECT, "strategy": "top_down"})
+    assert answer is not None and answer["ok"] is False
+    assert "no arm-frame residual" in answer["error"]
+    assert len(robot.arm_backend.commands) == commands_before
+
+
+def test_an_executor_without_a_calibration_source_refuses_a_camera_position(robot: FakeRobot) -> None:
+    executor = GraspExecutor(robot.arm, McpServerConfig())
+    with pytest.raises(ValueError, match="no head calibration"):
+        executor.grasp(
+            ObjectSpec(**CAMERA_OBJECT),
+            "top_down",
+            grasp_params(McpServerConfig().grasp, None),
+            None,
+            None,
+            lambda: False,
+        )

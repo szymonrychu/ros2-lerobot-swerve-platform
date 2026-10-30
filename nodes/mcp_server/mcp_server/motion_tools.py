@@ -41,7 +41,7 @@ def make_grasp_runner(robot: RobotApi, config: McpServerConfig) -> GraspRunner:
     Returns:
         GraspRunner: Callable returning (outcome, reasons).
     """
-    executor = GraspExecutor(robot.arm, config)
+    executor = GraspExecutor(robot.arm, config, lambda: robot.head.calibration())
 
     def run(step: GraspMotionStep, stop_requested: Callable[[], bool]) -> tuple[str, list[str]]:
         result = executor.grasp(

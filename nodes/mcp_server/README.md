@@ -393,8 +393,9 @@ the residual is unknown).
 
 `camera_arm.max_residual_mm` (default 5.0, user decision 2026-10-29) gates direct grasps: `ObjectSpec.position_source`
 (`manual` default, or `camera` when x, y and `support_z` were read with `pixel_to_point`, `camera_point_to_arm` or
-`pixel_to_ground`). `grasp_object` with `position_source: camera` is refused (nothing moves) unless the residual is
-known and at most the gate; `plan_grasp` still plans and adds a note that `grasp_object` will refuse. `pixel_to_point`
+`pixel_to_ground`). A grasp with `position_source: camera` is refused (nothing moves) unless the residual is
+known and at most the gate, whether it comes from `grasp_object`, a `grasp` step of `enqueue_motions` or the web UI
+`/grasp/command` execute (one check in `GraspExecutor.grasp`); `plan_grasp` still plans and adds a note that `grasp_object` will refuse. `pixel_to_point`
 reports `grasp_ready` (residual within the gate and an arm point). A head-from-arm result only passes (and can only be
 applied) with `holdout_board_mm` at most the fit limit 4.5, below the 5 mm gate (`tests/test_mcp_camera_arm_config.py`);
 the real session calib-20261023-074418 refitted to 2.89 to 3.77 mm. The server cannot know where numbers came from, so

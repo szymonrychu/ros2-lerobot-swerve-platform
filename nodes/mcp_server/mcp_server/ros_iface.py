@@ -919,6 +919,7 @@ class RosRobot:
             battery_guard,
             self.stop_count,
             publish=lambda answer: self.grasp_result_pub.publish(String(data=json.dumps(answer))),
+            calibration=lambda: self.head.calibration(),
         )
         self.subscribe(String, t.grasp_command, self.on_grasp_command, COMMAND_QOS)
         self.node.create_timer(MONITOR_TICK_S, self.monitor_tick, callback_group=self.group)
