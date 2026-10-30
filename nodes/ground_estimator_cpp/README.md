@@ -759,7 +759,7 @@ config.
 `test/test_d435_sweep.cpp` (gtest `test_d435_sweep`, header `test/core/synthetic_d435.hpp`) is the container stand-in for
 D435 recordings that do not exist yet (no real D435 depth is in the repo). The tiny_truth.yaml scene (flat 5 mm board, 5 cm
 box, 63 mm / 14 degree ramp, empty floor) is ray cast from the head D435 with the factory depth intrinsics (640x360), the
-stereo noise sigma_z = z^2 x 0.08 px / (fx x 50 mm) (5 mm at 1 m, 2 cm at 2 m), 0.5 % holes and 1 to 3 pixel mixed pixels
+disparity noise sigma_z = z^2 x 0.08 px / (fx x 50 mm) (5 mm at 1 m, 2 cm at 2 m), 0.5 % holes and 1 to 3 pixel mixed pixels
 at edges; the shipped `ros2_common_cpp::depth_mask` edge mask, decimation 4 and the 0.15-3 m range give the cloud, at
 15 Hz. The head pans +-30 degrees at 1 rad/s (two sweeps between holds of 2 s), the camera exposed 0 to 20 ms after the
 stamp its TF is read at. The node's outputs are judged per 10 cm fixed-frame cell on the settled frames (a gated frame

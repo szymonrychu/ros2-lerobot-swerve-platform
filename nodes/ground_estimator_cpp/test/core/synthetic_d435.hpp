@@ -4,7 +4,7 @@
 // cloud the node consumes the way the real pipeline does: edge mask of ros2_common_cpp::depth_mask, decimation,
 // deprojection into the depth optical frame.
 //
-// The D435 noise model: stereo depth error sigma_z = z^2 * subpixel_px / (fx * baseline), i.e. 5 mm at 1 m and 2 cm at
+// The D435 noise model: disparity depth error sigma_z = z^2 * subpixel_px / (fx * baseline), i.e. 5 mm at 1 m and 2 cm at
 // 2 m for the 50 mm baseline and 0.08 px subpixel accuracy (the plan figure behind the 8 cm at 4 m RMS), Gaussian,
 // quantised to millimetres. Mixed pixels: where a nearer surface borders a farther one the first 1 to 3 pixels of the
 // far side read a linear blend of the two depths (the flying pixels the edge mask removes). Holes: a small share of
