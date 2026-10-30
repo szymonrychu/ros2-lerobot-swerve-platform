@@ -3158,7 +3158,7 @@ d435_obstacle_cloud turns into `/head/d435/points`. Reads the YAML and READMEs o
 
 | Test | Covers |
 |---|---|
-| `test_obstacle_cloud_reads_the_head_rgbd_filtered_depth` | The d435_obstacle_cloud `depth/image` and `depth/camera_info` remaps equal `<filtered_depth.output_namespace>/image_raw` and `/camera_info` of the deployed and the default head_rgbd_cpp config (enabled); the cloud stays `/head/d435/points`; the raw depth is no longer a remap target. |
+| `test_obstacle_cloud_reads_the_head_rgbd_filtered_depth` | The d435_obstacle_cloud `depth/image` and `depth/camera_info` remaps equal `filtered_depth.output_image_topic` and `filtered_depth.output_info_topic` of the deployed and the default head_rgbd_cpp config (enabled); the cloud stays `/head/d435/points`; the raw depth is no longer a remap target. |
 | `test_filtered_stage_reads_the_full_fov_depth_the_camera_publishes` | `filtered_depth.depth_topic` / `info_topic` are `/head/d435/depth/image_rect_raw` / `/head/d435/depth/camera_info`, listed in the realsense_d435 `topics.yaml` with their types and one frame. |
 | `test_obstacle_chain_downstream_is_unchanged` | laser_filter still reads `/head/d435/points` and writes `/head/d435/points_filtered`. |
 | `test_point_cloud_xyz_pairs_image_and_info_exactly_with_a_reliable_match` | point_cloud_xyz keeps `approx_sync: false` and `qos: 0` (reliable, matching head_rgbd_cpp's reliable publishers) and its params comments name head_rgbd_cpp and depth_filtered. |
