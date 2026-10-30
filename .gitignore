@@ -54,3 +54,4 @@ ansible/.ansible_facts_cache/
 
 # graphify knowledge graph (generated locally)
 graphify-out/
+.scratchpad
