@@ -163,11 +163,20 @@ TEST(GroundState, StateKeysAreTheContractOrder)
 {
   // clang-format off
   const std::vector<std::string> expected = {
-    "stamp_ns",      "frame",           "prior",          "imu_ok",     "plane",      "reason",
+    "stamp_ns",      "frame",           "prior",          "imu_ok",     "head_moving", "plane",      "reason",
     "slope_deg",     "slope_roll_deg",  "slope_pitch_deg", "slope_level", "base_tilt_deg", "plane_vs_base_deg",
     "traversability", "obstacle_points", "drop_points",    "regions",    "warnings",   "colour"};
   // clang-format on
   EXPECT_EQ(state_keys(), expected);
+}
+
+TEST(GroundState, HeadMovingReportsTheGateWithOrWithoutAPlane)
+{
+  for (StateInputs in : {full_inputs(), planeless_inputs()}) {
+    EXPECT_EQ(build_state(in).at("head_moving"), false);
+    in.head_moving = true;
+    EXPECT_EQ(build_state(in).at("head_moving"), true);
+  }
 }
 
 TEST(GroundState, PlaneLessStateHasNullsAndZeroCounts)
@@ -245,7 +254,7 @@ TEST(GroundState, TraversabilityIsTheConfiguredRuleEvenWithoutPlane)
 {
   for (const StateInputs & in : {full_inputs(), planeless_inputs()}) {
     const json t = build_state(in).at("traversability");
-    EXPECT_DOUBLE_EQ(as_double(t.at("max_step_m")), 0.06);
+    EXPECT_DOUBLE_EQ(as_double(t.at("max_step_m")), 0.04);
     EXPECT_DOUBLE_EQ(as_double(t.at("max_slope_deg")), 15.0);
     EXPECT_EQ(keys_in_order(t.dump()), (std::vector<std::string>{"max_step_m", "max_slope_deg"}));
   }

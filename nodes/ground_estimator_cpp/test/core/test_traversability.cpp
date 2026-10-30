@@ -381,10 +381,14 @@ TEST(WithinDeadband, TwoValuesUseTheDeadband)
   EXPECT_FALSE(::ground_estimator_cpp::within_deadband(1.0, 1.06, 0.05));
 }
 
-TEST(Traversability, ShippedRuleSplitsFiftyFiveFromSixtyFiveMillimetres)
+TEST(Traversability, ShippedRuleSplitsAtTheFortyMillimetreStep)
 {
+  // User decision 2026-10-29: the climbable step is 0.04 m (the edge step of a drop is measured the same way, so a
+  // drop deeper than 0.04 m is lethal too); exactly at the limit is a warning.
   const TraversabilityConfig cfg;
-  EXPECT_EQ(classify_cluster(0.055, 0.0, true, cfg).cls, Cls::warning);
-  EXPECT_EQ(classify_cluster(0.06, 0.0, true, cfg).cls, Cls::warning);
+  EXPECT_EQ(classify_cluster(0.035, 0.0, true, cfg).cls, Cls::warning);
+  EXPECT_EQ(classify_cluster(0.04, 0.0, true, cfg).cls, Cls::warning);
+  EXPECT_EQ(classify_cluster(0.045, 0.0, true, cfg).cls, Cls::obstacle);
+  EXPECT_EQ(classify_cluster(0.055, 0.0, true, cfg).cls, Cls::obstacle);
   EXPECT_EQ(classify_cluster(0.065, 0.0, true, cfg).cls, Cls::obstacle);
 }

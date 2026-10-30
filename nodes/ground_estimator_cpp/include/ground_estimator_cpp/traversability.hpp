@@ -1,4 +1,4 @@
-// The obstacle versus warning rule: a cluster is lethal when its edge step exceeds a third of the wheel diameter or its
+// The obstacle versus warning rule: a cluster is lethal when its edge step (up or down) exceeds a third of the wheel diameter or its
 // measurable surface is steeper than traversability.max_slope_deg, otherwise the base rides over it at reduced speed.
 #ifndef GROUND_ESTIMATOR_CPP__TRAVERSABILITY_HPP_
 #define GROUND_ESTIMATOR_CPP__TRAVERSABILITY_HPP_
@@ -34,11 +34,11 @@ struct Verdict
 // A slow-down area in base_link (every published area is a warning).
 struct WarningArea
 {
-  std::string kind;                      // "step", "drop", "ramp" (slope >= RAMP_MIN_SLOPE_DEG) or "colour"
+  std::string kind;  // "step", "drop", "ramp" (slope >= RAMP_MIN_SLOPE_DEG), "colour" or "no_return"
   std::vector<Eigen::Vector2d> polygon;  // cluster hull in base_link
   std::optional<double> height_m;        // signed median height above the floor; nullopt: not measured
   std::optional<double> slope_deg;       // nullopt: not measured
-  std::string source;                    // "tof" or "colour"
+  std::string source;                    // "depth" (head D435), "colour" or "rgb" (no_return areas)
 };
 
 // Output of the rule.

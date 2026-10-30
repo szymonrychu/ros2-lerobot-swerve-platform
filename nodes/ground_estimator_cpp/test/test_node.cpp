@@ -355,9 +355,10 @@ void pin_legacy_rule(Config & c)
   c.guidance.edge.min_height_m = LEGACY_EDGE_MIN_HEIGHT_M;
 }
 
-constexpr double FLOOR_BUMP_M = 0.035;    // inside the 40 mm floor band
-constexpr double WARNING_BUMP_M = 0.055;  // between the floor band and the 60 mm lethal step
-constexpr double LETHAL_BUMP_M = 0.065;   // above the 60 mm lethal step
+constexpr double FLOOR_BUMP_M = 0.015;    // inside the 20 mm floor band
+constexpr double WARNING_BUMP_M = 0.030;  // between the floor band and the 40 mm lethal step
+constexpr double LETHAL_BUMP_M = 0.055;   // above the 40 mm lethal step
+constexpr double LETHAL_DIP_M = 0.050;    // a drop deeper than the 40 mm step down limit
 constexpr double SILL_JITTER_M = 0.01;
 constexpr double SILL_NOISE_M = 0.003;
 constexpr double MAT_X0 = 1.0, MAT_LENGTH_M = 0.25, MAT_HEIGHT_M = 0.063, MAT_Y0 = -0.45, MAT_Y1 = -0.20;
@@ -632,8 +633,8 @@ protected:
     c.imu.level_reference_roll_deg = 0.0;
     c.imu.level_reference_pitch_deg = 0.0;
     c.temporal.enabled = false;  // the static scenes below are single clouds; the temporal tests switch it on
-    // The fixtures of this file are calibrated for the 20 mm floor band and the 40 mm lethal step; the temporary
-    // shipped values (40 mm band, 60 mm step) are exercised by shipped_rule_config().
+    // The fixtures of this file are calibrated for the 20 mm floor band and the 40 mm lethal step; the shipped values
+    // (20 mm band, 40 mm step both ways) are exercised by shipped_rule_config().
     pin_legacy_rule(c);
     pin_ten_hz_windows(c);
     return c;
@@ -1136,7 +1137,7 @@ TEST_F(NodeTest, TenCentimetreDropOffIsALethalDropRegion)
   EXPECT_GT((*state)["drop_points"].get<int>(), 50);
 }
 
-TEST_F(NodeTest, ThirtyFiveMillimetreBumpIsFloorWithNoWarningAndNoLethal)
+TEST_F(NodeTest, FifteenMillimetreBumpIsFloorWithNoWarningAndNoLethal)
 {
   fill_tf();
   start(shipped_rule_config());
@@ -1152,7 +1153,7 @@ TEST_F(NodeTest, ThirtyFiveMillimetreBumpIsFloorWithNoWarningAndNoLethal)
   EXPECT_TRUE((*state)["regions"].empty()) << state->dump();
 }
 
-TEST_F(NodeTest, ThirtyFiveMillimetreDipIsFloorWithNoWarningAndNoLethal)
+TEST_F(NodeTest, FifteenMillimetreDipIsFloorWithNoWarningAndNoLethal)
 {
   fill_tf();
   start(shipped_rule_config());
@@ -1168,7 +1169,7 @@ TEST_F(NodeTest, ThirtyFiveMillimetreDipIsFloorWithNoWarningAndNoLethal)
   EXPECT_TRUE((*state)["regions"].empty()) << state->dump();
 }
 
-TEST_F(NodeTest, FiftyFiveMillimetreBumpIsAStepWarningAndNeverLethal)
+TEST_F(NodeTest, ThirtyMillimetreBumpIsAStepWarningAndNeverLethal)
 {
   fill_tf();
   start(shipped_rule_config());
@@ -1181,13 +1182,38 @@ TEST_F(NodeTest, FiftyFiveMillimetreBumpIsAStepWarningAndNeverLethal)
   EXPECT_EQ((*doc)["areas"][0]["kind"], "step");
 }
 
-TEST_F(NodeTest, SixtyFiveMillimetreBumpIsLethal)
+TEST_F(NodeTest, FiftyFiveMillimetreBumpIsLethal)
 {
   fill_tf();
   start(shipped_rule_config());
   const auto stamp = warm_cloud_and_wait(scene_cloud(sill_scene(LETHAL_BUMP_M)));
   ASSERT_TRUE(wait_for([&] { return find_stamp(obstacle_, stamp).has_value(); }));
   EXPECT_GT(xyz_of(*find_stamp(obstacle_, stamp)).size(), 20u);
+}
+
+TEST_F(NodeTest, SixtyFiveMillimetreBumpIsLethal)
+{
+  fill_tf();
+  start(shipped_rule_config());
+  const auto stamp = warm_cloud_and_wait(scene_cloud(sill_scene(0.065)));
+  ASSERT_TRUE(wait_for([&] { return find_stamp(obstacle_, stamp).has_value(); }));
+  EXPECT_GT(xyz_of(*find_stamp(obstacle_, stamp)).size(), 20u);
+}
+
+// A drop deeper than the 40 mm step limit is a lethal drop (user decision 2026-10-29: the same limit up and down). The
+// plane may not tilt more than 1 degree here: with the default 10 degrees the RANSAC plane of a scene that is half
+// upper and half lower floor tilts to catch both levels of a 5 cm drop (inlier ratio 0.83, plane 2 degrees off, drop
+// region of 27 mm), a limit of the plane fit that the 10 cm drop of TenCentimetreDropOffIsALethalDropRegion does not meet.
+TEST_F(NodeTest, FiftyMillimetreDipIsLethalAsADropDeeperThanTheStepLimit)
+{
+  fill_tf();
+  Config config = shipped_rule_config();
+  config.fit.max_normal_angle_deg = 1.0;
+  start(config);
+  const auto stamp = warm_cloud_and_wait(scene_cloud(drop_scene(LETHAL_DIP_M)));
+  ASSERT_TRUE(wait_for([&] { return find_stamp(drop_, stamp).has_value(); }));
+  EXPECT_GT(xyz_of(*find_stamp(drop_, stamp)).size(), 20u);
+  EXPECT_EQ(xyz_of(*find_stamp(obstacle_, stamp)).size(), 0u);
 }
 
 TEST_F(NodeTest, ThreeCentimetreSillIsAStepWarningInTheMapFrame)
@@ -2062,7 +2088,7 @@ TEST_F(NodeTest, PlacedBoxIsLethalWithinEnterFramesOfItsFirstFilteredBoxHeights)
 {
   fill_tf();
   Config config = shipped_config(base_config());
-  pin_legacy_rule(config);  // the 5 cm box is lethal under the 40 mm step, not under the shipped 60 mm
+  pin_legacy_rule(config);  // the rule the fixtures were calibrated for (equal to the shipped one since 2026-10-30)
   start(config);
   // The same temporal filter the node runs, on the same clouds about the true floor z = 0, tells the frame in which
   // the box cells first come out at box height.
@@ -2297,10 +2323,35 @@ TEST_F(NodeTest, StaleGuidanceAddsNothing)
     EXPECT_GE(min_x(guided), TOF_EDGE_X - 0.005) << "frame " << i;
     EXPECT_EQ(metric("ground_edge_points").value_or(-1.0), 0.0) << "frame " << i;
   }
+  EXPECT_GE(metric("ground_guidance_stale_frames_total").value_or(0.0), static_cast<double>(GUIDED_FRAMES));
   // The same pair fresh: the edge points are back.
   pair_and_wait(true_box_pair());
   const FrameOutput fresh = run_frame(scene_cloud(tof_box_scene()));
   EXPECT_GT(points_at(obstacle_, fresh.stamp).size(), points_at(plain.obstacle, fresh.stamp).size());
+}
+
+// D4 (task T2): head_rgbd publishes a set every 0.5 s, so one lost set leaves a pair 1.0 s old. With the shipped
+// guidance.max_age_s (1.25 s = 2.5 periods) that pair still adds its edge points and is not counted stale; the stale
+// counter moves only once the newest pair is older than guidance.max_age_s.
+TEST_F(NodeTest, GuidanceOfOneLostSetIsStillUsedAndStaleOnlyAfterTheMaxAge)
+{
+  fill_tf();
+  const Config config = base_config();
+  EXPECT_DOUBLE_EQ(config.guidance.max_age_s, 1.25);
+  Twin & plain = add_twin(config, without_guidance(config), "plain");
+  start(config);
+  wait_for_pair_subscribers();
+  warm_cloud_and_wait(scene_cloud(tof_box_scene()));
+  pair_and_wait(true_box_pair());
+  const double stale_before = metric("ground_guidance_stale_frames_total").value_or(-1.0);
+  std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+  const FrameOutput within = run_frame(scene_cloud(tof_box_scene()));
+  EXPECT_GT(points_at(obstacle_, within.stamp).size(), points_at(plain.obstacle, within.stamp).size());
+  EXPECT_EQ(metric("ground_guidance_stale_frames_total").value_or(-1.0), stale_before);
+  std::this_thread::sleep_for(std::chrono::milliseconds(400));
+  const FrameOutput after = run_frame(scene_cloud(tof_box_scene()));
+  EXPECT_EQ(points_at(obstacle_, after.stamp).size(), points_at(plain.obstacle, after.stamp).size());
+  EXPECT_GT(metric("ground_guidance_stale_frames_total").value_or(-1.0), stale_before);
 }
 
 // Step 2: a pair whose RGB frame has no TF is dropped (guidance_tf) and nothing from it is used.

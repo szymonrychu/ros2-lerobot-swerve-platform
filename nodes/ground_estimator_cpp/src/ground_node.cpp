@@ -18,6 +18,7 @@
 #include <thread>
 #include <utility>
 
+#include "ground_estimator_cpp/motion.hpp"
 #include "ground_estimator_cpp/occlusion.hpp"
 #include "ground_estimator_cpp/segmentation.hpp"
 
@@ -46,6 +47,12 @@ constexpr const char * FITS_HELP = "Plane fits of depth clouds, by result (ok or
 constexpr const char * GUIDANCE_FRAMES_HELP =
   "Guidance pairs (upsampled depth, camera info, JPEG), by result (ok or the drop reason)";
 constexpr const char * DROPPED_HELP = "Clouds, guidance pairs or warning-area messages dropped, by reason";
+constexpr const char * HEAD_MOVING_HELP =
+  "Inputs not used for voting because the head moved when they were captured, by input";
+constexpr const char * HEAD_RATE_UNKNOWN_HELP =
+  "Inputs whose head rate could not be read (no TF before the stamp), counted as still";
+constexpr const char * GUIDANCE_STALE_HELP =
+  "Depth clouds with a plane for which no guidance pair was within guidance.max_age_s";
 
 struct GaugeSpec
 {
@@ -53,7 +60,7 @@ struct GaugeSpec
   const char * help;
 };
 
-constexpr std::array<GaugeSpec, 13> GAUGES = {{
+constexpr std::array<GaugeSpec, 14> GAUGES = {{
   {METRIC_INLIER_RATIO, "Inlier ratio of the last valid plane fit"},
   {METRIC_SLOPE, "Floor slope against gravity of the last cloud with a plane and a fresh IMU, degrees"},
   {METRIC_PLANE_VS_BASE, "Angle between the floor normal and base_link +z of the last cloud with a plane, degrees"},
@@ -68,6 +75,7 @@ constexpr std::array<GaugeSpec, 13> GAUGES = {{
   {METRIC_STABLE_WARNING, "Fixed-frame cells whose stable class is warning"},
   {METRIC_OCCLUDED_POINTS, "Points of the last depth cloud with a plane dropped by the occlusion shadow gate"},
   {METRIC_MISMATCH_RATIO, "Floor colour mismatch share of the floor band of the last labelled RGB-D cloud"},
+  {METRIC_HEAD_RATE, "Camera angular speed in base_link at the last depth cloud, degrees per second"},
 }};
 
 int64_t ns_of(const builtin_interfaces::msg::Time & t) { return rclcpp::Time(t).nanoseconds(); }
@@ -307,6 +315,7 @@ GroundNode::GroundNode(
   cell_class_(config.hysteresis, config.temporal.cell_size_m),
   raw_heights_(slope_history_config(config.temporal)),
   colour_model_(config.colour),
+  guidance_points_(config.temporal.cell_size_m),
   no_return_(config.guidance.no_return, config.temporal.cell_size_m, config.bands.floor_band_m),
   metrics_(NODE_NAME)
 {
@@ -326,6 +335,11 @@ GroundNode::GroundNode(
     metrics_.counter(METRIC_DROPPED, DROPPED_HELP, {{"reason", reason}});
   }
   labelled_ = &metrics_.counter(METRIC_LABELLED, "Labelled RGB-D clouds published");
+  metrics_.counter(METRIC_HEAD_RATE_UNKNOWN, HEAD_RATE_UNKNOWN_HELP);
+  metrics_.counter(METRIC_HEAD_MOVING, HEAD_MOVING_HELP, {{"input", INPUT_CLOUD}});
+  if (config_.colour.enabled) {
+    metrics_.counter(METRIC_HEAD_MOVING, HEAD_MOVING_HELP, {{"input", INPUT_RGBD}});
+  }
   fit_seconds_ = &metrics_.histogram(
     METRIC_FIT_SECONDS, "Plane fit and segmentation time per depth cloud",
     std::vector<double>(FIT_SECONDS_BUCKETS.begin(), FIT_SECONDS_BUCKETS.end()));
@@ -354,9 +368,12 @@ GroundNode::GroundNode(
 
   if (config_.guidance.enabled) {
     for (const char * result :
-         {GUIDANCE_RESULT_OK, DROP_REASON_GUIDANCE_BAD_INPUT, DROP_REASON_GUIDANCE_TF, DROP_REASON_GUIDANCE_NO_PLANE}) {
+         {GUIDANCE_RESULT_OK, GUIDANCE_RESULT_HEAD_MOVING, DROP_REASON_GUIDANCE_BAD_INPUT, DROP_REASON_GUIDANCE_TF,
+          DROP_REASON_GUIDANCE_NO_PLANE}) {
       metrics_.counter(METRIC_GUIDANCE_FRAMES, GUIDANCE_FRAMES_HELP, {{"result", result}});
     }
+    metrics_.counter(METRIC_HEAD_MOVING, HEAD_MOVING_HELP, {{"input", INPUT_GUIDANCE}});
+    metrics_.counter(METRIC_GUIDANCE_STALE, GUIDANCE_STALE_HELP);
     for (const char * reason : GUIDANCE_DROP_REASONS) {
       metrics_.counter(METRIC_DROPPED, DROPPED_HELP, {{"reason", reason}});
     }
@@ -430,6 +447,31 @@ bool GroundNode::lookup(
   }
 }
 
+bool GroundNode::head_moving_at(
+  const std::string & frame, const Eigen::Isometry3d & base_T_frame_now, const builtin_interfaces::msg::Time & stamp,
+  bool gauge)
+{
+  if (!config_.motion.enabled) {
+    return false;
+  }
+  const double window_s = config_.motion.window_s;
+  const tf2::TimePoint before(std::chrono::nanoseconds(ns_of(stamp) - std::llround(window_s * NS_PER_S)));
+  double rate_deg_s = 0.0;
+  try {
+    const Eigen::Isometry3d base_T_frame_before =
+      tf2::transformToEigen(tf_buffer_->lookupTransform(config_.base_frame, frame, before));
+    rate_deg_s = rotation_rate_deg_s(base_T_frame_before.linear(), base_T_frame_now.linear(), window_s);
+  } catch (const tf2::TransformException & e) {
+    metrics_.counter(METRIC_HEAD_RATE_UNKNOWN, HEAD_RATE_UNKNOWN_HELP).Increment();
+    RCLCPP_DEBUG(get_logger(), "head rate unknown for %s: %s", frame.c_str(), e.what());
+    return false;
+  }
+  if (gauge) {
+    set_gauge(METRIC_HEAD_RATE, rate_deg_s);
+  }
+  return is_moving(rate_deg_s, config_.motion);
+}
+
 void GroundNode::on_imu(const sensor_msgs::msg::Imu::ConstSharedPtr & msg)
 {
   if (msg->orientation_covariance[0] == UNKNOWN_COVARIANCE) {
@@ -480,6 +522,11 @@ void GroundNode::on_cloud(const sensor_msgs::msg::PointCloud2::ConstSharedPtr & 
   }
 
   const auto started = std::chrono::steady_clock::now();
+  const bool moving = head_moving_at(msg->header.frame_id, base_T_cloud, msg->header.stamp, true);
+  if (moving) {
+    metrics_.counter(METRIC_HEAD_MOVING, HEAD_MOVING_HELP, {{"input", INPUT_CLOUD}}).Increment();
+  }
+  head_moving_ = moving;
   if (!read_xyz(*msg, base_T_cloud, base_cloud_)) {
     drop(DROP_REASON_BAD_INPUT, "depth cloud without float32 x, y, z");
     return;
@@ -502,7 +549,10 @@ void GroundNode::on_cloud(const sensor_msgs::msg::PointCloud2::ConstSharedPtr & 
   last_reason_ = nullptr;
 
   const auto tracked = tracker_.current(fixed_T_base, stamp_s);
-  if (tracked) {
+  if (tracked && moving) {
+    // The plane follows the head, the cells and classes keep their state: this frame does not vote or publish.
+    fit_seconds_->Observe(seconds_since(started));
+  } else if (tracked) {
     process_plane(*msg, *tracked, fixed_T_base, base_T_cloud.translation(), stamp_s, started);
   } else {
     // No valid or held plane: no cloud, no warning areas (no placeholder data); the cell history is stale.
@@ -787,6 +837,10 @@ void GroundNode::on_rgbd(const sensor_msgs::msg::PointCloud2::ConstSharedPtr & m
     drop(DROP_REASON_TF, "no TF to " + config_.base_frame + " for the RGB-D cloud in " + msg->header.frame_id);
     return;
   }
+  if (head_moving_at(msg->header.frame_id, base_T_cloud, msg->header.stamp, false)) {
+    metrics_.counter(METRIC_HEAD_MOVING, HEAD_MOVING_HELP, {{"input", INPUT_RGBD}}).Increment();
+    return;
+  }
   const auto tracked = tracker_.current(fixed_T_base, stamp_s);
   if (!tracked) {
     drop(DROP_REASON_NO_PLANE_RGBD, "no plane within fit.hold_s at the RGB-D stamp");
@@ -838,7 +892,7 @@ void GroundNode::on_guidance(
     .counter(
       METRIC_GUIDANCE_FRAMES, GUIDANCE_FRAMES_HELP, {{"result", reason != nullptr ? reason : GUIDANCE_RESULT_OK}})
     .Increment();
-  if (reason != nullptr) {
+  if (reason != nullptr && std::strcmp(reason, GUIDANCE_RESULT_HEAD_MOVING) != 0) {
     drop(reason, detail);
   }
   guidance_seconds_->Observe(seconds_since(started));
@@ -873,6 +927,11 @@ const char * GroundNode::use_guidance(
              config_.base_frame + " or " + depth_frame_ + " <- " + config_.base_frame + " at the pair stamp";
     return DROP_REASON_GUIDANCE_TF;
   }
+  // The head moved when the pair was captured: its depth and colour sit where the TF at the stamp does not say.
+  if (head_moving_at(frame->frame_id, base_T_cam, stamp, false)) {
+    metrics_.counter(METRIC_HEAD_MOVING, HEAD_MOVING_HELP, {{"input", INPUT_GUIDANCE}}).Increment();
+    return GUIDANCE_RESULT_HEAD_MOVING;
+  }
   // 3. The tracked plane at the pair stamp (the rule of the RGB-D cloud: no plane, no use).
   const auto tracked = tracker_.current(fixed_T_base, static_cast<double>(frame->stamp_ns) / NS_PER_S);
   if (!tracked) {
@@ -885,7 +944,7 @@ const char * GroundNode::use_guidance(
     sample_guidance(*frame, guidance_grid_, base_T_cam, tracked->plane, *depth_model_, depth_T_base, config_.guidance);
   // 5. Keep the depth samples for the edge points and vote the no-return cells; the cells depth already sees are the
   // occlusion shadows of what it sees, never no-return cells.
-  guidance_points_.set(samples, fixed_T_base, frame->stamp_ns);
+  guidance_points_.set(samples, fixed_T_base, frame->stamp_ns, config_.guidance.max_age_s);
   if (config_.guidance.no_return.enabled) {
     no_return_.observe(samples, colour_model_, config_.colour, fixed_T_base, cell_class_.blocking_cells());
   }
@@ -904,10 +963,15 @@ void GroundNode::append_edge_points(const Eigen::Isometry3d & fixed_T_base, int6
   if (!config_.guidance.enabled) {
     return;
   }
+  if (!guidance_fresh(stamp_ns)) {
+    metrics_.counter(METRIC_GUIDANCE_STALE, GUIDANCE_STALE_HELP).Increment();
+  }
   std::size_t added = 0;
-  // The kept points are those of the pair guidance_fresh judges (an empty set gives no edge point).
-  if (config_.guidance.edge.enabled && guidance_fresh(stamp_ns)) {
-    const auto [points, heights] = guidance_points_.points_in_base(fixed_T_base.inverse());
+  // The kept points are the last good guidance per cell, each no older than guidance.max_age_s (an empty set gives no
+  // edge point).
+  if (config_.guidance.edge.enabled) {
+    const auto [points, heights] =
+      guidance_points_.points_in_base(fixed_T_base.inverse(), stamp_ns, config_.guidance.max_age_s);
     const EdgePoints edge = edge_points(points, heights, stable_obstacle_, stable_drop_, config_.guidance.edge);
     stable_obstacle_ += edge.obstacle;
     stable_drop_ += edge.drop;
@@ -935,7 +999,7 @@ void GroundNode::on_state_timer()
 
 void GroundNode::publish_state_on_change(int64_t stamp_ns, const std::optional<TrackedPlane> & plane)
 {
-  if (!last_state_valid_ || *last_state_valid_ != plane.has_value()) {
+  if (!last_state_valid_ || *last_state_valid_ != plane.has_value() || last_state_moving_ != head_moving_) {
     publish_state(stamp_ns, plane, nullptr);
   }
 }
@@ -970,11 +1034,13 @@ void GroundNode::publish_state(
   }
   in.base_tilt_deg = prior_.from_imu ? base_tilt_deg(prior_.up) : 0.0;
   in.traversability = config_.traversability;
+  in.head_moving = head_moving_;
   in.colour = colour_inputs_;
   std_msgs::msg::String out;
   out.data = to_state_string(in);
   state_pub_->publish(out);
   last_state_valid_ = plane.has_value();
+  last_state_moving_ = head_moving_;
 }
 
 }  // namespace ground_estimator_cpp

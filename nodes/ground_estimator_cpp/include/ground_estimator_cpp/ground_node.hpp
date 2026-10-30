@@ -32,6 +32,13 @@
 // are cell-aligned and stable on their own and skip the PublishedArea continuity. The executor is single-threaded:
 // the guidance, cloud, IMU and RGB-D callbacks never run concurrently.
 //
+// Head-motion gate (task T2, motion.*): the camera angular speed in base_link between the stamp and the stamp minus
+// motion.window_s decides per input. A depth cloud above motion.max_head_rate_deg_s still feeds the plane fit (a pan
+// turns the cloud about the vertical axis, which leaves a level floor where it is) but does not vote: the temporal
+// median, the class hysteresis, the lethal clouds and the warning areas keep their state and publish nothing for it.
+// An RGB-D cloud or a guidance pair above the limit is dropped (counted in ground_head_moving_frames_total{input}).
+// /ground/state reports head_moving. A rate that cannot be read (no TF history yet) counts as still, as before the gate.
+//
 // Topics (part ground-topics, names from Config): <ns>/obstacle_points, <ns>/drop_points (PointCloud2 XYZ, reliable
 // depth 1), <ns>/warning_areas (std_msgs/String, reliable depth 1), <ns>/labelled_points (PointCloud2 XYZ rgb label,
 // best_effort depth 1), <ns>/state (std_msgs/String, reliable transient_local depth 1).
@@ -108,11 +115,15 @@ constexpr const char * METRIC_OCCLUDED_POINTS = "ground_occluded_points";
 constexpr const char * METRIC_MISMATCH_RATIO = "ground_colour_mismatch_ratio";
 constexpr const char * METRIC_DROPPED = "ground_clouds_dropped_total";
 constexpr const char * METRIC_LABELLED = "ground_labelled_clouds_total";
+constexpr const char * METRIC_HEAD_MOVING = "ground_head_moving_frames_total";  // {input}: cloud, rgbd or guidance
+constexpr const char * METRIC_HEAD_RATE = "ground_head_rate_deg_s";
+constexpr const char * METRIC_HEAD_RATE_UNKNOWN = "ground_head_rate_unknown_total";
 // Guidance metrics (part guided-node), registered only while guidance.enabled.
 constexpr const char * METRIC_GUIDANCE_FRAMES = "ground_guidance_frames_total";  // {result}: ok or the drop reason
 constexpr const char * METRIC_GUIDANCE_SECONDS = "ground_guidance_seconds";
 constexpr const char * METRIC_EDGE_POINTS = "ground_edge_points";
 constexpr const char * METRIC_NO_RETURN_AREAS = "ground_no_return_areas";
+constexpr const char * METRIC_GUIDANCE_STALE = "ground_guidance_stale_frames_total";
 
 // Queue of the guidance ExactTime synchronizer, pairs.
 constexpr uint32_t GUIDANCE_QUEUE = 5;
@@ -144,6 +155,13 @@ constexpr const char * DROP_REASON_GUIDANCE_NO_PLANE = "guidance_no_plane";    /
 
 // result label of ground_guidance_frames_total for a pair that was used.
 constexpr const char * GUIDANCE_RESULT_OK = "ok";
+// result label of a pair not used because the head moved when it was captured (not a drop: nothing is wrong).
+constexpr const char * GUIDANCE_RESULT_HEAD_MOVING = "head_moving";
+
+// input labels of ground_head_moving_frames_total.
+constexpr const char * INPUT_CLOUD = "cloud";
+constexpr const char * INPUT_RGBD = "rgbd";
+constexpr const char * INPUT_GUIDANCE = "guidance";
 
 // State reasons that are not a fit reject.
 constexpr const char * REASON_NO_TF = "no_tf";
@@ -210,6 +228,15 @@ private:
     const sensor_msgs::msg::Image::ConstSharedPtr & depth, const sensor_msgs::msg::CameraInfo::ConstSharedPtr & info,
     const sensor_msgs::msg::CompressedImage::ConstSharedPtr & rgb);
   void on_depth_info(const sensor_msgs::msg::CameraInfo::ConstSharedPtr & msg);
+  // Whether the camera turned faster than motion.max_head_rate_deg_s at `stamp` (the gate is off, or the rate cannot be
+  // read: false). Sets the ground_head_rate_deg_s gauge when `gauge` and counts an unreadable rate.
+  // @param frame the camera frame the input is stamped in.
+  // @param base_T_frame_now base_frame <- frame at the stamp.
+  // @param stamp the input stamp.
+  // @param gauge whether to publish the rate as the ground_head_rate_deg_s gauge (depth clouds only).
+  bool head_moving_at(
+    const std::string & frame, const Eigen::Isometry3d & base_T_frame_now, const builtin_interfaces::msg::Time & stamp,
+    bool gauge);
   // Decode, move, judge and sample a pair, then keep its samples and vote its no-return cells.
   // @param detail set to the reason of a drop.
   // @return nullptr when the pair was used, else its drop reason (DROP_REASON_GUIDANCE_*).
@@ -269,6 +296,8 @@ private:
   const char * last_reason_ = nullptr;  // REASON_NO_TF after a TF drop
   bool have_cloud_ = false;
   std::optional<bool> last_state_valid_;
+  bool head_moving_ = false;               // the last depth cloud was gated
+  std::optional<bool> last_state_moving_;  // head_moving of the last state document
   Cycle cycle_;
   std::optional<ColourFrame> colour_;
   std::optional<ColourInputs> colour_inputs_;
@@ -314,7 +343,7 @@ private:
   std::optional<CameraModel> depth_model_;  // of the latest depth camera info with a usable calibration
   std::string depth_frame_;                 // its frame
   RayGrid guidance_grid_;
-  GuidancePoints guidance_points_;
+  GuidancePoints guidance_points_;      // the last good guidance per cell, expired at guidance.max_age_s
   NoReturnTracker no_return_;           // on the cell_filter_ grid; reset with it
   std::optional<int64_t> guidance_ns_;  // stamp of the latest pair used
   prometheus::Histogram * guidance_seconds_ = nullptr;

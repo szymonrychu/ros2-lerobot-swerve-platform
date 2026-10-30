@@ -31,11 +31,11 @@ bands:  # bands settings
   drop_max_m: 1.0  # drop band depth below the plane, metres, > traversability max step
   max_range_m: 2.0  # farthest point published in the bands, metres, > 0
   min_range_m: 0.42  # nearest point from base_link in the bands (the parked gripper lies closer), metres, 0 <= v < max_range_m
-  floor_band_m: 0.04  # temporary (user 2026-10-23): heights within this of the floor plane are floor; revert when live ground acceptance passes, metres
+  floor_band_m: 0.02  # heights within it are floor, metres, fit.distance_m <= v <= max step; below the step so a ramp is not read at the limit
 
 traversability:  # traversability settings
   wheel_radius_m: 0.06  # wheel radius, metres, same as swerve_drive_controller wheel_radius_m
-  max_step_fraction: 0.5  # temporary (user 2026-10-23): max rideable step as a fraction of the wheel diameter (0.06 m, was 0.3333), 0 < v < 1
+  max_step_fraction: 0.3333  # max rideable step, up and down, as a fraction of the wheel diameter (0.04 m, user 2026-10-29), 0 < v < 1
   max_slope_deg: 15.0  # steepest rideable surface, degrees, <= slope.roll_error_deg and slope.pitch_error_deg
   edge_band_m: 0.05  # width of the strip on each side of an edge that sets its step height, metres, > 0
   lethal_min_points: 2  # fewest unclustered lethal points within edges.cluster_tolerance_m of each other for any to be lethal, 1..50
@@ -105,13 +105,13 @@ guidance:  # guidance frame: the head_rgbd depth plus RGB beside the D435 cloud 
   info_topic: /head_rgbd/depth/camera_info  # camera info of that depth image, produced by head_rgbd_cpp
   rgb_topic: /head_rgbd/rgb/image_raw/compressed  # RGB image, produced by head_rgbd_cpp
   depth_info_topic: /head/d435/depth/camera_info  # camera model of the sensor that produced the cloud (no-return areas), produced by realsense_d435
-  max_age_s: 0.6  # oldest guidance frame still used, relative to the cloud stamp, seconds, 0 < v <= 2
+  max_age_s: 1.25  # oldest guidance frame still used, relative to the cloud stamp, seconds, 0 < v <= 2; >= 2.5 head_rgbd set periods (2 Hz)
   sample_step_px: 2  # pixel stride of the sampling grid, pixels, 1..8
   max_range_m: 2.0  # farthest range sampled, metres, 0 < v <= bands.max_range_m
   edge:  # RGB-snapped edge points of lethal regions
     enabled: true  # publish edge points
     max_shift_m: 0.06  # largest xy distance of an edge point from a stable lethal point of the frame, metres, 0 < v <= 0.15
-    min_height_m: 0.06  # smallest absolute height of an edge point, metres, 0 < v <= the max step (0.06)
+    min_height_m: 0.02  # smallest absolute height of an edge point, metres, 0 < v <= the max step (0.04)
     voxel_m: 0.02  # voxel of the edge point decimation, metres, 0.005 <= v <= 0.05
   no_return:  # areas the depth camera should see but returns nothing from
     enabled: true  # detect no-return areas
@@ -123,5 +123,10 @@ guidance:  # guidance frame: the head_rgbd depth plus RGB beside the D435 cloud 
     min_cells: 2  # smallest area published, in cells, >= 1
     clearance_cells: 1  # distance, in cells, from blocked lethal or warning depth cells, 0..3
     margin_px: 4  # margin inside the depth camera image border where nothing is judged, pixels, 0..20
+
+motion:  # head-motion gate: a frame captured while the head turns does not vote (task T2)
+  enabled: true  # gate the frames
+  max_head_rate_deg_s: 3.0  # camera angular speed in base_link above which a frame is moving, degrees per second, 0 < v <= 90
+  window_s: 0.1  # the speed is the rotation between the frame stamp and the stamp minus this, seconds, 0.02..0.5
 
 metrics_port: 19119  # Prometheus port, 1..65535, or null to disable

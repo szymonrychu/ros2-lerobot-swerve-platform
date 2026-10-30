@@ -77,8 +77,8 @@ TEST(Config, DefaultsMatchTheSpecification)
   EXPECT_DOUBLE_EQ(c.bands.max_range_m, 2.0);
   EXPECT_DOUBLE_EQ(c.bands.min_range_m, 0.42);
   EXPECT_DOUBLE_EQ(c.traversability.wheel_radius_m, 0.06);
-  EXPECT_DOUBLE_EQ(c.traversability.max_step_fraction, 0.5);
-  EXPECT_DOUBLE_EQ(c.bands.floor_band_m, 0.04);
+  EXPECT_DOUBLE_EQ(c.traversability.max_step_fraction, 0.3333);
+  EXPECT_DOUBLE_EQ(c.bands.floor_band_m, 0.02);
   EXPECT_DOUBLE_EQ(c.traversability.max_slope_deg, 15.0);
   EXPECT_DOUBLE_EQ(c.traversability.edge_band_m, 0.05);
   EXPECT_EQ(c.warnings.frame, "map");
@@ -125,6 +125,9 @@ TEST(Config, DefaultsMatchTheSpecification)
   EXPECT_EQ(c.edges.step_segment_min_points, 3);
   EXPECT_DOUBLE_EQ(c.edges.floor_reference_m, 0.10);
   EXPECT_EQ(c.edges.floor_reference_min_points, 4);
+  EXPECT_TRUE(c.motion.enabled);
+  EXPECT_DOUBLE_EQ(c.motion.max_head_rate_deg_s, 3.0);
+  EXPECT_DOUBLE_EQ(c.motion.window_s, 0.1);
   ASSERT_TRUE(c.metrics_port.has_value());
   EXPECT_EQ(*c.metrics_port, 19119);
 }
@@ -142,14 +145,15 @@ TEST(Config, DerivedTopicsFollowTheNamespace)
   EXPECT_EQ(d.warning_areas(), "/floor/warning_areas");
 }
 
-TEST(Config, MaxStepIsHalfOfWheelDiameter)
+TEST(Config, MaxStepIsAThirdOfTheWheelDiameterUpAndDown)
 {
+  // User decision 2026-10-29: the climbable step is 0.04 m, the same limit up and down (a drop deeper than it is no-go).
   Config c = ground_estimator_cpp::from_yaml(YAML::Load("{}"));
-  EXPECT_NEAR(c.max_step_m(), 0.06, 1e-4);
-  c = ground_estimator_cpp::from_yaml(YAML::Load("traversability: {wheel_radius_m: 0.09}"));
-  EXPECT_NEAR(c.max_step_m(), 0.09, 1e-4);
-  c = ground_estimator_cpp::from_yaml(YAML::Load("traversability: {max_step_fraction: 0.3333}"));
   EXPECT_NEAR(c.max_step_m(), 0.04, 1e-4);
+  c = ground_estimator_cpp::from_yaml(YAML::Load("traversability: {wheel_radius_m: 0.09}"));
+  EXPECT_NEAR(c.max_step_m(), 0.06, 1e-4);
+  c = ground_estimator_cpp::from_yaml(YAML::Load("traversability: {max_step_fraction: 0.5}"));
+  EXPECT_NEAR(c.max_step_m(), 0.06, 1e-4);
 }
 
 TEST(Config, ShippedYamlDocumentsEveryKey)
@@ -273,9 +277,10 @@ TEST(Config, RejectsFloorBandOutsideTheFitDistanceAndTheMaxStep)
 {
   expect_rejected("bands: {floor_band_m: 0}", "bands.floor_band_m");
   expect_rejected("bands: {floor_band_m: 0.01}", "bands.floor_band_m");  // below fit.distance_m 0.02
-  expect_rejected("bands: {floor_band_m: 0.07}", "bands.floor_band_m");  // above the 0.06 max step
+  expect_rejected("bands: {floor_band_m: 0.05}", "bands.floor_band_m");  // above the 0.04 max step
   expect_accepted("bands: {floor_band_m: 0.02}");
-  expect_accepted("bands: {floor_band_m: 0.06}");
+  expect_accepted("bands: {floor_band_m: 0.04}");
+  expect_accepted("traversability: {max_step_fraction: 0.5}\nbands: {floor_band_m: 0.06}");  // 0.06 max step
 }
 
 TEST(Config, RejectsTraversabilityRules)
@@ -460,12 +465,12 @@ TEST(Config, GuidanceDefaults)
   EXPECT_EQ(c.guidance.info_topic, "/head_rgbd/depth/camera_info");
   EXPECT_EQ(c.guidance.rgb_topic, "/head_rgbd/rgb/image_raw/compressed");
   EXPECT_EQ(c.guidance.depth_info_topic, "/head/d435/depth/camera_info");
-  EXPECT_DOUBLE_EQ(c.guidance.max_age_s, 0.6);
+  EXPECT_DOUBLE_EQ(c.guidance.max_age_s, 1.25);  // 2.5 periods of the 2 Hz head_rgbd sets
   EXPECT_EQ(c.guidance.sample_step_px, 2);
   EXPECT_DOUBLE_EQ(c.guidance.max_range_m, 2.0);
   EXPECT_TRUE(c.guidance.edge.enabled);
   EXPECT_DOUBLE_EQ(c.guidance.edge.max_shift_m, 0.06);
-  EXPECT_DOUBLE_EQ(c.guidance.edge.min_height_m, 0.06);
+  EXPECT_DOUBLE_EQ(c.guidance.edge.min_height_m, 0.02);
   EXPECT_DOUBLE_EQ(c.guidance.edge.voxel_m, 0.02);
   EXPECT_TRUE(c.guidance.no_return.enabled);
   EXPECT_DOUBLE_EQ(c.guidance.no_return.min_range_m, 0.3);
@@ -547,6 +552,20 @@ TEST(Config, RejectsGuidanceCrossKeyViolations)
   expect_rejected("guidance: {no_return: {min_range_m: 2.0}}", "guidance.no_return.min_range_m");
   expect_rejected("guidance: {max_range_m: 0.3}", "guidance.no_return.min_range_m");
   expect_accepted("guidance: {max_range_m: 0.31}");
+}
+
+TEST(Config, MotionGateRanges)
+{
+  expect_accepted("motion: {enabled: false}");
+  expect_rejected("motion: {enabled: maybe}", "motion.enabled");
+  expect_accepted("motion: {max_head_rate_deg_s: 90}");
+  expect_rejected("motion: {max_head_rate_deg_s: 0}", "motion.max_head_rate_deg_s");
+  expect_rejected("motion: {max_head_rate_deg_s: 90.1}", "motion.max_head_rate_deg_s");
+  expect_accepted("motion: {window_s: 0.02}");
+  expect_accepted("motion: {window_s: 0.5}");
+  expect_rejected("motion: {window_s: 0.01}", "motion.window_s");
+  expect_rejected("motion: {window_s: 0.51}", "motion.window_s");
+  expect_rejected("motion: {foo: 1}", "motion.foo");
 }
 
 TEST(Config, RejectsUnknownGuidanceKeys)

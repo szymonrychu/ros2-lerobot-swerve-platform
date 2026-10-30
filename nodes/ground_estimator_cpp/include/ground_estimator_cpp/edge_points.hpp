@@ -7,6 +7,8 @@
 
 #include <Eigen/Geometry>
 #include <cstdint>
+#include <limits>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -16,15 +18,24 @@
 namespace ground_estimator_cpp
 {
 
-// The samples of the latest guidance frame, kept in the fixed frame so they can be moved into any later base_link.
+// The guidance samples, kept in the fixed frame so they can be moved into any later base_link. Each sample keeps the
+// stamp of its frame, and a newer frame replaces only the fixed-frame cells (cell_size_m) its samples fall in: the last
+// good guidance of a cell stays until a newer frame covers that cell, so a view that moved on, or one lost frame, does
+// not switch the edges of the cells it no longer sees off.
 class GuidancePoints
 {
 public:
-  // Replace the kept samples.
+  // @param cell_size_m edge of a fixed-frame cell, metres (> 0); the grid of the temporal median.
+  explicit GuidancePoints(double cell_size_m = 0.10) : cell_size_m_(cell_size_m) {}
+
+  // Add a frame: its cells replace the kept samples of the same cells.
   // @param samples the frame's samples in base_link (points and heights; the colours are not kept).
   // @param fixed_T_base base_link in the fixed frame at the frame's stamp.
   // @param stamp_ns the frame stamp, nanoseconds.
-  void set(const GuidanceSamples & samples, const Eigen::Isometry3d & fixed_T_base, int64_t stamp_ns);
+  // @param keep_s samples older than this relative to stamp_ns are forgotten (infinity keeps every cell).
+  void set(
+    const GuidanceSamples & samples, const Eigen::Isometry3d & fixed_T_base, int64_t stamp_ns,
+    double keep_s = std::numeric_limits<double>::infinity());
 
   // Forget the samples.
   void clear();
@@ -36,18 +47,26 @@ public:
   std::size_t size() const { return points_.size(); }
 
   // @param stamp_ns the reference stamp, nanoseconds.
-  // @return seconds from the kept frame's stamp to stamp_ns (negative when the frame is newer); +infinity when empty.
+  // @return seconds from the newest kept frame's stamp to stamp_ns (negative when the frame is newer); +infinity when
+  // empty.
   double age_s(int64_t stamp_ns) const;
 
   // @param base_T_fixed the fixed frame in base_link.
+  // @param stamp_ns when set, only samples whose frame is within max_age_s of this stamp (either side) are returned.
+  // @param max_age_s the age limit, seconds.
   // @return the kept points in base_link and their heights (same order).
   std::pair<pcl::PointCloud<pcl::PointXYZ>, std::vector<float>> points_in_base(
-    const Eigen::Isometry3d & base_T_fixed) const;
+    const Eigen::Isometry3d & base_T_fixed, std::optional<int64_t> stamp_ns = std::nullopt,
+    double max_age_s = std::numeric_limits<double>::infinity()) const;
 
 private:
+  int64_t cell_of(const pcl::PointXYZ & p) const;
+
+  double cell_size_m_;
   pcl::PointCloud<pcl::PointXYZ> points_;  // fixed frame
   std::vector<float> heights_;
-  int64_t stamp_ns_ = 0;
+  std::vector<int64_t> stamps_ns_;  // of each sample's frame
+  int64_t newest_ns_ = 0;
 };
 
 // The edge points of one cycle, in base_link. The caller appends them to the stable lethal clouds.
