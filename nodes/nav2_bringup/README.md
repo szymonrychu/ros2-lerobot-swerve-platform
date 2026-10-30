@@ -458,9 +458,26 @@ What stays on the fixed bands: the collision monitor sources `scan`, `depth_obst
 with the fail-safe stale-source stop stay.
 
 Obstacle vs warning rule: a step, threshold, drop or ramp cluster is an obstacle (lethal, marked in the ground layer)
-when its edge step exceeds one third of the wheel diameter (0.04 m with wheel radius 0.06 m) or its surface slope
-exceeds the max slope (8 deg); otherwise it is a warning area, clear to ride through at reduced speed. Exactly 0.04 m
-and 8 deg are warnings.
+when its edge step exceeds one third of the wheel diameter (0.04 m with wheel radius 0.06 m, separate keys up and down,
+both 0.04 m: user decision 2026-10-29) or its surface slope exceeds the max slope (15 deg in every direction); otherwise
+it is a warning area, clear to ride through at reduced speed. Exactly 0.04 m and 15 deg are warnings.
+
+Traversability classes (task T3): the estimator's per-point classes (`/ground/classified_points`, see
+`nodes/ground_estimator_cpp/README.md`, Traversability classes) map to the costmap as follows; the costmap reads the class
+outputs that already existed, so no new layer was added.
+
+| Class | Cost | How |
+|---|---|---|
+| `obstacle`, `wall`, `drop` | lethal | `ground_obstacle_mark` (`/ground/obstacle_points`), `ground_drop_mark` (`/ground/drop_points`) |
+| `step_up`, `step_down`, `ramp` | slow-down, non-lethal | `/ground/warning_areas` kinds `step`, `drop`, `ramp` through costmap_zones |
+| `floor` | free | not marked |
+| `overhang` | never marked | the estimator keeps points above `traversability.robot_height_m` (0.6) out of its rule and its obstacle band ends at `bands.obstacle_max_m` (0.6); `depth_mark` ends at the same 0.6 m |
+| `unknown` | not marked | the lidar layer and the fixed bands still see it |
+
+The fixed bands come from the same config (`tests/test_nav_d435_inputs.py::test_fixed_bands_derive_from_the_ground_limits`):
+the obstacle band ends at the robot height, the cliff band at the drop band depth (1.0 m), and both start beyond the
+0.04 m steps (0.10 m and -0.10 m, unchanged: the raw cloud has no fitted plane, so the margin over the step covers the
+D435 floor noise and the head tilt error; the plane-relative ground layer is what marks a 5 cm step).
 
 Slow-down mechanism: warning areas are not marked in the voxel layer. costmap_zones turns `/ground/warning_areas` into
 two masks. `ground_cost_filter` (a `KeepoutFilter` layer below inflation, local costmap only, `override_lethal_cost`

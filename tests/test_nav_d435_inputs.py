@@ -18,6 +18,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 NAV2_PARAMS = REPO_ROOT / "nodes" / "nav2_bringup" / "config" / "nav2_params.yaml"
 NAV2_README = REPO_ROOT / "nodes" / "nav2_bringup" / "README.md"
 LASER_FILTER_PARAMS = REPO_ROOT / "nodes" / "laser_filter" / "config" / "footprint_filter.yaml"
+GROUND_DEFAULTS = REPO_ROOT / "nodes" / "ground_estimator_cpp" / "config" / "ground_estimator.yaml"
 TESTS_README = REPO_ROOT / "tests" / "README.md"
 LIDAR_ONLY_TEST = "tests/test_nav_lidar_only.py"
 D435_TOPIC = "/head/d435/points_filtered"
@@ -101,6 +102,26 @@ def test_collision_sources_read_the_d435_cloud() -> None:
         assert stale not in text, [line.strip() for line in text.splitlines() if stale in line]
 
 
+def test_fixed_bands_derive_from_the_ground_limits() -> None:
+    """Task T3: the fixed D435 bands (depth_voxel_layer marks and the collision monitor sources, user decision D-A1) come
+    from the one ground estimator config: the obstacle band ends at the robot height (an overhang is never marked) and
+    the cliff band at the drop band depth; both start beyond the step limits, so a climbable step or step down never
+    marks the raw bands (the raw cloud has no fitted plane, the 6 cm margin over the step is its noise and head-tilt
+    allowance). The two bands are equal in the costmap and the monitor."""
+    ground = yaml.safe_load(GROUND_DEFAULTS.read_text())
+    trav = ground["traversability"]
+    step_up = 2 * trav["wheel_radius_m"] * trav["max_step_up_fraction"]
+    step_down = 2 * trav["wheel_radius_m"] * trav["max_step_down_fraction"]
+    layer = local_costmap()[LAYER]
+    monitor = collision_monitor()
+    mark, cliff = layer["depth_mark"], layer["depth_cliff_mark"]
+    assert mark["max_obstacle_height"] == monitor["depth_obstacles"]["max_height"] == trav["robot_height_m"]
+    assert ground["bands"]["obstacle_max_m"] <= trav["robot_height_m"]
+    assert mark["min_obstacle_height"] == monitor["depth_obstacles"]["min_height"] > step_up
+    assert cliff["min_obstacle_height"] == monitor["depth_cliff"]["min_height"] == -ground["bands"]["drop_max_m"]
+    assert cliff["max_obstacle_height"] == monitor["depth_cliff"]["max_height"] < -step_down
+
+
 def test_no_line_keeps_the_lidar_only_comment() -> None:
     """Every line commented `disabled (user 2026-10-24): lidar-only ...` is re-enabled (design D6): no line of
     nav2_params.yaml keeps the comment, and the nav2_bringup README D435 inputs section no longer lists a layer as still
@@ -133,6 +154,7 @@ def test_tests_readme_documents_this_file() -> None:
     for name in (
         "test_depth_voxel_layer_reads_the_d435_cloud",
         "test_collision_sources_read_the_d435_cloud",
+        "test_fixed_bands_derive_from_the_ground_limits",
         "test_no_line_keeps_the_lidar_only_comment",
         "test_lidar_only_pin_is_retired",
         "test_tests_readme_documents_this_file",

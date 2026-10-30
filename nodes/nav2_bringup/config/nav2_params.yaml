@@ -301,7 +301,8 @@ local_costmap:
           # decay does not union floor points into false obstacles. Still sees obstacles of 10 cm and taller that the
           # lidar plane passes over.
           min_obstacle_height: 0.10
-          # Robot height with the head: overhangs higher than the robot are not obstacles.
+          # Robot height with the head (ground_estimator traversability.robot_height_m, pinned by
+          # tests/test_nav_d435_inputs.py): overhangs higher than the robot are not obstacles.
           max_obstacle_height: 0.6
           # 2 m, inside the d435_obstacle_cloud max_depth (3 m): the D435 depth error grows with the square of the
           # distance, so 2 m keeps it under the 10 cm bands.
@@ -324,7 +325,8 @@ local_costmap:
           topic: /head/d435/points_filtered
           marking: true
           clearing: false
-          # Down to 1 m below the floor (z = 0 in odom): stairs and drop-offs the D435 sees beyond the edge.
+          # Down to 1 m below the floor (z = 0 in odom), the ground estimator bands.drop_max_m: stairs and drop-offs the
+          # D435 sees beyond the edge.
           min_obstacle_height: -1.0
           # 10 cm below the floor: well outside the D435 floor noise (no false cliffs), a 15 cm step still marks.
           max_obstacle_height: -0.10
