@@ -266,6 +266,7 @@ class GroundState(BaseModel):
     frame: str
     prior: str
     imu_ok: bool
+    head_moving: bool
     plane: GroundPlane | None
     reason: str | None
     slope_deg: float | None

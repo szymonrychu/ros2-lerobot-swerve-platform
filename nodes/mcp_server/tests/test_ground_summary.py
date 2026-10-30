@@ -55,6 +55,7 @@ def state_with(regions: list[dict[str, Any]]) -> GroundState:
 def test_fixture_parses() -> None:
     state = GroundState.model_validate(example())
     assert [r.name for r in state.regions] == ["step_0", "drop_0"]
+    assert state.head_moving is False
     assert state.regions[0].cls == "obstacle" and state.traversability.max_step_m == 0.04
     assert state.warnings[0].kind == "ramp" and state.plane is not None
 
