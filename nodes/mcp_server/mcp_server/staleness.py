@@ -158,16 +158,21 @@ class MonitorFeed:
 class QueuedMonitorFeed(MonitorFeed):
     """Keeps every sample received since the last flush (bounded, oldest dropped) and feeds them all, in arrival order."""
 
-    def __init__(self, hook: Callable[[Any], None], max_samples: int, name: str = "monitor") -> None:
+    def __init__(
+        self, hook: Callable[[Any], None], max_samples: int, name: str = "monitor", report_drops: bool = True
+    ) -> None:
         """Create an empty queue.
 
         Args:
             hook (Callable[[Any], None]): Called with each decoded message, oldest first.
             max_samples (int): Queue bound; when full the oldest sample is dropped undecoded.
             name (str): Label used in the dropped-samples log line.
+            report_drops (bool): Log a warning at a flush that follows dropped samples; False for a queue that is
+                only read now and then (the oldest samples are then expected to fall out).
         """
         super().__init__(hook)
         self.name = name
+        self.report_drops = report_drops
         self.queue: deque[LazyStamped] = deque(maxlen=max_samples)
         self.dropped = 0  # total samples dropped because the queue was full
         self.dropped_unreported = 0
@@ -194,7 +199,7 @@ class QueuedMonitorFeed(MonitorFeed):
             samples = list(self.queue)
             self.queue.clear()
             dropped, self.dropped_unreported = self.dropped_unreported, 0
-        if dropped:
+        if dropped and self.report_drops:
             LOGGER.warning("%s feed queue full: dropped %d oldest samples", self.name, dropped)
         for sample in samples:
             self.hook(sample.value)

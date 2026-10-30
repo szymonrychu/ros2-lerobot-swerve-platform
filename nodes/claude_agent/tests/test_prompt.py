@@ -72,6 +72,24 @@ def test_prompt_teaches_accurate_grasping() -> None:
     assert "NOTES.md" in section
 
 
+def test_prompt_measures_object_positions_with_the_depth_tools() -> None:
+    """2026-10-29: object position and height come from the D435 depth (pixel_to_point), not a guessed plane height."""
+    text = build_system_prompt(ClaudeAgentConfig())
+    lower = text.lower()
+    section = text[text.index("Grasping:") :]
+    assert "pixel_to_point" in section and "camera_point_to_arm" in text
+    para = section.split("\n\n", 1)[0].lower()
+    assert "interior" in para and "outline" in para and "arm frame" in para and "height" in para
+    assert "grasp_ready" in section and "position_source" in section and "'camera'" in section
+    assert "calibrate page" in lower and "head-from-arm" in lower
+    spatial = lower[lower.index("spatial perception:") :]
+    spatial = spatial[: spatial.index("3d map:")]
+    assert "pixel_to_point" in spatial and "guess" in spatial
+    surfaces = lower[lower.index("surfaces and speed:") :]
+    surfaces = surfaces[: surfaces.index("memory:")]
+    assert "pixel_to_point" in surfaces and "height" in surfaces
+
+
 def test_prompt_demands_explicit_honest_phase_completion() -> None:
     lower = build_system_prompt(ClaudeAgentConfig()).lower()
     assert "complete every phase" in lower or "always complete" in lower

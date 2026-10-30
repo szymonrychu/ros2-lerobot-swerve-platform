@@ -205,6 +205,30 @@ def test_compute_writes_result_report_and_chain(cfg: NodeConfig, store: SessionS
     assert result["limits"]
 
 
+def test_chain_file_carries_the_arm_frame_residual_of_the_fit(cfg: NodeConfig, store: SessionStore, ready: str) -> None:
+    """head_chain.json holds the held-out board error (mm) that mcp_server reports and gates direct grasps on."""
+    result = compute_head_arm(cfg, store, ready, NOW)
+    assert result["passed"] is True, (result["failed_limits"], result["error"])
+    data = json.loads((result_dir(store, ready, result["id"]) / "head_chain.json").read_text())
+    assert data["residual"] == {
+        "kind": "head_arm",
+        "holdout_board_mm": pytest.approx(result["holdout_board_mm"]),
+        "holdout_rms_px": pytest.approx(result["holdout_rms_px"]),
+        "rms_px": pytest.approx(result["rms_px"]),
+    }
+    assert data["residual"]["holdout_board_mm"] > 0.0
+
+
+def test_applying_copies_the_residual_into_the_applied_chain(
+    cfg: NodeConfig, state: Path, store: SessionStore, ready: str
+) -> None:
+    result = compute_head_arm(cfg, store, ready, NOW)
+    apply_head_arm(cfg, store, ready, result["id"], NOW, fake_run)
+    applied = json.loads((state / "applied" / "head_chain.json").read_text())
+    assert applied["residual"]["kind"] == "head_arm"
+    assert applied["residual"]["holdout_board_mm"] == pytest.approx(result["holdout_board_mm"])
+
+
 def test_fitted_joints_merge_over_applied_chain(cfg: NodeConfig, state: Path, store: SessionStore) -> None:
     put_marker(state)
     write_floor_result(state, cfg, FLOOR_SID, FLOOR_RID)

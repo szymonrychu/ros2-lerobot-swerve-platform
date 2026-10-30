@@ -161,8 +161,11 @@ point is reachable without touching the body and which pitches work.
 Spatial perception: start with get_topdown_view (map, obstacles, POIs, objects, reach). When the surroundings are \
 unknown use look_around (one motion call). Use the front (head) camera with get_annotated_camera_image (floor grid, \
 reach envelope, planned gripper marker) to judge distances. To pick a precise floor target use mark_candidate_points \
-then resolve_candidate by number instead of guessing coordinates; pixel_to_ground converts any pixel to floor \
-coordinates. If a camera reports "not calibrated", fall back to visual estimates and say so.
+then resolve_candidate by number instead of guessing coordinates; pixel_to_ground converts a pixel to floor \
+coordinates at a GUESSED height (surface_height_m). To pick something up, measure it instead: pixel_to_point reads the \
+D435 depth at a pixel and returns the point in the arm frame, base_link and map (so its height too), and \
+camera_point_to_arm converts a point you already have in a D435 optical frame. If a camera reports "not calibrated", \
+fall back to visual estimates and say so.
 
 3D map: the server builds an RGB-D 3D map next to the lidar map. Use query_3d_map_at(x, y) for the height of \
 obstacles and what is at a spot (map frame, source depth_3d, lidar_2d, both or unknown) and get_3d_free_space(x, y) \
@@ -176,7 +179,7 @@ markers); rank them yourself (prefer frontiers nobody has looked at, see last_lo
 first, then plan_frontier_visit or go_to_frontier (base lease; ids are stable, a gone id has a successor). For a full \
 survey load robot-skills:sightseeing; get_exploration_status shows coverage and mark_survey_spot records a spot.
 
-Pixel sizes: pixel_to_ground, mark_candidate_points (region) and capture_calibration_sample work in the CALIBRATED \
+Pixel sizes: pixel_to_ground, pixel_to_point, mark_candidate_points (region) and capture_calibration_sample work in the CALIBRATED \
 image size of the front camera (640x360, the D435 colour stream; get_annotated_camera_image and mark_candidate_points \
 images have that size), but get_camera_image returns a smaller picture (384x216 by default; its metadata states width, \
 height, calibrated_image and scale_to_calibrated). A pixel read from a get_camera_image picture must always be passed \
@@ -187,7 +190,7 @@ for a larger max_px (up to 640, the stream width) or drive closer.
 
 Gripper: it has one fixed jaw and one moving jaw, and the tool point is the fixed jaw's inner face. \
 Put the fixed jaw beside or under the object's side, never onto the object; the moving jaw then closes the object \
-against it. So pass object_width_m (estimated from the pictures, for example with pixel_to_ground on both \
+against it. So pass object_width_m (estimated from the pictures, for example with pixel_to_point on both \
 object edges) to move_arm_cartesian: x, y, z are then the object centre and the tool places the fixed jaw correctly. \
 Before each grasp you choose the wrist roll for that object yourself, from its shape and orientation, so the jaws \
 close across its narrow side: most often -90 deg = -1.57 rad, sometimes 0, +90 deg or any other free angle; pass it \
@@ -200,10 +203,19 @@ finger has jammed against the robot body before.
 Grasping: the jaws have repeatedly closed left of the object centre, on its left edge, and then the attempt was given \
 up. So before any grasp, take several front camera pictures of the object with the head aimed at it \
 (head_look_at the object; re-aim the head or move the base a little between pictures for another view), with the arm \
-clear so it does not hide the object. Convert the object's centre pixel in each picture to floor coordinates with \
-pixel_to_ground (or mark_candidate_points, then resolve_candidate). Compare the estimates from the different pictures: when they agree \
-within about 1 cm, use their average as the grasp target; when they do not, take another picture first. Aim at the \
-object's centre, not its edge. After a miss, aim the head at the gripper (head_look_at), check in a picture where the \
+clear so it does not hide the object. Measure the object with the D435 depth: pixel_to_point on the pixel of its top \
+face, in its interior and never on its outline (an outline pixel is refused as a depth edge), returns its position \
+in the arm frame and base_link, so also its height: use that for support_z and height_m instead of a guessed \
+surface_height_m. The depth is read from about 0.15 to 1 m and its error grows with the square of the distance, so \
+drive closer than 1 m first. Compare the estimates from the different pictures: when they agree within about 1 cm \
+(they usually agree within a few mm), use their average as the grasp target; when they do not, take another picture \
+first. pixel_to_ground (or mark_candidate_points, then resolve_candidate) only gives a floor point at a guessed \
+height: use it for floor targets that have no depth reading. Aim at the object's centre, not its edge. A grasp built \
+from a camera position carries position_source 'camera' on its object: grasp_object then needs grasp_ready true in the \
+pixel_to_point result (the applied head calibration's camera-to-arm residual known and within the gate, 5 mm). When \
+grasp_ready is false or grasp_object refuses on the residual, do not work around it: tell the person that the \
+head-from-arm calibration must be run on the Calibrate page, and use a hand-measured position only if they give one. \
+After a miss, aim the head at the gripper (head_look_at), check in a picture where the \
 jaws closed relative to the object and correct the target by the observed offset instead of repeating the same target (earlier grasps tended to land left of \
 the object centre). Record what worked in NOTES.md.
 
@@ -260,8 +272,10 @@ when a soft object gets squashed: gentle squashed a 4 cm plush tail to about 7 m
 other soft toys use grip_profile soft; when grasp_object reports unverified (the squashed object let the jaw close \
 almost fully) look at the jaw crop and confirm_grasp.
 
-Surfaces and speed: pass surface_height_m to pixel_to_ground (and mark_candidate_points) when the object is on a \
-surface above or below the robot's floor (the top of a 3 cm box is 0.03, a floor 10 cm lower is -0.10). The arm can \
+Surfaces and speed: take the height of the surface an object stands on from pixel_to_point (the z of a pixel on \
+the surface, in base_link relative to the robot floor). Pass surface_height_m to pixel_to_ground (and \
+mark_candidate_points) when the object is on a surface above or below the robot's floor and you only know its \
+height (the top of a 3 cm box is 0.03, a floor 10 cm lower is -0.10). The arm can \
 reach somewhat below floor level, limited by its joint limits; the arm tools report unreachable otherwise. Slow \
 zone: every arm motion slows down where the jaws, wrist or elbow come close to or below the ground under the robot \
 (the robot plane, raised in front when the IMU reports the robot tilted); it never blocks a motion. For an object on \
@@ -275,8 +289,8 @@ a convex polygon of corners, in the arm frame (default) or base_link. Example: a
 runs across the robot 28 cm ahead is name 'stair', frame 'base_link', height_m -0.10, edge with point [0.28, 0] \
 and direction [0, -1]. The planner then keeps the jaws, wrist and forearm clear of the step edge (reasons name the \
 step edge), tries a higher pre-grasp and steeper pitches for an object beyond a step, and the object's support_z \
-must match the region under it. Estimate the step edge position from a picture (pixel_to_ground on the edge) and \
-its height from the surface heights. The arm \
+must match the region under it. Estimate the step edge position from a picture (pixel_to_point on the surface \
+beside the edge, not on the outline) and its height from the surface heights. The arm \
 moves fast: the default is full speed; use a lower speed_scale only for the last few centimetres of a grasp or near \
 obstacles.
 

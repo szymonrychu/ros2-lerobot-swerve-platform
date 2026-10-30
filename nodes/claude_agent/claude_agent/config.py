@@ -48,6 +48,8 @@ DEFAULT_SENSOR_TOOLS = [
     "get_body_state",
     "get_arm_reach",
     "pixel_to_ground",
+    "pixel_to_point",
+    "camera_point_to_arm",
     "get_annotated_camera_image",
     "mark_candidate_points",
     "resolve_candidate",

@@ -6,6 +6,7 @@ size (the intrinsics width x height); every image these tools return has that si
 
 import base64
 import json
+import math
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -16,7 +17,7 @@ import numpy as np
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import CallToolResult, ImageContent, TextContent
 from pydantic import BaseModel, Field
-from ros2_common.camera_geometry import MountPose
+from ros2_common.camera_geometry import CameraIntrinsics, MountPose, pixel_to_point_camera
 
 from .arm import ArmError
 from .camera_calib import CalibrationError, SampleStore, mount_yaml, solve_samples
@@ -35,27 +36,47 @@ from .camera_overlay import (
     draw_polylines,
     thin,
 )
+from .camera_point import (
+    ARM_FRAME,
+    BASE_FRAME,
+    COLOR_OPTICAL_FRAME,
+    MAP_FRAME,
+    PointFrames,
+    calibration_block,
+    frames_of_point,
+    head_pose_block,
+    position,
+    residual_notes,
+)
 from .camera_scene import (
     APPROX_NOTE,
     Camera,
     CameraSetup,
     Scene,
+    base_to_map,
     build_scene,
     camera_setup,
     ground_fields,
     ground_report,
     head_parent_transform,
+    head_parent_transform_at,
+    offset_matrix,
     picture_sizes,
     pixel_input,
     pixel_scale,
 )
 from .config import HARD_MAX_IMAGE_PX
+from .depth_point import DepthWindow, window_depth
+from .depth_source import DepthFrame
+from .head import HeadPoseAtStamp
 from .lookup_tools import record_lookup
 from .models import BasePose, RobotError
 from .tool_context import ToolContext
 
 TOOL_NAMES = (
     "pixel_to_ground",
+    "pixel_to_point",
+    "camera_point_to_arm",
     "get_annotated_camera_image",
     "mark_candidate_points",
     "resolve_candidate",
@@ -142,6 +163,83 @@ class MountGuess(BaseModel):
     yaw: float = Field(description="rad about fixed z")
 
 
+CameraOpticalFrame = Literal["d435_color_optical_frame", "d435_depth_optical_frame"]
+WindowPx = Annotated[
+    int | None,
+    Field(
+        ge=1,
+        le=31,
+        description=(
+            "Odd side (px) of the square window the depth is read from (median of its valid pixels); default "
+            "camera_arm.default_window_px (5). A larger window averages more noise on a flat top, a smaller one fits "
+            "a small object"
+        ),
+    ),
+]
+ImageStampS = Annotated[
+    float | None,
+    Field(
+        description=(
+            "stamp_s of the picture the pixel was read from (get_camera_image metadata): the head pan/tilt at that "
+            "instant places the ray. Omit it only when the head has not moved since the picture; the tool then uses "
+            "the current pose and refuses while the head is moving"
+        ),
+    ),
+]
+REGISTRATION_TOLERANCE_PX = 0.5  # depth CameraInfo may differ from the colour one by this much (fx, fy, cx, cy)
+MM_PER_M = 1000.0
+
+
+def check_registered(frame: DepthFrame, intr: CameraIntrinsics) -> None:
+    """Require the aligned depth to be registered to the colour camera the pixel was read in.
+
+    Args:
+        frame (DepthFrame): Aligned depth frame with its CameraInfo.
+        intr (CameraIntrinsics): Colour intrinsics.
+
+    Raises:
+        ValueError: When the depth image size differs from the colour size, or its CameraInfo (fx, fy, cx, cy) from
+            the colour one by more than REGISTRATION_TOLERANCE_PX.
+    """
+    height, width = frame.depth.shape
+    if (width, height) != (intr.width, intr.height):
+        raise ValueError(
+            f"the aligned depth image is {width}x{height} but the colour camera is calibrated at "
+            f"{intr.width}x{intr.height}: the depth is not registered to the colour image (check the realsense "
+            "align_depth setting and resolution)"
+        )
+    k = frame.info.k
+    depth_k = (k[0], k[4], k[2], k[5])
+    colour_k = (intr.fx, intr.fy, intr.cx, intr.cy)
+    if any(abs(a - b) > REGISTRATION_TOLERANCE_PX for a, b in zip(depth_k, colour_k, strict=True)):
+        raise ValueError(
+            "the aligned depth CameraInfo (fx, fy, cx, cy) = "
+            f"{tuple(round(v, 1) for v in depth_k)} differs from the colour camera's {tuple(round(v, 1) for v in colour_k)}: "
+            "the depth is not registered to the colour camera"
+        )
+
+
+def depth_report(win: DepthWindow) -> dict[str, Any]:
+    """The depth part of a pixel_to_point result.
+
+    Args:
+        win (DepthWindow): The window reading.
+
+    Returns:
+        dict[str, Any]: z_m, spread_m, valid_fraction, n_valid, n_flagged, n_window, window_px and sigma_m.
+    """
+    return {
+        "z_m": round(win.z_m, 4),
+        "spread_m": round(win.spread_m, 4),
+        "valid_fraction": round(win.valid_fraction, 3),
+        "n_valid": win.n_valid,
+        "n_flagged": win.n_flagged,
+        "n_window": win.n_window,
+        "window_px": win.window_px,
+        "sigma_m": round(win.sigma_m, 5),
+    }
+
+
 @contextmanager
 def camera_errors() -> Iterator[None]:
     """Turn camera, arm and calibration failures into MCP tool errors the model can read.
@@ -209,13 +307,34 @@ def register(ctx: ToolContext) -> None:
         sample = robot.arm.fresh_sample()
         return None if sample is None else robot.arm.measured(sample)
 
-    def scene_for(camera: Camera) -> tuple[Scene, CameraSetup]:
-        """Scene of a calibrated camera at the measured head pose."""
-        setup = camera_setup(config, camera, source=robot)
-        return build_scene(setup, config, head_parent_transform(config, robot.head)), setup
+    gate_mm = config.camera_arm.max_residual_mm
+    camera_arm = config.camera_arm
 
-    def grab(camera: Camera, setup: CameraSetup) -> np.ndarray:
-        """Fresh frame as a BGR image at the calibrated size."""
+    def pose_at(stamp_s: float, what: str) -> HeadPoseAtStamp:
+        """Head pan/tilt at a capture stamp (from the /head/joint_states history).
+
+        Raises ValueError when the stamp is not covered by the history or the head moved around it.
+        """
+        pose = robot.head.pose_at(stamp_s)
+        if pose.moving:
+            raise ValueError(
+                f"the head moved {math.degrees(pose.window_motion_rad):.2f} deg within +-{config.head.stamp_window_s:g} s "
+                f"of the {what} (limit {math.degrees(config.head.max_motion_rad):.2f} deg): the pan/tilt at the capture "
+                "is not reliable, let the head stop and look again"
+            )
+        return pose
+
+    def scene_for(camera: Camera, pose: HeadPoseAtStamp | None = None) -> tuple[Scene, CameraSetup]:
+        """Scene of a calibrated camera at the head pose of a capture stamp, or at the measured head pose."""
+        setup = camera_setup(config, camera, source=robot)
+        if pose is None:
+            t_parent = head_parent_transform(config, robot.head)
+        else:
+            t_parent = head_parent_transform_at(config, robot.head, pose.pan, pose.tilt)
+        return build_scene(setup, config, t_parent), setup
+
+    def grab(camera: Camera, setup: CameraSetup) -> tuple[np.ndarray, float]:
+        """Fresh frame as a BGR image at the calibrated size, with its capture stamp."""
         intr = setup.intrinsics
         frame = robot.camera_image(camera, min(HARD_MAX_IMAGE_PX, max(intr.width, intr.height)))
         img = cv2.imdecode(np.frombuffer(frame.jpeg, np.uint8), cv2.IMREAD_COLOR)
@@ -223,7 +342,28 @@ def register(ctx: ToolContext) -> None:
             raise RobotError(f"cannot decode the {camera} camera frame")
         if img.shape[1] != intr.width or img.shape[0] != intr.height:
             img = cv2.resize(img, (intr.width, intr.height), interpolation=cv2.INTER_AREA)
-        return img
+        return img, frame.stamp_s
+
+    def framed_scene(camera: Camera) -> tuple[Scene, CameraSetup, np.ndarray]:
+        """A fresh frame and the scene placed with the head pose at that frame's capture stamp."""
+        setup = camera_setup(config, camera, source=robot)  # not calibrated: refused before any capture
+        img, stamp_s = grab(camera, setup)
+        scene, _ = scene_for(camera, pose_at(stamp_s, "camera frame"))
+        return scene, setup, img
+
+    def current_pose_block() -> dict[str, Any]:
+        """Head pose block of a tool that uses the current measured pose (no capture stamp)."""
+        angles = robot.head.measured() or {}
+        pan, tilt = (angles.get(name, math.nan) for name in config.head.joint_names)
+        motion = robot.head.recent_motion_rad()
+        return {
+            "pan_deg": round(math.degrees(pan), 4),
+            "tilt_deg": round(math.degrees(tilt), 4),
+            "stamp_s": None,
+            "nearest_sample_gap_s": None,
+            "window_motion_deg": None if motion is None else round(math.degrees(motion), 4),
+            "source": "current_measured",
+        }
 
     def encode(img: np.ndarray) -> bytes:
         ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, config.limits.jpeg_quality])
@@ -260,11 +400,17 @@ def register(ctx: ToolContext) -> None:
             "surface_height_m is given (height relative to the robot's floor, positive above, negative below: the top "
             "of a 3 cm box is 0.03, a floor 10 cm lower is -0.10); the result reports surface_height_m and the "
             "coordinates have z = floor + surface_height_m. 'front' is the D435 colour camera on the pan/tilt head, "
-            "posed from the CURRENT measured head angles. Returns ground_base_link {x,y,z} (m, x forward, y left, "
-            "floor z = 0), ground_map {x,y} when the map pose is known, distance_from_base_m, bearing_deg, method and "
-            f"uncertainty_note. {floor_note} Pixel (u right, v down). {pixel_size_note} The result reports pixel "
+            "posed from the head pan/tilt at image_stamp_s (the stamp_s of the picture you read the pixel from) or, "
+            "without it, the CURRENT measured angles (refused while the head moves). Returns ground_base_link "
+            "{x,y,z} (m, x forward, y left, floor z = 0), ground_arm {frame 'arm', x, y, z}: the same point in the arm "
+            "base frame (what move_arm_cartesian and ObjectSpec frame 'arm' take), ground_map {x,y} when the map pose "
+            "is known, distance_from_base_m, bearing_deg, method, uncertainty_note, head_pose_at_capture, head_moving "
+            "and calibration {residual_mm}. The height is a GUESS (surface_height_m): to pick up an object use "
+            f"pixel_to_point, which measures its position and height with the D435 depth. {floor_note} Pixel (u right, "
+            f"v down). {pixel_size_note} The result reports pixel "
             "(calibrated size), image (calibrated size) and pixel_input (what you passed) when scaled. Errors if the "
-            "camera is not calibrated (intrinsics and mount missing in the config) or the pixel does not see the floor."
+            "camera is not calibrated (intrinsics and mount missing in the config), the pixel does not see the floor "
+            "or the head is moving."
         )
     )
     def pixel_to_ground(
@@ -274,16 +420,193 @@ def register(ctx: ToolContext) -> None:
         surface_height_m: SurfaceHeight = 0.0,
         image_width: ImageWidth = None,
         image_height: ImageHeight = None,
+        image_stamp_s: ImageStampS = None,
     ) -> CallToolResult:
         """Pixel -> floor point; the tool description is passed to the decorator (it states the frames)."""
         with camera_errors():
-            scene, _ = scene_for(camera)
+            if image_stamp_s is None:
+                scene, _ = scene_for(camera)
+                motion = robot.head.recent_motion_rad()
+                if motion is not None and motion > config.head.max_motion_rad:
+                    raise ValueError(
+                        f"the head is moving ({math.degrees(motion):.2f} deg in the last "
+                        f"{config.head.stamp_window_s:g} s): the current pan/tilt does not place the picture; wait for "
+                        "it to stop or pass image_stamp_s"
+                    )
+                head_extra: dict[str, Any] = {"head_pose_at_capture": current_pose_block()}
+                head_extra["head_moving"] = None if motion is None else False
+            else:
+                pose = pose_at(image_stamp_s, "picture")
+                scene, _ = scene_for(camera, pose)
+                head_extra = {"head_pose_at_capture": head_pose_block(pose), "head_moving": False}
             scale = pixel_scale(image_width, image_height, scene.intr.width, scene.intr.height, default_px)
-            if scale is None:
-                return data_result(ground_report(scene, camera, u, v, map_pose(), surface_height_m))
-            assert image_width is not None and image_height is not None
-            report = ground_report(scene, camera, u * scale, v * scale, map_pose(), surface_height_m)
-            report["pixel_input"] = pixel_input(u, v, image_width, image_height, scale)
+            pixel = (u, v) if scale is None else (u * scale, v * scale)
+            report = ground_report(scene, camera, pixel[0], pixel[1], map_pose(), surface_height_m)
+            if scale is not None:
+                assert image_width is not None and image_height is not None
+                report["pixel_input"] = pixel_input(u, v, image_width, image_height, scale)
+            report.update(head_extra)
+            report["calibration"] = calibration_block(robot.head.calibration(), gate_mm)
+            return data_result(report)
+
+    def point_report(
+        frames: PointFrames,
+        sigma_m: float | None,
+        stamp_s: float,
+        pose: HeadPoseAtStamp,
+        approximate: bool,
+        camera_frame: str = COLOR_OPTICAL_FRAME,
+    ) -> dict[str, Any]:
+        """The frames, error budget, head pose and calibration parts shared by pixel_to_point and camera_point_to_arm."""
+        info = robot.head.calibration()
+        calibration = calibration_block(info, gate_mm)
+        map_xy = None
+        map_state = map_pose()
+        if map_state is not None:
+            mx, my = base_to_map(map_state, float(frames.base_link[0]), float(frames.base_link[1]))
+            map_xy = {
+                "frame": MAP_FRAME,
+                "x": round(mx, 3),
+                "y": round(my, 3),
+                "z": round(float(frames.base_link[2]), 3),
+            }
+        residual_mm = calibration["residual_mm"]
+        budget = None
+        if residual_mm is not None:
+            budget = round(math.hypot(residual_mm, (sigma_m or 0.0) * MM_PER_M), 2)
+        ready = calibration["within_gate"] is True and frames.arm is not None
+        out: dict[str, Any] = {
+            "camera_optical": position(camera_frame, frames.camera),
+            "base_link": position(BASE_FRAME, frames.base_link),
+            ARM_FRAME: position(ARM_FRAME, frames.arm),
+            "map": map_xy,
+            "uncertainty_m": None if sigma_m is None else round(sigma_m, 5),
+            "error_budget_mm": budget,
+            "head_pose_at_capture": head_pose_block(pose),
+            "head_moving": False,
+            "image_stamp_s": stamp_s,
+            "calibration": calibration,
+            "grasp_ready": ready,
+            "notes": residual_notes(info, gate_mm, frames.arm is not None),
+        }
+        if approximate:
+            out["notes"].append(APPROX_NOTE)
+        return out
+
+    @server.tool(
+        description=(
+            "Measured 3D position of what a colour pixel sees (read-only): reads the D435 aligned depth at (u, v) "
+            "(median of the valid pixels of a window_px square after dropping flying/mixed pixels at depth edges), "
+            "deprojects it with the colour intrinsics and converts it through the head pan/tilt AT THE FRAME STAMP and "
+            "the applied head calibration. Returns camera_optical {frame 'd435_color_optical_frame', x right, y down, z "
+            "forward}, base_link {frame, x forward, y left, z up from the floor}, arm {frame 'arm': the frame of "
+            "move_arm_cartesian and ObjectSpec frame 'arm'; null while arm.base_in_base_link is not set}, map {x, y, z} "
+            "when the map pose is known, depth {z_m, spread_m, valid_fraction, window_px, sigma_m}, uncertainty_m (the "
+            "D435 z^2 depth error, 1 sigma; it grows with the square of the distance, so work from "
+            f"{camera_arm.min_range_m:g} to {camera_arm.max_range_m:g} m), error_budget_mm (calibration residual and "
+            "depth error combined), head_pose_at_capture, head_moving and calibration {source, session, result, "
+            "residual_mm: the held-out camera-to-arm error of the applied head-from-arm calibration, gate_mm, "
+            "within_gate}. grasp_ready is true only when the residual is known and within the "
+            f"{gate_mm:g} mm gate and the arm point exists: pass position_source 'camera' on the ObjectSpec of a grasp "
+            "built from this position, grasp_object refuses it otherwise. The depth is read from the NEWEST frame at the "
+            "moment of the call, so take the pixel from a picture just taken (get_camera_image) and call this while "
+            "the head, the robot and the object have not moved since. Use it for the position AND the height of an "
+            "object (its top: z in the arm or base_link frame), not pixel_to_ground with a guessed surface_height_m. "
+            "Aim at the object's interior (a pixel on its outline gives 'depth edge'), not nearer than "
+            f"{camera_arm.min_range_m:g} m. Refuses (instead of guessing) when there is no depth, the colour and depth "
+            "frames are not the same frameset, the head moved around the frame, or the pixel is on a hole, an edge or "
+            f"beyond the range. {pixel_size_note}"
+        )
+    )
+    def pixel_to_point(
+        camera: Annotated[Camera, Field(description="'front' (the head D435 colour camera)")],
+        u: Annotated[float, Field(description="Pixel x (right)")],
+        v: Annotated[float, Field(description="Pixel y (down)")],
+        window_px: WindowPx = None,
+        image_width: ImageWidth = None,
+        image_height: ImageHeight = None,
+    ) -> CallToolResult:
+        """Pixel + aligned depth -> camera, base_link, arm and map points; the description is passed to the decorator."""
+        with camera_errors():
+            setup = camera_setup(config, camera, source=robot)
+            intr = setup.intrinsics
+            scale = pixel_scale(image_width, image_height, intr.width, intr.height, default_px)
+            pu, pv = (u, v) if scale is None else (u * scale, v * scale)
+            frame = robot.aligned_depth(camera)
+            check_registered(frame, intr)
+            pose = pose_at(frame.stamp_s, "depth frame")
+            scene, _ = scene_for(camera, pose)
+            win = window_depth(frame.depth, pu, pv, window_px or camera_arm.default_window_px, camera_arm, intr.fx)
+            point = pixel_to_point_camera(intr, pu, pv, win.z_m)
+            frames = frames_of_point(scene.t_ref_optical, scene.t_arm_ref, point)
+            report: dict[str, Any] = {
+                "camera": camera,
+                "pixel": {"u": pu, "v": pv},
+                "image": {"width": intr.width, "height": intr.height},
+            }
+            if scale is not None:
+                assert image_width is not None and image_height is not None
+                report["pixel_input"] = pixel_input(u, v, image_width, image_height, scale)
+            report.update(point_report(frames, win.sigma_m, frame.stamp_s, pose, scene.approximate))
+            report["depth"] = depth_report(win)
+            report["depth_frame"] = {
+                "stamp_s": frame.stamp_s,
+                "colour_stamp_s": frame.color_stamp_s,
+                "pair_dt_s": round(abs(frame.color_stamp_s - frame.stamp_s), 4),
+                "age_s": frame.age_s,
+            }
+            return data_result(report)
+
+    @server.tool(
+        description=(
+            "Convert a 3D point already in a D435 optical frame (a marker pose, a cloud point; x right, y down, z "
+            "forward, metres, z > 0) to base_link and the arm base frame (read-only), through the head pan/tilt at "
+            "stamp_s and the applied head calibration. frame is 'd435_color_optical_frame' (the colour image and the "
+            "aligned depth are in it) or 'd435_depth_optical_frame' (the raw depth, point clouds). stamp_s is the "
+            "header stamp of the image or cloud the point came from: without it the newest head joint state is used, "
+            "which is only right when the head has not moved since. Returns camera_optical {frame, x, y, z}, "
+            "base_link, arm, head_pose_at_capture, head_moving, calibration {residual_mm, gate_mm, within_gate} and "
+            "grasp_ready, as pixel_to_point. Refuses when the head moved around stamp_s or the stamp is outside the "
+            "joint-state history."
+        )
+    )
+    def camera_point_to_arm(
+        frame: Annotated[CameraOpticalFrame, Field(description="Optical frame the point is expressed in")],
+        x: Annotated[float, Field(description="m, right of the optical axis")],
+        y: Annotated[float, Field(description="m, below the optical axis")],
+        z: Annotated[float, Field(description="m, along the optical axis (forward); > 0")],
+        stamp_s: Annotated[
+            float | None, Field(description="Header stamp (ROS time, s) of the image or cloud the point came from")
+        ] = None,
+    ) -> CallToolResult:
+        """Camera-frame point -> base_link and arm; the tool description is passed to the decorator."""
+        with camera_errors():
+            if not (math.isfinite(x) and math.isfinite(y) and math.isfinite(z) and z > 0.0):
+                raise ValueError("z must be positive (the depth along the optical axis, in metres) and x, y finite")
+            notes: list[str] = []
+            if stamp_s is None:
+                newest = robot.head.history.newest_stamp()
+                if newest is None:
+                    raise ValueError(
+                        f"no {config.head.state_topic} samples received yet: the head pose is unknown "
+                        "(pass stamp_s of the image)"
+                    )
+                if robot.head.measured() is None:
+                    raise ValueError(
+                        f"head joint states ({config.head.state_topic}) are missing or stale: the head pose is unknown"
+                    )
+                stamp_s = newest
+                notes.append(
+                    "no stamp_s given: the head pose is the newest joint state, right only if the head has not moved "
+                    "since the point was measured"
+                )
+            pose = pose_at(stamp_s, "point's frame")
+            t_base_optical = robot.head.kinematics.link_pose(pose.pan, pose.tilt, frame)
+            offset = config.arm.base_in_base_link
+            t_arm_base = None if offset is None else np.linalg.inv(offset_matrix(offset))
+            frames = frames_of_point(t_base_optical, t_arm_base, np.array([x, y, z], dtype=float))
+            report = point_report(frames, None, stamp_s, pose, False, frame)
+            report["notes"] = [*notes, *report["notes"]]
             return data_result(report)
 
     @server.tool(
@@ -314,8 +637,7 @@ def register(ctx: ToolContext) -> None:
             wanted = list(dict.fromkeys(overlays))
             if "planned_gripper" in wanted and planned_gripper is None:
                 raise ValueError("the planned_gripper overlay needs the planned_gripper {x, y, z} argument")
-            scene, setup = scene_for(camera)
-            img = grab(camera, setup)
+            scene, setup, img = framed_scene(camera)
             notes: list[str] = []
             meta: dict[str, Any] = {"camera": camera, "frame": scene.frame_name}
             legend = [f"{camera} camera, frame {scene.frame_name} (x fwd, y left, z up)"]
@@ -412,10 +734,9 @@ def register(ctx: ToolContext) -> None:
     ) -> list[ImageContent | TextContent]:
         """Numbered candidate dots; the tool description is passed to the decorator."""
         with camera_errors():
-            scene, setup = scene_for(camera)
+            scene, setup, img = framed_scene(camera)
             scale = pixel_scale(image_width, image_height, scene.intr.width, scene.intr.height, default_px) or 1.0
             pose = map_pose()
-            img = grab(camera, setup)
             box = (
                 None if region is None else (region.u0 * scale, region.v0 * scale, region.u1 * scale, region.v1 * scale)
             )

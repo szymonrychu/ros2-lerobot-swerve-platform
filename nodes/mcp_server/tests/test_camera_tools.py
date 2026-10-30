@@ -19,7 +19,15 @@ from mcp_server.config import McpServerConfig
 from mcp_server.models import BasePose, CameraFrame, RobotState, ScanPoints
 from mcp_server.tools import build_mcp_server
 
-from .camera_helpers import FRONT_MOUNT, HEIGHT, WIDTH, camera_config, front_ground_of_center, jpeg_blank
+from .camera_helpers import (
+    FRONT_MOUNT,
+    HEIGHT,
+    WIDTH,
+    camera_config,
+    front_ground_of_center,
+    jpeg_blank,
+    sync_head_history,
+)
 from .test_tools import TOKEN, FakeRobot, call
 
 # Every camera tool takes the camera argument, except resolve_candidate (the set remembers its camera).
@@ -58,6 +66,7 @@ class CameraRobot(FakeRobot):
         self.calls.append(("camera_image", (camera, max_px)))
         ok, jpg = cv2.imencode(".jpg", jpeg_blank())
         assert ok
+        sync_head_history(self.head, 50.0)
         return CameraFrame(
             camera=camera, topic="/x", jpeg=jpg.tobytes(), width=WIDTH, height=HEIGHT, stamp_s=50.0, age_s=0.1
         )
@@ -104,6 +113,8 @@ def front_pixel(ground: tuple[float, float, float]) -> tuple[float, float]:
 def test_tool_names_are_the_contract() -> None:
     assert TOOL_NAMES == (
         "pixel_to_ground",
+        "pixel_to_point",
+        "camera_point_to_arm",
         "get_annotated_camera_image",
         "mark_candidate_points",
         "resolve_candidate",

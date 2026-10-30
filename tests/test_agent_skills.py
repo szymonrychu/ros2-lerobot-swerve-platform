@@ -24,7 +24,17 @@ TOOL_CALL = re.compile(r"^(?:agent\.)?([a-z][a-z0-9]*(?:_[a-z0-9]+)+|[a-z]+)\(")
 AGENT_TOOL = re.compile(r"^agent\.[a-z_]+")
 BARE_NAME = re.compile(r"^[a-z]+(?:_[a-z0-9]+)+$")
 # Backticked snake_case words that are arguments or values, not tools.
-NON_TOOL_NAMES = {"p_retry_success", "retry_change", "problem_type"}
+# Argument and result field names the skills put in backticks (not tools).
+NON_TOOL_NAMES = {
+    "p_retry_success",
+    "retry_change",
+    "problem_type",
+    "support_z",
+    "height_m",
+    "position_source",
+    "grasp_ready",
+    "surface_height_m",
+}
 PLAN_TOOL_NAMES = re.compile(r'^[A-Z_]+_TOOL = "([a-z_]+)"$', re.MULTILINE)
 
 

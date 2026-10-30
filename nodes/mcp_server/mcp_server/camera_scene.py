@@ -422,6 +422,21 @@ def head_parent_transform(cfg: McpServerConfig, head: MeasuredHead | None) -> np
             "with the pan/tilt head and its joint states are missing or stale"
         )
     pan, tilt = (angles[name] for name in head.settings.joint_names)
+    return head_parent_transform_at(cfg, head, pan, tilt)
+
+
+def head_parent_transform_at(cfg: McpServerConfig, head: MeasuredHead, pan: float, tilt: float) -> np.ndarray:
+    """T_base_link_parent of the front (head) camera at given head angles (the pose at an image stamp).
+
+    Args:
+        cfg (McpServerConfig): Node configuration (cameras.front.parent_frame).
+        head (MeasuredHead): Pan/tilt head with its kinematics (the applied chain).
+        pan (float): head_pan (rad, + left).
+        tilt (float): head_tilt (rad, + down).
+
+    Returns:
+        np.ndarray: 4x4 pose of cameras.front.parent_frame in base_link.
+    """
     return head.kinematics.link_pose(pan, tilt, str(cfg.cameras.front.parent_frame))
 
 
@@ -604,6 +619,9 @@ def ground_fields(scene: Scene, ground: np.ndarray, pose: BasePose | None) -> di
     out: dict[str, Any] = {}
     in_base = scene.ref_to_base(ground)
     origin = ground
+    in_arm = scene.ref_to_arm(ground)
+    if in_arm is not None:
+        out["ground_arm"] = {"frame": "arm", **xyz(in_arm)}
     if in_base is not None:
         out["ground_base_link"] = xyz(in_base)
         origin = in_base

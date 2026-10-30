@@ -130,7 +130,50 @@ def parse_head_chain(data: object) -> dict[str, Origin]:
     return origins
 
 
-def head_chain_json(origins: dict[str, Origin], note: str, session: str, result: str) -> str:
+@dataclass(frozen=True)
+class ChainResidual:
+    """How well the chain agrees with the trusted arm, as measured by the fit that wrote it.
+
+    Attributes:
+        kind: The fit that measured it ("head_arm": board on the gripper moved by the arm, seen by the D435).
+        holdout_board_mm: RMS over the held-out views of the board centre distance between arm forward kinematics and
+            the camera through the fitted chain (mm): the camera-to-arm frame accuracy.
+        holdout_rms_px: Corner reprojection RMS over the held-out views (px).
+        rms_px: Corner reprojection RMS over the fit views (px).
+    """
+
+    kind: str
+    holdout_board_mm: float
+    holdout_rms_px: float
+    rms_px: float
+
+
+def parse_residual(data: object) -> ChainResidual | None:
+    """Parse the ``residual`` entry of a head_chain.json document.
+
+    Args:
+        data: Parsed head_chain.json.
+
+    Returns:
+        The residual, or None when the entry is absent or unusable (not an object, a missing, non-numeric, bool,
+        non-finite or negative value, or an empty kind).
+    """
+    entry = data.get("residual") if isinstance(data, dict) else None
+    if not isinstance(entry, dict):
+        return None
+    kind = entry.get("kind")
+    values = [entry.get(key) for key in ("holdout_board_mm", "holdout_rms_px", "rms_px")]
+    if not isinstance(kind, str) or not kind:
+        return None
+    for value in values:
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+            return None
+    return ChainResidual(kind, float(values[0]), float(values[1]), float(values[2]))
+
+
+def head_chain_json(
+    origins: dict[str, Origin], note: str, session: str, result: str, residual: ChainResidual | None = None
+) -> str:
     """Serialise head chain origins as head_chain.json text (keys sorted, 9 decimals).
 
     Args:
@@ -138,6 +181,7 @@ def head_chain_json(origins: dict[str, Origin], note: str, session: str, result:
         note: Calibration note.
         session: Calibration session id.
         result: Short result summary.
+        residual: The arm-frame residual of the fit (written as ``residual``); omitted when None.
 
     Returns:
         JSON text ending in a newline.
@@ -149,8 +193,17 @@ def head_chain_json(origins: dict[str, Origin], note: str, session: str, result:
     entries = ",\n".join(
         f'    {json.dumps(name)}: {{"rpy": {vec(o.rpy)}, "xyz": {vec(o.xyz)}}}' for name, o in sorted(origins.items())
     )
+    residual_text = ""
+    if residual is not None:
+        body = {
+            "holdout_board_mm": residual.holdout_board_mm,
+            "holdout_rms_px": residual.holdout_rms_px,
+            "kind": residual.kind,
+            "rms_px": residual.rms_px,
+        }
+        residual_text = f'  "residual": {json.dumps(body)},\n'
     return (
-        f'{{\n  "joints": {{\n{entries}\n  }},\n  "note": {json.dumps(note)},\n'
+        f'{{\n  "joints": {{\n{entries}\n  }},\n  "note": {json.dumps(note)},\n{residual_text}'
         f'  "result": {json.dumps(result)},\n  "session": {json.dumps(session)}\n}}\n'
     )
 

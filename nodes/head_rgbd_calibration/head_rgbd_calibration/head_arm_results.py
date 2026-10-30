@@ -9,6 +9,7 @@ one applied path.
 
 import json
 import logging
+import math
 import os
 import shutil
 from datetime import datetime
@@ -26,7 +27,7 @@ from ros2_common.head_rgbd_calibration.head_arm_fit import (
     head_arm_report_markdown,
     limit_checks,
 )
-from ros2_common.head_rgbd_calibration.urdf_text import HEAD_CHAIN_FILE, head_chain_json
+from ros2_common.head_rgbd_calibration.urdf_text import HEAD_CHAIN_FILE, ChainResidual, head_chain_json
 
 from head_rgbd_calibration import floor_results
 from head_rgbd_calibration.apply import APPLIED_DIR, NotApplicable
@@ -264,7 +265,9 @@ def compute_head_arm(cfg: NodeConfig, store: SessionStore, sid: str, now: dateti
             note = (
                 f"head-from-arm fit {date}, RMS {fit.rms_px:.2f} px, held-out board error {fit.holdout_board_mm:.2f} mm"
             )
-            (tmp / HEAD_CHAIN_FILE).write_text(head_chain_json(origins, note, sid, rid))
+            measured = (fit.holdout_board_mm, fit.holdout_rms_px, fit.rms_px)
+            residual = ChainResidual(KIND, *measured) if all(math.isfinite(v) for v in measured) else None
+            (tmp / HEAD_CHAIN_FILE).write_text(head_chain_json(origins, note, sid, rid, residual))
     except (ValueError, OSError) as exc:
         LOGGER.warning("head-arm fit of %s failed: %s", sid, exc)
         for path in tmp.iterdir():
