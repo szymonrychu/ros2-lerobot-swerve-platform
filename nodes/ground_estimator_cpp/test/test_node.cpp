@@ -64,6 +64,9 @@ constexpr int DECIMATION = 2;
 constexpr double TF_BEFORE_S = 5.0;
 constexpr double TF_SPAN_S = 120.0;
 constexpr double TF_STEP_S = 0.05;
+constexpr double TURN_TF_STEP_S = 0.02;  // TF step of a turning head
+constexpr double TURN_RATE_DEG_S = 20.0;  // a turning head far above the 3 deg/s gate
+constexpr double TURN_SETTLE_S = 0.15;    // after a turn starts or stops until both ends of the 0.1 s rate window agree
 constexpr double CLOUD_PERIOD_S = 0.1;
 constexpr seconds WAIT{15};
 constexpr milliseconds POLL{20};
@@ -607,6 +610,7 @@ struct TfOptions
 {
   bool tof = true;  // base_link -> tof_optical_frame
   bool map = true;  // map -> odom
+  bool cam = true;  // base_link -> head_camera_optical_frame
 };
 
 class NodeTest : public ::testing::Test
@@ -659,13 +663,29 @@ protected:
     if (opt.tof) {
       buffer_->setTransform(transform_of(BASE_T_TOF, BASE, TOF_FRAME, 0.0), "test", true);
     }
-    buffer_->setTransform(transform_of(BASE_T_CAM, BASE, CAM_FRAME, 0.0), "test", true);
+    if (opt.cam) {
+      buffer_->setTransform(transform_of(BASE_T_CAM, BASE, CAM_FRAME, 0.0), "test", true);
+    }
     buffer_->setTransform(transform_of(BASE_T_IMU, BASE, IMU_FRAME, 0.0), "test", true);
     if (opt.map) {
       buffer_->setTransform(transform_of(MAP_T_ODOM, MAP, ODOM, 0.0), "test", true);
     }
     for (double t = t0_ - TF_BEFORE_S; t <= t0_ + TF_SPAN_S; t += TF_STEP_S) {
       buffer_->setTransform(transform_of(ODOM_T_BASE, ODOM, BASE, t), "test", false);
+    }
+  }
+
+  // A camera frame whose TF history is dynamic (use TfOptions to leave its static transform out): from first_sample_s
+  // to the end of the buffer it turns about base_link z at rate_deg_s from turn_start_s to turn_stop_s and holds its
+  // angle outside that span. History before first_sample_s does not exist, so a rate read there is unknown.
+  void set_turning_head(
+    const std::string & frame, const Eigen::Isometry3d & base_T_frame, double rate_deg_s, double first_sample_s,
+    double turn_start_s, double turn_stop_s)
+  {
+    for (double t = first_sample_s; t <= t0_ + TF_SPAN_S; t += TURN_TF_STEP_S) {
+      const double turned_s = std::clamp(t, turn_start_s, turn_stop_s) - turn_start_s;
+      const Eigen::Isometry3d turned(Eigen::AngleAxisd(rate_deg_s * DEG * turned_s, Eigen::Vector3d::UnitZ()));
+      buffer_->setTransform(transform_of(turned * base_T_frame, BASE, frame, t), "test", false);
     }
   }
 
@@ -962,7 +982,7 @@ protected:
     builtin_interfaces::msg::Time stamp;
     const auto all_frames = [&node] {
       double sum = 0.0;
-      for (const char * r : {"ok", "guidance_bad_input", "guidance_tf", "guidance_no_plane"}) {
+      for (const char * r : {"ok", "head_moving", "guidance_bad_input", "guidance_tf", "guidance_no_plane"}) {
         sum += guidance_frames(node, r);
       }
       return sum;
@@ -1214,6 +1234,104 @@ TEST_F(NodeTest, FiftyMillimetreDipIsLethalAsADropDeeperThanTheStepLimit)
   ASSERT_TRUE(wait_for([&] { return find_stamp(drop_, stamp).has_value(); }));
   EXPECT_GT(xyz_of(*find_stamp(drop_, stamp)).size(), 20u);
   EXPECT_EQ(xyz_of(*find_stamp(obstacle_, stamp)).size(), 0u);
+}
+
+// Head-motion gate (task T2): the TF of the cloud frame turns at 20 deg/s for two seconds. A cloud captured in the turn
+// feeds the plane fit but does not vote or publish, is counted, and /ground/state says head_moving; once the turn
+// stopped the next cloud votes again and the flag clears (the gate never holds on its own).
+TEST_F(NodeTest, CloudsCapturedWhileTheHeadTurnsDoNotVoteAndTheGateReleasesWhenItStops)
+{
+  constexpr double TURN_S = 2.0;
+  constexpr int TURN_CLOUDS = 5;
+  TfOptions opt;
+  opt.tof = false;
+  fill_tf(opt);
+  start(base_config());
+  const double turn_start_s = wall_now_s();
+  set_turning_head(TOF_FRAME, BASE_T_TOF, TURN_RATE_DEG_S, t0_ - TF_BEFORE_S, turn_start_s, turn_start_s + TURN_S);
+  std::this_thread::sleep_for(std::chrono::duration<double>(TURN_SETTLE_S));
+  std::vector<builtin_interfaces::msg::Time> gated;
+  for (int i = 0; i < TURN_CLOUDS; ++i) {
+    gated.push_back(publish_cloud(scene_cloud(box_scene())));
+    std::this_thread::sleep_for(std::chrono::duration<double>(CLOUD_PERIOD_S));
+  }
+  ASSERT_TRUE(wait_for([&] {
+    return metric("ground_head_moving_frames_total{input=\"cloud\"}").value_or(0.0) >= TURN_CLOUDS;
+  }));
+  EXPECT_NEAR(metric("ground_head_rate_deg_s").value_or(0.0), TURN_RATE_DEG_S, 1.0);
+  const auto moving = state_after(ns_of(gated.back()), [](const json & d) { return d["head_moving"] == true; });
+  ASSERT_TRUE(moving.has_value());
+  EXPECT_FALSE((*moving)["plane"].is_null());  // the plane followed the head
+  std::this_thread::sleep_for(SETTLE);
+  for (const auto & stamp : gated) {
+    EXPECT_FALSE(find_stamp(obstacle_, stamp).has_value()) << "gated cloud published an obstacle cloud";
+    EXPECT_FALSE(find_stamp(drop_, stamp).has_value()) << "gated cloud published a drop cloud";
+  }
+  // The turn is over once both ends of the rate window lie after it.
+  std::this_thread::sleep_for(std::chrono::duration<double>(TURN_S + TURN_SETTLE_S));
+  const auto voting = cloud_and_wait(scene_cloud(box_scene()));
+  const auto released = state_after(ns_of(voting), [](const json & d) { return d["head_moving"] == false; });
+  ASSERT_TRUE(released.has_value());
+  EXPECT_EQ(metric("ground_head_moving_frames_total{input=\"cloud\"}").value_or(-1.0), TURN_CLOUDS);
+}
+
+// A rate that cannot be read (the TF history of the cloud frame starts after stamp - motion.window_s) counts as still:
+// the cloud votes as it did before the gate, and the unreadable rate is counted.
+TEST_F(NodeTest, HeadRateThatCannotBeReadCountsAsStillAndIsCounted)
+{
+  TfOptions opt;
+  opt.tof = false;
+  fill_tf(opt);
+  start(base_config());
+  // History starting 1 s ahead; the cloud is stamped just after it starts, 0.1 s before which nothing is known.
+  const double first_sample_s = wall_now_s() + 1.0;
+  set_turning_head(TOF_FRAME, BASE_T_TOF, 0.0, first_sample_s, 0.0, 0.0);
+  std::this_thread::sleep_for(std::chrono::duration<double>(std::max(0.0, first_sample_s + 0.01 - wall_now_s())));
+  const auto stamp = cloud_and_wait(scene_cloud(box_scene()));
+  EXPECT_TRUE(find_stamp(obstacle_, stamp).has_value());
+  EXPECT_GE(metric("ground_head_rate_unknown_total").value_or(0.0), 1.0);
+  EXPECT_EQ(metric("ground_head_moving_frames_total{input=\"cloud\"}").value_or(-1.0), 0.0);
+  const auto state = state_after(ns_of(stamp), [](const json &) { return true; });
+  ASSERT_TRUE(state.has_value());
+  EXPECT_EQ((*state)["head_moving"], false);
+}
+
+TEST_F(NodeTest, GateOffNeverCountsTheHeadMoving)
+{
+  TfOptions opt;
+  opt.tof = false;
+  fill_tf(opt);
+  Config config = base_config();
+  config.motion.enabled = false;
+  start(config);
+  const double turn_start_s = wall_now_s();
+  set_turning_head(TOF_FRAME, BASE_T_TOF, TURN_RATE_DEG_S, t0_ - TF_BEFORE_S, turn_start_s, turn_start_s + 60.0);
+  std::this_thread::sleep_for(std::chrono::duration<double>(TURN_SETTLE_S));
+  const auto stamp = cloud_and_wait(scene_cloud(box_scene()));
+  EXPECT_TRUE(find_stamp(obstacle_, stamp).has_value());
+  EXPECT_EQ(metric("ground_head_moving_frames_total{input=\"cloud\"}").value_or(-1.0), 0.0);
+  EXPECT_EQ(metric("ground_head_rate_unknown_total").value_or(-1.0), 0.0);
+}
+
+// The RGB-D cloud is stamped by the same camera: captured while the head turns it is dropped unlabelled and counted.
+TEST_F(NodeTest, RgbdCloudCapturedWhileTheHeadTurnsIsNotLabelled)
+{
+  TfOptions opt;
+  opt.cam = false;
+  fill_tf(opt);
+  start(base_config());
+  ASSERT_TRUE(wait_for([this] { return rgbd_pub_->get_subscription_count() > 0; }));
+  cloud_and_wait(scene_cloud(ground_test::floor_scene()));  // a plane
+  const double turn_start_s = wall_now_s();
+  set_turning_head(CAM_FRAME, BASE_T_CAM, TURN_RATE_DEG_S, t0_ - TF_BEFORE_S, turn_start_s, turn_start_s + 60.0);
+  std::this_thread::sleep_for(std::chrono::duration<double>(TURN_SETTLE_S));
+  publish_rgbd(false);
+  ASSERT_TRUE(wait_for([&] {
+    return metric("ground_head_moving_frames_total{input=\"rgbd\"}").value_or(0.0) >= 1.0;
+  }));
+  std::this_thread::sleep_for(SETTLE);
+  EXPECT_EQ(labelled_.size(), 0u);
+  EXPECT_EQ(dropped("no_plane_rgbd"), 0.0);
 }
 
 TEST_F(NodeTest, ThreeCentimetreSillIsAStepWarningInTheMapFrame)
@@ -2352,6 +2470,27 @@ TEST_F(NodeTest, GuidanceOfOneLostSetIsStillUsedAndStaleOnlyAfterTheMaxAge)
   const FrameOutput after = run_frame(scene_cloud(tof_box_scene()));
   EXPECT_EQ(points_at(obstacle_, after.stamp).size(), points_at(plain.obstacle, after.stamp).size());
   EXPECT_GT(metric("ground_guidance_stale_frames_total").value_or(-1.0), stale_before);
+}
+
+// A guidance pair captured while the head turns is not used (its depth and colour sit where the TF at the stamp does
+// not say): counted as head_moving, no edge points, not a drop.
+TEST_F(NodeTest, GuidancePairCapturedWhileTheHeadTurnsIsNotUsed)
+{
+  TfOptions opt;
+  opt.cam = false;
+  fill_tf(opt);
+  start(base_config());
+  wait_for_pair_subscribers();
+  warm_cloud_and_wait(scene_cloud(tof_box_scene()));  // a plane for the pair
+  const double turn_start_s = wall_now_s();
+  set_turning_head(CAM_FRAME, BASE_T_CAM, TURN_RATE_DEG_S, t0_ - TF_BEFORE_S, turn_start_s, turn_start_s + 60.0);
+  std::this_thread::sleep_for(std::chrono::duration<double>(TURN_SETTLE_S));
+  pair_and_wait(true_box_pair(), "head_moving");
+  EXPECT_GE(metric("ground_head_moving_frames_total{input=\"guidance\"}").value_or(0.0), 1.0);
+  EXPECT_EQ(metric("ground_guidance_frames_total{result=\"ok\"}").value_or(-1.0), 0.0);
+  EXPECT_EQ(dropped("guidance_tf"), 0.0);
+  run_frame(scene_cloud(tof_box_scene()));
+  EXPECT_EQ(metric("ground_edge_points").value_or(-1.0), 0.0);
 }
 
 // Step 2: a pair whose RGB frame has no TF is dropped (guidance_tf) and nothing from it is used.
