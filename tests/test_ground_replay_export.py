@@ -1,8 +1,8 @@
 """Unit tests for scripts/ground_replay_export.py: live recording npz to the ground replay binary and back."""
 
-import hashlib
 import json
 import os
+import struct
 from pathlib import Path
 
 import cv2
@@ -28,7 +28,7 @@ from scripts.ground_replay_export import (
 
 TINY_V2_PATH = Path(__file__).resolve().parents[1] / "nodes/ground_estimator_cpp/test/data/replay/tiny_v2.bin"
 UPDATE_TINY_ENV = "UPDATE_TINY_V2"
-RUN4_V1_SHA256 = "b81cd9047f0c895bcf001862397a1660b0ed0f8ef9244d7d5f8638e287a31a5c"
+V1_MAGIC = b"GRNDRPLY"
 
 FRAME = "tof_optical_frame"  # cloud frame of the layout-1 recordings of 2026-10-22
 DEPTH_FRAME = "d435_depth_optical_frame"
@@ -245,13 +245,51 @@ def test_layout3_depth_model_round_trips(tmp_path: Path) -> None:
 
 
 def test_v1_output_unchanged(tmp_path: Path) -> None:
-    """A layout-1 input gives run 4's version-1 bytes (sha256 taken from run 4's writer, commit dc26218c)."""
+    """A layout-1 input gives the documented version-1 bytes, decoded here field by field with struct.
+
+    This replaces a sha256 of the whole file taken on the author's machine (run 4, commit dc26218c): the recording is
+    synthetic numpy random data and sin/cos poses, whose last bits differ by numpy release and libm, so the hash was
+    red on CI (linux x86_64) with the writer unchanged. The layout is pinned by the README table instead.
+    """
     npz, out = tmp_path / "rec.npz", tmp_path / "rec.bin"
-    write_recording(npz, clouds=250, seconds=22.0)
+    arrays = write_recording(npz, clouds=250, seconds=22.0)
     export(npz, out, start_s=START_S, duration_s=DURATION_S)
     data = out.read_bytes()
-    assert int.from_bytes(data[8:12], "little") == 1
-    assert hashlib.sha256(data).hexdigest() == RUN4_V1_SHA256
+    stamps, offsets, imu = arrays["stamps_ns"], arrays["offsets"], arrays["imu"]
+    lo = int(stamps[0]) + int(round(START_S * NS_PER_S))
+    hi = lo + int(round(DURATION_S * NS_PER_S))
+    kept = np.flatnonzero((stamps >= lo) & (stamps < hi))
+    pos = 0
+
+    def take(fmt: str) -> tuple[float | int, ...]:
+        nonlocal pos
+        values = struct.unpack_from("<" + fmt, data, pos)
+        pos += struct.calcsize("<" + fmt)
+        return values
+
+    assert data[: len(V1_MAGIC)] == V1_MAGIC
+    pos = len(V1_MAGIC)
+    assert take("I") == (1,)
+    (frame_len,) = take("I")
+    assert data[pos : pos + frame_len].decode() == FRAME
+    pos += frame_len
+    assert take("I") == (len(kept),)
+    for i in kept:
+        assert take("q") == (stamps[i],)
+        assert take("7d") == tuple(arrays["base_T_cloud"][i])
+        assert take("7d") == tuple(arrays["odom_T_base"][i])
+        (count,) = take("I")
+        expected = arrays["points_mm"][offsets[i] : offsets[i + 1]]
+        assert count == len(expected)
+        np.testing.assert_array_equal(np.frombuffer(data, "<i2", count * 3, pos).reshape(-1, 3), expected)
+        pos += count * 6
+    window = imu[(imu[:, 0].astype(np.int64) >= lo) & (imu[:, 0].astype(np.int64) < hi)]
+    assert take("I") == (len(window),)
+    for row in window:
+        assert take("q") == (int(row[0]),)
+        assert take("10d") == tuple(row[1:])
+    assert take("7d") == tuple(arrays["base_T_imu"])
+    assert pos == len(data)
     replay = read_replay(out)
     assert replay.version == 1 and replay.rgb_model is None and replay.depth_model is None and replay.pairs == []
 

@@ -3549,7 +3549,7 @@ README, Replay tests). Synthetic recordings with the real key layout are written
 | `test_export_trims_window` | Only clouds and IMU samples stamped in [first cloud + `START_S`, + `DURATION_S`) are kept; the offsets are rebuilt from the kept clouds. |
 | `test_read_rejects_wrong_magic` | A file without the `GRNDRPLY` magic is rejected with `ValueError`. |
 | `test_layout3_depth_model_round_trips` | A layout-3 (D435 ground recorder) recording gives a version-2 file; the depth model (`depth_K`, `depth_D`, `depth_size`, `depth_frame`) in the slot of the old ToF model, the RGB model, the pairs (stamps, poses, JPEG bytes, lossless uint16 depth) and the v1 sections decode back unchanged. |
-| `test_v1_output_unchanged` | A layout-1 input still gives the version-1 file without models or pairs. |
+| `test_v1_output_unchanged` | A layout-1 input gives the documented version-1 bytes, decoded field by field with `struct` (magic, version, frame, clouds, IMU, `base_T_imu`, no trailing byte); replaces a whole-file sha256 that varied with the numpy release and libm (2026-10-30). |
 | `test_layout2_is_refused` | A layout-2 (Arducam ToF, `tof_*` keys) recording raises a `ValueError` naming layout 3 and writes nothing. |
 | `test_unknown_layout_is_refused` | A layout newer than 3 raises a `ValueError` naming layout 3 and writes nothing. |
 | `test_recording_without_camera_info_is_refused` | A layout-3 recording whose depth (or RGB) camera_info never arrived (size 0 x 0, K zeros, D empty, no frame, as the recorder writes it) is refused and nothing is written; parametrised over `depth` and `rgb`. |
