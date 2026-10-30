@@ -358,8 +358,10 @@ Accuracy target: below 5 mm camera to arm frame.
    offset, never silently shifts the point. The D435 stamp against `/head/joint_states` stamp offset is not measured
    yet (live check below); a static head makes it irrelevant.
 3. `depth_point.window_depth` takes the `window_px` square (odd, at most `camera_arm.max_window_px`), drops flying and
-   mixed pixels with the depth-discontinuity rule (a pixel differing from a neighbour in the `edge_kernel_px` square by
-   more than `max(edge_abs_m, edge_rel * z)`; holes are never neighbours), and returns the median of what is left. It
+   mixed pixels with the depth edge rule of head_rgbd_cpp (`ros2_common.depth_edge_mask`: a pixel with a neighbour in
+   the `edge_kernel_px` square nearer by more than `max(edge_abs_m, edge_rel * z)`, 3 px, 0.01 m, 0.025; only the far
+   side of an edge goes, holes are never neighbours; the numbers are pinned to the C++ rule's parity fixture by
+   `tests/test_depth_edge_rule_parity.py`), and returns the median of what is left. It
    refuses: `no valid depth` (fewer than `min_valid_fraction` of the window has depth), `depth edge` (the pixel is on an
    outline: aim at the interior), a surface that slants beyond `spread_factor` x the rule (use a smaller window),
    nearer than `camera_arm.min_range_m` (0.15, the D435 minimum distance) or farther than `max_range_m` (1.0 m, where

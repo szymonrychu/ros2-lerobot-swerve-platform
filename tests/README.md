@@ -3203,6 +3203,23 @@ d435_obstacle_cloud turns into `/head/d435/points`. Reads the YAML and READMEs o
 | `test_common_cpp_builds_without_opencv_where_it_is_not_installed` | ros2_common_cpp's CMake finds OpenCV `QUIET` and builds `depth_mask` only `if(OpenCV_FOUND)` (map_guard_cpp and map3d_manager_cpp install no OpenCV); head_rgbd_cpp installs `libopencv-dev`. |
 | `test_docs_name_the_filtered_depth` | The head_rgbd_cpp README names the filtered namespace, `edge_mask`, `pairing.policy` and the stamp-delta histogram; the realsense bridge README has a Filters section naming the filtered namespace; this file has a section for the test. |
 
+### test_depth_edge_rule_parity.py
+
+One depth edge ("veil") rule in C++ (`ros2_common_cpp::depth_edge_mask`, head_rgbd_cpp) and Python
+(`ros2_common.depth_edge_mask`, mcp_server `pixel_to_point`), held to the parity fixture
+`shared/ros2_common_cpp/test/data/depth_edge_mask_parity.yaml`, whose `defaults` are the rule's numbers (3 px, 0.01 m,
+0.025, grow 0). The C++ side is checked against the same fixture by `test_depth_mask.cpp` (`DepthEdgeMaskParity.*`).
+
+| Test | Covers |
+|---|---|
+| `test_python_rule_gives_every_fixture_mask` | Per fixture case (blend across an edge, floor gradient and box, holes, absolute threshold at short range, 5 px window past a hole, grow, three random scenes) the Python rule removes exactly the fixture pixels. |
+| `test_python_constants_are_the_fixture_defaults` | `WINDOW_PX`, `ABS_M`, `REL`, `GROW_PX` equal the fixture defaults. |
+| `test_cpp_defaults_are_the_fixture_defaults` | The `DepthEdgeMaskParams` defaults in `depth_mask.hpp` equal them. |
+| `test_head_rgbd_edge_mask_is_the_fixture_defaults` | head_rgbd_cpp `edge_mask` in `config/head_rgbd.yaml` and client.yml equals them. |
+| `test_mcp_camera_arm_edge_settings_are_the_fixture_defaults` | mcp_server `CameraArmSettings` defaults and the client.yml `camera_arm` block (`edge_kernel_px`, `edge_abs_m`, `edge_rel`) equal them. |
+| `test_the_rule_is_one_sided_the_nearer_side_keeps_its_edge` | A 0.5 / 0.9 m edge loses only the first far column. |
+| `test_invalid_parameters_are_refused_as_in_cpp` | Even or < 3 window, negative thresholds or grow, both thresholds 0 raise `ValueError`. |
+
 ### test_d435_obstacle_wiring.py
 
 Cross-file topic chain of the head D435 obstacle cloud (design D5): d435_obstacle_cloud (`/head/d435/points`, `d435_depth_optical_frame`) -> laser_filter self filter (`/head/d435/points_filtered`) -> ground_estimator_cpp. The Nav2, web_ui and mcp_server consumers are re-pointed task by task and pin their D435 topic in their own tests. Reads the YAML only.

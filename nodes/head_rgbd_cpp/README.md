@@ -99,6 +99,11 @@ pose, so `rel` stays above it; floor whose depth grows faster than `rel` per pix
 pose, outside the obstacle cloud's 3 m) is removed too. Real D435 noise is not in this scene: the live check
 (`realsense_d435` README, Filters) confirms the floor is kept on the robot.
 
+One rule, two languages: mcp_server's `pixel_to_point` reads the aligned depth with the Python twin
+`ros2_common.depth_edge_mask` and the same numbers. Both are held to the parity fixture
+`shared/ros2_common_cpp/test/data/depth_edge_mask_parity.yaml` (its `defaults` are the numbers; C++
+`test_depth_mask.cpp`, Python `tests/test_depth_edge_rule_parity.py`), which also pins this node's `edge_mask` block.
+
 Depth downscale (`output.divisor` 2): an output pixel takes the first pixel of its 2x2 source block, in row-major order
 from the top-left one (the nearest-neighbour sample), whose depth lies in [`depth.min_m`, `depth.max_m`]; 0 when none
 does. Depth is never interpolated across missing pixels. With divisor 1 only the range applies. The depth camera_info

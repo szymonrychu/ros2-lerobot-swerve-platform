@@ -2,9 +2,10 @@
 
 import numpy as np
 import pytest
+from ros2_common.depth_edge_mask import depth_edge_mask
 
 from mcp_server.config import CameraArmSettings
-from mcp_server.depth_point import DepthError, depth_sigma_m, discontinuity_mask, window_depth
+from mcp_server.depth_point import DepthError, depth_sigma_m, window_depth
 
 SETTINGS = CameraArmSettings()
 H, W = 360, 640
@@ -65,7 +66,7 @@ def test_flying_pixels_between_two_depths_are_dropped_by_the_discontinuity_rule(
     depth[180, 320] = 550  # one mixed pixel in the middle of an object face
     win = window_depth(depth, 320.0, 180.0, 5, SETTINGS, FX)
     assert win.z_m == pytest.approx(0.4) and win.spread_m == 0.0
-    assert win.n_valid == 16 and win.n_flagged == 9  # the symmetric rule also drops the 8 neighbours of the odd pixel
+    assert win.n_valid == 24 and win.n_flagged == 1  # the one-sided rule drops only the pixel behind its neighbours
 
 
 def test_slanted_surface_within_the_spread_limit_is_accepted() -> None:
@@ -115,19 +116,28 @@ def test_float_depth_in_metres_is_accepted() -> None:
     assert window_depth(depth, 320.0, 180.0, 5, SETTINGS, FX).z_m == pytest.approx(0.4)
 
 
-def test_discontinuity_mask_flags_both_sides_of_an_edge_only() -> None:
+def test_edge_rule_flags_the_far_side_of_an_edge_only() -> None:
+    # The one-sided rule of head_rgbd_cpp (T1): the nearer surface keeps its edge, the first pixel behind it goes.
     depth = np.full((20, 20), 0.5, dtype=np.float32)
     depth[:, 10:] = 0.9
-    bad = discontinuity_mask(depth, 3, 0.02, 0.02)
-    assert bad[:, 9].all() and bad[:, 10].all()
-    assert not bad[:, :9].any() and not bad[:, 11:].any()
+    bad = depth_edge_mask(depth, SETTINGS.edge_kernel_px, SETTINGS.edge_abs_m, SETTINGS.edge_rel)
+    assert bad[:, 10].all()
+    assert not bad[:, :10].any() and not bad[:, 11:].any()
 
 
-def test_discontinuity_mask_ignores_holes_as_neighbours() -> None:
+def test_edge_rule_ignores_holes_as_neighbours() -> None:
     depth = np.full((20, 20), 0.5, dtype=np.float32)
     depth[10, 10] = 0.0
-    bad = discontinuity_mask(depth, 3, 0.02, 0.02)
+    bad = depth_edge_mask(depth, SETTINGS.edge_kernel_px, SETTINGS.edge_abs_m, SETTINGS.edge_rel)
     assert not bad.any()
+
+
+def test_window_on_the_near_side_of_an_edge_keeps_its_edge_pixels() -> None:
+    # A box top at 0.40 m beside floor at 0.60 m: a window centred two pixels inside the top keeps all its pixels.
+    depth = plane(600)
+    depth[:, :322] = 400
+    win = window_depth(depth, 319.0, 180.0, 5, SETTINGS, FX)
+    assert win.z_m == pytest.approx(0.4) and win.n_flagged == 0 and win.n_valid == 25
 
 
 def test_sigma_is_the_d435_z_squared_model() -> None:

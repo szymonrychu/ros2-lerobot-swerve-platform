@@ -1,9 +1,11 @@
 // ros2_common_cpp depth_mask: the depth-discontinuity ("veil") mask on small hand-made 16UC1 depth images.
 #include <gtest/gtest.h>
+#include <yaml-cpp/yaml.h>
 
 #include <cstdint>
 #include <opencv2/core.hpp>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 #include "ros2_common_cpp/depth_mask.hpp"
@@ -149,4 +151,46 @@ TEST(DepthEdgeMask, RejectsANon16uc1ImageAndInvalidParameters)
   EXPECT_THROW(rc::depth_edge_mask(depth, params(3, 0.02, -0.1)), std::invalid_argument);
   EXPECT_THROW(rc::depth_edge_mask(depth, params(3, 0.0, 0.0)), std::invalid_argument);  // removes all noise
   EXPECT_THROW(rc::depth_edge_mask(depth, params(3, 0.02, 0.03, -1)), std::invalid_argument);
+}
+
+// The parity fixture (test/data/depth_edge_mask_parity.yaml) is the single source of the rule's numbers and the masks
+// the Python twin (ros2_common.depth_edge_mask, mcp_server pixel_to_point) must also give
+// (tests/test_depth_edge_rule_parity.py).
+TEST(DepthEdgeMaskParity, DefaultsAreTheFixtureDefaults)
+{
+  const YAML::Node d = YAML::LoadFile(DEPTH_MASK_PARITY_FIXTURE)["defaults"];
+  const rc::DepthEdgeMaskParams p;
+  EXPECT_EQ(p.window_px, d["window_px"].as<int>());
+  EXPECT_DOUBLE_EQ(p.abs_m, d["abs_m"].as<double>());
+  EXPECT_DOUBLE_EQ(p.rel, d["rel"].as<double>());
+  EXPECT_EQ(p.grow_px, d["grow_px"].as<int>());
+}
+
+TEST(DepthEdgeMaskParity, GivesEveryFixtureMask)
+{
+  const YAML::Node cases = YAML::LoadFile(DEPTH_MASK_PARITY_FIXTURE)["cases"];
+  ASSERT_GT(cases.size(), 0u);
+  for (const YAML::Node & c : cases) {
+    const std::string name = c["name"].as<std::string>();
+    const YAML::Node rows = c["depth_mm"];
+    const YAML::Node removed = c["removed"];
+    const int n_rows = static_cast<int>(rows.size());
+    const int n_cols = static_cast<int>(rows[0].size());
+    cv::Mat depth(n_rows, n_cols, CV_16UC1);
+    for (int r = 0; r < n_rows; ++r) {
+      for (int col = 0; col < n_cols; ++col) {
+        depth.at<uint16_t>(r, col) = rows[r][col].as<uint16_t>();
+      }
+    }
+    const YAML::Node pn = c["params"];
+    const cv::Mat mask = rc::depth_edge_mask(
+      depth,
+      params(pn["window_px"].as<int>(), pn["abs_m"].as<double>(), pn["rel"].as<double>(), pn["grow_px"].as<int>()));
+    for (int r = 0; r < n_rows; ++r) {
+      for (int col = 0; col < n_cols; ++col) {
+        EXPECT_EQ(mask.at<uint8_t>(r, col) != 0, removed[r][col].as<int>() == 1)
+          << name << " (" << r << ", " << col << ")";
+      }
+    }
+  }
 }

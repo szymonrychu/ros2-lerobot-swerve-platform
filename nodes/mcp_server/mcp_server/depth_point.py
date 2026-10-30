@@ -1,20 +1,21 @@
 """Robust depth of a pixel window of a D435 aligned depth image (pure: numpy and OpenCV only, no ROS).
 
-A pixel is a flying/mixed pixel when its depth differs from a neighbour in the ``edge_kernel_px`` square by more than
-``max(edge_abs_m, edge_rel * z)`` (the discontinuity rule of the depth hygiene stage); both sides of a depth edge are
-flagged, holes (zero depth) are never neighbours. The depth of a window is the median of its finite, unflagged pixels.
+A pixel is a flying/mixed pixel when a neighbour in the ``edge_kernel_px`` square is nearer by more than
+``max(edge_abs_m, edge_rel * z)``: the depth edge rule of head_rgbd_cpp (``ros2_common.depth_edge_mask``, the same
+numbers, pinned by tests/test_depth_edge_rule_parity.py). Only the far side of a depth edge is flagged (the nearer object
+keeps its edge), holes (zero depth) are never neighbours. The depth of a window is the median of its finite, unflagged
+pixels.
 """
 
 from dataclasses import dataclass
 from typing import Literal
 
-import cv2
 import numpy as np
+from ros2_common.depth_edge_mask import depth_edge_mask
 
 from .config import CameraArmSettings
 
 DEPTH_SCALE_M = 0.001  # 16UC1 aligned depth is millimetres
-NO_NEIGHBOUR_M = 1.0e9  # stand-in for a hole in the minimum filter
 DepthErrorCode = Literal["no_depth", "mixed", "slanted", "too_near", "too_far", "outside", "window"]
 
 
@@ -75,28 +76,6 @@ def depth_sigma_m(z_m: float, fx: float, cfg: CameraArmSettings) -> float:
     return z_m * z_m * cfg.subpixel_px / (fx * cfg.baseline_m)
 
 
-def discontinuity_mask(depth_m: np.ndarray, kernel: int, abs_m: float, rel: float) -> np.ndarray:
-    """Pixels whose depth differs from a neighbour by more than max(abs_m, rel * z).
-
-    Args:
-        depth_m (np.ndarray): (h, w) depth in metres, 0 or non-finite = no depth.
-        kernel (int): Odd neighbourhood side (px).
-        abs_m (float): Absolute difference (m).
-        rel (float): Relative difference (fraction of z).
-
-    Returns:
-        np.ndarray: (h, w) bool, True for flagged pixels (never for a pixel without depth).
-    """
-    valid = np.isfinite(depth_m) & (depth_m > 0.0)
-    z = np.where(valid, depth_m, 0.0).astype(np.float32)
-    low_source = np.where(valid, depth_m, NO_NEIGHBOUR_M).astype(np.float32)
-    box = np.ones((kernel, kernel), np.uint8)
-    highest = cv2.dilate(z, box)
-    lowest = cv2.erode(low_source, box)
-    threshold = np.maximum(abs_m, rel * z)
-    return valid & (((highest - z) > threshold) | ((z - lowest) > threshold))
-
-
 def window_depth(
     depth: np.ndarray, u: float, v: float, window_px: int, cfg: CameraArmSettings, fx: float
 ) -> DepthWindow:
@@ -133,7 +112,7 @@ def window_depth(
     crop = depth[cy0:cy1, cx0:cx1].astype(np.float32)
     if not np.issubdtype(depth.dtype, np.floating):
         crop = crop * np.float32(DEPTH_SCALE_M)
-    flagged = discontinuity_mask(crop, cfg.edge_kernel_px, cfg.edge_abs_m, cfg.edge_rel)
+    flagged = depth_edge_mask(crop, cfg.edge_kernel_px, cfg.edge_abs_m, cfg.edge_rel)
     inner = (slice(y0 - cy0, y1 - cy0), slice(x0 - cx0, x1 - cx0))
     values, flags = crop[inner], flagged[inner]
     finite = np.isfinite(values) & (values > 0.0)

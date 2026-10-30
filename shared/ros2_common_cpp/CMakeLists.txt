@@ -74,7 +74,10 @@ if(BUILD_TESTING)
   ament_add_gtest(test_metrics test/test_metrics.cpp)
   target_link_libraries(test_metrics metrics)
   ament_add_gtest(test_depth_mask test/test_depth_mask.cpp)
-  target_link_libraries(test_depth_mask depth_mask)
+  # The parity fixture the Python twin (ros2_common.depth_edge_mask) is held to as well.
+  target_link_libraries(test_depth_mask depth_mask yaml-cpp::yaml-cpp)
+  target_compile_definitions(test_depth_mask PRIVATE
+    DEPTH_MASK_PARITY_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/test/data/depth_edge_mask_parity.yaml")
 endif()
 
 ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)

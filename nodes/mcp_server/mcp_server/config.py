@@ -7,6 +7,7 @@ from typing import Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, PositiveFloat, field_validator, model_validator
+from ros2_common import depth_edge_mask as depth_edge_rule
 from ros2_common.battery import BatteryConfig
 from ros2_common.camera_geometry import MountPose
 from ros2_common.maps import COMMAND_TOPIC, RESULT_TOPIC, STATUS_TOPIC
@@ -816,9 +817,11 @@ class CameraArmSettings(StrictModel):
     max_range_m: float = Field(default=1.0, gt=0.0)  # beyond it the z^2 depth error approaches the 5 mm target
     default_window_px: int = Field(default=5, ge=1)  # pixels (odd) of the square window the depth is read from
     max_window_px: int = Field(default=31, ge=1)
-    edge_kernel_px: int = Field(default=3, ge=3)  # neighbourhood (odd) of the depth discontinuity rule
-    edge_abs_m: float = Field(default=0.02, gt=0.0)  # a pixel differing from a neighbour by more than
-    edge_rel: float = Field(default=0.02, ge=0.0)  # max(edge_abs_m, edge_rel * z) is a flying/mixed pixel
+    # The depth edge rule of head_rgbd_cpp (ros2_common.depth_edge_mask, one source of its numbers): a pixel with a
+    # neighbour in the edge_kernel_px square nearer by more than max(edge_abs_m, edge_rel * z) is a flying/mixed pixel.
+    edge_kernel_px: int = Field(default=depth_edge_rule.WINDOW_PX, ge=3)
+    edge_abs_m: float = Field(default=depth_edge_rule.ABS_M, gt=0.0)
+    edge_rel: float = Field(default=depth_edge_rule.REL, ge=0.0)
     spread_factor: float = Field(default=2.0, gt=0.0)  # kept window depths may span at most this x that threshold
     min_valid_fraction: float = Field(default=0.5, gt=0.0, le=1.0)  # kept pixels / window pixels needed
     baseline_m: float = Field(default=0.05, gt=0.0)  # D435 stereo baseline of the z^2 error model
