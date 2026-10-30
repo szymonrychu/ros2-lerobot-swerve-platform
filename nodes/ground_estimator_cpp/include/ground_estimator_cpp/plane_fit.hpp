@@ -38,7 +38,7 @@ struct FitResult
   std::optional<Plane> plane;
   std::optional<FitReject> reject;
   std::size_t candidates = 0;  // points inside the candidate band and range
-  std::size_t inliers = 0;     // candidates within fit.distance_m of the refit plane (0 when no model)
+  std::size_t inliers = 0;     // points of the RANSAC model (0 when no model)
   double inlier_ratio = 0.0;   // inliers / candidates
 };
 
@@ -60,7 +60,7 @@ const char * to_string(FitReject reject);
 
 // Fit the floor: candidates are points with |z| <= fit.candidate_band_m and horizontal range <= fit.max_range_m,
 // the model is a RANSAC plane perpendicular to prior_up within fit.max_normal_angle_deg, refit by least squares on the
-// candidates within three robust sigmas of it (at most fit.distance_m, repeated three times) so the foot of a box face
+// candidates within three robust sigmas of it (at most fit.distance_m) so the foot of a box face
 // is not taken as floor. Deterministic for a seed.
 // @param points_base cloud in base_link.
 // @param prior_up IMU prior of the floor normal in base_link (any length, non-zero).
