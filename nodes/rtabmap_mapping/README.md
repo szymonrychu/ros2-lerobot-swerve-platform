@@ -136,11 +136,24 @@ From `config/rtabmap_params.yaml` (overridable) unless marked fixed (set by the 
 | `Rtabmap/DetectionRate` | `"1"` | at most 1 Hz processing |
 | `Grid/Sensor` | `"1"` | depth only: measured points never mixed with scan points (U6, D13) |
 | `Grid/3D` | `"true"` | 3D local grids, the source of `cloud_map` |
-| `Grid/RangeMax` | `"4.0"` | m, D435 depth range |
+| `Grid/RangeMax` | `"3.0"` | m: the D435 depth RMS z^2 x 0.08 px / (318.9 px x 50 mm) is 4.5 cm at 3 m, under the 5 cm cell (8 cm at 4 m, which `Grid/RayTracing` false would never clear; D7 of the perception plan) |
 | `Grid/CellSize` | `"0.05"` | m, 5 cm voxels |
 | `Grid/DepthDecimation` | `"2"` | every 2nd depth pixel |
-| `Grid/MaxObstacleHeight` | `"2.0"` | m, ignore the ceiling |
-| `Grid/RayTracing` | `"false"` | saves CPU |
+| `Grid/MaxObstacleHeight` | `"2.0"` | m, ignore the ceiling; kept above the 0.6 m robot height so table tops stay in the map (the client classes them `overhang` by height) |
+| `Grid/RayTracing` | `"false"` | saves CPU; allowing it is open (Q7) until the server CPU inside its 200 % cap is measured live |
+| `Grid/NormalsSegmentation` | `"true"` | ground by surface normal: a ramp up to the max slope is ground, not an obstacle |
+| `Grid/MaxGroundAngle` | `"15.0"` | deg, ground_estimator `traversability.max_slope_deg` |
+| `Grid/MaxGroundHeight` | `"0.04"` | m, the ground_estimator step up: a flat top at most this high is ground (a climbable step), points above it are obstacles |
+| `Grid/MinGroundHeight` | `"-0.04"` | m, the ground_estimator step down: a lower floor deeper than this (a drop) is cut, so the map leaves it unknown, never free |
+
+Ground segmentation (task T3) uses the ground estimator's limits from `nodes/ground_estimator_cpp/config/ground_estimator.yaml`
+(pinned by `tests/test_rtabmap_mapping_config.py::test_ground_segmentation_follows_the_ground_limits`). RTAB-Map
+segments in base_link, whose z = 0 is the floor (not a fitted plane): points outside `Grid/MinGroundHeight`..
+`Grid/MaxObstacleHeight` are cut first; with normals segmentation the biggest flat surface starting below
+`Grid/MaxGroundHeight` and the flat surfaces whose centroid is at most `Grid/MaxGroundHeight` are ground, the remaining
+points above `Grid/MaxGroundHeight` are obstacles (rtabmap `LocalMapMaker.hpp`, `util3d_mapping.hpp`). The ground and
+obstacle clouds reach the client as `/map3d/cloud_ground` and `/map3d/cloud_obstacles` (Downlink), where mcp_server
+classes their voxels (`floor`, `obstacle`, `overhang` above the robot height).
 | `Rtabmap/MemoryThr` | `"400"` | working-memory cap (D8) |
 | `Rtabmap/TimeThr` | `"0"` | no time-based transfer |
 | `Mem/STMSize` | `"10"` | short-term memory nodes |

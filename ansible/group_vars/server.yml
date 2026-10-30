@@ -217,7 +217,7 @@ ros2_nodes:
     #       Mem/ImagePreDecimation: "2"
     #       Rtabmap/DetectionRate: "1"
     #       Grid/CellSize: "0.05"
-    #       Grid/RangeMax: "4.0"
+    #       Grid/RangeMax: "3.0"
   - name: map3d_manager
     node_type: map3d_manager_cpp
     present: true

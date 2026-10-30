@@ -25,6 +25,8 @@ LAUNCH_FILE = NODE_DIR / "launch" / "rtabmap_mapping.launch.py"
 PROBE_SCRIPT = REPO_ROOT / "scripts" / "rtabmap-launch-probe.sh"
 PARAMS_FILE = NODE_DIR / "config" / "rtabmap_params.yaml"
 README = NODE_DIR / "README.md"
+GROUND_DEFAULTS = REPO_ROOT / "nodes" / "ground_estimator_cpp" / "config" / "ground_estimator.yaml"
+D435_RMS_AT_RANGE_M = 0.046  # z^2 x 0.08 px / (fx 318.9 x 50 mm) at 3 m is 4.5 cm: below the 5 cm cell (D7)
 LAUNCH_STUBS = ("launch", "launch.actions", "launch_ros", "launch_ros.actions", "launch_ros.descriptions")
 BEST_EFFORT = 2
 RELIABLE = 1
@@ -55,11 +57,16 @@ EXPECTED_RTABMAP = {
     # grid: depth only (D6, D13)
     "Grid/Sensor": "1",
     "Grid/3D": "true",
-    "Grid/RangeMax": "4.0",
+    "Grid/RangeMax": "3.0",
     "Grid/CellSize": "0.05",
     "Grid/DepthDecimation": "2",
     "Grid/MaxObstacleHeight": "2.0",
     "Grid/RayTracing": "false",
+    # ground segmentation from the ground estimator limits (task T3)
+    "Grid/NormalsSegmentation": "true",
+    "Grid/MaxGroundAngle": "15.0",
+    "Grid/MaxGroundHeight": "0.04",
+    "Grid/MinGroundHeight": "-0.04",
     # memory (D8)
     "Rtabmap/MemoryThr": "400",
     "Rtabmap/TimeThr": "0",
@@ -151,6 +158,28 @@ def test_params_yaml_sets_every_design_value() -> None:
         assert key in params, key
         assert params[key] == value, key
         assert type(params[key]) is type(value), key
+
+
+def test_ground_segmentation_follows_the_ground_limits() -> None:
+    """Task T3: RTAB-Map's ground/obstacle segmentation uses the ground estimator's limits (heights in base_link, whose
+    z = 0 is the floor). Normals segmentation: a surface within max_slope_deg of level is ground (a 15 deg ramp is
+    ground), a flat surface whose centroid is at most the step up is ground (a climbable step top), other points above
+    the step up are obstacles; points below the step down are dropped (a drop's lower floor is not ground, so the map
+    leaves it unknown); points above Grid/MaxObstacleHeight are dropped, kept at 2 m so table tops stay in the map (the
+    client classes them overhang by height). The range ends where the D435 depth error stays under the 5 cm cell."""
+    params = yaml.safe_load(PARAMS_FILE.read_text())["rtabmap"]["ros__parameters"]
+    ground = yaml.safe_load(GROUND_DEFAULTS.read_text())
+    trav = ground["traversability"]
+    step_up = round(2 * trav["wheel_radius_m"] * trav["max_step_up_fraction"], 3)
+    step_down = round(2 * trav["wheel_radius_m"] * trav["max_step_down_fraction"], 3)
+    assert params["Grid/NormalsSegmentation"] == "true"
+    assert float(params["Grid/MaxGroundAngle"]) == trav["max_slope_deg"]
+    assert float(params["Grid/MaxGroundHeight"]) == step_up
+    assert float(params["Grid/MinGroundHeight"]) == -step_down
+    assert float(params["Grid/MaxObstacleHeight"]) >= trav["robot_height_m"]
+    range_m = float(params["Grid/RangeMax"])
+    assert range_m == 3.0
+    assert range_m**2 * 0.08 / (318.9 * 0.05) <= D435_RMS_AT_RANGE_M < float(params["Grid/CellSize"])
 
 
 def test_every_param_value_is_commented() -> None:
