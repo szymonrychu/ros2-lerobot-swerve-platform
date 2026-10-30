@@ -10,10 +10,25 @@ namespace
 {
 constexpr double DEG = M_PI / 180.0;
 constexpr double HISTORY_MARGIN_S = 1.0;
+constexpr double EPS_AXIS = 1e-12;  // rotation axis length below which two directions count as parallel
 
 double angle_deg(const Eigen::Vector3d & a, const Eigen::Vector3d & b)
 {
   return std::atan2(a.cross(b).norm(), a.dot(b)) / DEG;
+}
+
+// Minimal rotation taking the unit vector a to +z. Eigen's FromTwoVectors runs a JacobiSVD whose uninitialised-read
+// warning GCC 13 raises on amd64 (-Werror), so the axis-angle form is built here; it also stays defined when a is
+// +z (identity) or -z (half turn about x).
+Eigen::Quaterniond rotation_to_up(const Eigen::Vector3d & a)
+{
+  const Eigen::Vector3d axis = a.cross(Eigen::Vector3d::UnitZ());
+  const double sin_angle = axis.norm();
+  if (sin_angle < EPS_AXIS) {
+    return a.z() > 0.0 ? Eigen::Quaterniond::Identity()
+                       : Eigen::Quaterniond(Eigen::AngleAxisd(M_PI, Eigen::Vector3d::UnitX()));
+  }
+  return Eigen::Quaterniond(Eigen::AngleAxisd(std::atan2(sin_angle, a.z()), axis / sin_angle));
 }
 
 Level level_of(double value_deg, double warn_deg, double error_deg)
@@ -45,8 +60,7 @@ Slope slope_vs_gravity(const Plane & plane_base, const Eigen::Vector3d & gravity
 {
   const Eigen::Vector3d n = plane_base.normal.normalized();
   // Base aligned to the plane would see gravity up as R * g, R taking the plane normal to +z.
-  const Eigen::Vector3d g =
-    Eigen::Quaterniond::FromTwoVectors(n, Eigen::Vector3d::UnitZ()) * gravity_up_base.normalized();
+  const Eigen::Vector3d g = rotation_to_up(n) * gravity_up_base.normalized();
   Slope s;
   s.pitch_deg = std::asin(std::clamp(-g.x(), -1.0, 1.0)) / DEG;
   s.roll_deg = std::atan2(g.y(), g.z()) / DEG;
