@@ -24,8 +24,8 @@ namespace ground_estimator_cpp
 
 // Keys of the state document, in output order.
 // clang-format off
-inline constexpr std::array<std::string_view, 18> STATE_KEYS = {
-  "stamp_ns",       "frame",          "prior",          "imu_ok",      "plane",    "reason",
+inline constexpr std::array<std::string_view, 19> STATE_KEYS = {
+  "stamp_ns",       "frame",          "prior",          "imu_ok",      "head_moving", "plane",    "reason",
   "slope_deg",      "slope_roll_deg", "slope_pitch_deg", "slope_level", "base_tilt_deg", "plane_vs_base_deg",
   "traversability", "obstacle_points", "drop_points",    "regions",     "warnings", "colour"};
 // clang-format on
@@ -49,6 +49,7 @@ struct StateInputs
   std::string frame = "base_link";
   Prior prior;
   bool imu_ok = false;
+  bool head_moving = false;           // the last depth cloud was gated by the head-motion gate
   std::optional<TrackedPlane> plane;  // nullopt: no valid fit or held plane
   std::size_t inliers = 0;            // of the fit the plane comes from
   double inlier_ratio = 0.0;

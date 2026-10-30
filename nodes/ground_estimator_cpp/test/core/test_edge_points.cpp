@@ -210,3 +210,55 @@ TEST(GuidancePoints, AgeAndFixedFrameRoundTrip)
   g.clear();
   EXPECT_TRUE(g.empty());
 }
+
+namespace
+{
+
+// One guidance sample at (x, y) in the base frame, height h.
+ge::GuidanceSamples sample_at(double x, double y, float h = 0.1F)
+{
+  ge::GuidanceSamples s;
+  s.points.push_back(pcl::PointXYZ(static_cast<float>(x), static_cast<float>(y), h));
+  s.heights = {h};
+  return s;
+}
+
+constexpr double CELL_M = 0.10;
+constexpr int64_t SECOND_NS = 1'000'000'000;
+
+}  // namespace
+
+TEST(GuidancePoints, ANewSetReplacesOnlyTheCellsItCovers)
+{
+  // The last good guidance of a cell stays until a newer set covers that cell, so a view that moved on does not
+  // switch the edges of the cells it no longer sees off.
+  ge::GuidancePoints g(CELL_M);
+  const Eigen::Isometry3d identity = Eigen::Isometry3d::Identity();
+  g.set(sample_at(1.0, 0.0, 0.10F), identity, 1 * SECOND_NS);
+  g.set(sample_at(1.0, 1.0, 0.20F), identity, 2 * SECOND_NS);
+  EXPECT_EQ(g.size(), 2U);  // two cells, both kept
+
+  g.set(sample_at(1.02, 0.03, 0.30F), identity, 3 * SECOND_NS);  // the cell of the first point
+  const auto [points, heights] = g.points_in_base(identity);
+  ASSERT_EQ(points.size(), 2U);
+  // The second set's point is kept, the first point is replaced by the newest of its cell.
+  std::vector<float> sorted = heights;
+  std::sort(sorted.begin(), sorted.end());
+  EXPECT_FLOAT_EQ(sorted[0], 0.20F);
+  EXPECT_FLOAT_EQ(sorted[1], 0.30F);
+}
+
+TEST(GuidancePoints, PointsOlderThanTheMaxAgeAreLeftOutAndPruned)
+{
+  ge::GuidancePoints g(CELL_M);
+  const Eigen::Isometry3d identity = Eigen::Isometry3d::Identity();
+  g.set(sample_at(1.0, 0.0), identity, 1 * SECOND_NS);
+  g.set(sample_at(1.0, 1.0), identity, 2 * SECOND_NS);
+  // At 2.2 s with a 1.25 s limit both are in; at 3 s only the 2 s one; at 3.5 s none.
+  EXPECT_EQ(g.points_in_base(identity, 2'200'000'000, 1.25).first.size(), 2U);
+  EXPECT_EQ(g.points_in_base(identity, 3 * SECOND_NS, 1.25).first.size(), 1U);
+  EXPECT_EQ(g.points_in_base(identity, 3'500'000'000, 1.25).first.size(), 0U);
+  // A set prunes what is older than keep_s relative to its own stamp.
+  g.set(sample_at(1.0, 2.0), identity, 4 * SECOND_NS, 1.25);
+  EXPECT_EQ(g.size(), 1U);
+}

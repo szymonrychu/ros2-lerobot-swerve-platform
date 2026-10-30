@@ -136,6 +136,7 @@ ordered_json build_state(const StateInputs & in)
   out["frame"] = in.frame;
   out["prior"] = in.prior.from_imu ? PRIOR_IMU : PRIOR_BASE;
   out["imu_ok"] = in.imu_ok;
+  out["head_moving"] = in.head_moving;
   out["plane"] = has_plane ? plane_json(in) : null;
   out["reason"] = reason;
   out["slope_deg"] = has_slope ? ordered_json(round_decimals(in.slope->total_deg)) : null;

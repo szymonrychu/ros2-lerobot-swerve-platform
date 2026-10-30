@@ -20,6 +20,10 @@ NAME = "ground_estimator_cpp"
 WORKSPACE = "/opt/ros2-ws"
 METRICS_PORT = 19119
 D435_CLOUD = "/head/d435/points_filtered"
+MAX_STEP_M = 0.04  # user decision 2026-10-29: the climbable step, the same limit up and down
+HEAD_RGBD_DEFAULTS = REPO_ROOT / "nodes" / "head_rgbd_cpp" / "config" / "head_rgbd.yaml"
+GUIDANCE_PERIODS = 2.5  # head_rgbd set periods that guidance.max_age_s covers: one lost set must not age it out
+SERVO_TICK_DEG = 360.0 / 4096.0  # one position step of the head servos
 TIER = {"cpu_weight": 500, "io_weight": 500, "oom_score_adjust": -500, "memory_low": "48M", "memory_max": "256M"}
 REQUIRED_APT_PACKAGES = (
     "build-essential",
@@ -230,7 +234,7 @@ def test_limits_match_tilt_guard_and_swerve() -> None:
     trav = ground["traversability"]
     assert trav["wheel_radius_m"] == swerve["wheel_radius_m"] == 0.06
     max_step = trav["wheel_radius_m"] * 2 * trav["max_step_fraction"]
-    assert math.isclose(max_step, trav["wheel_radius_m"], abs_tol=1e-4)  # temporary 60 mm step (user 2026-10-23)
+    assert math.isclose(max_step, MAX_STEP_M, abs_tol=1e-4)  # 0.04 m up and down (user decision 2026-10-29)
     assert trav["max_slope_deg"] <= min(tilt["roll_error_deg"], tilt["pitch_error_deg"])
 
 
@@ -260,3 +264,37 @@ def test_guidance_block_is_in_the_client_config() -> None:
     assert guidance == yaml.safe_load(DEFAULTS.read_text())["guidance"]
     assert set(guidance["edge"]) == {"enabled", "max_shift_m", "min_height_m", "voxel_m"}
     assert guidance["max_range_m"] <= entry_config(NAME)["bands"]["max_range_m"]
+
+
+def test_guidance_max_age_covers_the_head_rgbd_set_rate() -> None:
+    """D4: one lost head_rgbd set (a full extra period) must not age the guidance past guidance.max_age_s, in the repo
+    defaults and in the deployed config, against the rate head_rgbd_cpp is configured for."""
+    defaults_rate = yaml.safe_load(HEAD_RGBD_DEFAULTS.read_text())["output"]["rate_hz"]
+    deployed_rate = entry_config("head_rgbd_cpp")["output"]["rate_hz"]
+    assert deployed_rate == defaults_rate
+    for ground in (yaml.safe_load(DEFAULTS.read_text()), entry_config(NAME)):
+        assert ground["guidance"]["max_age_s"] >= GUIDANCE_PERIODS / deployed_rate
+
+
+def test_step_limit_is_forty_millimetres_with_the_floor_band_below_it() -> None:
+    """User decision 2026-10-29: 0.04 m up and down. The floor band stays below the step: a cluster starts where the
+    surface leaves the band, so a band equal to the step put every ramp's edge step on the step limit."""
+    for ground in (yaml.safe_load(DEFAULTS.read_text()), entry_config(NAME)):
+        trav = ground["traversability"]
+        max_step = 2 * trav["wheel_radius_m"] * trav["max_step_fraction"]
+        assert math.isclose(max_step, MAX_STEP_M, abs_tol=1e-4)
+        assert ground["fit"]["distance_m"] <= ground["bands"]["floor_band_m"] < max_step
+        assert ground["guidance"]["edge"]["min_height_m"] <= max_step
+        assert trav["max_slope_deg"] == 15.0
+    entry = next(n for n in client_vars()["ros2_nodes"] if n["name"] == NAME)
+    assert "temporary" not in DEFAULTS.read_text() and "temporary" not in entry["config"]
+
+
+def test_motion_gate_is_configured_above_the_servo_quantisation() -> None:
+    """T2: the head-motion gate is on, its rate limit lies above the rate one servo tick makes over the window (so a
+    holding head never gates) and well below the 1 rad/s sweep the head makes."""
+    for ground in (yaml.safe_load(DEFAULTS.read_text()), entry_config(NAME)):
+        motion = ground["motion"]
+        assert motion["enabled"] is True
+        assert motion["max_head_rate_deg_s"] > 2 * SERVO_TICK_DEG / motion["window_s"]
+        assert motion["max_head_rate_deg_s"] < 10.0

@@ -259,6 +259,54 @@ TEST(Slope, RollSignLeftDownNegative)
   EXPECT_NEAR(s.roll_deg, -6.0, 1e-6);
 }
 
+TEST(Slope, PlaneParallelToBaseTiltedInRollAndPitchIsFlat)
+{
+  const Eigen::Vector3d g = gravity_up_in_base(rpy(7, -9), Eigen::Quaterniond::Identity(), 0, 0);
+  Plane p;
+  p.normal = g;
+  p.d = 0.3;
+  const auto s = slope_vs_gravity(p, g, SlopeConfig{});
+  EXPECT_NEAR(s.total_deg, 0.0, 1e-6);
+  EXPECT_NEAR(s.pitch_deg, 0.0, 1e-6);
+  EXPECT_NEAR(s.roll_deg, 0.0, 1e-6);
+}
+
+TEST(Slope, RollAndPitchOfACompoundPlaneOnLevelRobot)
+{
+  // The minimal rotation taking the normal to +z is Ry(4 deg) here; it carries gravity (0, sin 3, cos 3) to
+  // (cos 3 sin 4, sin 3, cos 3 cos 4), whose pitch and roll are the closed forms below.
+  Plane p;
+  p.normal = Eigen::Vector3d(-std::sin(4 * DEG), 0.0, std::cos(4 * DEG));
+  const Eigen::Vector3d g = Eigen::Vector3d(0.0, std::sin(3 * DEG), std::cos(3 * DEG));
+  const auto s = slope_vs_gravity(p, g, SlopeConfig{});
+  EXPECT_NEAR(s.pitch_deg, std::asin(-std::cos(3 * DEG) * std::sin(4 * DEG)) / DEG, 1e-9);
+  EXPECT_NEAR(s.roll_deg, std::atan2(std::sin(3 * DEG), std::cos(3 * DEG) * std::cos(4 * DEG)) / DEG, 1e-9);
+  EXPECT_NEAR(s.total_deg, std::acos(p.normal.dot(g)) / DEG, 1e-9);
+}
+
+TEST(Slope, NormalPointingDownIsFiniteAndAnError)
+{
+  // A plane whose normal points down (-z) is the base upside down against gravity: no NaN, the worst level.
+  Plane p;
+  p.normal = -Eigen::Vector3d::UnitZ();
+  p.d = 0.3;
+  const auto s = slope_vs_gravity(p, Eigen::Vector3d::UnitZ(), SlopeConfig{});
+  EXPECT_TRUE(std::isfinite(s.pitch_deg));
+  EXPECT_TRUE(std::isfinite(s.roll_deg));
+  EXPECT_NEAR(s.total_deg, 180.0, 1e-9);
+  EXPECT_EQ(s.level, Level::error);
+}
+
+TEST(Slope, NearlyParallelNormalDoesNotBlowUp)
+{
+  Plane p;
+  p.normal = Eigen::Vector3d(1e-15, -1e-15, 1.0).normalized();
+  const auto s = slope_vs_gravity(p, Eigen::Vector3d::UnitZ(), SlopeConfig{});
+  EXPECT_NEAR(s.pitch_deg, 0.0, 1e-6);
+  EXPECT_NEAR(s.roll_deg, 0.0, 1e-6);
+  EXPECT_NEAR(s.total_deg, 0.0, 1e-6);
+}
+
 TEST(Slope, LevelsAtLimits)
 {
   const SlopeConfig c;

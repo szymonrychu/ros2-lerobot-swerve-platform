@@ -47,6 +47,9 @@ constexpr double MAX_EDGE_VOXEL_M = 0.05;
 constexpr int MAX_NO_RETURN_WINDOW_FRAMES = 20;
 constexpr int MAX_CLEARANCE_CELLS = 3;
 constexpr int MAX_MARGIN_PX = 20;
+constexpr double MAX_HEAD_RATE_DEG_S = 90.0;
+constexpr double MIN_MOTION_WINDOW_S = 0.02;
+constexpr double MAX_MOTION_WINDOW_S = 0.5;
 constexpr double MAX_STEP_TOLERANCE_M = 1e-4;  // the default step is 0.039996 m, documented as 0.04
 
 // The value under node[key] as T (fallback when missing or invalid) with the lax pydantic-style coercions; errors
@@ -480,6 +483,22 @@ void parse_guidance(const YAML::Node & root, Config & c, Errors & errors)
   }
 }
 
+void parse_motion(const YAML::Node & root, Config & c, Errors & errors)
+{
+  const YAML::Node s = section(root, "motion", {"enabled", "max_head_rate_deg_s", "window_s"}, errors);
+  if (!s.IsDefined()) {
+    return;
+  }
+  const std::string p = "motion.";
+  MotionConfig & m = c.motion;
+  m.enabled = read<bool>(s, p, "enabled", m.enabled, errors);
+  m.max_head_rate_deg_s = read<double>(s, p, "max_head_rate_deg_s", m.max_head_rate_deg_s, errors);
+  in_open_closed(p + "max_head_rate_deg_s", m.max_head_rate_deg_s, MAX_HEAD_RATE_DEG_S, errors);
+  m.window_s = read<double>(s, p, "window_s", m.window_s, errors);
+  rc::ge(p + "window_s", m.window_s, MIN_MOTION_WINDOW_S, errors);
+  rc::le(p + "window_s", m.window_s, MAX_MOTION_WINDOW_S, errors);
+}
+
 // Guidance rules that span sections, checked on the parsed values (defaults included).
 void check_guidance_rules(const Config & c, Errors & errors)
 {
@@ -580,6 +599,7 @@ Config parse(const YAML::Node & node, Errors & errors)
      "temporal",
      "hysteresis",
      "guidance",
+     "motion",
      "metrics_port"},
     errors);
   if (!node.IsMap()) {
@@ -610,6 +630,7 @@ Config parse(const YAML::Node & node, Errors & errors)
   parse_temporal(node, c, errors);
   parse_hysteresis(node, c, errors);
   parse_guidance(node, c, errors);
+  parse_motion(node, c, errors);
   check_cross_rules(c, errors);
   check_guidance_rules(c, errors);
 

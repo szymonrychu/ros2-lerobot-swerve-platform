@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 
 #include "ground_estimator_cpp/plane_fit.hpp"
@@ -106,6 +107,28 @@ TEST(PlaneFit, FloorWithBoxCoveringHalfTheView)
   ASSERT_TRUE(r.plane.has_value());
   EXPECT_LT(angle_deg(r.plane->normal, Eigen::Vector3d::UnitZ()), ANGLE_TOL_DEG);
   EXPECT_NEAR(height_at_origin(*r.plane), 0.0, HEIGHT_TOL_M);
+}
+
+TEST(PlaneFit, BoxFaceFootDoesNotTiltThePlaneForAnyRansacSeed)
+{
+  // The foot of a box face (z 0..2 cm at its base) lies inside the RANSAC inlier distance; a least squares refit
+  // over all inliers took it as floor and tilted the plane by up to 1.7 deg and 1.6 cm at the origin. The trimmed
+  // refit holds every seed and noise draw within 0.35 deg and 3 mm (measured worst: 0.24 deg, 2.1 mm).
+  Scene scene = floor_scene();
+  add_box(scene, Eigen::Vector3d(0.9, 0.0, 0.15), Eigen::Vector3d(0.2, 1.6, 0.3));
+  double worst_angle_deg = 0.0;
+  double worst_height_m = 0.0;
+  for (const unsigned noise_seed : {3U, 4U, 5U}) {
+    const auto cloud = render(scene, DEFAULT_SIGMA_M, 0.0, noise_seed);
+    for (unsigned seed = 1; seed <= 12; ++seed) {
+      const auto r = fit_plane(cloud, Eigen::Vector3d::UnitZ(), FitConfig{}, seed);
+      ASSERT_TRUE(r.plane.has_value()) << "noise " << noise_seed << " seed " << seed;
+      worst_angle_deg = std::max(worst_angle_deg, angle_deg(r.plane->normal, Eigen::Vector3d::UnitZ()));
+      worst_height_m = std::max(worst_height_m, std::fabs(height_at_origin(*r.plane)));
+    }
+  }
+  EXPECT_LT(worst_angle_deg, 0.35);
+  EXPECT_LT(worst_height_m, 0.003);
 }
 
 TEST(PlaneFit, DepthBiasShowsInReportedHeight)

@@ -64,14 +64,16 @@ TEST(Segmentation, ClassifyBands)
   EXPECT_EQ(classify(0.0, b.max_range_m + 0.01, b, FLOOR_DISTANCE_M), Band::none);
 }
 
-TEST(Segmentation, ShippedFloorBandCoversThirtyFiveMillimetresBothWays)
+TEST(Segmentation, ShippedFloorBandCoversFifteenMillimetresBothWays)
 {
+  // The shipped floor band is 0.02 m, below the 0.04 m step (T2, 2026-10-30): 0.04 m made a ramp's edge step read at
+  // the step limit.
   const BandsConfig b;
-  EXPECT_DOUBLE_EQ(b.floor_band_m, 0.04);
-  EXPECT_EQ(classify(0.035, 1.0, b, b.floor_band_m), Band::floor);
-  EXPECT_EQ(classify(-0.035, 1.0, b, b.floor_band_m), Band::floor);
-  EXPECT_EQ(classify(0.045, 1.0, b, b.floor_band_m), Band::above);
-  EXPECT_EQ(classify(-0.045, 1.0, b, b.floor_band_m), Band::below);
+  EXPECT_DOUBLE_EQ(b.floor_band_m, 0.02);
+  EXPECT_EQ(classify(0.015, 1.0, b, b.floor_band_m), Band::floor);
+  EXPECT_EQ(classify(-0.015, 1.0, b, b.floor_band_m), Band::floor);
+  EXPECT_EQ(classify(0.025, 1.0, b, b.floor_band_m), Band::above);
+  EXPECT_EQ(classify(-0.025, 1.0, b, b.floor_band_m), Band::below);
 }
 
 TEST(Segmentation, ClassifyIgnoresTheRobotsOwnNearZone)

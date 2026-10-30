@@ -59,7 +59,9 @@ double height_at_origin(const Plane & plane);
 const char * to_string(FitReject reject);
 
 // Fit the floor: candidates are points with |z| <= fit.candidate_band_m and horizontal range <= fit.max_range_m,
-// the model is a RANSAC plane perpendicular to prior_up within fit.max_normal_angle_deg. Deterministic for a seed.
+// the model is a RANSAC plane perpendicular to prior_up within fit.max_normal_angle_deg, refit by least squares on the
+// candidates within three robust sigmas of it (at most fit.distance_m) so the foot of a box face
+// is not taken as floor. Deterministic for a seed.
 // @param points_base cloud in base_link.
 // @param prior_up IMU prior of the floor normal in base_link (any length, non-zero).
 // @param cfg fit settings.

@@ -1,13 +1,13 @@
 # ground_estimator_cpp
 
-Estimates the floor plane from the head ToF cloud, constrained by the IMU, and publishes obstacle and drop-off clouds
+Estimates the floor plane from the head D435 cloud, constrained by the IMU, and publishes obstacle and drop-off clouds
 selected by plane-relative bands, a labelled RGB-D cloud, step/drop/ramp regions, warning areas and a JSON state. The
 executable `ground_node` (ROS node name `ground_estimator`) wires the core library to ROS topics, TF and metrics.
 
 ## Layout
 
-- `src/core/*.cpp` build into the static library `ground_estimator_core` (no ROS node code): plane fit, tracker,
-  segmentation, edges, traversability, colour model, state JSON, config. `test/core/test_*.cpp` each become a gtest
+- `src/core/*.cpp` build into the static library `ground_estimator_core` (no ROS node code): plane fit, tracker, head
+  motion, segmentation, edges, traversability, colour model, state JSON, config. `test/core/test_*.cpp` each become a gtest
   named after the file.
 - `src/ground_node.cpp`, `include/ground_estimator_cpp/ground_node.hpp`: `GroundNode`; `src/main.cpp`: the executable.
   `test/test_node.cpp` runs the node in-process; `test/test_replay.cpp` replays the live recordings through it (see
@@ -16,6 +16,7 @@ executable `ground_node` (ROS node name `ground_estimator`) wires the core libra
   `/etc/ros2/ground_estimator_cpp/config.yaml`, override path with `GROUND_ESTIMATOR_CONFIG`). Unknown keys and invalid
   values exit 78.
 - `test/data/state_example.json`, `test/data/warning_areas_example.json`: documents the consumers are tested against.
+- `test/test_d435_sweep.cpp`, `test/core/synthetic_d435.hpp`: the node on a synthetic head D435 while the head sweeps (see Synthetic D435 sweep).
 - `test/data/replay/{home,box,ramp}.bin`, `test/replay_fixture.hpp`: the replay fixtures and their reader and metrics;
   `test/data/replay/tiny_truth.yaml`: a scene truth for the truth based metric tests.
 
@@ -48,10 +49,11 @@ below the tracked floor plane), so they stay correct on a slope or a tilted base
 
 | Key | Meaning | Unit |
 |---|---|---|
-| `stamp_ns` | stamp of the ToF cloud the state describes | nanoseconds |
+| `stamp_ns` | stamp of the depth cloud the state describes | nanoseconds |
 | `frame` | frame of the plane, regions and warnings (`base_link`) | - |
 | `prior` | source of the floor-normal prior, `imu`, or `base_link` (no fresh IMU: +z of base_link) | - |
 | `imu_ok` | a fresh IMU sample was used | bool |
+| `head_moving` | the last depth cloud was captured while the head turned faster than `motion.max_head_rate_deg_s` and did not vote (see Head motion) | bool |
 | `plane` | `{normal [x,y,z], height_m, inliers, inlier_ratio, source, age_s}`; `source` is `fit` or `held`; null without a plane | m, s |
 | `reason` | why there is no plane: a fit reject (`too_few_points`, `no_plane`, `normal_off_prior`, `offset_off_prior`, `too_few_inliers`, `low_inlier_ratio`), `no_tf` or `no_cloud`; null with a plane | - |
 | `slope_deg` | total floor slope against gravity | degrees |
@@ -82,7 +84,13 @@ The `label` field of `/ground/labelled_points`:
 ## Obstacle or warning
 
 A step, drop or ramp is an obstacle when its edge step exceeds `traversability.max_step_fraction` of the wheel diameter
-(`2 * traversability.wheel_radius_m`, 0.06 m by default: temporary, user 2026-10-23; one third, 0.04 m, before). Heights within `bands.floor_band_m` (0.04 m) of the plane are floor, so 0.04-0.06 m is the warning band or its slope exceeds `traversability.max_slope_deg`.
+(`2 * traversability.wheel_radius_m`; one third of it, 0.04 m, by default: user decision 2026-10-29) or its slope exceeds
+`traversability.max_slope_deg`. The limit is one number for both directions: a step up and a drop deeper than 0.04 m are
+equally no-go (the edge step of a drop is measured like that of a step), and the slope limit is 15 degrees whichever way
+the surface faces. Heights within `bands.floor_band_m` (0.02 m) of the plane are floor, so 0.02-0.04 m is the warning
+band. The floor band stays below the step on purpose: a cluster starts where the surface leaves the band, so a band equal
+to the step put the edge step of every ramp taller than the band at the step limit (with 0.04 m a 14 degree, 63 mm ramp
+read lethal in 18 of 29 frames of the synthetic D435 sweep).
 Otherwise it is a warning area: the node publishes it on `/ground/warning_areas` and costmap_zones turns it into a
 slow-down instead of a lethal cell. Colour-flagged flat objects (label 3) follow the same rule: a flat patch of a
 different colour is a warning area with `source` `colour`, unless its height or slope crosses the limits above.
@@ -94,15 +102,49 @@ those are the cells, so the per-cell staircase does not flatten a ramp. A cluste
 `edges.slope_min_cells` bins of `edges.slope_bin_m`, or whose bins lie in one line along or across its principal axis,
 has no measurable slope (`slope_known` false, `slope_deg` 0).
 
+## Head motion
+
+The head pans and tilts (up to 1 rad/s), and the D435 frame stamp and the head joint read differ by 0 to 20 ms, which at
+1 rad/s puts a point 2 cm off at 2 m: more than the 4 cm step rule tolerates once a cell median or a class vote is made
+of it. The gate (`motion.*`, `motion.hpp`) therefore measures, per input, the angular speed of the camera in base_link:
+the rotation between `TF base_link <- camera frame` at the stamp and at the stamp minus `motion.window_s` (0.1 s; one
+servo position step is 0.088 degrees, so the window keeps a holding head under 1 degree per second), over the window. Above
+`motion.max_head_rate_deg_s` (3 degrees per second; strictly above) the input is moving:
+
+- **depth cloud**: still fits the plane (a pan turns the cloud about the vertical axis, which leaves a level floor where it
+  is; a tilt carries its stamp error into the fit, damped by `fit.smoothing` and replaced within a few frames), so the
+  plane survives a sweep. It does not vote: the temporal median, the class hysteresis, the lethal clouds and the warning
+  areas keep their state and publish nothing for it (no placeholder: an empty cloud would claim "nothing lethal"; the
+  Nav2 voxel layers hold their marks for their 15 s decay). Cell values older than `temporal.max_age_s` age out when the
+  next voting cloud arrives, as without the gate;
+- **RGB-D cloud** (`colour.enabled`) and **guidance pair**: dropped (the colour model and the no-return votes would
+  take moved pixels for floor).
+
+`/ground/state` carries `head_moving` for the last depth cloud, published at once when it flips. A rate that cannot be
+read (no TF before the stamp, e.g. at start) counts as still, as before the gate, and is counted in
+`ground_head_rate_unknown_total`. `motion.enabled: false` removes the gate.
+
+## Guidance freshness
+
+head_rgbd_cpp publishes a set every 0.5 s, and about 40 % of the frames were lost to pairing in the 2026-10-28 live
+count, so one lost set leaves the newest pair a second old. `guidance.max_age_s` (1.25 s = 2.5 set periods, was 0.6 s)
+keeps such a pair in use instead of switching the RGB-snapped edges off for a frame and on again for the next. The kept
+guidance points are the last good ones per fixed-frame cell (`GuidancePoints`): a newer pair replaces only the cells its
+samples fall in, so a view that moved on does not drop the edges of cells it no longer sees, and each point expires when
+its pair is older than `guidance.max_age_s` at the cloud stamp. Depth clouds with a plane for which no pair is within
+`guidance.max_age_s` are counted in `ground_guidance_stale_frames_total`. The no-return areas still need the newest pair
+to be that fresh. `tests/test_ground_estimator_deploy.py` pins `guidance.max_age_s >= 2.5 / head_rgbd output.rate_hz` in
+the defaults and in `client.yml`.
+
 ## Temporal median
 
-The ToF cloud is noisy (a few centimetres per point, more at long range), more than the 4 cm step rule. Before step,
+The depth cloud is noisy (a D435 point scatters by z^2 x 0.5 % : 5 mm at 1 m, 2 cm at 2 m; the old ToF by a few centimetres), as much as the 4 cm step rule. Before step,
 drop and obstacle classification `CellMedianFilter` (`cell_median.hpp`) bins the points by their xy in the fixed frame
 into `temporal.cell_size_m` cells (so the cells stay put while the robot moves), takes each frame's median plane-relative
 height per cell and keeps the median of the last `temporal.window_frames` of those values, dropping values older than
 `temporal.max_age_s`. The points of a cell with at least `temporal.min_frames` values are moved along the plane normal
 to that height and segmentation, clusters, regions and the traversability rule run on them. The plane fit itself keeps
-the raw cloud. The rule (0.06 m step, 15 degrees slope) is unchanged by the filter.
+the raw cloud. The rule (0.04 m step, 15 degrees slope) is unchanged by the filter.
 
 In-cell slope: a cell is not collapsed to one height. Per frame a cell with at least 12 points gets a robust plane
 (least squares, refitted without residuals beyond 2.5 robust sigmas): the height at the cell centre and the gradient
@@ -166,9 +208,9 @@ Every key of `config/ground_estimator.yaml` (nested keys dotted). Unknown keys a
 | `bands.drop_max_m` | `1.0` | drop band depth below the plane, metres, > traversability max step |
 | `bands.max_range_m` | `2.0` | farthest point published in the bands, metres, > 0 |
 | `bands.min_range_m` | `0.42` | nearest point (from base_link) in the bands: the robot's own parked gripper and its mixed pixels lie closer, metres, 0 <= v < max_range_m |
-| `bands.floor_band_m` | `0.04` | temporary (user 2026-10-23): heights within this distance of the floor plane count as floor (no warning, lethal, step, drop or edge); revert to `fit.distance_m` (0.02) when the live ground acceptance passes. The plane fit keeps `fit.distance_m`. metres, `fit.distance_m` <= v <= max step |
+| `bands.floor_band_m` | `0.02` | heights within this distance of the floor plane count as floor (no warning, lethal, step, drop or edge). Kept below the step (0.04) so a ramp's edge step is not read at the step limit; the plane fit keeps `fit.distance_m`. metres, `fit.distance_m` <= v <= max step |
 | `traversability.wheel_radius_m` | `0.06` | wheel radius, metres, same as swerve_drive_controller wheel_radius_m |
-| `traversability.max_step_fraction` | `0.5` | temporary (user 2026-10-23): max rideable step as a fraction of the wheel diameter (0.5 = 0.06 m, was 0.3333 = 0.04 m), 0 < v < 1 |
+| `traversability.max_step_fraction` | `0.3333` | max rideable step, up and down, as a fraction of the wheel diameter (0.3333 = 0.04 m, user decision 2026-10-29), 0 < v < 1 |
 | `traversability.max_slope_deg` | `15.0` | steepest rideable surface, degrees, <= slope.roll_error_deg and slope.pitch_error_deg |
 | `traversability.edge_band_m` | `0.05` | width of the strip on each side of an edge that sets its step height, metres, > 0 |
 | `traversability.lethal_min_points` | `2` | fewest unclustered lethal points within edges.cluster_tolerance_m of each other for any to be lethal, 1..50 |
@@ -220,12 +262,12 @@ Every key of `config/ground_estimator.yaml` (nested keys dotted). Unknown keys a
 | `guidance.info_topic` | `/head_rgbd/depth/camera_info` | camera info of that depth image, produced by head_rgbd_cpp |
 | `guidance.rgb_topic` | `/head_rgbd/rgb/image_raw/compressed` | RGB image, produced by head_rgbd_cpp |
 | `guidance.depth_info_topic` | `/head/d435/depth/camera_info` | camera model of the sensor that produced the cloud (no-return areas), produced by realsense_d435 |
-| `guidance.max_age_s` | `0.6` | oldest guidance frame still used, relative to the cloud stamp, seconds, 0 < v <= 2 |
+| `guidance.max_age_s` | `1.25` | oldest guidance frame still used, relative to the cloud stamp, seconds, 0 < v <= 2; at least 2.5 periods of the head_rgbd set rate (2 Hz), pinned against `head_rgbd.yaml` by `tests/test_ground_estimator_deploy.py` |
 | `guidance.sample_step_px` | `2` | pixel stride of the sampling grid, pixels, 1..8 |
 | `guidance.max_range_m` | `2.0` | farthest range sampled, metres, 0 < v <= bands.max_range_m |
 | `guidance.edge.enabled` | `true` | publish edge points |
 | `guidance.edge.max_shift_m` | `0.06` | largest xy distance of an edge point from a stable lethal point of the frame, metres, 0 < v <= 0.15 |
-| `guidance.edge.min_height_m` | `0.06` | smallest absolute height of an edge point, metres, 0 < v <= the max step (0.06; was 0.02 with the 0.04 m step) |
+| `guidance.edge.min_height_m` | `0.02` | smallest absolute height of an edge point, metres, 0 < v <= the max step (0.04) |
 | `guidance.edge.voxel_m` | `0.02` | voxel of the edge point decimation, metres, 0.005 <= v <= 0.05 |
 | `guidance.no_return.enabled` | `true` | detect no-return areas |
 | `guidance.no_return.min_range_m` | `0.3` | nearer cells are not judged, metres, 0 <= v < guidance.max_range_m |
@@ -236,6 +278,9 @@ Every key of `config/ground_estimator.yaml` (nested keys dotted). Unknown keys a
 | `guidance.no_return.min_cells` | `2` | smallest area published, in cells, >= 1 |
 | `guidance.no_return.clearance_cells` | `1` | cells around an area kept clear of valid returns, 0..3 |
 | `guidance.no_return.margin_px` | `4` | margin inside the depth camera image border where nothing is judged, pixels, 0..20 |
+| `motion.enabled` | `true` | gate the frames captured while the head turns (see Head motion) |
+| `motion.max_head_rate_deg_s` | `3.0` | camera angular speed in base_link above which a frame is moving, degrees per second, 0 < v <= 90 |
+| `motion.window_s` | `0.1` | the speed is the rotation between the frame stamp and the stamp minus this, seconds, 0.02..0.5 |
 | `metrics_port` | `19119` | Prometheus port, 1..65535, or null to disable |
 
 The spread in `temporal.max_spread_m` is computed over the per-frame cell medians. With fewer than 5 values it is 1.4826 * MAD (1.4826 turns the MAD into a Gaussian sigma). From 5 values on it is the standard deviation after dropping the most deviant value, times 1.3: it is as robust to one outlier frame as the MAD but varies far less between windows (8 frames: a plain MAD slips under the limit by chance). Dropping a value shrinks the estimate to ~0.77 of sigma, so 1.3 is the consistent factor (1.35 was tried and failed the >= 95 % floor-visibility bound). Measured bounds (20+ seeds, 8-frame window): far-band cells of 43-90 mm spread leak in at most 5 % of cell-frames, floor cells of 4-20 mm stay visible in at least 95 % of cell-frames (a single 20 mm cell about 85 %); the class hysteresis and lethal point gates downstream absorb the leaks. A gated cell is unknown (no points, so never lethal, a step, a drop or part of a cluster), keeps its history, and is known again as soon as its spread is back under the limit. No range cap is used.
@@ -283,8 +328,8 @@ How the node keeps noisy ToF returns from becoming marks (2026-10-21 capture: ~2
 - **Cell class hysteresis** (`hysteresis.*`): each fixed-frame cell keeps its class (free, warning, obstacle, drop) until
   another class holds `hysteresis.enter_frames` of the last `hysteresis.window_frames` frames; a cell stays in its
   class while that class still holds at least `hysteresis.exit_frames` of the window, so with `exit_frames` 1 a
-  lethal cell drops only after a whole window with no lethal vote. At 10 Hz a new lethal cell therefore appears after 3 frames, a latency
-  of 0.3 s. Stable cells are counted in `ground_stable_lethal_cells` and `ground_stable_warning_cells`.
+  lethal cell drops only after a whole window with no lethal vote. At 15 Hz a new lethal cell therefore appears after 5 frames, a latency
+  of 0.33 s at the 15 Hz cloud (5 of 8 frames). Stable cells are counted in `ground_stable_lethal_cells` and `ground_stable_warning_cells`.
 - **Cell-aligned warning areas**: warning areas are built from the stable warning cells, so their polygons follow the
   cell grid and do not churn with single frames. costmap_zones keys them by cell and publishes the masks only on change.
 - **Plane smoothing**: `fit.smoothing` is 0.2, so the plane follows the head slowly once the spread gate removed the
@@ -437,7 +482,7 @@ metrics and publishes exactly what it published before (`NodeTest.GuidanceDisabl
 | `guidance.enabled` | `true` | subscribe to the guidance pair and the depth camera info |
 | `guidance.depth_topic`, `guidance.info_topic`, `guidance.rgb_topic` | `/head_rgbd/depth/image_raw`, `/head_rgbd/depth/camera_info`, `/head_rgbd/rgb/image_raw/compressed` | the pair |
 | `guidance.depth_info_topic` | `/head/d435/depth/camera_info` | the depth camera model of the no-return test |
-| `guidance.max_age_s` | `0.6` | oldest pair used, relative to the ToF cloud stamp, seconds |
+| `guidance.max_age_s` | `1.25` | oldest pair used, relative to the depth cloud stamp, seconds |
 | `guidance.sample_step_px`, `guidance.max_range_m` | `2`, `2.0` | sampling stride (pixels) and farthest range (m) |
 | `guidance.edge.*` | see Configuration | `enabled`, `max_shift_m`, `min_height_m`, `voxel_m` of the edge points |
 | `guidance.no_return.*` | see Configuration | `enabled`, `min_range_m`, `cell_min_samples`, `cell_min_share`, `window_frames`, `enter_frames`, `min_cells`, `clearance_cells`, `margin_px` |
@@ -467,9 +512,13 @@ Prometheus on `metrics_port`.
 | `ground_stable_lethal_cells` | gauge | cells whose hysteresis class is lethal (obstacle or drop) |
 | `ground_stable_warning_cells` | gauge | cells whose hysteresis class is warning |
 | `ground_colour_mismatch_ratio` | gauge | floor-colour mismatch share of the floor band of the last labelled RGB-D cloud |
+| `ground_head_moving_frames_total` | counter, label `input` | inputs not used for voting because the head moved when they were captured: `cloud` (depth), `rgbd` (with `colour.enabled`) or `guidance` (with `guidance.enabled`) |
+| `ground_head_rate_deg_s` | gauge | camera angular speed in base_link at the last depth cloud, degrees per second |
+| `ground_head_rate_unknown_total` | counter | inputs whose head rate could not be read (no TF before the stamp), counted as still |
 | `ground_clouds_dropped_total` | counter, label `reason` | clouds, guidance pairs or warning-area messages dropped, `reason` is `tf`, `no_plane_rgbd`, `no_map_tf`, `bad_input` and, with `guidance.enabled`, `guidance_bad_input`, `guidance_tf` or `guidance_no_plane` |
 | `ground_labelled_clouds_total` | counter | labelled RGB-D clouds published |
-| `ground_guidance_frames_total` | counter, label `result` | guidance pairs, `ok` or the drop reason; only with `guidance.enabled` |
+| `ground_guidance_frames_total` | counter, label `result` | guidance pairs, `ok`, `head_moving` (not used, head turning) or the drop reason; only with `guidance.enabled` |
+| `ground_guidance_stale_frames_total` | counter | depth clouds with a plane for which no pair was within `guidance.max_age_s` (none yet, a lost run of sets, or a sweep); only with `guidance.enabled` |
 | `ground_guidance_seconds` | histogram | processing time per guidance pair (decode, TF, sampling, no-return vote); only with `guidance.enabled` |
 | `ground_edge_points` | gauge | guidance edge points appended to the lethal clouds of the last cloud with a plane; only with `guidance.enabled` |
 | `ground_no_return_areas` | gauge | no_return warning areas of the last cloud with a plane; only with `guidance.enabled` and `guidance.no_return.enabled` |
@@ -481,6 +530,13 @@ Prometheus on `metrics_port`.
   is removed so a level base gives +z. Without a fresh IMU (`imu.timeout_s`) the prior is +z of base_link and `prior`
   is `base_link`.
 - A fit must stay within `fit.max_normal_angle_deg` of the prior and `fit.max_offset_m` of the nominal floor.
+- The RANSAC plane is refit by least squares over its inliers, then three times over the candidates within three robust
+  sigmas of the plane (median of |residual| x 1.4826, at most `fit.distance_m`, at least 4 mm). Without the trimming the
+  foot of a box face (z 0-2 cm at its base, inside `fit.distance_m`) counted as floor and tilted the plane by up to
+  1.7 degrees and 1.6 cm at the origin when the box covered half the view; now 0.24 degrees and 2.1 mm over 36 seed and
+  noise draws (`PlaneFit.BoxFaceFootDoesNotTiltThePlaneForAnyRansacSeed`). The trimmed plane never turns more than 2 degrees
+  or moves more than `fit.distance_m` from the plain least squares plane and never keeps fewer than half of the inliers,
+  so a noisy or sparse floor keeps the plain plane. The inlier count and ratio gates use the plain plane's.
 - `PlaneTracker` keeps the recent fits and answers by stamp: the newest fit at or before the queried stamp, with
   `source` `fit` when it is that cloud's own fit and `held` when an older one is reused. A fit older than `fit.hold_s`
   is not used: there is no estimate beyond `hold_s`, and the plane is null with a reason.
@@ -668,28 +724,26 @@ counted frames. No threshold may be loosened; a failing metric is a finding.
 
 | Scene | Assertions |
 |-------|------------|
-| home | `box_lethal_share == 0` (temporary 60 mm lethal step, user 2026-10-23; was `>= 0.95`), `box_warning_share` printed only, `far_side_warning_frames == 0`, `board_lethal_frames == 0`, `stray_lethal_share <= 0.05`, `churn_share < 0.10` |
-| box | `box_lethal_share == 0` (temporary 60 mm lethal step, user 2026-10-23; was `>= 0.95`), `box_warning_share` printed only, `far_side_warning_frames == 0`, `stray_lethal_share <= 0.05`, `churn_share < 0.10` |
+| home | `box_lethal_share >= 0.95`, `box_warning_share` printed only, `far_side_warning_frames == 0`, `board_lethal_frames == 0`, `stray_lethal_share <= 0.05`, `churn_share < 0.10` |
+| box | `box_lethal_share >= 0.95`, `box_warning_share` printed only, `far_side_warning_frames == 0`, `stray_lethal_share <= 0.05`, `churn_share < 0.10` |
 | ramp | `board_lethal_frames == 0` (the board edge is in the ramp view), `ramp_lethal_frames == 0` (D19: no returns on the black rubber, never lethal), `stray_lethal_share <= 0.05`, `churn_share < 0.10` |
 
 `stray_lethal_share <= 0.05` is the approved empty-floor goal (no lethal point within 1.2 m outside the box at p95 of
 the frames); the board never lethal is strict (0 frames). The ramp's `ramp_warning_share` and slope error are not
-gates (D19). Final lines before the temporary 40 mm floor band / 60 mm lethal step (user 2026-10-23), `scripts/cpp-node-test.sh ground_estimator_cpp` on the shipped config:
+gates (D19). These ToF recordings stay as they are until `record-d435-ground-replay-fi` and `tune-ground-estimator-on-d43`
+replace them with D435 fixtures (live). Final lines (2026-10-30, `scripts/cpp-node-test.sh ground_estimator_cpp` on the
+shipped config: 20 mm floor band, 40 mm step both ways, the trimmed plane refit):
 
 ```text
-replay home: plane_share=1.000 box_lethal_share=1.000 board_lethal_frames=0 stray_lethal_share=0.031 far_side_warning_frames=0 ramp_lethal_frames=0 churn_share=0.078
-replay box: plane_share=1.000 box_lethal_share=0.992 board_lethal_frames=0 stray_lethal_share=0.000 far_side_warning_frames=0 ramp_lethal_frames=0 churn_share=0.000
-replay ramp: plane_share=0.984 box_lethal_share=0.000 board_lethal_frames=0 stray_lethal_share=0.000 far_side_warning_frames=0 ramp_lethal_frames=0 churn_share=0.000
+replay home: plane_share=1.000 box_lethal_share=0.962 board_lethal_frames=0 stray_lethal_share=0.000 far_side_warning_frames=0 ramp_lethal_frames=0 churn_share=0.078
+replay box: plane_share=1.000 box_lethal_share=0.984 board_lethal_frames=0 stray_lethal_share=0.000 far_side_warning_frames=0 ramp_lethal_frames=0 churn_share=0.000
+replay ramp: plane_share=0.884 box_lethal_share=0.000 board_lethal_frames=0 stray_lethal_share=0.000 far_side_warning_frames=0 ramp_lethal_frames=0 churn_share=0.000
 ```
 
-With the temporary 40 mm floor band and 60 mm lethal step (user 2026-10-23) the 5 cm box reads 41-45 mm, so it is
-no longer lethal and only a rare step warning (box scene `box_warning_share=0.132`, home 0):
-
-```text
-replay home: plane_share=1.000 box_lethal_share=0.000 board_lethal_frames=0 stray_lethal_share=0.000 far_side_warning_frames=0 ramp_lethal_frames=0 churn_share=0.023
-replay box: plane_share=1.000 box_lethal_share=0.000 board_lethal_frames=0 stray_lethal_share=0.000 far_side_warning_frames=0 ramp_lethal_frames=0 churn_share=0.039
-replay ramp: plane_share=0.984 box_lethal_share=0.000 board_lethal_frames=0 stray_lethal_share=0.000 far_side_warning_frames=0 ramp_lethal_frames=0 churn_share=0.000
-```
+The ramp scene's `plane_share` was 0.984 with the untrimmed plane: its fits sit at the 0.08 m offset limit (a sparse floor
+in view, tilts of 4-9 degrees), so the trimmed refit tips ~10 % of the frames over `fit.max_offset_m`; not a gate. The
+earlier lines of the temporary 40 mm floor band and 60 mm step (user 2026-10-23, withdrawn by the 2026-10-29 decision)
+read `box_lethal_share=0.000` on these recordings, because the 5 cm box reads 41-45 mm in the ToF data.
 
 Before the lethal marks (Robustness) the same replay read home `stray_lethal_share=0.808`, box `0.302`, ramp `0.079`
 with `ramp_lethal_frames=4`. The remaining home strays (4 counted frames) are real returns: 4-6 cm points just past the
@@ -697,8 +751,40 @@ box ROI's y edge (x 0.72-0.76, y 0.38-0.40) and at x 0.37-0.39, y 0.21-0.25 next
 
 The latency pin `NodeTest.PlacedBoxIsLethalWithinEnterFramesOfItsFirstFilteredBoxHeights` goes with it: a 5 cm box
 placed on floor the node has tracked for 20 frames gives obstacle points no later than `hysteresis.enter_frames` frames
-(0.3 s at 10 Hz) after the first frame in which the temporal filter outputs box heights for its cells, with the shipped
+(0.33 s at 15 Hz) after the first frame in which the temporal filter outputs box heights for its cells, with the shipped
 config.
+
+### Synthetic D435 sweep
+
+`test/test_d435_sweep.cpp` (gtest `test_d435_sweep`, header `test/core/synthetic_d435.hpp`) is the container stand-in for
+D435 recordings that do not exist yet (no real D435 depth is in the repo). The tiny_truth.yaml scene (flat 5 mm board, 5 cm
+box, 63 mm / 14 degree ramp, empty floor) is ray cast from the head D435 with the factory depth intrinsics (640x360), the
+disparity noise sigma_z = z^2 x 0.08 px / (fx x 50 mm) (5 mm at 1 m, 2 cm at 2 m), 0.5 % holes and 1 to 3 pixel mixed pixels
+at edges; the shipped `ros2_common_cpp::depth_mask` edge mask, decimation 4 and the 0.15-3 m range give the cloud, at
+15 Hz. The head pans +-30 degrees at 1 rad/s (two sweeps between holds of 2 s), the camera exposed 0 to 20 ms after the
+stamp its TF is read at. The node's outputs are judged per 10 cm fixed-frame cell on the settled frames (a gated frame
+ends a stretch; the first 8 frames after it, while the cells re-warm, are left out and measured as re-acquisition):
+
+| Check | Asserted | Measured (2026-10-30) |
+|-------|----------|-----------------------|
+| box lethal in every settled frame that sees it | equal | 49 of 49 (static 60 of 60) |
+| board lethal, ramp lethal, stray lethal marks, drop frames | 0 | 0 |
+| ramp warned in every settled frame that sees it | equal | 49 of 49 |
+| warning areas, lethal marks and drops on the empty floor while sweeping | 0 | 0 |
+| gated frames equal the plan's head rate; none publishes; `head_moving` in the state | all | 64 of 160 frames |
+| re-acquisition: frames from the head stopping to the box lethal again | <= 12 | 6 (0.4 s) |
+| flicker: class changes per cell per 10 s of settled time | <= 4 | worst 3.3 (a cell changing once), mean 0.27 |
+| blips (a class held for fewer than 5 frames between two others) | 0 | 0 |
+
+With `motion.enabled: false` (every frame votes, same sweep) the worst cell changes class 8.1 times per 10 s (mean 3.4)
+and 2 blips occur, so the gate is what keeps the sweep quiet in this model. The model has no colour or guidance input
+(`colour.enabled` and `guidance.enabled` are off in it; guidance freshness is tested in `test_node.cpp`) and no real sensor
+behaviour (multipath, exposure, the actual stamp offset), so the live check
+(`scripts/ground_noise_report.py` with a still and a slowly panning head) decides.
+
+Known limit, found while writing the drop tests: in a scene half upper floor and half a 5 cm lower floor the RANSAC plane
+tilts 2 degrees to catch both levels (inlier ratio 0.83) and the drop reads 27 mm, a warning; a 10 cm drop is found.
+`NodeTest.FiftyMillimetreDipIsLethal...` therefore limits `fit.max_normal_angle_deg` to 1 degree. Noted, not changed here.
 
 ### Baseline
 

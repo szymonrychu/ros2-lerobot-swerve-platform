@@ -84,6 +84,7 @@ export interface GroundState {
   frame: string
   prior: unknown
   imu_ok: boolean
+  head_moving?: boolean
   plane: GroundPlane | null
   reason: string | null
   slope_deg: number | null

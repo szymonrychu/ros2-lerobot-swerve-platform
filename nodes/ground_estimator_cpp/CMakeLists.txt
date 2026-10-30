@@ -98,6 +98,13 @@ if(BUILD_TESTING)
   target_compile_definitions(test_replay PRIVATE
     GROUND_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/data"
     GROUND_CONFIG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/config")
+
+  # The node on the synthetic head D435 (test/core/synthetic_d435.hpp) while the head sweeps: head-motion gate, scene
+  # classes and the flicker metric. The edge mask of the real pipeline is ros2_common_cpp::depth_mask.
+  ament_add_gtest(test_d435_sweep test/test_d435_sweep.cpp TIMEOUT 600)
+  target_link_libraries(test_d435_sweep ground_estimator_node_lib ros2_common_cpp::depth_mask)
+  target_include_directories(test_d435_sweep PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/test)
+  target_compile_definitions(test_d435_sweep PRIVATE GROUND_CONFIG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/config")
 endif()
 
 ament_package()
