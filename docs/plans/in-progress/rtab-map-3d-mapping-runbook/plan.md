@@ -2,8 +2,8 @@
 title: RTAB-Map 3D mapping runbook
 repos: [ros2-lerobot-sverve-platform]
 created: 2026-10-22
-owner: ""
-rung: "3"
+owner: Szymon Richert
+rung: 3
 ---
 
 # RTAB-Map 3D mapping runbook
