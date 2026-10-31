@@ -44,7 +44,7 @@ CPP_TYPES = {
 }
 METRICS_PORTS = {"map_guard_cpp": 19110}
 # _cpp types without a Python counterpart: head_camera_cpp builds the pinned libcamera first, then the two local trees.
-STANDALONE_CPP_TYPES = ("head_camera_cpp", "head_rgbd_cpp", "ground_estimator_cpp")
+STANDALONE_CPP_TYPES = ("head_camera_cpp", "head_rgbd_cpp", "ground_estimator_cpp", "head_aim_cpp")
 ALL_CPP_TYPES = tuple(sorted([*CPP_TYPES, *STANDALONE_CPP_TYPES]))
 # In-repo C++ node types of the server (ansible/group_vars/server.yml), same two local sources.
 SERVER_VARS = ANSIBLE_DIR / "group_vars" / "server.yml"

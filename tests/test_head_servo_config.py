@@ -2,7 +2,7 @@
 
 The head servos share the base bus (U1) and never sit on the arm bridge. Their step ranges must equal the joint limits
 of nodes/web_ui/urdf/head.urdf (4096 steps per turn around 2048), their speed/acceleration caps and startup (home)
-position must be set, and autonomy and web_ui must be allowed to command them directly.
+position must be set, and autonomy, web_ui and head_aim (the auto-aim node) must be allowed to command them directly.
 """
 
 import math
@@ -22,7 +22,7 @@ HEAD_JOINTS = {"head_pan": 20, "head_tilt": 21}
 STEPS_PER_TURN = 4096
 STEP_CENTER = 2048
 STEP_TOLERANCE = 1
-REQUIRED_SOURCES = {"autonomy", "web_ui"}
+REQUIRED_SOURCES = {"autonomy", "web_ui", "head_aim"}
 
 
 def node_config(name: str) -> dict:

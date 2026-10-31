@@ -41,6 +41,7 @@ NORMAL = {
         "head_state_publisher", "slam_toolbox", "laser_filter", "gps_rtk", "poi_store", "uvc_camera", "realsense_d435",
         "test_joint_api", "map_guard", "map_guard_cpp", "map_manager", "costmap_zones", "arducam_tof",
         "d435_obstacle_cloud", "marker_detector", "ground_estimator_cpp", "head_rgbd_cpp",
+        "head_aim_cpp",
     ],
 }  # fmt: skip
 AGENT = {
