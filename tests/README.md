@@ -3699,3 +3699,15 @@ Static checks of `docs/runbooks/printable-markers.md` and `docs/markers.md`: the
 | `test_results_rows_match_steps` | Results table has one row per numbered step, each starting with its number. |
 | `test_markers_doc_range_is_d435` | `docs/markers.md` "Range and fallback" names 640, has no 887, 1152 or zoom, keeps the AprilTag fallback. |
 | `test_markers_doc_detection_is_d435` | "Detection" names `/head/d435/color`, has no `/head_camera/` and no zoom path. |
+### `test_map3d_runbook.py`
+
+Static pins for `docs/runbooks/map3d-mapping.md` (3D mapping runbook re-based on the D435). Reads docs only.
+
+| Test | Covers |
+|---|---|
+| `test_runbook_has_no_cm3_or_tof_inputs` | No CM3 camera or ToF calibration files, `arducam_tof`, `head_camera_cpp`, `camera_info_file` or focus lock. |
+| `test_head_chain_check_is_the_d435` | Step 1 names `docs/calibration/` `*-d435` results, `./scripts/d435_diag.sh`, `/head_rgbd/depth/image_raw` and the mapping rate. |
+| `test_deploy_and_placeholder_name_the_d435` | Deploy line for `head_rgbd_cpp map3d_uplink web_ui`, CPU step names the three client nodes, placeholder step stops `realsense_d435` and expects `waiting_for_inputs`. |
+| `test_thresholds_kept` | `0.8`, `0.15 m/s`, `0.3 rad/s`, `2x` and `budget_bytes` are still present. |
+| `test_runs_with_d435_s72` | Header names D435 S59, S84, S72 and `docs/runbooks/d435-switchover.md`. |
+| `test_results_rows_match_steps` | Seven numbered steps, seven Results rows, each starting with its step number. |
