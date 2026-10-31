@@ -53,7 +53,7 @@ def tool_result(call_id: str, *texts: str, is_error: bool = False, image: bool =
 
 
 def camera_result(call_id: str, lookup_id: str) -> dict[str, Any]:
-    return tool_result(call_id, json.dumps({"camera": "front", "lookup_id": lookup_id, "notes": []}), image=True)
+    return tool_result(call_id, json.dumps({"camera": "head", "lookup_id": lookup_id, "notes": []}), image=True)
 
 
 def grasp_result(call_id: str, outcome: str) -> dict[str, Any]:

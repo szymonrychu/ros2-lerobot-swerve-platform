@@ -15,7 +15,7 @@ Follow these steps in order. Do not skip the stop and re-sense steps even when t
 ## 2. Re-sense
 
 - Call `get_body_state()` for the arm and base pose and `get_control_state()` for what is moving, leased or refused.
-- Look with `get_camera_image()` (and `look_around()` when the view is blocked) so the next decision rests on what is there now, not on what you assumed.
+- Look with `get_camera_image(camera='head')` (`front` / `back` for the fixed views ahead and behind; and `look_around()` when the view is blocked) so the next decision rests on what is there now, not on what you assumed.
 - Read the refusal or error text exactly. A guard refusal states the rule that fired.
 
 ## 3. Classify the failure

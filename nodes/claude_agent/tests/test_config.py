@@ -318,7 +318,7 @@ def test_camera_note_describes_the_head_d435() -> None:
     """D8: the only camera is the head D435 colour stream; it has depth and there is no gripper camera."""
     note = " ".join(ClaudeAgentConfig().camera_note.split())
     lower = note.lower()
-    assert "the only camera is 'front'" in lower
+    assert "camera 'head' is the colour stream of the intel realsense d435" in lower
     assert "intel realsense d435" in lower and "pan/tilt head" in lower
     assert "640x360" in note and "15 fps" in lower
     assert "its pose follows the head angles" in lower

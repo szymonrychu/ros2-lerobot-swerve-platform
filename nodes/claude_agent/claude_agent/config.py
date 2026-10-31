@@ -92,13 +92,14 @@ DEFAULT_NAV_GOAL_YAW_TOLERANCE_DEG = 2.0
 DEFAULT_NAV_INTERMEDIATE_XY_TOLERANCE_CM = 3.0
 DEFAULT_NAV_INTERMEDIATE_YAW_TOLERANCE_DEG = 5.0
 DEFAULT_CAMERA_NOTE = (
-    "The only camera is 'front': the colour stream of the Intel RealSense D435 on the pan/tilt head (640x360, 15 fps, "
-    "16:9), looking at the front of the robot, the arm and the floor in front of it. Its pose follows the head angles. "
+    "Camera 'head' is the colour stream of the Intel RealSense D435 on the pan/tilt head (640x360, 15 fps, 16:9), "
+    "looking at the front of the robot, the arm and the floor in front of it. Its pose follows the head angles. "
     "Take it first for an overview (overview first), then judge the arm-to-object distance and the gripper position "
     "relative to the object from it. Aim it once at a point with head_look_at (a point in base_link or map; no "
     "tracking); the head returns home when the job parks. There is no gripper camera: to look at the gripper, aim the "
     "head at it with head_look_at. The D435 has depth: obstacles below and above the lidar plane come from it through "
-    "get_map_summary (obstacles_3d)."
+    "get_map_summary (obstacles_3d). 'front' and 'back' are fixed to the body, looking ahead of and behind the robot "
+    "(1152x648, they do not move with the head): only get_camera_image takes them, every pixel tool takes 'head'."
 )
 # Model turns on top of max_turn_cap that the SDK's absolute max_turns allows: the runner enforces the agent-set turn_cap
 # itself, so this only backstops a runner that failed to.
@@ -191,7 +192,8 @@ class ClaudeAgentConfig(BaseModel):
         nav_intermediate_xy_tolerance_cm: Position tolerance at which a default (not precise) goal ends early, stated in the
             prompt (keep equal to mcp_server nav.intermediate_xy_tolerance_m).
         nav_intermediate_yaw_tolerance_deg: Heading tolerance at which a default goal ends early, stated in the prompt.
-        camera_note: Description of the head D435 front camera (stream, aiming, depth), stated in the prompt.
+        camera_note: Description of the cameras (head D435 stream, aiming, depth; fixed front and back), stated in the
+            prompt.
         instruction_timeout_s: Pre-plan watchdog per instruction: it holds until agent.set_task_plan declares the task's
             time_budget_min, then the watchdog fires at that budget (measured from the instruction start) instead. On
             expiry the model is interrupted, the robot stopped and the turn ends as "timeout".

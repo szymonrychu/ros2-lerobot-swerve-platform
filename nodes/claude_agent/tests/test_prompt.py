@@ -63,7 +63,7 @@ def test_prompt_teaches_accurate_grasping() -> None:
     text = build_system_prompt(ClaudeAgentConfig())
     section = text[text.index("Grasping:") :]
     lower = section.lower()
-    assert "several front camera pictures" in lower and "head aimed at it" in lower and "head_look_at" in lower
+    assert "several head camera pictures" in lower and "head aimed at it" in lower and "head_look_at" in lower
     assert "changing the wrist roll" not in lower and "directly above" not in lower
     assert "pixel_to_ground" in section and "mark_candidate_points" in section and "resolve_candidate" in section
     assert "centre" in lower and "not its edge" in lower
@@ -141,12 +141,26 @@ def test_prompt_notes_instructions_use_workdir(config: ClaudeAgentConfig) -> Non
     assert "no shell" in text.lower()
 
 
+def test_prompt_names_head_front_back_cameras(config: ClaudeAgentConfig) -> None:
+    """The camera note names 'head' as the D435 and 'front' / 'back' as fixed body cameras for get_camera_image only;
+    'front' is never the D435."""
+    text = " ".join(build_system_prompt(config).split())
+    note = " ".join(config.camera_note.split())
+    assert note in text
+    assert "Camera 'head' is the colour stream of the Intel RealSense D435" in note
+    assert "'front' and 'back' are fixed to the body" in note
+    assert "only get_camera_image takes them" in note
+    assert "the only camera is 'front'" not in text.lower()
+    assert re.search(r"'front'[^.]*D435", note) is None
+    assert "front camera" not in text.lower()
+
+
 def test_prompt_hardware_facts_from_config(config: ClaudeAgentConfig) -> None:
     text = build_system_prompt(config)
     assert "SO-101" in text
     assert f"{config.arm_reach_cm:g} cm" in text
     assert "10 cm above the floor" in text
-    assert "front" in text and "head" in text and "D435" in text and "has depth" in text
+    assert "'head'" in text and "D435" in text and "has depth" in text
     lower = text.lower()
     assert "overhead" not in lower and "stereo" not in lower
     assert lower.count("gripper camera") == lower.count("there is no gripper camera") == 1
@@ -298,7 +312,7 @@ def test_prompt_makes_the_agent_choose_the_grasp_roll() -> None:
 
 
 def test_prompt_takes_grasp_pictures_with_the_head_camera() -> None:
-    """D8: no wrist camera views by roll; grasp pictures come from the front camera with the head aimed at the object."""
+    """D8: no wrist camera views by roll; grasp pictures come from the head camera with the head aimed at the object."""
     lower = prompt_lower()
     para = lower[lower.index("grasping:") :]
     para = para[: para.index("approaching an object:")]
@@ -483,7 +497,7 @@ def test_prompt_reads_detail_by_aiming_the_head() -> None:
     para = para[: para.index("gripper: it has")]
     assert "head_look_at" in para and "max_px" in para and "640" in para and "drive closer" in para
     assert "zoom" not in para and "af_failed" not in para
-    assert "overhead" not in lower and "front (head) camera" in lower
+    assert "overhead" not in lower and "head camera with get_annotated_camera_image" in lower
 
 
 def test_prompt_explains_the_centred_grasp_shift_and_residual_reports() -> None:
@@ -516,7 +530,7 @@ def test_prompt_explains_the_unverified_grasp_outcome() -> None:
     assert "confirm_grasp(grasp_id, yes|no|unsure, evidence)" in macros
     assert "before complete_phase" in macros
     assert "only a fused 'grasped'" in macros
-    assert "a front camera image (the head aimed at the tool point) cropped to the jaws" in macros
+    assert "a head camera image (the head aimed at the tool point) cropped to the jaws" in macros
     assert "head_look_at the gripper and get_camera_image" in macros
     assert "another wrist roll" not in macros
     assert "missed means release_object" in macros
@@ -684,7 +698,7 @@ def test_prompt_verifies_every_pick_up_with_sensors() -> None:
         lower,
         (
             "verify every pick-up",
-            "front camera image with the head aimed at the gripper",
+            "head camera image with the head aimed at the gripper",
             "holding_load",
             "slipping",
             "jaw position",

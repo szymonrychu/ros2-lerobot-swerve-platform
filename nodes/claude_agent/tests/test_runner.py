@@ -855,7 +855,7 @@ async def test_condition_events_and_tree_phase_fields(tmp_path: Path) -> None:
         gate_of(client).plan.set_plan("moderate", "branch", plan=tree)
 
     async def answer(client: FakeClient) -> None:
-        gate_of(client).plan.answer_condition("check", True, "upright in the front camera")
+        gate_of(client).plan.answer_condition("check", True, "upright in the head camera")
 
     script = [
         plan_tree,
@@ -873,7 +873,7 @@ async def test_condition_events_and_tree_phase_fields(tmp_path: Path) -> None:
     assert (answered["node_id"], answered["value"], answered["evidence"]) == (
         "check",
         True,
-        "upright in the front camera",
+        "upright in the head camera",
     )
     types = types_of(events)
     assert types.index("condition_pending") < types.index("condition_answered")

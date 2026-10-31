@@ -63,7 +63,7 @@ def test_normalize_assistant_text_and_tool_use(config: ClaudeAgentConfig) -> Non
     msg = AssistantMessage(
         content=[
             TextBlock(text="Looking."),
-            ToolUseBlock(id="t1", name="mcp__robot__get_camera_image", input={"camera": "front"}),
+            ToolUseBlock(id="t1", name="mcp__robot__get_camera_image", input={"camera": "head"}),
             ToolUseBlock(id="t2", name="mcp__robot__drive", input={"vx": 0.1}),
             ToolUseBlock(id="t3", name="mcp__robot__stop", input={}),
         ],
