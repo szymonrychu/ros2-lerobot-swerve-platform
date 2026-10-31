@@ -120,7 +120,7 @@ def test_jetson_bridge_metrics_target_is_removed() -> None:
 
 RETIRED_PATTERN = r"jetson|\bdepthd\b|stereo|overview_camera|depth_wire|fused_depth|10\.77\.0\."
 RETIRED_LINE = r"(?i)" + RETIRED_PATTERN
-ARCHIVE_GLOBS = ("docs/plans/**", "docs/superpowers/**")
+ARCHIVE_GLOBS = ("docs/plans/**", "docs/superpowers/**", "docs/research/**")
 ALLOWED_CATEGORIES = {
     "archive",
     "retired-entry",
@@ -132,11 +132,12 @@ ALLOWED_CATEGORIES = {
 }
 
 # (path glob, line regex, category). Each entry is one file plus a line regex as narrow as the hit; the only
-# directory-wide globs are the two archive directories and the pinned libcamera patches.
+# directory-wide globs are the three archive directories and the pinned libcamera patches.
 ALLOWED_REFERENCES: tuple[tuple[str, str, str], ...] = (
     # archive: finished plans and specs record history and stay untouched.
     ("docs/plans/**", r".", "archive"),
     ("docs/superpowers/**", r".", "archive"),
+    ("docs/research/**", r".", "archive"),
     # retired-entry: the present: false entries and uninstall-only node types, so a deploy of the name uninstalls it.
     (
         "ansible/group_vars/client.yml",
@@ -708,6 +709,47 @@ ALLOWED_REFERENCES: tuple[tuple[str, str, str], ...] = (
         "retirement-doc",
     ),
     ("nodes/pi_cameras/README.md", r"The retired `/overview_camera/\*` names are not used here", "retirement-doc"),
+    # rgbd-calibration (cont.): the D435 is a stereo camera and its depth error model says so; unrelated to the Jetson.
+    (
+        "nodes/bridges/realsense_d435i/README.md",
+        r"a stereo camera puts between the edge",
+        "rgbd-calibration",
+    ),
+    (
+        "nodes/head_rgbd_cpp/README.md",
+        r"flying pixels a stereo camera puts between the",
+        "rgbd-calibration",
+    ),
+    (
+        "shared/README.md",
+        r"flying pixels a stereo camera puts between the edge",
+        "rgbd-calibration",
+    ),
+    (
+        "nodes/claude_agent/tests/test_prompt.py",
+        r'assert "overhead" not in lower and "stereo" not in lower',
+        "rgbd-calibration",
+    ),
+    (
+        "nodes/mcp_server/mcp_server/config.py",
+        r"# D435 stereo baseline of the z\^2 error model",
+        "rgbd-calibration",
+    ),
+    (
+        "nodes/mcp_server/mcp_server/depth_point.py",
+        r"D435 stereo (model|depth error estimate)",
+        "rgbd-calibration",
+    ),
+    (
+        "tests/README.md",
+        r"test_depth_error_model_is_the_d435_stereo_model",
+        "rgbd-calibration",
+    ),
+    (
+        "tests/test_mcp_camera_arm_config.py",
+        r"def test_depth_error_model_is_the_d435_stereo_model",
+        "rgbd-calibration",
+    ),
     # rgbd-calibration: the head ToF-to-RGB extrinsic is an OpenCV stereo calibration (cv2.stereoCalibrate and its
     # RMS), a new pair unrelated to the retired Jetson stereo depth.
     (

@@ -6,7 +6,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LIVE_REF_PATTERN = "/front_camera|front_camera_topic|topics\\.front_camera|pi_cameras_config|front_camera_optical_frame"
-ALLOWED_PREFIXES = ("docs/plans/",)
+ALLOWED_PREFIXES = ("docs/plans/", "docs/research/")
 ALLOWED_FILES = frozenset(
     {
         "tests/test_pi_cameras_retired.py",
