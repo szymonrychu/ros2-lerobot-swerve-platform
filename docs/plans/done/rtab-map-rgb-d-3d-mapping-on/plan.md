@@ -1,58 +1,44 @@
-# RTAB-Map RGB-D 3D mapping on the server design
+---
+title: RTAB-Map RGB-D 3D mapping on the server
+repos: [ros2-lerobot-sverve-platform]
+created: 2026-10-18
+owner: Szymon Richert
+rung: 1
+---
 
-## Summary
+# RTAB-Map RGB-D 3D mapping on the server
 
-RTAB-Map (split apt packages, Jazzy arm64) runs on the server Pi 4b as a depth-only 3D mapper. A single client process
-(`map3d_uplink`, the only new static-peer process) relays the head RGB-D pair registered on the client by `head_rgbd_cpp` (blocker epic
-head-rgb-d-fusion-of-camera: the 2 Hz 576x324 mapping JPEG plus 288x162 registered depth as compressedDepth, exact
-stamps), their camera_infos, `/scan_filtered` and TF over WiFi, and brings the voxelized 3D map
-back. RTAB-Map uses slam_toolbox's `map` frame as its odometry and builds no links of its own, so its map frame
-(`rtabmap_map`) stays identical to slam_toolbox's `map` and slam_toolbox keeps owning `map -> odom`. A small C++ node
-on the server (`map3d_manager_cpp`) saves and resets the 3D database with the 2D map and publishes a status line. The
-web UI's existing map3d view shows measured 3D points plus lidar-only walls extruded from `/map`, drawn differently;
-mcp_server gets three read-only 3D query tools.
+## What and why
 
-## Intent and why
+What: RTAB-Map RGB-D 3D mapping on the Pi 4b aligned to slam_toolbox's map, shown in the web UI and queryable by the agent
+How: Server-side rtabmap_ros fed compressed RGB + ToF + scans over WiFi, map3d view, mcp_server query tools
+Why: The robot needs a 3D understanding of its environment beyond the 2D lidar map
 
-The robot only knows a 2D lidar slice of its surroundings. The user wants a 3D understanding of the environment
-(overhangs, tables, heights, free space above the floor) that the agent can query and the operator can see, built
-from the head RGB camera and ToF that the preceding epics put on the pan/tilt head. The client Pi 5 is already 80-90 %
-busy, so the mapping runs on the server Pi 4b (U1) and slam_toolbox stays the 2D localisation owner because Nav2,
-costmap_zones, map_guard, poi_store, frontiers and the web UI all depend on `/map` (U2).
+An RGB-D 3D map of the robot's environment, built by RTAB-Map on the server Pi 4b from compressed head RGB, ToF depth, lidar scans and odometry sent over WiFi. slam_toolbox keeps ownership of 2D localisation (map->odom) because many nodes depend on /map; RTAB-Map runs with publish_tf false as a 3D mapping/loop-closure layer aligned to the map frame.
 
-## Goals
+## Scope ladder
 
-- G1: RTAB-Map deployed on the server Pi 4b by Ansible, fed compressed head RGB, ToF depth, camera_info, `/scan_filtered` (uplinked and stored with the map, decided by the user on 2026-10-18) and TF from the client; `publish_tf: false`; memory managed for the Pi 4b.
-- G2: client-to-server transport proven over WiFi: rates and sizes budgeted in one contract file, measured bandwidth, client CPU cost of the extra streams measured.
-- G3: the 3D map is aligned with slam_toolbox's map frame; the 3D database is saved, reset and restored together with the 2D map.
-- G4: the web UI's existing map3d view shows the 3D map, downsampled for the browser.
-- G5: the agent can query the 3D map: what is at a location, obstacle heights, free space around a point.
-- G6: tests, READMEs, Grafana CPU/memory panels for both Pis and the link; deployed and verified by mapping a room.
+### Rung 1: agreed scope (migrated)
+
+- 1.1: RTAB-Map (rtabmap_ros, apt for Jazzy if available on arm64) deployed on the server Pi 4b by Ansible: RGB-D + 2D scan fusion, publish_tf false, memory management tuned for the Pi 4b; inputs are compressed head RGB, ToF depth, camera_info, /scan_filtered, odometry and TF from the client.
+- 1.2: Client-to-server transport proven over WiFi (DDS UDPv4; rates and sizes budgeted; client CPU cost of the extra streams measured).
+- 1.3: The 3D map is aligned with slam_toolbox's map frame; save/load of the 3D map database alongside the 2D map.
+- 1.4: Web UI: 3D map view (point cloud / OctoMap) in the existing map3d view, downsampled for the browser.
+- 1.5: Agent: tools to query the 3D map (e.g. what is at a location, height of obstacles, free space around a point).
+- 1.6: Tests, READMEs, Grafana CPU/memory checks on both Pis; deployed and verified by mapping a room.
+
+## Agreed scope
+
+Rung 1, migrated from the epic format: the epic's goals were its agreed scope.
 
 ## Non-goals
 
-- Replacing slam_toolbox as the `map -> odom` owner.
-- 3D path planning and outdoor elevation mapping (U5).
-- Feeding the 3D map into Nav2 costmaps (the ToF obstacle epic covers onboard 3D obstacles).
-- RTAB-Map's own visual or scan loop closure (D7).
-- rtabmap_viz or any desktop visualisation.
+- Replacing slam_toolbox as the map->odom owner.
+- 3D path planning; outdoor elevation mapping.
 
-## Anti-goals
+## Design
 
-- A second `map -> odom` publisher, or any TF published from the server.
-- Raw or 30 fps RGB, or full-rate raw depth, crossing the WiFi link; more than one server-side reader process of a large uplink stream (each reader is one more WiFi copy).
-- Client CPU regression beyond the measured cost of the uplink and the 2 Hz mapping encode; the head camera encoding while nothing subscribes.
-- The server OOM-ing the leader arm or the monitoring stack (RTAB-Map is capped, D8).
-- Placeholder data: camera_info without a calibration, zeroed status fields, a fake cloud, a guessed height for lidar-only obstacles.
-- Lidar-derived structure shown or reported as if it were measured 3D.
-
-## Constraints
-
-- ROS 2 Jazzy, Ubuntu 24.04; client Pi 5 (8 GB, 80-90 % CPU busy), server Pi 4b (4 cores, 3.8 GB; monitoring.slice up to 2.2 GB / 150 % CPU, ~1.1 GB left for ROS units; server units use CPUQuota + MemoryMax, no tiers: `tests/test_unit_cgroups.py::test_server_keeps_its_limits_without_tiers`).
-- DDS: Fast DDS UDPv4 only, `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` for every unit; cross-host traffic only through processes given `ROS_STATIC_PEERS` (`ansible/README.md` "Cross-host", `tests/test_dds_discovery_config.py`); host clocks synced by systemd-timesyncd (leader_bridge README).
-- Plans against the end state of the blocking epics: head_camera_cpp owns the IMX708 and publishes `/head_camera/*` with `camera_info` only from a calibration file (front-camera D3) and `af_mode` continuous|auto|manual; the pan/tilt epic's robot_state_publisher publishes `head_camera_optical_frame` and `tof_optical_frame` on `/tf` / `/tf_static` from the head joint states; arducam_tof publishes `/tof/depth/image_raw` (16UC1 mm, 0 invalid) and `/tof/camera_info` at <= 10 Hz; head_rgbd_cpp (epic head-rgb-d-fusion-of-camera) publishes the exact-stamp pair `/head_rgbd/rgb/image_raw/compressed`, `/head_rgbd/rgb/camera_info`, `/head_rgbd/depth/image_raw` (16UC1 mm, half the RGB size), `/head_rgbd/depth/camera_info` at the mapping rate, with the head camera's mapping stream, focus lock and calibration delivered by that epic; the ToF obstacle epic owns onboard depth-to-costmap.
-- New non-web nodes are C++ (MEMORY "Python nodes stay"); web_ui and mcp_server stay Python; pydantic configs; config files over CLI.
-- No placeholder data on topics (CLAUDE.md). TDD for every behaviour. Deploys only through `scripts/deploy-nodes.sh` with logs in `.logs/`; deploying mcp_server or claude_agent kills a running agent session (MEMORY).
+Migrated from the epic format; the design sections without a plan.md heading are under Migrated notes.
 
 ## Decisions
 
@@ -217,6 +203,10 @@ any column that holds a measured point; the agent reports such cells as `source:
 the lidar plane height as a lower bound. RTAB-Map still subscribes the scan and stores it per node (U1). All of it
 runs on the client or in the browser, so it costs the Pi 4b nothing. Serves U6, G4, G5.
 
+## Open questions
+
+none
+
 ## Research
 
 | Lens | Ran | Adopted | Rejected |
@@ -234,7 +224,7 @@ slam_toolbox publishes `pose` per processed scan; rgbd_sync uses only the RGB ca
 registered; no published RTAB-Map benchmark exists for a Pi 4 or 5 (prior art: vendor anecdotes say marginal with
 feature extraction, which D7/D8 disable).
 
-## Research inputs
+### Research inputs
 
 | Source | Entry | Lands in |
 |---|---|---|
@@ -283,7 +273,78 @@ feature extraction, which D7/D8 disable).
 | codebase brief | mcp tool modules and couplings (test_mcp_server_config.py) | mcp-map3d-tools, mcp-map3d-config-docs |
 | user U6 | lidar extends ToF and 3D map | map3d-frontend-layers, mcp-map3d-grid-model, rtabmap-server-launch |
 
-## Decision coverage
+## Irreversible operations
+
+- Installing the RTAB-Map apt stack (PCL/VTK/gtsam, several hundred MB) on the server Pi 4b: reversible by apt removal; covered by the gate.
+- `/rtabmap/reset` and web UI reset delete the live 3D map, as the 2D reset deletes the live 2D map today; `saved.db` is kept until the next save. No other deletes, no force pushes, no migrations.
+
+## Migrated notes
+
+### README.md: Review
+
+Filled when the epic reaches stage `review`: the verdict, the findings acted on, the findings dropped.
+
+Verdict: pass (2026-10-22)
+
+Closed by user decision 2026-10-22 (answer A): every remaining task is done, verified and merged. The one leftover
+live runbook task final-suite-and-runbook moved, requirement and acceptance conditions verbatim, to the follow-up epic rtab-map-3d-mapping-runbook (docs/plans/todo/rtab-map-3d-mapping-runbook),
+blocked by drivable-ground-tof-filterin. The runbook moved to rtab-map-3d-mapping-runbook.
+
+### design.md: Summary
+
+RTAB-Map (split apt packages, Jazzy arm64) runs on the server Pi 4b as a depth-only 3D mapper. A single client process
+(`map3d_uplink`, the only new static-peer process) relays the head RGB-D pair registered on the client by `head_rgbd_cpp` (blocker epic
+head-rgb-d-fusion-of-camera: the 2 Hz 576x324 mapping JPEG plus 288x162 registered depth as compressedDepth, exact
+stamps), their camera_infos, `/scan_filtered` and TF over WiFi, and brings the voxelized 3D map
+back. RTAB-Map uses slam_toolbox's `map` frame as its odometry and builds no links of its own, so its map frame
+(`rtabmap_map`) stays identical to slam_toolbox's `map` and slam_toolbox keeps owning `map -> odom`. A small C++ node
+on the server (`map3d_manager_cpp`) saves and resets the 3D database with the 2D map and publishes a status line. The
+web UI's existing map3d view shows measured 3D points plus lidar-only walls extruded from `/map`, drawn differently;
+mcp_server gets three read-only 3D query tools.
+
+### design.md: Intent and why
+
+The robot only knows a 2D lidar slice of its surroundings. The user wants a 3D understanding of the environment
+(overhangs, tables, heights, free space above the floor) that the agent can query and the operator can see, built
+from the head RGB camera and ToF that the preceding epics put on the pan/tilt head. The client Pi 5 is already 80-90 %
+busy, so the mapping runs on the server Pi 4b (U1) and slam_toolbox stays the 2D localisation owner because Nav2,
+costmap_zones, map_guard, poi_store, frontiers and the web UI all depend on `/map` (U2).
+
+### design.md: Goals
+
+- G1: RTAB-Map deployed on the server Pi 4b by Ansible, fed compressed head RGB, ToF depth, camera_info, `/scan_filtered` (uplinked and stored with the map, decided by the user on 2026-10-18) and TF from the client; `publish_tf: false`; memory managed for the Pi 4b.
+- G2: client-to-server transport proven over WiFi: rates and sizes budgeted in one contract file, measured bandwidth, client CPU cost of the extra streams measured.
+- G3: the 3D map is aligned with slam_toolbox's map frame; the 3D database is saved, reset and restored together with the 2D map.
+- G4: the web UI's existing map3d view shows the 3D map, downsampled for the browser.
+- G5: the agent can query the 3D map: what is at a location, obstacle heights, free space around a point.
+- G6: tests, READMEs, Grafana CPU/memory panels for both Pis and the link; deployed and verified by mapping a room.
+
+### design.md: Non-goals
+
+- Replacing slam_toolbox as the `map -> odom` owner.
+- 3D path planning and outdoor elevation mapping (U5).
+- Feeding the 3D map into Nav2 costmaps (the ToF obstacle epic covers onboard 3D obstacles).
+- RTAB-Map's own visual or scan loop closure (D7).
+- rtabmap_viz or any desktop visualisation.
+
+### design.md: Anti-goals
+
+- A second `map -> odom` publisher, or any TF published from the server.
+- Raw or 30 fps RGB, or full-rate raw depth, crossing the WiFi link; more than one server-side reader process of a large uplink stream (each reader is one more WiFi copy).
+- Client CPU regression beyond the measured cost of the uplink and the 2 Hz mapping encode; the head camera encoding while nothing subscribes.
+- The server OOM-ing the leader arm or the monitoring stack (RTAB-Map is capped, D8).
+- Placeholder data: camera_info without a calibration, zeroed status fields, a fake cloud, a guessed height for lidar-only obstacles.
+- Lidar-derived structure shown or reported as if it were measured 3D.
+
+### design.md: Constraints
+
+- ROS 2 Jazzy, Ubuntu 24.04; client Pi 5 (8 GB, 80-90 % CPU busy), server Pi 4b (4 cores, 3.8 GB; monitoring.slice up to 2.2 GB / 150 % CPU, ~1.1 GB left for ROS units; server units use CPUQuota + MemoryMax, no tiers: `tests/test_unit_cgroups.py::test_server_keeps_its_limits_without_tiers`).
+- DDS: Fast DDS UDPv4 only, `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST` for every unit; cross-host traffic only through processes given `ROS_STATIC_PEERS` (`ansible/README.md` "Cross-host", `tests/test_dds_discovery_config.py`); host clocks synced by systemd-timesyncd (leader_bridge README).
+- Plans against the end state of the blocking epics: head_camera_cpp owns the IMX708 and publishes `/head_camera/*` with `camera_info` only from a calibration file (front-camera D3) and `af_mode` continuous|auto|manual; the pan/tilt epic's robot_state_publisher publishes `head_camera_optical_frame` and `tof_optical_frame` on `/tf` / `/tf_static` from the head joint states; arducam_tof publishes `/tof/depth/image_raw` (16UC1 mm, 0 invalid) and `/tof/camera_info` at <= 10 Hz; head_rgbd_cpp (epic head-rgb-d-fusion-of-camera) publishes the exact-stamp pair `/head_rgbd/rgb/image_raw/compressed`, `/head_rgbd/rgb/camera_info`, `/head_rgbd/depth/image_raw` (16UC1 mm, half the RGB size), `/head_rgbd/depth/camera_info` at the mapping rate, with the head camera's mapping stream, focus lock and calibration delivered by that epic; the ToF obstacle epic owns onboard depth-to-costmap.
+- New non-web nodes are C++ (MEMORY "Python nodes stay"); web_ui and mcp_server stay Python; pydantic configs; config files over CLI.
+- No placeholder data on topics (CLAUDE.md). TDD for every behaviour. Deploys only through `scripts/deploy-nodes.sh` with logs in `.logs/`; deploying mcp_server or claude_agent kills a running agent session (MEMORY).
+
+### design.md: Decision coverage
 
 | Decision | Tasks |
 |---|---|
@@ -301,7 +362,7 @@ feature extraction, which D7/D8 disable).
 | D12 Monitoring and verification | mapping-cpu-dashboards, map3d-docs-and-memory, final-suite-and-runbook |
 | D13 The lidar extends the ToF and the 3D map | map3d-frontend-layers, mcp-map3d-grid-model, rtabmap-server-launch |
 
-## Contracts
+### design.md: Contracts
 
 | Part | Owner | Consumers | Where defined |
 |---|---|---|---|
@@ -317,7 +378,7 @@ feature extraction, which D7/D8 disable).
 | `map3d-voxel-query` | mcp-map3d-grid-model | mcp-map3d-tools | `nodes/mcp_server/mcp_server/map3d.py` |
 | `mcp-map3d-tools` | mcp-map3d-tools | mcp-map3d-config-docs | `nodes/mcp_server/mcp_server/map3d_tools.py` |
 
-## Review focus
+### design.md: Review focus
 
 - rtabmap_params.yaml and the launch: D7 parameters exactly (odom_frame_id map, no own links, publish_tf false), process-wide TF remaps, Grid/Sensor 1, no TF publisher anywhere.
 - map3d_uplink: only `/uplink/*` and `/map3d/*` are published; tf_static QoS overrides; lazy flags; only one new static-peer process.
@@ -325,7 +386,7 @@ feature extraction, which D7/D8 disable).
 - Save/restore atomicity and ordering (2D first, 3D never undoes 2D; saved.db restore only when newer).
 - Server caps against the 1.1 GB budget; client CPU of the uplink.
 
-## Left to the builder
+### design.md: Left to the builder
 
 - Exact Fast DDS QoS depths within the contract's ranges and the PNG compression level (1-3) of the registered-depth
   republisher.
@@ -334,7 +395,7 @@ feature extraction, which D7/D8 disable).
 - mcp result model field names beyond those in the task requirements.
 - If the docker probe shows a parameter renamed in 0.23.13, use the new name (recorded in the commit).
 
-## Assumptions and unknowns
+### design.md: Assumptions and unknowns
 
 - Server RTAB-Map CPU and RSS with feature extraction off: estimated < 1 core and < 600 MB for a room; confirmed by the runbook (Grafana/Mimir).
 - Real JPEG and compressedDepth sizes and WiFi headroom: estimated in D3; measured in the runbook (`ros2 topic bw`, WiFi panel).
@@ -344,7 +405,17 @@ feature extraction, which D7/D8 disable).
 - `octomap`-enabled apt build: not needed (cloud_map is used); probe lists topics.
 - Head camera and ToF calibration are done by the blocker epic's runbook (ChArUco board); this runbook only confirms they are deployed.
 
-## Irreversible operations in scope
+### approvals.json
 
-- Installing the RTAB-Map apt stack (PCL/VTK/gtsam, several hundred MB) on the server Pi 4b: reversible by apt removal; covered by the gate.
-- `/rtabmap/reset` and web UI reset delete the live 3D map, as the 2D reset deletes the live 2D map today; `saved.db` is kept until the next save. No other deletes, no force pushes, no migrations.
+- G1: RTAB-Map (rtabmap_ros apt for Jazzy arm64) deployed on the server Pi 4b by Ansible: RGB-D + 2D scan inputs, publish_tf false, memory management tuned for the Pi 4b; inputs are compressed head RGB, ToF depth, camera_info, /scan_filtered, odometry and TF from the client. [decisions: D1, D4, D5, D6, D8] [tasks: rtabmap-server-launch, rtabmap-server-node-type, map3d-topic-contract, map3d-uplink-node-type, final-suite-and-runbook] [status: approved]
+- G2: Client-to-server transport proven over WiFi (DDS UDPv4; rates and sizes budgeted; client CPU cost of the extra streams measured). [decisions: D2, D3] [tasks: map3d-topic-contract, map3d-uplink-node-type, final-suite-and-runbook] [status: approved]
+- G3: The 3D map is aligned with slam_toolbox's map frame; save/load of the 3D map database alongside the 2D map. [decisions: D7, D9] [tasks: rtabmap-server-launch, map3d-manager-config, map3d-manager-status, map3d-manager-node, map3d-manager-node-type, web-ui-map3d-save-reset, final-suite-and-runbook] [status: approved]
+- G4: Web UI: 3D map view (point cloud) in the existing map3d view, downsampled for the browser. [decisions: D10, D13] [tasks: web-ui-map3d-cloud-backend, map3d-frontend-layers, map3d-frontend-status] [status: approved]
+- G5: Agent: tools to query the 3D map (what is at a location, height of obstacles, free space around a point). [decisions: D11, D13] [tasks: mcp-map3d-grid-model, mcp-map3d-tools, mcp-map3d-config-docs] [status: approved]
+- G6: Tests, READMEs, Grafana CPU/memory checks on both Pis; deployed and verified by mapping a room. [decisions: D8, D12] [tasks: mapping-cpu-dashboards, map3d-docs-and-memory, final-suite-and-runbook] [status: approved]
+- U1: RTAB-Map runs on the server Pi 4b, fed compressed head RGB + ToF depth + lidar over WiFi. [decisions: D1, D2, D3] [tasks: map3d-topic-contract, map3d-uplink-node-type, rtabmap-server-launch] [status: approved]
+- U2: slam_toolbox keeps owning map->odom. [decisions: D7] [tasks: rtabmap-server-launch, final-suite-and-runbook] [status: approved]
+- U3: Web UI 3D map view in the existing map3d view. [decisions: D10] [tasks: web-ui-map3d-cloud-backend, map3d-frontend-layers] [status: approved]
+- U4: Agent tools to query the 3D map. [decisions: D11] [tasks: mcp-map3d-grid-model, mcp-map3d-tools] [status: approved]
+- U5: Outdoor elevation mapping and 3D path planning are out of scope. [decisions: D6, D11] [tasks: rtabmap-server-launch, mcp-map3d-tools] [status: approved]
+- U6: The lidar map should extend the ToF and 3D SLAM where possible. Interpretation: the 360 deg, ~12 m RPLidar complements the narrow 4 m ToF; RTAB-Map gets /scan_filtered with the RGB-D, and the 3D map view and queries show lidar-derived structure (2D-map walls extruded to a configurable height) where no depth has been seen, clearly distinguishable from measured 3D points, within the Pi 4b budget. Planned per D13: the lidar reaches the 3D map through slam_toolbox (RTAB-Map's odometry is slam_toolbox's lidar localisation; /map walls extruded in the web UI and reported as lidar_2d by the agent), because fusing scan into RTAB-Map's grid makes scan and depth points indistinguishable and scan links would break the D7 alignment. [decisions: D13, D6] [tasks: map3d-frontend-layers, mcp-map3d-grid-model, rtabmap-server-launch] [status: approved]
