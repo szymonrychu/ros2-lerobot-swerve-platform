@@ -33,6 +33,14 @@ APPLY_SCRIPT = REPO_ROOT / "ansible" / "playbooks" / "files" / "ros2-head-rgbd-c
 APPLY_SCRIPT_DEST = "/usr/local/sbin/ros2-head-rgbd-calibration-apply"
 # The D435 consumers of the applied head chain (design D10); head_camera_cpp and arducam_tof are retired.
 RESTART_UNITS = ["ros2-head_rgbd_cpp.service", "ros2-head_state_publisher.service"]
+FRONT_UNIT = "ros2-front_camera.service"
+BACK_UNIT = "ros2-back_camera.service"
+# FILE:UNIT[,UNIT] arguments of the apply restart script: each applied file and the units that read it.
+RESTART_PAIRS = [
+    f"head_chain.json:{','.join(RESTART_UNITS)}",
+    f"front_camera_calibration.yaml:{FRONT_UNIT}",
+    f"back_camera_calibration.yaml:{BACK_UNIT}",
+]
 # Applied files of the retired ToF and head camera (CM3) calibration (design D10).
 RETIRED_APPLIED_FILES = (
     "head_camera_calibration.yaml",
@@ -114,7 +122,7 @@ def test_apply_units_content() -> None:
     assert "Type=oneshot" in service_unit
     assert "StateDirectory=ros2-head-rgbd-calibration-apply" in service_unit
     exec_start = [line for line in service_unit.splitlines() if line.startswith("ExecStart=")]
-    assert exec_start == [f"ExecStart={APPLY_SCRIPT_DEST} {' '.join(RESTART_UNITS)}"]
+    assert exec_start == [f"ExecStart={APPLY_SCRIPT_DEST} {' '.join(RESTART_PAIRS)}"]
     for retired in ("head_camera_cpp", "arducam_tof"):
         assert retired not in service_unit, retired
     # The node reports the state of the units the apply restarts.
@@ -159,7 +167,7 @@ def run_apply(tmp_path: Path, fail_restart: bool = False) -> tuple[int, list[str
         "STATE_DIRECTORY": str(tmp_path / "seen"),
     }
     result = subprocess.run(
-        ["bash", str(APPLY_SCRIPT), *RESTART_UNITS], capture_output=True, text=True, env=env, check=False
+        ["bash", str(APPLY_SCRIPT), *RESTART_PAIRS], capture_output=True, text=True, env=env, check=False
     )
     return result.returncode, log.read_text().splitlines() if log.exists() else []
 
@@ -181,6 +189,35 @@ def test_apply_restarts_only_when_the_applied_head_chain_changes(tmp_path: Path)
     assert run_apply(tmp_path) == (0, restart), "the head chain removed"
     assert not (tmp_path / "seen" / "head_chain.json").exists()
     assert run_apply(tmp_path) == (0, []), "still none"
+
+
+def test_apply_restarts_only_the_units_of_a_changed_file(tmp_path: Path) -> None:
+    head = f"try-restart {' '.join(RESTART_UNITS)}"
+    front, back = f"try-restart {FRONT_UNIT}", f"try-restart {BACK_UNIT}"
+    applied = tmp_path / "applied"
+    assert run_apply(tmp_path) == (0, [])
+    (applied / "front_camera_calibration.yaml").write_text("image_width: 1152\n")
+    assert run_apply(tmp_path) == (0, [front]), "a front calibration restarts the front camera only"
+    (applied / "head_chain.json").write_text('{"head_tilt": 1}')
+    assert run_apply(tmp_path) == (0, [head]), "a head chain restarts the head units only"
+    (applied / "front_camera_calibration.yaml").write_text("image_width: 1153\n")
+    (applied / "back_camera_calibration.yaml").write_text("image_width: 1152\n")
+    assert run_apply(tmp_path) == (0, [front, back]), "both cameras, in argument order"
+    (applied / "applied.json").write_text('{"csi_intrinsics": {}}')
+    assert run_apply(tmp_path) == (0, []), "an applied.json-only rewrite"
+
+
+def test_apply_pairs_match_the_node_csi_cameras() -> None:
+    """The script's FILE:UNIT pairs of the CSI cameras are the node's csi_cameras (applied file and unit)."""
+    cameras = calib_config()["csi_cameras"]
+    pairs = [f"{name}_camera_calibration.yaml:{camera['unit']}" for name, camera in cameras.items()]
+    assert pairs == RESTART_PAIRS[1:]
+
+
+def test_apply_rejects_an_argument_without_units(tmp_path: Path) -> None:
+    result = subprocess.run(["bash", str(APPLY_SCRIPT), "head_chain.json"], capture_output=True, text=True, check=False)
+    assert result.returncode != 0
+    assert "FILE:UNIT" in result.stderr
 
 
 def test_apply_retries_a_failed_restart(tmp_path: Path) -> None:

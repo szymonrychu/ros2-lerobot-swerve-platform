@@ -1,10 +1,11 @@
 # {{ ansible_managed }}
-# Restarts the D435 consumers of the applied head calibration (try-restart: units that are stopped stay stopped), only
-# when an applied file they read changed since the last restart (the script keeps its copies in the StateDirectory).
+# Restarts the consumers of an applied calibration file (try-restart: units that are stopped stay stopped), only when
+# that file changed since the last restart (the script keeps its copies in the StateDirectory). Arguments are
+# FILE:UNIT[,UNIT]: the head chain restarts the D435 head nodes, each CSI camera calibration its camera unit.
 [Unit]
-Description=Restart head nodes after a head RGB-D calibration was applied
+Description=Restart the camera and head nodes after a calibration was applied
 
 [Service]
 Type=oneshot
 StateDirectory=ros2-head-rgbd-calibration-apply
-ExecStart=/usr/local/sbin/ros2-head-rgbd-calibration-apply ros2-head_rgbd_cpp.service ros2-head_state_publisher.service
+ExecStart=/usr/local/sbin/ros2-head-rgbd-calibration-apply head_chain.json:ros2-head_rgbd_cpp.service,ros2-head_state_publisher.service front_camera_calibration.yaml:ros2-front_camera.service back_camera_calibration.yaml:ros2-back_camera.service

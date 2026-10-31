@@ -23,6 +23,7 @@ from head_rgbd_calibration.apply import (
     applied_state,
     apply_result,
     download_zip,
+    has_check_record,
 )
 from head_rgbd_calibration.capture import Busy as CaptureBusy
 from head_rgbd_calibration.capture import CaptureController, CaptureError
@@ -63,9 +64,15 @@ def error_response(status: int, message: str) -> JSONResponse:
 
 
 def read_applied_marker(store: SessionStore) -> dict[str, Any] | None:
-    """applied.json content, None when nothing is applied (no systemctl call)."""
+    """applied.json content, None when nothing but CSI camera records is applied (no systemctl call).
+
+    applied.json also holds the CSI camera records (csi_intrinsics.py), which accept no D435 check.
+    """
     marker = store.state_dir / APPLIED_DIR / APPLIED_MARKER
-    return json.loads(marker.read_text()) if marker.is_file() else None
+    if not marker.is_file():
+        return None
+    info = json.loads(marker.read_text())
+    return info if has_check_record(info) else None
 
 
 def build_app(capture: CaptureController, job: ComputeJob, store: SessionStore, cfg: NodeConfig, run: RunFn) -> FastAPI:

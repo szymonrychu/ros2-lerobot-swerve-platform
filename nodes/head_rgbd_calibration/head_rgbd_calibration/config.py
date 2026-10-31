@@ -1,6 +1,7 @@
 """Validated config of the head_rgbd_calibration node (pydantic, unknown keys forbidden)."""
 
 import math
+import re
 from pathlib import Path
 from typing import Any, Self
 
@@ -43,6 +44,16 @@ DEFAULT_RESTART_UNITS = (
     "ros2-head_state_publisher.service",
 )
 DEFAULT_RESTART_CHECK_S = 60.0
+# CSI Camera Module 3 instances of head_camera_cpp (ansible/group_vars/client.yml front_camera, back_camera): name ->
+# (compressed image topic, systemd unit that reads applied/<name>_camera_calibration.yaml).
+DEFAULT_CSI_CAMERAS = {
+    "front": ("/front_camera/image_raw/compressed", "ros2-front_camera.service"),
+    "back": ("/back_camera/image_raw/compressed", "ros2-back_camera.service"),
+}
+# A detected board view is kept only when its shared corners moved this far (mean, px) from the last kept view.
+DEFAULT_CSI_MIN_VIEW_SHIFT_PX = 20.0
+# CSI camera names become file and directory names (applied/<name>_camera_calibration.yaml).
+CSI_CAMERA_NAME_RE = re.compile(r"^[a-z][a-z0-9]*$", re.ASCII)
 DEFAULT_THUMBNAIL_WIDTH_PX = 320
 DEFAULT_COVERAGE_COLS = 4
 DEFAULT_COVERAGE_ROWS = 3
@@ -174,6 +185,22 @@ class StillConfig(StrictModel):
     joint_still_rad: float = Field(default=0.002, gt=0)
     max_joint_dt_s: float = Field(default=0.1, gt=0)
     timeout_s: float = Field(default=6.0, gt=0)
+
+
+class CsiCameraConfig(StrictModel):
+    """One CSI camera calibrated for intrinsics: its compressed image topic and the unit that reads its applied file."""
+
+    image_topic: str
+    unit: str
+
+
+def default_csi_cameras() -> dict[str, CsiCameraConfig]:
+    """The front and back Camera Module 3 (DEFAULT_CSI_CAMERAS).
+
+    Returns:
+        dict[str, CsiCameraConfig]: Camera name -> its config.
+    """
+    return {name: CsiCameraConfig(image_topic=topic, unit=unit) for name, (topic, unit) in DEFAULT_CSI_CAMERAS.items()}
 
 
 class CoverageConfig(StrictModel):
@@ -385,6 +412,8 @@ class NodeConfig(StrictModel):
     """Whole node config; every key has a default so an empty file is valid.
 
     `camera_frame` is the optical frame of the colour stream the head-from-arm fit solves the camera in.
+    `csi_cameras` are the CSI cameras whose intrinsics the node calibrates (csi_intrinsics.py), and
+    `csi_min_view_shift_px` the mean corner shift a kept view needs from the last kept one.
     """
 
     state_dir: str = DEFAULT_STATE_DIR
@@ -410,6 +439,16 @@ class NodeConfig(StrictModel):
     fit: HeadArmFitConfig = Field(default_factory=default_fit)
     robot: RobotConfig = Field(default_factory=RobotConfig)
     arm_sequence: ArmSequenceConfig = Field(default_factory=ArmSequenceConfig)
+    csi_cameras: dict[str, CsiCameraConfig] = Field(default_factory=default_csi_cameras)
+    csi_min_view_shift_px: float = Field(default=DEFAULT_CSI_MIN_VIEW_SHIFT_PX, gt=0)
+
+    @field_validator("csi_cameras")
+    @classmethod
+    def check_csi_names(cls, cameras: dict[str, CsiCameraConfig]) -> dict[str, CsiCameraConfig]:
+        bad = [name for name in cameras if not CSI_CAMERA_NAME_RE.fullmatch(name)]
+        if bad:
+            raise ValueError(f"camera names {bad} must be lower-case letters and digits, starting with a letter")
+        return cameras
 
     @model_validator(mode="after")
     def check_fit_board(self) -> Self:

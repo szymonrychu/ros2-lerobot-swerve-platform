@@ -24,6 +24,8 @@ APPLIED_MARKER = "applied.json"
 APPLIED_DIR = "applied"
 # applied.json keys of the accepted check; "files" was the RGB + ToF calibration's list of copied files.
 CHECK_RECORD_KEYS = ("kind", "session", "result", "applied_at", "files")
+# applied.json key of the CSI camera records (csi_intrinsics.py): camera name -> record; they accept no D435 check.
+CSI_APPLIED_KEY = "csi_intrinsics"
 # The reviewed client.yml offsets snippet of an arm result; downloaded, never copied into applied/.
 SNIPPET_FILE = "joint_offsets_snippet.yaml"
 DOWNLOAD_FILES = (REPORT_FILE, RESULT_FILE, SNIPPET_FILE)
@@ -72,6 +74,18 @@ def apply_result(store: SessionStore, sid: str, rid: str, now: datetime) -> dict
     return info
 
 
+def has_check_record(info: dict[str, Any]) -> bool:
+    """Whether applied.json holds more than the CSI camera records (the D435 check and what was applied after it).
+
+    Args:
+        info: The applied.json content.
+
+    Returns:
+        bool: True when a key other than CSI_APPLIED_KEY is present.
+    """
+    return any(key != CSI_APPLIED_KEY for key in info)
+
+
 def unit_state(unit: str, applied_at: float, run: RunFn) -> dict[str, Any]:
     """State of one systemd unit.
 
@@ -95,7 +109,7 @@ def unit_state(unit: str, applied_at: float, run: RunFn) -> dict[str, Any]:
 
 
 def applied_state(store: SessionStore, units: Sequence[str], run: RunFn = subprocess.run) -> dict[str, Any] | None:
-    """The applied.json content plus per-unit state, None when nothing is applied.
+    """The applied.json content plus per-unit state, None when nothing but CSI camera records is applied.
 
     Args:
         store: The session store.
@@ -109,6 +123,8 @@ def applied_state(store: SessionStore, units: Sequence[str], run: RunFn = subpro
     if not marker.is_file():
         return None
     info = json.loads(marker.read_text())
+    if not has_check_record(info):
+        return None
     applied_at = datetime.fromisoformat(info["applied_at"]).timestamp()
     return {**info, "units": [unit_state(unit, applied_at, run) for unit in units]}
 

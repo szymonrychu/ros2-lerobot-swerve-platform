@@ -24,6 +24,8 @@ class Recorder:
         self.robot: Any = None
         self.arm_routers: list[Any] = []
         self.routers: list[Any] = []
+        self.csi: Any = None
+        self.csi_routers: list[Any] = []
         self.node: Any = None
         self.fail_serve = False
 
@@ -122,6 +124,14 @@ def rec(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Recorder:
         def state(self) -> dict[str, Any]:
             return {"running": False}
 
+    class FakeCsi:
+        def __init__(self, node: Any, cfg: Any, clock: Any) -> None:
+            rec.csi = self
+            self.args = (node, cfg, clock)
+
+        def stop(self) -> None:
+            rec.events.append("csi_stop")
+
     class FakeServer:
         def __init__(self, config: Any) -> None:
             rec.uvicorn_config = {"host": config.host, "port": config.port}
@@ -145,6 +155,8 @@ def rec(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Recorder:
     monkeypatch.setattr(entry, "head_arm_router", lambda *args: (rec.arm_routers.append(args), APIRouter())[1])
     monkeypatch.setattr(entry, "floor_router", lambda *args: (rec.routers.append(args), APIRouter())[1])
     monkeypatch.setattr(entry.uvicorn, "Server", FakeServer)
+    monkeypatch.setattr(entry, "CsiCalibration", FakeCsi)
+    monkeypatch.setattr(entry, "csi_router", lambda *args: (rec.csi_routers.append(args), APIRouter())[1])
     return rec
 
 
@@ -172,6 +184,7 @@ def test_shutdown_stops_sequence_first(rec: Recorder) -> None:
         "sequencer_stop",
         "sequencer_wait",
         "capture_stop",
+        "csi_stop",
         "sweep_stop",
         "sweep_wait",
         "job_stop",
@@ -186,6 +199,17 @@ def test_floor_router_is_built_with_the_sweep_capture_and_job(rec: Recorder) -> 
     ((sweep, capture, job, cfg, _run),) = rec.routers
     assert (sweep, capture, job) == (rec.sweep, rec.capture, rec.job)
     assert cfg.http_port == 18999
+
+
+def test_csi_router_is_built_and_its_capture_stopped_at_shutdown(rec: Recorder) -> None:
+    entry.main()
+    ((csi, _run),) = rec.csi_routers
+    assert csi is rec.csi
+    node, cfg, clock = rec.csi.args
+    assert cfg.http_port == 18999
+    assert clock is entry.now
+    assert rec.events.index("csi_stop") > rec.events.index("serve")
+    assert rec.events.index("csi_stop") < rec.events.index("destroy_node")
 
 
 def test_sweep_is_blocked_while_a_capture_or_compute_runs(rec: Recorder) -> None:

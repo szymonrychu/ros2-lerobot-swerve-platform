@@ -1,6 +1,7 @@
 # head_rgbd_calibration
 
-Robot-side capture, review and compute service for the head RealSense D435 calibration. It runs four calibrations and
+Robot-side capture, review and compute service for the head RealSense D435 calibration and the CSI camera intrinsics.
+It runs five calibrations and
 keeps their sessions, thumbnails, coverage and results on the robot, so a session survives restarts and deploys:
 
 - **D435 intrinsics check**: ChArUco stills of the D435 colour stream with the depth aligned to it; the colour
@@ -12,6 +13,8 @@ keeps their sessions, thumbnails, coverage and results on the robot, so a sessio
   fit the head chain, the pan axis and the `d435_joint` mount ("Head from arm calibration").
 - **Arm offsets**: the same head_arm sessions re-solve the arm joint offsets and the tool point ("Arm offsets compute
   and apply").
+- **CSI camera intrinsics**: ChArUco views of the front and back Camera Module 3 fit K and plumb_bob D; apply writes
+  the `camera_info_file` head_camera_cpp publishes `camera_info` from ("CSI camera intrinsics").
 
 The calibration maths lives in `shared/ros2_common/head_rgbd_calibration`; this node owns the session state. After an
 apply the head nodes in `restart_units` (`ros2-head_rgbd_cpp.service`, `ros2-head_state_publisher.service`) are
@@ -137,6 +140,8 @@ keys are rejected.
 | `arm_sequence.speed_scale`, `settle_s`, `confirm_timeout_s` | 0.1 (<= 0.3), 1.0, 600 | Arm speed (slow for the fragile board mount; `move_arm_joints` has no acceleration option, its quintic peak acceleration scales with the speed squared), wait after a move, unanswered confirm timeout |
 | `arm_sequence.head_offsets_deg` | `[[0, 0], [10, 0], [-10, 0], [0, -3]]` | (pan, tilt) offsets added to the aimed head angles, one view each. The tilt offset is -3 deg (head up): the board fills 250-340 px of the 360 px D435 colour image height, and the former +6 deg pushed it out on 26 of 33 poses |
 | `arm_sequence.pose_check`, `provisional_margin_m` | core defaults, 0.05 | FK pose check settings; the board keeps `margin_m + provisional_margin_m` while the mount is the shipped hand-measured start; every view keeps each board corner `d435_min_z_m + d435_min_z_margin_m` (0.15 + 0.05 m) deep from `camera_frame` |
+| `csi_cameras` | `front`: `/front_camera/image_raw/compressed`, `ros2-front_camera.service`; `back`: `/back_camera/image_raw/compressed`, `ros2-back_camera.service` | CSI cameras whose intrinsics are calibrated: name (lower-case letters and digits, it names `applied/<name>_camera_calibration.yaml`) -> `image_topic` (compressed) and `unit` (reads the applied file, reported after an apply) |
+| `csi_min_view_shift_px` | 20 | A detected CSI view is kept only when its shared corners moved this far (mean, px) from the last kept view |
 | `arm_sequence.park_pose`, `park_board_sag_margin_m`, `board_record_max_age_s` | the parked arm (`scripts/gen_nav_footprint.yaml` `parked_arm_joints`), 0.01, 7200 | Park with the board on (design D63): the arm moves to `park_pose` only after the path from the measured joints passes the pose check with the board outline and `park_board_sag_margin_m` added to the board floor, body and head clearances (the live run showed the board about 4 mm below FK under its 214 g) |
 
 ## Compute
@@ -177,7 +182,9 @@ needs this record (the Calibrate page's Accept check). The node never runs `syst
 
 `applied_state(store, units, run)` returns `applied.json` plus per unit `{name, active_state, restarted}` from the
 unprivileged `systemctl show --timestamp=unix -p ActiveEnterTimestamp -p ActiveState <unit>`; `restarted` is true when
-the unit became active at or after `applied_at`. It is None when nothing is applied.
+the unit became active at or after `applied_at`. It is None when nothing is applied. The `csi_intrinsics` records of
+the CSI cameras do not count as applied: with only them in `applied.json`, `GET /api/state` has `applied: null`,
+`GET /api/applied` is 404 and a head chain apply is still refused (`has_check_record`).
 
 `download_zip(store, sid, rid)` returns `<sid>-<rid>.zip` holding `report.md`, `result.json` and, for an arm result,
 `joint_offsets_snippet.yaml`, so the result can be reviewed and committed.
@@ -290,11 +297,48 @@ HTTP routes (proxied by the web UI under `/api/calibration/rgbd/`):
 
 The routes are served by the node HTTP API alongside the capture routes.
 
+## CSI camera intrinsics
+
+`head_rgbd_calibration/csi_intrinsics.py` calibrates the intrinsics of each camera in `csi_cameras` (the front and back
+Camera Module 3, head_camera_cpp at 1152x648). Until a camera is applied, head_camera_cpp publishes its images without
+`camera_info` (no placeholder intrinsics) and marker_detector skips it.
+
+- Capture: one at a time (any camera; 409 while one runs). It subscribes `csi_cameras.<camera>.image_topic`
+  (BEST_EFFORT, `qos.rgb`) only while it runs and stops after `max_capture_s`. A frame becomes a view only when the
+  ChArUco `board` is detected and the view differs from the last kept one (`csi_min_view_shift_px` mean shift of the
+  shared corners, or fewer than 6 shared corners); a frame of another size than the session's is not kept. The status
+  line says why a frame was not kept.
+- Layout: `<state_dir>/csi/<camera>/<sid>/session.json` (`{id, camera, created, image_size}`, sid
+  `csi-YYYYmmdd-HHMMSS[-N]`), `views/<NNN>/{image.jpg, view.json}` (the received JPEG; `{stamp_ns, ids, points}`) and
+  `results/<rid>/result.json`.
+- Compute (synchronous, refused while the session captures): `intrinsics.calibrate` of the shared core over the stored
+  detections; fewer than `limits.min_views` views is 409 naming the count. `result.json` is `{kind: "csi_intrinsics",
+  camera, session, result, created, image_size, k (3x3), d (5), rms, per_view_errors, view_count}`.
+- Apply: writes `applied/<camera>_camera_calibration.yaml` atomically (ROS camera_calibration format: `image_width`,
+  `image_height`, `camera_name` `<camera>_camera`, `camera_matrix`, `distortion_model` plumb_bob,
+  `distortion_coefficients`, identity `rectification_matrix`, `projection_matrix` K | 0), then the
+  `csi_intrinsics.<camera>` record `{kind: "csi_intrinsics", camera, session, result, applied_at}` in `applied.json`,
+  keeping every other record. The apply path unit's script (`FILE:UNIT[,UNIT]` arguments) try-restarts only the units
+  of a changed file, so a front apply restarts `ros2-front_camera.service` only. The answer is
+  `{applied: record, units: [{name, active_state, restarted}]}` with the camera's `unit`.
+
+| Route | Purpose |
+|---|---|
+| `GET /api/csi/{camera}/state` | `{camera, capture, session, applied}`: `capture` `{running, camera, session_id, status, view_count, started_at, stops_at}` (latest capture of any camera); `session` (the capture's when it is this camera's, else the newest, else null) `{id, created, view_count, image_size, coverage: {cols, rows, counts}, results}`; `applied` the camera's record or null |
+| `POST /api/csi/{camera}/start` | start a capture (body optional `session_id` to add views); answers the state |
+| `POST /api/csi/{camera}/stop` | stop the capture when it is this camera's; answers the state |
+| `POST /api/csi/{camera}/sessions/{sid}/compute` | compute; answers `result.json` |
+| `GET /api/csi/{camera}/sessions/{sid}/results` | the session's results, newest first |
+| `GET /api/csi/{camera}/sessions/{sid}/results/{rid}` | one `result.json` |
+| `POST /api/csi/{camera}/sessions/{sid}/results/{rid}/apply` | apply; answers `{applied, units}` |
+
+An unknown camera, session or result is 404. web_ui reaches the routes through its `/api/calibration/rgbd/{path}` proxy.
+
 ## Process
 
 `python -m head_rgbd_calibration` loads the config from `HEAD_RGBD_CALIBRATION_CONFIG`, runs one rclpy node
 `head_rgbd_calibration` on a `MultiThreadedExecutor` in a daemon thread and serves the API with uvicorn. On shutdown it
-stops capture, kills a running compute child and destroys the node.
+stops capture (the D435 and the CSI one), kills a running compute child and destroys the node.
 
 ## Tests
 
@@ -360,8 +404,18 @@ stops capture, kills a running compute child and destroys the node.
 - `tests/test_app.py` - every route with a fake capture, a fake job and a tmp store: error body shape, 404/409/400/422
   mapping, capture/compute mutual refusal, min_views refusal, coverage, thumbnails `image/jpeg`, zip headers, apply,
   `/api/state` without systemctl, `/api/applied` units.
-- `tests/test_main.py` - bind host and port from the config (loopback by default), shutdown stops capture and job and
-  destroys the node, missing config env gives exit 78.
+- `tests/test_main.py` - bind host and port from the config (loopback by default), shutdown stops capture, the CSI
+  capture and job and destroys the node, the CSI router is built with the CSI controller
+  (`test_csi_router_is_built_and_its_capture_stopped_at_shutdown`), missing config env gives exit 78.
+- `tests/test_csi_intrinsics.py` - the CSI intrinsics over synthetic 1152x648 ChArUco views fed to a fake node: the
+  `csi_cameras` defaults and their validation, `view_differs`, the image subscription only while capturing and `Busy`,
+  a view kept only with the board detected and different from the last kept one (`NO_BOARD`, `SAME_VIEW`), coverage,
+  a reopened session, expiry, undecodable frames dropped, an unknown camera; compute returns K, D and RMS near the
+  truth and too few views name the count, refused while capturing; apply writes
+  `applied/front_camera_calibration.yaml` (head_camera_cpp's loader keys, the C++ test fixture's key set) before the
+  `csi_intrinsics` record in `applied.json`, keeps the other records and reports the camera unit; a CSI-only
+  `applied.json` leaves the D435 check unaccepted (`test_d435_records_ignore_a_csi_only_applied_json`); the
+  `/api/csi/{camera}` routes, an unknown camera 404 on each, too few views 409.
 
 ### Floor fit HTTP API
 

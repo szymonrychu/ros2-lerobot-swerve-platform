@@ -300,3 +300,15 @@ arm_sequence:
     board_grid: 5 # board points per edge of the checked lattice (>= 2)
     d435_min_z_m: 0.15 # D435 depth min-Z at 640x360 (design D2): every board corner deeper than this..., m
     d435_min_z_margin_m: 0.05 # ...plus this margin from d435_color_optical_frame, else the view is skipped, m
+# CSI camera intrinsics (Calibrate page, CSI section): each Camera Module 3 instance of head_camera_cpp, its
+# compressed image topic and the unit that reads applied/<name>_camera_calibration.yaml (the apply restart script's
+# FILE:UNIT pair). Names are lower-case letters and digits.
+csi_cameras:
+  front:
+    image_topic: /front_camera/image_raw/compressed
+    unit: ros2-front_camera.service
+  back:
+    image_topic: /back_camera/image_raw/compressed
+    unit: ros2-back_camera.service
+# A detected board view is kept only when its shared corners moved this far from the last kept view (mean, px, > 0).
+csi_min_view_shift_px: 20.0

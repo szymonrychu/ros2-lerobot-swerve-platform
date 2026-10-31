@@ -26,7 +26,7 @@ from ros2_common.head_rgbd_calibration.urdf_text import (
     rewrite_joint_origin,
 )
 
-from head_rgbd_calibration.apply import APPLIED_DIR, APPLIED_MARKER, NotApplicable, unit_state
+from head_rgbd_calibration.apply import APPLIED_DIR, APPLIED_MARKER, NotApplicable, has_check_record, unit_state
 from head_rgbd_calibration.config import NodeConfig
 from head_rgbd_calibration.floor_sweep import FLOOR_DIR, OBSERVATIONS_FILE
 from head_rgbd_calibration.store import (
@@ -303,12 +303,12 @@ def apply_head_chain_file(
     target = Path(cfg.state_dir) / APPLIED_DIR
     marker = target / APPLIED_MARKER
     with LOCK:
-        if not marker.is_file():
+        info = json.loads(marker.read_text()) if marker.is_file() else {}
+        if not has_check_record(info):
             raise NotApplicable(
                 "no D435 intrinsics check is accepted yet: press Accept check on a passed check in the RGB-D section "
                 "of the Calibrate page, then apply the head chain"
             )
-        info = json.loads(marker.read_text())
         tmp = target / f"{TEMP_PREFIX}{HEAD_CHAIN_FILE}"
         try:
             tmp.write_bytes(source.read_bytes())

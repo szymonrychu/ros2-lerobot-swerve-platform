@@ -17,6 +17,7 @@ from rclpy.executors import MultiThreadedExecutor
 from head_rgbd_calibration.app import build_app
 from head_rgbd_calibration.capture import CaptureController
 from head_rgbd_calibration.config import CONFIG_ENV, load_config
+from head_rgbd_calibration.csi_intrinsics import CsiCalibration, csi_router
 from head_rgbd_calibration.floor_api import floor_router
 from head_rgbd_calibration.floor_results import base_urdf
 from head_rgbd_calibration.floor_sweep import FloorSweep
@@ -100,6 +101,7 @@ def main() -> int:
     spinner.start()
     store = SessionStore(Path(cfg.state_dir), cfg)
     capture = CaptureController(node, store, cfg, now)
+    csi = CsiCalibration(node, cfg, now)
     job = ComputeJob(cfg, store, subprocess.Popen, now, path)
     sweep = FloorSweep(
         node,
@@ -124,6 +126,7 @@ def main() -> int:
     app = build_app(capture, job, store, cfg, subprocess.run)
     app.include_router(floor_router(sweep, capture, job, cfg, subprocess.run))
     app.include_router(head_arm_router(sequencer, capture, sweep, job, store, cfg, subprocess.run))
+    app.include_router(csi_router(csi, subprocess.run))
     LOGGER.info("serving on http://%s:%d", cfg.http_host, cfg.http_port)
     try:
         uvicorn.Server(uvicorn.Config(app, host=cfg.http_host, port=cfg.http_port, log_level="info")).run()
@@ -131,6 +134,7 @@ def main() -> int:
         sequencer.stop()
         sequencer.wait(SEQUENCE_JOIN_S)
         capture.stop()
+        csi.stop()
         sweep.stop()
         sweep.wait(SWEEP_JOIN_S)
         job.stop()
