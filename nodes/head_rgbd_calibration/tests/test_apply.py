@@ -11,7 +11,14 @@ from pathlib import Path
 import pytest
 
 from head_rgbd_calibration import store as store_mod
-from head_rgbd_calibration.apply import APPLIED_MARKER, NotApplicable, applied_state, apply_result, download_zip
+from head_rgbd_calibration.apply import (
+    APPLIED_MARKER,
+    SNIPPET_FILE,
+    NotApplicable,
+    applied_state,
+    apply_result,
+    download_zip,
+)
 from head_rgbd_calibration.compute import REPORT_FILE
 from head_rgbd_calibration.config import NodeConfig
 from head_rgbd_calibration.store import RESULT_FILE, SessionStore
@@ -114,3 +121,13 @@ def test_download_zip_without_a_report(store: SessionStore) -> None:
     (store.result_dir(sid, rid) / REPORT_FILE).unlink()
     with pytest.raises(NotApplicable):
         download_zip(store, sid, rid)
+
+
+def test_download_zip_has_the_snippet(store: SessionStore) -> None:
+    """An arm result's zip carries the offsets snippet next to the report and result.json."""
+    sid, rid = make_result(store, kind="arm")
+    (store.result_dir(sid, rid) / SNIPPET_FILE).write_text("        joint_offsets_rad:\n")
+    _, data = download_zip(store, sid, rid)
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        assert sorted(z.namelist()) == sorted([REPORT_FILE, RESULT_FILE, SNIPPET_FILE])
+        assert z.read(SNIPPET_FILE) == b"        joint_offsets_rad:\n"

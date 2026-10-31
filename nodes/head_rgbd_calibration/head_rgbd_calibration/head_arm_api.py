@@ -13,6 +13,8 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from head_rgbd_calibration.app import HTTP_BAD_REQUEST, HTTP_CONFLICT, RunFn, error_response
+from head_rgbd_calibration.arm_results import KIND as ARM_KIND
+from head_rgbd_calibration.arm_results import apply_arm, compute_arm
 from head_rgbd_calibration.capture import CaptureController
 from head_rgbd_calibration.config import NodeConfig
 from head_rgbd_calibration.floor_results import applied_head_chain
@@ -37,6 +39,13 @@ class ParkRequest(BaseModel):
 
     confirm: bool = False
     board_on: bool = False
+
+
+class ComputeArmRequest(BaseModel):
+    """Body of POST /api/head-arm/sessions/{sid}/compute-arm: the floor session of the floor views, None to use the
+    floor reference of the applied head chain."""
+
+    floor_session: str | None = None
 
 
 class ConfirmRequest(BaseModel):
@@ -88,7 +97,9 @@ def head_arm_router(
         run: subprocess.run-compatible callable for the unit state after an apply.
 
     Returns:
-        An APIRouter with the /api/head-arm/* routes.
+        An APIRouter with the /api/head-arm/* routes: the sequence steps, the head-from-arm compute (`/compute`), the
+        arm offsets compute (`/compute-arm`, body {floor_session}), the result of either kind and its apply (dispatched
+        on the result's `kind`).
     """
     router = APIRouter(prefix="/api/head-arm")
 
@@ -156,6 +167,15 @@ def head_arm_router(
             return error_response(HTTP_CONFLICT, MSG_SEQUENCE_RUNNING)
         return step(lambda: compute_head_arm(cfg, store, sid, datetime.now().astimezone()))
 
+    @router.post("/sessions/{sid}/compute-arm")
+    def compute_arm_route(sid: str, body: ComputeArmRequest | None = None) -> Any:
+        if (refused := wrong_kind(sid)) is not None:
+            return refused
+        if sequencer.state()["running"]:
+            return error_response(HTTP_CONFLICT, MSG_SEQUENCE_RUNNING)
+        floor_session = body.floor_session if body else None
+        return step(lambda: compute_arm(cfg, store, sid, datetime.now().astimezone(), floor_session))
+
     @router.get("/sessions/{sid}/results/{rid}")
     def result(sid: str, rid: str) -> Any:
         if (refused := wrong_kind(sid)) is not None:
@@ -169,6 +189,10 @@ def head_arm_router(
     def apply(sid: str, rid: str) -> Any:
         if (refused := wrong_kind(sid)) is not None:
             return refused
-        return apply_head_arm(cfg, store, sid, rid, datetime.now().astimezone(), run)
+        path = store.result_dir(sid, rid) / RESULT_FILE
+        if not path.is_file():
+            raise NotFound(f"no such result: {rid}")
+        apply = apply_arm if json.loads(path.read_text()).get("kind") == ARM_KIND else apply_head_arm
+        return apply(cfg, store, sid, rid, datetime.now().astimezone(), run)
 
     return router

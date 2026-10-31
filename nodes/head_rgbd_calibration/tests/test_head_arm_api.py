@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from head_rgbd_calibration import head_arm_api
 from head_rgbd_calibration.app import build_app
 from head_rgbd_calibration.config import NodeConfig
 from head_rgbd_calibration.head_arm_api import head_arm_router
@@ -332,3 +333,56 @@ def test_busy_and_phase_conflicts(parts: SimpleNamespace) -> None:
 
 def test_apply_failed_result_conflict(parts: SimpleNamespace) -> None:
     test_failed_result_cannot_be_applied(parts)
+
+
+ARM_RID = "r-20261031-120000"
+HEAD_ARM_RID = "r-20261031-120500"
+
+
+def test_compute_arm_route(parts: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The body's floor_session reaches the arm compute; 409 while a sequence runs; 400 on a non-head_arm session."""
+    calls: list[tuple[str, str | None]] = []
+
+    def compute_arm(cfg: NodeConfig, store: SessionStore, sid: str, now: datetime, floor: str | None) -> dict:
+        calls.append((sid, floor))
+        return {"id": ARM_RID, "session": sid, "kind": "arm", "passed": True}
+
+    monkeypatch.setattr(head_arm_api, "compute_arm", compute_arm)
+    sid = parts.store.create_session(NOW, kind="head_arm")
+    named = parts.client.post(
+        f"/api/head-arm/sessions/{sid}/compute-arm", json={"floor_session": "floor-20261031-110000"}
+    )
+    assert named.status_code == 200 and named.json()["kind"] == "arm"
+    assert parts.client.post(f"/api/head-arm/sessions/{sid}/compute-arm", json={}).status_code == 200
+    assert parts.client.post(f"/api/head-arm/sessions/{sid}/compute-arm").status_code == 200
+    assert calls == [(sid, "floor-20261031-110000"), (sid, None), (sid, None)]
+    parts.sequencer.running = True
+    busy = parts.client.post(f"/api/head-arm/sessions/{sid}/compute-arm", json={})
+    assert busy.status_code == 409 and busy.json()["ok"] is False
+    parts.sequencer.running = False
+    other = parts.store.create_session(NOW)
+    wrong = parts.client.post(f"/api/head-arm/sessions/{other}/compute-arm", json={})
+    assert wrong.status_code == 400 and wrong.json()["ok"] is False
+    assert len(calls) == 3
+
+
+def write_result(parts: SimpleNamespace, sid: str, rid: str, kind: str) -> None:
+    """A passed result of the given kind with a head_chain.json, as the computes write them."""
+    directory = parts.store.result_dir(sid, rid)
+    directory.mkdir(parents=True)
+    (directory / "result.json").write_text(json.dumps({"id": rid, "session": sid, "kind": kind, "passed": True}))
+    (directory / "head_chain.json").write_text(json.dumps({"session": sid, "result": rid, "joints": {}}))
+
+
+def test_apply_dispatches_on_result_kind(parts: SimpleNamespace) -> None:
+    put_marker(parts.state, kind="intrinsics")
+    sid = parts.store.create_session(NOW, kind="head_arm")
+    write_result(parts, sid, ARM_RID, "arm")
+    write_result(parts, sid, HEAD_ARM_RID, "head_arm")
+    arm = parts.client.post(f"/api/head-arm/sessions/{sid}/results/{ARM_RID}/apply")
+    assert arm.status_code == 200 and arm.json()["head_chain"]["source"] == "arm"
+    assert json.loads((parts.state / "applied" / "applied.json").read_text())["kind"] == "intrinsics"
+    head_arm = parts.client.post(f"/api/head-arm/sessions/{sid}/results/{HEAD_ARM_RID}/apply")
+    assert head_arm.status_code == 200 and head_arm.json()["head_chain"]["source"] == "head_arm"
+    fetched = parts.client.get(f"/api/head-arm/sessions/{sid}/results/{ARM_RID}")
+    assert fetched.status_code == 200 and fetched.json()["kind"] == "arm"

@@ -305,6 +305,10 @@ stops capture, kills a running compute child and destroys the node.
 
 `cd nodes/head_rgbd_calibration && uv run pytest tests/ -v`
 
+- `tests/test_compute_arm.py` - the arm offsets compute and apply on a synthetic floor session and a head_arm session
+  of plate views: result files and snippet, no floor session is an error, the named floor session wins, failed limits
+  write only report and result, the tool point kept without `tool_in_board_m`, a missing plate mount or wrist_roll
+  neutral is an error, apply writes the chain with `source: "arm"` and never the snippet.
 - `tests/test_config.py` - config defaults equal the shipped YAML, unknown keys rejected, the `floor` defaults and the
   pan/tilt range checks, the `arm_sequence` defaults and its validation errors naming the tier, pose and joint.
 - `tests/test_sequencer.py` - the sequence over a fake mcp_server: views inside the D435 min-Z or outside the colour FOV skipped with the reason and a pose with no usable view not visited (`test_poses_inside_min_z_are_skipped`), the wait for the colour camera_info; including Park with the board on (checked even when no load is reported, then the internal admin park; the board record offered only fresh and for a stored session, the stated-on Park, a stale record plus a non-board load refused): path-checked then moved at speed 0.1 and released with `park_calibration_board`, refused with the named rule when the sag margin eats the clearance, the fitted mount hook, another carried object and a load without this sequence's board still refused, a failed move keeps holding.
@@ -513,6 +517,36 @@ nodes (`restart_units`); the answer lists each unit's state. `source` is `head_a
 fit; `floor` is the floor result the applied chain was checked against, carried forward from the current record. A
 result that did not pass, or an apply while no RGB-D calibration is applied, is refused with 409 (the message names the RGB-D section's Accept check, which creates `applied.json`). The web_ui proxy waits `calibration.rgbd_timeout_s` (600 in client.yml) for the synchronous compute.
 
+### Arm offsets compute and apply (design D9, D17)
+
+The arm joint offsets and the tool point are re-solved from the same head_arm sessions (the board on the gripper, all
+seven joints per still); there is no separate session kind. `POST /api/head-arm/sessions/{sid}/compute-arm` with body
+`{"floor_session": "floor-..." | null}` (`arm_results.compute_arm`, synchronous) runs `arm_offsets_fit.fit_head_arm` on:
+
+- the plate views of the session (`store.load_arm_board_views`) and the D435 factory colour intrinsics stored with the
+  stills (as the head-from-arm compute);
+- the floor planes of the floor session named in the body, else of the floor reference of the applied head chain
+  (`floor_results.current_floor_ref`); with neither the result is an error, `apply a head calibration first`;
+- the head URDF with the applied overrides (`floor_results.base_urdf`), the arm URDF and `fit`, starting from the
+  current offsets `fit.joint_offsets_rad`.
+
+`fit.plate_mount` must be set (the plate start pose), and `fit.wrist_roll_offset_rad` too while `plate_mount.rpy` is
+null; otherwise the result is an error naming the key and no fit runs. `plate_mount.tool_in_board_m` is required with no
+default: while it is null the tool point is not fitted, the current `tool_offset_m` is kept and the report says so.
+
+The result directory `results/<rid>/` holds `result.json` (`{id, session, kind: "arm", floor_session, floor, created,
+passed, failed_limits, error, rms_px, holdout_rms_px, holdout_tool_mm, wrist_roll_fitted, tool_fitted, tool_offset_m,
+offsets: {joint: {value, sigma, current}}, head: {name: {value, sigma, urdf}}, limits, snippet}`; `sigma` of a fixed
+offset is null), `report.md` and, only when it passed, `head_chain.json` (every head joint, d435_joint included),
+`head.urdf` and `joint_offsets_snippet.yaml` (the `joint_offsets_rad` block, plus `tool_offset_m` when the tool point
+was fitted, for the client.yml mcp_server `arm:` block). `floor` is `{session, result}` of the floor session used (its
+newest result when the session was named in the request).
+
+`POST .../results/{rid}/apply` dispatches on the result's `kind`: an arm result applies only its `head_chain.json`
+through `floor_results.apply_head_chain_file` with the record `source: "arm"`; applied.json's top-level intrinsics
+check record is left as it is. The snippet never goes to `applied/`: the offsets are committed to client.yml by hand
+after review. `GET /api/sessions/{sid}/results/{rid}/download` zips `joint_offsets_snippet.yaml` with the report.
+
 ### Routes
 
 All under `/api/head-arm` (web_ui proxies them as `/api/calibration/rgbd/head-arm/*`); errors use the common
@@ -529,8 +563,9 @@ wrong kind), 404 for an unknown or malformed id, 409 for a busy or wrong-phase r
 | `POST /park {"confirm": true, "board_on": bool}` | state; see "Park with the board on" |
 | `GET /sessions` | `[{id, created, views, arm_poses, results}]` (head_arm sessions only) |
 | `POST /sessions/{sid}/compute` | the result; 409 while a sequence runs |
-| `GET /sessions/{sid}/results/{rid}` | result.json |
-| `POST /sessions/{sid}/results/{rid}/apply` | `{head_chain: {session, result, applied_at, source, floor}, units}` |
+| `POST /sessions/{sid}/compute-arm {"floor_session": str \| null}` | the arm offsets result (`kind: "arm"`); 409 while a sequence runs |
+| `GET /sessions/{sid}/results/{rid}` | result.json (either kind) |
+| `POST /sessions/{sid}/results/{rid}/apply` | `{head_chain: {session, result, applied_at, source, floor}, units}`; `source` `arm` for an arm result |
 
 The bodies are pinned by the contract fixtures `tests/fixtures/api/head_arm_state.json`, `head_arm_sessions.json` and
 `head_arm_result.json` (the web UI validators in `frontend/src/calibrate/headArmApi.ts` are tested against the same

@@ -24,7 +24,9 @@ APPLIED_MARKER = "applied.json"
 APPLIED_DIR = "applied"
 # applied.json keys of the accepted check; "files" was the RGB + ToF calibration's list of copied files.
 CHECK_RECORD_KEYS = ("kind", "session", "result", "applied_at", "files")
-DOWNLOAD_FILES = (REPORT_FILE, RESULT_FILE)
+# The reviewed client.yml offsets snippet of an arm result; downloaded, never copied into applied/.
+SNIPPET_FILE = "joint_offsets_snippet.yaml"
+DOWNLOAD_FILES = (REPORT_FILE, RESULT_FILE, SNIPPET_FILE)
 SYSTEMCTL_SHOW = ["systemctl", "show", "--timestamp=unix", "-p", "ActiveEnterTimestamp", "-p", "ActiveState"]
 SYSTEMCTL_TIMEOUT_S = 5.0
 
@@ -112,7 +114,7 @@ def applied_state(store: SessionStore, units: Sequence[str], run: RunFn = subpro
 
 
 def download_zip(store: SessionStore, sid: str, rid: str) -> tuple[str, bytes]:
-    """Package a result's report.md and result.json.
+    """Package a result's report.md, result.json and, for an arm result, joint_offsets_snippet.yaml.
 
     Returns:
         (file name <sid>-<rid>.zip, zip bytes).
