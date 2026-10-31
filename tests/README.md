@@ -3688,7 +3688,7 @@ Parses `ansible/roles/system_optimize/tasks/main.yml`: Wi-Fi power save stays of
 
 ### `test_markers_runbook.py`
 
-Static checks of `docs/runbooks/printable-markers.md` (and later `docs/markers.md`): the printable markers runbook reads the D435.
+Static checks of `docs/runbooks/printable-markers.md` and `docs/markers.md`: the printable markers runbook reads the D435.
 
 | Test | Covers |
 |---|---|
