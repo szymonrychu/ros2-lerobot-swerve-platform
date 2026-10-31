@@ -44,7 +44,7 @@ Rungs are cumulative: each rung includes everything above it.
 
 ## Agreed scope
 
-not agreed yet
+Rung 1 (2026-10-31, user: "Go" on the recommended answers): closed as absorbed by realsense-d435-head-switchov (S26 plate solver done, S41 compute/apply, S52 UI, S59 live). Nothing built here.
 
 ## Non-goals
 

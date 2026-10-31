@@ -42,7 +42,7 @@ Rungs are cumulative: each rung includes everything above it.
 
 ## Agreed scope
 
-not agreed yet
+Rung 1 (2026-10-31, user: "Go" on the recommended answers): closed as superseded. The runbook proves the retired ToF + CM3 pair; the D435 uses factory extrinsics. Nothing built here.
 
 ## Non-goals
 
