@@ -33,8 +33,8 @@ interface Props {
   /** Latest payloads of the two topics (raw topic values, with header stamps). */
   rgb: unknown
   depth: unknown
-  /** Depth in metres at the far end of the colormap. */
-  rangeM: number
+  /** Depth in metres at the far end of the colormap (the head tab's depth_range_m). */
+  depthRangeM: number
 }
 
 /**
@@ -63,9 +63,9 @@ export function useRgbdPair(rgb: unknown, depth: unknown): RgbdPair | null {
  * @param depthTopic - depth topic name shown in the waiting line
  * @param rgb - latest RGB payload
  * @param depth - latest depth payload
- * @param rangeM - depth at the far end of the colormap and legend (m)
+ * @param depthRangeM - depth at the far end of the colormap and legend (m), the head tab's depth_range_m
  */
-export function RgbdView({ rgbTopic, depthTopic, rgb, depth, rangeM }: Props) {
+export function RgbdView({ rgbTopic, depthTopic, rgb, depth, depthRangeM }: Props) {
   const pair = useRgbdPair(rgb, depth)
   const pairedDepth = pair?.depth
   const grid = useMemo(() => (pairedDepth ? decodeRegisteredDepth(pairedDepth) : null), [pairedDepth])
@@ -79,9 +79,9 @@ export function RgbdView({ rgbTopic, depthTopic, rgb, depth, rangeM }: Props) {
     const ctx = overlayRef.current?.getContext('2d')
     if (!ctx || !grid) return
     const image = ctx.createImageData(grid.width, grid.height)
-    image.data.set(depthToRgba(grid.mm, rangeM))
+    image.data.set(depthToRgba(grid.mm, depthRangeM))
     ctx.putImageData(image, 0, 0)
-  }, [grid, rangeM])
+  }, [grid, depthRangeM])
 
   useEffect(() => {
     const ctx = legendRef.current?.getContext('2d')
@@ -139,7 +139,7 @@ export function RgbdView({ rgbTopic, depthTopic, rgb, depth, rangeM }: Props) {
         <Stack data-testid="rgbd-legend" direction="row" spacing={1} sx={{ alignItems: 'center' }}>
           <Typography variant="body2">0.0 m</Typography>
           <canvas ref={legendRef} data-testid="rgbd-legend-strip" width={LEGEND_STEPS} height={1} style={LEGEND_STYLE} />
-          <Typography variant="body2">{`${rangeM.toFixed(1)} m`}</Typography>
+          <Typography variant="body2">{`${depthRangeM.toFixed(1)} m`}</Typography>
         </Stack>
         <Typography data-testid="rgbd-readout" variant="body2" color={readout ? 'text.primary' : 'text.secondary'}>
           {readout ?? HOVER_HINT}

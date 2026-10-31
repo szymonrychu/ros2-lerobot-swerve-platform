@@ -1,15 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import Alert from '@mui/material/Alert'
 import ToggleButton from '@mui/material/ToggleButton'
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
-import FormControlLabel from '@mui/material/FormControlLabel'
 import Slider from '@mui/material/Slider'
 import Stack from '@mui/material/Stack'
-import Switch from '@mui/material/Switch'
 import Typography from '@mui/material/Typography'
-import { requestZoom, ZoomFactor } from '../camera/zoomApi'
 import { ReleasedBannerView, releasedLabel } from '../calibrate/ReleasedBanner'
 import { useServoGroups } from '../calibrate/servoApi'
 import { CameraStream } from '../components/CameraStream'
@@ -40,33 +36,11 @@ const COMMAND_ARRIVED_DEG = 1
 // Full pan range (pi rad) at the 1.0 rad/s head speed cap is 3.14 s, rounded up to the next half second.
 const COMMAND_HOLD_MS = 3500
 const DEG_PER_RAD = 180 / Math.PI
-const ZOOM_FACTORS: ZoomFactor[] = [2, 4, 8]
-const DEFAULT_ZOOM_FACTOR: ZoomFactor = 4
 const DEFAULT_RGBD_RANGE_M = 4
 const VIEWS: { value: HeadView; label: string }[] = [
   { value: 'preview', label: 'Preview' },
   { value: 'rgbd', label: 'RGB-D' },
 ]
-
-/** A shown crop: base64 JPEG, factor and whether autofocus converged. */
-interface Crop {
-  jpeg: string
-  factor: ZoomFactor
-  focused: boolean
-}
-
-/**
- * One short user message for a failed zoom request.
- *
- * @param err - error thrown by requestZoom (message carries the HTTP status)
- * @returns the message shown under the view
- */
-function zoomErrorText(err: unknown): string {
-  const msg = err instanceof Error ? err.message : ''
-  if (msg.includes('HTTP 409')) return 'Camera busy'
-  if (msg.includes('HTTP 504') || /HTTP \d+, timeout\)/.test(msg)) return 'Zoom timed out'
-  return 'Camera error'
-}
 
 /**
  * Measured head angles from a JointState payload.
@@ -238,12 +212,12 @@ function Preview({ topic, jpeg, alt }: PreviewProps) {
 }
 
 /**
- * Head tab: head RGB stream and depth preview (16UC1 mm from a ToF camera), optional amplitude (only
- * when the tab names an amplitude topic), and pan/tilt sliders with Home when the tab has head_command_topic.
- * Phone stacks the previews vertically; tablet and desktop put them side by side. A tab that names rgbd_rgb_topic and
- * rgbd_depth_topic also offers the RGB-D view: the head_rgbd RGB with the registered depth over it.
+ * Head tab: the head D435 colour stream and a greyscale preview of its depth (16UC1 mm over depth_range_m), and
+ * pan/tilt sliders with Home when the tab has head_command_topic. Phone stacks the previews vertically; tablet and
+ * desktop put them side by side. A tab that names rgbd_rgb_topic and rgbd_depth_topic also offers the RGB-D view: the
+ * head_rgbd RGB with the D435 depth registered to it over it.
  *
- * @param tab - tab config (rgb_camera_topic, tof_depth_topic, tof_amplitude_topic, tof_range_m, rgbd_rgb_topic, rgbd_depth_topic)
+ * @param tab - tab config (rgb_camera_topic, depth_topic, depth_range_m, rgbd_rgb_topic, rgbd_depth_topic)
  * @param topicData - latest payload per topic
  * @param publish - publishes a head command
  * @param onRgbdWanted - told whether the RGB-D view is open
@@ -252,35 +226,17 @@ export default function HeadTab({ tab, topicData, publish, onRgbdWanted }: Props
   const layout = useLayout()
   const servo = useServoGroups()
   const released = releasedLabel(servo, 'head') !== null
-  const zoomEnabled = Boolean(tab.zoom_command_topic)
-  const [factor, setFactor] = useState<ZoomFactor>(DEFAULT_ZOOM_FACTOR)
-  const [pending, setPending] = useState(false)
-  const [crop, setCrop] = useState<Crop | null>(null)
-  const [zoomError, setZoomError] = useState<string | null>(null)
-  const [showAmplitude, setShowAmplitude] = useState(false)
   const [view, setView] = useState<HeadView>('preview')
   const rgbdTopics = tab.rgbd_rgb_topic && tab.rgbd_depth_topic ? { rgb: tab.rgbd_rgb_topic, depth: tab.rgbd_depth_topic } : null
   const rgbdWanted = rgbdTopics !== null && view === 'rgbd'
   const direction = layout === 'phone' ? 'column' : 'row'
   const cellMinHeight = layout === 'phone' ? 'clamp(10dvh, 28dvh, 40dvh)' : 0
-  const depthTopic = tab.tof_depth_topic
-  const depth = topicData[depthTopic ?? ''] as { depth_preview_b64?: string | null } | undefined
-  const amplitude = topicData[tab.tof_amplitude_topic ?? ''] as { jpeg_b64?: string | null } | undefined
+  const depth = topicData[tab.depth_topic ?? ''] as { depth_preview_b64?: string | null } | undefined
 
   useEffect(() => {
     onRgbdWanted?.(rgbdWanted)
     return () => onRgbdWanted?.(false)
   }, [rgbdWanted, onRgbdWanted])
-
-  function onPointSelect(u: number, v: number): void {
-    if (pending) return
-    setPending(true)
-    setZoomError(null)
-    requestZoom(tab.id, u, v, factor)
-      .then((reply) => setCrop({ jpeg: reply.jpeg_b64, factor, focused: reply.status !== 'af_failed' }))
-      .catch((err) => setZoomError(zoomErrorText(err)))
-      .finally(() => setPending(false))
-  }
 
   return (
     <Box sx={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', gap: 1, overflowY: layout === 'phone' ? 'auto' : 'hidden' }}>
@@ -291,33 +247,17 @@ export default function HeadTab({ tab, topicData, publish, onRgbdWanted }: Props
             depthTopic={rgbdTopics.depth}
             rgb={topicData[rgbdTopics.rgb]}
             depth={topicData[rgbdTopics.depth]}
-            rangeM={tab.tof_range_m ?? DEFAULT_RGBD_RANGE_M}
+            depthRangeM={tab.depth_range_m ?? DEFAULT_RGBD_RANGE_M}
           />
         </Box>
       ) : (
         <Box data-testid="head-layout" data-direction={direction} sx={{ flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: direction, gap: 1 }}>
           <Box sx={{ ...CELL_SX, minHeight: cellMinHeight }}>
-            {crop ? (
-              <Box sx={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: CANVAS_BG }}>
-                <img src={`data:image/jpeg;base64,${crop.jpeg}`} alt="head camera zoom" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
-              </Box>
-            ) : (
-              <CameraStream
-                topic={tab.rgb_camera_topic}
-                data={topicData[tab.rgb_camera_topic ?? '']}
-                alt="head camera"
-                onPointSelect={zoomEnabled ? onPointSelect : undefined}
-              />
-            )}
+            <CameraStream topic={tab.rgb_camera_topic} data={topicData[tab.rgb_camera_topic ?? '']} alt="head camera" />
           </Box>
           <Box sx={{ ...CELL_SX, minHeight: cellMinHeight }}>
-            <Preview topic={depthTopic} jpeg={depth?.depth_preview_b64} alt="depth" />
+            <Preview topic={tab.depth_topic} jpeg={depth?.depth_preview_b64} alt="depth" />
           </Box>
-          {showAmplitude && tab.tof_amplitude_topic && (
-            <Box sx={{ ...CELL_SX, minHeight: cellMinHeight }}>
-              <Preview topic={tab.tof_amplitude_topic} jpeg={amplitude?.jpeg_b64} alt="ToF amplitude" />
-            </Box>
-          )}
         </Box>
       )}
       <Stack direction="row" spacing={2} sx={{ flex: '0 0 auto', alignItems: 'center', flexWrap: 'wrap', px: 1 }}>
@@ -335,41 +275,8 @@ export default function HeadTab({ tab, topicData, publish, onRgbdWanted }: Props
             ))}
           </ToggleButtonGroup>
         )}
-        {!rgbdWanted && (
-          <>
-            {tab.tof_amplitude_topic && (
-              <FormControlLabel
-                control={<Switch checked={showAmplitude} onChange={(e) => setShowAmplitude(e.target.checked)} />}
-                label="amplitude"
-              />
-            )}
-            {zoomEnabled && (
-              <ToggleButtonGroup
-                exclusive
-                size="small"
-                role="radiogroup"
-                aria-label="zoom factor"
-                value={factor}
-                onChange={(_, v: ZoomFactor | null) => v && setFactor(v)}
-              >
-                {ZOOM_FACTORS.map((f) => (
-                  <ToggleButton key={f} value={f} role="radio" aria-checked={f === factor} aria-label={`${f}x`}>{`${f}x`}</ToggleButton>
-                ))}
-              </ToggleButtonGroup>
-            )}
-            {pending && <Typography variant="body2" color="text.secondary">Zooming...</Typography>}
-            {crop && (
-              <>
-                <Typography data-testid="zoom-info" variant="body2">{`${crop.factor}x zoom`}</Typography>
-                {!crop.focused && <Typography variant="body2" color="warning.main">focus not confirmed</Typography>}
-                <Button variant="outlined" size="small" onClick={() => setCrop(null)}>Back to live</Button>
-              </>
-            )}
-            {zoomError && <Alert severity="warning" sx={{ py: 0 }}>{zoomError}</Alert>}
-            {tab.tof_range_m !== undefined && (
-              <Typography variant="body2" color="text.secondary">{`depth range ${tab.tof_range_m} m`}</Typography>
-            )}
-          </>
+        {!rgbdWanted && tab.depth_range_m !== undefined && (
+          <Typography variant="body2" color="text.secondary">{`depth range ${tab.depth_range_m} m`}</Typography>
         )}
       </Stack>
       <ReleasedBannerView groupId="head" servo={servo} />

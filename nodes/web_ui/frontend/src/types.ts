@@ -77,16 +77,10 @@ export interface TabConfig {
   // arm tab: cameras, arm-glued 3D view and arm control (backend fills defaults for unset fields)
   gripper_camera_topic?: string // sensor_msgs/CompressedImage of the gripper camera
   head_camera_topic?: string // sensor_msgs/CompressedImage of the head camera
-  rgb_camera_topic?: string // head tab: sensor_msgs/CompressedImage of the head RGB camera
-  tof_depth_topic?: string // head tab: 16UC1 mm depth topic, ToF camera (payload carries depth_preview_b64)
-  tof_amplitude_topic?: string // head tab: ToF amplitude topic, unset when the camera has none (payload carries jpeg_b64)
+  rgb_camera_topic?: string // head tab: sensor_msgs/CompressedImage of the head D435 colour stream
   rgbd_rgb_topic?: string // head tab: head_rgbd RGB (JPEG payload with stamp), subscribed only while the RGB-D view is open
   rgbd_depth_topic?: string // head tab: head_rgbd registered depth (raw uint16 mm payload with stamp), subscribed with rgbd_rgb_topic
-  tof_range_m?: number // head tab: depth preview range in metres (also the far end of the RGB-D colormap)
-  zoom_command_topic?: string // head tab: zoom request topic (click-to-zoom goes through POST /api/camera/zoom)
-  zoom_result_topic?: string // head tab: zoom result topic
-  zoom_image_topic?: string // head tab: zoom crop image topic
-  zoom_timeout_s?: number // head tab: seconds POST /api/camera/zoom waits for the crop (default 8)
+  depth_range_m?: number // head tab: depth preview range in metres (also the far end of the RGB-D colormap)
   head_command_topic?: string // head tab: sensor_msgs/JointState {head_pan, head_tilt} in radians; unset hides the pan/tilt controls
   head_joint_states_topic?: string // head, map_nav: sensor_msgs/JointState of the pan/tilt head (measured angles, drives the head URDF)
   head_pan_range_deg?: [number, number] // head tab: pan slider range in degrees

@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { ThemeProvider } from '@mui/material/styles'
 import { theme } from '../theme'
 import { TabConfig } from '../types'
 import HeadTab from './HeadTab'
-import { requestZoom } from '../camera/zoomApi'
+import { tabTopics } from '../hooks/subscription'
 
 const servoMock = vi.hoisted(() => ({ groups: [] as unknown[], notConfigured: false }))
 vi.mock('../calibrate/servoApi', async (orig) => ({
@@ -22,24 +22,16 @@ function setServo(id: string, kind: 'released' | 'enabled' | 'unknown' | 'none')
   }]
 }
 
-
-vi.mock('../camera/zoomApi', async (orig) => ({
-  ...(await orig<typeof import('../camera/zoomApi')>()),
-  requestZoom: vi.fn(),
-}))
-
-const RGB = '/head_camera/image_raw/compressed'
-const DEPTH = '/tof/depth/image_raw'
-const AMP = '/tof/amplitude/image_raw'
+const RGB = '/rgb/compressed'
+const DEPTH = '/depth/image_raw'
 
 const TAB = {
   id: 'head',
   type: 'head',
   label: 'Head',
   rgb_camera_topic: RGB,
-  tof_depth_topic: DEPTH,
-  tof_amplitude_topic: AMP,
-  tof_range_m: 4,
+  depth_topic: DEPTH,
+  depth_range_m: 4,
 } as TabConfig
 
 function setViewport(width: number): void {
@@ -62,7 +54,6 @@ function renderTab(topicData: Record<string, unknown>, publish = vi.fn(), tab: T
 const FRAMES = {
   [RGB]: { jpeg_b64: 'RRR' },
   [DEPTH]: { depth_preview_b64: 'DDD' },
-  [AMP]: { jpeg_b64: 'AAA' },
 }
 
 afterEach(cleanup)
@@ -75,32 +66,32 @@ describe('HeadTab', () => {
     expect(screen.getByAltText('depth').getAttribute('src')).toBe('data:image/jpeg;base64,DDD')
   })
 
-  it('shows the amplitude preview only after the toggle, off by default', () => {
-    setViewport(1400)
-    renderTab(FRAMES)
-    const toggle = screen.getByRole('checkbox', { name: 'amplitude' }) as HTMLInputElement
-    expect(toggle.checked).toBe(false)
-    expect(screen.queryByAltText('ToF amplitude')).toBeNull()
-    expect(screen.queryByText(`Waiting for ${AMP}...`)).toBeNull()
-    fireEvent.click(toggle)
-    expect(screen.getByAltText('ToF amplitude').getAttribute('src')).toBe('data:image/jpeg;base64,AAA')
-  })
-
-  it('has no amplitude switch when the tab has no amplitude topic (depth only)', () => {
-    setViewport(1400)
-    const { tof_amplitude_topic: _unused, ...depthOnly } = TAB
-    renderTab(FRAMES, vi.fn(), depthOnly as TabConfig)
-    expect(screen.queryByRole('checkbox', { name: 'amplitude' })).toBeNull()
-    expect(screen.queryByText(/Waiting for undefined/)).toBeNull()
-    expect(screen.getByAltText('depth').getAttribute('src')).toBe('data:image/jpeg;base64,DDD')
-  })
-
   it('shows Waiting for <topic> and no image for streams without a message', () => {
     setViewport(1400)
     renderTab({})
-    fireEvent.click(screen.getByRole('checkbox', { name: 'amplitude' }))
-    for (const topic of [RGB, DEPTH, AMP]) expect(screen.getByText(`Waiting for ${topic}...`)).toBeTruthy()
+    for (const topic of [RGB, DEPTH]) expect(screen.getByText(`Waiting for ${topic}...`)).toBeTruthy()
     expect(screen.queryAllByRole('img')).toEqual([])
+  })
+
+  it('depth preview subscribes depth_topic', () => {
+    setViewport(1400)
+    expect(tabTopics(TAB)).toEqual(expect.arrayContaining([RGB, DEPTH]))
+    renderTab(FRAMES)
+    expect(screen.getByAltText('depth').getAttribute('src')).toBe('data:image/jpeg;base64,DDD')
+    expect(screen.getByText('depth range 4 m')).toBeTruthy()
+  })
+
+  it('no amplitude or zoom control', () => {
+    setViewport(1400)
+    const legacy = { ...TAB, tof_amplitude_topic: '/amp', zoom_command_topic: '/zoom' } as unknown as TabConfig
+    expect(tabTopics(legacy)).not.toContain('/amp')
+    renderTab({ ...FRAMES, '/amp': { jpeg_b64: 'AAA' } }, vi.fn(), legacy)
+    expect(screen.queryByRole('checkbox', { name: 'amplitude' })).toBeNull()
+    expect(screen.queryByAltText('ToF amplitude')).toBeNull()
+    expect(screen.queryByRole('radiogroup', { name: 'zoom factor' })).toBeNull()
+    expect(screen.getByAltText('head camera').style.cursor).toBe('')
+    fireEvent.click(screen.getByAltText('head camera'))
+    expect(screen.queryByText('Zooming...')).toBeNull()
   })
 
   describe('pan/tilt controls', () => {
@@ -302,94 +293,12 @@ describe('HeadTab', () => {
     expect(screen.queryByRole('button', { name: 'raw' })).toBeNull()
     expect(screen.getByAltText('depth').getAttribute('src')).toBe('data:image/jpeg;base64,DDD')
   })
-
-  describe('click to zoom', () => {
-    const ZOOM_TAB = { ...TAB, zoom_command_topic: '/head_camera/zoom/command' } as TabConfig
-    const mockZoom = vi.mocked(requestZoom)
-
-    function clickLive(): void {
-      const img = screen.getByAltText('head camera') as HTMLImageElement
-      Object.defineProperty(img, 'naturalWidth', { value: 1600, configurable: true })
-      Object.defineProperty(img, 'naturalHeight', { value: 900, configurable: true })
-      img.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1600, height: 900 }) as DOMRect
-      fireEvent.click(img, { clientX: 400, clientY: 450 })
-    }
-
-    afterEach(() => {
-      mockZoom.mockReset()
-    })
-
-    it('shows a factor picker defaulting to 4 only with zoom topics', () => {
-      setViewport(1400)
-      renderTab(FRAMES, vi.fn(), ZOOM_TAB)
-      const picker = screen.getByRole('radiogroup', { name: 'zoom factor' })
-      expect(screen.getByRole('radio', { name: '4x' }).getAttribute('aria-checked')).toBe('true')
-      expect(picker).toBeTruthy()
-      cleanup()
-      renderTab(FRAMES)
-      expect(screen.queryByRole('radiogroup', { name: 'zoom factor' })).toBeNull()
-      mockZoom.mockResolvedValue({ status: 'ok', jpeg_b64: 'ZZZ' })
-      clickLive()
-      expect(mockZoom).not.toHaveBeenCalled()
-    })
-
-    it('requests the clicked point with the chosen factor, ignoring clicks while pending', async () => {
-      setViewport(1400)
-      let resolve: (v: { status: string; jpeg_b64: string; zoom: number }) => void = () => {}
-      mockZoom.mockReturnValue(new Promise((r) => { resolve = r }))
-      renderTab(FRAMES, vi.fn(), ZOOM_TAB)
-      fireEvent.click(screen.getByRole('radio', { name: '8x' }))
-      clickLive()
-      clickLive()
-      expect(mockZoom).toHaveBeenCalledTimes(1)
-      expect(mockZoom).toHaveBeenCalledWith('head', 0.25, 0.5, 8)
-      expect(screen.getByText('Zooming...')).toBeTruthy()
-      await act(async () => resolve({ status: 'ok', jpeg_b64: 'ZZZ', zoom: 8 }))
-    })
-
-    it('shows the crop with factor then returns to live', async () => {
-      setViewport(1400)
-      mockZoom.mockResolvedValue({ status: 'ok', jpeg_b64: 'ZZZ' })
-      renderTab(FRAMES, vi.fn(), ZOOM_TAB)
-      clickLive()
-      await waitFor(() => expect(screen.getByAltText('head camera zoom').getAttribute('src')).toBe('data:image/jpeg;base64,ZZZ'))
-      expect(screen.getByText(/4x/, { selector: '[data-testid="zoom-info"]' })).toBeTruthy()
-      expect(screen.queryByText(/focus not confirmed/)).toBeNull()
-      fireEvent.click(screen.getByRole('button', { name: 'Back to live' }))
-      expect(screen.queryByAltText('head camera zoom')).toBeNull()
-      expect(screen.getByAltText('head camera').getAttribute('src')).toBe('data:image/jpeg;base64,RRR')
-    })
-
-    it('notes unconfirmed focus on af_failed', async () => {
-      setViewport(1400)
-      mockZoom.mockResolvedValue({ status: 'af_failed', jpeg_b64: 'ZZZ' })
-      renderTab(FRAMES, vi.fn(), ZOOM_TAB)
-      clickLive()
-      await waitFor(() => expect(screen.getByAltText('head camera zoom')).toBeTruthy())
-      expect(screen.getByText(/focus not confirmed/)).toBeTruthy()
-    })
-
-    it.each([
-      ['Zoom failed (HTTP 409): busy', 'Camera busy'],
-      ['Zoom failed (HTTP 504): no answer', 'Zoom timed out'],
-      ['Zoom failed (HTTP 502, timeout): no still frame within 5 s', 'Zoom timed out'],
-      ['Zoom failed (HTTP 502, camera_error): sensor lost', 'Camera error'],
-    ])('shows one short message on %s and keeps the live view', async (err, text) => {
-      setViewport(1400)
-      mockZoom.mockRejectedValue(new Error(err))
-      renderTab(FRAMES, vi.fn(), ZOOM_TAB)
-      clickLive()
-      await waitFor(() => expect(screen.getByText(text)).toBeTruthy())
-      expect(screen.queryByAltText('head camera zoom')).toBeNull()
-      expect(screen.getByAltText('head camera').getAttribute('src')).toBe('data:image/jpeg;base64,RRR')
-    })
-  })
 })
 
 describe('RGB-D view', () => {
   const RGBD_RGB = '/head_rgbd/rgb/image_raw/compressed'
   const RGBD_DEPTH = '/head_rgbd/depth/image_raw'
-  const RGBD_TAB = { ...TAB, rgbd_rgb_topic: RGBD_RGB, rgbd_depth_topic: RGBD_DEPTH, tof_range_m: 4 } as TabConfig
+  const RGBD_TAB = { ...TAB, rgbd_rgb_topic: RGBD_RGB, rgbd_depth_topic: RGBD_DEPTH, depth_range_m: 4 } as TabConfig
 
   function u16b64(values: number[]): string {
     const bytes = new Uint8Array(values.length * 2)
@@ -527,7 +436,18 @@ describe('RGB-D view', () => {
     expect(overlay.style.opacity).toBe('0')
   })
 
-  it('shows a legend with the range in metres from tof_range_m', () => {
+  it('RGB-D view uses depth_range_m', () => {
+    setViewport(1400)
+    render(
+      <ThemeProvider theme={theme}>
+        <HeadTab tab={{ ...RGBD_TAB, depth_range_m: 2.5 } as TabConfig} topicData={frames(5, 5)} publish={vi.fn()} />
+      </ThemeProvider>,
+    )
+    fireEvent.click(screen.getByRole('radio', { name: 'RGB-D' }))
+    expect(screen.getByTestId('rgbd-legend').textContent).toContain('2.5 m')
+  })
+
+  it('shows a legend with the range in metres from depth_range_m', () => {
     openRgbd(frames(5, 5))
     const legend = screen.getByTestId('rgbd-legend')
     expect(legend.textContent).toContain('0.0 m')
