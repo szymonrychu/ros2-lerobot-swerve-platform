@@ -3,7 +3,7 @@ title: RTAB-Map 3D mapping runbook
 repos: [ros2-lerobot-sverve-platform]
 created: 2026-10-22
 owner: ""
-rung: ""
+rung: "3"
 ---
 
 # RTAB-Map 3D mapping runbook
@@ -42,7 +42,10 @@ Rungs are cumulative: each rung includes everything above it.
 
 ## Agreed scope
 
-not agreed yet
+Rung 3 (complete), agreed 2026-10-31. User's gate answer, verbatim: "Go" (accepting recommendations: ... rtab-map rung 3
+complete; Q14 yes run after D435 S59 and S84, alongside D435 S72; Q15 yes replace acceptance a3 with "D435 head chain
+applied, /head_rgbd publishing"). The gate's Q14-Q15 are this plan's Q1-Q2. Offline work (runbook re-based on the
+D435, pinned by a test) is a chunk; the robot run is gated on D435 S59 and S84 and shares the session of D435 S72.
 
 ## Non-goals
 
@@ -63,8 +66,8 @@ decision 2026-10-22, answer A. Serves F1.
 
 ## Open questions
 
-- Q1: Run after realsense-d435-head-switchov S59 (calibration) and S84 (deploy), in the same robot session as D435 S72, which already deploys rtabmap_mapping? [recommended: yes]
-- Q2: Replace acceptance a3 (head_camera_calibration.yaml present) with "the D435 head chain is applied and /head_rgbd publishes at the mapping rate"? [recommended: yes]
+- Q1: Run after realsense-d435-head-switchov S59 (calibration) and S84 (deploy), in the same robot session as D435 S72, which already deploys rtabmap_mapping? [answer: yes, after D435 S59 and S84, alongside D435 S72]
+- Q2: Replace acceptance a3 (head_camera_calibration.yaml present) with "the D435 head chain is applied and /head_rgbd publishes at the mapping rate"? [answer: yes, a3 becomes "D435 head chain applied, /head_rgbd publishing"]
 
 ## Research
 

@@ -2,78 +2,89 @@
 
 ## Agreed rung
 
-Not agreed yet: a draft migrated from the epic's tasks; the plan-writer revises it after the gate.
+Rung 3 (complete): items 1.1, 1.2, 1.3, 2.1, 3.1. Gate modifications (plan.md Agreed scope): run after D435 S59
+(calibration) and S84 (deploy), in the same robot session as D435 S72 (which already deploys rtabmap_mapping and
+map3d_uplink); acceptance a3 becomes "D435 head chain applied, /head_rgbd publishing". No threshold of the moved
+requirement is loosened (alignment_agreement >= 0.8, <= 0.15 m/s and <= 0.3 rad/s, caps >= 2x measured peak, uplink
+total within `uplink_mbit_s_max`). No node code changes: the contract and launch are already on the D435
+(nodes/rtabmap_mapping/config/map3d_topics.yaml:137-138, D435 plan's map3d step).
+
+Offline delivers 1.1. The live items 1.2, 1.3, 2.1 and 3.1 run under "After merge (live, with the user)".
 
 ## Approach
 
-Migrated from the epic format: one step per task file, in dependency order, each with its status, files, verify, verified head and every body section.
+Component mode, one worktree via workbench:plan-run, branch `plan/rtab-map-3d-mapping-runbook`. One chunk, one step,
+test-first: the pins in `tests/test_map3d_runbook.py` are run and seen failing on the current runbook, then the runbook
+is rewritten until they pass. Only `docs/runbooks/map3d-mapping.md`, `tests/test_map3d_runbook.py` and
+`tests/README.md` change. The Results table keeps no invented numbers.
 
-## Chunk 1: migrated tasks (model: sonnet)
+## Chunk 1: re-base the runbook on the D435 (model: sonnet)
 
-### S1: Final suite and runbook
+### S1: Map3d runbook on the D435
 
-- Status: todo
-- Files: `docs/runbooks/map3d-mapping.md`, `ansible/group_vars/client.yml`, `nodes/rtabmap_mapping/config/map3d_topics.yaml`, `nodes/rtabmap_mapping/README.md`
-- Verify: `uv run pytest tests/ -q && uv run poe lint && uv run poe lint-nodes && uv run poe test-ansible && uv run poe test-cpp && scripts/rtabmap-launch-probe.sh && (cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint) && (cd nodes/claude_agent && uv run --frozen pytest tests -q && uv run --frozen poe lint) && (cd nodes/web_ui && uv run --frozen pytest tests -q && uv run --frozen poe lint) && (cd nodes/web_ui/frontend && npx tsc --noEmit && npm test && npm run lint && npm run build)`
-- Verified head: none
-
-#### Requirement
-
-- Full suite green (the verify command, every line read).
-- `docs/runbooks/map3d-mapping.md`, written and then executed with the results filled in (date, numbers, pass/fail per step):
-  1. Calibration check: the blocker epic head-rgb-d-fusion-of-camera has committed `nodes/head_camera_cpp/config/head_camera_calibration.yaml`, the ToF calibration and the calibrated head URDF, and client.yml sets `camera_info_file`; with a subscriber on `/head_rgbd/depth/image_raw`, confirm the head_rgbd pair and both camera_infos publish at the mapping rate and the focus lock engages (and releases when the subscriber leaves).
-  2. Deploy in order with logs in `.logs/`: `./scripts/deploy-nodes.sh client head_camera_cpp head_rgbd_cpp map3d_uplink web_ui`, `./scripts/deploy-nodes.sh server rtabmap_mapping map3d_manager`, `./scripts/deploy-nodes.sh server monitoring`, mcp_server/claude_agent only when no agent session runs (MEMORY).
-  3. Map a room: drive slowly (<= 0.15 m/s, <= 0.3 rad/s) around one room with the head at its home pose and a few pans; `/map3d/status` reaches `mapping`, nodes grow, `correction_ok` true throughout; web UI save, then restart rtabmap_mapping and confirm the saved map is restored.
-  4. Alignment with the 2D map: `get_3d_map_status` `alignment_agreement` >= 0.8 (D7 acceptance) and a screenshot-level check in the Map tab that measured points sit on the SLAM walls and lidar walls appear only where the head never looked; record `graph_correction_m/deg`.
-  5. CPU and memory on both Pis from Grafana's "3D mapping" row and Mimir: rtabmap_mapping and map3d_manager CPU (p50/p95) and working set, server MemAvailable; map3d_uplink, head_rgbd_cpp and head_camera_cpp CPU delta on the client before/after enabling the uplink (client CPU cost of the extra streams); compare with the D8 caps and adjust memory_max/cpu_quota in server.yml to >= 2x the measured peak if needed.
-  6. WiFi bandwidth: "WiFi throughput" panel and `ros2 topic bw` on the server for each `/uplink/*` stream; replace the contract's `budget_bytes` with measured values (keeping the totals within budget, or raising it as a finding) and update the README Topics table.
-  7. Placeholder check: with the ToF unplugged (or arducam_tof stopped) head_rgbd_cpp publishes no pair and no depth reaches the server, status shows `waiting_for_inputs`, nothing fake is published.
-- The task ends with the runbook committed with real numbers, or with a named blocker (robots offline) per CLAUDE.md (deploy skipped when RPi targets are offline).
-
-#### Acceptance conditions
-
-- a1: the whole repository suite, linters and the rtabmap probe pass [evidence: command: uv run pytest tests/ -q && uv run poe lint && uv run poe lint-nodes && uv run poe test-ansible && uv run poe test-cpp && scripts/rtabmap-launch-probe.sh]
-- a2: the runbook records a mapped room, alignment agreement >= 0.8, CPU/memory on both Pis and WiFi bandwidth [evidence: doc-section: docs/runbooks/map3d-mapping.md#Results]
-- a3: the head camera calibration file (from the blocker epic) is present and referenced by client.yml [evidence: command: test -f nodes/head_camera_cpp/config/head_camera_calibration.yaml && grep -q head_camera_calibration.yaml ansible/group_vars/client.yml]
-- a4: measured stream sizes replace the estimated budget and stay within it [evidence: test: tests/test_map3d_topics.py]
-- a5: the deployed stack publishes no placeholder data when the ToF is missing [evidence: judgement]
-
-#### Files
-
-- `docs/runbooks/map3d-mapping.md`
-- `ansible/group_vars/client.yml`
-- `nodes/rtabmap_mapping/config/map3d_topics.yaml`
-- `nodes/rtabmap_mapping/README.md`
-
-#### Interfaces
-
-- `docs/runbooks/map3d-mapping.md` with a `## Results` section.
-
-#### Expected outcome
-
-The epic's goals are verified on the robot with recorded numbers.
-
-#### Steps
-
-- Run the full verify command; fix or report any failure with its output.
-- Write the runbook; execute it step by step with `.logs/` logs; fill `## Results`.
-- Commit the measured budgets and the runbook: `docs: 3D mapping runbook and measured budget`.
-
-#### Notes
-
-- Servo safety: the head pans are the only motion besides slow driving; keep pans within the pan/tilt epic's verified range.
-- Use the ansible-deploy skill before deploying (CLAUDE.md).
-
-- 2026-10-22: moved verbatim from rtab-map-rgb-d-3d-mapping-on/final-suite-and-runbook (user answer A); the epic rtab-map-rgb-d-3d-mapping-on is done. Its old depends_on (inside that epic) is done; this epic is blocked by drivable-ground-tof-filterin instead.
+- Files: `docs/runbooks/map3d-mapping.md`, `tests/test_map3d_runbook.py` (new), `tests/README.md`
+- Covers: 1.1
+- Test first: `tests/test_map3d_runbook.py` with
+  - `test_runbook_has_no_cm3_or_tof_inputs`: none of `head_camera_calibration.yaml`, `tof_calibration.yaml`,
+    `head_rgbd_extrinsics.yaml`, `arducam_tof`, `head_camera_cpp`, `camera_info_file`, `focus lock` in the runbook.
+  - `test_head_chain_check_is_the_d435` (acceptance a3 as replaced): step 1 names `docs/calibration/` (the `*-d435`
+    results of D435 S59), `./scripts/d435_diag.sh` and `/head_rgbd/depth/image_raw`, and says the pair publishes at
+    the mapping rate.
+  - `test_deploy_and_placeholder_name_the_d435`: the deploy step reads
+    `./scripts/deploy-nodes.sh client head_rgbd_cpp map3d_uplink web_ui`, the placeholder step stops `realsense_d435`
+    and expects `waiting_for_inputs`, the CPU step names `realsense_d435`, `head_rgbd_cpp` and `map3d_uplink`.
+  - `test_thresholds_kept`: `0.8`, `0.15 m/s`, `0.3 rad/s`, `2x` and `budget_bytes` present.
+  - `test_runs_with_d435_s72`: the header names D435 S59, S84 and S72 and `docs/runbooks/d435-switchover.md`.
+  - `test_results_rows_match_steps`: numbered steps count equals Results rows, each row starting with its step number.
+  Run `uv run --frozen pytest tests/test_map3d_runbook.py -q`; expect failures on the current runbook (CM3/ToF files,
+  head_camera_cpp, arducam_tof).
+- Change: rewrite `docs/runbooks/map3d-mapping.md`:
+  - Header: design pointer `docs/plans/done/rtab-map-rgb-d-3d-mapping-on/plan.md`; runs after D435 S59 and S84, in the
+    robot session of D435 S72 (which already deploys rtabmap_mapping and map3d_uplink;
+    `docs/runbooks/d435-switchover.md`). Motion limits unchanged.
+  - Step 1 Head chain check: D435 S59 results committed (`git ls-files 'docs/calibration/*-d435/*'` non-empty) and its
+    head chain in `ansible/group_vars/client.yml`; `./scripts/d435_diag.sh --rates` clean; with a subscriber on
+    `/head_rgbd/depth/image_raw` the depth, RGB and both camera_infos publish at the mapping rate (~2 Hz). No focus
+    lock (the D435 has none).
+  - Step 2 Deploy: `client head_rgbd_cpp map3d_uplink web_ui`, `server rtabmap_mapping map3d_manager`,
+    `server monitoring`, each `2>&1 | tee .logs/<name>.log`; skip whatever S72 already deployed in the same session;
+    mcp_server / claude_agent only with no agent session.
+  - Steps 3, 4 unchanged (map a room, save and restore; alignment >= 0.8, graph correction).
+  - Step 5 CPU / memory: client CPU of `realsense_d435`, `head_rgbd_cpp`, `map3d_uplink` before/after enabling the
+    uplink; server unchanged; caps >= 2x the measured peak.
+  - Step 6 WiFi unchanged (measured `budget_bytes`, `tests/test_map3d_topics.py`, README Topics table).
+  - Step 7 Placeholder: stop `realsense_d435` (deploy-nodes disable or the diag script): no pair, no depth to the
+    server, `/map3d/status` `waiting_for_inputs`; restart it.
+  - Results: one line "Re-based on the D435 2026-10-31; the 2026-10-19 run stopped at the CM3/ToF calibration
+    precondition, retired by the D435 switchover", then a table with one row per step 1-7, every cell `-`.
+  - `tests/README.md`: a `### test_map3d_runbook.py` section listing each test with one line.
+- Verify: `uv run --frozen pytest tests/test_map3d_runbook.py tests/test_map3d_topics.py -q && uv run poe lint` -
+  expect all passed (6 new plus the existing map3d topic tests), lint clean.
 
 ## Files to delete
 
-none recorded in the epic format
+none
 
 ## Final verify
 
-none recorded in the epic format
+`uv run pytest tests/ -q && uv run poe lint && uv run poe lint-nodes && uv run poe test-ansible`
 
-## After merge
+## After merge (live, with the user)
 
-none
+Gate: start only when D435 S59 (calibration) and S84 (final deploy) are done in
+`docs/plans/in-progress/realsense-d435-head-switchov/implementation-plan.md` (or its done/ location); run in the same
+robot session as D435 S72. Robot unreachable: stop with the named blocker (CLAUDE.md). Deploys only through
+`scripts/deploy-nodes.sh` after the ansible-deploy skill, logs in `.logs/`.
+
+1. Test first: add `test_results_are_recorded` to `tests/test_map3d_runbook.py` (every Results row has a date and PASS
+   or FAIL, step 4 an `alignment_agreement` number, steps 5 and 6 numbers); run it, see it fail.
+2. Run runbook steps 1-4 and 7 (covers 1.2, 1.3) and step 5 (2.1); fill Results.
+3. Caps (2.1): if a peak x2 exceeds its cap, raise `memory_max` / `cpu_quota` in `ansible/group_vars/server.yml`,
+   `uv run poe test-ansible`, `./scripts/deploy-nodes.sh server rtabmap_mapping map3d_manager 2>&1 | tee .logs/deploy-server-caps.log`.
+4. WiFi (3.1): step 6; replace each `budget_bytes` in `nodes/rtabmap_mapping/config/map3d_topics.yaml` with the measured
+   value (comment `measured <date>`); `uv run --frozen pytest tests/test_map3d_topics.py -q` stays green
+   (`test_bandwidth_within_budget`); if the measured total exceeds `uplink_mbit_s_max`, keep the budget and record it as
+   a finding with numbers instead of raising it. Update the `nodes/rtabmap_mapping/README.md` Topics and "Bandwidth
+   budget (D3)" tables; `./scripts/deploy-nodes.sh server rtabmap_mapping 2>&1 | tee .logs/deploy-server-rtabmap.log`.
+5. `uv run --frozen pytest tests/test_map3d_runbook.py tests/test_map3d_topics.py -q && uv run poe lint`, update
+   `tests/README.md`, commit `docs: 3D mapping runbook and measured budget`, push origin main.

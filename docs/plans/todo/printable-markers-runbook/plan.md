@@ -3,7 +3,7 @@ title: Printable markers runbook
 repos: [ros2-lerobot-sverve-platform]
 created: 2026-10-22
 owner: ""
-rung: ""
+rung: "3"
 ---
 
 # Printable markers runbook
@@ -44,7 +44,10 @@ Rungs are cumulative: each rung includes everything above it.
 
 ## Agreed scope
 
-not agreed yet
+Rung 3 (complete), agreed 2026-10-31. User's gate answer, verbatim: "Go" (accepting recommendations: printable-markers
+rung 3 complete; Q11 yes run after D435 S59 calibration; Q12 yes pose distances ~0.4/0.55/0.7 m, shortfall recorded as
+a finding; Q13 yes drop the zoom step). The gate's Q11-Q13 are this plan's Q1-Q3. Offline work (runbook and
+docs/markers.md re-based on the D435, pinned by tests) is a chunk; the robot run is gated on D435 S59 and S84.
 
 ## Non-goals
 
@@ -65,9 +68,9 @@ decision 2026-10-22, answer A. Serves F1.
 
 ## Open questions
 
-- Q1: Run after realsense-d435-head-switchov S59 (the user's D435 head calibration), since the POI pose error includes the head chain? [recommended: yes]
-- Q2: Use pose-accuracy distances the D435 can decode (about 0.4, 0.55 and 0.7 m for the 150 mm marker, at 4 px per module) instead of 0.7/1.0/1.5 m, and record the range shortfall as a finding? [recommended: yes]
-- Q3: Drop the zoom step (step 7), since zoom is retired with head_camera_cpp (D435 Q1)? [recommended: yes]
+- Q1: Run after realsense-d435-head-switchov S59 (the user's D435 head calibration), since the POI pose error includes the head chain? [answer: yes, run after D435 S59 (and its S84 deploy)]
+- Q2: Use pose-accuracy distances the D435 can decode (about 0.4, 0.55 and 0.7 m for the 150 mm marker, at 4 px per module) instead of 0.7/1.0/1.5 m, and record the range shortfall as a finding? [answer: yes, 0.4/0.55/0.7 m; a shortfall is recorded as a finding with numbers]
+- Q3: Drop the zoom step (step 7), since zoom is retired with head_camera_cpp (D435 Q1)? [answer: yes, the zoom step is dropped]
 
 ## Research
 
