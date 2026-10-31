@@ -21,10 +21,24 @@ the same ansible/group_vars/client.yml and head chain, so the runbook runs on th
 
 ## Scope ladder
 
-### Rung 1: agreed scope (migrated)
+Rungs are cumulative: each rung includes everything above it.
 
-- 1.1: docs/runbooks/map3d-mapping.md written and executed on the robot with real numbers in its Results section, every acceptance condition of the
-  moved task met, or a named blocker reported.
+### Rung 1: MVP - a mapped room on the D435
+
+- 1.1: docs/runbooks/map3d-mapping.md re-based on the D435: the calibration check is the applied D435 head chain and
+  the /head_rgbd pair publishing (not head_camera_calibration.yaml or the ToF files); acceptance a3 replaced to match.
+- 1.2: Executed: deploy (client head_rgbd_cpp map3d_uplink web_ui; server rtabmap_mapping map3d_manager monitoring),
+  map one room, save and restore after a restart, alignment_agreement >= 0.8 and graph correction recorded.
+- 1.3: Placeholder check with realsense_d435 stopped: no pair, no depth to the server, status `waiting_for_inputs`.
+
+### Rung 2: + CPU and memory
+
+- 2.1: CPU p50/p95 and working set on both Pis from Grafana/Mimir; server.yml caps set to >= 2x the measured peak if needed.
+
+### Rung 3: complete - WiFi budget (recommended)
+
+- 3.1: Measured `/uplink/*` bandwidth replaces `budget_bytes` in nodes/rtabmap_mapping/config/map3d_topics.yaml,
+  pinned by tests/test_map3d_topics.py, README Topics table updated.
 
 ## Agreed scope
 
@@ -33,7 +47,7 @@ not agreed yet
 ## Non-goals
 
 - New features or code changes beyond the values and documents the moved runbook task names.
-- Re-planning the moved requirement: it is kept verbatim.
+- Re-planning the moved requirement beyond re-basing its steps and thresholds on the D435.
 
 ## Design
 
@@ -49,7 +63,8 @@ decision 2026-10-22, answer A. Serves F1.
 
 ## Open questions
 
-none
+- Q1: Run after realsense-d435-head-switchov S59 (calibration) and S84 (deploy), in the same robot session as D435 S72, which already deploys rtabmap_mapping? [recommended: yes]
+- Q2: Replace acceptance a3 (head_camera_calibration.yaml present) with "the D435 head chain is applied and /head_rgbd publishes at the mapping rate"? [recommended: yes]
 
 ## Research
 
@@ -65,6 +80,12 @@ none
 | Source | Entry | Lands in |
 |---|---|---|
 | rtab-map-rgb-d-3d-mapping-on (approved plan) | the live runbook task | final-suite-and-runbook |
+
+### Re-check 2026-10-31
+
+Still relevant: rtabmap_mapping and map3d_manager are enabled on the server (ansible/group_vars/server.yml:206, :221)
+and the contract already names the D435 frames (nodes/rtabmap_mapping/config/map3d_topics.yaml:137-138). The 2026-10-19
+run failed only on the ToF/CM3 calibration precondition (docs/runbooks/map3d-mapping.md Results), which the D435 removes.
 
 ## Irreversible operations
 

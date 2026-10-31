@@ -21,10 +21,26 @@ the same ansible/group_vars/client.yml and head chain, so the runbook runs on th
 
 ## Scope ladder
 
-### Rung 1: agreed scope (migrated)
+Rungs are cumulative: each rung includes everything above it.
 
-- 1.1: docs/runbooks/printable-markers.md written and executed on the robot with real numbers in its Results section, every acceptance condition of the
-  moved task met, or a named blocker reported.
+### Rung 1: MVP - markers proven on the D435 at short range
+
+- 1.1: docs/runbooks/printable-markers.md re-based on the D435 colour + aligned depth (marker_detector already reads
+  /head/d435/color and /head_rgbd/depth, client.yml:3685-3690): head_camera_cpp, 1152x648 and zoom steps removed.
+- 1.2: Executed with the user: deploy, placeholder check (no marker, D435 stopped: nothing on /markers/detections or
+  /poi/command), pose accuracy of the 150 mm marker at distances it decodes (<= 3 cm, <= 5 deg), refinement and dedup.
+- 1.3: Results table filled with dates and numbers (today it reads NOT EXECUTED, docs/runbooks/printable-markers.md:44).
+
+### Rung 2: + cost and agent
+
+- 2.1: Benchmark p50/p95 per stage per 640x360 frame and 10 min CPU p95 in Grafana; process_hz adjusted only if missed.
+- 2.2: Agent `list_pois(marker_kind="charger")` with an approach pose; web UI shows markers with facing arrows.
+
+### Rung 3: complete - range and fallback (recommended)
+
+- 3.1: docs/markers.md "Range and fallback" rewritten for the D435 (f about 460 px at 640 px instead of 887 px at
+  1152 px, no zoom) with measured decode ranges per marker size, and a finding with numbers if the range is too short
+  for docking (AprilTag fallback named, not built).
 
 ## Agreed scope
 
@@ -33,7 +49,7 @@ not agreed yet
 ## Non-goals
 
 - New features or code changes beyond the values and documents the moved runbook task names.
-- Re-planning the moved requirement: it is kept verbatim.
+- Re-planning the moved requirement beyond re-basing its steps and thresholds on the D435.
 
 ## Design
 
@@ -49,7 +65,9 @@ decision 2026-10-22, answer A. Serves F1.
 
 ## Open questions
 
-none
+- Q1: Run after realsense-d435-head-switchov S59 (the user's D435 head calibration), since the POI pose error includes the head chain? [recommended: yes]
+- Q2: Use pose-accuracy distances the D435 can decode (about 0.4, 0.55 and 0.7 m for the 150 mm marker, at 4 px per module) instead of 0.7/1.0/1.5 m, and record the range shortfall as a finding? [recommended: yes]
+- Q3: Drop the zoom step (step 7), since zoom is retired with head_camera_cpp (D435 Q1)? [recommended: yes]
 
 ## Research
 
@@ -65,6 +83,12 @@ none
 | Source | Entry | Lands in |
 |---|---|---|
 | printable-metadata-markers-t (approved plan) | the live runbook task | markers-final-runbook |
+
+### Re-check 2026-10-31
+
+Still relevant, but its blocker (head-rgb-d-fusion-runbook) is obsolete; the new prerequisite is the D435 head
+calibration. Range estimate: docs/markers.md:109 assumes f = 887 px at 1152 px; the D435 colour is 640x360 (D435 plan
+D2), f about 460 px, so the 150 mm v2 marker (6 mm module) reaches 4 px per module at about 0.7 m.
 
 ## Irreversible operations
 

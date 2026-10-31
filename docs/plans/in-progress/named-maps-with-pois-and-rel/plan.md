@@ -32,6 +32,22 @@ The POI store and the map are saved and loaded separately today, and POIs cannot
 
 Rung 1, migrated from the epic format: the epic's goals were its agreed scope.
 
+## Remaining
+
+Probed 2026-10-31 on main ef8c93ac. Delivered: items 1.1-1.6 in code (25 of 27 steps done), and S5 (minimum evaluated
+scan fraction, listed in-progress) is on main as e7b94012 with `search.min_evaluated_fraction` in
+nodes/map_manager/README.md:51 and tests/test_config.py. Since the run, main also bundles photos with the map
+(f5b3b708, cdb8a2cb; runbook "Photos travel with the map"). No plan branch or worktree exists. What remains is item 1.7's
+live proof, S27 (blocked only on a person at the robot):
+
+- R1: deploy map_manager and map_guard_cpp from main (the 2026-10-18 ambiguity fix `ambiguity_min_support` and the
+  evaluated-fraction rule reached the robot only if deployed since), then repeat runbook step 5 (load at the saved
+  pose, expect `localised`, and observe costmap_zones masks, GPS anchor reset, map_guard_cpp re-arm).
+- R2: runbook steps 6 (moved 0.5 m / 30 deg, tape-measured), 7 (other room, then Retry with a pose), 7b (kidnap,
+  `dry_run: false` for the step), 8 (agent tools from an idle session) and the photo-bundle deploy check; fill
+  `docs/runbooks/named-maps.md` Results (today steps 5-8 read FAIL / NOT RUN).
+- R3: mark S5 done, the plan-level review and retro.md, then close.
+
 ## Non-goals
 
 - Marker-based relocalisation (printable markers epic).
@@ -218,7 +234,8 @@ pose is lost (navigation on a wrong pose, an anti-goal). Serves G3, U5, U8.
 
 ## Open questions
 
-none
+- Q1: Treat S5 as delivered by e7b94012 (on main, tests and README present) and not rebuild it? [recommended: yes]
+- Q2: Run R1-R2 in one robot session with the user carrying the robot for steps 6, 7 and 7b, mcp_server/claude_agent deployed only when no agent session runs? [recommended: yes]
 
 ## Research
 

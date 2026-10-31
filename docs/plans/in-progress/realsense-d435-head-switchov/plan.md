@@ -33,6 +33,48 @@ Why: D435 permanently replaces the ToF+RGB head and the gripper camera; ground e
 
 Rung 1, migrated from the epic format: the epic's goals were its agreed scope.
 
+## Remaining
+
+Probed 2026-10-31 on main ef8c93ac and branch realsense-d435-head-switchov (98 behind main, 3 ahead, 1 dirty file).
+Delivered: 53 of 84 steps (bring-up, head chain, obstacle cloud, Nav2 inputs, ground on D435, MCP front=D435, Calibrate
+D435 intrinsics check, floor fit and head-arm on D435, arducam_tof present:false). S65 (agent prompt) is on main as
+bdcd4f86 but was never reviewed. Q1, Q3 and Q4 were acted on (zoom retired in mcp_server, the superseded epics are in
+done/, firmware read 5.17.3.10). Main is green on the guard the handoff flagged: tests/test_jetson_retired.py 34 passed
+(allowlist tests/test_jetson_retired.py:203).
+
+Branch (R1):
+- e132927b (test_prompt "stereo" rewording): redundant, main already passes; drop it at the rebase.
+- e6cf7a4a (S28, no compressed/theora transport on 16UC1 depth; main topics.yaml:51-60 still lists them): rebase, review, merge.
+- 323aa361 (S53, driver spatial/temporal filters): overlaps main's head_rgbd_cpp edge mask (1e9eb04f, merge 52e27bc2,
+  done outside this plan on 2026-10-29); Q5 decides.
+- Uncommitted nodes/head_rgbd_cpp/test/test_node.cpp (unpaired_depth/unpaired_colour test split): written against the
+  old message_filters sync that 1e9eb04f replaced with the per-frame pairer; Q6 decides.
+
+Review (R2): bdcd4f86 (S65) and e6cf7a4a, then mark S28 and S65 done.
+
+Code steps not on main (R3; each probed on main):
+- S41 arm offsets compute/apply (no `floor_session` in head_rgbd_calibration compute.py/jobs.py); needs Q7.
+- S50 retire ToF fits (calibrate.py:33 `FITS`, :73 `detect_tof`; intrinsics.py:90 `calibrate_tof`).
+- S57 retire stereo maths (extrinsics.py and urdf_handoff.py present).
+- S52 Calibrate head/arm UI (no ArmCalibration.tsx; HeadFloorFit.tsx says ToF 10 times).
+- S66 web_ui arm tab config (config.py:116 `gripper_camera_topic`); S70 Arm tab (ArmTab.tsx:84 gripper CameraStream),
+  rebased on webui-arm-tab-and-3d-goal, now on main.
+- S67 agent skills (survey SKILL.md:33 zoom; pick_place.yaml:59 gripper camera).
+- S68 web_ui zoom route (server.py:1313); S69 Head tab (types.ts:81 `tof_depth_topic`, :86 `zoom_*`).
+- S71 gripper_uvc_camera present:true (client.yml:1418); S80 delete nodes/bridges/uvc_camera.
+- S73 head_camera_cpp present:true (client.yml:1478); S78 delete nodes/head_camera_cpp (Q8).
+- S75 CSI boot overlays (pi_camera_boot_config.yml:39-52) and arducam_tof_sdk.yml (Q8); S77 delete nodes/bridges/arducam_tof.
+- S74 node_cpu_compare.yaml:18,25,38 still list the retired units; S81 head.urdf still has tof/head_camera frames.
+- S82 nodes/tof_obstacle_cloud/README.md not moved; S83 nodes/bridges/realsense_d435i/README.md not moved.
+
+Live steps with the user at the robot (R4), after R3 is merged and deployed:
+- S49 record D435 replay fixtures (home/box/ramp.bin are the 2026-10-22 ToF captures), then S58 tune on them and S53's
+  a1/a2 measured on them.
+- S59 calibration: the user runs it from the web UI (user, 2026-10-29); the agent records results; S41 tool point needs Q7.
+- S60 ground live acceptance, S64 Nav2 live check, S72 web_ui and MCP live check.
+- S76 memory/CPU budget after >= 24 h running, then S79 (client.yml:572, :590 "Not measured yet").
+- S84 full suite, `--all` deploys, then the whole-diff review, retro.md and close.
+
 ## Non-goals
 
 - Physical mounting or printing of the D435 head.
@@ -244,6 +286,10 @@ an rclpy participant. Live tasks cite its output as evidence. (my call)
 - Q2: Tool point: fit tool_offset_m in the plate solve as the fitted board pose composed with the clip's CAD board-to-jaw-tip offset (new config plate_mount.tool_in_board_m), so the 2026-10-10 tool point is re-done from the same D435 views? [recommended: yes; accepted only if the held-out tool error is under 5 mm, else the 2026-10-10 value stays and the report says so]
 - Q3: The superseded ToF tasks in drivable-ground-tof-filterin, tof-3d-obstacle-detection-fo, rgb-d-ground-estimation-and and tof-depth-fix-and-ground-noi are this epic's blockers (ticket.py file-overlap rule) and cannot be marked wontfix: may the orchestrator amend each superseded task (ticket.py amend) to a note pointing at the task here that replaces it and close those epics, after the independent tasks listed in design D15 finish? [recommended: yes]
 - Q4: If the D435 firmware reads below 5.17.3.10 at bring-up, flash it with rs-fw-update (unit stopped, flash backup with -b first) without a further stop? [recommended: yes; it is listed as an irreversible operation]
+- Q5: Drop 323aa361 (driver spatial and temporal filters) and keep main's head_rgbd_cpp edge mask as the S53 filter, with S53's floor-kept and edge-removed numbers measured on the S49 recordings? [recommended: yes; the temporal filter smears depth while the head pans, and the edge mask already removes flying pixels]
+- Q6: Discard the uncommitted head_rgbd_cpp test_node.cpp change (written against the replaced sync)? [recommended: yes]
+- Q7: The S41 tool point needs the clip's board-to-jaw-tip offset (plate_mount.tool_in_board_m), which only the user has: S41 ships with the key required and no default, and the tool point is fitted once the user gives the value? [recommended: yes]
+- Q8: If front-and-back-camera-module gets a rung at this gate, keep nodes/head_camera_cpp and the cam0 imx708 overlay (drop S78 and that part of S75; S73 still sets present:false) so that plan reuses them instead of restoring from history? [recommended: yes]
 
 ## Research
 

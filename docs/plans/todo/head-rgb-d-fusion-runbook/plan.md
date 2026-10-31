@@ -19,12 +19,26 @@ verbatim (requirement and acceptance conditions unchanged) so the live proof on 
 done with every code task verified and merged. This epic waits for drivable-ground-tof-filterin (blocker), which edits
 the same ansible/group_vars/client.yml and head chain, so the runbook runs on the final configuration.
 
+## Status 2026-10-31: obsolete
+
+Every step proves the ToF + Camera Module 3 pair: docs/runbooks/head-rgbd-fusion.md steps 1-2 deploy arducam_tof and
+head_camera_cpp and fit the ToF-to-RGB extrinsic. arducam_tof is present:false on main (ansible/group_vars/client.yml:1434),
+head_camera_cpp is retired by D435 S73/S78, and the D435 uses factory intrinsics and extrinsics (D435 plan D10). D435 plan
+D15 marks this plan "superseded entirely".
+
 ## Scope ladder
 
-### Rung 1: agreed scope (migrated)
+Rungs are cumulative: each rung includes everything above it.
 
-- 1.1: docs/runbooks/head-rgbd-fusion.md written and executed on the robot with real numbers in its Results section, every acceptance condition of the
-  moved task met, or a named blocker reported.
+### Rung 1: MVP - close as superseded (recommended)
+
+- 1.1: Close this plan as superseded; the D435 checks that replace it are realsense-d435-head-switchov S59 (intrinsics
+  check, floor fit, head-from-arm) and S72/S76 (views, CPU).
+
+### Rung 2: complete - D435 fusion runbook
+
+- 2.1: Rewrite docs/runbooks/head-rgbd-fusion.md for the D435 (time offset, depth accuracy against a tape, colour-depth
+  alignment, CPU, placeholder check with the D435 stopped) and execute it, separate from the D435 plan's live steps.
 
 ## Agreed scope
 
@@ -49,7 +63,7 @@ decision 2026-10-22, answer A. Serves F1.
 
 ## Open questions
 
-none
+- Q1: Close this plan as superseded by realsense-d435-head-switchov (D15: "superseded entirely") rather than rewrite it for the D435? [recommended: yes]
 
 ## Research
 

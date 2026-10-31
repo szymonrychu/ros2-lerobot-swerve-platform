@@ -14,17 +14,38 @@ What: Keep the CSI cameras: two Camera Module 3 as body-fixed front (cam0) and b
 How: restore head_camera_cpp from history for two instances, imx708 overlays on both ports, static TF, MCP/web_ui/marker_detector on head/front/back names
 Why: User decision 2026-10-28: keep CSI cameras alongside the D435 head, labelled front and back
 
+## Status 2026-10-31
+
+Still relevant: a user decision of 2026-10-28 (docs/research/2026-10-27-d435-user-decisions.md, "2026-10-28 decisions
+(CSI epic)"), queued after the D435 code steps. Not superseded by the Jetson removal (the cameras are on the client
+Pi). It conflicts with D435 S75 (removes the imx708,cam0 overlay) and S78 (deletes head_camera_cpp): D435 Q8.
+
 ## Scope ladder
 
-### Rung 1: agreed scope (migrated)
+Rungs are cumulative: each rung includes everything above it.
 
-- 1.1: Two Camera Module 3 (IMX708) run on the client Pi 5: `front` on CSI cam0, `back` on CSI cam1 (cam1 overlay arducam-pivariety -> imx708,cam1), fixed on the body (static TF from base_link), published as /front_camera/* and /back_camera/*.
-- 1.2: head_camera_cpp (retired by the D435 epic) is restored from git history and generalised to one instance per camera (or one node serving both), deployed by Ansible with the ros2_nodes schema.
-- 1.3: Camera names are head (D435) / front / back everywhere: MCP camera enum, web_ui, claude_agent prompt/skills/evals, topics; the D435 epic's "front" (= D435) becomes "head".
-- 1.4: MCP agent images: get_camera_image and related image tools accept head, front, back.
-- 1.5: web_ui shows live front and back streams.
-- 1.6: marker_detector scans front and back as well as the D435.
-- 1.7: READMEs, tests/README.md, MEMORY.md updated; all lint and tests green; deployed to the client.
+### Rung 1: MVP - front camera and the rename
+
+- 1.1: Camera Module 3 (IMX708) on CSI cam0 runs as the body-fixed `front` camera: head_camera_cpp kept or restored as
+  one instance, static TF from base_link, /front_camera/* topics, deployed by Ansible (ros2_nodes schema).
+- 1.2: The D435 is renamed `head` everywhere (MCP camera enum, claude_agent prompt and skills, web_ui labels);
+  get_camera_image accepts head and front.
+- 1.3: Tests, READMEs, tests/README.md and MEMORY.md; lint and tests green; deployed.
+
+### Rung 2: + back camera
+
+- 2.1: A second Camera Module 3 on cam1 (overlay arducam-pivariety -> imx708,cam1) as body-fixed `back`, second
+  instance, /back_camera/*, MCP `back`.
+
+### Rung 3: + web_ui streams
+
+- 3.1: web_ui shows live front and back streams.
+
+### Rung 4: complete - markers, agent and live proof (recommended)
+
+- 4.1: marker_detector scans front and back as well as the D435.
+- 4.2: claude_agent skills and evals use head/front/back; measured CPU and memory of the two cameras on the client
+  (cgroup values from Mimir); live check on the robot.
 
 ## Agreed scope
 
@@ -46,7 +67,10 @@ none recorded in the epic format
 
 ## Open questions
 
-none
+- Q1: Run this plan after realsense-d435-head-switchov's code steps, keeping head_camera_cpp and the cam0 overlay rather than deleting and restoring them (D435 Q8)? [recommended: yes]
+- Q2: The second Camera Module 3 is (or will be) fitted on cam1 in place of the ToF before rung 2 is deployed; until then rung 2 ships code and stops at deploy? [recommended: yes]
+- Q3: The front and back mount poses for the static TF come from the user's tape measurement of the mounted cameras (no CAD guess published)? [recommended: yes]
+- Q4: Both cameras reuse the retired head_camera_cpp profile (1152x648 compressed, no zoom)? [recommended: yes]
 
 ## Research
 
@@ -54,7 +78,8 @@ none recorded in the epic format
 
 ## Irreversible operations
 
-none
+- Client boot config change (cam1 overlay arducam-pivariety -> imx708,cam1) and the reboot it triggers. Safeguard: the
+  reboot-only-on-change rule of ansible/playbooks/tasks/pi_camera_boot_config.yml; the old line is in git.
 
 ## Migrated notes
 

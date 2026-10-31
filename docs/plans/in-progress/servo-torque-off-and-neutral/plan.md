@@ -29,6 +29,20 @@ Web UI controls to release servo torque per group (arm, base steering, head), re
 
 Rung 1, migrated from the epic format: the epic's goals were its agreed scope.
 
+## Remaining
+
+Probed 2026-10-31 on main ef8c93ac. Delivered: every code, Ansible, test and doc step (implementation-plan S1, S4-S16
+done; the bridge, filter_node, swerve, mcp_server, web_ui and runbook commits are on main, e.g. 6fd84b90, 574524bd,
+21911b36, 8d76e3e2, 4a33ae22). No plan branch or worktree exists. What remains:
+
+- R1 (item 1.4): execute `docs/runbooks/servo-torque-neutral.md` on the robot with the user, in its order (deploy,
+  head_pan single-joint bench, head pan, head tilt, steering, arm only on the user's go). Its `## Findings`
+  (docs/runbooks/servo-torque-neutral.md:70-76) and `nodes/bridges/feetech_servos/README.md` `## Bench findings`
+  (:183-189) still read "pending"; they get the three measured answers.
+- R2: the plan-level review and retro.md, then close. Never reviewed as a whole (the migrated Review note is empty).
+- Dropped, not remaining: S2 and S3 are workbench tooling defects (review diff base), outside this repo; S3 was
+  rejected on 2026-10-20 and S2 is the same defect, made moot by the new flow's plan branch.
+
 ## Non-goals
 
 - Drive wheel servos (wheel mode, no neutral).
@@ -145,6 +159,8 @@ blocks or wheels braked), the arm only after the user confirms they support it. 
 - Q1: Arm re-zero excludes the gripper (torque off still releases it), because its fixed open/close steps and the leader gripper mapping would shift? [answer: approved by the user at the gate 2026-10-20 (D11): gripper excluded]
 - Q2: Two steps: Record neutral only captures and previews the shift; the EEPROM is written only by Re-enable torque + save (plus a plain Re-enable torque without saving)? [answer: approved by the user at the gate 2026-10-20 (D13): two-step record then save]
 - Q3: Base torque off releases only the 4 steering servos; the drive wheels stay torqued and braked (robot cannot be pushed by hand)? [answer: approved by the user at the gate 2026-10-20 (D12): steering only, wheels braked]
+- Q4: Drop S2 and S3 (workbench review-diff-base defects, outside this repo) from this plan rather than carry them? [recommended: yes]
+- Q5: Run the robot runbook (R1) in the same robot session as the D435 live checks, with the user present, stopping before the arm stage unless the user says go? [recommended: yes]
 
 ## Research
 

@@ -22,14 +22,25 @@ give a joint_offsets_rad snippet for review and commit, and add an Arm section t
 files are the original plan moved verbatim; re-plan them with ticket.py amend against the parts the head epic
 delivered (head_arm sessions, still capture, sequencer, pose check, head-from-arm fit) before running.
 
+## Status 2026-10-31: obsolete
+
+Absorbed by realsense-d435-head-switchov (docs/research/2026-10-27-d435-user-decisions.md answer 3, "Absorbs todo epic
+arm-joint-offsets-from-the-g"; D435 plan D15). Its tasks were planned for the retired gripper camera and the ToF head;
+they are re-planned there as S26 (done), S41, S52 and S59.
+
 ## Scope ladder
 
-### Rung 1: agreed scope (migrated)
+Rungs are cumulative: each rung includes everything above it.
 
-- 1.1: Fit the arm joint offsets (shoulder_pan fixed as the gauge) from board-on-gripper views with the applied head chain,
-  with sigma, held-out tool-point error and limits that refuse a bad result.
-- 1.2: A joint_offsets_rad snippet for review and commit; never a runtime override.
-- 1.3: An Arm section on the Calibrate page, every big-joint motion confirmed.
+### Rung 1: MVP - close as absorbed (recommended)
+
+- 1.1: Close this plan as superseded by realsense-d435-head-switchov, its three steps mapped: plate solver -> D435 S26
+  (done, shared/ros2_common/head_rgbd_calibration/arm_offsets_fit.py), compute/apply -> D435 S41, Arm UI -> D435 S52;
+  live solve -> D435 S59.
+
+### Rung 2: complete - re-plan here on the D435
+
+- 2.1: Move D435 S41 and S52 out of realsense-d435-head-switchov into this plan and run them here, with the S59 arm part.
 
 ## Agreed scope
 
@@ -53,7 +64,7 @@ The three task files are the original head-and-arm plan; before this epic leaves
 
 ## Open questions
 
-none
+- Q1: Close this plan as absorbed by realsense-d435-head-switchov (user decision 3, 2026-10-27; D435 plan D15) rather than run it? [recommended: yes]
 
 ## Research
 
