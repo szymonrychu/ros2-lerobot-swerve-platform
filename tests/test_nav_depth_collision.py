@@ -28,9 +28,10 @@ DEPTH_SOURCES = ("depth_obstacles", "depth_cliff")
 # collision_monitor source -> the STVL mark source of the local costmap that uses the same height band.
 STVL_BAND = {"depth_obstacles": "depth_mark", "depth_cliff": "depth_cliff_mark"}
 OBSERVATION_SOURCES = ["scan", "depth_obstacles", "depth_cliff"]
-POLYGONS = ["StopBox", "ArmStop", "CliffStop"]
+POLYGONS = ["StopBox", "StopBoxDrive", "ArmStop", "CliffStop"]
 POLYGON_SOURCES = {
     "StopBox": ["scan", "depth_obstacles"],
+    "StopBoxDrive": ["scan", "depth_obstacles"],
     "ArmStop": ["scan"],
     "CliffStop": ["depth_cliff"],
 }

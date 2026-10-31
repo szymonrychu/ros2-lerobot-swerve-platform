@@ -955,7 +955,7 @@ class NavFootprintSettings(StrictModel):
     while the arm is released out of it, the outline grown by the measured arm's ground shadow and an optional carried
     object (a max-reach disc around the arm mount while the arm pose is unknown).
 
-    The geometry numbers (circle_segments .. parked_arm_shadow) are generated into client.yml by
+    The geometry numbers (circle_segments .. drive_arm_shadow) are generated into client.yml by
     scripts/gen_nav_footprint.py from scripts/gen_nav_footprint.yaml, the same values the static Nav2 / laser_filter
     polygons were built with.
     """
@@ -972,6 +972,9 @@ class NavFootprintSettings(StrictModel):
     max_cost_scaling_factor: float = Field(gt=0.0)  # steepest inflation falloff (1/m), lowered to keep cost >= 1
     # Ground shadow of the arm parked at its stored home ([x, y] vertices, base_link): part of the static footprint.
     parked_arm_shadow: list[tuple[float, float]]
+    # Ground shadow of the arm at its drive pose (arm.drive_pose.joints, lifted while a navigation goal runs): the drive
+    # footprint is the body outline + this; empty without a drive pose.
+    drive_arm_shadow: list[tuple[float, float]]
     # geometry_msgs/Polygon footprint inputs of the Nav2 costmaps (Costmap2DROS subscribes `<costmap>/footprint`).
     # The costmap node is `<ns>/<last ns segment>` (/local_costmap/local_costmap) and what it uses comes back on
     # `<ns>/published_footprint`.

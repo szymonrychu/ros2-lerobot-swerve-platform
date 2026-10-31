@@ -1,7 +1,9 @@
 # Config for scripts/gen_nav_footprint.py (validated by its pydantic Settings model).
 # The script derives the Nav2 costmap footprint (top-view H outline of the body + the parked arm), the inflation radius, the
-# collision_monitor StopBox sub-polygons and the laser_filter self polygon, and writes them into the marked regions of
-# nav2_params.yaml and footprint_filter.yaml. tests/test_nav_footprint.py fails when the files and the output differ.
+# collision_monitor StopBox sub-polygons, the drive outline (body + the arm at its drive pose, client.yml mcp_server
+# arm.drive_pose.joints) with its StopBoxDrive, the laser_filter self polygon and the head_aim_cpp footprint box, and
+# writes them into the marked regions of nav2_params.yaml, footprint_filter.yaml, head_aim.yaml and client.yml.
+# tests/test_nav_footprint.py fails when the files and the output differ.
 #
 # Body source: the mcp_server `body:` block in client_vars_path (the arm self-collision model) when it exists, else the
 # `body:` below. Same schema: boxes (centre and size, base_link, m) and vertical cylinders (x, y, radius, z range).
@@ -25,6 +27,7 @@ body:
 client_vars_path: ansible/group_vars/client.yml
 nav2_params_path: nodes/nav2_bringup/config/nav2_params.yaml
 laser_filter_path: nodes/laser_filter/config/footprint_filter.yaml
+head_aim_path: nodes/head_aim_cpp/config/head_aim.yaml
 # Costmap cell size (m): the inflation radius is rounded up to a whole cell.
 costmap_resolution: 0.025
 # Vertices per wheel / lidar circle (multiple of 4). The polygon circumscribes the circle (edges tangent at the axes),

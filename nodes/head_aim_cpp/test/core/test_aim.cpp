@@ -84,8 +84,8 @@ TEST(LeadingEdge, ForwardPicksTheFrontEdge)
 TEST(LeadingEdge, LeftSlidePicksTheLeftEdgeAndRearThePack)
 {
   const FootprintBox box;
-  EXPECT_NEAR(head_aim_cpp::leading_edge_distance({0.0, 1.0}, box), 0.196, TOL);
-  EXPECT_NEAR(head_aim_cpp::leading_edge_distance({0.0, -1.0}, box), 0.196, TOL);
+  EXPECT_NEAR(head_aim_cpp::leading_edge_distance({0.0, 1.0}, box), 0.1958, TOL);
+  EXPECT_NEAR(head_aim_cpp::leading_edge_distance({0.0, -1.0}, box), 0.1958, TOL);
   EXPECT_NEAR(head_aim_cpp::leading_edge_distance({-1.0, 0.0}, box), 0.215, TOL);
 }
 
@@ -93,8 +93,8 @@ TEST(LeadingEdge, DiagonalPicksTheCornerSupport)
 {
   const FootprintBox box;
   const double c = std::sqrt(0.5);
-  EXPECT_NEAR(head_aim_cpp::leading_edge_distance({c, c}, box), (0.3225 + 0.196) * c, TOL);
-  EXPECT_NEAR(head_aim_cpp::leading_edge_distance({c, -c}, box), (0.3225 + 0.196) * c, TOL);
+  EXPECT_NEAR(head_aim_cpp::leading_edge_distance({c, c}, box), (0.3225 + 0.1958) * c, TOL);
+  EXPECT_NEAR(head_aim_cpp::leading_edge_distance({c, -c}, box), (0.3225 + 0.1958) * c, TOL);
 }
 
 TEST(Aim, ForwardPathAimsStraightAheadUpToTheHeadOffset)
@@ -117,7 +117,7 @@ TEST(Aim, LeftSlideAimsNearPlus90)
   const auto path = straight(M_PI / 2.0, 3.0);
   const auto a = aim_path(path, STILL, cfg);
   ASSERT_TRUE(a);
-  // Look point: first point beyond 0.196 + 0.4 = 0.596 m to the left, (0, 0.6); its bearing from the head origin,
+  // Look point: first point beyond 0.1958 + 0.4 = 0.5958 m to the left, (0, 0.6); its bearing from the head origin,
   // atan2(0.5, -0.15) = 106.7 deg, lies past the pan limit by the head x offset, so the pan is clamped to +90 deg.
   const Point2 look = head_aim_cpp::look_point(path, {0.0, 1.0}, cfg.footprint, cfg.lookahead_m);
   EXPECT_NEAR(look.x, 0.0, 1e-9);

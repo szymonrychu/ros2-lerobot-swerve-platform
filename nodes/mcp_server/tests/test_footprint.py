@@ -233,6 +233,16 @@ def test_generated_parked_shadow_is_the_home_pose_shadow() -> None:
     assert [tuple(p) for p in cfg.parked_arm_shadow] == shadow
 
 
+def test_generated_drive_shadow_is_the_drive_pose_shadow() -> None:
+    """client.yml drive_arm_shadow (scripts/gen_nav_footprint.py) is mcp_server's own shadow of arm.drive_pose."""
+    cfg = settings()
+    config = deployed_config()
+    config.arm.urdf_path = McpServerConfig().arm.urdf_path
+    joints = config.arm.drive_pose.joints
+    shadow = parked_arm_shadow(config, joints, cfg.circle_segments, cfg.simplify_m, cfg.decimals)
+    assert shadow and [tuple(p) for p in cfg.drive_arm_shadow] == shadow
+
+
 def test_simplified_arm_extension_contains_the_raw_shadow(tmp_path: Path) -> None:
     """The arm shadow is grown by simplify_m before it is simplified, so simplification never trims it inward."""
     robot = footprint_robot(tmp_path)

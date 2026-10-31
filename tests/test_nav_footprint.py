@@ -20,8 +20,10 @@ from scripts.gen_nav_footprint import (
     Body,
     Generated,
     Settings,
+    body_outline,
     circumscribed_radius,
     cost_scaling_factor,
+    drive_pose_joints,
     footprint_polygon,
     generate,
     inflation_radius,
@@ -31,6 +33,7 @@ from scripts.gen_nav_footprint import (
     offset_polygon,
     region_lines,
     render_client_vars,
+    render_head_aim,
     render_laser_filter,
     render_nav2,
     resolve_body,
@@ -42,6 +45,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 NAV2_PARAMS = REPO_ROOT / "nodes" / "nav2_bringup" / "config" / "nav2_params.yaml"
 LASER_FILTER_PARAMS = REPO_ROOT / "nodes" / "laser_filter" / "config" / "footprint_filter.yaml"
 CLIENT_VARS = REPO_ROOT / "ansible" / "group_vars" / "client.yml"
+HEAD_AIM_PARAMS = REPO_ROOT / "nodes" / "head_aim_cpp" / "config" / "head_aim.yaml"
 # Rounding of the written coordinates (0.1 mm).
 TOL = 1.5e-4
 # A point deep in the front notch (6 cm ahead of the crossbar, >= 3.5 cm from the wheel, frame and lidar) and one in
@@ -52,12 +56,26 @@ REAR_NOTCH = (-0.19, 0.0)
 INSCRIBED_COST = 253
 # The parked gripper reaches this far ahead of the body (the folded arm's jaws overhang the crossbar front).
 PARKED_OVERHANG_M = 0.08
+# Selection ranges of a collision_monitor velocity sub-polygon.
+SUB_POLYGON_KEYS = (
+    "linear_min",
+    "linear_max",
+    "theta_min",
+    "theta_max",
+    "direction_start_angle",
+    "direction_end_angle",
+)
+
+
+def mcp_server_vars() -> dict:
+    """The deployed mcp_server config (client.yml), parsed."""
+    nodes = yaml.safe_load(CLIENT_VARS.read_text())["ros2_nodes"]
+    return yaml.safe_load(next(n for n in nodes if n["name"] == "mcp_server")["config"])
 
 
 def mcp_nav_footprint() -> dict:
     """The nav_footprint block of the deployed mcp_server config (client.yml)."""
-    nodes = yaml.safe_load(CLIENT_VARS.read_text())["ros2_nodes"]
-    config = yaml.safe_load(next(n for n in nodes if n["name"] == "mcp_server")["config"])
+    config = mcp_server_vars()
     return {k: v for k, v in config["nav_footprint"].items() if k in generated().mcp_nav_footprint}
 
 
@@ -224,9 +242,11 @@ def test_parked_arm_shadow_needs_the_mcp_server_arm_config(tmp_path: Path) -> No
     settings = load_settings(cfg)
     gen = generate(settings, REPO_ROOT)
     assert gen.mcp_nav_footprint["parked_arm_shadow"] == []
+    assert gen.mcp_nav_footprint["drive_arm_shadow"] == []
     assert gen.footprint == footprint_polygon(
         settings.body, settings.circle_segments, settings.close_gap_m, settings.decimals
     )
+    assert gen.drive_footprint == gen.footprint
 
 
 def test_footprint_hugs_the_body_parts() -> None:
@@ -547,6 +567,7 @@ def test_mcp_nav_footprint_numbers_come_from_the_generator_config() -> None:
         "costmap_resolution": settings.costmap_resolution,
         "max_cost_scaling_factor": settings.max_cost_scaling_factor,
         "parked_arm_shadow": generated().mcp_nav_footprint["parked_arm_shadow"],
+        "drive_arm_shadow": generated().mcp_nav_footprint["drive_arm_shadow"],
     }
 
 
@@ -593,22 +614,26 @@ def test_main_writes_the_files_and_is_idempotent(tmp_path: Path) -> None:
     """Changing a body number and re-running rewrites only the generated regions, consistently in both files."""
     nav2 = tmp_path / "nav2_params.yaml"
     laser = tmp_path / "footprint_filter.yaml"
+    head_aim = tmp_path / "head_aim.yaml"
     shutil.copy(NAV2_PARAMS, nav2)
     shutil.copy(LASER_FILTER_PARAMS, laser)
+    shutil.copy(HEAD_AIM_PARAMS, head_aim)
     config = yaml.safe_load(DEFAULT_CONFIG.read_text())
     config["client_vars_path"] = str(tmp_path / "no_client.yml")  # no client.yml: the yaml body, region skipped
     config["nav2_params_path"] = str(nav2)
     config["laser_filter_path"] = str(laser)
+    config["head_aim_path"] = str(head_aim)
     for c in config["body"]["cylinders"]:
         if c["name"].startswith("wheel"):
             c["radius"] = 0.07
     cfg = tmp_path / "gen.yaml"
     cfg.write_text(yaml.safe_dump(config))
     assert main([str(cfg)]) == 0
-    first = (nav2.read_text(), laser.read_text())
+    first = (nav2.read_text(), laser.read_text(), head_aim.read_text())
     assert first[0] != NAV2_PARAMS.read_text()
+    assert first[2] != HEAD_AIM_PARAMS.read_text(), "the bigger wheels widen the head_aim box"
     assert main([str(cfg)]) == 0
-    assert (nav2.read_text(), laser.read_text()) == first
+    assert (nav2.read_text(), laser.read_text(), head_aim.read_text()) == first
     doc = yaml.safe_load(first[0])
     p = doc["local_costmap"]["local_costmap"]["ros__parameters"]
     footprint = Polygon(yaml.safe_load(p["footprint"]))
@@ -624,3 +649,120 @@ def test_mcp_nav_footprint_lines_fit_the_yaml_lint_limit() -> None:
     lines = region_lines("mcp_nav_footprint", gen)
     assert max(len(line) for line in lines) <= 100
     assert yaml.safe_load("\n".join(lines))["parked_arm_shadow"] == gen.mcp_nav_footprint["parked_arm_shadow"]
+
+
+# --- drive pose footprint (arm lifted while driving) -----------------------------------------------------------
+
+
+def test_drive_pose_is_read_from_the_client_vars_mcp_server_arm() -> None:
+    """The generator takes the drive pose from client.yml mcp_server `arm.drive_pose.joints` (one source)."""
+    settings = load_settings(DEFAULT_CONFIG)
+    assert drive_pose_joints(settings, REPO_ROOT) == mcp_server_vars()["arm"]["drive_pose"]["joints"]
+
+
+def test_drive_pose_needs_the_mcp_server_arm_config(tmp_path: Path) -> None:
+    client = tmp_path / "ansible" / "group_vars" / "client.yml"
+    client.parent.mkdir(parents=True)
+    write_client_vars(client, {"server": {"port": 1}})
+    assert drive_pose_joints(load_settings(DEFAULT_CONFIG), tmp_path) == {}
+
+
+def test_drive_arm_shadow_lands_in_the_mcp_nav_footprint_region() -> None:
+    gen = generated()
+    shadow = gen.mcp_nav_footprint["drive_arm_shadow"]
+    assert len(shadow) >= MIN_POLYGON_POINTS and Polygon(shadow).is_valid
+    assert mcp_nav_footprint()["drive_arm_shadow"] == shadow
+    lines = region_lines("mcp_nav_footprint", gen)
+    assert max(len(line) for line in lines) <= 100
+    assert yaml.safe_load("\n".join(lines))["drive_arm_shadow"] == shadow
+
+
+def test_drive_outline_is_the_body_and_the_drive_shadow() -> None:
+    settings, body = settings_and_body()
+    gen = generated()
+    outline = body_outline(body.boxes, body.cylinders, settings.circle_segments, settings.close_gap_m)
+    drive = Polygon(gen.drive_footprint)
+    assert LinearRing(gen.drive_footprint).is_simple and LinearRing(gen.drive_footprint).is_ccw
+    assert drive.buffer(TOL).contains(outline)
+    assert drive.buffer(TOL).contains(Polygon(gen.mcp_nav_footprint["drive_arm_shadow"]))
+
+
+def drive_tolerance_m() -> float:
+    """How far the drive outline may reach past the static one: the drive pose check (mcp_server drive_pose_check,
+    like the footprint tick) holds the raw arm shadow to the static outline + simplify_m, and the written shadow is
+    grown by simplify_m like the parked one.
+
+    Returns:
+        float: Tolerance (m).
+    """
+    return 2 * load_settings(DEFAULT_CONFIG).dynamic_simplify_m + TOL
+
+
+def test_drive_outline_lies_inside_the_static_one_with_the_front_edge_behind() -> None:
+    """The lifted arm drops the parked gripper overhang: the drive outline is inside the static outline (the arm over
+    the crossbar rear edge reaches into the rear notch by the grow margin only) and its front edge is behind the static
+    front edge."""
+    gen = generated()
+    static, drive = Polygon(gen.footprint), Polygon(gen.drive_footprint)
+    assert static.buffer(drive_tolerance_m()).contains(drive)
+    assert drive.difference(static).area < 2e-4, "only a grow-margin sliver lies outside"
+    assert drive.bounds[2] < static.bounds[2] - 0.05
+    assert drive.area < static.area
+
+
+def test_stopbox_drive_is_the_stopbox_of_the_drive_outline() -> None:
+    settings = load_settings(DEFAULT_CONFIG)
+    gen = generated()
+    assert gen.stopbox_drive == stopbox_polygons(gen.drive_footprint, settings.stopbox_margin_m, settings.decimals)
+    assert list(gen.stopbox_drive) == list(gen.stopbox)
+    for name, sub in gen.stopbox_drive.items():
+        assert len(sub["points"]) >= MIN_POLYGON_POINTS, name
+        assert Polygon(gen.stopbox[name]["points"]).buffer(drive_tolerance_m()).contains(Polygon(sub["points"])), name
+
+
+def test_nav2_stopbox_drive_is_wired_disabled_and_listed() -> None:
+    """mcp_server enables StopBoxDrive before disabling StopBox while the arm is at the drive pose (the velocity
+    polygons are static parameters): same sectors, kind and sources as StopBox, off at start."""
+    params = yaml.safe_load(NAV2_PARAMS.read_text())["collision_monitor"]["ros__parameters"]
+    stop, drive = params["StopBox"], params["StopBoxDrive"]
+    assert "StopBoxDrive" in params["polygons"]
+    assert drive["enabled"] is False
+    for key in ("type", "action_type", "min_points", "visualize", "holonomic", "sources_names", "velocity_polygons"):
+        assert drive[key] == stop[key], key
+    gen = generated()
+    for name, sub in gen.stopbox_drive.items():
+        points = yaml.safe_load(drive[name]["points"])
+        assert len(points) >= MIN_POLYGON_POINTS, name
+        assert [tuple(p) for p in points] == sub["points"], name
+        for key in SUB_POLYGON_KEYS:
+            assert drive[name][key] == stop[name][key], f"{name}.{key}"
+
+
+def test_head_aim_box_region_is_the_static_outline_bounding_box() -> None:
+    gen = generated()
+    xs, ys = [p[0] for p in gen.footprint], [p[1] for p in gen.footprint]
+    region = yaml.safe_load("\n".join(region_lines("head_aim_box", gen)))
+    assert region == {
+        "footprint_min_x": min(xs),
+        "footprint_max_x": max(xs),
+        "footprint_min_y": min(ys),
+        "footprint_max_y": max(ys),
+    }
+
+
+def test_head_aim_equals_the_generator_output() -> None:
+    text = HEAD_AIM_PARAMS.read_text()
+    assert render_head_aim(text, generated()) == text, "run: uv run python scripts/gen_nav_footprint.py"
+
+
+def test_rerunning_the_generator_is_a_no_op() -> None:
+    """Every generated file already holds the generator output: a re-run changes nothing."""
+    gen = generated()
+    for path, render in (
+        (NAV2_PARAMS, render_nav2),
+        (LASER_FILTER_PARAMS, render_laser_filter),
+        (CLIENT_VARS, render_client_vars),
+        (HEAD_AIM_PARAMS, render_head_aim),
+    ):
+        text = path.read_text()
+        assert render(render(text, gen), gen) == text, path.name

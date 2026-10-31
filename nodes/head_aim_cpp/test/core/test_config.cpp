@@ -55,8 +55,8 @@ TEST(Config, ShippedYamlLoadsWithoutErrors)
   EXPECT_DOUBLE_EQ(c.yield_s, 10.0);
   EXPECT_DOUBLE_EQ(c.footprint.min_x, -0.215);
   EXPECT_DOUBLE_EQ(c.footprint.max_x, 0.3225);
-  EXPECT_DOUBLE_EQ(c.footprint.min_y, -0.196);
-  EXPECT_DOUBLE_EQ(c.footprint.max_y, 0.196);
+  EXPECT_DOUBLE_EQ(c.footprint.min_y, -0.1958);
+  EXPECT_DOUBLE_EQ(c.footprint.max_y, 0.1958);
   EXPECT_DOUBLE_EQ(c.lookahead_m, 0.4);
   EXPECT_DOUBLE_EQ(c.floor_margin_m, 0.05);
   EXPECT_DOUBLE_EQ(c.pan_min_rad, -1.5708);

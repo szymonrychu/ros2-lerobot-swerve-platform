@@ -31,8 +31,8 @@ struct FootprintBox
 {
   double min_x = -0.215;
   double max_x = 0.3225;
-  double min_y = -0.196;
-  double max_y = 0.196;
+  double min_y = -0.1958;
+  double max_y = 0.1958;
 };
 
 // Every setting of the node; the defaults equal config/head_aim.yaml.

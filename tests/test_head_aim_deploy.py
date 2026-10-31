@@ -28,7 +28,9 @@ BASE_NODE = "base_servos"
 STEPS_PER_TURN = 4096
 STEP_CENTER = 2048
 STEP_TOLERANCE_RAD = 2 * math.pi / STEPS_PER_TURN
-FOOTPRINT_TOLERANCE_M = 5e-4  # the config rounds the box to 3 decimals (0.1958 -> 0.196)
+FOOTPRINT_KEYS = ("footprint_min_x", "footprint_max_x", "footprint_min_y", "footprint_max_y")
+REGION_BEGIN = "# >>> gen_nav_footprint: head_aim_box"
+REGION_END = "# <<< gen_nav_footprint: head_aim_box"
 TIER = {"cpu_weight": 500, "io_weight": 500, "oom_score_adjust": -500, "memory_low": "32M", "memory_max": "96M"}
 REQUIRED_APT_PACKAGES = (
     "build-essential",
@@ -185,14 +187,35 @@ def test_yield_sources_are_exactly_the_other_direct_sources() -> None:
     assert set(config["yield_sources"]) == set(sources) - {config["source_tag"]}
 
 
+def generated_region(text: str) -> dict:
+    """The keys inside the head_aim_box region a file carries (scripts/gen_nav_footprint.py writes it).
+
+    Args:
+        text (str): File content.
+
+    Returns:
+        dict: The parsed region.
+    """
+    lines = [line.strip() for line in text.splitlines()]
+    begin, end = lines.index(REGION_BEGIN), lines.index(REGION_END)
+    return yaml.safe_load("\n".join(lines[begin + 1 : end]))
+
+
 def test_footprint_box_equals_the_generated_real_outline_bounding_box() -> None:
-    """head_aim aims past the real body edge: the unshrunk generator outline, not the tolerance-shrunk costmap one."""
+    """head_aim aims past the real body edge: the unshrunk generator outline, not the tolerance-shrunk costmap one. The
+    box lives in the generated head_aim_box region of head_aim.yaml (and the client.yml entry, equal to it)."""
     outline = generate(load_settings(DEFAULT_GEN_CONFIG), REPO_ROOT).footprint
     xs, ys = [p[0] for p in outline], [p[1] for p in outline]
+    expected = {
+        "footprint_min_x": min(xs),
+        "footprint_max_x": max(xs),
+        "footprint_min_y": min(ys),
+        "footprint_max_y": max(ys),
+    }
+    for text in (DEFAULTS.read_text(), next(n for n in client_vars()["ros2_nodes"] if n["name"] == NAME)["config"]):
+        assert generated_region(text) == expected
     config = entry_config(NAME)
-    box = (config["footprint_min_x"], config["footprint_max_x"], config["footprint_min_y"], config["footprint_max_y"])
-    expected = (min(xs), max(xs), min(ys), max(ys))
-    assert all(math.isclose(a, b, abs_tol=FOOTPRINT_TOLERANCE_M) for a, b in zip(box, expected, strict=True))
+    assert {key: config[key] for key in FOOTPRINT_KEYS} == expected
 
 
 def test_footprint_box_is_larger_than_the_shrunk_costmap_footprint() -> None:
