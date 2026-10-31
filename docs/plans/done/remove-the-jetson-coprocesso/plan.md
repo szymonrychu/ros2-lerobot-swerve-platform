@@ -1,71 +1,48 @@
-# Remove the Jetson coprocessor design
+---
+title: Remove the Jetson coprocessor
+repos: [ros2-lerobot-sverve-platform]
+created: 2026-10-18
+owner: Szymon Richert
+rung: 1
+---
 
-## Summary
+# Remove the Jetson coprocessor
 
-The Jetson Nano leaves the robot, so everything that exists only for it is deleted: the `jetson/` tree, the
-`jetson_base`, `jetson_depthd` and `jetson_link` roles, the `jetson` deploy target, `nodes/jetson_bridge_cpp`, the
-retired Pi-side `stereo_depth` / `stereo_depth_cpp` sources, `depth_wire` in `ros2_common_cpp`, and every `/stereo/*`
-and `/overview_camera/*` consumer. The web_ui Head tab shows the Arducam ToF (depth + amplitude) with RGB from the Camera Module 3 head camera; the Arm tab
-and mcp_server use `/front_camera/image_raw/compressed`; the Overview tab and the stereo calibration proxy go. On the
-client, `jetson_bridge_cpp` becomes a `present: false` entry whose uninstall also purges its colcon output, and the
-client side of the Jetson cable is undone by an idempotent removal under the existing `jetson_link` tag, with chrony
-kept on plain internet pools.
+## What and why
 
-## Intent and why
+What: Remove all Jetson and stereo-vision code and deployment; Head tab shows the ToF
+How: Delete trees, re-point consumers, add client uninstall tasks, keep suites green, deploy
+Why: The Jetson hardware is leaving the robot; the ToF replaces stereo depth
 
-The user is physically removing the Jetson; the ToF camera (arducam_tof, CSI cam1) replaces stereo depth. Dead code,
-dead deploy paths and a Head tab pointed at topics nobody publishes would mislead every later change and leave
-NAT/forwarding/static-IP state on the Pi that no longer serves anything. Doing it now, while the inventory is fresh
-(discovery brief), keeps the removal complete and the deployed client clean.
+The Jetson Nano vision coprocessor is leaving the robot. Everything that exists only for it goes: the jetson/ tree (depthd, stereo calibration, models), the jetson_base, jetson_depthd and jetson_link Ansible roles, the jetson deploy target, the jetson_bridge_cpp node, the retired Pi-side stereo_depth and stereo_depth_cpp nodes, and every /stereo/* and /overview_camera/* consumer. The web UI Head tab shows the Arducam ToF (depth + amplitude) instead, and the deployed client is cleaned up: jetson_bridge_cpp uninstalled with its colcon output purged, and the client side of the Jetson Ethernet link undone.
 
-## Goals
+## Scope ladder
 
-- No Jetson code, roles, playbooks, deploy target, scripts, CI jobs, tests or live docs remain (docs/plans archive
-  untouched); a suite test greps for live references against a categorised allowlist.
-- `nodes/stereo_depth`, `nodes/stereo_depth_cpp` (and their node_cpu_compare entry) and `depth_wire` are deleted.
-- Head tab: `/tof/depth/image_raw` + `/tof/amplitude/image_raw`, RGB `/front_camera/image_raw/compressed`; `fused_depth_topic` and the raw/fused toggle
-  removed from backend and frontend code.
-- Arm tab and mcp_server `front` camera on `/front_camera/image_raw/compressed`; Overview tab removed.
-- Calibrate page IMU-only: no `depthd_url`, no stereo proxy, no `stereoApi`.
-- `jetson_bridge_cpp` stays as a `present: false` entry; its uninstall purges `/opt/ros2-ws/{src,build,install}/jetson_bridge_cpp`
-  and the `.built-jetson_bridge_cpp-*` stamps.
-- Client jetson_link state removed idempotently (eth0 static stanza, hosts line, ip_forward drop-in, nftables
-  table/file/include); chrony kept with plain pools.
-- `network_link_ethernets` / `network_netplan_superseded_files` and monitoring `host_targets` / `target.host` removed.
-- All suites green, docs/MEMORY/skills updated, client deployed.
+### Rung 1: agreed scope (migrated)
+
+- 1.1: No Jetson code, roles, playbooks, deploy target, scripts, CI jobs, tests or live docs remain (docs/plans archive files stay untouched).
+- 1.2: nodes/stereo_depth and nodes/stereo_depth_cpp sources are deleted (and their node_cpu_compare entries); shared/ros2_common_cpp/depth_wire.hpp is deleted.
+- 1.3: The web_ui Head tab is configured with /tof/depth/image_raw and /tof/amplitude/image_raw (camera_info /tof/camera_info) and no RGB; the fused-depth topic and raw/fused toggle are removed from the code, not just config.
+- 1.4: The Arm tab and mcp_server / claude_agent use /front_camera/image_raw/compressed instead of /overview_camera; the web_ui "Overview" tab is removed.
+- 1.5: The web_ui Calibrate page is IMU-only: depthd_url and the stereo calibration proxy and frontend stereoApi are gone; CalibrationConfig no longer requires depthd_url.
+- 1.6: jetson_bridge_cpp stays as a ros2_nodes entry with present: false so the next deploy uninstalls it; the uninstall also purges its colcon build/install output and stamps from /opt/ros2-ws.
+- 1.7: The client side of jetson_link is undone by an idempotent removal task: eth0 netplan stanza, /etc/hosts entry, ip_forward sysctl, nftables NAT/forward rules; chrony stays on the client with plain internet pools (no Jetson serving).
+- 1.8: The network role's extra-Ethernet-link support (network_link_ethernets / network_netplan_superseded_files) and the monitoring host_targets / target.host support are removed as Jetson-only features.
+- 1.9: All suites green: root pytest, uv run poe lint, lint-nodes, lint-ansible, test-ansible, web_ui pytest + frontend tests/build, mcp_server pytest; READMEs, tests/README.md, MEMORY.md and .claude/skills updated; client deployed.
+
+## Agreed scope
+
+Rung 1, migrated from the epic format: the epic's goals were its agreed scope.
 
 ## Non-goals
 
-- Fixing Arducam ToF frame capture on the Pi 5 kernel (tracked separately).
-- Rewriting `docs/plans` or `docs/superpowers` archive files.
-- Removing the retired `overview_camera` entry or `pi_cameras`; the retired `stereo_depth` / `stereo_depth_cpp`
-  `present: false` entries and playbook blocks also stay (uninstall path, D7).
-- Purging `ros2_common_cpp` from the client workspace: `map_guard_cpp` (present, enabled) still builds against it.
+- Fixing the Arducam ToF frame capture on the Pi 5 kernel (tracked separately).
+- Rewriting docs/plans archive files.
+- Removing nodes/overview_camera's retired entry or pi_cameras.
 
-## Anti-goals
+## Design
 
-- Leaving any suite red between tasks or at the end (every task verifies its own targeted tests).
-- Breaking the IMU calibration routes while deleting the stereo proxy they import helpers from.
-- A removal that is not idempotent, or that touches host state the Jetson link did not create (e.g. disabling the
-  nftables service, or forcing `ip_forward=0` while docker runs).
-- Rebuilding libcamera / camera_ros on the client: the `nodes/pi_cameras/patches` content (which still names
-  `overview_camera` as maintainer) is part of the pi_cameras build stamp and is not edited.
-- Scope growth: no new features on the Head tab beyond what the goals name.
-
-## Constraints
-
-- Repo conventions (CLAUDE.md): type hints, pydantic config, tests for each change, tests/README.md updated with every
-  test change, READMEs per area, semantic commits, push to main, deploy only via `scripts/deploy-nodes.sh` logged to
-  `.logs/` after the ansible-deploy skill; never run `ansible-playbook` against a host directly.
-- Ansible must keep `name`/`node_type`/`present`/`enabled`/`config` for every node; `uv run poe test-ansible` green.
-- Verification commands: root `uv run pytest tests/ -q`, `uv run poe lint`, `uv run poe lint-nodes`,
-  `uv run poe test-ansible`, `uv run poe test-cpp` (docker, available); web_ui
-  `cd nodes/web_ui && uv run --frozen pytest tests -q && uv run --frozen poe lint`; frontend
-  `cd nodes/web_ui/frontend && npx tsc --noEmit && npm test && npm run lint && npm run build` (package.json scripts:
-  `test` = `vitest run`, `build` = `tsc && vite build`, `lint` = eslint); mcp_server
-  `cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint`.
-- Deploying mcp_server/claude_agent kills a running agent session (user memory): check before deploying.
-- Baseline today: root 1185 passed / 9 skipped, web_ui 765, mcp_server 2464, frontend 898 tests.
+Migrated from the epic format; the design sections without a plan.md heading are under Migrated notes.
 
 ## Decisions
 
@@ -184,6 +161,10 @@ Tasks run in worktrees before merge, so the deploy (and the local untracked edit
 `tests/README.md`, `ansible/README.md`, `client.yml` and `nodes/web_ui/README.md` are shared by nearly every task, so
 tasks run in one dependency chain (my call). Serves: G9.
 
+## Open questions
+
+none
+
 ## Research
 
 | Lens | Ran / skipped | Adopted | Rejected |
@@ -194,7 +175,7 @@ tasks run in one dependency chain (my call). Serves: G9.
 | research-papers | skipped: no algorithmic core | - | - |
 | research-docs | skipped: no library used in a new way; the chrony role reuses the existing chrony.conf directives and the purge uses core `file`/`find` modules already used in the repo | - | - |
 
-## Research inputs
+### Research inputs
 
 | Source | Entry | Lands in |
 |---|---|---|
@@ -231,7 +212,95 @@ tasks run in one dependency chain (my call). Serves: G9.
 | discovery brief, 3 | Head tab schema and arducam_tof topics | drop-fused-depth-topic, head-tab-tof-topics, head-and-arm-tabs-frontend |
 | discovery brief, 4 | verification commands and baselines | final-suite-and-grep |
 
-## Decision coverage
+## Irreversible operations
+
+- Deleting tracked trees (`jetson/`, three roles, `nodes/jetson_bridge_cpp`, `nodes/stereo_depth`,
+  `nodes/stereo_depth_cpp`, depth_wire files, Jetson tests and scripts): recoverable from git history; approved by the
+  README goals and decision 1.
+- On the client (post-merge deploy): uninstalling `jetson_bridge_cpp` and purging its colcon output (rebuildable from
+  history), removing the jetson_link hosts/sysctl/nftables/netplan state and rewriting chrony.conf: approved by
+  decisions 3, 7, 8 and the README goals.
+- Local untracked edits: the `[jetson]` group in `ansible/inventory` and the untracked `nodes/overview_camera/`
+  pycache directory (not in git; regenerable).
+
+## Migrated notes
+
+### README.md: Review
+
+Filled when the epic reaches stage `review`: the verdict, the findings acted on, the findings dropped.
+
+Verdict: pass (2026-10-18)
+
+All 26 tasks verified and merged across 8 runs (orchestrator rulings recorded on escalated tasks: verifier/process gates only). Main after the final merge: root 1222 passed, lint clean, test-ansible ok, web_ui 726, frontend 876, mcp_server 2464; tests/test_jetson_retired.py greps the tree for leftovers. Robot deploy follows (runbook in final-suite-and-grep).
+
+### design.md: Summary
+
+The Jetson Nano leaves the robot, so everything that exists only for it is deleted: the `jetson/` tree, the
+`jetson_base`, `jetson_depthd` and `jetson_link` roles, the `jetson` deploy target, `nodes/jetson_bridge_cpp`, the
+retired Pi-side `stereo_depth` / `stereo_depth_cpp` sources, `depth_wire` in `ros2_common_cpp`, and every `/stereo/*`
+and `/overview_camera/*` consumer. The web_ui Head tab shows the Arducam ToF (depth + amplitude) with RGB from the Camera Module 3 head camera; the Arm tab
+and mcp_server use `/front_camera/image_raw/compressed`; the Overview tab and the stereo calibration proxy go. On the
+client, `jetson_bridge_cpp` becomes a `present: false` entry whose uninstall also purges its colcon output, and the
+client side of the Jetson cable is undone by an idempotent removal under the existing `jetson_link` tag, with chrony
+kept on plain internet pools.
+
+### design.md: Intent and why
+
+The user is physically removing the Jetson; the ToF camera (arducam_tof, CSI cam1) replaces stereo depth. Dead code,
+dead deploy paths and a Head tab pointed at topics nobody publishes would mislead every later change and leave
+NAT/forwarding/static-IP state on the Pi that no longer serves anything. Doing it now, while the inventory is fresh
+(discovery brief), keeps the removal complete and the deployed client clean.
+
+### design.md: Goals
+
+- No Jetson code, roles, playbooks, deploy target, scripts, CI jobs, tests or live docs remain (docs/plans archive
+  untouched); a suite test greps for live references against a categorised allowlist.
+- `nodes/stereo_depth`, `nodes/stereo_depth_cpp` (and their node_cpu_compare entry) and `depth_wire` are deleted.
+- Head tab: `/tof/depth/image_raw` + `/tof/amplitude/image_raw`, RGB `/front_camera/image_raw/compressed`; `fused_depth_topic` and the raw/fused toggle
+  removed from backend and frontend code.
+- Arm tab and mcp_server `front` camera on `/front_camera/image_raw/compressed`; Overview tab removed.
+- Calibrate page IMU-only: no `depthd_url`, no stereo proxy, no `stereoApi`.
+- `jetson_bridge_cpp` stays as a `present: false` entry; its uninstall purges `/opt/ros2-ws/{src,build,install}/jetson_bridge_cpp`
+  and the `.built-jetson_bridge_cpp-*` stamps.
+- Client jetson_link state removed idempotently (eth0 static stanza, hosts line, ip_forward drop-in, nftables
+  table/file/include); chrony kept with plain pools.
+- `network_link_ethernets` / `network_netplan_superseded_files` and monitoring `host_targets` / `target.host` removed.
+- All suites green, docs/MEMORY/skills updated, client deployed.
+
+### design.md: Non-goals
+
+- Fixing Arducam ToF frame capture on the Pi 5 kernel (tracked separately).
+- Rewriting `docs/plans` or `docs/superpowers` archive files.
+- Removing the retired `overview_camera` entry or `pi_cameras`; the retired `stereo_depth` / `stereo_depth_cpp`
+  `present: false` entries and playbook blocks also stay (uninstall path, D7).
+- Purging `ros2_common_cpp` from the client workspace: `map_guard_cpp` (present, enabled) still builds against it.
+
+### design.md: Anti-goals
+
+- Leaving any suite red between tasks or at the end (every task verifies its own targeted tests).
+- Breaking the IMU calibration routes while deleting the stereo proxy they import helpers from.
+- A removal that is not idempotent, or that touches host state the Jetson link did not create (e.g. disabling the
+  nftables service, or forcing `ip_forward=0` while docker runs).
+- Rebuilding libcamera / camera_ros on the client: the `nodes/pi_cameras/patches` content (which still names
+  `overview_camera` as maintainer) is part of the pi_cameras build stamp and is not edited.
+- Scope growth: no new features on the Head tab beyond what the goals name.
+
+### design.md: Constraints
+
+- Repo conventions (CLAUDE.md): type hints, pydantic config, tests for each change, tests/README.md updated with every
+  test change, READMEs per area, semantic commits, push to main, deploy only via `scripts/deploy-nodes.sh` logged to
+  `.logs/` after the ansible-deploy skill; never run `ansible-playbook` against a host directly.
+- Ansible must keep `name`/`node_type`/`present`/`enabled`/`config` for every node; `uv run poe test-ansible` green.
+- Verification commands: root `uv run pytest tests/ -q`, `uv run poe lint`, `uv run poe lint-nodes`,
+  `uv run poe test-ansible`, `uv run poe test-cpp` (docker, available); web_ui
+  `cd nodes/web_ui && uv run --frozen pytest tests -q && uv run --frozen poe lint`; frontend
+  `cd nodes/web_ui/frontend && npx tsc --noEmit && npm test && npm run lint && npm run build` (package.json scripts:
+  `test` = `vitest run`, `build` = `tsc && vite build`, `lint` = eslint); mcp_server
+  `cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint`.
+- Deploying mcp_server/claude_agent kills a running agent session (user memory): check before deploying.
+- Baseline today: root 1185 passed / 9 skipped, web_ui 765, mcp_server 2464, frontend 898 tests.
+
+### design.md: Decision coverage
 
 | Decision | Tasks |
 |---|---|
@@ -251,7 +320,7 @@ tasks run in one dependency chain (my call). Serves: G9.
 | D14 Deploy runbook after merge | final-suite-and-grep, docs-and-memory-sweep |
 | D15 Linear chain | final-suite-and-grep |
 
-## Contracts
+### design.md: Contracts
 
 | Part | Owner | Consumers | Where defined |
 |---|---|---|---|
@@ -261,7 +330,7 @@ tasks run in one dependency chain (my call). Serves: G9.
 | `calibration-config-endpoint` | move-calibrate-config-to-imu | calibrate-page-imu-only | `nodes/web_ui/web_ui/imu_calibration.py` |
 | `arm-front-camera-field` | arm-tab-front-camera-field | head-and-arm-tabs-frontend | `nodes/web_ui/web_ui/config.py` |
 
-## Review focus
+### design.md: Review focus
 
 - `colcon_purge.yml`: removes only the named package's src/build/install and its own stamps; never `install/setup.bash`,
   the workspace root or `ros2_common_cpp`.
@@ -273,7 +342,7 @@ tasks run in one dependency chain (my call). Serves: G9.
 - `test_mcp_server_config.py` couples client.yml, both node READMEs and mcp_server sources: each task that edits one
   of those keeps it green.
 
-## Left to the builder
+### design.md: Left to the builder
 
 - Exact wording of README/MEMORY/SKILL text, within the facts in this design.
 - Whether `STANDALONE_CPP_TYPES` in `test_cpp_node_deploy.py` becomes empty or is removed with its parametrized tests.
@@ -281,7 +350,7 @@ tasks run in one dependency chain (my call). Serves: G9.
   is preferred; a static YAML check is the minimum, and both the include and the mapping must be asserted).
 - The allowlist entries of the final grep test, within the categories in final-suite-and-grep.
 
-## Assumptions and unknowns
+### design.md: Assumptions and unknowns
 
 - After the network role re-renders without the link, eth0 comes up as a DHCP `optional` secondary and wlan0 stays
   primary (not verified): confirmed after deploy with a read-only `ansible client -m command -a "ip -4 addr show eth0"`.
@@ -293,13 +362,22 @@ tasks run in one dependency chain (my call). Serves: G9.
 - The front Camera Module 3 is where mcp_server's "fixed overhead" wording says (mount `null`, no calibration to
   invalidate); a user look at `/front_camera` in the Front tab after deploy confirms it.
 
-## Irreversible operations in scope
+### approvals.json
 
-- Deleting tracked trees (`jetson/`, three roles, `nodes/jetson_bridge_cpp`, `nodes/stereo_depth`,
-  `nodes/stereo_depth_cpp`, depth_wire files, Jetson tests and scripts): recoverable from git history; approved by the
-  README goals and decision 1.
-- On the client (post-merge deploy): uninstalling `jetson_bridge_cpp` and purging its colcon output (rebuildable from
-  history), removing the jetson_link hosts/sysctl/nftables/netplan state and rewriting chrony.conf: approved by
-  decisions 3, 7, 8 and the README goals.
-- Local untracked edits: the `[jetson]` group in `ansible/inventory` and the untracked `nodes/overview_camera/`
-  pycache directory (not in git; regenerable).
+- G1: No Jetson code, roles, playbooks, deploy target, scripts, CI jobs, tests or live docs remain (docs/plans archive files stay untouched). [decisions: D8, D11, D12] [tasks: remove-jetson-deploy-target, delete-jetson-tree, delete-jetson-host-roles, retire-jetson-bridge-entry, delete-jetson-bridge-sources, remove-jetson-link-on-client, docs-and-memory-sweep, final-suite-and-grep] [status: approved]
+- G2: nodes/stereo_depth and nodes/stereo_depth_cpp sources are deleted (and their node_cpu_compare entries); shared/ros2_common_cpp/depth_wire.hpp is deleted. [decisions: D1, D13] [tasks: delete-stereo-depth-node, delete-stereo-depth-cpp-node, drop-depth-wire-and-zstd] [status: approved]
+- G3: The web_ui Head tab is configured with /tof/depth/image_raw and /tof/amplitude/image_raw (camera_info /tof/camera_info) and the head RGB camera /front_camera/image_raw/compressed (user, 2026-10-18: Camera Module 3 + ToF form the pan/tilt head; no separate front/back cameras); the fused-depth topic and raw/fused toggle are removed from the code, not just config. [decisions: D2, D5] [tasks: drop-fused-depth-topic, head-tab-tof-topics, head-and-arm-tabs-frontend] [status: approved]
+- G4: The Arm tab and mcp_server / claude_agent use /front_camera/image_raw/compressed instead of /overview_camera; the web_ui Overview tab is removed. [decisions: D6] [tasks: mcp-front-camera-topic, remove-overview-tab, arm-tab-front-camera-field, head-and-arm-tabs-frontend] [status: approved]
+- G5: The web_ui Calibrate page is IMU-only: depthd_url and the stereo calibration proxy and frontend stereoApi are gone; CalibrationConfig no longer requires depthd_url. [decisions: D7] [tasks: move-calibrate-config-to-imu, calibration-config-no-depthd, calibrate-page-imu-only] [status: approved]
+- G6: jetson_bridge_cpp stays as a ros2_nodes entry with present: false so the next deploy uninstalls it; the uninstall also purges its colcon build/install output and stamps from /opt/ros2-ws. [decisions: D8, D9] [tasks: purge-colcon-on-uninstall, retire-jetson-bridge-entry] [status: approved]
+- G7: The client side of jetson_link is undone by an idempotent removal task: eth0 netplan stanza, /etc/hosts entry, ip_forward sysctl, nftables NAT/forward rules; chrony stays on the client with plain internet pools (no Jetson serving). [decisions: D3, D10] [tasks: client-chrony-role, remove-jetson-link-on-client, drop-network-link-support] [status: approved]
+- G8: The network role's extra-Ethernet-link support (network_link_ethernets / network_netplan_superseded_files) and the monitoring host_targets / target.host support are removed as Jetson-only features. [decisions: D4] [tasks: drop-network-link-support, drop-monitoring-host-targets] [status: approved]
+- G9: All suites green: root pytest, uv run poe lint, lint-nodes, lint-ansible, test-ansible, web_ui pytest + frontend tests/build, mcp_server pytest; READMEs, tests/README.md, MEMORY.md and .claude/skills updated; client deployed. [decisions: D11, D14, D15] [tasks: docs-and-memory-sweep, final-suite-and-grep] [status: approved]
+- U1: Decision 1: delete the stereo_depth and stereo_depth_cpp sources too. [decisions: D1] [tasks: delete-stereo-depth-node, delete-stereo-depth-cpp-node] [status: approved]
+- U2: Decision 2: drop the fused topic and the raw/fused toggle from the Head tab code. [decisions: D2] [tasks: drop-fused-depth-topic, head-and-arm-tabs-frontend] [status: approved]
+- U3: Decision 3: the client keeps chrony with plain pools. [decisions: D3, D10] [tasks: client-chrony-role, remove-jetson-link-on-client] [status: approved]
+- U4: Decision 4: remove network_link_ethernets / network_netplan_superseded_files and the monitoring host_targets / target.host support. [decisions: D4] [tasks: drop-network-link-support, drop-monitoring-host-targets] [status: approved]
+- U5: Decision 5: Head tab = ToF depth + amplitude with RGB from the Camera Module 3 head camera (/front_camera/image_raw/compressed, amended 2026-10-18); the Arm tab and mcp_server / claude_agent use /front_camera/image_raw/compressed; drop the web_ui Overview tab. [decisions: D5, D6] [tasks: head-tab-tof-topics, mcp-front-camera-topic, remove-overview-tab, arm-tab-front-camera-field, head-and-arm-tabs-frontend] [status: approved]
+- U6: Decision 6: the Calibrate page is IMU-only; drop depthd_url, the stereo proxy and stereoApi. [decisions: D7] [tasks: move-calibrate-config-to-imu, calibration-config-no-depthd, calibrate-page-imu-only] [status: approved]
+- U7: Decision 7: jetson_bridge_cpp is kept as a present: false entry for the uninstall. [decisions: D8] [tasks: retire-jetson-bridge-entry, delete-jetson-bridge-sources] [status: approved]
+- U8: Decision 8: the uninstall also purges jetson_bridge_cpp's colcon output and stamps in /opt/ros2-ws. [decisions: D9] [tasks: purge-colcon-on-uninstall, retire-jetson-bridge-entry] [status: approved]
