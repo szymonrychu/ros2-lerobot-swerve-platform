@@ -1,78 +1,48 @@
-# Driving agent skills and workflows design
+---
+title: Driving agent skills and workflows
+repos: [ros2-lerobot-sverve-platform]
+created: 2026-10-18
+owner: Szymon Richert
+rung: 1
+---
 
-## Summary
+# Driving agent skills and workflows
 
-The driving agent (nodes/claude_agent, Claude Agent SDK, acting through nodes/mcp_server) gets eight read-only Agent SDK
-skills shipped as a local plugin inside the claude_agent package (survey, sightseeing, retrospective, planning,
-poi-categories, approach-and-verify, safe-pick-place, recover-from-failure), three workflow templates (discovery,
-drive-to-target, pick/place) seeded into the job's task plan by a new `agent.start_workflow` tool, a one-shot job-end
-check that flags skipped mandatory steps, and a retrospective after every job stored robot-side, shown in a new web UI
-tab, pulled by a script and fed to the next session. POI categories ride on the existing POI fields as note tags
-(no schema field); slow zones additionally carry a non-lethal Nav2 path cost through the existing keepout mask; a new
-exploration-status tool tells the agent when the surroundings are completely mapped and surveyed. "New session" deletes no POIs or maps (U11).
+## What and why
 
-## Intent and why
+What: Survey, retrospective, sightseeing and planning skills plus discovery, drive-to-target and pick/place workflows for the driving agent
+How: Read-only Agent SDK skills in claude_agent, start_workflow plan seeding, POI category mapping, Nav2 slow-zone path cost, exploration status, retrospective store + web tab
+Why: The agent needs repeatable, thorough procedures and memory of what went wrong
 
-The agent already has the primitives (frontier tools, POIs, cameras, plan tree) but re-invents its procedure every job:
-surveys are shallow, keep-out and risky spots are recorded inconsistently, exploration stops at "looks done", and the
-same mistakes recur because nothing remembers what went wrong. The user wants repeatable, thorough procedures that the
-agent loads on demand (small prompt, no drift), workflows that scaffold the task plan, and memory of every job's
-retrospective for future agents and for the developer agents that fix the robot.
+The driving agent (nodes/claude_agent, Claude Agent SDK, acting through nodes/mcp_server tools) gets dedicated skills and workflows. Skills: survey (rotate the robot - later the head - and record every POI: task targets, slow/risky zones the planner takes into account, keep-out zones it must avoid at all costs, problematic spots such as windows, mirrors, tight places and obstacles above the lidar plane, and details useful for future requests), retrospective (what went right/wrong, what could be better, notes for future fixing agents), sightseeing (guides the agent through filling map gaps until the surroundings are completely mapped and surveyed), planning (generous with required steps), and helper skills the workflows need. Workflows - discovery, driving to a target, picking up / putting down - scaffold the task plan of a job the agent performs.
 
-## Goals
+## Scope ladder
 
-- G1: skills are Agent SDK skill files shipped read-only inside the claude_agent node, loaded on demand; the runner
-  enables them while the agent's file tools stay away from the skill directory.
-- G2: POI categories (targets, slow zones, keep-out zones, problem spots, details) map onto the existing POI
-  kinds/zones/fields, documented, with tool validation; creating a keep-out is free, removing one needs consent.
-- G3: slow zones add Nav2 path cost and cap speed; keep-outs stay hard; Nav2 Jazzy filter behaviour verified.
-- G4: survey skill: base rotation now, head/zoom/3D tools automatically when they exist; records all categories with
-  photos and notes.
-- G5: sightseeing skill + exploration-status tool; done when no reachable frontier is left and every frontier area is
-  surveyed; summary for the user; configurable time and battery limits.
-- G6: planning skill + `start_workflow` seeding the task plan from templates (discovery, drive-to-target,
-  pick-up/put-down); the agent may add/reorder; the job-end check flags skipped mandatory steps; jobs start from free
-  text only.
-- G7: retrospective after every job (short for trivial jobs) in a robot-side store, shown in a web UI tab and available
-  through an API and a script; recent ones fed to future agents.
-- G8: "New session" deletes no POIs or maps; POI removal only through explicit buttons and tools (U11, supersedes the clearing of U9/U10).
-- G10: the web UI POI list filters by category, marks POIs, and deletes the marked ones in one confirmed action (U10).
-- G9: tests (claude_agent, mcp_server, poi_store, costmap_zones, web_ui), evals extended beyond pick-and-place, READMEs;
-  deployed without killing a running agent session.
+### Rung 1: agreed scope (migrated)
+
+- 1.1: Skills are Agent SDK skill files shipped read-only inside the claude_agent node (loaded on demand; the agent cannot edit them); runner options enable skills for the agent while keeping the agent's file tools away from the skill directory.
+- 1.2: POI categories are mapped onto the existing POI kinds/zones and fields (no new schema field): targets, slow zones, keep-out zones, problem spots, details - documented mapping, tools/validation so the agent records each category consistently; creating a keep-out is free, removing one still needs user consent as today.
+- 1.3: Slow (risky) zones add path cost in Nav2 (the planner routes around them when possible) and cap speed inside; keep-out zones stay hard (verify the Nav2 Jazzy filter behaviour and choose the mechanism).
+- 1.4: Survey skill: base rotation now, automatically using head rotation, zoom and the 3D map when those tools exist; records POIs of all categories with photos/notes where available.
+- 1.5: Sightseeing skill + an exploration-status tool (reachable frontiers, surveyed areas): done when no reachable frontier is left and every frontier area has been surveyed; produces a summary for the user; stops at configurable time and battery limits.
+- 1.6: Planning skill (generous step breakdown) and a start_workflow tool that seeds the job's task plan from a template; templates for discovery, drive-to-target and pick-up/put-down; the agent may add/reorder steps; the job-end check flags skipped mandatory steps. Jobs are started by free text only (the agent selects the workflow).
+- 1.7: Retrospective skill: written after every job (short for trivial jobs) to a robot-side store; shown in a web UI tab and available through an API/script; recent retrospectives are fed to future agents.
+- 1.8: "New session" deletes no POIs or maps (neither survey POIs nor keep-outs); it only resets the agent conversation and job state. POIs are removed only through explicit buttons and tools (U11).
+- 1.9: Web UI POI list: filter by category, mark POIs individually or "mark all visible", and "delete marked" in one confirmed action (extra confirmation for keep-outs), through the shared POI delete operation owned by the named-maps epic (U10); this is the way survey POIs are removed.
+- 1.10: Tests (claude_agent, mcp_server, poi_store, web_ui), evals extended beyond pick-and-place where cheap, READMEs; deployed (respecting the rule that deploying claude_agent/mcp_server kills a running agent session).
+
+## Agreed scope
+
+Rung 1, migrated from the epic format: the epic's goals were its agreed scope.
 
 ## Non-goals
 
-- Web UI workflow buttons or presets (U5: free text only).
-- Persisting survey POIs across sessions (U9).
-- Building head, zoom, 3D map or marker features (their epics: pan-tilt-head-control-with-a,
-  front-camera-30-fps-stream-w, rtab-map-rgb-d-3d-mapping-on, printable-metadata-markers-t). Skills use those tools
-  when they appear and degrade to base rotation until then.
-- A new POI schema field (U2).
-- A mechanical gate on keep-out removal (U2: "as today", a prompt rule).
+- Web UI workflow buttons (jobs start from free text only).
+- New perception hardware features (head, zoom, 3D map are used when their epics land, not built here).
 
-## Anti-goals
+## Design
 
-- A running agent session killed by a deploy (MEMORY: deploying claude_agent/mcp_server exits the session with 143).
-- The agent able to edit its own skills or workflow templates.
-- A keep-out that becomes passable, or a slow zone that becomes lethal (blocks a corridor).
-- A workflow check that force-parks the arm or loops: only the robot/plan job-end problems may park.
-- Prompt growth: procedures move into skills; the prompt only names them.
-- Placeholder data: exploration status reports null with a note when it cannot compute a value, never a guess.
-
-## Constraints
-
-- CLAUDE.md: type hints, pydantic config, constants at the top, no try/except imports, docstrings with types, tests
-  first, file config over CLI, Ansible in sync (`ros2_nodes` schema; client.yml claude_agent config equals the code
-  defaults, root `tests/test_claude_agent_config.py`), READMEs per node, `tests/README.md` lists every test.
-- Root `tests/test_claude_agent_config.py`: every registered mcp_server tool classified exactly once; effector + denied
-  = mcp_server `MOTION_TOOLS`. New mcp_server tools are classified in the same task that registers them.
-- Plan tree limits (plan_tree.py): 12 phases, 24 nodes, depth 4, `max_loop_iterations` (client.yml 5); caps of all
-  phases (each counted once) within `max_rw_cap` 400 / `max_turn_cap` 500, per phase 100/100.
-- SDK 0.2.163: `skills=[names]` adds `Skill(name)` allow rules and only defaults `setting_sources` when it is None (we
-  pass `[]`, so no user/project settings load); `plugins=[{"type": "local", "path"}]` becomes `--plugin-dir`
-  (subprocess_cli.py:732); plugin skills are named `<plugin>:<skill>`; `skills` is "a context filter, not a sandbox".
-- Deploy only through `scripts/deploy-nodes.sh` after the `ansible-deploy` skill, logged to `.logs/`; claude_agent and
-  mcp_server only while no agent instruction runs (`GET /api/state` busy false).
+Migrated from the epic format; the design sections without a plan.md heading are under Migrated notes.
 
 ## Decisions
 
@@ -244,6 +214,10 @@ deploy costmap_zones, poi_store, nav2_bringup, web_ui, then mcp_server and claud
 instruction runs; costmap_zones verify with the slow step; one discovery job, one drive-to-target job, the retrospectives
 in the Retros tab and through the script. Serves G9.
 
+## Open questions
+
+none
+
 ## Research
 
 | Lens | Ran or skipped | Adopted | Rejected |
@@ -253,7 +227,7 @@ in the Retros tab and through the script. Serves G9.
 | research-code-external | skipped: in-house glue on the existing Agent SDK and Nav2 stack; no external analogue decides a fork | - | - |
 | research-papers | skipped: frontier exploration already exists; coverage is plain visibility ray casting on the occupancy grid | - | - |
 
-## Research inputs
+### Research inputs
 
 | Source | Entry | Lands in |
 |---|---|---|
@@ -274,7 +248,99 @@ in the Retros tab and through the script. Serves G9.
 | Nav2 keepout_filter.cpp | unknown cells are overwritten by any non -1 mask value | costmap-slow-zone-cost (value 0 refused; README note) |
 | SDK subprocess_cli.py | plugin skills are `<plugin>:<skill>`, `Skill(name)` allow rules | agent-runner-enables-skills |
 
-## Decision coverage
+## Irreversible operations
+
+- None added by this epic for New session: it now deletes nothing (U11). Removing the reset-time clearing is a behaviour removal, not a deletion.
+- "Delete marked" deletes the chosen POIs, keep-outs only after the extra confirmation (U10).
+- Deploys restart claude_agent and mcp_server, which ends a running agent session: the runbook checks the agent is idle
+  first and asks otherwise.
+- Nothing else: no data migration, no secret change, no force push.
+
+## Migrated notes
+
+### README.md: Review
+
+Filled when the epic reaches stage `review`: the verdict, the findings acted on, the findings dropped.
+
+Verdict: pass (2026-10-18)
+
+All 30 tasks verified and merged into main (28 re-merged as real merges after a bad rebase merge was rolled back to 4467389a; backup ref backup/skills-bad-merge-372d380a). Integration fixes on main for the tab order, retros colour token and palette fixtures. Full suite green on main: root 1417, claude_agent 931, mcp_server 2678, web_ui 879, frontend 1017, costmap_zones 175, poi_store, lint, test-ansible. Client deployed (--all, failed=0). Robot runbook steps (live skills, retrospectives, U10/U11 in the browser) are manual checks for the user.
+
+### design.md: Summary
+
+The driving agent (nodes/claude_agent, Claude Agent SDK, acting through nodes/mcp_server) gets eight read-only Agent SDK
+skills shipped as a local plugin inside the claude_agent package (survey, sightseeing, retrospective, planning,
+poi-categories, approach-and-verify, safe-pick-place, recover-from-failure), three workflow templates (discovery,
+drive-to-target, pick/place) seeded into the job's task plan by a new `agent.start_workflow` tool, a one-shot job-end
+check that flags skipped mandatory steps, and a retrospective after every job stored robot-side, shown in a new web UI
+tab, pulled by a script and fed to the next session. POI categories ride on the existing POI fields as note tags
+(no schema field); slow zones additionally carry a non-lethal Nav2 path cost through the existing keepout mask; a new
+exploration-status tool tells the agent when the surroundings are completely mapped and surveyed. "New session" deletes no POIs or maps (U11).
+
+### design.md: Intent and why
+
+The agent already has the primitives (frontier tools, POIs, cameras, plan tree) but re-invents its procedure every job:
+surveys are shallow, keep-out and risky spots are recorded inconsistently, exploration stops at "looks done", and the
+same mistakes recur because nothing remembers what went wrong. The user wants repeatable, thorough procedures that the
+agent loads on demand (small prompt, no drift), workflows that scaffold the task plan, and memory of every job's
+retrospective for future agents and for the developer agents that fix the robot.
+
+### design.md: Goals
+
+- G1: skills are Agent SDK skill files shipped read-only inside the claude_agent node, loaded on demand; the runner
+  enables them while the agent's file tools stay away from the skill directory.
+- G2: POI categories (targets, slow zones, keep-out zones, problem spots, details) map onto the existing POI
+  kinds/zones/fields, documented, with tool validation; creating a keep-out is free, removing one needs consent.
+- G3: slow zones add Nav2 path cost and cap speed; keep-outs stay hard; Nav2 Jazzy filter behaviour verified.
+- G4: survey skill: base rotation now, head/zoom/3D tools automatically when they exist; records all categories with
+  photos and notes.
+- G5: sightseeing skill + exploration-status tool; done when no reachable frontier is left and every frontier area is
+  surveyed; summary for the user; configurable time and battery limits.
+- G6: planning skill + `start_workflow` seeding the task plan from templates (discovery, drive-to-target,
+  pick-up/put-down); the agent may add/reorder; the job-end check flags skipped mandatory steps; jobs start from free
+  text only.
+- G7: retrospective after every job (short for trivial jobs) in a robot-side store, shown in a web UI tab and available
+  through an API and a script; recent ones fed to future agents.
+- G8: "New session" deletes no POIs or maps; POI removal only through explicit buttons and tools (U11, supersedes the clearing of U9/U10).
+- G10: the web UI POI list filters by category, marks POIs, and deletes the marked ones in one confirmed action (U10).
+- G9: tests (claude_agent, mcp_server, poi_store, costmap_zones, web_ui), evals extended beyond pick-and-place, READMEs;
+  deployed without killing a running agent session.
+
+### design.md: Non-goals
+
+- Web UI workflow buttons or presets (U5: free text only).
+- Persisting survey POIs across sessions (U9).
+- Building head, zoom, 3D map or marker features (their epics: pan-tilt-head-control-with-a,
+  front-camera-30-fps-stream-w, rtab-map-rgb-d-3d-mapping-on, printable-metadata-markers-t). Skills use those tools
+  when they appear and degrade to base rotation until then.
+- A new POI schema field (U2).
+- A mechanical gate on keep-out removal (U2: "as today", a prompt rule).
+
+### design.md: Anti-goals
+
+- A running agent session killed by a deploy (MEMORY: deploying claude_agent/mcp_server exits the session with 143).
+- The agent able to edit its own skills or workflow templates.
+- A keep-out that becomes passable, or a slow zone that becomes lethal (blocks a corridor).
+- A workflow check that force-parks the arm or loops: only the robot/plan job-end problems may park.
+- Prompt growth: procedures move into skills; the prompt only names them.
+- Placeholder data: exploration status reports null with a note when it cannot compute a value, never a guess.
+
+### design.md: Constraints
+
+- CLAUDE.md: type hints, pydantic config, constants at the top, no try/except imports, docstrings with types, tests
+  first, file config over CLI, Ansible in sync (`ros2_nodes` schema; client.yml claude_agent config equals the code
+  defaults, root `tests/test_claude_agent_config.py`), READMEs per node, `tests/README.md` lists every test.
+- Root `tests/test_claude_agent_config.py`: every registered mcp_server tool classified exactly once; effector + denied
+  = mcp_server `MOTION_TOOLS`. New mcp_server tools are classified in the same task that registers them.
+- Plan tree limits (plan_tree.py): 12 phases, 24 nodes, depth 4, `max_loop_iterations` (client.yml 5); caps of all
+  phases (each counted once) within `max_rw_cap` 400 / `max_turn_cap` 500, per phase 100/100.
+- SDK 0.2.163: `skills=[names]` adds `Skill(name)` allow rules and only defaults `setting_sources` when it is None (we
+  pass `[]`, so no user/project settings load); `plugins=[{"type": "local", "path"}]` becomes `--plugin-dir`
+  (subprocess_cli.py:732); plugin skills are named `<plugin>:<skill>`; `skills` is "a context filter, not a sandbox".
+- Deploy only through `scripts/deploy-nodes.sh` after the `ansible-deploy` skill, logged to `.logs/`; claude_agent and
+  mcp_server only while no agent instruction runs (`GET /api/state` busy false).
+
+### design.md: Decision coverage
 
 | Decision | Tasks |
 |---|---|
@@ -293,7 +359,7 @@ in the Retros tab and through the script. Serves G9.
 | D12 Evals | eval-workflow-checks, eval-workflow-testset |
 | D13 Verification and deploy | skills-suite-and-runbook |
 
-## Contracts
+### design.md: Contracts
 
 | Part | Owner | Consumers | Where defined |
 |---|---|---|---|
@@ -311,7 +377,7 @@ in the Retros tab and through the script. Serves G9.
 
 External contract (not in the table, its owner is in another epic): `poi-clear-filters` (poi_store `clear` with `ids`, web_ui `POST /api/poi` clear with `ids`) is owned by task poi-store-clear-filters of epic named-maps-with-pois-and-rel, which runs first; web-ui-poi-delete-marked lists it in `uses` and this epic names named-maps in its README blockers.
 
-## Review focus
+### design.md: Review focus
 
 - runner.py follow-up chain (consume_response): order, once-only flags, no force-park for workflow problems, abnormal
   ends write runner retrospectives without a model turn, user stop never followed by a model turn.
@@ -324,7 +390,7 @@ External contract (not in the table, its owner is in another epic): `poi-clear-f
   limit respected.
 - Exploration coverage: performance on a Pi-sized map (downsample), null-with-note paths, no frontier id churn.
 
-## Left to the builder
+### design.md: Left to the builder
 
 - Exact skill prose, within the required elements the content tests assert.
 - Phase caps and turn caps inside templates, as long as every template validates under both the code defaults and the
@@ -333,7 +399,7 @@ External contract (not in the table, its owner is in another epic): `poi-clear-f
 - Retros tab layout and styling, using the existing MUI components and theme.
 - Markdown layout of the pulled retrospectives.
 
-## Assumptions and unknowns
+### design.md: Assumptions and unknowns
 
 - Plugin skills load with `setting_sources=[]` through `--plugin-dir`: assumed from the SDK wiring; confirmed at runtime
   by the init-message check (agent-runner-enables-skills) and in the runbook (skills-suite-and-runbook).
@@ -345,10 +411,26 @@ External contract (not in the table, its owner is in another epic): `poi-clear-f
   slow step on the robot; the value is configurable.
 - Battery margin 0.3 V/cell suits the pack: configurable in the mcp_server exploration settings.
 
-## Irreversible operations in scope
+### approvals.json
 
-- None added by this epic for New session: it now deletes nothing (U11). Removing the reset-time clearing is a behaviour removal, not a deletion.
-- "Delete marked" deletes the chosen POIs, keep-outs only after the extra confirmation (U10).
-- Deploys restart claude_agent and mcp_server, which ends a running agent session: the runbook checks the agent is idle
-  first and asks otherwise.
-- Nothing else: no data migration, no secret change, no force push.
+- G1: Skills are Agent SDK skill files shipped read-only inside the claude_agent node (loaded on demand; the agent cannot edit them); runner options enable skills while the agent's file tools stay away from the skill directory. [decisions: D1, D2] [tasks: agent-skill-plugin-loader, agent-runner-enables-skills] [status: approved]
+- G2: POI categories (targets, slow zones, keep-out zones, problem spots, details) map onto the existing POI kinds/zones/fields with no new schema field: documented mapping, tools and validation for consistent recording; creating a keep-out is free, removing one still needs user consent. [decisions: D4] [tasks: shared-poi-category-tags, mcp-poi-category-args, web-ui-poi-category-chips, skill-survey-and-sightseeing, prompt-skills-and-workflows] [status: approved]
+- G3: Slow (risky) zones add Nav2 path cost (the planner routes around them when possible) and cap speed inside; keep-out zones stay hard; Nav2 Jazzy filter behaviour verified and the mechanism chosen. [decisions: D5] [tasks: costmap-slow-zone-cost, costmap-verify-slow-cost, mcp-poi-category-args] [status: approved]
+- G4: Survey skill: base rotation now, automatically using head rotation, zoom and the 3D map when those tools exist; records POIs of all categories with photos and notes. [decisions: D2, D3] [tasks: skill-survey-and-sightseeing, start-workflow-tool] [status: approved]
+- G5: Sightseeing skill plus an exploration-status tool (reachable frontiers, surveyed areas): done when no reachable frontier is left and every frontier area has been surveyed; a summary for the user; stops at configurable time and battery limits. [decisions: D6, D2] [tasks: mcp-exploration-coverage, mcp-exploration-status-tool, skill-survey-and-sightseeing, workflow-templates] [status: approved]
+- G6: Planning skill and a start_workflow tool seeding the job's task plan from templates for discovery, drive-to-target and pick-up/put-down; the agent may add/reorder steps; the job-end check flags skipped mandatory steps; jobs start from free text only. [decisions: D7, D8, D2] [tasks: workflow-templates, start-workflow-tool, job-end-mandatory-check, skill-planning, skill-helpers, prompt-skills-and-workflows] [status: approved]
+- G7: Retrospective skill: written after every job (short for trivial jobs) to a robot-side store, shown in a web UI tab and available through an API and a script; recent retrospectives are fed to future agents. [decisions: D9, D10, D2] [tasks: retro-store-and-tool, retro-followup-and-feed, retro-api-endpoint, web-ui-retros-proxy, web-ui-retros-tab, retro-pull-script] [status: approved]
+- G8: POI removal happens only through explicit actions (POI list delete marked, the Clear POIs dialog, the agent clear_pois tool); New session deletes no POIs or maps (U11). [decisions: D11, D14] [tasks: new-session-keeps-pois] [status: approved]
+- G9: Tests (claude_agent, mcp_server, poi_store, costmap_zones, web_ui), evals extended beyond pick-and-place where cheap, READMEs; deployed while respecting that deploying claude_agent/mcp_server kills a running agent session. [decisions: D12, D13] [tasks: eval-workflow-checks, eval-workflow-testset, skills-suite-and-runbook] [status: approved]
+- U1: Skills are Agent SDK skill files shipped read-only in the node and loaded on demand. [decisions: D1, D2] [tasks: agent-skill-plugin-loader, agent-runner-enables-skills] [status: approved]
+- U2: POI categories (targets, slow zones, keep-out zones, problem spots such as windows, mirrors, tight places and obstacles above the lidar plane, details) are mapped onto the existing POI kinds/zones/fields - no new schema field; creating a keep-out is free, removing one still needs consent. [decisions: D4] [tasks: shared-poi-category-tags, mcp-poi-category-args, web-ui-poi-category-chips] [status: approved]
+- U3: Slow zones add Nav2 path cost AND cap speed; keep-outs stay hard. [decisions: D5] [tasks: costmap-slow-zone-cost, costmap-verify-slow-cost] [status: approved]
+- U4: Retrospectives after every job (short for trivial ones) in a robot-side store, shown in a web UI tab and an API/script, recent ones fed to future agents. [decisions: D9, D10] [tasks: retro-store-and-tool, retro-followup-and-feed, retro-api-endpoint, web-ui-retros-proxy, web-ui-retros-tab, retro-pull-script] [status: approved]
+- U5: Jobs start from free text only (no web UI workflow buttons). [decisions: D7] [tasks: start-workflow-tool, prompt-skills-and-workflows] [status: approved]
+- U6: Workflows seed the plan via a template; the agent may add/reorder; the job-end check flags skipped mandatory steps. [decisions: D7, D8] [tasks: workflow-templates, start-workflow-tool, job-end-mandatory-check] [status: approved]
+- U7: Survey/sightseeing built on base rotation now, using head/zoom/3D tools automatically when they exist. [decisions: D3] [tasks: agent-skill-plugin-loader, skill-survey-and-sightseeing, start-workflow-tool] [status: approved]
+- U8: Map complete = no reachable frontiers and every frontier area surveyed, summary to the user, configurable time/battery limits. [decisions: D6] [tasks: mcp-exploration-coverage, mcp-exploration-status-tool, skill-survey-and-sightseeing, workflow-templates] [status: approved]
+- U9: Survey POIs are cleared on New session, except keep-out zones, which always survive (amended by U10). SUPERSEDED by U11: New session deletes no POIs. [decisions: D11, D14] [tasks: new-session-keeps-pois] [status: approved]
+- G10: The web UI POI list filters by category, marks POIs individually or all visible, and deletes the marked ones in one confirmed action through the shared POI delete operation. [decisions: D14] [tasks: web-ui-poi-selection-logic, web-ui-poi-list-filter-and-m, web-ui-poi-delete-marked] [status: approved]
+- U10: Keep-out zones survive New session (the reset clears the other survey POIs, never keep-outs); the web UI POI list can be filtered by category, POIs marked individually, mark all visible marks every POI passing the filter, delete marked deletes them in one action with a confirmation naming the count and listing categories, and keep-outs in the batch need an explicit extra confirmation; a poi_store batch delete-by-ids and web_ui route are reused from the named-maps clear work, not duplicated. (The New-session part is SUPERSEDED by U11; the POI list filter, mark and delete-marked stay.) [decisions: D14] [tasks: prompt-skills-and-workflows, skills-suite-and-runbook, web-ui-poi-selection-logic, web-ui-poi-list-filter-and-m, web-ui-poi-delete-marked] [status: approved]
+- U11: New session no longer deletes POIs or maps at all (neither survey POIs nor keep-outs): it only resets the agent conversation and job state. POI removal happens only through the explicit buttons and tools; the filter, mark and delete-marked list from U10 stays. Supersedes the New-session clearing of U9 and U10. [decisions: D11, D14] [tasks: agent-poi-reset-config-remov, new-session-keeps-pois, prompt-skills-and-workflows, skills-suite-and-runbook] [status: approved]
