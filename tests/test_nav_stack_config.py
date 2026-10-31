@@ -1006,18 +1006,18 @@ def test_stopbox_stops_toward_an_obstacle_and_lets_the_robot_escape(face: str) -
     assert not point_in_polygon(px, py, stopbox_polygon(-speed * (nx - ny), -speed * (ny + nx), 0.0)), "diag away"
     assert not point_in_polygon(px, py, stopbox_polygon(-speed * ny, speed * nx, 0.0)), "along"
     assert not point_in_polygon(px, py, stopbox_polygon(speed * ny, -speed * nx, 0.0)), "along"
-    assert point_in_polygon(px, py, stopbox_polygon(0.0, 0.0, 0.5)), "rotating in place sweeps the corners"
+    assert point_in_polygon(px, py, stopbox_polygon(0.0, 0.0, 0.5)), "rotating in place checks the footprint + 2 cm"
 
 
 def test_stopbox_ignores_notch_obstacles_unless_moving_into_them() -> None:
-    """An obstacle deep in the rear notch does not stop any translation (only rotation in place, which sweeps the
-    notch); one just behind the crossbar stops only the motion that drives the crossbar into it. The front notch lies
+    """An obstacle deep in the rear notch stops no motion at all (rotation in place checks the footprint + 2 cm, not
+    the swept circle); one just behind the crossbar stops only the motion that drives the crossbar into it. The front notch lies
     under the parked gripper: an obstacle there is inside the footprint and stops every motion."""
     speed = 0.1
     moves = {"forward": (speed, 0.0), "back": (-speed, 0.0), "left": (0.0, speed), "right": (0.0, -speed)}
     for name, (vx, vy) in moves.items():
         assert not point_in_polygon(*REAR_NOTCH_DEEP, stopbox_polygon(vx, vy, 0.0)), name
-    assert point_in_polygon(*REAR_NOTCH_DEEP, stopbox_polygon(0.0, 0.0, 0.5))
+    assert not point_in_polygon(*REAR_NOTCH_DEEP, stopbox_polygon(0.0, 0.0, 0.5))
     for name, (vx, vy) in moves.items():
         assert point_in_polygon(*REAR_NOTCH_CROSSBAR, stopbox_polygon(vx, vy, 0.0)) is (name == "back"), name
     footprint = Polygon(footprint_geometry().footprint)
@@ -1369,20 +1369,18 @@ def test_costmaps_add_no_margin_beyond_the_footprint(costmap: str) -> None:
 def test_safety_polygons_hug_the_footprint() -> None:
     """The self-filter polygon reaches at most 1.5 cm beyond the footprint (1 cm + mitred corners) and every StopBox
     sub-polygon at most its 2 cm sweep (2.45 cm on a 70 deg diagonal sector), so far obstacles never trigger it;
-    rotation in place checks the swept circle (circumscribed radius + 2 cm)."""
+    rotation in place checks the footprint + 2 cm."""
     gen = footprint_geometry()
     footprint = Polygon(gen.footprint)
     reach = {"laser": Polygon(gen.laser_polygon)}
     stop = ros_params(nav2(), "collision_monitor")["StopBox"]
     for sub in stop["velocity_polygons"]:
         reach[sub] = Polygon(yaml.safe_load(stop[sub]["points"]))
-    rotate = reach.pop("rotate")
-    swept = circumscribed_radius(gen.footprint) + 0.02
-    assert rotate.buffer(2e-4).contains(Point(0.0, 0.0).buffer(swept))
-    assert max(math.hypot(x, y) for x, y in rotate.exterior.coords) <= swept / math.cos(math.pi / 32) + 2e-4
     for name, shape in reach.items():
         far = max(footprint.distance(Point(pt)) for pt in shape.exterior.segmentize(0.001).coords)
-        assert far <= (0.0151 if name == "laser" else 0.0246), (name, far)
+        # rotate: the footprint offset 2 cm with mitred corners (bevelled past 1.5 x the margin = 3 cm).
+        limit = 0.0151 if name == "laser" else 0.0301 if name == "rotate" else 0.0246
+        assert far <= limit, (name, far)
 
 
 @pytest.mark.parametrize("costmap", ["global_costmap", "local_costmap"])

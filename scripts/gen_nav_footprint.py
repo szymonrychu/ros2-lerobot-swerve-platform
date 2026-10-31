@@ -10,11 +10,11 @@ derives:
   (no mcp_server arm config) the body outline alone,
 - the costmap footprint: the outline shrunk by footprint_tolerance_m (footprint_padding 0), so millimetre approaches and
   slight bumps are legal; StopBox, CliffStop and the laser_filter self polygon keep the unshrunk outline,
-- the inflation radius (Nav2 circumscribed radius of the costmap footprint rounded up to a costmap cell) and cost_scaling_factor (the steepest
-  up to max_cost_scaling_factor that keeps the cost >= 1 at the circumscribed radius; the formula lives in
-  footprint_geometry, mcp_server applies it to the dynamic footprint),
+- the inflation radius (Nav2 circumscribed radius of the costmap footprint rounded up to a costmap cell) and
+  cost_scaling_factor (the steepest up to max_cost_scaling_factor that keeps the cost >= 1 at the circumscribed
+  radius; the formula lives in footprint_geometry, mcp_server applies it to the dynamic footprint),
 - the collision_monitor StopBox: per direction sector, the footprint swept stopbox_margin_m toward the motion, plus
-  the circle swept by the footprint turning in place (circumscribed radius + margin) for rotation in place,
+  the footprint + stopbox_margin_m for rotation in place and zero twist,
 - the collision_monitor CliffStop: the footprint + cliff_margin_m (the head ToF sees the floor beyond a cliff) for
   rotation and every command with a forward or sideways component, the footprint alone while backing away,
 - the laser_filter self polygon (footprint + laser_filter_margin_m),
@@ -80,10 +80,9 @@ SECTORS: tuple[tuple[str, float, float], ...] = (
     ("right", -1.7453, -1.3963),
     ("forward_right", -1.3963, -0.1745),
 )
-# Rotation in place (|v| below this) checks the circle the turning footprint sweeps (circumscribed radius + margin),
-# approximated by a ROTATE_SIDES-gon with edges tangent to it.
+# Rotation in place and zero twist (|v| below this) check the footprint + margin (a turn next to a wall may scrape a
+# corner; a return farther out never holds the robot).
 ROTATE_LINEAR_MAX = 0.005
-ROTATE_SIDES = 32
 LINEAR_MAX = 10.0
 THETA_LIMIT = 10.0
 FULL_TURN = 3.1416
@@ -323,25 +322,6 @@ def sweep_polygon(points: list[Point2], start: float, end: float, margin: float)
     return unary_union(pieces)
 
 
-def circumscribing_polygon(radius: float, sides: int) -> Polygon:
-    """Regular polygon around base_link whose edges are tangent to the circle of `radius` (so it contains the circle).
-
-    Args:
-        radius (float): Circle radius (m).
-        sides (int): Number of edges.
-
-    Returns:
-        Polygon: Regular polygon, first edge centred on the +x axis.
-    """
-    vertex = radius / math.cos(math.pi / sides)
-    return Polygon(
-        [
-            (vertex * math.cos((2 * k + 1) * math.pi / sides), vertex * math.sin((2 * k + 1) * math.pi / sides))
-            for k in range(sides)
-        ]
-    )
-
-
 def stopbox_polygons(points: list[Point2], margin: float, decimals: int) -> dict[str, dict]:
     """collision_monitor StopBox velocity sub-polygons.
 
@@ -353,10 +333,10 @@ def stopbox_polygons(points: list[Point2], margin: float, decimals: int) -> dict
     Returns:
         dict[str, dict]: Sub-polygon name -> points and selection ranges, in Nav2 selection order.
     """
-    rotate = circumscribing_polygon(circumscribed_radius(points) + margin, ROTATE_SIDES)
+    rotate = offset_polygon(points, margin, decimals)
     subs: dict[str, dict] = {
         "rotate": {
-            "points": to_points(rotate, decimals),
+            "points": rotate,
             "linear_min": 0.0,
             "linear_max": ROTATE_LINEAR_MAX,
             "theta_min": -THETA_LIMIT,

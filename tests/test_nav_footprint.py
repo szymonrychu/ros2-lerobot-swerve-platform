@@ -484,28 +484,29 @@ def test_stopbox_sub_polygons_sweep_the_footprint_toward_their_motion() -> None:
         assert not poly.contains(away), name
 
 
-def test_stopbox_rotate_covers_every_footprint_corner_through_a_full_turn() -> None:
-    """Rotating in place sweeps the circumscribed circle: each footprint vertex, turned 0..360 deg, stays inside."""
-    gen = generated()
-    rotate = Polygon(gen.stopbox["rotate"]["points"])
-    assert LinearRing(gen.stopbox["rotate"]["points"]).is_simple
-    for x, y in gen.footprint:
-        radius, bearing = math.hypot(x, y), math.atan2(y, x)
-        for degrees in range(360):
-            angle = bearing + math.radians(degrees)
-            point = Point(radius * math.cos(angle), radius * math.sin(angle))
-            assert rotate.buffer(TOL).contains(point), f"({x}, {y}) turned {degrees} deg leaves the rotate polygon"
-
-
-def test_stopbox_rotate_is_the_swept_circle_plus_margin() -> None:
+def test_stopbox_rotate_is_the_footprint_plus_margin() -> None:
+    """Zero twist and pure rotation check the footprint + stopbox margin, not the swept circle of the corners: a turn
+    next to a wall may scrape a corner (accepted), but a return beyond 2 cm never holds the robot."""
     settings = load_settings(DEFAULT_CONFIG)
     gen = generated()
-    reach = circumscribed_radius(gen.footprint) + settings.stopbox_margin_m
+    rotate = gen.stopbox["rotate"]
+    assert rotate["points"] == offset_polygon(gen.footprint, settings.stopbox_margin_m, settings.decimals)
+    assert LinearRing(rotate["points"]).is_simple
+    assert len(rotate["points"]) >= MIN_POLYGON_POINTS
+    assert rotate["linear_min"] == 0.0 and rotate["linear_max"] == 0.005
+    assert (rotate["theta_min"], rotate["theta_max"]) == (-10.0, 10.0)
+    assert (rotate["direction_start_angle"], rotate["direction_end_angle"]) == (-3.1416, 3.1416)
+
+
+def test_stopbox_rotate_passes_points_beyond_the_margin() -> None:
+    """A point 5 cm outside the outline (ahead of the front wheel) was inside the old 0.35 m circle and froze every
+    turn; the rotate polygon no longer holds it, and still holds a point 1 cm outside the outline."""
+    gen = generated()
     rotate = Polygon(gen.stopbox["rotate"]["points"])
-    assert rotate.buffer(TOL).contains(Point(0.0, 0.0).buffer(reach))
-    # Tight: no vertex farther than the circle's circumscribing polygon needs (cos(pi / n) at the edge midpoints).
-    n = len(gen.stopbox["rotate"]["points"])
-    assert max(math.hypot(x, y) for x, y in gen.stopbox["rotate"]["points"]) <= reach / math.cos(math.pi / n) + TOL
+    front_wheel_x = max(x for x, y in gen.footprint if y > 0.1)
+    assert not rotate.contains(Point(front_wheel_x + 0.05, 0.133))
+    assert Point(front_wheel_x + 0.05, 0.133).distance(Point(0.0, 0.0)) < 0.3495, "inside the old circle"
+    assert rotate.contains(Point(front_wheel_x + 0.01, 0.15))
 
 
 def test_stopbox_polygons_function_matches_generate() -> None:
