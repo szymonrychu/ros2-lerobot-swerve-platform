@@ -30,5 +30,4 @@ For a spot already surveyed: `look_around()`, compare with the POIs from `list_p
 Only when these appear in your tool list; otherwise use the base rotation with `look_around` above.
 
 - head_look_at or set_head_angles: sweep the head across the scene instead of rotating the base, then head_home when done.
-- If the camera tool offers a zoom argument, zoom on candidate windows, mirrors and small details before you record them.
 - get_3d_map_status and query_3d_map_at: query obstacles above and below the lidar plane at suspicious positions and record them as problem spots.

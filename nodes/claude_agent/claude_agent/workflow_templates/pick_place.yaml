@@ -56,7 +56,7 @@ plan:
     - type: phase
       id: verify_pick
       name: Verify the pick
-      goal: Confirm {object} is held (confirm_grasp and a gripper camera image).
+      goal: Confirm {object} is held (confirm_grasp and a head camera image of the jaws).
       rw_cap: 5
       turn_cap: 15
       mandatory: true

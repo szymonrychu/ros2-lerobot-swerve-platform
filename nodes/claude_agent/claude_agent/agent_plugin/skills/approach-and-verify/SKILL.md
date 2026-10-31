@@ -26,7 +26,7 @@ Follow these steps in order. Arriving at coordinates is not the same as being at
 
 ## 4. Confirm on arrival
 
-- Call `get_annotated_camera_image` (camera front, or gripper for close work) with the grid overlay. Ask: is the target in view, and is it within the distance the next step needs?
+- Call `get_annotated_camera_image` (camera front, the head D435; for close work aim the head close with `head_look_at` first) with the grid overlay. Ask: is the target in view, and is it within the distance the next step needs?
 - Use `pixel_to_point` on a pixel in the target's interior (not its outline) to get its measured position in base_link, the arm frame and the map, with its height and distance; compare with the expected position. For a flat floor spot without a depth reading, `pixel_to_ground` gives the floor position at a guessed height.
 - Not in view or too far: adjust the pose slightly and look again, or `look_around`. Never claim arrival without an image that shows the target.
 

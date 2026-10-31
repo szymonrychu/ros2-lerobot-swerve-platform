@@ -21,13 +21,13 @@ Follow these steps in order. The arm is fragile and the object is unknown: use t
 
 1. `plan_grasp` with the object (position, width, strategy auto) and read the plan: strategy, tool point, warnings. Change it if it looks extreme.
 2. `grasp_object` with the same arguments. A held close is unverified until you confirm it.
-3. `confirm_grasp` with the grasp id, a gripper image verdict (yes, no or unsure) and the evidence you saw in the jaw crop. Only continue on a confirmed grasp.
+3. `confirm_grasp` with the grasp id, a verdict (yes, no or unsure) from a head camera image of the jaws (aim the head at them with `head_look_at`) and the evidence you saw in the jaw crop. Only continue on a confirmed grasp.
 4. Failed or unsure: do not repeat the same call; follow the recover-from-failure skill.
 
 ## 3. Carrying rules
 
 - Before driving with an object, call `release_control` with subsystem arm, keep_position true and carried_object_radius_m set to the rough object radius, so navigation keeps clearance around it.
-- Drive slowly, avoid slow zones and keep-outs, and recheck the gripper image if the drive was bumpy. If the object is lost, stop at once.
+- Drive slowly, avoid slow zones and keep-outs, and recheck a head camera image of the jaws if the drive was bumpy. If the object is lost, stop at once.
 
 ## 4. Pre-release checklist
 

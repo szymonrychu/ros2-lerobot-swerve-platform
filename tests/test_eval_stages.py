@@ -155,7 +155,7 @@ def happy_trace() -> Trace:
     t.tool("grasp_object", {"outcome": "grasped"}, image=True)
     t.close("grasp", attempt=2)
     t.phase("check")
-    t.tool("get_camera_image", {"camera": "gripper", "lookup_id": LOOKUP_2}, image=True, camera="gripper")
+    t.tool("get_camera_image", {"camera": "front", "lookup_id": LOOKUP_2}, image=True, camera="front")
     t.tool("get_arm_state", {"joints": {}})
     t.close("check")
     t.phase("drop")
@@ -301,11 +301,11 @@ def test_grasp_error_result_fails() -> None:
 
 
 def test_verify_needs_check_after_last_grasp_and_phase_close() -> None:
-    # gripper image before the last grasp does not count
+    # front image before the last grasp does not count
     t = Trace()
     t.phase("p")
     t.tool("grasp_object", {"outcome": "missed"})
-    t.tool("get_camera_image", {"camera": "gripper"}, image=True, camera="gripper")
+    t.tool("get_camera_image", {"camera": "front"}, image=True, camera="front")
     t.tool("grasp_object", {"outcome": "grasped"})
     t.close("p")
     assert derive(t.end()).claimed[STAGE_VERIFY] == STATUS_NOT_REACHED
@@ -318,13 +318,15 @@ def test_verify_needs_check_after_last_grasp_and_phase_close() -> None:
     assert derive(t.end("interrupted")).claimed[STAGE_VERIFY] == STATUS_NOT_REACHED
 
 
-def test_verify_front_camera_is_not_a_check() -> None:
-    t = Trace()
-    t.phase("p")
-    t.tool("grasp_object", {"outcome": "grasped"})
-    t.tool("get_camera_image", {"camera": "front"}, image=True, camera="front")
-    t.close("p")
-    assert derive(t.end()).claimed[STAGE_VERIFY] == STATUS_NOT_REACHED
+def test_verify_stage_accepts_a_front_image_after_grasp() -> None:
+    """The head D435 colour stream (camera front) is the grasp check; there is no gripper camera."""
+    for tool in ("get_camera_image", "get_annotated_camera_image"):
+        t = Trace()
+        t.phase("p")
+        t.tool("grasp_object", {"outcome": "grasped"})
+        t.tool(tool, {"camera": "front"}, image=True, camera="front")
+        t.close("p")
+        assert derive(t.end()).claimed[STAGE_VERIFY] == STATUS_OK
 
 
 def test_verify_phase_closed_failed_is_fail() -> None:
@@ -333,7 +335,7 @@ def test_verify_phase_closed_failed_is_fail() -> None:
     t.tool("grasp_object", {"outcome": "unverified"})
     t.close("g")
     t.phase("v")
-    t.tool("get_camera_image", {"camera": "gripper"}, image=True, camera="gripper")
+    t.tool("get_camera_image", {"camera": "front"}, image=True, camera="front")
     t.close("v", "failed", failure=FAILURE)
     assert derive(t.end()).claimed[STAGE_VERIFY] == STATUS_FAIL
 
@@ -345,7 +347,7 @@ def test_verify_release_before_place_stage_fails() -> None:
     t.tool("grasp_object", {"outcome": "grasped"})
     t.close("g")
     t.phase("v")
-    t.tool("get_camera_image", {"camera": "gripper"}, image=True, camera="gripper")
+    t.tool("get_camera_image", {"camera": "front"}, image=True, camera="front")
     t.tool("get_arm_state", {"joints": {}})
     t.tool("release_object", {"outcome": "released"})
     t.close("v")
@@ -361,7 +363,7 @@ def test_verify_and_place_in_one_phase_is_ok() -> None:
     t.tool("grasp_object", {"outcome": "grasped"})
     t.close("g")
     t.phase("vp")
-    t.tool("get_camera_image", {"camera": "gripper"}, image=True, camera="gripper")
+    t.tool("get_camera_image", {"camera": "front"}, image=True, camera="front")
     t.tool("release_object", {"outcome": "released"})
     t.close("vp")
     d = derive(t.end())

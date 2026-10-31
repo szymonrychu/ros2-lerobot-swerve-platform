@@ -6,7 +6,7 @@ Deterministic and based on tool_call / tool_result / phase_completed only, never
 - locate: perception calls before the first grasp_object; ok when a grasp_object call or a plan_grasp with outcome
   ``planned`` follows.
 - grasp: grasp_object calls (attempts = their number); ok when the last outcome is grasped or unverified.
-- verify: a gripper image or get_arm_state after the last grasp_object, followed by a phase_completed; ok when that
+- verify: a ``front`` image (the head D435 colour stream) or get_arm_state after the last grasp_object, followed by a phase_completed; ok when that
   phase closed done and no release_object happened before it outside a place-stage phase.
 - place: release_object after the last grasp_object; ok when it released and its enclosing phase closed done.
 
@@ -52,7 +52,7 @@ GRASP_TOOL = "grasp_object"
 PLAN_GRASP_TOOL = "plan_grasp"
 RELEASE_TOOL = "release_object"
 ARM_STATE_TOOL = "get_arm_state"
-GRIPPER_CAMERA = "gripper"
+FRONT_CAMERA = "front"
 GRASP_OK_OUTCOMES = frozenset({"grasped", "unverified"})
 PLANNED_OUTCOME = "planned"
 RELEASED_OUTCOME = "released"
@@ -163,7 +163,7 @@ def result_outcome(result_event: dict[str, Any]) -> str | None:
 
 
 def is_check(call: ToolCall) -> bool:
-    """Tell whether a call checks the grasp: a gripper camera image or get_arm_state.
+    """Tell whether a call checks the grasp: a front (head D435 colour) image or get_arm_state.
 
     Args:
         call (ToolCall): The call.
@@ -171,7 +171,7 @@ def is_check(call: ToolCall) -> bool:
     Returns:
         bool: True for a verify check.
     """
-    return call.name == ARM_STATE_TOOL or (call.name in IMAGE_TOOLS and call.input.get("camera") == GRIPPER_CAMERA)
+    return call.name == ARM_STATE_TOOL or (call.name in IMAGE_TOOLS and call.input.get("camera") == FRONT_CAMERA)
 
 
 def result_ok(call: ToolCall) -> bool:

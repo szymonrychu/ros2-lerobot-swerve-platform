@@ -1,8 +1,10 @@
 """Skill plugin loader: discovery, qualified names, structure checks and the init-message skill check."""
 
 import json
+import re
 from pathlib import Path
 
+from claude_agent.config import WORKFLOW_TEMPLATE_DIR
 from claude_agent.skills import (
     OPTIONAL_SECTION,
     PLUGIN_DIR,
@@ -15,6 +17,9 @@ from claude_agent.skills import (
     read_skill,
 )
 
+RETIRED_CAMERA_RE = re.compile(
+    r"gripper (camera|image)|gripper for close work|camera_0|\bToF\b|Camera Module 3|\bzoom", re.IGNORECASE
+)
 GOOD = "---\nname: demo\ndescription: Use when testing.\n---\n\n# Demo\n\nDo the thing.\n"
 
 
@@ -104,3 +109,16 @@ def test_missing_skills_strings_objects_and_absent_key() -> None:
     assert missing_skills({"skills": [{"name": "robot-skills:a"}, {"name": "robot-skills:b"}]}, expected) == []
     assert missing_skills({"skills": [{"name": "robot-skills:b"}, "x"]}, expected) == ["robot-skills:a"]
     assert missing_skills({}, expected) is None
+
+
+def test_no_skill_or_workflow_names_a_retired_camera() -> None:
+    """No shipped skill or workflow template names the gripper camera, the head ToF, Camera Module 3 or zoom."""
+    files = sorted((PLUGIN_DIR / "skills").glob("*/SKILL.md")) + sorted(WORKFLOW_TEMPLATE_DIR.glob("*.yaml"))
+    assert files
+    hits = [
+        f"{path.parent.name}/{path.name}:{lineno}: {line.strip()}"
+        for path in files
+        for lineno, line in enumerate(path.read_text().splitlines(), 1)
+        if RETIRED_CAMERA_RE.search(line)
+    ]
+    assert hits == []
