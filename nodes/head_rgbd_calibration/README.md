@@ -536,8 +536,8 @@ default: while it is null the tool point is not fitted, the current `tool_offset
 
 The result directory `results/<rid>/` holds `result.json` (`{id, session, kind: "arm", floor_session, floor, created,
 passed, failed_limits, error, rms_px, holdout_rms_px, holdout_tool_mm, wrist_roll_fitted, tool_fitted, tool_offset_m,
-offsets: {joint: {value, sigma, current}}, head: {name: {value, sigma, urdf}}, limits, snippet}`; `sigma` of a fixed
-offset is null), `report.md` and, only when it passed, `head_chain.json` (every head joint, d435_joint included),
+tool_offset_current_m, offsets: {joint: {value, sigma, current}}, head: {name: {value, sigma, urdf}}, limits,
+snippet}`; `sigma` of a fixed offset is null, `tool_offset_current_m` is the tool point the fit started from), `report.md` and, only when it passed, `head_chain.json` (every head joint, d435_joint included),
 `head.urdf` and `joint_offsets_snippet.yaml` (the `joint_offsets_rad` block, plus `tool_offset_m` when the tool point
 was fitted, for the client.yml mcp_server `arm:` block). `floor` is `{session, result}` of the floor session used (its
 newest result when the session was named in the request).

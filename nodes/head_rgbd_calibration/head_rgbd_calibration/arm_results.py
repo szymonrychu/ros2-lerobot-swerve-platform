@@ -90,7 +90,13 @@ def floor_reference(cfg: NodeConfig, floor_session: str | None) -> dict[str, str
     return {"session": floor_session, "result": results[0] if results else None}
 
 
-def result_body(base: dict[str, Any], fit: HeadArmFit, urdf_params: dict[str, float], snippet: str) -> dict[str, Any]:
+def result_body(
+    base: dict[str, Any],
+    fit: HeadArmFit,
+    urdf_params: dict[str, float],
+    snippet: str,
+    current_tool_m: tuple[float, float, float],
+) -> dict[str, Any]:
     """The result.json content of a computed fit.
 
     Args:
@@ -98,6 +104,7 @@ def result_body(base: dict[str, Any], fit: HeadArmFit, urdf_params: dict[str, fl
         fit: The fit.
         urdf_params: Value of every head parameter in the head URDF the fit started from.
         snippet: The offsets snippet text.
+        current_tool_m: The current tool point (`cfg.fit.tool_offset_m`) the fit started from.
 
     Returns:
         The result.json content (see `compute_arm`).
@@ -126,6 +133,7 @@ def result_body(base: dict[str, Any], fit: HeadArmFit, urdf_params: dict[str, fl
         "wrist_roll_fitted": fit.wrist_roll_fitted,
         "tool_fitted": fit.tool_fitted,
         "tool_offset_m": [float(v) for v in fit.tool_offset_m],
+        "tool_offset_current_m": [float(v) for v in current_tool_m],
         "offsets": offsets,
         "head": head,
         "limits": [
@@ -150,8 +158,8 @@ def compute_arm(
 
     Returns:
         The result.json content {id, session, kind: "arm", floor_session, floor, created, passed, failed_limits, error,
-        rms_px, holdout_rms_px, holdout_tool_mm, wrist_roll_fitted, tool_fitted, tool_offset_m, offsets: {joint:
-        {value, sigma, current}}, head: {name: {value, sigma, urdf}}, limits, snippet}. An input error (no floor
+        rms_px, holdout_rms_px, holdout_tool_mm, wrist_roll_fitted, tool_fitted, tool_offset_m, tool_offset_current_m,
+        offsets: {joint: {value, sigma, current}}, head: {name: {value, sigma, urdf}}, limits, snippet}. An input error (no floor
         session, no plate_mount, no wrist_roll neutral, a still without camera_info, too few views) gives passed false
         and `error` with only result.json written; a run over a limit gives passed false, report.md and result.json.
 
@@ -198,7 +206,7 @@ def compute_arm(
         urdf_params = start_params(chain, names, camera_mount_joint(chain, D435_COLOR_FRAME))
         date = now.strftime(floor_results.NOTE_DATE_FORMAT)
         snippet = offsets_snippet_yaml(fit, sid, date)
-        result = result_body(base, fit, urdf_params, snippet)
+        result = result_body(base, fit, urdf_params, snippet, cfg.fit.tool_offset_m)
         (tmp / REPORT_FILE).write_text(arm_report_markdown(fit, cfg.fit, sid, date))
         if fit.passed:
             note = f"arm offsets fit {date}, RMS {fit.rms_px:.2f} px, held-out tool error {fit.holdout_tool_mm:.2f} mm"

@@ -42,7 +42,8 @@ PASSED_FILES = {"result.json", "report.md", "head_chain.json", "head.urdf", SNIP
 FAILED_FILES = {"result.json", "report.md"}
 RESULT_KEYS = {
     "id", "session", "kind", "floor_session", "floor", "created", "passed", "failed_limits", "error", "rms_px",
-    "holdout_rms_px", "holdout_tool_mm", "wrist_roll_fitted", "tool_fitted", "tool_offset_m", "offsets", "head",
+    "holdout_rms_px", "holdout_tool_mm", "wrist_roll_fitted", "tool_fitted", "tool_offset_m",
+    "tool_offset_current_m", "offsets", "head",
     "limits", "snippet",
 }  # fmt: skip
 
@@ -170,6 +171,7 @@ def test_arm_result_files_and_snippet(passed: tuple[Scene, dict[str, Any]]) -> N
     assert result["offsets"]["shoulder_pan"]["sigma"] is None  # the gauge is fixed
     assert set(result["head"]["mount_x_m"]) == {"value", "sigma", "urdf"}
     assert result["tool_fitted"] is True and len(result["tool_offset_m"]) == 3
+    assert result["tool_offset_current_m"] == list(scene.cfg.fit.tool_offset_m)
     snippet = (directory / SNIPPET_FILE).read_text()
     assert result["snippet"] == snippet
     block = yaml.safe_load(snippet)
@@ -219,6 +221,7 @@ def test_tool_not_fitted_without_tool_in_board_m(tmp_path: Path) -> None:
     result = compute_arm(scene.cfg, scene.store, scene.sid, NOW, FLOOR_SID)
     assert result["tool_fitted"] is False
     assert result["tool_offset_m"] == list(scene.cfg.fit.tool_offset_m)
+    assert result["tool_offset_current_m"] == list(scene.cfg.fit.tool_offset_m)
     directory = scene.store.result_dir(scene.sid, result["id"])
     assert TOOL_NOT_MEASURED_NOTE in (directory / "report.md").read_text()
     assert result["passed"] is True, (result["failed_limits"], result["error"])
