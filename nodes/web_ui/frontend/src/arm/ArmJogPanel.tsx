@@ -21,9 +21,8 @@ import { useLayout } from '../layout/useLayout'
 import { confirmClick, RESET_CONFIRM_MS } from '../map/mapActions'
 import { TabConfig } from '../types'
 import { ArmAction, ArmResult, JogSpec, postArm } from './armApi'
+import { HELD_SOURCE } from './armControls'
 
-/** filter_node reports `autonomy` while the mcp_server lease taken by Take control is held. */
-export const HELD_SOURCE = 'autonomy'
 const DEFAULT_SOURCE_TOPIC = '/filter/active_source'
 const LEASE_ACTIONS = ['take_control', 'release', 'home'] as const
 type LeaseAction = (typeof LEASE_ACTIONS)[number]
