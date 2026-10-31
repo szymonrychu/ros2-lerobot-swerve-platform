@@ -1,27 +1,23 @@
----
-title: Markers final runbook
-status: todo
-repo: ros2-lerobot-sverve-platform
-value: "Printed markers placed at measured spots become correct POIs on the real robot, with measured error and CPU cost."
-files: [docs/runbooks/printable-markers.md, ansible/group_vars/client.yml, docs/markers.md]
-verify: "uv run pytest tests/ -q && uv run poe lint && uv run poe lint-nodes && uv run poe test-ansible && (cd nodes/poi_store && uv run --frozen pytest tests -q) && (cd nodes/marker_detector && uv run --frozen pytest tests -q) && (cd nodes/mcp_server && uv run --frozen pytest tests -q) && (cd nodes/web_ui && uv run --frozen pytest tests -q) && (cd nodes/web_ui/frontend && npx tsc --noEmit && npm test && npm run lint && npm run build)"
-depends_on: []
-owns: []
-uses: []
-model: sonnet
-estimate: 90
-actual: ""
-review: ""
-worktree: ""
-branch: ""
-verified_head: ""
-run: ""
-provides: []
----
+# Printable markers runbook implementation plan
 
-# Markers final runbook
+## Agreed rung
 
-## Requirement
+Not agreed yet: a draft migrated from the epic's tasks; the plan-writer revises it after the gate.
+
+## Approach
+
+Migrated from the epic format: one step per task file, in dependency order, each with its status, files, verify, verified head and every body section.
+
+## Chunk 1: migrated tasks (model: sonnet)
+
+### S1: Markers final runbook
+
+- Status: todo
+- Files: `docs/runbooks/printable-markers.md`, `ansible/group_vars/client.yml`, `docs/markers.md`
+- Verify: `uv run pytest tests/ -q && uv run poe lint && uv run poe lint-nodes && uv run poe test-ansible && (cd nodes/poi_store && uv run --frozen pytest tests -q) && (cd nodes/marker_detector && uv run --frozen pytest tests -q) && (cd nodes/mcp_server && uv run --frozen pytest tests -q) && (cd nodes/web_ui && uv run --frozen pytest tests -q) && (cd nodes/web_ui/frontend && npx tsc --noEmit && npm test && npm run lint && npm run build)`
+- Verified head: none
+
+#### Requirement
 
 - Full suite green (the verify command, every line read).
 - `docs/runbooks/printable-markers.md` (steps plus a `## Results` section), written and then executed with results filled in (date, numbers, pass/fail per step), logs in `.logs/`, deploys only through `scripts/deploy-nodes.sh` after invoking the ansible-deploy skill; prerequisites: the head camera calibration file and head TF from the fusion and pan/tilt epics are deployed (`/head_camera/camera_info` publishing):
@@ -37,34 +33,46 @@ provides: []
 - Fill the `## Range and fallback` section of docs/markers.md with the measured decode ranges; if QR range is insufficient for docking, record it with numbers as a finding (AprilTag fallback named, not built).
 - The task ends with the runbook committed with real numbers, or with a named blocker (robot offline, fusion calibration not yet deployed) per CLAUDE.md.
 
-## Acceptance conditions
+#### Acceptance conditions
 
 - a1: the whole repository suite and node suites pass [evidence: command: uv run pytest tests/ -q && uv run poe lint && uv run poe lint-nodes && uv run poe test-ansible && (cd nodes/poi_store && uv run --frozen pytest tests -q) && (cd nodes/marker_detector && uv run --frozen pytest tests -q) && (cd nodes/mcp_server && uv run --frozen pytest tests -q) && (cd nodes/web_ui && uv run --frozen pytest tests -q) && (cd nodes/web_ui/frontend && npx tsc --noEmit && npm test && npm run lint && npm run build)]
 - a2: the runbook records benchmark, pose error, dedup, zoom and CPU results [evidence: doc-section: docs/runbooks/printable-markers.md#Results]
 - a3: printed markers at measured poses become POIs within 3 cm and 5 degrees [evidence: judgement]
 - a4: nothing is published without a marker, camera_info or TF on the robot [evidence: judgement]
 
-## Files
+#### Files
 
 - `docs/runbooks/printable-markers.md`
 - `ansible/group_vars/client.yml`
 - `docs/markers.md`
 
-## Interfaces
+#### Interfaces
 
 - `docs/runbooks/printable-markers.md` with a `## Results` section.
 
-## Expected outcome
+#### Expected outcome
 
 The marker system is proven on the robot with numbers.
 
-## Steps
+#### Steps
 
 - Run the full verify command and read every line.
 - Write the runbook; execute it on the robot step by step; fill Results and the range section; commit `docs: printable markers runbook with results`.
 
-## Notes
+#### Notes
 
 - Robot motion: only the head (pan/tilt within the verified range) and base moves the user approves; least-dramatic movement first (CLAUDE.md).
 
 - 2026-10-22: moved verbatim from printable-metadata-markers-t/markers-final-runbook (user answer A); the epic printable-metadata-markers-t is done. Its old depends_on (inside that epic) is done; this epic is blocked by drivable-ground-tof-filterin instead.
+
+## Files to delete
+
+none recorded in the epic format
+
+## Final verify
+
+none recorded in the epic format
+
+## After merge
+
+none
