@@ -7,17 +7,19 @@ from typing import Any
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
-from mcp_server.config import McpServerConfig
+from mcp_server.config import DrivePoseSettings, McpServerConfig
 from mcp_server.control import (
     ControlManager,
     LeaderActivity,
     steering_neutral,
     wait_steering_neutral,
 )
+from mcp_server.drive_pose import DrivePose
 from mcp_server.monitor import RobotMonitor
 from mcp_server.tools import TOOL_SUBSYSTEM, build_mcp_server
 
 from .test_battery_gate import LOW_V, make_guard
+from .test_drive_pose import DRIVE, FakeArm, FakeGates, FakeWorker
 from .test_motion_queue import WAIT, GateRobot, make_queue, steps
 from .test_tilt_guard import state
 from .test_tools import TOKEN, FakeRobot, call
@@ -408,6 +410,7 @@ def test_get_control_state_and_release_tool(server: Any, robot: FakeRobot) -> No
         "lost": None,
         "held_by": None,
         "carrying": {"carrying": False, "reasons": [], "radius_m": None},
+        "drive_pose": None,
     }
     assert state["base"] == {"held": False, "held_since": None, "steering_neutral": True}
     call(server, "take_control", {"subsystem": "arm"})
@@ -587,3 +590,48 @@ def test_ros_services_take_and_release_through_the_control_manager(ros_iface: An
     iface.control = None
     iface.on_take_control(None, response)
     assert response.success is False and "not ready" in response.message
+
+
+# --- drive pose (drive_pose.DrivePose bound by ros_iface) ----------------------------------------------------------
+
+
+def drive_pose_rig(server: Any) -> tuple[DrivePose, FakeArm, FakeWorker]:
+    arm, worker = FakeArm(), FakeWorker()
+    drive = DrivePose(
+        DrivePoseSettings(enabled=True, joints=DRIVE),
+        arm,
+        FakeGates(),
+        publish_static=lambda: None,
+        submit=worker.submit,
+        clock=lambda: 10.0,
+        clock_ns=lambda: 42,
+    )
+    server.control.drive_pose = drive
+    return drive, arm, worker
+
+
+def test_get_control_state_reports_the_drive_pose(server: Any) -> None:
+    drive, _arm, _worker = drive_pose_rig(server)
+    drive.tick(10.0, True)
+    state = call(server, "get_control_state", {}).structured_content
+    assert state["arm"]["drive_pose"] == {"state": "lifting", "reason": "", "enabled": True, "stamp_ns": 42}
+
+
+def test_stop_tool_aborts_a_running_drive_pose_motion(server: Any) -> None:
+    drive, arm, worker = drive_pose_rig(server)
+    drive.tick(10.0, True)
+    assert drive.state().state == "lifting"
+    call(server, "stop", {})
+    assert ("request_stop",) in arm.calls
+    worker.run()
+    assert drive.state().state == "skipped: stopped"
+
+
+def test_control_manager_exposes_the_drive_pose_gates(tmp_path: Path) -> None:
+    robot = FakeRobot(tmp_path)
+    ctl = manager(robot, guard=make_guard(LOW_V))
+    assert ctl.agent_lease_held() is False and ctl.web_ui_lease_held() is False
+    assert ctl.carrying() is False and ctl.battery_cutoff() is True
+    ctl.take("arm")
+    assert ctl.agent_lease_held() is True and ctl.web_ui_lease_held() is False
+    assert manager(robot).battery_cutoff() is False

@@ -25,11 +25,9 @@ from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Protocol
 
-from pydantic import BaseModel
-
 from .arm import ArmError
 from .config import DrivePoseSettings
-from .models import ArmMotionResult
+from .models import ArmMotionResult, DrivePoseState
 
 LOGGER = logging.getLogger(__name__)
 IDLE = "idle"
@@ -51,22 +49,6 @@ WEB_UI_HOLDS = "web UI holds the arm"
 CARRYING = "carrying an object"
 LEADER_MOVING = "leader arm moving"
 BATTERY_CUTOFF = "battery cut-off"
-
-
-class DrivePoseState(BaseModel):
-    """What the drive pose controller does now.
-
-    Attributes:
-        state: idle | lifting | lifted | lowering | disabled | "skipped: <reason>".
-        reason: Why the arm was skipped or left alone ("" otherwise).
-        enabled: Whether new lifts are allowed.
-        stamp_ns: Wall clock (ns since the epoch) of the last change.
-    """
-
-    state: str
-    reason: str = ""
-    enabled: bool
-    stamp_ns: int
 
 
 class DriveArm(Protocol):

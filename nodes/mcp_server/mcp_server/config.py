@@ -191,6 +191,8 @@ class TopicSettings(StrictModel):
     tf: str = "/tf"  # subscribed on demand (on_demand.linger_s) by the TF lookups of the tools
     tf_static: str = "/tf_static"  # always subscribed (latched, about 0 msg/s)
     set_home_service: str = "/arm/set_home"
+    # Drive pose controller state (std_msgs/String JSON {state, reason, enabled, stamp_ns}, latched).
+    drive_pose_state: str = "/arm/drive_pose/state"
     # std_srvs/Trigger services of the web UI Arm tab (ControlManager.take_web_ui / release_web_ui).
     take_control_service: str = "/arm/take_control"
     release_control_service: str = "/arm/release_control"

@@ -660,6 +660,22 @@ class CarryingState(BaseModel):
     radius_m: float | None = None  # carried_object_radius_m of the last keep_position arm release, None without one
 
 
+class DrivePoseState(BaseModel):
+    """What the drive pose controller (drive_pose.DrivePose) does now (/arm/drive_pose/state, get_control_state).
+
+    Attributes:
+        state: idle | lifting | lifted | lowering | disabled | "skipped: <reason>".
+        reason: Why the arm was skipped or left alone ("" otherwise).
+        enabled: Whether new lifts are allowed.
+        stamp_ns: Wall clock (ns since the epoch) of the last change.
+    """
+
+    state: str
+    reason: str = ""
+    enabled: bool
+    stamp_ns: int
+
+
 class ArmControlState(BaseModel):
     """Arm lease (the filter_node autonomy lease) as get_control_state reports it."""
 
@@ -673,6 +689,7 @@ class ArmControlState(BaseModel):
     home_stored: bool = False
     active_source: str | None = None  # filter_node active arm source (leader, web_ui, autonomy)
     lost: str | None = None  # how the lease ended when this server did not release it (e.g. taken over by web_ui)
+    drive_pose: DrivePoseState | None = None  # the arm lift while navigating; None when no controller runs
 
 
 class BaseControlState(BaseModel):

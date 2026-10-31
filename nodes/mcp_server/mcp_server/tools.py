@@ -1032,9 +1032,13 @@ def register_core_tools(ctx: ToolContext) -> None:
         """Emergency stop, always available: cancels every Nav2 navigation goal and publishes a zero velocity. The
         arm is frozen at its measured pose (aborting any arm motion) only if this server holds arm control or an arm
         motion is running; if it does not hold control the arm is not touched (arm_held false), so a human driving
-        it with the leader arm or web UI keeps it. The motion queue is cleared first (pending steps dropped, listed in
-        motion_queue_dropped; the running step ends with the stop). Call it whenever anything looks wrong."""
+        it with the leader arm or web UI keeps it. A running drive pose lift or lowering is aborted (state 'skipped:
+        stopped'). The motion queue is cleared first (pending steps dropped, listed in motion_queue_dropped; the
+        running step ends with the stop). Call it whenever anything looks wrong."""
         dropped = ctx.queue.halt_for_stop() if ctx.queue is not None else []
+        drive_pose = None if ctx.control is None else ctx.control.drive_pose
+        if drive_pose is not None:
+            drive_pose.abort()  # before the arm stop, so the aborted motion ends as 'skipped: stopped'
         with tool_errors():
             result = robot.stop()
         return result.model_copy(update={"motion_queue_dropped": dropped})
@@ -1122,7 +1126,10 @@ def register_core_tools(ctx: ToolContext) -> None:
         restart, and parking is refused while it is true), at_home (the five non-gripper joints
         within settle tolerance of the stored home pose; the gripper is ignored, so holding an object at home counts;
         null when unknown or no home is stored), home_stored, active_source (filter_node: leader, web_ui, autonomy),
-        lost (how the lease ended if this server did not release it, e.g. taken over by web_ui)}, base {held,
+        lost (how the lease ended if this server did not release it, e.g. taken over by web_ui), drive_pose {state
+        (idle, lifting, lifted, lowering, disabled or 'skipped: <reason>': the arm lifts out of the head camera's view
+        by itself while a navigation goal runs and lowers after it), reason, enabled, stamp_ns} (null when no drive
+        pose controller runs)}, base {held,
         held_since, steering_neutral (every steer joint near straight; null without fresh swerve joint states)} and
         footprint {kind (static: the body + parked arm; dynamic: + released arm shadow + carried object;
         conservative: arm pose unknown, + max-reach disc around the arm mount), vertices, carried_object_radius_m,

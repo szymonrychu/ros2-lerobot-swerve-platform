@@ -66,6 +66,7 @@ from .camera_scene import CameraInfoData
 from .config import McpServerConfig
 from .control import ControlManager, LeaderActivity, NavGoalRegistry
 from .depth_source import DepthFrame, DepthSource
+from .drive_pose import DrivePose
 from .feeds import FeedsSpinner
 from .floor_guard import monitor_tilt_sample
 from .footprint import costmap_node, published_footprint_topic
@@ -85,6 +86,7 @@ from .models import (
     CameraFrame,
     CollisionMonitorInfo,
     DepthPoints,
+    DrivePoseState,
     GroundState,
     Map3dCloud,
     MapSummary,
@@ -213,6 +215,16 @@ DUAL_RATE_TOPICS = tuple(DUAL_RATE_SUBSYSTEM)
 # Dual-rate topic fields with a consumer that needs full rate while its subsystem is idle (README joint-state consumer
 # audit): read at full rate permanently. The audit found none.
 FULL_RATE_AT_REST: tuple[str, ...] = ()
+# /arm/drive_pose/state: latched (reliable + transient_local, depth 1), so a late subscriber (the Nav2 BT wait) gets
+# the current state at once.
+DRIVE_POSE_STATE_QOS = QoSProfile(
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.TRANSIENT_LOCAL,
+    history=HistoryPolicy.KEEP_LAST,
+    depth=1,
+)
+DRIVE_POSE_TICK_S = 0.2  # 5 Hz drive pose controller tick (publishes the state on a change)
+DRIVE_POSE_REPUBLISH_S = 1.0  # the state is republished at 1 Hz
 # A refused turn suggests a translation away from the nearest return that clears the rotation circle by this much.
 ESCAPE_EXTRA_M = 0.05
 
@@ -941,6 +953,7 @@ class RosRobot:
             STARTUP_TORQUE_PERIOD_S, self.startup_torque_limit, callback_group=self.group
         )
         self.init_footprint_io(config)
+        self.init_drive_pose_io(config)
         self.orphan_started = time.monotonic()
         self.orphan_timer = self.node.create_timer(
             ORPHAN_CHECK_PERIOD_S, self.check_orphan_lease, callback_group=self.group
@@ -990,6 +1003,45 @@ class RosRobot:
                 SetParameters, f"{name}/set_parameters", callback_group=self.group
             )
         self.node.create_timer(nav.consumer_poll_s, self.poll_consumers, callback_group=self.group)
+
+    # --- drive pose (drive_pose.DrivePose, created by bind_control) -----------------------------------------------
+
+    def init_drive_pose_io(self, config: McpServerConfig) -> None:
+        """The /arm/drive_pose/state publisher, the 5 Hz controller tick and the 1 Hz state republish (both publish
+        nothing until bind_control created the controller).
+
+        Args:
+            config (McpServerConfig): Node configuration.
+        """
+        self.drive_pose: DrivePose | None = None
+        self.drive_pose_published: DrivePoseState | None = None
+        self.drive_pose_pub = self.node.create_publisher(String, config.topics.drive_pose_state, DRIVE_POSE_STATE_QOS)
+        self.node.create_timer(DRIVE_POSE_TICK_S, self.on_drive_pose_tick, callback_group=self.group)
+        self.node.create_timer(DRIVE_POSE_REPUBLISH_S, self.republish_drive_pose_state, callback_group=self.group)
+
+    def on_drive_pose_tick(self) -> None:
+        """Timer: tick the controller with the navigation state and publish its state when it changed."""
+        drive = self.drive_pose
+        if drive is None:
+            return
+        drive.tick(time.monotonic(), self.nav_active())
+        state = drive.state()
+        if state != self.drive_pose_published:
+            self.publish_drive_pose_state(state)
+
+    def republish_drive_pose_state(self) -> None:
+        """Timer: republish the controller state (1 Hz)."""
+        if self.drive_pose is not None:
+            self.publish_drive_pose_state(self.drive_pose.state())
+
+    def publish_drive_pose_state(self, state: DrivePoseState) -> None:
+        """Publish a controller state as JSON on /arm/drive_pose/state.
+
+        Args:
+            state (DrivePoseState): The state.
+        """
+        self.drive_pose_published = state
+        self.drive_pose_pub.publish(String(data=state.model_dump_json()))
 
     def store_published_footprint(self, topic: str, msg: PolygonStamped) -> None:
         """Keep the footprint a costmap reports using (`<costmap>/published_footprint`, its global frame).
@@ -1787,13 +1839,22 @@ class RosRobot:
         return response
 
     def bind_control(self, control: ControlManager) -> None:
-        """Serve /arm/take_control and /arm/release_control through the tool server's ControlManager.
+        """Serve /arm/take_control and /arm/release_control through the tool server's ControlManager, and create the
+        drive pose controller on its lease, carry, leader and battery predicates (ticked by on_drive_pose_tick).
 
         Args:
             control (ControlManager): Lease manager (shared with the agent's take_control / release_control).
         """
         control.leader_moving = lambda: self.leader.moving(time.monotonic())
         control.nav_active = self.nav_active
+        footprint = control.footprint
+        self.drive_pose = DrivePose(
+            self.cfg.arm.drive_pose,
+            self.arm,
+            control,
+            publish_static=footprint.publish_static if footprint is not None else lambda: None,
+        )
+        control.drive_pose = self.drive_pose
         self.control = control
 
     def on_leader_joints(self, msg: JointState) -> None:
