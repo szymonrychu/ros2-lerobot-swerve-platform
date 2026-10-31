@@ -3262,7 +3262,7 @@ Cross-file topic chain of the head D435 obstacle cloud (design D5): d435_obstacl
 
 ### `test_head_rgbd_calib_core.py`
 
-Calibration core in `shared/ros2_common/head_rgbd_calibration`: an AST scan proves no module imports `scripts`, `rosbags` or `subprocess`; the core `detect` finds the synthetic board of `tests/rgbd_synthetic.py`.
+Calibration core in `shared/ros2_common/head_rgbd_calibration`: an AST scan proves no module imports `scripts`, `rosbags` or `subprocess`; the core `detect` finds the synthetic board of `tests/rgbd_synthetic.py`; `rgb_difference` ignores mains flicker bands; `calibrate` recovers the synthetic RGB camera; the message decoders. The ToF still-pair selection, ToF-to-RGB extrinsic, RGB + ToF run limits and report cases went with the retired ToF fits.
 
 ### `test_head_rgbd_intrinsics_check.py`
 
@@ -3280,64 +3280,17 @@ D435 intrinsics check (`calibrate.py`: `check_intrinsics`, `board_plane_bias_mm`
 
 ### `test_head_rgbd_calib_intrinsics.py`
 
-Tests for `shared/ros2_common/head_rgbd_calibration/charuco.py` and `intrinsics.py`, on the shared synthetic scenes of `tests/rgbd_synthetic.py` (ChArUco board rendered through a known RGB 576x324 / ToF 240x180 pinhole, with noise) and real ToF amplitude frames in `tests/fixtures/head_rgbd/`.
+Tests for `shared/ros2_common/head_rgbd_calibration/charuco.py` and `intrinsics.py`, on the shared synthetic scenes of `tests/rgbd_synthetic.py` (ChArUco board rendered through a known RGB 576x324 pinhole, with noise) and real ToF amplitude frames in `tests/fixtures/head_rgbd/` (the `upscale` detection case). The ToF fits (`calibrate_tof`, `detect_tof`, `normalise_amplitude`) and the camera_calibration YAML writer are retired; their cases went with them.
 
+| Test | What it checks |
+|---|---|
 | `test_make_board_matches_config` | Board size and lengths follow `BoardConfig`. |
 | `test_rgb_views_recover_intrinsics` | 20 RGB views recover fx, fy within 1 % and cx, cy within 3 px. |
-| `test_tof_views_recover_intrinsics_with_zero_distortion_model` | 20 normalised ToF amplitude views recover fx, fy within 2 % and cx, cy within 2 px; zero true distortion gives the zero-D model. |
-| `test_tof_with_true_distortion_picks_free_model` | True k1 = -0.1 selects the free model and recovers k1 within 0.03. |
 | `test_partial_board_still_detects_six_corners`, `test_blank_image_has_no_detection` | Half the board outside the image still gives >= 6 corners; a blank image gives None. |
 | `test_fewer_than_min_views_raises_naming_count` | Fewer than `min_views` views raise, naming the count. |
-| `test_yaml_round_trips_in_camera_calibration_format` | Written YAML loads with the ROS camera_calibration keys and shapes. |
-| `test_rms_over_limit_writes_nothing`, `test_rms_at_limit_is_written` | RMS over `rgb_max_rms_px` / `tof_max_rms_px` raises and writes no file. |
-| `test_compare_sdk_reports_percent_difference` | fx/fy/cx/cy differences in % against the SDK camera_info. |
+| `test_compare_sdk_reports_percent_difference` | fx/fy/cx/cy differences in % against a reference camera_info. |
 | `test_real_near_tof_frames_need_the_upscale` | Six real ToF amplitude frames of the printed board at about 0.3 m (`tests/fixtures/head_rgbd/`) give no detection at native size and at least five with `upscale=2`. |
-| `test_upscaled_corners_are_in_source_pixels` | Corners detected with `upscale=2` match the native detection within 0.1 px (mapped back to source pixels). |
-| `test_detect_tof_upscales_by_default` | `pipeline.detect_tof` uses `selection.tof_upscale` (default 2): the real near frames detect, `tof_upscale=1` does not. |
 | `test_synthetic_scene_geometry_is_consistent` | Generated poses project the board inside the RGB image. |
-
-### `test_head_rgbd_calib_extrinsics.py`
-
-Tests for `shared/ros2_common/head_rgbd_calibration/extrinsics.py` on synthetic RGB + ToF pairs with a known extrinsic.
-
-| Test | What it checks |
-|---|---|
-| `test_synthetic_scene_has_enough_pairs` | The generated scene gives at least 18 pairs seen by both cameras. |
-| `test_stereo_recovers_true_extrinsic` | 20 pairs recover translation within 2 mm and rotation within 0.2 deg. |
-| `test_result_maps_tof_points_onto_rgb_projection` | Direction: a ToF point mapped with the result lands within 0.5 px of the RGB corner. |
-| `test_pair_without_common_ids_is_skipped` | A pair with no common corner ids is not counted. |
-| `test_pair_with_too_few_common_ids_is_skipped` | Pairs sharing 1, 3 or 5 corner ids (under the 6 the OpenCV DLT pose needs) are not counted. |
-| `test_common_points_needs_six_shared_corners` | `common_points` returns None for 5 shared corners and the points for 6. |
-| `test_fewer_than_min_views_raises` | Fewer than `min_views` pairs raise. |
-| `test_plane_check_reports_depth_bias` | ToF depth biased +20 mm reports 20 +- 3 mm, unbiased 0 +- 3 mm. |
-| `test_plane_check_rejects_pair_with_background_in_outline` | A pair with two thirds of its board pixels 400 and 800 mm farther (background) is rejected and counted, the median stays 0 +- 3 mm; with `plane_max_spread_mm` 1000 it is kept. |
-| `test_plane_check_keeps_every_clean_pair` | A uniformly +20 mm biased scene rejects no pair. |
-| `test_yaml_round_trips` | Written extrinsics YAML has the documented keys and loads back. |
-| `test_rms_over_limit_writes_nothing` | Stereo RMS over `stereo_max_rms_px` raises and writes no file. |
-
-### `test_head_rgbd_calib_quality.py`
-
-Per-pose reprojection errors and outlier flags of `calibrate.py` / `extrinsics.py`, on the synthetic scene of `test_head_rgbd_calib_extrinsics.py` (view 3 gets 6 RGB corners moved by 25 px) and on hand-built `CalibrationRun`s.
-
-| Test | What it checks |
-|---|---|
-| `test_clean_session_flags_nothing` | A clean synthetic session has an error in each fit for every pose and no outlier. |
-| `test_corrupted_view_is_the_only_outlier` | The corrupted view (pose 004) is the only flagged pose, flagged in `rgb` and not in `tof`, with an RGB error above 5 px. |
-| `test_pose_ids_default_and_custom` | Pose ids default to `001`, `002`, ... and follow `pose_ids` when given. |
-| `test_pose_ids_length_mismatch_raises` | A `pose_ids` list of the wrong length raises `ValueError` naming both counts. |
-| `test_flag_outliers_uses_limit_when_higher_than_median_rule` | Errors under the fit limit are not flagged even above 3 x median. |
-| `test_flag_outliers_uses_median_rule_when_higher_than_limit` | `OUTLIER_MEDIAN_FACTOR` is 3 and the threshold is 3 x median when that exceeds the limit. |
-| `test_flag_outliers_skips_none` | A pose absent from a fit (`None`) is never flagged and does not count in the median. |
-| `test_stereo_per_pair_errors_match_rms` | `pair_indices` skip a pair with 3 common corners; the corner-count weighted RMS of `per_pair_errors` equals `stereo_rms`. |
-| `test_extrinsic_result_defaults_keep_old_constructor` | `ExtrinsicResult` still builds without the new fields. |
-| `test_failed_limits_names_outlier_poses` | A failed RGB limit is suffixed `outlier pose 007 (66.600 px): delete pose 007 and Compute again`. |
-| `test_failed_limits_names_several_outlier_poses` | Several flagged poses are listed, with `delete poses 007, 012 and Compute again`. |
-| `test_failed_limits_without_flagged_poses_is_unchanged` | No flagged pose (or no per-pose data) leaves the message as before. |
-| `test_report_lists_flagged_poses` | `report.md` has the per-pose table row and a `delete pose 007 and Compute again` line. |
-| `test_report_with_no_flagged_poses_and_missing_errors` | `-` for a missing fit and `Flagged poses: none`. |
-| `test_report_without_poses_has_no_section` | A run without per-pose data has no per-pose section. |
-| `test_outlier_threshold_is_max_of_median_factor_and_limit` | Both threshold branches of `flag_outliers` (named for the design's rule). |
-| `test_pose_ids_default_and_length_mismatch` | Default ids and the length mismatch error (named for the design's rule). |
 
 ### `test_head_rgbd_calib_hints.py`
 
@@ -3355,36 +3308,16 @@ Per-pose reprojection errors and outlier flags of `calibrate.py` / `extrinsics.p
 | `test_threshold_follows_board_size` | The half-the-board threshold follows `squares_x` / `squares_y`. |
 | `test_board_size_changes_threshold` | Parametrised: 5x5 (16 inner, edge 8) and 8x6 (35 inner, edge 18). |
 
-### `test_head_rgbd_calib_poses.py`
-
-Tests for `ros2_common.head_rgbd_calibration.poses` (`PoseCounter`), on a synthetic 15 s stream (ToF 10 Hz, RGB 2 Hz
-from `tests/rgbd_synthetic.py`): moving board, a still pose at 0.33 m, a still pose at 1.2 m (too far for the ToF),
-another still pose at 0.33 m.
-
-| Test | What it checks |
-|---|---|
-| `test_counts_one_pose_per_still_window` | The two near still poses are captured once each (numbers 1 and 2); the far one is not. |
-| `test_moving_board_is_not_counted` | Statuses include `moving` and no pose is attached to them. |
-| `test_status_names_missing_tof_board` | A board not found by the ToF gives the `move closer` status and no pose. |
-| `test_counter_agrees_with_the_offline_still_pairs` | The live count equals the offline `still_pairs` with both detections. |
-| `test_counter_counts_a_still_board_under_mains_flicker` | Real flickering RGB frames of a still board (`fixtures/head_rgbd/rgb_flicker_*.png`) with a real ToF frame count one pose. |
-| `test_captured_pose_carries_judged_detections` | A captured pose has the raw bytes passed with the RGB frame, the judged detections, the paired amplitude and the nearest depth frame. |
-| `test_depth_absent_beyond_max_dt` | Depth outside `max_pair_dt_s` or absent leaves `depth` None; the pose is still captured. |
-| `test_start_count_continues_numbering` | `start_count=4` numbers the next poses 5 and 6. |
-| `test_waiting_until_both_streams` | `status` is `waiting for frames` until frames arrived and one was judged, then the last judged status. |
-| `test_depth_paired_within_max_dt` | A depth frame within `max_pair_dt_s` of the amplitude is attached to the pose. |
-| `test_depth_history_is_pruned_like_the_amplitude` | Depth frames older than `TOF_HISTORY_S` are dropped. |
-| `test_unknown_frame_kind_is_rejected` | An unknown kind raises `ValueError`. |
-
 ### `test_head_rgbd_calib_retired.py`
 
-Retirement pins for the ssh-streamed live pose counter and the ToF+CM3 offline calibration CLI (both replaced by the web UI Calibrate page).
+Retirement pins for the ssh-streamed live pose counter and the ToF+CM3 offline calibration CLI (both replaced by the web UI Calibrate page), and for the ToF fits of the calibration core.
 
 | Test | What it checks |
 |---|---|
 | `test_live_counter_files_untracked` | `git ls-files` returns nothing for the three removed live-counter files (counter, relay script and their test file). |
 | `test_no_live_counter_references` | `git grep` finds no relay script name, start function or dotted config key of the live counter under `scripts/` and `tests/` (this file excluded). |
 | `test_offline_cli_is_gone` | `git ls-files` returns nothing for the offline CLI script, its yaml and its `scripts/head_rgbd_calibration/` package, and no tracked file outside `docs/` (this file excluded) names the CLI script. |
+| `test_tof_fits_are_gone` | No tracked .py under `shared/` or `nodes/` defines `detect_tof`, `calibrate_tof` or `normalise_amplitude`; `git ls-files` of `shared/ros2_common/head_rgbd_calibration/poses.py` is empty; no .py under `shared/` or `nodes/` other than `extrinsics.py` and `urdf_handoff.py` imports `extrinsics`. |
 
 ### `test_tof_paths_retired.py`
 
@@ -3457,8 +3390,7 @@ Run in their own projects, not from `tests/`.
 Shared helper module (no tests) for the head RGB-D calibration and validation tests: `SyntheticCamera` pinholes for the
 576x324 RGB and 240x180 ToF, `Extrinsic`, board poses, and renderers (`render_rgb`, `render_tof_amplitude`,
 `render_depth`) that draw the ChArUco board through a known pose so results compare with ground truth. Used by
-`test_head_rgbd_calib_intrinsics.py`, `test_head_rgbd_calib_extrinsics.py`, `test_head_rgbd_calib_core.py`,
-`test_head_rgbd_calib_poses.py`, `test_head_rgbd_calib_quality.py`, `test_head_rgbd_intrinsics_check.py`,
+`test_head_rgbd_calib_intrinsics.py`, `test_head_rgbd_calib_core.py`, `test_head_rgbd_intrinsics_check.py`,
 `test_head_arm_calib_config.py`, `test_ground_scene_truth.py` and the head_rgbd_calibration node tests.
 
 ### `test_map3d_topics.py`

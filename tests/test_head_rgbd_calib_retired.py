@@ -48,3 +48,30 @@ def test_offline_cli_is_gone() -> None:
     assert git("ls-files", "--", *OFFLINE_CLI_PATHS).stdout.strip() == ""
     result = git("grep", "-n", "-F", OFFLINE_CLI_NAME, "--", ".", ":!docs", THIS_FILE)
     assert result.stdout == ""
+
+
+CODE_PATHS = ("shared/*.py", "nodes/*.py")
+TOF_FIT_NAMES = ("detect_tof", "calibrate_tof", "normalise_amplitude")
+POSES_MODULE = "shared/ros2_common/head_rgbd_calibration/poses.py"
+EXTRINSICS_IMPORT = r"head_rgbd_calibration(\.extrinsics( |$)| import .*extrinsics)"
+EXTRINSICS_IMPORTERS_ALLOWED = (
+    "shared/ros2_common/head_rgbd_calibration/extrinsics.py",
+    "shared/ros2_common/head_rgbd_calibration/urdf_handoff.py",
+)
+
+
+def test_tof_fits_are_gone() -> None:
+    """The ToF fits of the head RGB-D calibration are retired: no definition, no live pose counter module, and no
+    code under shared/ or nodes/ outside extrinsics.py and urdf_handoff.py imports the extrinsics module."""
+    defined = [
+        line
+        for name in TOF_FIT_NAMES
+        for line in git("grep", "-n", "-E", rf"^[[:space:]]*def {name}\(", "--", *CODE_PATHS).stdout.splitlines()
+    ]
+    assert defined == []
+    assert git("ls-files", "--", POSES_MODULE).stdout.strip() == ""
+    importers = {
+        line.split(":", 1)[0]
+        for line in git("grep", "-n", "-E", EXTRINSICS_IMPORT, "--", *CODE_PATHS).stdout.splitlines()
+    }
+    assert importers <= set(EXTRINSICS_IMPORTERS_ALLOWED), sorted(importers)

@@ -4,8 +4,7 @@ import numpy as np
 import pytest
 from ros2_common.head_rgbd_calibration.charuco import Detection
 from ros2_common.head_rgbd_calibration.config import BoardConfig
-from ros2_common.head_rgbd_calibration.extrinsics import MIN_COMMON_CORNERS
-from ros2_common.head_rgbd_calibration.hints import FEW_CORNERS_FRACTION, capture_hints
+from ros2_common.head_rgbd_calibration.hints import FEW_CORNERS_FRACTION, MIN_COMMON_CORNERS, capture_hints
 
 BOARD = BoardConfig()
 INNER = 20

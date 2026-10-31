@@ -4,8 +4,8 @@ import numpy as np
 
 from ros2_common.head_rgbd_calibration.charuco import Detection
 from ros2_common.head_rgbd_calibration.config import BoardConfig
-from ros2_common.head_rgbd_calibration.extrinsics import MIN_COMMON_CORNERS
 
+MIN_COMMON_CORNERS = 6  # cv2.stereoCalibrate runs a DLT pose per view (findExtrinsicCameraParams2): >= 6 points
 FEW_CORNERS_FRACTION = 0.5  # a camera seeing fewer than this fraction of the board's inner corners gets a hint
 
 

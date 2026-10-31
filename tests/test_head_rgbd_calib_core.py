@@ -4,7 +4,6 @@ import ast
 import difflib
 import subprocess
 import sys
-from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,28 +11,18 @@ import cv2
 import numpy as np
 import pytest
 from ros2_common.head_rgbd_calibration import charuco as core_charuco
-from ros2_common.head_rgbd_calibration.calibrate import (
-    CalibrationRun,
-    failed_limits,
-    report_markdown,
-)
-from ros2_common.head_rgbd_calibration.config import BoardConfig, LimitsConfig, SelectionConfig
-from ros2_common.head_rgbd_calibration.extrinsics import ExtrinsicResult, PlaneCheck, stereo_calibrate
+from ros2_common.head_rgbd_calibration.config import BoardConfig
 from ros2_common.head_rgbd_calibration.frames import (
-    FrameSet,
-    StampedImage,
     decode_camera_info,
     decode_compressed,
     decode_mono16,
     rgb_difference,
     stamp_ns,
-    still_pairs,
 )
-from ros2_common.head_rgbd_calibration.intrinsics import KIND_RGB, KIND_TOF, IntrinsicsResult, calibrate
+from ros2_common.head_rgbd_calibration.intrinsics import calibrate
 from ros2_common.head_rgbd_calibration.urdf_text import NOTE_MARKER, Origin, rewrite_tof_joint
 
 from tests.rgbd_synthetic import board_poses, render_rgb, rgb_camera
-from tests.test_head_rgbd_calib_extrinsics import BOARD, RGB, TOF, TRUE, detection_pairs, rotation_error_deg
 
 ROOT = Path(__file__).resolve().parent.parent
 CORE_DIR = ROOT / "shared" / "ros2_common" / "head_rgbd_calibration"
@@ -84,28 +73,6 @@ def textured_frame(seed: int, shape: tuple[int, int] = (120, 160)) -> np.ndarray
     noise = np.random.default_rng(seed).uniform(60, 180, shape).astype(np.float32)
     grey = cv2.GaussianBlur(noise, (0, 0), 3)
     return cv2.cvtColor(np.rint(grey).astype(np.uint8), cv2.COLOR_GRAY2BGR)
-
-
-def test_core_still_pairs_one_pair_per_window() -> None:
-    still_a, still_b = textured_frame(1), textured_frame(2)
-    amp_still = np.full((18, 24), 1000, dtype=np.uint16)
-    amp_still[:, :12] = 3000
-    # stills at 2-5 s (scene A) and 8-11 s (scene B); one different frame between them, 10 Hz ToF, 2 Hz RGB
-    rgb = []
-    for i in range(24):
-        t = i * 0.5
-        image = still_a if 2 <= t < 5 else still_b if 8 <= t < 11 else textured_frame(100 + i)
-        rgb.append(StampedImage(int(t * NS) + 5_000_000, image))
-    amplitude = []
-    for i in range(120):
-        t = i * 0.1
-        moving = not (2 <= t < 5 or 8 <= t < 11)
-        amp = amp_still if not moving else np.roll(amp_still, i % 12, axis=1)
-        amplitude.append(StampedImage(int(t * NS), amp))
-    pairs = still_pairs(FrameSet(rgb=rgb, amplitude=amplitude), SelectionConfig())
-    assert len(pairs) == 2
-    assert 2 * NS <= pairs[0].rgb_stamp_ns < 5 * NS
-    assert 8 * NS <= pairs[1].rgb_stamp_ns < 11 * NS
 
 
 def test_core_rgb_difference_ignores_flicker_bands() -> None:
@@ -162,79 +129,6 @@ def test_core_rewrite_tof_joint_touches_only_tof_joint() -> None:
     assert all("<origin" in line or NOTE_MARKER in line for line in diff)
     assert sum(NOTE_MARKER in line for line in diff) <= 2
     assert "0.010000000 -0.020000000 0.030000000" in after
-
-
-def test_core_stereo_extrinsic_recovers_synthetic_pose() -> None:
-    result = stereo_calibrate(detection_pairs(), BOARD, RGB, TOF)
-    assert np.linalg.norm(result.t - TRUE.t) < 0.002
-    assert rotation_error_deg(result.r, TRUE.r) < 0.2
-
-
-GOLDEN_REPORT = """# Head RGB-D calibration calib-test
-
-Date: 2026-01-02T03:04:05
-Head camera lens position: 4.5 dioptres (changing lens_position invalidates the RGB calibration)
-Still pairs: 15
-
-| Item | Value | Limit |
-|---|---|---|
-| RGB intrinsic RMS | 0.250 px | 0.5 px |
-| RGB views | 14 | >= 12 |
-| ToF intrinsic RMS | 0.100 px | 0.3 px |
-| ToF views | 13 | >= 12 |
-| ToF zero-distortion RMS | 0.120 px | 0.3 px |
-| Stereo RMS | 0.600 px | 1.0 px |
-| Stereo pairs | 12 | >= 12 |
-| Board plane depth bias (median) | -3.5 mm | 40.0 mm |
-| Board plane pairs rejected (background) | 0 | spread 50.0 mm |
-
-ToF intrinsics versus the SDK /tof/camera_info (percent difference):
-
-- fx: +0.50 %
-- fy: -0.25 %
-
-Extrinsic (tof_optical_frame in head_camera_optical_frame), metres: 0.01000, -0.02000, 0.03000
-"""
-
-
-def fixed_run() -> CalibrationRun:
-    """A hand-built run for the report golden."""
-    k = np.eye(3)
-    rgb = IntrinsicsResult(k, np.zeros(5), 0.25, np.zeros(14), 14, (576, 324), KIND_RGB)
-    tof = IntrinsicsResult(k, np.zeros(5), 0.1, np.zeros(13), 13, (240, 180), KIND_TOF, zero_distortion_rms=0.12)
-    extrinsic = ExtrinsicResult(np.eye(3), np.array([0.01, -0.02, 0.03]), 0.6, 12)
-    return CalibrationRun(rgb, tof, extrinsic, PlaneCheck([-3.5], -3.5), {"fx": 0.5, "fy": -0.25}, 15)
-
-
-def test_failed_limits_names_limit_keys() -> None:
-    run = fixed_run()
-    assert failed_limits(run, LimitsConfig()) == []
-    tight = LimitsConfig(rgb_max_rms_px=0.1, tof_max_rms_px=0.05, stereo_max_rms_px=0.5)
-    failures = failed_limits(run, tight)
-    assert [f.split(":")[0] for f in failures] == [
-        "limits.rgb_max_rms_px",
-        "limits.tof_max_rms_px",
-        "limits.stereo_max_rms_px",
-    ]
-    assert failures[0] == "limits.rgb_max_rms_px: RGB RMS 0.250 px exceeds 0.1 px"
-
-
-def test_failed_limits_flags_plane_bias_over_limit() -> None:
-    run = fixed_run()
-    assert LimitsConfig().plane_max_bias_mm == 40.0
-    assert LimitsConfig().plane_max_spread_mm == 50.0
-    assert failed_limits(run, LimitsConfig(plane_max_bias_mm=3.5)) == []
-    failures = failed_limits(run, LimitsConfig(plane_max_bias_mm=3.0))
-    assert failures == ["limits.plane_max_bias_mm: plane depth bias -3.5 mm exceeds 3.0 mm"]
-    over = replace(run, plane=PlaneCheck([45.0], 45.0))
-    assert [f.split(":")[0] for f in failed_limits(over, LimitsConfig())] == ["limits.plane_max_bias_mm"]
-    under = replace(run, plane=PlaneCheck([-45.0], -45.0))
-    assert [f.split(":")[0] for f in failed_limits(under, LimitsConfig())] == ["limits.plane_max_bias_mm"]
-
-
-def test_report_markdown_golden() -> None:
-    text = report_markdown(fixed_run(), LimitsConfig(), "calib-test", 4.5, "2026-01-02T03:04:05")
-    assert text == GOLDEN_REPORT
 
 
 def test_moved_modules_left_scripts() -> None:
