@@ -7,8 +7,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.spatial.transform import Rotation
 
-from ros2_common.head_rgbd_calibration.urdf_handoff import RPY_SEQUENCE
-
+RPY_SEQUENCE = "xyz"  # lowercase = extrinsic (fixed-axis) rotations, the URDF rpy convention
 FIXED = "fixed"
 MOVABLE_TYPES = ("revolute", "continuous")
 SUPPORTED_TYPES = (FIXED, *MOVABLE_TYPES)

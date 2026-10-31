@@ -3318,6 +3318,7 @@ Retirement pins for the ssh-streamed live pose counter and the ToF+CM3 offline c
 | `test_no_live_counter_references` | `git grep` finds no relay script name, start function or dotted config key of the live counter under `scripts/` and `tests/` (this file excluded). |
 | `test_offline_cli_is_gone` | `git ls-files` returns nothing for the offline CLI script, its yaml and its `scripts/head_rgbd_calibration/` package, and no tracked file outside `docs/` (this file excluded) names the CLI script. |
 | `test_tof_fits_are_gone` | No tracked .py under `shared/` or `nodes/` defines `detect_tof`, `calibrate_tof` or `normalise_amplitude`; `git ls-files` of `shared/ros2_common/head_rgbd_calibration/poses.py` is empty; no .py under `shared/` or `nodes/` other than `extrinsics.py` and `urdf_handoff.py` imports `extrinsics`. |
+| `test_tof_stereo_modules_are_gone` | Parametrised over the retired keys: `git ls-files` of `extrinsics.py` and `urdf_handoff.py` is empty, no tracked .py imports either module, and `SelectionConfig` rejects `still_tof_mad`, `amplitude_percentiles`, `tof_upscale`, `max_pair_dt_s`, `LimitsConfig` rejects `tof_max_rms_px`, `stereo_max_rms_px`, `tof_zero_distortion_rms_px`, `rgb_max_rms_px`, each error naming the key. |
 
 ### `test_tof_paths_retired.py`
 
@@ -3337,19 +3338,6 @@ Retirement pins for the old head sensors of the D435 switchover (design D11: ret
 | Test | What it checks |
 |---|---|
 | `test_arducam_tof_is_retired` | The `arducam_tof` entry is exactly `name`, `node_type` and `present: false` (no `config`) under the comment "Retired (D435 switchover): present: false uninstalls the unit, venv and config on the next deploy"; no `monitoring_agent_node_targets` entry names it or port 19112; no present and enabled node's config, node or type env or type launch command, and no nav2 parameter, names a `/tof/` topic. |
-
-### `test_head_rgbd_urdf_handoff.py`
-
-Tests for `shared/ros2_common/head_rgbd_calibration/urdf_handoff.py` on a copy of `nodes/web_ui/urdf/head.urdf`.
-
-| Test | What it checks |
-|---|---|
-| `test_read_chain_parses_joints` | The camera, ToF and optical joint origins are read from the URDF. |
-| `test_missing_joint_raises` | A URDF without `tof_joint` raises. |
-| `test_rewrite_reproduces_extrinsic` | The rewritten `tof_joint` origin, composed with the other joints, reproduces the calibrated transform. |
-| `test_diff_touches_only_origin_and_comment` | A text diff shows only the `tof_joint` origin and the calibration comment changed. |
-| `test_second_rewrite_replaces_comment` | A second rewrite replaces the stamped comment instead of adding one. |
-| `test_drift_equals_injected_offset` | `check_drift` reports the translation and rotation offset that was injected. |
 
 ### `test_head_rgbd_calibration_deploy.py`
 

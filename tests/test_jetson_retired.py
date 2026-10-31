@@ -753,16 +753,6 @@ ALLOWED_REFERENCES: tuple[tuple[str, str, str], ...] = (
     # rgbd-calibration: the head ToF-to-RGB extrinsic is an OpenCV stereo calibration (cv2.stereoCalibrate and its
     # RMS), a new pair unrelated to the retired Jetson stereo depth.
     (
-        "tests/test_head_rgbd_calib_extrinsics.py",
-        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
-        "rgbd-calibration",
-    ),
-    (
-        "tests/test_head_rgbd_urdf_handoff.py",
-        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
-        "rgbd-calibration",
-    ),
-    (
         "tests/README.md",
         r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
         "rgbd-calibration",
@@ -858,11 +848,6 @@ ALLOWED_REFERENCES: tuple[tuple[str, str, str], ...] = (
         "rgbd-calibration",
     ),
     (
-        "tests/test_head_rgbd_calib_quality.py",
-        r"(?i)stereo",  # RGB-D calibration: the ToF-to-RGB stereo fit and its per-pose errors
-        "rgbd-calibration",
-    ),
-    (
         "shared/README.md",
         r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_px|_recovers\w*| error per pair)",
         "rgbd-calibration",
@@ -878,11 +863,6 @@ ALLOWED_REFERENCES: tuple[tuple[str, str, str], ...] = (
         "rgbd-calibration",
     ),
     (
-        "shared/ros2_common/head_rgbd_calibration/extrinsics.py",
-        r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
-        "rgbd-calibration",
-    ),
-    (
         "shared/ros2_common/head_rgbd_calibration/urdf_text.py",
         r"(?i)stereo(_?calibrat\w*| calibration| rms| pairs|_rms\w*|_max_rms_px|_recovers\w*)",
         "rgbd-calibration",
@@ -892,6 +872,13 @@ ALLOWED_REFERENCES: tuple[tuple[str, str, str], ...] = (
         r"(?i)stereo(_?calibrat\w*| calibration|[ _]extrinsic\w*| rms| pairs|_pairs|_rms\w*|_max_rms_px|_recovers\w*)",
         "rgbd-calibration",
     ),
+    # retirement-test: the pins of the retired ToF-to-RGB extrinsics and its selection and limit keys.
+    (
+        "tests/test_head_rgbd_calib_retired.py",
+        r"(?i)stereo(_max_rms_px|_modules|_module_import| extrinsics)",
+        "retirement-test",
+    ),
+    ("nodes/head_rgbd_calibration/tests/test_config.py", r'"stereo_max_rms_px": 1\.0,$', "retirement-test"),
     # pinned-build: part of the libcamera build stamp, changing it would rebuild.
     ("nodes/head_camera_cpp/patches/**", r"overview_camera", "pinned-build"),
 )

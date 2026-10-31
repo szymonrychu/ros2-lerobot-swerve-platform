@@ -6,7 +6,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 from ros2_common.head_rgbd_calibration.arm_pose_check import PoseCheckConfig
-from ros2_common.head_rgbd_calibration.config import ARM_JOINT_NAMES, FloorFitConfig, LimitsConfig, SelectionConfig
+from ros2_common.head_rgbd_calibration.config import ARM_JOINT_NAMES, FloorFitConfig
 
 from head_rgbd_calibration.config import CONFIG_ENV, ArmSequenceConfig, NodeConfig, load_config
 
@@ -14,17 +14,19 @@ NODE_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = NODE_DIR.parents[1]
 SHIPPED = NODE_DIR / "config" / "head_rgbd_calibration.yaml"
 CLIENT_YML = REPO_ROOT / "ansible" / "group_vars" / "client.yml"
-D435_SELECTION = {"still_window_s", "still_rgb_mad", "still_depth_mad", "skip_start_s"}
-D435_LIMITS = {
-    "plane_max_bias_mm",
-    "plane_max_spread_mm",
-    "min_views",
-    "intrinsics_max_rms_px",
-    "intrinsics_max_focal_diff_pct",
-    "intrinsics_max_principal_diff_px",
+# Keys of the retired ToF calibration, with their last defaults.
+RETIRED_SELECTION_KEYS = {
+    "still_tof_mad": 0.01,
+    "max_pair_dt_s": 0.05,
+    "amplitude_percentiles": [1, 99],
+    "tof_upscale": 2,
 }
-RETIRED_SELECTION_KEYS = sorted(set(SelectionConfig.model_fields) - D435_SELECTION)
-RETIRED_LIMIT_KEYS = sorted(set(LimitsConfig.model_fields) - D435_LIMITS)
+RETIRED_LIMIT_KEYS = {
+    "rgb_max_rms_px": 0.5,
+    "tof_max_rms_px": 0.3,
+    "stereo_max_rms_px": 1.0,
+    "tof_zero_distortion_rms_px": 0.3,
+}
 
 
 def test_defaults_equal_shipped_yaml() -> None:
@@ -77,13 +79,6 @@ def test_defaults_are_the_d435() -> None:
     assert cfg.restart_units == ["ros2-head_rgbd_cpp.service", "ros2-head_state_publisher.service"]
 
 
-def test_the_retired_shared_keys_are_the_tof_ones() -> None:
-    """Every shared key the node refuses belongs to the retired ToF calibration (the parametrisation below)."""
-    assert set(RETIRED_SELECTION_KEYS) == {"still_tof_mad", "max_pair_dt_s", "amplitude_percentiles", "tof_upscale"}
-    assert {"rgb_max_rms_px", "tof_max_rms_px", "tof_zero_distortion_rms_px"} < set(RETIRED_LIMIT_KEYS)
-    assert len(RETIRED_LIMIT_KEYS) == 4
-
-
 def key_path(data: dict) -> list[str]:
     """The keys from the top of a one-key-per-level mapping down to its leaf key."""
     section, value = next(iter(data.items()))
@@ -99,8 +94,8 @@ def key_path(data: dict) -> list[str]:
         {"qos": {"rgb_depth": 5}},
         {"head_camera_config_file": "/etc/ros2/head_camera_cpp/config.yaml"},
         {"default_lens_position": 1.0},
-        *({"selection": {key: SelectionConfig.model_fields[key].default}} for key in RETIRED_SELECTION_KEYS),
-        *({"limits": {key: LimitsConfig.model_fields[key].default}} for key in RETIRED_LIMIT_KEYS),
+        *({"selection": {key: value}} for key, value in RETIRED_SELECTION_KEYS.items()),
+        *({"limits": {key: value}} for key, value in RETIRED_LIMIT_KEYS.items()),
     ],
     ids=lambda data: ".".join(key_path(data)),
 )

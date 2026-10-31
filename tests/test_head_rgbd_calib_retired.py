@@ -6,6 +6,10 @@ The web UI Calibrate page replaces both.
 import subprocess
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+from ros2_common.head_rgbd_calibration.config import LimitsConfig, SelectionConfig
+
 REPO = Path(__file__).resolve().parents[1]
 THIS_FILE = ":!tests/test_head_rgbd_calib_retired.py"
 REMOVED_PATHS = (
@@ -75,3 +79,38 @@ def test_tof_fits_are_gone() -> None:
         for line in git("grep", "-n", "-E", EXTRINSICS_IMPORT, "--", *CODE_PATHS).stdout.splitlines()
     }
     assert importers <= set(EXTRINSICS_IMPORTERS_ALLOWED), sorted(importers)
+
+
+STEREO_MODULES = (
+    "shared/ros2_common/head_rgbd_calibration/extrinsics.py",
+    "shared/ros2_common/head_rgbd_calibration/urdf_handoff.py",
+)
+STEREO_MODULE_IMPORT = r"head_rgbd_calibration(\.(extrinsics|urdf_handoff)( |$)| import .*(extrinsics|urdf_handoff))"
+RETIRED_SELECTION_KEYS = {
+    "still_tof_mad": 0.01,
+    "amplitude_percentiles": (1, 99),
+    "tof_upscale": 2,
+    "max_pair_dt_s": 0.05,
+}
+RETIRED_LIMIT_KEYS = {
+    "tof_max_rms_px": 0.3,
+    "stereo_max_rms_px": 1.0,
+    "tof_zero_distortion_rms_px": 0.3,
+    "rgb_max_rms_px": 0.5,
+}
+
+
+@pytest.mark.parametrize(
+    ("model", "key", "value"),
+    [
+        *((SelectionConfig, key, value) for key, value in RETIRED_SELECTION_KEYS.items()),
+        *((LimitsConfig, key, value) for key, value in RETIRED_LIMIT_KEYS.items()),
+    ],
+)
+def test_tof_stereo_modules_are_gone(model: type, key: str, value: object) -> None:
+    """The ToF-to-RGB extrinsics and the tof_joint URDF hand-off modules are untracked, no tracked file imports them,
+    and the selection and limit keys only they used are rejected."""
+    assert git("ls-files", "--", *STEREO_MODULES).stdout.strip() == ""
+    assert git("grep", "-n", "-E", STEREO_MODULE_IMPORT, "--", "*.py").stdout == ""
+    with pytest.raises(ValidationError, match=key):
+        model.model_validate({key: value})
