@@ -665,7 +665,7 @@ ALLOWED_REFERENCES: tuple[tuple[str, str, str], ...] = (
     ),
     (
         ".claude/skills/ansible-deploy/SKILL.md",
-        "^\\|\\ `realsense_d435i`\\ \\|\\ Removed\\ \\(present:\\ false\\):\\ replaced\\ by\\ `overview_camera`\\ \\|",
+        "^\\|\\ `realsense_d435i`\\ \\|\\ Removed\\ \\(present:\\ false\\):\\ replaced\\ by\\ `overview_camera`,\\ itself\\ retired;",
         "retirement-doc",
     ),
     (

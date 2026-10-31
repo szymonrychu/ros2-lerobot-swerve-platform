@@ -18,7 +18,6 @@ CHANGED_UNITS = (
     "filter_node",
     "lerobot_follower",
     "base_servos",
-    "head_camera_cpp",
     "mcp_server",
     "costmap_zones",
     "nav2_bringup",
@@ -60,6 +59,10 @@ def test_cpu_compare_lists_every_changed_unit() -> None:
     units = {e["after_unit"] for e in config["entries"]}
     for name in CHANGED_UNITS:
         assert f"ros2-{name}.service" in units, name
+    # head_camera_cpp is retired by the D435 switchover; the head D435 units are measured after only (no before series).
+    assert "ros2-head_camera_cpp.service" not in units
+    for unit in ("ros2-realsense_d435.service", "ros2-d435_obstacle_cloud.service"):
+        assert unit in CPU_COMPARE.read_text() and unit not in units, unit
     assert "client-cpu-budget.md" in CPU_COMPARE.read_text()
     assert config["window_h"] * 3600 <= 86400
     for existing in ("map_guard", "web_ui"):

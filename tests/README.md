@@ -2787,7 +2787,7 @@ Retirement pin for the Jetson coprocessor. Extend it by adding entries to the tw
 | `test_main_exits_2_on_an_empty_series` / `test_main_prints_and_exits_0` | Exit 2 on no data, exit 0 and a table otherwise. |
 | `test_queries_use_the_configured_host_and_both_windows` | Two queries per entry, at the before and after window starts, with the configured host. |
 | `test_entry_requires_all_fields_and_a_positive_switch_time` | pydantic rejects a missing field and a non-positive switch_time. |
-| `test_shipped_config_lists_the_nodes` | `node_cpu_compare.yaml` lists map_guard, web_ui, gripper_uvc_camera, mcp_server, nav2_bringup, laser_filter, arducam_tof, nav2_bringup_ground_layer with the right units (same unit before and after for the ToF and ground-layer entries; ground_estimator_cpp is new, so measured after only by the runbook query). |
+| `test_shipped_config_lists_the_nodes` | `node_cpu_compare.yaml` lists map_guard, web_ui, mcp_server, nav2_bringup, laser_filter, nav2_bringup_ground_layer and the client CPU budget units with the right units (same unit before and after except map_guard). `ros2-realsense_d435.service` and `ros2-d435_obstacle_cloud.service` are new with the D435 switchover, so they are named only in the after-only runbook queries of the comments, not as entries; the retired gripper_uvc_camera, arducam_tof, head_camera_cpp and tof_obstacle_cloud are gone from the file. |
 
 ### test_shared_photos.py / test_shared_lookups.py (photo contract)
 
@@ -3434,7 +3434,7 @@ Deploy wiring of the server `map3d_manager_cpp` node type (G3).
 - `test_unit_cgroups.py`: `map3d_uplink` is in the background tier with `head_camera_cpp` and `head_rgbd_cpp`.
 - `test_cpp_node_deploy.py`: `test_server_cpp_node_builds_two_local_sources_and_covers_their_package_xml` for `map3d_manager_cpp`.
 - `test_mcp_server_config.py`: `test_mcp_server_map3d_topics_match_the_topic_contract` (see above) and `test_mcp_server_readme_documents_map3d_tools`.
-- `test_monitoring_dashboards.py`: `assert_3d_mapping_row` on `robot-slam.json`: a "3D mapping" row with server unit CPU and memory (`rtabmap_mapping`, `map3d_manager`, `host="server"`), client CPU for `map3d_uplink`, `head_rgbd_cpp`, `head_camera_cpp`, server memory available, and WiFi throughput in bit/s with an 8 Mbit/s uplink budget threshold line; server-only panels are exempt from the `host="client"` selector rule.
+- `test_monitoring_dashboards.py`: `assert_3d_mapping_row` on `robot-slam.json`: a "3D mapping" row with server unit CPU and memory (`rtabmap_mapping`, `map3d_manager`, `host="server"`), client CPU for `map3d_uplink`, `head_rgbd_cpp`, `realsense_d435` (not the retired `head_camera_cpp`), server memory available, and WiFi throughput in bit/s with an 8 Mbit/s uplink budget threshold line; server-only panels are exempt from the `host="client"` selector rule.
 
 ### `test_head_remount_runbook.py`
 
@@ -3464,7 +3464,7 @@ Static pins for `docs/runbooks/client-cpu-budget.md` (client CPU budget measurem
 |---|---|
 | `test_runbook_has_every_section` | Before, Deploy, After, Checks, Expected savings, Rollback in order; the eight savings and the measurement queries. |
 | `test_runbook_deploys_only_through_deploy_nodes` | Deploy lines use `scripts/deploy-nodes.sh` with a tee to `.logs/`; no `ansible-playbook`. |
-| `test_cpu_compare_lists_every_changed_unit` | node_cpu_compare.yaml has an entry for each of the eleven changed units and keeps the existing map_guard and web_ui ones (the retired arducam_tof is no longer required). |
+| `test_cpu_compare_lists_every_changed_unit` | node_cpu_compare.yaml has an entry for each of the ten changed units still running and keeps the existing map_guard and web_ui ones; the retired head_camera_cpp (and arducam_tof) have no entry, and `ros2-realsense_d435.service` and `ros2-d435_obstacle_cloud.service` are named after-only (no entry: no before series). |
 
 ### `test_ground_record.py`
 

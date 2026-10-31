@@ -604,8 +604,9 @@ def assert_3d_mapping_row() -> None:
     assert panels["3D mapping server unit memory"]["fieldConfig"]["defaults"]["unit"] == "bytes"
     uplink = panel_exprs(dashboard, "Map3d uplink client CPU")
     assert 'host="client"' in uplink and "container_cpu_usage_seconds_total" in uplink
-    for unit in ("map3d_uplink", "head_rgbd_cpp", "head_camera_cpp"):
+    for unit in ("map3d_uplink", "head_rgbd_cpp", "realsense_d435"):
         assert unit in uplink, unit
+    assert "head_camera_cpp" not in uplink
     memory = panel_exprs(dashboard, "Server memory available")
     assert memory == 'node_memory_MemAvailable_bytes{host="server"}'
     assert panels["Server memory available"]["fieldConfig"]["defaults"]["unit"] == "bytes"

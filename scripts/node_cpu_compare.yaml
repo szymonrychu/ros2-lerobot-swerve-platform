@@ -15,14 +15,14 @@ entries:
   - {name: map_guard, before_unit: ros2-map_guard.service, after_unit: ros2-map_guard_cpp.service, switch_time: 1}
   # Cheap Python fixes: the same unit before and after the deploy.
   - {name: web_ui, before_unit: ros2-web_ui.service, after_unit: ros2-web_ui.service, switch_time: 1}
-  - {name: gripper_uvc_camera, before_unit: ros2-gripper_uvc_camera.service, after_unit: ros2-gripper_uvc_camera.service, switch_time: 1}
   - {name: mcp_server, before_unit: ros2-mcp_server.service, after_unit: ros2-mcp_server.service, switch_time: 1}
-  # ToF obstacle pipeline (design D12): the same unit before and after the deploy of the ToF obstacle change.
-  # ros2-tof_obstacle_cloud.service is new, so it has no "before" series: it is measured "after" only, by the runbook
-  # query rate(container_cpu_usage_seconds_total{host="client",id="/system.slice/ros2-tof_obstacle_cloud.service"}[1m]).
+  # Head D435 obstacle pipeline (D435 switchover): the same unit before and after the switchover deploy.
+  # ros2-realsense_d435.service and ros2-d435_obstacle_cloud.service are new, so they have no "before" series: they are
+  # measured "after" only, by the runbook queries
+  # rate(container_cpu_usage_seconds_total{host="client",id="/system.slice/ros2-realsense_d435.service"}[1m]) and
+  # rate(container_cpu_usage_seconds_total{host="client",id="/system.slice/ros2-d435_obstacle_cloud.service"}[1m]).
   - {name: nav2_bringup, before_unit: ros2-nav2_bringup.service, after_unit: ros2-nav2_bringup.service, switch_time: 1}
   - {name: laser_filter, before_unit: ros2-laser_filter.service, after_unit: ros2-laser_filter.service, switch_time: 1}
-  - {name: arducam_tof, before_unit: ros2-arducam_tof.service, after_unit: ros2-arducam_tof.service, switch_time: 1}
   # Ground estimation (design D11): nav2_bringup gains the ground costmap layer, so the same unit is compared before and
   # after. ros2-ground_estimator_cpp.service is new, so it has no "before" series: it is measured "after" only, by the
   # runbook query rate(container_cpu_usage_seconds_total{host="client",id="/system.slice/ros2-ground_estimator_cpp.service"}[1m]).
@@ -35,5 +35,4 @@ entries:
   - {name: filter_node, before_unit: ros2-filter_node.service, after_unit: ros2-filter_node.service, switch_time: 1}
   - {name: lerobot_follower, before_unit: ros2-lerobot_follower.service, after_unit: ros2-lerobot_follower.service, switch_time: 1}
   - {name: base_servos, before_unit: ros2-base_servos.service, after_unit: ros2-base_servos.service, switch_time: 1}
-  - {name: head_camera_cpp, before_unit: ros2-head_camera_cpp.service, after_unit: ros2-head_camera_cpp.service, switch_time: 1}
   - {name: costmap_zones, before_unit: ros2-costmap_zones.service, after_unit: ros2-costmap_zones.service, switch_time: 1}

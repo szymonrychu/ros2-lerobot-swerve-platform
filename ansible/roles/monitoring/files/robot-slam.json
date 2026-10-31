@@ -1195,7 +1195,7 @@
         "type": "prometheus",
         "uid": "prometheus-robot"
       },
-      "description": "CPU cores used by the uplink and head camera units on the client (cgroup).",
+      "description": "CPU cores used by the uplink, head RGB-D and head D435 units on the client (cgroup).",
       "gridPos": {
         "h": 8,
         "w": 8,
@@ -1226,7 +1226,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "label_replace(sum by (id) (rate(container_cpu_usage_seconds_total{host=\"client\", id=~\"/system\\\\.slice/ros2-(map3d_uplink|head_rgbd_cpp|head_camera_cpp)\\\\.service\"}[$__rate_interval])), \"unit\", \"$1\", \"id\", \".*/ros2-(.+)\\\\.service\")",
+          "expr": "label_replace(sum by (id) (rate(container_cpu_usage_seconds_total{host=\"client\", id=~\"/system\\\\.slice/ros2-(map3d_uplink|head_rgbd_cpp|realsense_d435)\\\\.service\"}[$__rate_interval])), \"unit\", \"$1\", \"id\", \".*/ros2-(.+)\\\\.service\")",
           "legendFormat": "{{unit}}"
         }
       ]

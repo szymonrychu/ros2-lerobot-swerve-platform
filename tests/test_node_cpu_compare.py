@@ -153,11 +153,9 @@ def test_shipped_config_lists_the_nodes() -> None:
     assert list(by_name) == [
         "map_guard",
         "web_ui",
-        "gripper_uvc_camera",
         "mcp_server",
         "nav2_bringup",
         "laser_filter",
-        "arducam_tof",
         "nav2_bringup_ground_layer",
         "bno055_imu",
         "swerve_controller",
@@ -165,17 +163,14 @@ def test_shipped_config_lists_the_nodes() -> None:
         "filter_node",
         "lerobot_follower",
         "base_servos",
-        "head_camera_cpp",
         "costmap_zones",
     ]
     assert by_name["map_guard"].after_unit == "ros2-map_guard_cpp.service"
     for name in (
         "web_ui",
-        "gripper_uvc_camera",
         "mcp_server",
         "nav2_bringup",
         "laser_filter",
-        "arducam_tof",
         "nav2_bringup_ground_layer",
         "bno055_imu",
         "swerve_controller",
@@ -183,7 +178,13 @@ def test_shipped_config_lists_the_nodes() -> None:
         "filter_node",
         "lerobot_follower",
         "base_servos",
-        "head_camera_cpp",
         "costmap_zones",
     ):
         assert by_name[name].before_unit == by_name[name].after_unit
+    # The D435 units are new with the switchover, so they have no "before" series: named after-only in the comments.
+    text = DEFAULT_CONFIG.read_text()
+    for unit in ("ros2-realsense_d435.service", "ros2-d435_obstacle_cloud.service"):
+        assert f'id="/system.slice/{unit}"' in text, unit
+        assert all(unit not in (e.before_unit, e.after_unit) for e in settings.entries), unit
+    for retired in ("gripper_uvc_camera", "arducam_tof", "head_camera_cpp", "tof_obstacle_cloud"):
+        assert retired not in text, retired
