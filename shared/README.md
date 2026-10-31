@@ -192,7 +192,7 @@ Calibration procedure:
 ## head_rgbd_calibration
 
 The head D435 calibration core (the D435 colour intrinsics check, the floor, head-from-arm and arm offsets fits).
-The RGB + ToF fits went with the head ToF: `poses`, `extrinsics` and `urdf_handoff` (the ToF-to-RGB stereo extrinsics
+The RGB + ToF fits went with the head ToF: `poses`, `extrinsics` and `urdf_handoff` (the ToF-to-RGB extrinsic fit
 and the `tof_joint` hand-off) are deleted, and `calibrate`, `intrinsics` and `frames` keep only the colour check. It never imports `scripts`, `rosbags`, `subprocess` or ssh code, so node venvs can use it.
 
 - `config`: `StrictModel` (pydantic, unknown keys rejected) and the `BoardConfig`, `SelectionConfig`, `LimitsConfig` settings, plus the floor fit models `FloorPlaneConfig` (RANSAC distance, iterations, `min_inliers`, `min_inlier_ratio`, `max_range_m`, `candidate_band_m` > the RANSAC distance, `seed`), `FloorFitLimits` (observation, pose and pan span minimums; pose-mean height and normal RMS, sigma and delta-from-URDF maximums) and `FloorFitConfig` (`plane`, `limits`, the residual scales `sigma_height_mm` / `sigma_normal_deg` and `huber_scale`). The head-from-arm models are `BoardMountConfig`, `HeadArmFitLimits`, `BaseInBaseLink` and `HeadArmFitConfig` (see "Head from arm fit"); the arm offsets fit adds `PlateMountConfig` and `ArmFitLimits` (see "Arm offsets fit").

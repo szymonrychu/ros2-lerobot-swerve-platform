@@ -185,7 +185,7 @@ def test_topic_flow_names_the_node_and_the_ground_topics() -> None:
     assert "ground_estimator_cpp" in text
     for topic in GROUND_TOPICS:
         assert f"/ground/{topic}" in text, topic
-    for topic in ["/tof/points_filtered", "/imu/data", "/head_rgbd/points"]:
+    for topic in ["/head/d435/points_filtered", "/imu/data", "/head_rgbd/points"]:
         assert topic in text, topic
 
 
