@@ -1,11 +1,12 @@
 ---
-# Boot config for the Pi 5 CSI ports: the Camera Module 3 (IMX708) overlay on cam0 serves front_camera, the body-fixed
-# front camera that runs the head_camera_cpp binary. Auto detection stays off and the cam0 overlay is written
-# explicitly. The overlays of retired cameras are removed: the IMX219 pair and the Arducam ToF on cam1 (retired by the D435 switchover). The
-# firmware reads config.txt at boot, so the client reboots when (and only when) a line changed. Same pattern as the UART overlay in
-# deploy_nodes_client.yml and bno055_i2c_boot_config.yml. Included from pre_tasks (after the stop-all) by the full
-# client playbook (tags boot, pi_cameras, head_camera_cpp, arducam_tof and front_camera, so a deploy of any camera node
-# reaches it).
+# Boot config for the Pi 5 CSI ports: the Camera Module 3 (IMX708) overlay on cam0 serves front_camera and the one on
+# cam1 back_camera, the body-fixed cameras that run the head_camera_cpp binary. The cam1 overlay is written only when
+# client_back_camera_fitted is true (the second module is fitted). Auto detection stays off and the overlays are
+# written explicitly. The overlays of retired cameras are removed: the IMX219 pair and the Arducam ToF on cam1 (retired
+# by the D435 switchover). The firmware reads config.txt at boot, so the client reboots when (and only when) a line
+# changed. Same pattern as the UART overlay in deploy_nodes_client.yml and bno055_i2c_boot_config.yml. Included from
+# pre_tasks (after the stop-all) by the full client playbook (tags boot, pi_cameras, head_camera_cpp, arducam_tof,
+# front_camera and back_camera, so a deploy of any camera node reaches it).
 - name: Remove the IMX219 overlay from CSI cam0 (left camera, retired)
   ansible.builtin.lineinfile:
     path: /boot/firmware/config.txt
@@ -54,10 +55,23 @@
   register: tof_cam1_result
   tags: [boot]
 
+- name: Enable the Camera Module 3 overlay on CSI cam1 (back camera, only once fitted)
+  ansible.builtin.lineinfile:
+    path: /boot/firmware/config.txt
+    line: "dtoverlay=imx708,cam1"
+    regexp: "^dtoverlay=imx708,cam1$"
+    insertafter: "^dtoverlay=imx708,cam0$"
+    create: true
+  when:
+    - ansible_machine == "aarch64"
+    - client_back_camera_fitted | bool
+  register: imx708_cam1_result
+  tags: [boot]
+
 - name: Reboot client if a camera boot overlay changed
   when: >-
     imx219_cam0_result.changed or imx219_cam1_result.changed or camera_auto_detect_result.changed
-    or imx708_cam0_result.changed or tof_cam1_result.changed
+    or imx708_cam0_result.changed or tof_cam1_result.changed or imx708_cam1_result.changed
   ansible.builtin.reboot:
     reboot_timeout: 120
   tags: [boot]

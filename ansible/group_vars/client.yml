@@ -430,6 +430,26 @@ ros2_node_type_defaults:
       - nlohmann-json3-dev
       - libyaml-cpp-dev
       - prometheus-cpp-dev
+  # Back body camera: the second Camera Module 3 on CSI cam1, the same head_camera_cpp binary as node back_camera
+  # (/back_camera/*), same build list and apt packages as front_camera (the anchors) and the same background tier, figures
+  # carried over until measured. The cam1 overlay is written only when client_back_camera_fitted is true.
+  back_camera:
+    deploy_mode: native
+    node_launch_command: "ros2 run head_camera_cpp head_camera_node --ros-args -r __node:=back_camera"
+    node_src_dir: ""
+    # Runs no repo file (the binary is in /opt/ros2-ws/install): the build stamp restarts it when its source changes.
+    src_paths: []
+    colcon_source: *csi_camera_colcon_source
+    memory_low: "128M"
+    memory_max: "384M"
+    cpu_weight: 100
+    io_weight: 100
+    oom_score_adjust: 0
+    nice: 10
+    config_path: /etc/ros2/back_camera
+    env:
+      - HEAD_CAMERA_CONFIG=/etc/ros2/back_camera/config.yaml
+    apt_packages: *csi_camera_apt_packages
   # Retired (D7): the Pi's stereo pipeline never produced depth and saturated its CPU; its sources are deleted. The entries are
   # present: false, so a deploy of these names runs only the uninstall path of roles/ros2_node_deploy/tasks/main.yml,
   # which needs deploy_mode and a launch command (the role asserts it) and nothing else.
@@ -1143,6 +1163,14 @@ ros2_node_type_defaults:
 # front camera frame. Every key is required (a missing one fails the deploy render).
 front_camera_mount: null
 
+# Measured mount of the back body camera (back_camera_link in base_link), same convention and rule as
+# front_camera_mount: only the user's tape measurement, never an estimate; while null no back camera frame is published.
+back_camera_mount: null
+
+# The second Camera Module 3 is fitted on CSI cam1: false until it is, so no deploy writes dtoverlay=imx708,cam1 (and
+# reboots the client) for a missing module. Flip it together with the back_camera entry's enabled.
+client_back_camera_fitted: false
+
 # Nodes to deploy: name (logical/service name), node_type (maps to image/config), present, enabled, config.
 ros2_nodes:
   - name: fastdds_discovery_server
@@ -1466,6 +1494,30 @@ ros2_nodes:
       jpeg_quality: 70
       camera_info_file: /var/lib/ros2/head_rgbd_calibration/applied/front_camera_calibration.yaml
       metrics_port: 19121
+      zoom:
+        enabled: false
+      mapping:
+        enabled: false
+  # Back body camera (Camera Module 3, CSI cam1): /back_camera/image_raw/compressed, the front camera's profile.
+  # enabled: false until the module is fitted (client_back_camera_fitted). camera_id is the expected cam1 id; the
+  # first deploy confirms it (a camera-not-found error lists the ids libcamera sees). Not scraped while disabled (a
+  # disabled target reads as down): add {node: back_camera, address: "127.0.0.1:19122"} to
+  # monitoring_agent_node_targets when enabling it. TF: back_camera_mount (static_tf_publisher).
+  - name: back_camera
+    node_type: back_camera
+    present: true
+    enabled: false
+    config: |
+      camera_id: /base/axi/pcie@120000/rp1/i2c@80000/imx708@1a # CSI cam1
+      frame_id: back_camera_optical_frame
+      topic_namespace: /back_camera
+      width: 1152
+      height: 648
+      frame_duration_us: 66666 # 15 fps
+      af_mode: continuous
+      jpeg_quality: 70
+      camera_info_file: /var/lib/ros2/head_rgbd_calibration/applied/back_camera_calibration.yaml
+      metrics_port: 19122
       zoom:
         enabled: false
       mapping:
@@ -2159,6 +2211,26 @@ ros2_nodes:
           pitch: 0.0
           yaw: -1.5707963267948966
         # {% endif %}end of the front camera frames
+        # Back body camera: published only once back_camera_mount holds the user's tape measurement (as for the front).
+        # {% if back_camera_mount %}back_camera_mount is set
+        - parent: base_link
+          child: back_camera_link
+          x: "{{ back_camera_mount.x }}"
+          y: "{{ back_camera_mount.y }}"
+          z: "{{ back_camera_mount.z }}"
+          roll: "{{ back_camera_mount.roll }}"
+          pitch: "{{ back_camera_mount.pitch }}"
+          yaw: "{{ back_camera_mount.yaw }}"
+        # REP-103 optical frame (z forward, x right, y down): a fixed convention, not a measurement.
+        - parent: back_camera_link
+          child: back_camera_optical_frame
+          x: 0.0
+          y: 0.0
+          z: 0.0
+          roll: -1.5707963267948966
+          pitch: 0.0
+          yaw: -1.5707963267948966
+        # {% endif %}end of the back camera frames
   # Lidar odometry for the EKF (see nodes/rf2o_laser_odometry/README.md); must start before the EKF fuses /odom_rf2o_twist.
   - name: rf2o_laser_odometry
     node_type: rf2o_laser_odometry

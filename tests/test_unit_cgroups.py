@@ -57,9 +57,9 @@ AGENT = {
     ],
 }
 # Background tier: work the robot can lose: the systemd default weight and no OOM protection, below every robot and
-# agent tier. The joint-state throttles are the cheap 10 Hz relays for idle consumers, front_camera the CSI front
-# camera preview, head_rgbd_calibration the operator capture and compute tool, map3d_uplink the map3d stream relay
-# (the retired depth nodes that once shared the tier are gone, D7; head_rgbd_cpp moved to the normal tier when it
+# agent tier. The joint-state throttles are the cheap 10 Hz relays for idle consumers, front_camera and back_camera
+# the CSI camera previews, head_rgbd_calibration the operator capture and compute tool, map3d_uplink the map3d stream
+# relay (the retired depth nodes that once shared the tier are gone, D7; head_rgbd_cpp moved to the normal tier when it
 # became the edge-masked depth source of d435_obstacle_cloud).
 BACKGROUND = {
     "weights": (100, 100, 0),
@@ -67,6 +67,7 @@ BACKGROUND = {
         "joint_state_throttle_follower",
         "joint_state_throttle_swerve",
         "front_camera",
+        "back_camera",
         "head_rgbd_calibration",
         "map3d_uplink",
     ],

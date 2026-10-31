@@ -372,7 +372,7 @@ Packaging of `shared/` as the installable uv/hatchling package `ros2-common`.
 ### `test_unit_cgroups.py`
 
 Cgroup model of the ROS2 units: robot headroom guaranteed, background constrained (no `CPUQuota` / `MemoryHigh` for robot
-units, weight tiers, `MemoryLow`, `MemoryMax` safety net, `Restart=always`, host slice drop-ins). The C++ ports sit in their Python node's tier: `map_guard_cpp` normal; `head_rgbd_cpp` normal too (since 2026-10-29 its edge-masked full-FOV depth feeds `d435_obstacle_cloud`); `head_rgbd_calibration` (operator calibration tool) and `map3d_uplink` (map3d stream relay) join `front_camera` (the CSI front camera) in the background tier (weights 100/100, no OOM protection); the retired types, `head_camera_cpp` among them, carry no tier. Every robot type has a `MemoryLow` and a `MemoryMax` of at least twice it (no pinned measurements). `test_config_error_exit_is_not_restarted` checks `RestartPreventExitStatus=78`; the `MemoryLow` sum test only bounds it by `MAX_MEMORY_LOW_SUM_MIB` (no pinned total).
+units, weight tiers, `MemoryLow`, `MemoryMax` safety net, `Restart=always`, host slice drop-ins). The C++ ports sit in their Python node's tier: `map_guard_cpp` normal; `head_rgbd_cpp` normal too (since 2026-10-29 its edge-masked full-FOV depth feeds `d435_obstacle_cloud`); `head_rgbd_calibration` (operator calibration tool) and `map3d_uplink` (map3d stream relay) join `front_camera` and `back_camera` (the CSI body cameras) in the background tier (weights 100/100, no OOM protection); the retired types, `head_camera_cpp` among them, carry no tier. Every robot type has a `MemoryLow` and a `MemoryMax` of at least twice it (no pinned measurements). `test_config_error_exit_is_not_restarted` checks `RestartPreventExitStatus=78`; the `MemoryLow` sum test only bounds it by `MAX_MEMORY_LOW_SUM_MIB` (no pinned total).
 
 ### `test_config_exit_codes.py`
 
@@ -2290,7 +2290,7 @@ Repo-wide guard that the pan/tilt head is live: no placeholder wording and no fr
 
 ### `test_csi_camera_deploy.py`
 
-Static invariants of the CSI Camera Module 3 deploy (front-and-back-camera-module): the `front_camera` node type and entry in `ansible/group_vars/client.yml` run the `head_camera_cpp` binary on CSI cam0; the libcamera source is the pinned dict of `pi_cameras` (same build stamp, nothing rebuilds), the patch is a byte-identical copy; `head_camera_cpp` keeps only its uninstall path; the front static TF is rendered (Jinja, `trim_blocks` like Ansible) only from the measured `front_camera_mount`.
+Static invariants of the CSI Camera Module 3 deploy (front-and-back-camera-module): the `front_camera` and `back_camera` node types and entries in `ansible/group_vars/client.yml` run the `head_camera_cpp` binary on CSI cam0 and cam1 (`back_camera` disabled and its cam1 overlay gated until the module is fitted); the libcamera source is the pinned dict of `pi_cameras` (same build stamp, nothing rebuilds), the patch is a byte-identical copy; `head_camera_cpp` keeps only its uninstall path; each static TF is rendered (Jinja, `trim_blocks` like Ansible; a mount not given renders as `null`) only from the measured `front_camera_mount` / `back_camera_mount`.
 
 | Test | What it pins |
 |---|---|
@@ -2310,6 +2310,19 @@ Static invariants of the CSI Camera Module 3 deploy (front-and-back-camera-modul
 | `test_no_front_camera_frame_without_a_measured_mount` | Rendered with `front_camera_mount: null`, the static_tf_publisher config has no `front_camera_*` frame and still has `imu_link` and `laser_frame`. |
 | `test_measured_mount_publishes_link_and_optical_frame` | Rendered with a test-only mount, `base_link -> front_camera_link` carries the given values and `front_camera_link -> front_camera_optical_frame` is zero translation with roll -pi/2, pitch 0, yaw -pi/2. |
 | `test_partial_mount_fails_to_render` | A mount missing `z` is an undefined-variable render error, never a defaulted 0. |
+| `test_back_camera_type_aliases_the_front_build_list` | `back_camera`'s `colcon_source` and `apt_packages` equal front_camera's and are the YAML aliases `*csi_camera_colcon_source` / `*csi_camera_apt_packages`. |
+| `test_back_camera_type_fields_tier_config_path_and_env` | `back_camera`: native, launch command with `__node:=back_camera`, empty `node_src_dir` / `src_paths`, the background tier, `/etc/ros2/back_camera` and `HEAD_CAMERA_CONFIG=/etc/ros2/back_camera/config.yaml`. |
+| `test_back_camera_entry_is_present_disabled_with_the_design_config` | The `back_camera` entry is present and `enabled: false`; its config is front's with the cam1 id, `back_camera_optical_frame`, `/back_camera`, `back_camera_calibration.yaml` and metrics port 19122. |
+| `test_back_camera_port_19122_is_unique_and_unscraped_while_disabled` | 19122 appears once in client.yml (the back config) and no scrape target names `back_camera` or 19122 while it is disabled. |
+| `test_client_back_camera_fitted_is_false` | `client_back_camera_fitted` is `false`. |
+| `test_client_playbook_deploys_back_camera_after_front_camera` | A `Deploy back_camera` step directly after `Deploy front_camera` (resolve_and_deploy, apply tag, `_deploy_node_name`, tags incl. apt/python/build/config). |
+| `test_boot_config_include_carries_the_back_camera_tag` | The `pi_camera_boot_config.yml` include (and its `apply`) carries the `back_camera` tag. |
+| `test_back_camera_cam1_overlay_is_gated_on_the_fitted_module` | A named cam1 task writes `dtoverlay=imx708,cam1` only when aarch64 and `client_back_camera_fitted | bool`; the reboot condition includes its registered result. |
+| `test_arducam_cam1_overlay_removal_stays` | The `dtoverlay=arducam-pivariety,cam1` removal (`state: absent`) stays and still triggers the reboot. |
+| `test_back_camera_mount_is_null_until_measured` | `back_camera_mount` is defined in client.yml and `null`. |
+| `test_no_back_camera_frame_without_a_measured_mount` | With only a front mount, the rendered config has no `back_camera_*` frame and keeps `front_camera_link`, `imu_link`, `laser_frame`. |
+| `test_measured_back_mount_publishes_link_and_optical_frame` | A test-only back mount gives `base_link -> back_camera_link` with its values and `back_camera_optical_frame` with roll -pi/2, pitch 0, yaw -pi/2 (and no front frame). |
+| `test_partial_back_mount_fails_to_render` | A back mount missing `yaw` is an undefined-variable render error. |
 | `test_docs_describe_head_camera_cpp` | `nodes/head_camera_cpp/README.md` has `## Zoom interface`, `## Configuration` and `## Instances: front_camera and back_camera`; the node README, `nodes/README.md`, `ansible/README.md`, the ansible-deploy SKILL and `MEMORY.md` name `head_camera_cpp`; `nodes/README.md` and the SKILL mark `pi_cameras` retired. |
 
 ### `test_ground_docs.py`
@@ -2439,7 +2452,7 @@ Static checks of the two Pi camera retirements (D7 the overview camera, D9 `pi_c
 | `test_pi_cameras_entry_is_uninstalled_by_the_next_deploy` | The `pi_cameras` ros2_nodes entry is `present: false` with no config. |
 | `test_pi_cameras_entry_names_d9_in_its_comment` | The comment above the entry names D9. |
 | `test_pi_cameras_node_type_keeps_only_launch_command_and_camera_ros_purge` | The node type keys are exactly `deploy_mode`, `node_launch_command`, `colcon_purge`, and the purge list names `camera_ros` only (libcamera stays). |
-| `test_only_the_csi_cameras_build_libcamera_and_nobody_builds_camera_ros` | Only `front_camera` builds libcamera; no node type builds camera_ros. |
+| `test_only_the_csi_cameras_build_libcamera_and_nobody_builds_camera_ros` | Only `front_camera` and `back_camera` build libcamera; no node type builds camera_ros. |
 | `test_pi_cameras_sources_and_old_tests_are_deleted` | `nodes/pi_cameras`, the two old pi_cameras test files do not exist. |
 | `test_client_playbook_still_deploys_pi_cameras_so_the_uninstall_runs` | The playbook still deploys the name so the uninstall runs. |
 | `test_old_boot_file_and_old_tests_are_deleted` | `overview_camera_boot_config.yml`, `pi_camera_overlays_removed.yml` and the two `test_overview_camera*.py` files are gone. |

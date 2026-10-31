@@ -82,8 +82,8 @@
       ansible.builtin.include_tasks:
         file: tasks/pi_camera_boot_config.yml
         apply:
-          tags: [boot, pi_cameras, arducam_tof, head_camera_cpp, front_camera]
-      tags: [boot, pi_cameras, arducam_tof, head_camera_cpp, front_camera]
+          tags: [boot, pi_cameras, arducam_tof, head_camera_cpp, front_camera, back_camera]
+      tags: [boot, pi_cameras, arducam_tof, head_camera_cpp, front_camera, back_camera]
 
     - name: BNO055 software I2C bus (i2c-gpio on GPIO2/3), reboot only when changed
       ansible.builtin.include_tasks:
@@ -346,6 +346,15 @@
           vars:
             _deploy_node_name: front_camera
           tags: [front_camera, apt, python, build, config]
+
+        - name: Deploy back_camera
+          ansible.builtin.include_tasks:
+            file: tasks/resolve_and_deploy.yml
+            apply:
+              tags: [back_camera]
+          vars:
+            _deploy_node_name: back_camera
+          tags: [back_camera, apt, python, build, config]
 
         - name: Deploy head_rgbd_cpp
           ansible.builtin.include_tasks:

@@ -109,7 +109,7 @@ def test_pi_cameras_node_type_keeps_only_launch_command_and_camera_ros_purge() -
 def test_only_the_csi_cameras_build_libcamera_and_nobody_builds_camera_ros() -> None:
     defaults = load_client()["ros2_node_type_defaults"]
     builders = [name for name, node in defaults.items() if "raspberrypi/libcamera" in str(node.get("colcon_source"))]
-    assert builders == ["front_camera"]
+    assert builders == ["front_camera", "back_camera"]
     camera_ros = [name for name, node in defaults.items() if "camera_ros.git" in str(node.get("colcon_source"))]
     assert camera_ros == []
 
