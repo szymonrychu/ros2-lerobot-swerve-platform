@@ -1,60 +1,45 @@
-# Named maps with POIs and relocalisation design
+---
+title: Named maps with POIs and relocalisation
+repos: [ros2-lerobot-sverve-platform]
+created: 2026-10-18
+owner: Szymon Richert
+rung: 1
+---
 
-## Summary
+# Named maps with POIs and relocalisation
 
-A new client node, `map_manager` (Python, idle near zero CPU), owns named maps. Saving a named map writes one bundle
-directory under `/var/lib/ros2/maps/named/<name>/`: slam_toolbox's serialized pose graph (`map.posegraph`, `map.data`),
-a snapshot of the occupancy grid (`occupancy.npz`), and `bundle.json` with the POI set, the robot's last pose in the
-map frame, timestamps and metadata. Loading a map pauses slam_toolbox, refines the saved pose with a correlative
-search of the live scan against the bundled grid, calls `/slam_toolbox/deserialize_map` with `START_AT_GIVEN_POSE`
-at the refined pose, replaces the POI set, and then judges the match with the scan-to-map agreement metric that
-map_guard already uses. A good match unpauses SLAM (mapping continues on the loaded map); a poor or ambiguous one
-leaves SLAM paused, reports "not localised" and keeps the saved pose as the hint, and nothing fake is published.
-poi_store gains a filtered `clear` and a `replace` op. The web UI and the agent get save-as, list, load, delete
-(agent: with confirmation) and clear-POIs.
+## What and why
 
-## Intent and why
+What: Clear POIs; save/load named maps bundling POIs and the last pose; relocalise against the loaded map
+How: poi_store clear + bundle IO, slam_toolbox serialize/deserialize with pose hint and match check, web UI and agent tools
+Why: Maps and their POIs must travel together and the robot must find itself again after a load
 
-Today the SLAM map and the POIs are saved separately: the web UI "Save map" writes one fixed posegraph
-(`/var/lib/ros2/maps/slam_map`), the POIs live in `poi.json` regardless of the map, and POIs cannot be cleared in one
-step. The user wants to clear POIs (U1), to have POIs written with the map (U2), to keep several named maps with their
-POIs and load them back (U3), to have the robot's last known location stored with the map (U4), and on load to have
-the robot match its live readings against the loaded map and reorient itself when it can (U5). Printable markers
-(separate epic) will help relocalisation later (U6), so the load path takes an external pose hint.
+The POI store and the map are saved and loaded separately today, and POIs cannot be cleared in one step. This epic adds: clearing POIs; saving POIs together with the map; saving a named map (slam_toolbox map + POIs + the robot's last known pose) and loading it back; on load, the robot matches its live readings against the loaded map and relocalises (sets its pose) when the match is good enough, otherwise it starts from the saved pose and says so. Printed metadata markers (separate epic) will later help relocalisation.
 
-## Goals
+## Scope ladder
 
-- G1 (U1): clear POIs in one step, all of them or filtered by creator and kind, from the web UI and the agent; the agent keeps today's consent rule for keep-out and slow zones and for the person's POIs.
-- G2 (U2, U3, U4): save writes one named bundle (slam_toolbox pose graph and occupancy grid, the POI set, the last pose in the map frame, timestamp, metadata); list, load and delete named maps; the unnamed "Save map" and "Reset map" keep working.
-- G3 (U3, U5): load restores the map and replaces the POI set, then relocalises: initial pose from the saved last pose (or an explicit hint), scan matching against the loaded map, success only above a match-quality threshold; otherwise the robot reports it is not localised and keeps the saved pose hint; no placeholder pose is published.
-- G4: web UI: Save map as (name), a maps list with load and delete, Clear POIs, localisation state; agent tools `save_map(name)`, `list_maps`, `load_map(name)`, `clear_pois`; map_guard_cpp, costmap_zones, poi_store, Nav2 and the GPS anchor stay consistent after a load.
-- G5: tests (poi_store, map_manager, map_guard_cpp, web_ui, mcp_server, claude_agent, root config), READMEs; deployed and verified on the robot: save a named map, reset, load it, the robot relocalises near the saved pose.
+### Rung 1: agreed scope (migrated)
+
+- 1.1: Clear POIs: a poi_store operation (all, or filtered by kind/source) exposed to the web UI and the agent (agent clearing keeps the existing consent rules for keep-out zones).
+- 1.2: Named maps: save writes one named bundle (slam_toolbox serialized map / pose graph and occupancy image, the POI set, the robot's last known pose in the map frame, timestamp, metadata) to a maps directory on the robot; list, load and delete named maps; the existing unnamed save/reset keeps working or becomes the default name.
+- 1.3: Load restores the map and its POIs (replacing the current POI set) and starts relocalisation: initial pose from the saved last pose, then scan matching against the loaded map (slam_toolbox localization / continue-mapping with pose hint, or an equivalent proven mechanism); success when the match quality passes a threshold, else the robot reports it is not localised and keeps the saved pose hint; no placeholder poses are published.
+- 1.4: Web UI: map save-as (name), map list with load/delete, POI clear; agent tools: save_map(name), list_maps, load_map(name), clear_pois; map-dependent nodes (costmap_zones, map_guard_cpp, poi_store, GPS anchor) stay consistent after a load.
+- 1.5: POIs belong to their map (saved, loaded and deleted with it); explicit Save, Load and Delete buttons and matching agent tools (delete confirmed) (U7).
+- 1.6: Being moved by hand first relocalises against the current map from the last known pose; recovered: map and POIs kept; unrecoverable: only the live map and its POIs are cleared, saved bundles never (U8). New session deletes no POIs or maps (U9).
+- 1.7: Tests (poi_store, web_ui, mcp_server, root config), READMEs; deployed and verified: save a named map, reboot/reset, load it, robot relocalises near the saved pose.
+
+## Agreed scope
+
+Rung 1, migrated from the epic format: the epic's goals were its agreed scope.
 
 ## Non-goals
 
-- Marker-based relocalisation (printable markers epic); this epic only accepts an external pose hint (U6).
-- 3D map (RTAB-Map) bundles; that epic owns its database save/load.
-- Global relocalisation anywhere in the map without a hint (no AMCL, no localization-mode switch).
-- Loading a named map automatically at boot (boot keeps resuming `slam_map`, D3).
-- Per-map photos: photos stay one global store (D8).
+- Marker-based relocalisation (printable markers epic).
+- 3D map (RTAB-Map) bundles; the RTAB-Map epic owns its own database save/load.
 
-## Anti-goals
+## Design
 
-- A wrong pose silently accepted: the robot driving on a loaded map it is not localised in.
-- A failed relocalisation drawing new scans over the loaded map (it must stay paused).
-- Losing the current map and POIs on a load without a recoverable copy.
-- Idle CPU on the client: no `/tf`, `/scan_filtered` or `/map` subscription in map_manager while no operation runs.
-- Placeholder data: a status or pose published before a real judgement, a zeroed pose when TF is missing.
-- A half-written bundle visible under its final name after a crash or a failed serialize.
-
-## Constraints
-
-- ROS 2 Jazzy, `ros-jazzy-slam-toolbox` 2.8.x (upstream `jazzy` branch, package.xml 2.8.5 at the time of research), async online mapping mode, `/scan_filtered`, map frame `map`, base frame `base_link`, 2.5 cm map (`nodes/slam_toolbox/config/slam_params.yaml`).
-- Client Pi 5 is 80-90 % busy (nav3d brief section 4): map_manager subscribes to heavy topics only during an operation.
-- slam_toolbox and map_manager run as the same node user; `/var/lib/ros2/maps` exists, owned by that user (`ansible/playbooks/tasks/slam_maps_dir.yml`).
-- Config through pydantic and YAML config files (CLAUDE.md); `ros2_nodes` schema in `ansible/group_vars/client.yml`; deploys only through `scripts/deploy-nodes.sh`; deploying mcp_server or claude_agent kills a running agent session (MEMORY).
-- No placeholder data on topics (CLAUDE.md). TDD for every behaviour. numpy declared for any node importing sensor_msgs.
-- The in-progress epic "Remove the Jetson coprocessor" touches the same shared files (client.yml, READMEs, web_ui bridge and server, test_mcp_server_config.py); it is this epic's README blocker.
+Migrated from the epic format; the design sections without a plan.md heading are under Migrated notes.
 
 ## Decisions
 
@@ -231,6 +216,10 @@ hint from its pose ring (newest sample older than `since`, D10; else the request
 Alternatives rejected: relocalise inside map_guard (duplicates the matcher and the pose search), keeping a map whose
 pose is lost (navigation on a wrong pose, an anti-goal). Serves G3, U5, U8.
 
+## Open questions
+
+none
+
 ## Research
 
 | Lens | Ran / skipped | Adopted | Rejected |
@@ -240,7 +229,7 @@ pose is lost (navigation on a wrong pose, an anti-goal). Serves G3, U5, U8.
 | Prior art | skipped: slam_toolbox's own deserialize-with-pose is the established mechanism on this stack; AMCL global localization considered from general knowledge and rejected (D5) | | AMCL |
 | Papers | skipped: no new algorithm; correlative scan matching on a grid is what Karto already does | | |
 
-## Research inputs
+### Research inputs
 
 | Source | Entry | Lands in |
 |---|---|---|
@@ -258,7 +247,76 @@ pose is lost (navigation on a wrong pose, an anti-goal). Serves G3, U5, U8.
 | `nodes/slam_toolbox/launch/slam.launch.py` | boot resume unchanged | rejected: no change (D3) |
 | nav3d brief section 4 | client CPU 80-90 % | map-manager-ros-node (on-demand subscriptions AC) |
 
-## Decision coverage
+## Irreversible operations
+
+- Deleting a named map (`delete`) removes its directory and its POIs (and empties the live POI set when it is the active map); the web UI asks for confirmation and the agent tool needs `confirm=true`.
+- Overwriting a named map (`overwrite: true`) replaces the old bundle; the web UI asks for confirmation.
+- Load replaces the current POI set and the in-memory map; covered by the automatic `autosave` bundle before every load (D5 step 2).
+- `clear` deletes POIs; the web UI asks for confirmation; the agent defaults to its own POIs and keeps zones.
+
+## Migrated notes
+
+### README.md: Review
+
+Filled when the epic reaches stage `review`: the verdict, the findings acted on, the findings dropped.
+
+### design.md: Summary
+
+A new client node, `map_manager` (Python, idle near zero CPU), owns named maps. Saving a named map writes one bundle
+directory under `/var/lib/ros2/maps/named/<name>/`: slam_toolbox's serialized pose graph (`map.posegraph`, `map.data`),
+a snapshot of the occupancy grid (`occupancy.npz`), and `bundle.json` with the POI set, the robot's last pose in the
+map frame, timestamps and metadata. Loading a map pauses slam_toolbox, refines the saved pose with a correlative
+search of the live scan against the bundled grid, calls `/slam_toolbox/deserialize_map` with `START_AT_GIVEN_POSE`
+at the refined pose, replaces the POI set, and then judges the match with the scan-to-map agreement metric that
+map_guard already uses. A good match unpauses SLAM (mapping continues on the loaded map); a poor or ambiguous one
+leaves SLAM paused, reports "not localised" and keeps the saved pose as the hint, and nothing fake is published.
+poi_store gains a filtered `clear` and a `replace` op. The web UI and the agent get save-as, list, load, delete
+(agent: with confirmation) and clear-POIs.
+
+### design.md: Intent and why
+
+Today the SLAM map and the POIs are saved separately: the web UI "Save map" writes one fixed posegraph
+(`/var/lib/ros2/maps/slam_map`), the POIs live in `poi.json` regardless of the map, and POIs cannot be cleared in one
+step. The user wants to clear POIs (U1), to have POIs written with the map (U2), to keep several named maps with their
+POIs and load them back (U3), to have the robot's last known location stored with the map (U4), and on load to have
+the robot match its live readings against the loaded map and reorient itself when it can (U5). Printable markers
+(separate epic) will help relocalisation later (U6), so the load path takes an external pose hint.
+
+### design.md: Goals
+
+- G1 (U1): clear POIs in one step, all of them or filtered by creator and kind, from the web UI and the agent; the agent keeps today's consent rule for keep-out and slow zones and for the person's POIs.
+- G2 (U2, U3, U4): save writes one named bundle (slam_toolbox pose graph and occupancy grid, the POI set, the last pose in the map frame, timestamp, metadata); list, load and delete named maps; the unnamed "Save map" and "Reset map" keep working.
+- G3 (U3, U5): load restores the map and replaces the POI set, then relocalises: initial pose from the saved last pose (or an explicit hint), scan matching against the loaded map, success only above a match-quality threshold; otherwise the robot reports it is not localised and keeps the saved pose hint; no placeholder pose is published.
+- G4: web UI: Save map as (name), a maps list with load and delete, Clear POIs, localisation state; agent tools `save_map(name)`, `list_maps`, `load_map(name)`, `clear_pois`; map_guard_cpp, costmap_zones, poi_store, Nav2 and the GPS anchor stay consistent after a load.
+- G5: tests (poi_store, map_manager, map_guard_cpp, web_ui, mcp_server, claude_agent, root config), READMEs; deployed and verified on the robot: save a named map, reset, load it, the robot relocalises near the saved pose.
+
+### design.md: Non-goals
+
+- Marker-based relocalisation (printable markers epic); this epic only accepts an external pose hint (U6).
+- 3D map (RTAB-Map) bundles; that epic owns its database save/load.
+- Global relocalisation anywhere in the map without a hint (no AMCL, no localization-mode switch).
+- Loading a named map automatically at boot (boot keeps resuming `slam_map`, D3).
+- Per-map photos: photos stay one global store (D8).
+
+### design.md: Anti-goals
+
+- A wrong pose silently accepted: the robot driving on a loaded map it is not localised in.
+- A failed relocalisation drawing new scans over the loaded map (it must stay paused).
+- Losing the current map and POIs on a load without a recoverable copy.
+- Idle CPU on the client: no `/tf`, `/scan_filtered` or `/map` subscription in map_manager while no operation runs.
+- Placeholder data: a status or pose published before a real judgement, a zeroed pose when TF is missing.
+- A half-written bundle visible under its final name after a crash or a failed serialize.
+
+### design.md: Constraints
+
+- ROS 2 Jazzy, `ros-jazzy-slam-toolbox` 2.8.x (upstream `jazzy` branch, package.xml 2.8.5 at the time of research), async online mapping mode, `/scan_filtered`, map frame `map`, base frame `base_link`, 2.5 cm map (`nodes/slam_toolbox/config/slam_params.yaml`).
+- Client Pi 5 is 80-90 % busy (nav3d brief section 4): map_manager subscribes to heavy topics only during an operation.
+- slam_toolbox and map_manager run as the same node user; `/var/lib/ros2/maps` exists, owned by that user (`ansible/playbooks/tasks/slam_maps_dir.yml`).
+- Config through pydantic and YAML config files (CLAUDE.md); `ros2_nodes` schema in `ansible/group_vars/client.yml`; deploys only through `scripts/deploy-nodes.sh`; deploying mcp_server or claude_agent kills a running agent session (MEMORY).
+- No placeholder data on topics (CLAUDE.md). TDD for every behaviour. numpy declared for any node importing sensor_msgs.
+- The in-progress epic "Remove the Jetson coprocessor" touches the same shared files (client.yml, READMEs, web_ui bridge and server, test_mcp_server_config.py); it is this epic's README blocker.
+
+### design.md: Decision coverage
 
 | Decision | Tasks |
 |---|---|
@@ -276,7 +334,7 @@ pose is lost (navigation on a wrong pose, an anti-goal). Serves G3, U5, U8.
 | D12 web UI | web-ui-named-maps-backend, web-ui-poi-clear-route, web-ui-maps-dialog, web-ui-clear-pois-dialog |
 | D13 moved by hand: relocalise, discard live map only if unrecoverable | map-manager-contract, map-manager-relocalise-op, map-manager-ros-node, map-guard-no-wipe-on-kidnap, map-guard-cpp-no-wipe-on-kid, agent-named-maps-prompt, final-suite-and-runbook |
 
-## Contracts
+### design.md: Contracts
 
 | Part | Owner | Consumers | Where defined |
 |---|---|---|---|
@@ -289,7 +347,7 @@ pose is lost (navigation on a wrong pose, an anti-goal). Serves G3, U5, U8.
 | `map-manager-core` | map-manager-operations | map-manager-relocalise-op, map-manager-ros-node |
 | `relocalise-op` | map-manager-relocalise-op | map-manager-ros-node, map-guard-no-wipe-on-kidnap, map-guard-cpp-no-wipe-on-kid | `nodes/map_manager/map_manager/manager.py` (`MapManager.relocalise`, `record_pose`) |
 
-## Review focus
+### design.md: Review focus
 
 - map_manager load sequence: pause before deserialize, unpause only on `localised`, autosave before load, `/pose` confirmation, every failure path leaves a truthful status and never a placeholder pose.
 - The pause toggle (a toggle service): read, compare, toggle, re-read; never two toggles in a row.
@@ -298,23 +356,33 @@ pose is lost (navigation on a wrong pose, an anti-goal). Serves G3, U5, U8.
 - map_guard_cpp hold: no pause/unpause/reset while held; re-arm on the transition to localised; unchanged behaviour with no message.
 - The shared agreement move: map_guard behaviour and the map_guard_cpp golden fixtures unchanged.
 
-## Left to the builder
+### design.md: Left to the builder
 
 - Candidate search implementation (vectorised numpy, coarse-to-fine allowed) within the configured window; the runbook records its time on the Pi.
 - How the status reaches the browser: a WS topic or polling `GET /api/maps` at most every 5 s while the Map tab is open.
 - Exact UI placement within the Map tab toolbar groups and the POI panel; wording of dialogs.
 - Internal module split of map_manager beyond the files named in the tasks.
 
-## Assumptions and unknowns
+### design.md: Assumptions and unknowns
 
 - Deserializing a large posegraph on the Pi takes seconds; `load_timeout_s` (default 60) covers it. Confirmed by the runbook timing.
 - `localised_ratio` 0.6 (map_guard's healthy ratio) separates good and bad loads on this robot. Confirmed by the runbook (one load at the saved pose, one with the robot moved about 0.5 m / 30 deg, one in a different room).
 - The serialized laser name equals today's `laser_frame`; a bundle saved with a different laser frame is refused with a message (`laser_frame` recorded in bundle.json).
 - ros-jazzy-slam-toolbox on the robot matches the researched `jazzy` branch behaviour; the runbook checks `apt-cache policy ros-jazzy-slam-toolbox` and the load path end to end.
 
-## Irreversible operations in scope
+### approvals.json
 
-- Deleting a named map (`delete`) removes its directory and its POIs (and empties the live POI set when it is the active map); the web UI asks for confirmation and the agent tool needs `confirm=true`.
-- Overwriting a named map (`overwrite: true`) replaces the old bundle; the web UI asks for confirmation.
-- Load replaces the current POI set and the in-memory map; covered by the automatic `autosave` bundle before every load (D5 step 2).
-- `clear` deletes POIs; the web UI asks for confirmation; the agent defaults to its own POIs and keeps zones.
+- G1: Clear POIs: a poi_store operation (all, or filtered by kind/source) exposed to the web UI and the agent; agent clearing keeps the existing consent rules for keep-out zones. [decisions: D7] [tasks: poi-store-clear-filters, web-ui-poi-clear-route, web-ui-clear-pois-dialog, mcp-clear-pois-tool, agent-named-maps-prompt] [status: approved]
+- G2: Named maps: save writes one named bundle (slam_toolbox serialized pose graph and occupancy grid, the POI set, the robot's last known pose in the map frame, timestamp, metadata) to a maps directory on the robot; list, load and delete named maps; the existing unnamed save/reset keeps working. [decisions: D1, D2, D3, D4, D10] [tasks: map-manager-contract, map-manager-bundle-store, map-manager-operations, map-manager-ros-node, map-manager-ansible-wiring, map-manager-lint-and-metrics, web-ui-named-maps-backend] [status: approved]
+- G3: Load restores the map and its POIs (replacing the current POI set) and relocalises: initial pose from the saved last pose, scan matching against the loaded map, success when the match quality passes a threshold, else the robot reports it is not localised and keeps the saved pose hint; no placeholder poses are published. [decisions: D5, D6, D8] [tasks: shared-scan-agreement, poi-store-replace-op, map-manager-relocaliser, map-manager-operations, map-manager-ros-node] [status: approved]
+- G4: Web UI: map save-as (name), map list with load/delete, POI clear; agent tools save_map(name), list_maps, load_map(name), clear_pois; map-dependent nodes (costmap_zones, map_guard_cpp, poi_store, GPS anchor) stay consistent after a load. [decisions: D9, D11, D12] [tasks: web-ui-named-maps-backend, web-ui-maps-dialog, web-ui-clear-pois-dialog, map-guard-cpp-load-hold, mcp-map-tools, mcp-clear-pois-tool, agent-named-maps-prompt, mcp-named-maps-config-docs] [status: approved]
+- G5: Tests (poi_store, map_manager, map_guard_cpp, web_ui, mcp_server, claude_agent, root config), READMEs; deployed and verified: save a named map, reset, load it, the robot relocalises near the saved pose. [decisions: D5, D9] [tasks: named-maps-docs-and-memory, final-suite-and-runbook] [status: approved]
+- U1: Clear POIs. [decisions: D7] [tasks: poi-store-clear-filters, web-ui-poi-clear-route, web-ui-clear-pois-dialog, mcp-clear-pois-tool] [status: approved]
+- U2: POIs are written with the map. [decisions: D2, D8] [tasks: map-manager-bundle-store, map-manager-operations] [status: approved]
+- U3: Named maps (with their POIs) can be written and loaded. [decisions: D1, D2, D4, D8, D12] [tasks: map-manager-contract, map-manager-bundle-store, poi-store-replace-op, map-manager-operations, map-manager-ros-node, web-ui-named-maps-backend, web-ui-maps-dialog, mcp-map-tools] [status: approved]
+- U4: The last known robot location is written with the map. [decisions: D2] [tasks: map-manager-bundle-store, map-manager-operations] [status: approved]
+- U5: On load the robot tries to match new readings with the loaded map and reorients when possible. [decisions: D5, D6] [tasks: shared-scan-agreement, map-manager-relocaliser, map-manager-operations, final-suite-and-runbook] [status: approved]
+- U6: Markers will help relocalisation later (non-goal here); the load accepts an external pose hint they can feed. [decisions: D5, D11] [tasks: map-manager-operations, mcp-map-tools] [status: approved]
+- U7: POIs belong to a map and are part of it: every POI is stored with its map; saving a map saves its POIs, loading a map loads exactly its POIs, deleting a map deletes its POIs. The web UI has explicit Save, Load and Delete (map + its POIs) buttons; the agent tools mirror them (delete needs confirmation). [decisions: D2, D8, D11, D12] [tasks: map-manager-bundle-store, map-manager-operations, poi-store-replace-op, web-ui-named-maps-backend, web-ui-maps-dialog, mcp-map-tools, agent-named-maps-prompt] [status: approved]
+- U8: Uncontrolled robot movement (kidnap detection) first runs the map matcher: this epic's relocalisation against the current map from the last known pose. If the pose is recovered (agreement threshold passes) the map and POIs are kept and the robot continues. If it is NOT recoverable, the live map and its POIs are deleted (as the map reset does today) to avoid navigation problems, but a previously saved named map bundle is never deleted by this; the event is reported to the web UI and the agent and the user can load a saved map afterwards. [decisions: D13, D4, D9] [tasks: map-manager-contract, map-manager-relocalise-op, map-manager-ros-node, map-guard-no-wipe-on-kidnap, map-guard-cpp-no-wipe-on-kid, agent-named-maps-prompt, final-suite-and-runbook] [status: approved]
+- U9: New session no longer deletes POIs or maps at all (neither survey POIs nor keep-outs); POI removal happens only through the explicit buttons and tools. The reset-time clearing is removed by the driving-agent-skills-and-wor epic (task new-session-keeps-pois); this epic's clear ops stay as the explicit path. [decisions: D7] [tasks: poi-store-clear-filters, mcp-clear-pois-tool, web-ui-clear-pois-dialog] [status: approved]
