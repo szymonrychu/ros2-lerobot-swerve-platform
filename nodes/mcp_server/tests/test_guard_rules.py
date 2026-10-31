@@ -15,6 +15,7 @@ from pydantic import ValidationError
 
 from mcp_server import config as config_module
 from mcp_server import guard_rules, motion_queue, tools
+from mcp_server.models import FootprintState
 from mcp_server.guard_rules import (
     ARM_ORIGINS,
     FIELDS,
@@ -191,7 +192,8 @@ def test_field_registry_args_pattern() -> None:
 
 def test_field_registry_types_and_phases() -> None:
     assert FIELDS["footprint.kind"].kind == "str"
-    assert FIELDS["footprint.kind"].choices == {"static", "dynamic", "conservative"}
+    assert FIELDS["footprint.kind"].choices == {"static", "dynamic", "conservative", "drive"}
+    assert FIELDS["footprint.kind"].choices == set(typing.get_args(FootprintState.model_fields["kind"].annotation))
     assert FIELDS["tilt.level"].choices == {"ok", "warning", "error"}
     assert FIELDS["arm.active_source"].choices == {"leader", "web_ui", "autonomy", "none"}
     assert FIELDS["battery.cutoff"].kind == "bool"

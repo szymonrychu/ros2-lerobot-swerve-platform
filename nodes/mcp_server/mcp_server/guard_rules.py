@@ -129,7 +129,7 @@ FIELDS: dict[str, FieldSpec] = {
     "arm.at_home": FieldSpec("bool", ALL_PHASES),
     "arm.tool_height_m": FieldSpec("float", ALL_PHASES),
     "arm.outside_footprint_m": FieldSpec("float", ALL_PHASES),
-    "footprint.kind": FieldSpec("str", ALL_PHASES, frozenset({"static", "dynamic", "conservative"})),
+    "footprint.kind": FieldSpec("str", ALL_PHASES, frozenset({"static", "dynamic", "conservative", "drive"})),
     "footprint.carried_radius_m": FieldSpec("float", ALL_PHASES),
     "base.lease_held": FieldSpec("bool", ALL_PHASES),
     "base.speed_mps": FieldSpec("float", ALL_PHASES),
