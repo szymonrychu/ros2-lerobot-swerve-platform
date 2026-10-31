@@ -1,85 +1,46 @@
-# Head camera 30 fps stream with full-res zoom design
+---
+title: Head camera 30 fps stream with full-res zoom
+repos: [ros2-lerobot-sverve-platform]
+created: 2026-10-18
+owner: Szymon Richert
+rung: 1
+---
 
-## Summary
+# Head camera 30 fps stream with full-res zoom
 
-A new C++ node `nodes/head_camera_cpp` owns the head Camera Module 3 (IMX708, CSI cam0) through libcamera directly. It
-streams 1152x648 at 30 fps (2304:1296 sensor mode, continuous AF) on `/head_camera/*` and, on a JSON request, focuses
-on a point, switches in-process to the full 4608x2592 StillCapture mode, takes one frame, publishes a native-resolution
-JPEG crop (<= 1024 px) plus a JSON result, and switches back. The agent reaches it through an optional `zoom` parameter
-on mcp_server's `get_camera_image`; the web UI through click-to-zoom on the Head tab RGB view. pi_cameras (camera_ros)
-is retired entirely; every `/front_camera` consumer moves to `/head_camera`. The camera and the Arducam ToF form the
-robot head on the (not yet built) pan/tilt stand.
+## What and why
 
-## Intent and why
+What: Head Camera Module 3: 30 fps stream, autofocused full-res zoom crops for the agent and web UI
+How: New libcamera C++ node with a zoom state machine, mcp_server tool parameter, web UI Head tab click-to-zoom, Ansible deployment
+Why: The agent needs a cheap default view plus sharp detail on demand
 
-The agent needs a cheap default view and sharp detail on demand: today the front preview is 640x480 at 10 fps, crops
-the field of view (4:3 out of a 16:9 sensor mode) and cannot show fine detail, and its JPEG quality setting is silently
-ignored (deployed quality 95, configured 70). The IMX708 full mode is capped at 14.35 fps by the kernel driver, so one
-sensor mode cannot serve both a 30 fps stream and full-resolution detail: a mode switch is unavoidable and only the
-camera owner can do it. The user also clarified (U9) that this camera is the head RGB camera, not a "front" camera.
+The Camera Module 3 (IMX708, autofocus, CSI cam0) and the Arducam ToF (CSI cam1) together form the robot head on the pan/tilt stand where the stereo camera was planned; there are no separate front/back cameras. The head RGB camera streams at 30 fps at a modest resolution for the web UI and the agent under `/head_camera/*`, and can take one full-resolution (4608x2592) picture on request to give a detailed, natively sharp crop around a point. The agent (claude_agent through nodes/mcp_server) sees a downscaled view by default and can zoom into a point of the frame; the web UI Head tab can do the same on its RGB view, one frame at a time, then returns to the live view. The camera autofocuses on the zoom point before the picture is taken; re-taking a picture is acceptable. Every `/front_camera` consumer moves to `/head_camera`.
 
-## Goals
+## Scope ladder
 
-- G1: `nodes/head_camera_cpp` owns the IMX708 through libcamera: 2304:1296 sensor mode, 1152x648 at 30 fps, continuous
-  AF, publishing `/head_camera/image_raw`, `/head_camera/image_raw/compressed` (configured JPEG quality honoured) and
-  `/head_camera/camera_info`, frame_id `head_camera_optical_frame`.
-- G2: a JSON request on `/head_camera/zoom/command` (u, v normalised, zoom 2/4/8, request id) runs windowed AF, switches
-  to 4608x2592 StillCapture, takes one frame, publishes a JPEG crop (<= 1024 px) on `/head_camera/zoom/image` and a JSON
-  result on `/head_camera/zoom/result`, then restores the 30 fps stream; failures give an error result and always
-  restore the stream; no placeholder images.
-- G3: mcp_server `get_camera_image` gains an optional `zoom` parameter; default view stays ~384 px; mcp_server and
-  claude_agent config, tool docs and prompts move to `/head_camera` and describe the head camera.
-- G4: web_ui Arm tab `head_camera_topic`, Head tab RGB on `/head_camera/image_raw/compressed`, click-to-zoom on the Head
-  tab RGB view, one crop at a time, then back to live.
-- G5: pi_cameras retired entirely; Ansible deploys head_camera_cpp (node type, tier, config, build, metrics target).
-- G6: every suite green; deployed and verified (30 fps measured, one agent zoom, one web UI zoom).
+### Rung 1: agreed scope (migrated)
+
+- 1.1: New C++ node nodes/head_camera_cpp owns the head IMX708 through libcamera (replacing camera_ros): default 2304:1296 sensor mode, 1152x648 at 30 fps, continuous autofocus, publishing /head_camera/image_raw, /head_camera/image_raw/compressed (honouring the configured JPEG quality) and /head_camera/camera_info, frame_id head_camera_optical_frame.
+- 1.2: Zoom: a JSON request on /head_camera/zoom/command (point in normalised image coordinates + zoom factor 2/4/8, request id) makes the node run windowed autofocus on the point (AfWindows + AfTrigger, capped), switch to the full 4608x2592 StillCapture mode, take one frame, publish a native-resolution JPEG crop (<= 1024 px) on /head_camera/zoom/image plus a JSON result on /head_camera/zoom/result (id, status, crop geometry, AF state), then return to the default 30 fps mode. Failures (AF timeout, capture error, busy) produce an error result and always restore the stream; no placeholder images are published.
+- 1.3: mcp_server: the existing camera-image tool gains an optional zoom parameter (point + factor) that requests a zoom and returns the crop to the agent; the default view stays downscaled to ~384 px; mcp_server and claude_agent camera config, tool docs and prompt text move from /front_camera to /head_camera and describe the head camera.
+- 1.4: web_ui: the Arm tab field `front_camera_topic` becomes `head_camera_topic` and the Head tab `rgb_camera_topic` becomes /head_camera/image_raw/compressed; the Head tab RGB view lets the user click a point (and pick a zoom factor) to request a zoom; the crop is shown once, then the view returns to the live stream.
+- 1.5: pi_cameras is retired entirely (present: false uninstall, sources deleted, its camera_ros build purged); Ansible deploys head_camera_cpp (node type, cgroup tier, config, build against the same pinned libcamera fork, metrics target), with tests and READMEs updated.
+- 1.6: All suites green (node gtests, root pytest, lint, ansible lint/syntax, mcp_server, claude_agent and web_ui tests); deployed and verified on the robot (30 fps measured, one zoom from the agent tool and one from the web UI).
+
+## Agreed scope
+
+Rung 1, migrated from the epic format: the epic's goals were its agreed scope.
 
 ## Non-goals
 
-- Recording images or video to disk (zoom crops are never written to disk, U6).
-- Zooming the gripper camera or the ToF (U7).
-- Continuous optical/digital zoom of the live stream.
-- TF for the head camera: no transform is added. `head_camera_optical_frame` will be parented to the pan/tilt joint
-  chain when the pan/tilt head is built; until then nothing consumes the frame geometrically.
-- Renaming the agent-facing camera value `front` of `get_camera_image(camera=...)` (my call, see D10): only its topic,
-  config key and description change.
+- Recording images or video to disk.
+- Zooming the gripper camera or the ToF.
+- Optical/digital continuous zoom of the live stream.
+- TF for the head camera: the pan/tilt servos are not built, so this epic adds no transform; head_camera_optical_frame will be parented to the pan/tilt joint chain when the head is built.
 
-## Anti-goals
+## Design
 
-- A stream gap longer than about 1 s per zoom, or a zoom that leaves the camera stopped (the restore path must always
-  run; a failed restore exits so systemd restarts the unit).
-- A libcamera or camera_ros rebuild on the Pi caused by this epic (the pinned libcamera build stamp must stay equal).
-- Publishing placeholder data: zeroed camera_info, a black frame on error, a crop image on `busy`/`timeout`/
-  `camera_error`.
-- Full-resolution frames leaving the process (UDPv4 loopback, 1 MiB rmem: `ansible/README.md:325`).
-- Zoom crops persisted (poi_store lookups, disk).
-- Scope creep into pan/tilt, TF or calibration.
-
-## Constraints
-
-- ROS 2 Jazzy, Ubuntu 24.04, Pi 5 client. New non-web nodes are C++ (MEMORY "Python nodes stay"); mcp_server, web_ui and
-  claude_agent stay Python (pydantic configs).
-- TDD: every behaviour test-first. C++ tests run in docker via `scripts/cpp-node-test.sh <pkg>` (`poe test-cpp`).
-- No placeholder data on topics (CLAUDE.md).
-- `Camera::configure()` only in Acquired/Configured state (`libcamera/src/libcamera/camera.cpp:1195`): stop ->
-  configure -> start. One process owns the camera (exclusive acquire).
-- camera_ros @8f792e27 cannot reconfigure: read-only stream params (`CameraNode.cpp:270-345`), one stream
-  (`assert(buffers().size() == 1)`, `:755`), every frame memcpy'd (`:788`).
-- The libcamera fork (`raspberrypi/libcamera` `v0.7.2+rpt20260817`, PiSP) is required on the Pi 5 (Ubuntu's libcamera
-  has no PiSP pipeline). It is built into `/opt/ros2-ws` by `colcon_source`; the stamp key is commit + patch content +
-  meson args (+ chain key) (`ros2_node_deploy/tasks/colcon_source_package.yml`), so an identical source dict rebuilds
-  nothing. The apt `ros-jazzy-libcamera` / `ros-jazzy-camera-ros` must never be installed on the Pi.
-- Deploys only through `scripts/deploy-nodes.sh`; logs to `.logs/`. Deploying mcp_server or claude_agent kills a
-  running agent session: check first (MEMORY).
-- The Jetson removal epic merges first. Its end state, which this plan builds on: mcp_server `topics.front_camera:
-  /front_camera/image_raw/compressed` (`nodes/mcp_server/mcp_server/config.py`, `ansible/group_vars/client.yml`); web_ui
-  Arm tab `front_camera_topic` (`nodes/web_ui/web_ui/config.py`, `config/default.yaml`, `client.yml`, frontend
-  `types.ts`, `ArmTab.tsx`, `hooks/subscription.ts`); Head tab `rgb_camera_topic: /front_camera/image_raw/compressed`
-  with ToF depth + amplitude; Overview tab removed; `nodes/web_ui/web_ui/bridge.py` type hints; `tests/test_jetson_retired.py`
-  with the `test_no_live_jetson_stereo_or_overview_reference` allowlist (`nodes/pi_cameras/patches/**` as
-  `pinned-build`); `colcon_purge` node-type key (`ros2_node_deploy/tasks/colcon_purge.yml`); `tests/test_mcp_server_config.py`,
-  `tests/test_node_metrics_wiring.py`, `tests/test_cpp_node_deploy.py`, `tests/README.md`, `ansible/README.md`,
-  `nodes/README.md`, `nodes/pi_cameras/README.md`, `.claude/skills/ansible-deploy/SKILL.md`, `MEMORY.md` edited.
+Migrated from the epic format; the design sections without a plan.md heading are under Migrated notes.
 
 ## Decisions
 
@@ -248,6 +209,10 @@ front/head preview, and hands the orchestrator a deploy-and-verify runbook: depl
 Mimir `rate(...)` and topic_scraper header stamps; one zoom through the agent tool; one zoom from the web UI Head tab.
 Serves G6.
 
+## Open questions
+
+none
+
 ## Research
 
 | Lens | Ran or skipped | Adopted ideas | Rejected ideas |
@@ -259,7 +224,7 @@ Serves G6.
 | research-code-external | skipped: the analogues (camera_ros, rpicam-apps still capture) were compared head to head by the architect pass | - | - |
 | research-papers | skipped: no algorithmic core (crop arithmetic and a four-phase state machine are engineering, not research) | - | - |
 
-## Research inputs
+### Research inputs
 
 | Source | Entry | Lands in |
 |---|---|---|
@@ -291,7 +256,105 @@ Serves G6.
 | reuse | retirement test pattern `tests/test_pi_cameras_retired.py` | retire-pi-cameras |
 | user scope change U9 | head naming, `/head_camera` consumers, pi_cameras retired, no TF | every task (names), mcp-head-camera-topic, web-ui-head-camera-topics, web-ui-head-camera-frontend, retire-pi-cameras |
 
-## Decision coverage
+## Irreversible operations
+
+- Deleting `nodes/pi_cameras/` and its tests (git history keeps them; covered by approval G5/U9).
+- Purging `/opt/ros2-ws/{src,build,install}/camera_ros` and its stamps on the Pi through `colcon_purge` (rebuildable from
+  the pinned commit; covered by G5/U9). libcamera is explicitly not purged.
+- Uninstalling the pi_cameras systemd unit, launcher and `/etc/ros2/pi_cameras` config (covered by G5/U9).
+
+## Migrated notes
+
+### README.md: Review
+
+Filled when the epic reaches stage `review`: the verdict, the findings acted on, the findings dropped.
+
+Verdict: pass (2026-10-18)
+
+All tasks verified and merged; deployed 2026-10-18: head_camera_cpp 30.1 fps (1152x648 from 2304x1296), pi_cameras/camera_ros removed, web UI zoom API x2 ok in 1.26 s (af 166 ms, capture 531 ms, 1024x576 crop), memory peak 71 MB of 384 MB, ~0.06 core, ToF unaffected. Manual checks left for the user: agent get_camera_image zoom from a session, web UI click-to-zoom in a browser.
+
+### design.md: Summary
+
+A new C++ node `nodes/head_camera_cpp` owns the head Camera Module 3 (IMX708, CSI cam0) through libcamera directly. It
+streams 1152x648 at 30 fps (2304:1296 sensor mode, continuous AF) on `/head_camera/*` and, on a JSON request, focuses
+on a point, switches in-process to the full 4608x2592 StillCapture mode, takes one frame, publishes a native-resolution
+JPEG crop (<= 1024 px) plus a JSON result, and switches back. The agent reaches it through an optional `zoom` parameter
+on mcp_server's `get_camera_image`; the web UI through click-to-zoom on the Head tab RGB view. pi_cameras (camera_ros)
+is retired entirely; every `/front_camera` consumer moves to `/head_camera`. The camera and the Arducam ToF form the
+robot head on the (not yet built) pan/tilt stand.
+
+### design.md: Intent and why
+
+The agent needs a cheap default view and sharp detail on demand: today the front preview is 640x480 at 10 fps, crops
+the field of view (4:3 out of a 16:9 sensor mode) and cannot show fine detail, and its JPEG quality setting is silently
+ignored (deployed quality 95, configured 70). The IMX708 full mode is capped at 14.35 fps by the kernel driver, so one
+sensor mode cannot serve both a 30 fps stream and full-resolution detail: a mode switch is unavoidable and only the
+camera owner can do it. The user also clarified (U9) that this camera is the head RGB camera, not a "front" camera.
+
+### design.md: Goals
+
+- G1: `nodes/head_camera_cpp` owns the IMX708 through libcamera: 2304:1296 sensor mode, 1152x648 at 30 fps, continuous
+  AF, publishing `/head_camera/image_raw`, `/head_camera/image_raw/compressed` (configured JPEG quality honoured) and
+  `/head_camera/camera_info`, frame_id `head_camera_optical_frame`.
+- G2: a JSON request on `/head_camera/zoom/command` (u, v normalised, zoom 2/4/8, request id) runs windowed AF, switches
+  to 4608x2592 StillCapture, takes one frame, publishes a JPEG crop (<= 1024 px) on `/head_camera/zoom/image` and a JSON
+  result on `/head_camera/zoom/result`, then restores the 30 fps stream; failures give an error result and always
+  restore the stream; no placeholder images.
+- G3: mcp_server `get_camera_image` gains an optional `zoom` parameter; default view stays ~384 px; mcp_server and
+  claude_agent config, tool docs and prompts move to `/head_camera` and describe the head camera.
+- G4: web_ui Arm tab `head_camera_topic`, Head tab RGB on `/head_camera/image_raw/compressed`, click-to-zoom on the Head
+  tab RGB view, one crop at a time, then back to live.
+- G5: pi_cameras retired entirely; Ansible deploys head_camera_cpp (node type, tier, config, build, metrics target).
+- G6: every suite green; deployed and verified (30 fps measured, one agent zoom, one web UI zoom).
+
+### design.md: Non-goals
+
+- Recording images or video to disk (zoom crops are never written to disk, U6).
+- Zooming the gripper camera or the ToF (U7).
+- Continuous optical/digital zoom of the live stream.
+- TF for the head camera: no transform is added. `head_camera_optical_frame` will be parented to the pan/tilt joint
+  chain when the pan/tilt head is built; until then nothing consumes the frame geometrically.
+- Renaming the agent-facing camera value `front` of `get_camera_image(camera=...)` (my call, see D10): only its topic,
+  config key and description change.
+
+### design.md: Anti-goals
+
+- A stream gap longer than about 1 s per zoom, or a zoom that leaves the camera stopped (the restore path must always
+  run; a failed restore exits so systemd restarts the unit).
+- A libcamera or camera_ros rebuild on the Pi caused by this epic (the pinned libcamera build stamp must stay equal).
+- Publishing placeholder data: zeroed camera_info, a black frame on error, a crop image on `busy`/`timeout`/
+  `camera_error`.
+- Full-resolution frames leaving the process (UDPv4 loopback, 1 MiB rmem: `ansible/README.md:325`).
+- Zoom crops persisted (poi_store lookups, disk).
+- Scope creep into pan/tilt, TF or calibration.
+
+### design.md: Constraints
+
+- ROS 2 Jazzy, Ubuntu 24.04, Pi 5 client. New non-web nodes are C++ (MEMORY "Python nodes stay"); mcp_server, web_ui and
+  claude_agent stay Python (pydantic configs).
+- TDD: every behaviour test-first. C++ tests run in docker via `scripts/cpp-node-test.sh <pkg>` (`poe test-cpp`).
+- No placeholder data on topics (CLAUDE.md).
+- `Camera::configure()` only in Acquired/Configured state (`libcamera/src/libcamera/camera.cpp:1195`): stop ->
+  configure -> start. One process owns the camera (exclusive acquire).
+- camera_ros @8f792e27 cannot reconfigure: read-only stream params (`CameraNode.cpp:270-345`), one stream
+  (`assert(buffers().size() == 1)`, `:755`), every frame memcpy'd (`:788`).
+- The libcamera fork (`raspberrypi/libcamera` `v0.7.2+rpt20260817`, PiSP) is required on the Pi 5 (Ubuntu's libcamera
+  has no PiSP pipeline). It is built into `/opt/ros2-ws` by `colcon_source`; the stamp key is commit + patch content +
+  meson args (+ chain key) (`ros2_node_deploy/tasks/colcon_source_package.yml`), so an identical source dict rebuilds
+  nothing. The apt `ros-jazzy-libcamera` / `ros-jazzy-camera-ros` must never be installed on the Pi.
+- Deploys only through `scripts/deploy-nodes.sh`; logs to `.logs/`. Deploying mcp_server or claude_agent kills a
+  running agent session: check first (MEMORY).
+- The Jetson removal epic merges first. Its end state, which this plan builds on: mcp_server `topics.front_camera:
+  /front_camera/image_raw/compressed` (`nodes/mcp_server/mcp_server/config.py`, `ansible/group_vars/client.yml`); web_ui
+  Arm tab `front_camera_topic` (`nodes/web_ui/web_ui/config.py`, `config/default.yaml`, `client.yml`, frontend
+  `types.ts`, `ArmTab.tsx`, `hooks/subscription.ts`); Head tab `rgb_camera_topic: /front_camera/image_raw/compressed`
+  with ToF depth + amplitude; Overview tab removed; `nodes/web_ui/web_ui/bridge.py` type hints; `tests/test_jetson_retired.py`
+  with the `test_no_live_jetson_stereo_or_overview_reference` allowlist (`nodes/pi_cameras/patches/**` as
+  `pinned-build`); `colcon_purge` node-type key (`ros2_node_deploy/tasks/colcon_purge.yml`); `tests/test_mcp_server_config.py`,
+  `tests/test_node_metrics_wiring.py`, `tests/test_cpp_node_deploy.py`, `tests/README.md`, `ansible/README.md`,
+  `nodes/README.md`, `nodes/pi_cameras/README.md`, `.claude/skills/ansible-deploy/SKILL.md`, `MEMORY.md` edited.
+
+### design.md: Decision coverage
 
 | Decision | Tasks |
 |---|---|
@@ -310,7 +373,7 @@ Serves G6.
 | D13 Metrics and monitoring target | head-camera-ros-wiring, head-camera-node-type |
 | D14 Final verification and runbook | head-camera-docs, final-suite-and-runbook |
 
-## Contracts
+### design.md: Contracts
 
 | Part | Owner | Consumers | Where defined |
 |---|---|---|---|
@@ -326,7 +389,7 @@ Serves G6.
 | `web-zoom-endpoint` | web-ui-zoom-backend | web-ui-zoom-click-and-api | `nodes/web_ui/web_ui/server.py` |
 | `zoom-click-api` | web-ui-zoom-click-and-api | head-tab-click-to-zoom | `nodes/web_ui/frontend/src/camera/zoomApi.ts` |
 
-## Review focus
+### design.md: Review focus
 
 - `zoom_controller.cpp`: the restore path runs after every failure branch and the watchdog; `busy` never touches the
   camera; no image on non-ok statuses; one request at a time across threads.
@@ -336,7 +399,7 @@ Serves G6.
 - `client.yml`: the libcamera source dict identical to the pinned one (stamp), camera_ros purged but never libcamera.
 - Image/result pairing by `stamp_ns` in mcp_server and web_ui (image may arrive after the result).
 
-## Left to the builder
+### design.md: Left to the builder
 
 - Internal class layout, thread model of the node (a worker thread for encode/zoom is expected; requestCompleted must
   not block), names of private helpers, metric names (prefix `head_camera_`).
@@ -346,7 +409,7 @@ Serves G6.
   (`frontend/src/layout/designRules`).
 - Prometheus histogram buckets.
 
-## Assumptions and unknowns
+### design.md: Assumptions and unknowns
 
 - The docker image's rosdep `libcamera` key (ros-jazzy-libcamera) exposes the controls and stream roles used; if an API
   differs from the fork, the adapter uses the subset both provide. Confirmed by `scripts/cpp-node-test.sh head_camera_cpp`
@@ -359,9 +422,20 @@ Serves G6.
   a file re-reads it.
 - The agent-facing camera value stays `front` (D10); the user may prefer renaming it to `head` (raised at the gate).
 
-## Irreversible operations in scope
+### approvals.json
 
-- Deleting `nodes/pi_cameras/` and its tests (git history keeps them; covered by approval G5/U9).
-- Purging `/opt/ros2-ws/{src,build,install}/camera_ros` and its stamps on the Pi through `colcon_purge` (rebuildable from
-  the pinned commit; covered by G5/U9). libcamera is explicitly not purged.
-- Uninstalling the pi_cameras systemd unit, launcher and `/etc/ros2/pi_cameras` config (covered by G5/U9).
+- G1: New C++ node nodes/head_camera_cpp owns the head IMX708 through libcamera (replacing camera_ros): 2304:1296 sensor mode, 1152x648 at 30 fps, continuous autofocus, publishing /head_camera/image_raw, /head_camera/image_raw/compressed (configured JPEG quality honoured) and /head_camera/camera_info, frame_id head_camera_optical_frame. [decisions: D1, D2, D3, D7] [tasks: head-camera-node-config, jpeg-encode-and-yuv-crop, libcamera-backend, head-camera-ros-wiring] [status: approved]
+- G2: Zoom: a JSON request on /head_camera/zoom/command (normalised point, factor 2/4/8, request id) runs windowed AF, switches to 4608x2592 StillCapture, takes one frame, publishes a native-resolution JPEG crop (<= 1024 px) on /head_camera/zoom/image and a JSON result on /head_camera/zoom/result, then restores the 30 fps mode; failures give an error result and always restore the stream; no placeholder images. [decisions: D4, D5, D6] [tasks: zoom-crop-geometry, jpeg-encode-and-yuv-crop, zoom-request-json, zoom-state-machine, libcamera-backend, head-camera-ros-wiring] [status: approved]
+- G3: mcp_server: get_camera_image gains an optional zoom parameter returning the crop; default view stays ~384 px; mcp_server and claude_agent camera config, tool docs and prompts move to /head_camera and describe the head camera. [decisions: D10, D11] [tasks: mcp-head-camera-topic, mcp-zoom-request-client, mcp-camera-image-zoom-param, agent-zoom-prompt-and-docs] [status: approved]
+- G4: web_ui: Arm tab head_camera_topic, Head tab rgb_camera_topic on /head_camera/image_raw/compressed, click-to-zoom on the Head tab RGB view with a zoom factor, crop shown once then back to live. [decisions: D12] [tasks: web-ui-head-camera-topics, web-ui-head-camera-frontend, web-ui-zoom-backend, web-ui-zoom-click-and-api, head-tab-click-to-zoom] [status: approved]
+- G5: pi_cameras retired entirely; Ansible deploys head_camera_cpp (node type, cgroup tier, config, build against the same pinned libcamera, metrics target), tests and READMEs updated. [decisions: D8, D9, D13] [tasks: head-camera-node-type, deploy-head-camera-playbook, retire-pi-cameras, head-camera-ros-wiring, head-camera-docs] [status: approved]
+- G6: All suites green (node gtests, root pytest, lint, ansible lint/syntax, mcp_server, claude_agent, web_ui tests); deployed and verified on the robot (30 fps measured, one zoom from the agent tool, one from the web UI). [decisions: D14, D13] [tasks: head-camera-docs, final-suite-and-runbook] [status: approved]
+- U1: Default stream 30 fps at an appropriate resolution: 2304:1296 sensor mode, 1152x648, continuous AF. [decisions: D2] [tasks: head-camera-node-config, libcamera-backend, head-camera-ros-wiring] [status: approved]
+- U2: Zoom switches to full resolution only on request, autofocuses on the zoom point; re-taking a picture is allowed. [decisions: D6] [tasks: zoom-state-machine, libcamera-backend] [status: approved]
+- U3: Zoom API: point (normalised u, v in the default view) + factor 2/4/8; crop <= 1024 px JPEG. [decisions: D4, D5] [tasks: zoom-request-json, zoom-crop-geometry, jpeg-encode-and-yuv-crop, mcp-camera-image-zoom-param] [status: approved]
+- U4: Optional zoom parameter on the existing mcp_server camera-image tool (not a new tool); default agent view stays ~384 px wide (16:9 now). [decisions: D10, D11] [tasks: mcp-zoom-request-client, mcp-camera-image-zoom-param, agent-zoom-prompt-and-docs] [status: approved]
+- U5: Web UI click-to-zoom, one frame at a time, then back to live. [decisions: D12] [tasks: web-ui-zoom-backend, web-ui-zoom-click-and-api, head-tab-click-to-zoom] [status: approved]
+- U6: Zoom crops are not saved to disk. [decisions: D10, D12] [tasks: mcp-camera-image-zoom-param, web-ui-zoom-backend, head-tab-click-to-zoom] [status: approved]
+- U7: Head (formerly front) camera only: no zoom for the gripper camera or the ToF. [decisions: D1, D10, D12] [tasks: mcp-camera-image-zoom-param, web-ui-zoom-backend] [status: approved]
+- U8: The JPEG quality bug (configured quality ignored) is fixed by the new node honouring its configured quality. [decisions: D2] [tasks: jpeg-encode-and-yuv-crop, head-camera-ros-wiring] [status: approved]
+- U9: The Camera Module 3 and the Arducam ToF form the robot head on the pan/tilt stand: the node is nodes/head_camera_cpp publishing /head_camera/* with frame head_camera_optical_frame; every /front_camera consumer (mcp_server/claude_agent config and prompts, web_ui Arm head_camera_topic, Head tab rgb_camera_topic) moves to /head_camera; click-to-zoom lives on the Head tab RGB view; pi_cameras retired entirely (head_camera_cpp builds against the same libcamera, camera_ros purged); no TF changes (frame parented to the pan/tilt chain later, a non-goal). [decisions: D1, D8, D9, D10, D11, D12] [tasks: head-camera-node-config, head-camera-ros-wiring, head-camera-node-type, retire-pi-cameras, mcp-head-camera-topic, agent-zoom-prompt-and-docs, web-ui-head-camera-topics, web-ui-head-camera-frontend, head-tab-click-to-zoom, head-camera-docs] [status: approved]
