@@ -1,53 +1,46 @@
-# Ground detection robustness design
+---
+title: "Ground detection robustness: spread gate, hysteresis and ramp rule"
+repos: [ros2-lerobot-sverve-platform]
+created: 2026-10-21
+owner: Szymon Richert
+rung: 1
+---
 
-## Summary
+# Ground detection robustness: spread gate, hysteresis and ramp rule
 
-The ground estimator (nodes/ground_estimator_cpp) and costmap_zones get eight fixes so the robot can drive on what they publish: a per-cell temporal spread gate, a median edge step, a robust ramp slope, warning-only colour clusters, multi-point lethal marks, per-cell class hysteresis in the odom frame with cell-aligned warning areas, a cell-keyed warning store in costmap_zones and smoother plane tracking. The ramp rule rises from 8 to 15 deg, bounded by the tilt_guard error limits, because the user calls the ~14 deg ramp safe; the 5 cm box stays an obstacle under the 1/3-wheel rule. A report script and a static runbook prove it on the user's scene with the robot parked.
+## What and why
 
-## Intent and why
+What: make the ground estimator's obstacle, drop, step, ramp and colour classification stable enough to drive on: a per-cell temporal spread gate, a median edge step, per-cell class hysteresis, warning-only colour clusters, multi-point lethal marks, cell-keyed warning areas in costmap_zones, smoother plane tracking and the 15 deg ramp rule.
+How: C++ changes in nodes/ground_estimator_cpp (cell_median, edges, traversability, a new cell_class module, ground_node), Python in nodes/costmap_zones, the config mirrored in ansible/group_vars/client.yml, and a static robot runbook with a report script over topic_scraper captures.
+Why: a live capture on 2026-10-21 showed ~200 lethal points per frame on empty floor at the far band, a ramp classed obstacle 68% of the time, a false drop behind the box 25-31% of the time and warning areas churning in 186 of 300 states; the user's verdict: fix it if it is too unreliable to let the robot drive around.
 
-User, 2026-10-21: "There is still a lot of random noise on the ground/floor/obstacle/edge/etc detection. Fix it if it's too unreliable to properly let robot drive around." The live diagnosis (160 s and 200 s captures, robot static) says it is not safe to drive yet:
+The ground estimator (rgb-d-ground-estimation-and) is deployed and correct on clean scenes, but noisy far-band ToF cells, a p90 edge step, a PCA slope that underestimates sparse ramps, colour clusters that can go lethal, single-point lethal marks and a 3 s TTL union of warning messages make its output flicker. This epic fixes each cause found in the 2026-10-21 diagnosis and proves the result on the user's static test scene (5 cm box, 63 mm / 25 cm ramp, ChArUco board) without driving the robot.
 
-- far band: ToF cells at the edge of reliable returns (1.15-1.45 m in one capture, 1.65-2.2 m in another) read +4..+19 cm with 30-90 mm temporal std, giving ~190-210 lethal points per frame on empty floor through `lethal_unclustered`; floor cells 0.35-1.05 m have 4-20 mm std, the box top 3-6 mm;
-- box: step region present in 84% of states, obstacle 100%; region median 3.3-3.5 cm but `edge_step_m` is the p90 of the edge band (box top near the edge reads 4-6 cm);
-- ramp: present in 27% of states, obstacle 68% / warning 32%, measured slope p50 5.7, p90 7.2-7.6 deg against a true ~14 deg (sparse ToF on the black mat, cell std 13-21 mm);
-- board: colour warning, slope 3.7-6.4 deg; a false drop warning in 10% of states; colour clusters can go lethal only through the noisy PCA slope (colour-warning slopes p50 6.0, p90 7.6, max 8.0);
-- false drop warnings behind the box at (1.2-1.3, 0.1-0.3), -2.6 cm, in 25-31% of states (likely ToF multipath beside the box's white side);
-- RGB-D labels flip in 30-59% of frames at some cells; the warning-area count changes in 186 of 300 states; costmap_zones keeps each message 3 s, so 30-60 areas are active at once and the masks republish at the 2 Hz cap;
-- plane: height 6.7 cm (head geometry, fixed by head-chain-floor-plane-fit-a), std 6 mm, pitch std 0.45 deg, roll std 0.73 deg; 37% of fits rejected `offset_off_prior` (same geometry cause);
-- not causes: the IMU prior (0 `normal_off_prior`), late TF while static (0 drops). The CPU epic is deployed (3.74 -> ~2.3 cores).
+## Scope ladder
 
-## Goals
+### Rung 1: agreed scope (migrated)
 
-- Empty floor: 0 lethal points at p95 of states; noisy far-band cells are unknown, never lethal, never a step or drop edge.
-- The 5 cm box is an obstacle in >= 95% of states; a 3 cm sill stays a warning.
-- The ~14 deg ramp is a warning in >= 90% of states, its slope within +-3 deg of 14.
-- The board (colour mismatch) never gives a lethal state.
-- Warning-area churn < 10% of states; costmap_zones republishes only when its active cell set changes.
-- The runbook numbers are measured on the robot and recorded.
+- 1.1: Empty floor gives 0 lethal points at p95 of states; far-band noisy cells are unknown, never lethal and never a step or drop edge.
+- 1.2: The 5 cm box is an obstacle in >= 95% of states; a 3 cm sill stays a warning.
+- 1.3: The ~14 deg ramp is a warning in >= 90% of states with its slope within +-3 deg of 14; max_slope_deg is 15, bounded by the tilt_guard error limits.
+- 1.4: Colour-mismatch clusters are warnings only; the board never produces lethal points.
+- 1.5: Warning-area churn is below 10% of states; costmap_zones republishes masks only when its active cell set changes.
+- 1.6: A runbook and a report script measure all of the above on the robot, and the measured numbers are recorded.
+
+## Agreed scope
+
+Rung 1, migrated from the epic format: the epic's goals were its agreed scope.
 
 ## Non-goals
 
-- Driving the robot (it is charging); only head pan/tilt moves.
-- The head chain geometry and the plane offset rejections (head-chain-floor-plane-fit-a, this epic's blocker).
-- Changing the `/ground/warning_areas` or `/ground/state` JSON schemas, Nav2 layers, the collision monitor, the web UI or dashboards.
+- Driving the robot (it is charging); only head pan/tilt moves are used.
+- The head geometry and plane offset fix (head-chain-floor-plane-fit-a).
+- Changing the warning-area or state JSON schemas, Nav2 layers or the collision monitor.
+- New dashboards or web UI changes.
 
-## Anti-goals
+## Design
 
-- A real obstacle that never becomes lethal, or a lethal mark that lags more than 0.3 s at 10 Hz (enter_frames 3).
-- Placeholder data on any topic: a held lethal cell publishes only the points seen in it this frame.
-- A ramp limit above the tilt_guard error limits.
-- CPU regressions that undo client-cpu-budget-recovery-a (the new work is O(points + cells) per frame).
-
-## Constraints
-
-- C++ in nodes/ground_estimator_cpp, tested with `scripts/cpp-node-test.sh ground_estimator_cpp` (all gtests plus ament linters); core modules are picked up by the CMake glob.
-- `config/ground_estimator.yaml` and the client.yml ground_estimator_cpp block stay equal (`tests/test_ground_estimator_deploy.py`); unknown keys are rejected; every key documented with meaning, unit and range.
-- Python: type hints, pydantic config, constants on top, docstrings with types (CLAUDE.md).
-- Deploy only with `scripts/deploy-nodes.sh`; the runbook is executed by the orchestrator, robot static.
-- client.yml is also edited by head-chain-floor-plane-fit-a (in progress): the epic is blocked on it.
-- Live round (2026-10-22, brief ground-live.md): no new nodes; Python stays in arducam_tof, C++ in ground_estimator_cpp (brief D4). Tasks end at merged and deployed; the live check needs the user (tof_obstacle_cloud restart, head floor fit on a cleared floor) and is run by the orchestrator afterwards (brief D5). The robot is not driven.
-- Replay fixtures live inside the package (`nodes/ground_estimator_cpp/test/data/replay/`): cpp-node-test.sh copies only the packages into the container, so nothing under `scripts/` is visible to a gtest.
+Migrated from the epic format; the design sections without a plan.md heading are under Migrated notes.
 
 ## Decisions
 
@@ -127,6 +120,10 @@ The churn task diagnoses the 51-of-59 changing pairs on the replay (area appears
 
 The black rubber ramp returns no ToF depth at all (below the confidence threshold), which no software here fixes. Its acceptance becomes: never lethal (no obstacle region in the ramp ROI in any state, no lethal point in the ramp ROI in the replay); `ramp_warning_share` and the slope error stay in the report as informational metrics, not gates. The runbook gets a Sensor limits section, and the ROIs in `scripts/ground_noise_report.yaml` and the runbook Scene table move to the measured ground truth of D14. The synthetic 14 deg ramp tests (A7) stay as they are. Orchestrator ruling under the user's "you're on your own" (brief D2). Serves A14.
 
+## Open questions
+
+none
+
 ## Research
 
 | Lens | Ran or skipped | Adopted ideas | Rejected ideas |
@@ -138,7 +135,7 @@ The black rubber ramp returns no ToF depth at all (below the confidence threshol
 | Live check after deploy (brief ground-live.md, 2026-10-22, recordings scratchpad/rec/ground_{home,box,ramp}.npz) | ran | replay fixtures and test (brief D1), flying-pixel filter (root cause 1), boundary-segment step (root cause 2), area stability (root cause 3), ramp never lethal plus sensor limit (brief D2), ROIs to measured truth | fixing the ramp in software (no ToF returns on black rubber); fixing the gripper zone here (head floor fit, head-chain-floor-plane-fit-a) |
 | Code read, live round (grep) | ran | `bridge.py:depth_to_mm`/`radial_to_z` as the filter's neighbours in `publish_frame`; `edges.cpp:compute_features` band p50; `cell_class.hpp:CellClassFilter::warning_areas`; `test_node.cpp` NodeTest harness (`run_frame`, `warm_up_frames`); `ground_noise_report.py:warning_set` churn key | a cloud-level flying-pixel filter (`/tof/points_filtered` is voxelised, unorganised) |
 
-## Research inputs
+### Research inputs
 
 | Source | Entry | Lands in |
 |---|---|---|
@@ -165,7 +162,74 @@ The black rubber ramp returns no ToF depth at all (below the confidence threshol
 | ground-live.md D3 | rule unchanged (0.04 m, 15 deg) | shadow-gate-and-segment-step (no rule key changes) |
 | ground-live.md D4, D5 | no new nodes; live check by the orchestrator after merge and deploy | Constraints (every task) |
 
-## Decision coverage
+## Irreversible operations
+
+none (deploys through scripts/deploy-nodes.sh are reversible by redeploying the previous commit; the runbook does not drive the robot).
+
+## Migrated notes
+
+### README.md: Review
+
+Filled when the epic reaches stage `review`: the verdict, the findings acted on, the findings dropped.
+
+Verdict: pass (2026-10-22)
+
+All 21 tasks are done and merged; the replay acceptance (fixtures of the 2026-10-21/22 scene layout) passes in `scripts/cpp-node-test.sh ground_estimator_cpp`.
+
+Live acceptance not met and moved: on the live scene (new layout ahead/right of the robot) the ChArUco board was lethal in 36-45 of 80 frames at 2.3 cm, the 5 cm box flipped obstacle/warning at pan -30 (height read 3.4-3.5 cm), drop warnings appeared 2.5 cm behind the box, and the plane read 1.9-2.2 deg off base_link. The runbook Results table (`docs/runbooks/ground-robustness.md`, approval A8) is still empty. The ToF flying-pixel filter (tof-flying-pixel-filter) removed ~70 % of live pixels and is off on the robot; Nav2's ground_voxel_layer is off by default.
+
+User decision 2026-10-22 ("Go for all 3 within one epic"): the unmet live acceptance (A8: box obstacle >= 95 %, board never lethal, empty floor 0 lethal points at p95, warning churn < 10 %), the flying-pixel filter retune and turning ground_voxel_layer back on moved to epic drivable-ground-tof-filterin ("Drivable ground, ToF filtering and head-from-arm calibration"), approvals G1 and G2 there.
+
+### design.md: Summary
+
+The ground estimator (nodes/ground_estimator_cpp) and costmap_zones get eight fixes so the robot can drive on what they publish: a per-cell temporal spread gate, a median edge step, a robust ramp slope, warning-only colour clusters, multi-point lethal marks, per-cell class hysteresis in the odom frame with cell-aligned warning areas, a cell-keyed warning store in costmap_zones and smoother plane tracking. The ramp rule rises from 8 to 15 deg, bounded by the tilt_guard error limits, because the user calls the ~14 deg ramp safe; the 5 cm box stays an obstacle under the 1/3-wheel rule. A report script and a static runbook prove it on the user's scene with the robot parked.
+
+### design.md: Intent and why
+
+User, 2026-10-21: "There is still a lot of random noise on the ground/floor/obstacle/edge/etc detection. Fix it if it's too unreliable to properly let robot drive around." The live diagnosis (160 s and 200 s captures, robot static) says it is not safe to drive yet:
+
+- far band: ToF cells at the edge of reliable returns (1.15-1.45 m in one capture, 1.65-2.2 m in another) read +4..+19 cm with 30-90 mm temporal std, giving ~190-210 lethal points per frame on empty floor through `lethal_unclustered`; floor cells 0.35-1.05 m have 4-20 mm std, the box top 3-6 mm;
+- box: step region present in 84% of states, obstacle 100%; region median 3.3-3.5 cm but `edge_step_m` is the p90 of the edge band (box top near the edge reads 4-6 cm);
+- ramp: present in 27% of states, obstacle 68% / warning 32%, measured slope p50 5.7, p90 7.2-7.6 deg against a true ~14 deg (sparse ToF on the black mat, cell std 13-21 mm);
+- board: colour warning, slope 3.7-6.4 deg; a false drop warning in 10% of states; colour clusters can go lethal only through the noisy PCA slope (colour-warning slopes p50 6.0, p90 7.6, max 8.0);
+- false drop warnings behind the box at (1.2-1.3, 0.1-0.3), -2.6 cm, in 25-31% of states (likely ToF multipath beside the box's white side);
+- RGB-D labels flip in 30-59% of frames at some cells; the warning-area count changes in 186 of 300 states; costmap_zones keeps each message 3 s, so 30-60 areas are active at once and the masks republish at the 2 Hz cap;
+- plane: height 6.7 cm (head geometry, fixed by head-chain-floor-plane-fit-a), std 6 mm, pitch std 0.45 deg, roll std 0.73 deg; 37% of fits rejected `offset_off_prior` (same geometry cause);
+- not causes: the IMU prior (0 `normal_off_prior`), late TF while static (0 drops). The CPU epic is deployed (3.74 -> ~2.3 cores).
+
+### design.md: Goals
+
+- Empty floor: 0 lethal points at p95 of states; noisy far-band cells are unknown, never lethal, never a step or drop edge.
+- The 5 cm box is an obstacle in >= 95% of states; a 3 cm sill stays a warning.
+- The ~14 deg ramp is a warning in >= 90% of states, its slope within +-3 deg of 14.
+- The board (colour mismatch) never gives a lethal state.
+- Warning-area churn < 10% of states; costmap_zones republishes only when its active cell set changes.
+- The runbook numbers are measured on the robot and recorded.
+
+### design.md: Non-goals
+
+- Driving the robot (it is charging); only head pan/tilt moves.
+- The head chain geometry and the plane offset rejections (head-chain-floor-plane-fit-a, this epic's blocker).
+- Changing the `/ground/warning_areas` or `/ground/state` JSON schemas, Nav2 layers, the collision monitor, the web UI or dashboards.
+
+### design.md: Anti-goals
+
+- A real obstacle that never becomes lethal, or a lethal mark that lags more than 0.3 s at 10 Hz (enter_frames 3).
+- Placeholder data on any topic: a held lethal cell publishes only the points seen in it this frame.
+- A ramp limit above the tilt_guard error limits.
+- CPU regressions that undo client-cpu-budget-recovery-a (the new work is O(points + cells) per frame).
+
+### design.md: Constraints
+
+- C++ in nodes/ground_estimator_cpp, tested with `scripts/cpp-node-test.sh ground_estimator_cpp` (all gtests plus ament linters); core modules are picked up by the CMake glob.
+- `config/ground_estimator.yaml` and the client.yml ground_estimator_cpp block stay equal (`tests/test_ground_estimator_deploy.py`); unknown keys are rejected; every key documented with meaning, unit and range.
+- Python: type hints, pydantic config, constants on top, docstrings with types (CLAUDE.md).
+- Deploy only with `scripts/deploy-nodes.sh`; the runbook is executed by the orchestrator, robot static.
+- client.yml is also edited by head-chain-floor-plane-fit-a (in progress): the epic is blocked on it.
+- Live round (2026-10-22, brief ground-live.md): no new nodes; Python stays in arducam_tof, C++ in ground_estimator_cpp (brief D4). Tasks end at merged and deployed; the live check needs the user (tof_obstacle_cloud restart, head floor fit on a cleared floor) and is run by the orchestrator afterwards (brief D5). The robot is not driven.
+- Replay fixtures live inside the package (`nodes/ground_estimator_cpp/test/data/replay/`): cpp-node-test.sh copies only the packages into the container, so nothing under `scripts/` is visible to a gtest.
+
+### design.md: Decision coverage
 
 | Decision | Tasks |
 |---|---|
@@ -189,7 +253,7 @@ The black rubber ramp returns no ToF depth at all (below the confidence threshol
 | D18 Warning-area stability on the cell grid | warning-area-stability, replay-acceptance-and-docs |
 | D19 Ramp never lethal plus a sensor limit | runbook-rois-and-ramp-limit, replay-acceptance-and-docs |
 
-## Contracts
+### design.md: Contracts
 
 | Part | Owner | Consumers | Where defined |
 |---|---|---|---|
@@ -214,7 +278,7 @@ The black rubber ramp returns no ToF depth at all (below the confidence threshol
 
 `ground-traversability-rule` is also registered in docs/plans/contracts.json as a cross-epic contract (consumer epic rgb-d-ground-estimation-and, whose runbook verifies the rule). Existing, unchanged: `ground-warning-areas` JSON (rgb-d-ground-estimation-and/ground-state-json, `state.hpp:to_warning_areas_string`), read by costmap-cell-keyed-warnings through `costmap_zones/ground_warnings.py:GroundWarningMessage`.
 
-## Review focus
+### design.md: Review focus
 
 - cell_class.cpp: the enter/exit rule, lethal priority, that no remembered point is ever published (no placeholder data), deterministic area order and polygons.
 - ground_node.cpp: lethal clouds only from this frame's points in stable lethal cells; warning areas through TF fixed -> warnings.frame; reset on plane loss.
@@ -223,7 +287,7 @@ The black rubber ramp returns no ToF depth at all (below the confidence threshol
 - Config: yaml and client.yml stay equal; validation names every key.
 - Live round: the replay metrics are computed exactly as D14 defines them (ROIs, warm-up, denominators of answered frames); the occlusion gate never drops a drop-off's below-floor points or a rising surface; the segment step does not make the board (-4..+3 cm) or a 3 cm sill lethal; area stability never publishes an area whose cells are no longer stable warning cells and never delays the lethal clouds; the flying-pixel filter keeps the grazing floor.
 
-## Left to the builder
+### design.md: Left to the builder
 
 - The robust slope estimator (IRLS Huber or RANSAC over per-bin samples, or another unbiased fit) as long as edge-step-and-ramp-slope's synthetic tests pass.
 - The kd-tree or grid used for the lethal_min_points neighbour count.
@@ -234,7 +298,7 @@ The black rubber ramp returns no ToF depth at all (below the confidence threshol
 - The flying-pixel thresholds' defaults, from the synthetic depth tests.
 - Which D18 mechanisms are adopted, by the replay diagnosis.
 
-## Assumptions and unknowns
+### design.md: Assumptions and unknowns
 
 - The far-band noise is temporal (30-90 mm std of cell values) rather than a steady bias; a steady bias above 4 cm would pass the spread gate. Confirmed by the runbook's empty-floor scene.
 - The false drops behind the box are noisy enough to be gated or held below enter_frames; confirmed by the box scene churn and drop counts.
@@ -243,10 +307,19 @@ The black rubber ramp returns no ToF depth at all (below the confidence threshol
 - The recordings' head chain carries the ~5 deg error (plane height 0.07 m, tilt 4.2-4.6 deg); the replay asserts against the recorded base_link, so the numbers hold for this geometry. After the head floor fit (other epic) the live check confirms them.
 - The far-side tail (3.5 -> 0.9 cm over x 0.78-0.95) is mostly mixed pixels on grazing rays (D16 removes them); part may be voxel and cell smearing of the box edge. Confirmed by the replay assertions of wire-shadow-gate-on-replay; the task retunes D16 defaults on that evidence.
 
-## Open questions
+### approvals.json
 
-none
-
-## Irreversible operations in scope
-
-none (deploys through scripts/deploy-nodes.sh are reversible by redeploying the previous commit; the runbook does not drive the robot).
+- A1: Fix 1: per-cell temporal spread gate in cell_median (configurable, replaces a range cap); noisy cells are unknown, never lethal, never a drop or step edge. [decisions: D3, D13] [tasks: robust-config-keys, cell-spread-gate, node-stable-classes] [status: approved]
+- A2: Fix 2: step height from the p50 of the edge band plus per-cell class hysteresis (N of M frames, configurable); the 5 cm box stays an obstacle, a 3 cm sill stays a warning. [decisions: D1, D4, D5] [tasks: edge-step-and-ramp-slope, cell-class-hysteresis, node-stable-classes] [status: approved]
+- A3: Fix 3: colour-mismatch clusters are warning-only, never lethal. [decisions: D6] [tasks: lethal-point-gates] [status: approved]
+- A4: Fix 4: single-point lethal marks removed: unclustered lethal points need >= 2 points or persistence over frames. [decisions: D7] [tasks: robust-config-keys, lethal-point-gates, node-stable-classes] [status: approved]
+- A5: Fix 5: warning areas from per-odom-cell hysteresis; costmap_zones keys areas by cell instead of the 3 s TTL union and publishes only on change. [decisions: D5, D8, D9] [tasks: cell-class-hysteresis, node-stable-classes, costmap-cell-keyed-warnings] [status: approved]
+- A6: Fix 6: plane smoothing fit.smoothing 0.5 -> 0.2 after the spread gate. [decisions: D10, D13] [tasks: slope-and-smoothing-defaults] [status: approved]
+- A7: Fix 7: ramp rule max_slope_deg 15 validated against the tilt_guard error limits, and a robust slope estimate for sparse surfaces (robust fit, minimum support, hysteresis) so a 14 deg ramp is a stable warning. [decisions: D2, D5, D11, D13] [tasks: robust-config-keys, slope-and-smoothing-defaults, edge-step-and-ramp-slope, lethal-point-gates, cell-class-hysteresis] [status: approved]
+- A8: Fix 8: static runbook (no driving, head moves allowed) on the user's scene, 2 min per object: box obstacle >= 95%, ramp warning >= 90% with slope within +-3 deg of 14, board no lethal, empty floor 0 lethal points p95, warning-area churn < 10%; numbers recorded. Executed by the orchestrator after deploy. [decisions: D12] [tasks: ground-noise-report-script, ground-robustness-runbook, ground-robustness-docs] [status: approved]
+- A9: User ground truth: the box is exactly 5 cm (an obstacle under the 1/3-wheel rule); the 25 cm / 63 mm ramp is a safe skew (a warning). [decisions: D1, D2] [tasks: slope-and-smoothing-defaults, node-stable-classes, ground-robustness-docs] [status: approved]
+- A10: Live round (brief D1): commit trimmed live recordings (15-20 s per scene, compact format readable from a C++ gtest, Python converter under scripts/) and a C++ replay test that feeds them through the real node pipeline and asserts per-scene metrics against the measured ground truth, gripper zone x < 0.37 excluded. [decisions: D14] [tasks: replay-fixtures-and-test, wire-shadow-gate-on-replay, warning-area-stability, replay-acceptance-and-docs] [status: approved]
+- A11: Live round, root cause 1: ToF mixed pixels at depth edges are removed in arducam_tof on the full-resolution depth image (>= 95 % of a tilted flat floor at 0.3-2.0 m kept, the mixed pixels behind a 5 cm box removed), and the ground estimator itself passes on the replay data that still contains them: no ramp warning on the box's far side. [decisions: D15, D16] [tasks: tof-flying-pixel-filter, occlusion-and-segment-config, shadow-gate-and-segment-step, wire-shadow-gate-on-replay, replay-acceptance-and-docs] [status: approved]
+- A12: Live round, root cause 2 and brief D3: the step is measured along contiguous boundary segments (configurable length, e.g. 0.10 m) under the unchanged rule (step > 0.04 m, max slope 15 deg); the 5 cm box is a stable obstacle in >= 95 % of replay frames, a 3 cm sill stays a warning, the board is never lethal. [decisions: D17] [tasks: occlusion-and-segment-config, shadow-gate-and-segment-step, wire-shadow-gate-on-replay, replay-acceptance-and-docs] [status: approved]
+- A13: Live round, root cause 3: warning churn < 10 % after warm-up in every replay scene, diagnosed on the replay and stabilised, with a new real lethal obstacle's latency kept <= 0.3 s; no lethal outside the box within 1.2 m. [decisions: D18] [tasks: warning-area-stability, replay-acceptance-and-docs] [status: approved]
+- A14: Live round, brief D2: the ramp acceptance becomes never lethal plus a documented sensor limit in the runbook (no ToF returns on black rubber); the runbook ROIs in scripts/ground_noise_report.yaml are corrected to the measured ground truth. [decisions: D19] [tasks: runbook-rois-and-ramp-limit, replay-acceptance-and-docs] [status: approved]
