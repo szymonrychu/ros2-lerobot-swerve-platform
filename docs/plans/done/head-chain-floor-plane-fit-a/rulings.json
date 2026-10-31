@@ -1,8 +1,0 @@
-[
-  {
-    "task": "floor-sweep-capture",
-    "accept": true,
-    "reason": "workflow verifier was invoked with --prev-head placeholder (harness bug); orchestrator reran verify-task.py on e3bc611a: passed, 42 tests, lint, deploy tests, lint-ansible, no debt/parking; remaining reviewer findings at round cap were declined as false positives (self.skip method, conftest stub)",
-    "at": "2026-10-21T21:32:44Z"
-  }
-]
