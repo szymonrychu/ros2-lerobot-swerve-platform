@@ -16,8 +16,12 @@ and every sample is held to:
 and the pose itself to:
 
 - roll: wrist_roll and gripper equal to home (no roll guard is needed on the way);
-- view: no arm part (link capsules with their radius, gripper body and jaw points) inside the D435 depth frustum with
-  the head tilted VIEW_TILT_DEG down at every pan from 0 to VIEW_PAN_MIN_DEG (right) in VIEW_PAN_STEP_DEG steps.
+- view (floor visibility): with the head tilted VIEW_TILT_DEG down at every pan from 0 to VIEW_PAN_MIN_DEG (right) in
+  VIEW_PAN_STEP_DEG steps, no floor point of the region ahead of and beside the right wheels (floor_region: the
+  head_aim footprint box, lookahead_m past its front and right edges) that the D435 depth camera has in its frustum
+  is hidden by an arm link: the ray from the depth optical frame to the point passes no occluder (occluders: the
+  upper arm, forearm and wrist capsules and the wrist end -> tool point, LINK_CAPSULE_RADIUS_M each). The fixed
+  shoulder root, the upper arm end cap about the shoulder_lift axis that only shoulder_pan moves, is not counted.
 
 Margins and heights are the shared arm_pose_check defaults (PoseCheckConfig: margin_m 0.03, min_tool_height_m 0.10,
 stretched_shoulder_lift_max_rad 1.85, head envelope 0.075 / 0.09 m). The D435 depth field of view is the datasheet
@@ -25,7 +29,8 @@ stretched_shoulder_lift_max_rad 1.85, head envelope 0.075 / 0.09 m). The D435 de
 
 `python -m mcp_server.drive_pose_check search <client.yml> <home json>` grids shoulder_lift, elbow_flex and
 wrist_flex (shoulder_pan, wrist_roll and gripper as home) and prints every candidate that passes, one JSON line each,
-lowest static gravity torque on shoulder_lift first.
+least occluded floor first (floor_occlusion_m2: every visible floor cell within SCORE_RANGE_M, summed over the
+checked pans), then lowest static gravity torque on shoulder_lift.
 """
 
 import itertools
@@ -48,15 +53,15 @@ from ros2_common.head_rgbd_calibration.arm_pose_check import (
 )
 
 from .arm import home_routes
-from .arm_geometry import WRIST_CAPSULE
-from .config import BodyCylinder, BodySettings, McpServerConfig
+from .arm_geometry import LINK_CAPSULE_RADIUS_M, UPPER_ARM_CAPSULE, WRIST_CAPSULE
+from .config import REPO_ROOT, BodyCylinder, BodySettings, McpServerConfig
 from .floor_guard import JawModel
 from .footprint import arm_shadow
 from .footprint_geometry import body_outline, static_outline
 from .head_kinematics import DEPTH_FRAME, HeadKinematics
 from .ik import ArmKinematics
 from .sag import GravityModel
-from .self_collision import CAPSULES, ESCAPE_TOLERANCE_M, SelfCollisionChecker, joint_line
+from .self_collision import ESCAPE_TOLERANCE_M, SelfCollisionChecker, joint_line
 
 LOGGER = logging.getLogger(__name__)
 CHECKS = ("body", "floor", "stretched", "roll", "footprint", "view")
@@ -73,8 +78,11 @@ D435_DEPTH_VFOV_DEG = 58.0
 VIEW_TILT_DEG = 30.0
 VIEW_PAN_MIN_DEG = -90.0
 VIEW_PAN_STEP_DEG = 10.0
-CAPSULE_RADII = {name: radius for name, _start, _end, radius in CAPSULES}
-CAPSULE_SAMPLE_M = 0.005  # spacing of the points checked along a capsule axis in the view check
+HEAD_AIM_CONFIG = REPO_ROOT / "nodes" / "head_aim_cpp" / "config" / "head_aim.yaml"
+REGION_CELL_M = 0.02  # floor region grid
+SCORE_CELL_M = 0.04  # ranking grid
+SCORE_RANGE_M = 1.5  # ranking grid half size about base_link
+PARALLEL_EPS = 1e-12
 
 
 @dataclass(frozen=True)
@@ -96,10 +104,12 @@ class Candidate:
 
     Attributes:
         joints (dict[str, float]): The pose (measured space, every arm joint).
+        occluded_floor_m2 (float): Visible floor hidden by the arm, summed over the checked pans (m^2).
         shoulder_lift_torque_nm (float): Static gravity torque about shoulder_lift (N m).
     """
 
     joints: dict[str, float]
+    occluded_floor_m2: float
     shoulder_lift_torque_nm: float
 
 
@@ -121,6 +131,60 @@ def in_frustum(points: np.ndarray, half_h: float, half_v: float, radius: float) 
         np.abs(y) * math.cos(half_v) - z * math.sin(half_v),
     )
     return (planes[0] < radius) & (planes[1] < radius) & (z > -radius)
+
+
+def floor_region(min_x: float, max_x: float, min_y: float, max_y: float, lookahead: float, cell: float) -> np.ndarray:
+    """Floor cell centres ahead of and beside the right wheels: up to lookahead past the front and right edges of the
+    footprint box, from its rear edge to the centre line.
+
+    Args:
+        min_x (float): Rear edge of the footprint box (m, base_link).
+        max_x (float): Front edge (m).
+        min_y (float): Right edge (m).
+        max_y (float): Left edge (m); the region never reaches left of the centre line.
+        lookahead (float): Depth of the region past the edges (m).
+        cell (float): Grid cell (m).
+
+    Returns:
+        np.ndarray: (N, 3) floor points (z = 0).
+    """
+    xs = np.arange(min_x + cell / 2.0, max_x + lookahead, cell)
+    ys = np.arange(min_y - lookahead + cell / 2.0, min(0.0, max_y), cell)
+    gx, gy = np.meshgrid(xs, ys, indexing="ij")
+    keep = (gx >= max_x) | (gy <= min_y)
+    return np.column_stack([gx[keep], gy[keep], np.zeros(int(keep.sum()))])
+
+
+def rays_blocked(
+    origin: np.ndarray, targets: np.ndarray, starts: np.ndarray, ends: np.ndarray, radii: np.ndarray
+) -> np.ndarray:
+    """Whether the segment origin -> target passes within radius of any capsule axis start -> end.
+
+    Args:
+        origin (np.ndarray): (3,) ray origin (m).
+        targets (np.ndarray): (N, 3) ray ends (m).
+        starts (np.ndarray): (M, 3) capsule axis starts (m).
+        ends (np.ndarray): (M, 3) capsule axis ends (m, distinct from the starts).
+        radii (np.ndarray): (M,) capsule radii (m).
+
+    Returns:
+        np.ndarray: (N,) booleans.
+    """
+    d1 = targets - origin  # (N, 3)
+    d2 = ends - starts  # (M, 3)
+    r = origin - starts  # (M, 3)
+    a = np.einsum("ij,ij->i", d1, d1)[:, None]
+    e = np.einsum("ij,ij->i", d2, d2)[None, :]
+    f = np.einsum("ij,ij->i", d2, r)[None, :]
+    b = d1 @ d2.T
+    c = d1 @ r.T
+    denom = a * e - b * b
+    s = np.where(denom > PARALLEL_EPS, np.clip((b * f - c * e) / np.maximum(denom, PARALLEL_EPS), 0.0, 1.0), 0.0)
+    t = (b * s + f) / e
+    s = np.where(t < 0.0, np.clip(-c / a, 0.0, 1.0), np.where(t > 1.0, np.clip((b - c) / a, 0.0, 1.0), s))
+    t = np.clip(t, 0.0, 1.0)
+    gap = origin + d1[:, None, :] * s[..., None] - (starts[None, :, :] + d2[None, :, :] * t[..., None])
+    return (np.linalg.norm(gap, axis=-1) < radii[None, :]).any(axis=1)
 
 
 def arm_kinematics(config: McpServerConfig) -> ArmKinematics:
@@ -199,6 +263,13 @@ class DrivePoseChecker:
         self.head = HeadKinematics(Path(config.head.urdf_path))
         self.gravity = GravityModel(Path(config.arm.urdf_path))
         self.offsets = config.arm.joint_offsets_rad.model_dump()
+        aim = yaml.safe_load(HEAD_AIM_CONFIG.read_text())
+        box = (aim["footprint_min_x"], aim["footprint_max_x"], aim["footprint_min_y"], aim["footprint_max_y"])
+        self.region = floor_region(*box, aim["lookahead_m"], REGION_CELL_M)
+        span = np.arange(-SCORE_RANGE_M + SCORE_CELL_M / 2.0, SCORE_RANGE_M, SCORE_CELL_M)
+        gx, gy = np.meshgrid(span, span, indexing="ij")
+        outside = ~((gx > box[0]) & (gx < box[1]) & (gy > box[2]) & (gy < box[3]))
+        self.score_floor = np.column_stack([gx[outside], gy[outside], np.zeros(int(outside.sum()))])
         pans = np.arange(0.0, VIEW_PAN_MIN_DEG - VIEW_PAN_STEP_DEG / 2.0, -VIEW_PAN_STEP_DEG)
         self.views = [
             (float(pan), self.head.link_pose(math.radians(pan), math.radians(VIEW_TILT_DEG), DEPTH_FRAME))
@@ -287,35 +358,102 @@ class DrivePoseChecker:
         """
         return self.clearance.clearances_of(self.clearance.stacked_points(samples))[0]
 
-    def view_violation(self, pose: dict[str, float]) -> DrivePoseViolation | None:
-        """Whether an arm part is inside the D435 depth frustum at any checked head pan.
+    def occluders(self, pose: Mapping[str, float]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Arm link capsules that can hide floor: the upper arm without its fixed root cap, forearm, wrist link and the
+        wrist end -> tool point.
 
         Args:
-            pose (dict[str, float]): Drive pose.
+            pose (Mapping[str, float]): Arm pose.
 
         Returns:
-            DrivePoseViolation | None: The pans that see the arm, None when none does.
+            tuple[np.ndarray, np.ndarray, np.ndarray]: (M, 3) starts, (M, 3) ends, (M,) radii.
         """
-        parts = self.clearance.part_points(pose)
-        spheres = []
-        for name, radius in CAPSULE_RADII.items():
-            a, b = parts[name][0], parts[name][1]
-            n = max(2, math.ceil(float(np.linalg.norm(b - a)) / CAPSULE_SAMPLE_M) + 1)
-            spheres.append((np.linspace(a, b, n), radius))
-        other = [points for key, points in parts.items() if key not in CAPSULE_RADII]
-        spheres.append((np.vstack(other), 0.0))
+        parts = self.clearance.part_points(dict(pose))
+        shoulder, elbow = parts[UPPER_ARM_CAPSULE[0]][0], parts[UPPER_ARM_CAPSULE[0]][1]
+        root = shoulder + (elbow - shoulder) / np.linalg.norm(elbow - shoulder) * LINK_CAPSULE_RADIUS_M
+        wrist = parts[WRIST_CAPSULE[0]]
+        starts = np.array([root, parts["forearm"][0], wrist[0], wrist[1]])
+        ends = np.array([elbow, parts["forearm"][1], wrist[1], parts[TOOL_POINT][0]])
+        return starts, ends, np.full(len(starts), LINK_CAPSULE_RADIUS_M)
+
+    def occluded_per_pan(self, pose: Mapping[str, float], floor: np.ndarray, cell: float) -> list[tuple[float, float]]:
+        """Floor area in the depth frustum that the arm hides, per checked pan.
+
+        Args:
+            pose (Mapping[str, float]): Arm pose.
+            floor (np.ndarray): (N, 3) floor cell centres.
+            cell (float): Cell size (m).
+
+        Returns:
+            list[tuple[float, float]]: (pan deg, hidden area m^2).
+        """
+        occluders = self.occluders(pose)
         half_h, half_v = math.radians(D435_DEPTH_HFOV_DEG / 2.0), math.radians(D435_DEPTH_VFOV_DEG / 2.0)
-        seen = []
+        out = []
         for pan, camera in self.views:
-            for points, radius in spheres:
-                optical = (points - camera[:3, 3]) @ camera[:3, :3]
-                if in_frustum(optical, half_h, half_v, radius).any():
-                    seen.append(pan)
-                    break
-        if not seen:
+            origin = camera[:3, 3]
+            visible = floor[in_frustum((floor - origin) @ camera[:3, :3], half_h, half_v, 0.0)]
+            hidden = int(rays_blocked(origin, visible, *occluders).sum()) if len(visible) else 0
+            out.append((pan, hidden * cell * cell))
+        return out
+
+    def region_occlusion_m2(self, pose: Mapping[str, float]) -> float:
+        """Hidden floor of the region ahead of and beside the right wheels, summed over the checked pans.
+
+        Args:
+            pose (Mapping[str, float]): Arm pose.
+
+        Returns:
+            float: Area (m^2); 0 passes the view check.
+        """
+        return sum(area for _, area in self.occluded_per_pan(pose, self.region, REGION_CELL_M))
+
+    def floor_occlusion_m2(self, pose: Mapping[str, float]) -> float:
+        """Hidden visible floor within SCORE_RANGE_M, summed over the checked pans (the search ranking).
+
+        Args:
+            pose (Mapping[str, float]): Arm pose.
+
+        Returns:
+            float: Area (m^2).
+        """
+        return sum(area for _, area in self.occluded_per_pan(pose, self.score_floor, SCORE_CELL_M))
+
+    def view_violation(self, pose: Mapping[str, float]) -> DrivePoseViolation | None:
+        """Whether the arm hides floor of the region ahead of and beside the right wheels at any checked pan.
+
+        Args:
+            pose (Mapping[str, float]): Drive pose.
+
+        Returns:
+            DrivePoseViolation | None: The pans and areas hidden, None when nothing is.
+        """
+        hidden = [(pan, area) for pan, area in self.occluded_per_pan(pose, self.region, REGION_CELL_M) if area > 0.0]
+        if not hidden:
             return None
-        pans = ", ".join(f"{p:.0f}" for p in seen)
-        return DrivePoseViolation("view", f"arm in the D435 frustum at tilt {VIEW_TILT_DEG:.0f} deg, pan {pans} deg")
+        pans = ", ".join(f"pan {pan:.0f} deg {area * 1e4:.0f} cm2" for pan, area in hidden)
+        return DrivePoseViolation(
+            "view", f"arm hides floor beside the right wheels at tilt {VIEW_TILT_DEG:.0f} deg: {pans}"
+        )
+
+    def pose_violations(self, home: Mapping[str, float], pose: Mapping[str, float]) -> list[DrivePoseViolation]:
+        """The checks of the pose alone: roll and view.
+
+        Args:
+            home (Mapping[str, float]): Parked home.
+            pose (Mapping[str, float]): Drive pose.
+
+        Returns:
+            list[DrivePoseViolation]: Failed checks.
+        """
+        out = []
+        changed = [j for j in UNCHANGED_JOINTS if abs(pose[j] - home[j]) > SAME_RAD]
+        if changed:
+            out.append(DrivePoseViolation("roll", f"{', '.join(changed)} differ from home"))
+        view = self.view_violation(pose)
+        if view is not None:
+            out.append(view)
+        return out
 
     def check(self, home: Mapping[str, float], pose: Mapping[str, float]) -> list[DrivePoseViolation]:
         """Every check of the drive pose from home (module docstring).
@@ -329,12 +467,7 @@ class DrivePoseChecker:
         """
         home, pose = dict(home), dict(pose)
         out = self.route_violations(home, home, pose, "lift") + self.route_violations(home, pose, home, "lower")
-        changed = [j for j in UNCHANGED_JOINTS if abs(pose[j] - home[j]) > SAME_RAD]
-        if changed:
-            out.append(DrivePoseViolation("roll", f"{', '.join(changed)} differ from home"))
-        view = self.view_violation(pose)
-        if view is not None:
-            out.append(view)
+        out += self.pose_violations(home, pose)
         return sorted(out, key=lambda v: CHECKS.index(v.check))
 
     def shoulder_lift_torque(self, pose: Mapping[str, float]) -> float:
@@ -390,7 +523,8 @@ def search(
     grid: Mapping[str, list[float]],
     progress: Callable[[int, int], None] | None = None,
 ) -> list[Candidate]:
-    """Every grid pose (other joints as home) that passes, lowest |shoulder_lift gravity torque| first.
+    """Every grid pose (other joints as home) that passes, least occluded floor first, then lowest |shoulder_lift
+    gravity torque|.
 
     Args:
         checker (DrivePoseChecker): The checks.
@@ -405,11 +539,12 @@ def search(
     found = []
     for done, values in enumerate(combos, start=1):
         pose = dict(home) | dict(zip(SEARCH_JOINTS, values, strict=True))
-        if not checker.check(home, pose):
-            found.append(Candidate(pose, checker.shoulder_lift_torque(pose)))
+        # The pose checks are cheap and fail most candidates: the route checks only run for the rest.
+        if not checker.pose_violations(home, pose) and not checker.check(home, pose):
+            found.append(Candidate(pose, checker.floor_occlusion_m2(pose), checker.shoulder_lift_torque(pose)))
         if progress is not None:
             progress(done, len(combos))
-    return sorted(found, key=lambda c: abs(c.shoulder_lift_torque_nm))
+    return sorted(found, key=lambda c: (c.occluded_floor_m2, abs(c.shoulder_lift_torque_nm)))
 
 
 def main(argv: list[str]) -> int:
@@ -431,7 +566,12 @@ def main(argv: list[str]) -> int:
     for rank, cand in enumerate(found, start=1):
         print(
             json.dumps(
-                {"rank": rank, "shoulder_lift_torque_nm": round(cand.shoulder_lift_torque_nm, 4), "joints": cand.joints}
+                {
+                    "rank": rank,
+                    "occluded_floor_m2": round(cand.occluded_floor_m2, 4),
+                    "shoulder_lift_torque_nm": round(cand.shoulder_lift_torque_nm, 4),
+                    "joints": cand.joints,
+                }
             )
         )
     return 0 if found else 1

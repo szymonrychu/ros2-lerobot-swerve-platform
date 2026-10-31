@@ -14,7 +14,9 @@ from mcp_server.drive_pose_check import (
     DrivePoseViolation,
     check_drive_pose,
     deployed_config,
+    floor_region,
     in_frustum,
+    rays_blocked,
 )
 
 CLIENT_VARS = REPO_ROOT / "ansible" / "group_vars" / "client.yml"
@@ -68,9 +70,43 @@ def test_frustum_grows_by_the_capsule_radius() -> None:
     assert in_frustum(beside, HALF_H, HALF_V, 0.02)[0]
 
 
-def test_the_parked_home_is_in_view_when_the_head_pans_right(checker: DrivePoseChecker) -> None:
-    """Home itself passes every check but the view: its arm is in the D435 frustum while the head pans right."""
+def test_rays_blocked_by_a_capsule_across_them_and_not_by_one_beside() -> None:
+    origin = np.array([0.0, 0.0, 1.0])
+    targets = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]])
+    across = (np.array([[-0.5, 0.0, 0.5]]), np.array([[0.5, 0.0, 0.5]]), np.array([0.02]))
+    assert rays_blocked(origin, targets, *across).tolist() == [True, True]
+    beside = (np.array([[-0.5, 0.1, 0.5]]), np.array([[0.5, 0.1, 0.5]]), np.array([0.02]))
+    assert rays_blocked(origin, targets, *beside).tolist() == [False, False]
+    touching = (np.array([[-0.5, 0.015, 0.5]]), np.array([[0.5, 0.015, 0.5]]), np.array([0.02]))
+    assert rays_blocked(origin, targets[:1], *touching).tolist() == [True]
+
+
+def test_floor_region_is_ahead_of_and_beside_the_right_wheels_within_the_lookahead() -> None:
+    """head_aim.yaml footprint box (-0.215..0.3225, -0.196..0.196) and lookahead 0.4 m."""
+    points = floor_region(-0.215, 0.3225, -0.196, 0.196, 0.4, 0.02)
+    x, y = points[:, 0], points[:, 1]
+    assert np.all(points[:, 2] == 0.0)
+    inside_box = (x > -0.215) & (x < 0.3225) & (y > -0.196) & (y < 0.196)
+    assert not inside_box.any()
+    assert np.all(y <= 0.0) and np.all(y >= -0.596) and np.all(x <= 0.7225) and np.all(x >= -0.215)
+    ahead = x >= 0.3225
+    beside = y <= -0.196
+    assert ahead.any() and beside.any() and np.all(ahead | beside)
+
+
+def test_the_parked_home_occludes_the_floor_beside_the_right_wheels(checker: DrivePoseChecker) -> None:
+    """Home passes every check but the view: its arm hides floor of the region while the head pans right."""
     assert failed(checker.check(HOME, HOME)) == {"view"}
+    assert checker.region_occlusion_m2(HOME) > 0.0
+
+
+def test_the_fixed_shoulder_root_is_ignored(checker: DrivePoseChecker) -> None:
+    """The occluding upper arm starts one capsule radius from the shoulder_lift axis (the root sphere that only
+    shoulder_pan moves is not counted)."""
+    starts, _ends, radii = checker.occluders(HOME)
+    shoulder = checker.clearance.part_points(HOME)["upper arm"][0]
+    assert np.linalg.norm(starts[0] - shoulder) == pytest.approx(radii[0])
+    assert len(starts) == 4  # upper arm, forearm, wrist link, wrist end -> tool point
 
 
 def test_a_pose_through_the_crossbar_fails_body(checker: DrivePoseChecker) -> None:
@@ -137,16 +173,17 @@ def test_deployed_config_uses_this_checkout_urdfs(config: McpServerConfig) -> No
     assert Path(config.head.urdf_path).is_file()
 
 
-def test_search_ranks_passing_candidates_by_shoulder_gravity_torque(
+def test_search_ranks_passing_candidates_by_occluded_floor_then_torque(
     checker: DrivePoseChecker, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """search keeps only candidates with no violation and orders them by |shoulder_lift gravity torque|."""
+    """search keeps only candidates with no violation, least occluded floor first, then |shoulder_lift torque|."""
     monkeypatch.setattr(
         checker, "check", lambda home, pose: [] if pose["wrist_flex"] >= 0.0 else [DrivePoseViolation("view", "x")]
     )
+    monkeypatch.setattr(checker, "pose_violations", lambda home, pose: [])
+    monkeypatch.setattr(checker, "floor_occlusion_m2", lambda pose: 0.1 if pose["shoulder_lift"] == 0.0 else 0.2)
     grid = {"shoulder_lift": [-1.35, 0.0], "elbow_flex": [1.578], "wrist_flex": [-0.1, 0.5]}
     ranked = drive_pose_check.search(checker, HOME, grid)
     assert [c.joints["wrist_flex"] for c in ranked] == [0.5, 0.5]
-    torques = [abs(c.shoulder_lift_torque_nm) for c in ranked]
-    assert torques == sorted(torques)
+    assert [(c.joints["shoulder_lift"], c.occluded_floor_m2) for c in ranked] == [(0.0, 0.1), (-1.35, 0.2)]
     assert all(c.joints["wrist_roll"] == HOME["wrist_roll"] and c.joints["gripper"] == HOME["gripper"] for c in ranked)
