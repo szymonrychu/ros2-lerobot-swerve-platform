@@ -1,101 +1,45 @@
-# ToF 3D obstacle detection for Nav2 design
+---
+title: ToF 3D obstacle detection for Nav2
+repos: [ros2-lerobot-sverve-platform]
+created: 2026-10-18
+owner: Szymon Richert
+rung: 1
+---
 
-## Summary
+# ToF 3D obstacle detection for Nav2
 
-The head ToF (240x180 depth, 10 Hz, `tof_optical_frame`, TF from the pan/tilt joint states) becomes a decimated point
-cloud on the Pi 5 (`rtabmap_util/point_cloud_xyz`, apt), is cleaned of the robot's own body by the existing
-`laser_filter` self polygon, and feeds two consumers: a `spatio_temporal_voxel_layer` (STVL, apt) in the Nav2 local
-costmap (obstacles 6-60 cm above the floor and below-floor cliff points, 15 s decay, frustum clearing) and two new
-`collision_monitor` pointcloud sources (3D obstacles into StopBox, cliff points into a new CliffStop approach polygon).
-Ground segmentation is a height band on the flat floor (base_link z = 0 is the floor), not a normals segmenter. The lidar
-keeps its obstacle layer in both costmaps and its collision source; ToF clearing only touches the ToF voxel grid. The
-web UI 3D view gets an optional "3D obstacles" layer (ToF cloud plus lidar points) and the agent's `get_map_summary`
-reports nearby 3D obstacles and cliffs. Added client CPU is measured in Mimir before/after against a 0.15 core budget.
+## What and why
 
-## Intent and why
+What: Head ToF depth becomes 3D obstacles and cliffs in the Nav2 local costmap and collision monitor
+How: Depth to cloud with head TF, ground segmentation, STVL layer, collision_monitor sources, CPU budget
+Why: The lidar alone misses overhangs, low obstacles and cliffs
 
-Nav2 sees only the RPLidar plane (z 0.20 m). Overhangs (table edges, shelves), low objects (below 0.20 m) and cliffs
-(stairs down, platform edges) are invisible to the costmaps and the collision monitor. The ToF on the new pan/tilt head
-looks forward and down in its home pose and covers exactly that gap within ~4 m. The client Pi 5 is 80-90 % busy, so the
-pipeline must be the cheapest proven one and its cost must be measured, not assumed.
+Nav2 sees only the 2D lidar today. The head ToF (240x180 depth, ~10 Hz, up to 4 m) on the pan/tilt head adds 3D obstacle perception onboard the Pi 5: obstacles above and below the lidar plane (overhangs, low objects, cliffs) reach the local costmap and the collision monitor. The client CPU is already 80-90% busy, so the pipeline must be cheap.
 
-## Goals
+## Scope ladder
 
-- G1: ToF depth -> point cloud in `tof_optical_frame` (head TF from the pan/tilt joint states) -> height-band
-  ground/obstacle split -> STVL layer in the local costmap with decay (D1, D2, D3, D9).
-- G2: collision_monitor gains a ToF obstacle pointcloud source and a below-floor (cliff) source (D5, D6).
-- G3: clouds only from real ToF frames with TF; points only within the configured valid depth range and the bridge's
-  confidence threshold (D1, D7).
-- G4: apt packages in the node types, configs, static tests, READMEs; CPU measured before/after in Mimir within the
-  budget (D8, D12).
-- G5: web UI 3D view can show the obstacle cloud (with lidar points); the agent can query nearby 3D obstacles (D10, D11).
-- G6: 2.5D: a ground robot avoiding 3D obstacles on the 2D map, no 3D planning (D3).
-- U1-U5: the user decisions in `approvals.json` (onboard Pi 5 ToF perception into local costmap + collision monitor +
-  cliffs; 2.5D; head TF from joint states; slam_toolbox keeps map->odom; lidar extends the ToF).
+### Rung 1: agreed scope (migrated)
+
+- 1.1: ToF depth -> point cloud in tof_optical_frame (head TF from the pan/tilt joint states) -> ground/obstacle segmentation (rtabmap_util point_cloud_xyz + obstacles_detection, or the cheapest equivalent proven on the Pi 5) -> a 3D obstacle layer (spatio_temporal_voxel_layer) in the Nav2 local costmap, with decay so stale voxels clear.
+- 1.2: Nav2 collision_monitor gains a depth point-cloud source and a below-floor (cliff / negative obstacle) source.
+- 1.3: Data published only when real ToF frames and TF exist (no placeholder data); obstacles marked only within the ToF's valid range and confidence.
+- 1.4: Packages added to the nav2_bringup apt list (STVL, rtabmap_util or depth_image_proc as chosen); configs, nav-stack static tests, READMEs; CPU measured on the robot before/after (Grafana/Mimir) within an agreed budget.
+- 1.5: Web UI: obstacle voxels/cloud optionally visible in the 3D view; agent can query nearby 3D obstacles if cheap.
+- 1.6: 2.5D meaning: a ground robot that avoids 3D obstacles on the 2D map; no 3D path planning.
+
+## Agreed scope
+
+Rung 1, migrated from the epic format: the epic's goals were its agreed scope.
 
 ## Non-goals
 
-- Building or storing a 3D map (next epic `rtab-map-rgb-d-3d-mapping-on`), outdoor elevation mapping.
-- Replacing slam_toolbox, the lidar pipeline or the lidar obstacle layers.
-- ToF voxels in the global costmap (the goal names the local costmap; decided by the user, Q3).
-- Detecting a cliff from missing floor returns (only below-floor points are a cliff signal; see Assumptions).
-- Fixing Arducam ToF capture on the Pi 5 kernel (tracked by the Jetson-removal epic; verified in the runbook).
+- Building or storing a 3D map (next epic).
+- Outdoor elevation mapping.
+- Replacing slam_toolbox or the lidar pipeline.
 
-## Anti-goals
+## Design
 
-- The lidar loses coverage: any ToF clearing erasing lidar-marked cells, or the scan source leaving a costmap or the
-  collision monitor (U5).
-- The robot body, the parked/released arm or a carried object marked as an obstacle by the ToF (robot stuck in its own
-  footprint, false stops).
-- Floor noise marked as obstacles on an empty floor, or false cliff stops on a normal floor.
-- Unmeasured CPU growth on the client; a second map->odom publisher; any synthetic cloud.
-
-## Constraints
-
-- CLAUDE.md: no placeholder data on topics; Ansible `ros2_nodes` schema kept in sync; deploy only via
-  `scripts/deploy-nodes.sh` with the ansible-deploy skill, output to `.logs/`; established libraries first; config files
-  over CLI; type hints, docstrings, constants at the top; tests for every new function; READMEs and `tests/README.md`.
-- MEMORY.md / auto-memory: cgroups give robot nodes weights and protection, not tight caps (new node type: normal tier,
-  cpu_weight 500, MemoryLow estimate, MemoryMax >= 2x); web_ui and mcp_server stay Python; deploying mcp_server kills a
-  running agent session (check first).
-- Pan/tilt epic end state: robot_state_publisher with the head URDF publishes base_link -> ... -> `tof_optical_frame`
-  from `/head/joint_states`; arducam_tof publishes `/tof/depth/image_raw` (16UC1 mm, 0 = invalid: confidence below
-  `confidence_threshold` 30, non-finite, <= 0), `/tof/camera_info` with one shared header per frame, 10 Hz, range mode
-  far (4 m) (`nodes/bridges/arducam_tof/arducam_tof/bridge.py:1-13`, client.yml arducam_tof entry).
-- base_link z = 0 is the floor (`nodes/web_ui/urdf/robot.urdf:3-4`); local costmap is odom-framed, rolling 3x3 m,
-  2.5 cm, update 5 Hz, transform_tolerance 0.3 (`nav2_params.yaml:171-186`).
-- Footprint-derived polygons come from `scripts/gen_nav_footprint.py` marker regions; never hand-edited.
-- Robot offline during planning: no CPU baseline was readable (Mimir returned no client series on 2026-10-18).
-
-### Verified facts (research-docs lens, 2026-10-18)
-
-- packages.ros.org `noble/main/binary-arm64/Packages` (Jazzy): `ros-jazzy-spatio-temporal-voxel-layer 2.5.5-1noble.20260921`
-  (deps include libopenvdb10.0, PCL 1.14, nav2-costmap-2d), `ros-jazzy-rtabmap-util 0.23.13-1noble.20261003` (pulls
-  `ros-jazzy-rtabmap` 0.23.13 core, ~22 MB plus Qt5/VTK/gtsam/libpointmatcher runtime libs), `ros-jazzy-rtabmap-ros
-  0.23.13`, `ros-jazzy-depth-image-proc 5.0.13`, `ros-jazzy-nav2-collision-monitor 1.3.13`, `ros-jazzy-pcl-ros 2.6.5`,
-  `ros-jazzy-robot-state-publisher 3.3.4`, `ros-jazzy-depthimage-to-laserscan 2.5.1`. All available on arm64.
-- Nav2 collision_monitor 1.3.13 source (`nav2_collision_monitor/src/pointcloud.cpp:68-140`): `pointcloud` source params
-  `min_height` (default 0.05), `max_height` (0.5), `min_range` (0.0, from the sensor origin), `use_global_height`
-  (false); heights are compared in the base frame after the TF lookup, so negative bands work (below-floor source);
-  non-finite points fall out of the band comparison. Subscribes with SensorDataQoS.
-- `source.cpp:71-90` and `collision_monitor_node.cpp:436-446`: per-source `enabled` and `source_timeout` (defaults to
-  the node `source_timeout`); when an enabled source with non-zero timeout has no data, stale data (> timeout) or no TF,
-  the monitor publishes a STOP ("invalid source"). `source_timeout: 0.0` disables that stop for the source.
-- `polygon.cpp:355-440`: per-polygon `sources_names` (default: all observation_sources), `min_points` (default 4),
-  `action_type` stop/slowdown/limit/approach, `footprint_topic` (approach). A polygon not in `polygons` is not loaded.
-- STVL jazzy README and `spatio_temporal_voxel_layer.cpp:88-211`: layer params `voxel_decay`, `decay_model`
-  (0 linear), `voxel_size`, `track_unknown_space`, `mark_threshold`, `update_footprint_enabled` (clears with
-  `setConvexPolygonCost`, i.e. convex, same problem as ObstacleLayer footprint clearing), `combination_method` (1 max),
-  `publish_voxel_map`, `transform_tolerance`, `mapping_mode`; per source `topic`, `sensor_frame`, `marking`,
-  `clearing`, `min_obstacle_height`/`max_obstacle_height` (global frame, i.e. odom z), `obstacle_range`,
-  `observation_persistence`, `expected_update_rate`, `clear_after_reading`, `filter` (voxel/passthrough/none),
-  `voxel_min_points`, `min_z`/`max_z`, `vertical_fov_angle`, `horizontal_fov_angle`, `decay_acceleration`,
-  `model_type` (0 depth camera frustum). The README advises against STVL for planar lidars.
-- rtabmap_util `point_cloud_xyz` (rtabmap_ros 0.23.13 `point_cloud_xyz.cpp:53-363`): params `decimation`, `min_depth`,
-  `max_depth`, `voxel_size`, `noise_filter_radius`, `noise_filter_min_neighbors`, `filter_nans`, `approx_sync`,
-  `qos`, `roi_ratios`; topics `depth/image`, `depth/camera_info` in, `cloud` out; accepts 16UC1; publishes only from
-  the synced depth+camera_info callback (no timer), copying the depth header stamp and frame_id; it publishes an empty
-  cloud when every pixel is invalid.
+Migrated from the epic format; the design sections without a plan.md heading are under Migrated notes.
 
 ## Decisions
 
@@ -220,6 +164,10 @@ nodes up) before and after the deploy, and the EKF keeps its 30 Hz (Q2: decided 
 final task: obstacle above and below the lidar plane in the costmap, cliff stop at <= 0.1 m/s with a spotter, empty
 floor stays clear, lidar cells survive ToF clearing, CPU before/after. Serves G4.
 
+## Open questions
+
+none
+
 ## Research
 
 | Lens | Ran or skipped | Adopted | Rejected |
@@ -230,7 +178,7 @@ floor stays clear, lidar cells survive ToF clearing, CPU before/after. Serves G4
 | research-code-internal | skipped: the codebase brief plus planner reads found the reusable parts (laser_filter self polygon, gen_nav_footprint offset_polygon, msg_serializer downsample/transform helpers, mcp perception sectors) | reuse listed in Research inputs | - |
 | research-papers | skipped: no algorithmic core beyond standard voxel decay / height bands | - | - |
 
-## Research inputs
+### Research inputs
 
 | Source | Entry | Lands in |
 |---|---|---|
@@ -267,7 +215,118 @@ floor stays clear, lidar cells survive ToF clearing, CPU before/after. Serves G4
 | codebase brief, unknowns | ToF capture on the Pi 5, Jazzy apt availability | final-suite-and-runbook (runbook step), Verified facts (apt) |
 | user U5 | lidar keeps its layers/source; ToF clearing never clears lidar marks; web UI shows lidar points with the cloud | nav2-tof-voxel-layer, collision-monitor-tof-stop, web-ui-obstacle-points-api, web-ui-obstacle-points-layer |
 
-## Decision coverage
+## Irreversible operations
+
+none (config and code changes, apt installs, redeploys; all revertible by git revert and redeploy).
+
+## Migrated notes
+
+### README.md: Review
+
+Filled when the epic reaches stage `review`: the verdict, the findings acted on, the findings dropped.
+
+Verdict: pass (2026-10-27)
+
+Closed 2026-10-27 at the D435 switchover gate (Q3, user approved). Every delivered task was already merged to main under the earlier flow; the remaining runbook/final-suite task was superseded by a realsense-d435-head-switchov task (dated note on the task). No new code in this close. Root suite on main 2026-10-27: 2156 passed, 9 skipped; test-ansible 0 failures.
+
+### design.md: Summary
+
+The head ToF (240x180 depth, 10 Hz, `tof_optical_frame`, TF from the pan/tilt joint states) becomes a decimated point
+cloud on the Pi 5 (`rtabmap_util/point_cloud_xyz`, apt), is cleaned of the robot's own body by the existing
+`laser_filter` self polygon, and feeds two consumers: a `spatio_temporal_voxel_layer` (STVL, apt) in the Nav2 local
+costmap (obstacles 6-60 cm above the floor and below-floor cliff points, 15 s decay, frustum clearing) and two new
+`collision_monitor` pointcloud sources (3D obstacles into StopBox, cliff points into a new CliffStop approach polygon).
+Ground segmentation is a height band on the flat floor (base_link z = 0 is the floor), not a normals segmenter. The lidar
+keeps its obstacle layer in both costmaps and its collision source; ToF clearing only touches the ToF voxel grid. The
+web UI 3D view gets an optional "3D obstacles" layer (ToF cloud plus lidar points) and the agent's `get_map_summary`
+reports nearby 3D obstacles and cliffs. Added client CPU is measured in Mimir before/after against a 0.15 core budget.
+
+### design.md: Intent and why
+
+Nav2 sees only the RPLidar plane (z 0.20 m). Overhangs (table edges, shelves), low objects (below 0.20 m) and cliffs
+(stairs down, platform edges) are invisible to the costmaps and the collision monitor. The ToF on the new pan/tilt head
+looks forward and down in its home pose and covers exactly that gap within ~4 m. The client Pi 5 is 80-90 % busy, so the
+pipeline must be the cheapest proven one and its cost must be measured, not assumed.
+
+### design.md: Goals
+
+- G1: ToF depth -> point cloud in `tof_optical_frame` (head TF from the pan/tilt joint states) -> height-band
+  ground/obstacle split -> STVL layer in the local costmap with decay (D1, D2, D3, D9).
+- G2: collision_monitor gains a ToF obstacle pointcloud source and a below-floor (cliff) source (D5, D6).
+- G3: clouds only from real ToF frames with TF; points only within the configured valid depth range and the bridge's
+  confidence threshold (D1, D7).
+- G4: apt packages in the node types, configs, static tests, READMEs; CPU measured before/after in Mimir within the
+  budget (D8, D12).
+- G5: web UI 3D view can show the obstacle cloud (with lidar points); the agent can query nearby 3D obstacles (D10, D11).
+- G6: 2.5D: a ground robot avoiding 3D obstacles on the 2D map, no 3D planning (D3).
+- U1-U5: the user decisions in `approvals.json` (onboard Pi 5 ToF perception into local costmap + collision monitor +
+  cliffs; 2.5D; head TF from joint states; slam_toolbox keeps map->odom; lidar extends the ToF).
+
+### design.md: Non-goals
+
+- Building or storing a 3D map (next epic `rtab-map-rgb-d-3d-mapping-on`), outdoor elevation mapping.
+- Replacing slam_toolbox, the lidar pipeline or the lidar obstacle layers.
+- ToF voxels in the global costmap (the goal names the local costmap; decided by the user, Q3).
+- Detecting a cliff from missing floor returns (only below-floor points are a cliff signal; see Assumptions).
+- Fixing Arducam ToF capture on the Pi 5 kernel (tracked by the Jetson-removal epic; verified in the runbook).
+
+### design.md: Anti-goals
+
+- The lidar loses coverage: any ToF clearing erasing lidar-marked cells, or the scan source leaving a costmap or the
+  collision monitor (U5).
+- The robot body, the parked/released arm or a carried object marked as an obstacle by the ToF (robot stuck in its own
+  footprint, false stops).
+- Floor noise marked as obstacles on an empty floor, or false cliff stops on a normal floor.
+- Unmeasured CPU growth on the client; a second map->odom publisher; any synthetic cloud.
+
+### design.md: Constraints
+
+- CLAUDE.md: no placeholder data on topics; Ansible `ros2_nodes` schema kept in sync; deploy only via
+  `scripts/deploy-nodes.sh` with the ansible-deploy skill, output to `.logs/`; established libraries first; config files
+  over CLI; type hints, docstrings, constants at the top; tests for every new function; READMEs and `tests/README.md`.
+- MEMORY.md / auto-memory: cgroups give robot nodes weights and protection, not tight caps (new node type: normal tier,
+  cpu_weight 500, MemoryLow estimate, MemoryMax >= 2x); web_ui and mcp_server stay Python; deploying mcp_server kills a
+  running agent session (check first).
+- Pan/tilt epic end state: robot_state_publisher with the head URDF publishes base_link -> ... -> `tof_optical_frame`
+  from `/head/joint_states`; arducam_tof publishes `/tof/depth/image_raw` (16UC1 mm, 0 = invalid: confidence below
+  `confidence_threshold` 30, non-finite, <= 0), `/tof/camera_info` with one shared header per frame, 10 Hz, range mode
+  far (4 m) (`nodes/bridges/arducam_tof/arducam_tof/bridge.py:1-13`, client.yml arducam_tof entry).
+- base_link z = 0 is the floor (`nodes/web_ui/urdf/robot.urdf:3-4`); local costmap is odom-framed, rolling 3x3 m,
+  2.5 cm, update 5 Hz, transform_tolerance 0.3 (`nav2_params.yaml:171-186`).
+- Footprint-derived polygons come from `scripts/gen_nav_footprint.py` marker regions; never hand-edited.
+- Robot offline during planning: no CPU baseline was readable (Mimir returned no client series on 2026-10-18).
+
+#### Verified facts (research-docs lens, 2026-10-18)
+
+- packages.ros.org `noble/main/binary-arm64/Packages` (Jazzy): `ros-jazzy-spatio-temporal-voxel-layer 2.5.5-1noble.20260921`
+  (deps include libopenvdb10.0, PCL 1.14, nav2-costmap-2d), `ros-jazzy-rtabmap-util 0.23.13-1noble.20261003` (pulls
+  `ros-jazzy-rtabmap` 0.23.13 core, ~22 MB plus Qt5/VTK/gtsam/libpointmatcher runtime libs), `ros-jazzy-rtabmap-ros
+  0.23.13`, `ros-jazzy-depth-image-proc 5.0.13`, `ros-jazzy-nav2-collision-monitor 1.3.13`, `ros-jazzy-pcl-ros 2.6.5`,
+  `ros-jazzy-robot-state-publisher 3.3.4`, `ros-jazzy-depthimage-to-laserscan 2.5.1`. All available on arm64.
+- Nav2 collision_monitor 1.3.13 source (`nav2_collision_monitor/src/pointcloud.cpp:68-140`): `pointcloud` source params
+  `min_height` (default 0.05), `max_height` (0.5), `min_range` (0.0, from the sensor origin), `use_global_height`
+  (false); heights are compared in the base frame after the TF lookup, so negative bands work (below-floor source);
+  non-finite points fall out of the band comparison. Subscribes with SensorDataQoS.
+- `source.cpp:71-90` and `collision_monitor_node.cpp:436-446`: per-source `enabled` and `source_timeout` (defaults to
+  the node `source_timeout`); when an enabled source with non-zero timeout has no data, stale data (> timeout) or no TF,
+  the monitor publishes a STOP ("invalid source"). `source_timeout: 0.0` disables that stop for the source.
+- `polygon.cpp:355-440`: per-polygon `sources_names` (default: all observation_sources), `min_points` (default 4),
+  `action_type` stop/slowdown/limit/approach, `footprint_topic` (approach). A polygon not in `polygons` is not loaded.
+- STVL jazzy README and `spatio_temporal_voxel_layer.cpp:88-211`: layer params `voxel_decay`, `decay_model`
+  (0 linear), `voxel_size`, `track_unknown_space`, `mark_threshold`, `update_footprint_enabled` (clears with
+  `setConvexPolygonCost`, i.e. convex, same problem as ObstacleLayer footprint clearing), `combination_method` (1 max),
+  `publish_voxel_map`, `transform_tolerance`, `mapping_mode`; per source `topic`, `sensor_frame`, `marking`,
+  `clearing`, `min_obstacle_height`/`max_obstacle_height` (global frame, i.e. odom z), `obstacle_range`,
+  `observation_persistence`, `expected_update_rate`, `clear_after_reading`, `filter` (voxel/passthrough/none),
+  `voxel_min_points`, `min_z`/`max_z`, `vertical_fov_angle`, `horizontal_fov_angle`, `decay_acceleration`,
+  `model_type` (0 depth camera frustum). The README advises against STVL for planar lidars.
+- rtabmap_util `point_cloud_xyz` (rtabmap_ros 0.23.13 `point_cloud_xyz.cpp:53-363`): params `decimation`, `min_depth`,
+  `max_depth`, `voxel_size`, `noise_filter_radius`, `noise_filter_min_neighbors`, `filter_nans`, `approx_sync`,
+  `qos`, `roi_ratios`; topics `depth/image`, `depth/camera_info` in, `cloud` out; accepts 16UC1; publishes only from
+  the synced depth+camera_info callback (no timer), copying the depth header stamp and frame_id; it publishes an empty
+  cloud when every pixel is invalid.
+
+### design.md: Decision coverage
 
 | Decision | Tasks |
 |---|---|
@@ -284,7 +343,7 @@ floor stays clear, lidar cells survive ToF clearing, CPU before/after. Serves G4
 | D11 agent summary | tof-obstacle-sector-summary, map-summary-tof-obstacles |
 | D12 CPU budget and runbook | final-suite-and-runbook |
 
-## Contracts
+### design.md: Contracts
 
 | Part | Owner | Consumers | Where defined |
 |---|---|---|---|
@@ -294,7 +353,7 @@ floor stays clear, lidar cells survive ToF clearing, CPU before/after. Serves G4
 | `obstacle-points-payload` | web-ui-obstacle-points-api | web-ui-obstacle-points-layer | `nodes/web_ui/web_ui/msg_serializer.py` (`serialize_point_cloud`, `serialize_scan_points`) |
 | `tof-sector-summary` | tof-obstacle-sector-summary | map-summary-tof-obstacles | `nodes/mcp_server/mcp_server/perception.py` (`tof_obstacle_sectors`) |
 
-## Review focus
+### design.md: Review focus
 
 - Height bands vs real ToF noise: floor marks (0.06 m) and false cliffs (-0.10 m); the runbook's empty-floor check.
 - collision_monitor invalid-source STOP: the ToF sources make a ToF/TF outage stop motion; decided by the user (Q1).
@@ -303,7 +362,7 @@ floor stays clear, lidar cells survive ToF clearing, CPU before/after. Serves G4
 - STVL `update_footprint_enabled false` and FOV under the true ToF FOV; lidar ObstacleLayer untouched (U5).
 - No new TF publisher; no publisher without a real frame.
 
-## Left to the builder
+### design.md: Left to the builder
 
 - laser_filter internals: callback groups or timer for the pending cloud, as long as scans are never delayed by a TF
   wait and the ACs hold.
@@ -311,7 +370,7 @@ floor stays clear, lidar cells survive ToF clearing, CPU before/after. Serves G4
 - mcp_server staleness threshold for `obstacles_3d` (reuse an existing timeouts field or add one, default <= 1.0 s).
 - Exact MemoryLow/MemoryMax estimates within the cgroup test rules (re-measured after deploy).
 
-## Assumptions and unknowns
+### design.md: Assumptions and unknowns
 
 - Arducam ToF streams on the Pi 5 at ~10 Hz by the time this deploys (Jetson-removal epic tracks capture). Confirmed
   by the runbook (`tof_frames_published_total` rate) before any other step; if not, the robot steps are reported
@@ -328,6 +387,16 @@ floor stays clear, lidar cells survive ToF clearing, CPU before/after. Serves G4
   (collision monitor stale-source stop); (Q2) CPU budget <= 0.15 core on the Pi 5, measured in Grafana after deploy;
   (Q3) ToF voxels only in the local costmap, never the global one.
 
-## Irreversible operations in scope
+### approvals.json
 
-none (config and code changes, apt installs, redeploys; all revertible by git revert and redeploy).
+- G1: ToF depth -> point cloud in tof_optical_frame (head TF from the pan/tilt joint states) -> ground/obstacle segmentation (cheapest proven equivalent of point_cloud_xyz + obstacles_detection) -> a spatio_temporal_voxel_layer in the Nav2 local costmap, with decay so stale voxels clear. [decisions: D1, D2, D3, D9] [tasks: tof-obstacle-cloud-node, laser-filter-tof-self-filter, nav2-tof-voxel-layer] [status: approved]
+- G2: Nav2 collision_monitor gains a depth point-cloud source and a below-floor (cliff / negative obstacle) source. [decisions: D5, D6] [tasks: cliff-stop-polygon-generator, collision-monitor-tof-stop] [status: approved]
+- G3: Data published only when real ToF frames and TF exist (no placeholder data); obstacles marked only within the ToF's valid range and confidence. [decisions: D1, D7] [tasks: tof-obstacle-cloud-node, laser-filter-tof-self-filter] [status: approved]
+- G4: Packages added to the node apt lists (STVL, rtabmap_util), configs, nav-stack static tests, READMEs; CPU measured on the robot before/after (Grafana/Mimir) within an agreed budget. [decisions: D8, D12] [tasks: tof-obstacle-cloud-node, laser-filter-tof-self-filter, nav2-tof-voxel-layer, final-suite-and-runbook] [status: approved]
+- G5: Web UI: obstacle voxels/cloud optionally visible in the 3D view; the agent can query nearby 3D obstacles. [decisions: D10, D11] [tasks: web-ui-obstacle-points-api, web-ui-obstacle-points-layer, tof-obstacle-sector-summary, map-summary-tof-obstacles] [status: approved]
+- G6: 2.5D: a ground robot that avoids 3D obstacles on the 2D map; no 3D path planning. [decisions: D3] [tasks: nav2-tof-voxel-layer] [status: approved]
+- U1: Onboard ToF obstacle perception on the Pi 5 feeding the Nav2 local costmap (3D obstacle layer) plus the collision monitor and cliff detection. [decisions: D1, D3, D5] [tasks: tof-obstacle-cloud-node, nav2-tof-voxel-layer, collision-monitor-tof-stop] [status: approved]
+- U2: 2.5D: ground robot avoiding 3D obstacles on the 2D map, no 3D path planning. [decisions: D1, D3] [tasks: tof-obstacle-cloud-node, nav2-tof-voxel-layer] [status: approved]
+- U3: Head TF comes from the pan/tilt joint states. [decisions: D9] [tasks: tof-obstacle-cloud-node, final-suite-and-runbook] [status: approved]
+- U4: slam_toolbox keeps map->odom. [decisions: D9] [tasks: tof-obstacle-cloud-node, final-suite-and-runbook] [status: approved]
+- U5: The lidar map extends the ToF (and 3D SLAM) where possible: the lidar keeps its obstacle layer in both costmaps and its collision_monitor source alongside the new ToF sources (ToF adds 3D detail inside its 4 m view, lidar covers 360 deg / ~12 m beyond it); ToF clearing never clears lidar-marked obstacles outside the ToF frustum; when the 3D obstacle cloud is shown in the web UI 3D view, lidar points are shown with it. [decisions: D4, D10] [tasks: nav2-tof-voxel-layer, collision-monitor-tof-stop, web-ui-obstacle-points-api, web-ui-obstacle-points-layer] [status: approved]
