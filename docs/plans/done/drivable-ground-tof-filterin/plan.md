@@ -1,247 +1,90 @@
-# Drivable ground, ToF filtering and head-from-arm calibration design
+---
+title: "Drivable ground, ToF filtering and head-from-arm calibration"
+repos: [ros2-lerobot-sverve-platform]
+created: 2026-10-22
+owner: Szymon Richert
+rung: 1
+---
 
+# Drivable ground, ToF filtering and head-from-arm calibration
 
-## Summary
+## What and why
 
-Umbrella epic, user decision 2026-10-22 (verbatim): "Go for all 3 within one epic". It holds:
+What: Ground detection that passes live on the user's scene with Nav2's ground layer back on, a ToF flying-pixel filter retuned on real frames, RGB and amplitude guided ground edges and no-return areas, and the head chain calibrated against the trusted arm
+How: web_ui recorder and record script, replay fixtures with measured truth, ground_estimator_cpp fixes judged on replay then live, arducam_tof filter retune and amplitude gate, head_rgbd_calibration head-from-arm fit applied through head_chain.json
+Why: Live, the board is lethal, the box flips, the filter starves the ground fit and Nav2 found no path; the floor fit cannot observe head yaw or mount x/y
 
-1. Ground detection that passes live on the user's scene, then Nav2's `ground_voxel_layer` back on (approval G1,
-   decisions D21-D25). The scene is recorded through the web_ui recorder, committed as replay fixtures with truth from
-   the ChArUco board pose and the user's tape measurements (D22), the estimator is fixed on the replay first with the
-   guidance off (D23), the live acceptance moved from ground-detection-robustness is measured through web_ui (D24),
-   and only then the ground layer goes on and Nav2 drives a short goal across the scene with the user present (D25).
-2. The ToF flying-pixel filter retuned on the recorded raw depth and turned back on (approval G2, D26, D27).
-3. The head-from-arm calibration of epic head-and-arm-calibration-fro, moved verbatim (approvals H1-H9 and HQ1-HQ4,
-   decisions D31-D51: its D<n> is D<n+30> here), run before the ground recordings so they carry the calibrated head
-   chain (D21).
+User decision 2026-10-22: "Go for all 3 within one epic". This epic holds three open items and the approved plan
+they build on:
 
-Parts 1 and 2 reuse the RGB and amplitude guidance plan (approvals A1-A8 and Q1-Q4, decisions D1-D19, its own summary
-below) instead of duplicating it. Ledger ids G1-G3 are approval items; the design goals G1-G9 and HG1-HG6 below are
-separate. The run plan (D29) alternates code runs with live steps that need the user.
+1. Ground detection on the live scene. After every ground-detection-robustness fix the replay fixtures of the old
+   layout pass, but live on the new scene (box, ramp and ChArUco board ahead and to the right of the robot) the board
+   is lethal in 36-45 of 80 frames at 2.3 cm, the 5 cm box flips obstacle/warning at pan -30 (it reads 3.4-3.5 cm),
+   drop warnings appear 2.5 cm behind the box, and the plane reads 1.9-2.2 deg off base_link. Nav2's
+   `ground_voxel_layer` is off since its 15 s decay piled the flicker into false lethal cells and Nav2 found no path.
+   This scene is recorded through web_ui (no ad-hoc rclpy on the client), becomes replay fixtures with measured truth,
+   the estimator is fixed until the live acceptance passes, and then the ground layer goes back on and Nav2 drives a
+   short slow goal across the scene. The live acceptance of ground-detection-robustness (closed 2026-10-22) moved
+   here.
+2. ToF flying-pixel filter retune. The 3x3 jump filter in arducam_tof removed about 70 % of live pixels and is off on
+   the robot. It is retuned on the recorded raw depth frames (floor kept, mixed pixels at the box edges removed) and
+   turned back on.
+3. Head-from-arm calibration: the approved plan of epic head-and-arm-calibration-fro (20 tasks, approvals H1-H9,
+   gate answers HQ1-HQ4) moved here verbatim. The arm joint offset solve stays in arm-joint-offsets-from-the-g.
+4. Robot agent retrospective fixes (user 2026-10-22, answer C: "see retros from live robot - especially 2nd"): the
+   spurious invalid-source collision stop on the final turn, front-camera floor points for object positions, every map
+   reset explained by an event, StopBox on backing and turning, a person-drawn keep-out against mirror ghost frontiers,
+   the tilt warning diagnosed and tilt events with evidence, and the agent skill lessons (approvals R1-R7, D55-D62).
 
-RGB and amplitude guidance (D1-D19): ground estimation keeps depth as its only height source. Two image streams that
-already exist get used for more: the ToF amplitude image and the head RGB stream registered to the ToF by
-head_rgbd_cpp. They decide which depth pixels to trust, where the boundaries of lethal regions are, and where depth is
-missing although something is there. Headline decisions: an amplitude gate in arducam_tof (D7); RGB edges through the
-existing guided-filter upsampling in head_rgbd_cpp, which is switched on (D2); "edge points" that sharpen lethal
-obstacle and drop boundaries in ground_estimator_cpp, only next to regions that depth already found lethal (D3); a
-"no_return" caution warning area where the RGB sees non-floor and the ToF returns nothing (D5). Before anything
-changes, new recordings with RGB + amplitude are captured through web_ui and give a baseline (D8, D14). Ground truth
-comes from the ChArUco board pose (D10). Every step is judged on replay against that truth.
+Items 1 and 2 reuse the approved RGB and amplitude guidance plan of this epic (formerly
+rgb-and-amplitude-guided-gro: recorder, record script, scene truth, replay v2, amplitude gate, guidance; gate answers
+D16-D19): user request 2026-10-22 "keep depth computation from depth stream, but empower edges and areas detection
+with RGB stream, so it's more precise".
 
-Head from arm (D31-D51): re-planned 2026-10-22. A "Head from arm" guided step on the web UI Calibrate page calibrates
-the pan/tilt head chain against the follower arm, which the user trusts as calibrated. The existing 6x5 ChArUco board
-is clipped to the fixed jaw; the head_rgbd_calibration node moves the arm through a scripted pose set (wrist roll, then
-wrist flex, then elbow and shoulder only after a confirm), every pose and transit FK-checked against the floor, the
-robot body and the head, and points the head at the board from a few pan/tilt offsets per arm pose. One robust
-least-squares fit solves mount x/y/z, mount roll/pitch/yaw (the pan zero folded into the yaw), tilt zero and tilt roll,
-with the applied floor-fit values as start values and cross-check, sigma, held-out views and limits that refuse Apply.
-Apply reuses the floor fit's `applied/head_chain.json` path; mcp_server HeadKinematics and the front camera (reloaded
-without a restart) and the web UI head URDF read it. The arm joint offset solve moved to epic
-arm-joint-offsets-from-the-g.
+Live steps need the user: the scene in place, the light on, the robot static, head moves allowed; arm moves only with
+the user's confirms; driving only short slow goals with the user present at the robot. The run plan (code runs and
+live steps) is in design.md, decision D29.
 
-## Intent and why
+## Scope ladder
 
-User 2026-10-22, the three open items, decided "Go for all 3 within one epic":
+### Rung 1: agreed scope (migrated)
 
-1. Ground detection on the live scene. Live after every ground-detection-robustness fix, on the new layout (box, ramp
-   and board ahead and to the right of the robot): the ChArUco board about 0.4 m ahead is lethal in 36-45 of 80 frames
-   at 2.3 cm; the 5 cm box flips obstacle/warning at pan -30 (its height reads 3.4-3.5 cm); drop warnings appear
-   2.5 cm behind the box; the plane reads 1.9-2.2 deg off base_link. The replay fixtures of the old layout pass, so
-   they do not show this scene. Nav2's `ground_voxel_layer` is off by default (`nodes/nav2_bringup/config/nav2_params.yaml`,
-   commit a04b7df1): its 15 s decay piled the flickering lethal points into dozens of false lethal cells and Nav2
-   found no path. The robot cannot drive on the ground layer until this passes live.
-2. The flying-pixel filter (`nodes/bridges/arducam_tof/arducam_tof/bridge.py:flying_pixel_filter`, 3x3 jump >
-   max(30 mm, 5 % of depth)) removed about 70 % of the live pixels (`tof_flying_pixels_removed_total` about 300k/s at
-   10 Hz on 43,200 px), starved the ground fit, and is off in `ansible/group_vars/client.yml` (commit 1e07a728). The
-   new `min_range_m` 0.25 cut already drops the arm (commit bd091d28).
-3. The head chain still uses CAD yaw and mount x/y: the floor fit cannot observe them (part 3 below).
+- 1.1: Live ground acceptance on the user's scene, measured through web_ui captures: the box lethal (obstacle) in >= 95 %
+  of states, the board never lethal, no lethal point on empty floor at p95, warning churn < 10 % in every scene; the
+  same thresholds hold on the replay of the recorded scene first.
+- 1.2: The scene recorded with the web_ui recorder (no ad-hoc rclpy on the client) and committed as replay fixtures with
+  truth measured from the ChArUco board pose and the user's tape measurements.
+- 1.3: `ground_voxel_layer` on again, and Nav2 reaches a short goal across the scene with the user present.
+- 1.4: The flying-pixel filter retuned on real recorded depth: >= 95 % of floor pixels kept, the mixed pixels at the box
+  edges removed, and the filter on again on the robot.
+- 1.5: Baseline first, ToF amplitude guidance, RGB-guided lethal edges and no-return areas, with RGB never creating a
+  lethal obstacle by itself and the Pi 5 CPU measured (approvals A1-A8).
+- 1.6: A guided "Head from arm" calibration on the Calibrate page: FK-checked arm poses with the board on the gripper, a
+  held-out-checked head chain fit (mount x/y/z, roll/pitch/yaw with the pan zero, tilt zero, tilt roll), applied to
+  every head-chain consumer, the tilt range widened, and a runbook executed with real numbers (approvals H1-H9).
+- 1.7: The retrospective fixes land in run 1 and pass the live check at live step 4: final turns without an invalid-source
+  stop, backing near an obstacle, no frontier inside a drawn keep-out, front-camera floor points within 0.05 m at 1 m
+  (approvals R1-R7).
+- 1.8: Ansible in sync, READMEs, tests/README.md and runbooks updated.
 
-RGB and amplitude guidance (D1-D19), user request 2026-10-22: "keep depth computation from depth stream, but empower
-edges and areas detection with RGB stream, so it's more precise". Today the ground estimator only sees the decimated
-ToF cloud (240x180 decimated by 4, 5 cm voxels, 10 cm temporal cells), so:
-- lethal edges land about 5 cm off;
-- mixed ToF pixels make fake ramps behind objects;
-- the printed ChArUco board reads -4..+3 cm (albedo bias);
-- the black rubber ramp gives no ToF returns at all and looks like free floor.
+## Agreed scope
 
-The robot navigates on that costmap (2.5 cm resolution), so a 5 cm edge error and an invisible black obstacle are both
-real driving risks. The approved order is:
-1. a baseline after ground-detection-robustness run 4;
-2. amplitude confidence;
-3. RGB-guided edges and no-return areas.
-
-Head from arm (D31-D51): the floor-plane fit (epic head-chain-floor-plane-fit-a, applied 2026-10-22 result
-r-20261022-065211: mount z 0.246 m, tilt zero -6.50 deg, mount pitch 1.50 deg, mount roll -0.32 deg, tilt roll 0.92
-deg; runbook `docs/runbooks/head-floor-fit.md`) fixed the floor for ground estimation, but a plane is invariant to head
-yaw, mount x/y and the pan zero, so `head_look_at`, grasping from head images and the 3D head view still use the CAD
-values (`head_mount_joint` x 0.15, y 0.10, yaw 0). The user (2026-10-22): "calibrate head position/angles based on the
-arm position/angles (it should be well calibrated now)". The arm is the yaw and x/y reference: its base pose
-(`arm.base_in_base_link`) and joint offsets (`arm.joint_offsets_rad`, `client.yml` mcp_server) stay as they are.
-
-## Goals
-
-- G1 Baseline: the box, board, ramp and empty scenes are recorded with RGB + amplitude after run 4 is deployed. Their
-  replay metrics (guidance off, gate off) are in `nodes/ground_estimator_cpp/README.md` before any guided change is
-  judged.
-- G2 Amplitude: a range-normalised amplitude gate in arducam_tof. On the recorded frames it brings the board's pixel
-  heights to p95 |h| <= 0.02 m and keeps >= 95 % of the floor pixels between 0.3 and 2.0 m.
-- G3 Edges: on the gated replay with guidance on, the error of the box front edge in the lethal cloud is <= 0.02 m p95
-  and its width error is <= 0.02 m. Both must be strictly better than with guidance off. Lethal points more than 3 cm
-  outside the box appear in <= 5 % of frames.
-- G4 No-return: on the ramp replay, a `no_return` warning area covers >= 70 % of the ramp footprint in >= 90 % of
-  frames after warm-up. A no_return area cell more than 0.10 m (one cell, my call) outside the ramp appears in <= 5 % of frames, in every scene.
-- G5 Safety: RGB never creates a lethal point by itself. The board, tile seams and shadows never add lethal points.
-  `board_lethal_frames(frames, truth)` stays 0 (run 4's metric name, truth overload from guidance-replay-metrics), and every ground-detection-robustness replay assertion still passes.
-- G6 Ops: Pi 5 CPU of head_rgbd_cpp (upsampling), ground_estimator_cpp (guidance) and arducam_tof (gate) is measured
-  before/after. A live check through the web_ui websocket is recorded in `docs/runbooks/ground-guidance.md`. READMEs
-  and tests/README are up to date.
-- G7 Live ground acceptance (approval G1): on the replay of the recorded scene with the guidance off, and then live
-  through web_ui captures (2 x 60 s per scene): the box lethal in >= 95 % of states, the board never lethal, no
-  lethal point on empty floor at p95, warning churn < 10 % in every scene, the ramp never lethal. The
-  ground-robustness runbook's Results hold the live numbers.
-- G8 Nav2 (approval G1): `ground_voxel_layer` enabled again after G7 passes, and Nav2 reaches a goal across the scene
-  (around the box) and back with the user present, without contact and without lethal cells on the board or the empty
-  floor.
-- G9 Flying-pixel filter (approval G2): on the recorded raw depth the retuned filter keeps >= 95 % of the floor pixels
-  and removes the mixed pixels at the box edges, it is on in client.yml, and live it removes <= 10 % of the pixels
-  with the ground plane valid in >= 95 % of states.
-
-Head from arm:
-
-- HG1: A guided "Head from arm" section on the Calibrate page runs base pose (confirm), board clip, tiers, Compute,
-  result (applied, fitted, delta, sigma, floor cross-check, held-out numbers, failed limits) and Apply.
-- HG2: The fit recovers mount x/y/z, roll/pitch/yaw, tilt zero and tilt roll from synthetic scenes (0.3 px noise) within
-  1.5 mm / 0.15 deg and refuses results over the RMS, held-out, sigma, coverage and floor cross-check limits.
-- HG3: No arm motion is commanded before its pose and transit pass the FK check (tool, board and arm links clear of the
-  floor, the body and the head; roll rules; stretched-arm rule), and every arm motion goes through mcp_server.
-- HG4: Apply writes `applied/head_chain.json`; head_state_publisher (TF), mcp_server HeadKinematics and front camera,
-  and the web UI head URDF use it; mcp_server without a restart.
-- HG5: The head tilt range is widened to the reprinted mount's recorded limit everywhere it is pinned.
-- HG6: Ansible in sync, READMEs and tests/README.md, and a robot runbook with real numbers.
+Rung 1, migrated from the epic format: the epic's goals were its agreed scope.
 
 ## Non-goals
 
-- Learning-based segmentation.
-- Heights from RGB (no monocular depth).
-- Graded traversability cost (declined by the user 2026-10-22).
-- A higher head mapping stream rate (stays 2 Hz, contract head-camera-stream-rate, Q2).
-- Refining the polygons of non-lethal warning areas (they stay cell-aligned, D4, Q3).
-- Driving beyond the Nav2 check of D25 (two short goals, at most 1.5 m, with the user present); every other live step
-  keeps the robot static.
-- Loosening any acceptance threshold, or changing the free / warning / lethal tiers or the rule, to pass.
-- Recording through rclpy probes, the `ros2` CLI, rosbag2 or SSH on the client.
+- Learning-based segmentation; heights from RGB; graded traversability cost (declined 2026-10-22).
+- A higher head mapping stream rate; refining non-lethal warning polygons.
+- Changing the free / warning / lethal tiers or the rule (step > 0.04 m or slope > 15 deg), or loosening any
+  acceptance threshold to pass.
+- Fitting arm joint offsets, link lengths or the arm base pose (epic arm-joint-offsets-from-the-g); camera
+  intrinsics, the ToF-to-camera extrinsic or the head_camera_joint lever.
+- Driving beyond short slow Nav2 goals with the user present; leader arm or gripper camera calibration.
+- New nodes; rclpy probes, `ros2` CLI or SSH on the client for live data.
 
-Head from arm:
+## Design
 
-- Fitting arm joint offsets, link lengths, the arm base pose, or the tool point (epic arm-joint-offsets-from-the-g
-  holds the moved offset solve).
-- The camera intrinsics, the ToF-to-camera extrinsic and the head_camera_joint lever (applied RGB-D calibration), and
-  the 0.04 m tilt offset (degenerate with mount z).
-- Driving the base (the robot is charging; the old drive-straight yaw check is struck).
-- The head as an obstacle in mcp_server's own self-collision body model (noted, not doing now).
-
-## Anti-goals
-
-- A lethal mark that only RGB supports, or an obstacle on a texture edge (board squares, tile seams, shadows).
-- Lethal output that is removed or delayed by RGB: the lethal latency of ground-detection-robustness
-  (`hysteresis.enter_frames` frames) is unchanged.
-- Placeholder data on any topic: no guessed height on a no_return area, no guessed pose on a recorded sample, no
-  depth invented inside a large hole.
-- Warning churn above 10 % because of the new areas.
-- An rclpy probe or SSH session on the client to get live data.
-- A new node.
-- `ground_voxel_layer` turned on before every live acceptance row passes, or a Nav2 goal sent without the user at the
-  robot.
-- The flying-pixel filter switched off again silently, or retuned so that it starves the ground fit (floor kept < 95 %
-  alone or with the amplitude gate, D53).
-- Fixtures that do not reproduce the live failures being used to declare them fixed.
-- Recordings made on a head chain that is changed afterwards without re-recording (D21).
-
-Head from arm:
-
-- An arm motion with the board attached that was not FK-checked, or a parking move with the board on the gripper.
-- Any elbow_flex, shoulder_lift or shoulder_pan motion without the user's OK in the UI.
-- Placeholder data: a view without a fresh joint sample for all seven joints or without a board detection is not
-  stored; nothing is zero-filled.
-- An applied result that failed a limit, or a consumer that silently ignores the applied chain.
-- Restarting mcp_server on apply (it kills a running agent session, MEMORY), rclpy probes on the client (MEMORY).
-
-## Constraints
-
-- Umbrella (D20): ground-detection-robustness is closed (done 2026-10-22, review note: live acceptance moved here),
-  so its run 4 artifacts exist on main and its blocker is dropped. The README blockers are the three in-progress
-  epics whose open runbook tasks still list `ansible/group_vars/client.yml`, `docs/markers.md` or
-  `nodes/web_ui/urdf/head.urdf` (head-rgb-d-fusion-of-camera/rgbd-final-suite-and-runbook,
-  printable-metadata-markers-t/markers-final-runbook, rtab-map-rgb-d-3d-mapping-on/final-suite-and-runbook);
-  `ticket.py` orders cross-epic file overlaps through blockers.
-- Live steps (D28) need the user: the scene in place, the light on, the robot static (docked and charging), head moves
-  allowed; arm moves only through the head-from-arm sequence with the user's confirms; driving only in
-  nav2-goal-across-the-scene, short slow goals with the user present at the robot.
-- The current live scene (new layout, box ahead-right of the robot, board about 0.4 m ahead) is the one recorded; the
-  box and ramp placements are measured by the user against the board (D22), not assumed against its edges.
-- The flying-pixel filter stays off on the robot until tof-flying-pixel-retune is deployed, so the baseline recordings
-  hold raw depth (D26).
-
-RGB and amplitude guidance:
-
-- CLAUDE.md: C++ for robot nodes except web_ui and mcp_server; Python type hints, docstrings with types, constants on
-  top, pydantic configs with unknown keys rejected; config files over CLI; Ansible mirrors every node config change
-  (`ros2_nodes` schema); READMEs and `tests/README.md` updated; no placeholder data on topics.
-- No new nodes (user). Live data only through the web_ui websocket/API (user). Recordings: robot static and charging,
-  head moves allowed (user).
-- The free / warning / lethal tiers and the rule (step > 0.04 m or slope > 15 deg) are unchanged (user).
-- ground-detection-robustness is merged and closed (done 2026-10-22); its run 4 artifacts exist on main. They come
-  from these run 4 tasks of that epic:
-  - `replay-fixtures-and-test`: `nodes/ground_estimator_cpp/test/replay_fixture.hpp` (part replay-harness: reader,
-    `ReplayFrame`, the metrics `box_lethal_share`, `board_lethal_frames`, `stray_lethal_share`,
-    `far_side_warning_frames`, `ramp_lethal_frames`, `churn_share`, `plane_share`), `test/test_replay.cpp`,
-    `scripts/ground_replay_export.py`, `tests/test_ground_replay_export.py` and `test/data/replay/{home,box,ramp}.bin`;
-  - `tof-flying-pixel-filter`: `arducam_tof/bridge.py:flying_pixel_filter` (contract tof-depth-flying-pixel-filter);
-  - `warning-area-stability`: the area stability in `CellClassFilter`;
-  - `replay-acceptance-and-docs`: the replay assertions and the latency pin;
-  - `wire-shadow-gate-on-replay` and `shadow-gate-and-segment-step`: the occlusion gate.
-
-  This epic extends them; it does not duplicate them.
-- Contracts used from three other in-progress epics are already delivered on main, so they are not added as blockers:
-  - `head-rgbd-points` (head-rgb-d-fusion-of-camera): `nodes/head_rgbd_cpp/src/head_rgbd_node.cpp` publishes
-    `points()` and the `depth_upsampled` topics;
-  - `tof-points-filtered` (tof-3d-obstacle-detection-fo): the laser_filter cloud path to `/tof/points_filtered` in
-    `ansible/group_vars/client.yml`;
-  - `tof-depth-z` (tof-depth-fix-and-ground-noi): `arducam_tof/bridge.py:radial_to_z`.
-
-  `graph --todo` reports them as "not blocked by owner"; that is expected.
-- Tests: C++ through `scripts/cpp-node-test.sh <pkg>` (no test ref runner for .cpp files, so C++ ACs are `command:`
-  refs); Python per package with `uv run --frozen pytest`.
-- Fixtures go in plain git: at most 3 MB per scene file without pairs and 6 MB with pairs (D9).
-- Run plan (D11): three code runs separated by live steps that the orchestrator triggers.
-  - Run 1: every task without a live precondition.
-  - Live step 1, orchestrator: deploy web_ui and head_rgbd_cpp; the user sets the scene (Q1); then
-    capture-baseline-recordings runs.
-  - Run 2: tof-amplitude-gate and live-report-guidance-metrics (both need the committed baseline truth and frames).
-  - Live step 2, orchestrator: deploy arducam_tof; then capture-gated-recordings runs.
-  - Run 3: guidance-replay-acceptance.
-  - Then the orchestrator deploys ground_estimator_cpp, costmap_zones, mcp_server and web_ui, and runs
-    guidance-live-check-and-cpu.
-
-Head from arm:
-
-- House rules (CLAUDE.md): Python with type hints, pydantic config with every key in the shipped YAML and the
-  client.yml block (`tests/test_head_rgbd_calibration_deploy.py::test_ros2_nodes_entry_matches_defaults` pins them
-  equal, so every task that adds node config keys edits `ansible/group_vars/client.yml` too), constants at the top,
-  test-first, ROS2 logging in nodes, servo safety (least dramatic joints first, ask before big joints), READMEs and
-  tests/README.md, deploy only through `scripts/deploy-nodes.sh` with output in `.logs/`.
-- Python stays in web_ui, mcp_server and the existing Python calibration node and core (user decision).
-- Arm safety (MEMORY feedback_arm_motion_safety): wrist roll only with the gripper at most half open and the arm lifted
-  and forward; negative elbow_flex stretches the arm; a stretched arm with shoulder_lift past about 1.85 rad stalls.
-- Head camera mapping stream 576x324; intrinsics valid with the focus lock, which is held while the mapping stream has a
-  subscriber (`capture.py`).
-- Current head range pan -90..90 deg, tilt -30..+30 deg (+ is down, `head.urdf`); the pose set must work inside it.
-- Arm FK: `urdf_angle = measured_angle + offset` (client.yml comment on `joint_offsets_rad`); the arm URDF root is
-  joined to the robot base_link by `arm.base_in_base_link` {x 0.0592, y -0.05, z 0.100, yaw 0}.
-- `ansible/group_vars/client.yml` is also edited by open tasks of the in-progress epic ground-detection-robustness, so
-  that epic is this one's blocker (ticket.py orders cross-epic file overlaps through blockers).
-- Tasks about an hour, at most 8 files each.
+Migrated from the epic format; the design sections without a plan.md heading are under Migrated notes.
 
 ## Decisions
 
@@ -763,6 +606,20 @@ User 2026-10-23: 'Park should be possible with board for easy retries.' Replaces
 ### D64: User 2026-10-23 chose option 1: the head-from-arm fit uses t
 User 2026-10-23 chose option 1: the head-from-arm fit uses the floor-fit prior with floor_prior_weight 10 (replaces D49's prior-off default). Real session calib-20261023-074418 then passes at 2.93 px; the floor fit pins the floor plane relative to base_link, the arm adds x, y, yaw and the pan axis. (user decision)
 
+## Open questions
+
+- Q1: Before capture-baseline-recordings, can you set the scene: robot static and charging, the 5 cm box with its front face on the far edge of the ChArUco board, the black ramp's long side against one side edge of the board, an empty floor area in head reach; give the box top length x width, the ramp width and which side; and leave it all in place until capture-gated-recordings is done? [answer: yes (D16): user sets and keeps the scene; box/ramp dimensions asked at capture time; the placements are measured against the board (D22)]
+- Q2: Keep the head mapping RGB stream at 2 Hz, so edge points and no_return areas refresh twice a second and are moved through odom in between, instead of raising it (more client CPU, contract head-camera-stream-rate)? [answer: yes (D17): keep head mapping RGB at 2 Hz]
+- Q3: Refine only lethal boundaries (obstacles, drops) with the RGB edges, and keep the non-lethal warning areas on their 10 cm cell polygons so warning churn stays under 10 %? [answer: yes (D18): RGB edges refine only lethal boundaries]
+- Q4: Apply the amplitude gate to /tof/depth/image_raw for every consumer (Nav2 ToF layer, head floor fit, RGB-D calibration), as the flying-pixel filter is, rather than only on the ground estimator's path? [answer: yes (D19): amplitude gate on /tof/depth/image_raw for every consumer]
+- Q5: Fold the pan zero into the head_mount_joint yaw in head_chain.json (TF and head_look_at exact; a raw pan 0 in the Head tab stays off by the fitted yaw, expected under 3 deg) instead of re-zeroing the pan servo? [answer: yes (D48, HQ1): fold pan zero into the head_mount_joint yaw]
+- Q6: Use the floor-fit values as start values and a pass/fail cross-check (10 mm on mount z, 1.5 deg on roll, pitch, tilt zero, tilt roll) with the weighted prior off by default, since the floor fit carries the garage floor slope? [answer: yes (D49, HQ2): floor-fit values as start values and pass/fail cross-check, weighted prior off]
+- Q7: Clip the board only after the arm holds the base pose, hold the arm in place on every stop or error, and park only after you confirm the board is removed (no automatic park with the board on)? [answer: yes (D50, HQ3): clip board only after base pose, hold arm on every stop, park only after board removal confirmed]
+- Q8: Let the solver fit the board-on-jaw pose (standard hand-eye: target-in-gripper unknown) with your measurement only as a start value, so the pose set and the solver do not wait for the hardware step and the poses stay provisional until a dry run without the board? (no: arm-board-pose-set waits for the hardware step) [answer: yes (D51, HQ4): solver fits the board-on-jaw pose, measurement only a start value, poses provisional until a dry run]
+- Q9: Run the head-from-arm calibration live step before recording the ground scene, so every recording and replay carries the calibrated head chain? If the scene's ChArUco board is the board you clip to the gripper, it leaves the scene for the calibration and you put it back and re-measure the box and ramp placements against it before the baseline recording (D21). [answer: yes (D52, Q9): head-from-arm calibration before the scene recording]
+- Q10: Accept these thresholds the user did not state: the retuned filter removes >= 80 % of the mixed pixels at the box edges, the filter plus amplitude gate keep >= 90 % of the floor pixels, live it removes <= 10 % of all pixels, and false warnings behind the box stay in <= 5 % of frames (D23, D26, D27)? [answer: yes, but floor retention stays 95 % (D53, Q10): >= 80 % box-edge mixed removed, >= 95 % floor kept with filter + gate, <= 10 % removed live, false warnings behind the box in <= 5 % of frames]
+- Q11: For the Nav2 check, drive two goals of at most 1.5 m (across the scene around the box, then back) through the mcp_server navigation tools at Nav2's 0.25 m/s cap, with you at the robot and the robot undocked by you (D25)? [answer: yes (D54, Q11): two Nav2 goals of at most 1.5 m through the mcp_server tools, user at the robot]
+
 ## Research
 
 | Lens | Ran / skipped | Adopted | Rejected |
@@ -777,7 +634,7 @@ User 2026-10-23 chose option 1: the head-from-arm fit uses the floor-fit prior w
 | research-papers | skipped: hand-eye / kinematic calibration by bundle adjustment over a trusted arm is standard | - | - |
 | research-docs | skipped: no new external API beyond the mcp SDK client claude_agent already uses (mcp==2.3.0) | - | - |
 
-## Research inputs
+### Research inputs
 
 | Source | Entry | Lands in |
 |---|---|---|
@@ -825,7 +682,271 @@ User 2026-10-23 chose option 1: the head-from-arm fit uses the floor-fit prior w
 | robot agent retrospective 2026-10-22 16:28 (1st) | tilt_warning pitch -19.4 deg near the bean bag | tilt-event-evidence |
 | robot agent retrospective 2026-10-22 16:28 (1st) | park the arm before the report, skip frontiers behind mirrors, batch calls, visit phase about 80 turns | agent-retro-skill-lessons |
 
-## Decision coverage
+## Irreversible operations
+
+none (fixtures, configs and runbooks are committed and revertible; recordings live in /tmp on the client and
+`.logs/` on the Mac; the head-from-arm Apply writes `applied/` files that the next apply or a re-seed replaces, the
+previous chain kept in its result directory; the Nav2 check drives two short goals with the user present and deletes
+nothing; nothing is force-pushed).
+
+## Migrated notes
+
+### README.md: Review
+
+Filled when the epic reaches stage `review`: the verdict, the findings acted on, the findings dropped.
+
+Verdict: pass (2026-10-27)
+
+Epic review 2026-10-27 (this session's integration branch, 18 commits over main).
+- Whole-diff review: no Act-on. Dropped: duplicate FASTRTPS_DEFAULT_PROFILES_FILE (systemd takes the node env, same as the shared profile); server bridges (server.yml has no ROS_STATIC_PEERS senders); rotate hold-stop (intended); runbook -30..+60 line (allows the recorded 45 deg).
+- Scope audit: gap 3 (ToF flying-pixel/amplitude intent not covered by D435 replacements) -> new task realsense-d435-head-switchov/d435-edge-and-flying-pixel-f. Dropped: gap 1 (auditor read pre-amend AC; amended a1 met; cause naming carried to nav2-live-check-on-d435 step 6); gap 2 (head-tilt a2 test name encodes a false premise - pan is also inverted; reviewer accepted test_head_pan_and_tilt_servos_are_mounted_reversed).
+- Full suite: one root failure (test_agent_skills unknown tools from the sightseeing skill) fixed in fbc95611; root 2167 passed, 9 skipped; lint, lint-nodes, test-ansible clean; laser_filter 67, mcp_server 2937, web_ui 1080, claude_agent 936, head_rgbd_calibration 407, frontend 1273 + tsc.
+- Verified heads backfilled from merge commits for 6 old tasks; 3 process-finding tasks (main-checkout-has-an-acciden, the-assigned-worktree-and-br, the-dependency-merge-command) point at the migration commit e6cdcaed (no recorded verification).
+- Superseded (D435 gate Q3): 11 ToF tasks + nav2-goal-across-the-scene + retro-fixes-live-check, each with a dated note naming its D435 replacement.
+
+### design.md: Summary
+
+Umbrella epic, user decision 2026-10-22 (verbatim): "Go for all 3 within one epic". It holds:
+
+1. Ground detection that passes live on the user's scene, then Nav2's `ground_voxel_layer` back on (approval G1,
+   decisions D21-D25). The scene is recorded through the web_ui recorder, committed as replay fixtures with truth from
+   the ChArUco board pose and the user's tape measurements (D22), the estimator is fixed on the replay first with the
+   guidance off (D23), the live acceptance moved from ground-detection-robustness is measured through web_ui (D24),
+   and only then the ground layer goes on and Nav2 drives a short goal across the scene with the user present (D25).
+2. The ToF flying-pixel filter retuned on the recorded raw depth and turned back on (approval G2, D26, D27).
+3. The head-from-arm calibration of epic head-and-arm-calibration-fro, moved verbatim (approvals H1-H9 and HQ1-HQ4,
+   decisions D31-D51: its D<n> is D<n+30> here), run before the ground recordings so they carry the calibrated head
+   chain (D21).
+
+Parts 1 and 2 reuse the RGB and amplitude guidance plan (approvals A1-A8 and Q1-Q4, decisions D1-D19, its own summary
+below) instead of duplicating it. Ledger ids G1-G3 are approval items; the design goals G1-G9 and HG1-HG6 below are
+separate. The run plan (D29) alternates code runs with live steps that need the user.
+
+RGB and amplitude guidance (D1-D19): ground estimation keeps depth as its only height source. Two image streams that
+already exist get used for more: the ToF amplitude image and the head RGB stream registered to the ToF by
+head_rgbd_cpp. They decide which depth pixels to trust, where the boundaries of lethal regions are, and where depth is
+missing although something is there. Headline decisions: an amplitude gate in arducam_tof (D7); RGB edges through the
+existing guided-filter upsampling in head_rgbd_cpp, which is switched on (D2); "edge points" that sharpen lethal
+obstacle and drop boundaries in ground_estimator_cpp, only next to regions that depth already found lethal (D3); a
+"no_return" caution warning area where the RGB sees non-floor and the ToF returns nothing (D5). Before anything
+changes, new recordings with RGB + amplitude are captured through web_ui and give a baseline (D8, D14). Ground truth
+comes from the ChArUco board pose (D10). Every step is judged on replay against that truth.
+
+Head from arm (D31-D51): re-planned 2026-10-22. A "Head from arm" guided step on the web UI Calibrate page calibrates
+the pan/tilt head chain against the follower arm, which the user trusts as calibrated. The existing 6x5 ChArUco board
+is clipped to the fixed jaw; the head_rgbd_calibration node moves the arm through a scripted pose set (wrist roll, then
+wrist flex, then elbow and shoulder only after a confirm), every pose and transit FK-checked against the floor, the
+robot body and the head, and points the head at the board from a few pan/tilt offsets per arm pose. One robust
+least-squares fit solves mount x/y/z, mount roll/pitch/yaw (the pan zero folded into the yaw), tilt zero and tilt roll,
+with the applied floor-fit values as start values and cross-check, sigma, held-out views and limits that refuse Apply.
+Apply reuses the floor fit's `applied/head_chain.json` path; mcp_server HeadKinematics and the front camera (reloaded
+without a restart) and the web UI head URDF read it. The arm joint offset solve moved to epic
+arm-joint-offsets-from-the-g.
+
+### design.md: Intent and why
+
+User 2026-10-22, the three open items, decided "Go for all 3 within one epic":
+
+1. Ground detection on the live scene. Live after every ground-detection-robustness fix, on the new layout (box, ramp
+   and board ahead and to the right of the robot): the ChArUco board about 0.4 m ahead is lethal in 36-45 of 80 frames
+   at 2.3 cm; the 5 cm box flips obstacle/warning at pan -30 (its height reads 3.4-3.5 cm); drop warnings appear
+   2.5 cm behind the box; the plane reads 1.9-2.2 deg off base_link. The replay fixtures of the old layout pass, so
+   they do not show this scene. Nav2's `ground_voxel_layer` is off by default (`nodes/nav2_bringup/config/nav2_params.yaml`,
+   commit a04b7df1): its 15 s decay piled the flickering lethal points into dozens of false lethal cells and Nav2
+   found no path. The robot cannot drive on the ground layer until this passes live.
+2. The flying-pixel filter (`nodes/bridges/arducam_tof/arducam_tof/bridge.py:flying_pixel_filter`, 3x3 jump >
+   max(30 mm, 5 % of depth)) removed about 70 % of the live pixels (`tof_flying_pixels_removed_total` about 300k/s at
+   10 Hz on 43,200 px), starved the ground fit, and is off in `ansible/group_vars/client.yml` (commit 1e07a728). The
+   new `min_range_m` 0.25 cut already drops the arm (commit bd091d28).
+3. The head chain still uses CAD yaw and mount x/y: the floor fit cannot observe them (part 3 below).
+
+RGB and amplitude guidance (D1-D19), user request 2026-10-22: "keep depth computation from depth stream, but empower
+edges and areas detection with RGB stream, so it's more precise". Today the ground estimator only sees the decimated
+ToF cloud (240x180 decimated by 4, 5 cm voxels, 10 cm temporal cells), so:
+- lethal edges land about 5 cm off;
+- mixed ToF pixels make fake ramps behind objects;
+- the printed ChArUco board reads -4..+3 cm (albedo bias);
+- the black rubber ramp gives no ToF returns at all and looks like free floor.
+
+The robot navigates on that costmap (2.5 cm resolution), so a 5 cm edge error and an invisible black obstacle are both
+real driving risks. The approved order is:
+1. a baseline after ground-detection-robustness run 4;
+2. amplitude confidence;
+3. RGB-guided edges and no-return areas.
+
+Head from arm (D31-D51): the floor-plane fit (epic head-chain-floor-plane-fit-a, applied 2026-10-22 result
+r-20261022-065211: mount z 0.246 m, tilt zero -6.50 deg, mount pitch 1.50 deg, mount roll -0.32 deg, tilt roll 0.92
+deg; runbook `docs/runbooks/head-floor-fit.md`) fixed the floor for ground estimation, but a plane is invariant to head
+yaw, mount x/y and the pan zero, so `head_look_at`, grasping from head images and the 3D head view still use the CAD
+values (`head_mount_joint` x 0.15, y 0.10, yaw 0). The user (2026-10-22): "calibrate head position/angles based on the
+arm position/angles (it should be well calibrated now)". The arm is the yaw and x/y reference: its base pose
+(`arm.base_in_base_link`) and joint offsets (`arm.joint_offsets_rad`, `client.yml` mcp_server) stay as they are.
+
+### design.md: Goals
+
+- G1 Baseline: the box, board, ramp and empty scenes are recorded with RGB + amplitude after run 4 is deployed. Their
+  replay metrics (guidance off, gate off) are in `nodes/ground_estimator_cpp/README.md` before any guided change is
+  judged.
+- G2 Amplitude: a range-normalised amplitude gate in arducam_tof. On the recorded frames it brings the board's pixel
+  heights to p95 |h| <= 0.02 m and keeps >= 95 % of the floor pixels between 0.3 and 2.0 m.
+- G3 Edges: on the gated replay with guidance on, the error of the box front edge in the lethal cloud is <= 0.02 m p95
+  and its width error is <= 0.02 m. Both must be strictly better than with guidance off. Lethal points more than 3 cm
+  outside the box appear in <= 5 % of frames.
+- G4 No-return: on the ramp replay, a `no_return` warning area covers >= 70 % of the ramp footprint in >= 90 % of
+  frames after warm-up. A no_return area cell more than 0.10 m (one cell, my call) outside the ramp appears in <= 5 % of frames, in every scene.
+- G5 Safety: RGB never creates a lethal point by itself. The board, tile seams and shadows never add lethal points.
+  `board_lethal_frames(frames, truth)` stays 0 (run 4's metric name, truth overload from guidance-replay-metrics), and every ground-detection-robustness replay assertion still passes.
+- G6 Ops: Pi 5 CPU of head_rgbd_cpp (upsampling), ground_estimator_cpp (guidance) and arducam_tof (gate) is measured
+  before/after. A live check through the web_ui websocket is recorded in `docs/runbooks/ground-guidance.md`. READMEs
+  and tests/README are up to date.
+- G7 Live ground acceptance (approval G1): on the replay of the recorded scene with the guidance off, and then live
+  through web_ui captures (2 x 60 s per scene): the box lethal in >= 95 % of states, the board never lethal, no
+  lethal point on empty floor at p95, warning churn < 10 % in every scene, the ramp never lethal. The
+  ground-robustness runbook's Results hold the live numbers.
+- G8 Nav2 (approval G1): `ground_voxel_layer` enabled again after G7 passes, and Nav2 reaches a goal across the scene
+  (around the box) and back with the user present, without contact and without lethal cells on the board or the empty
+  floor.
+- G9 Flying-pixel filter (approval G2): on the recorded raw depth the retuned filter keeps >= 95 % of the floor pixels
+  and removes the mixed pixels at the box edges, it is on in client.yml, and live it removes <= 10 % of the pixels
+  with the ground plane valid in >= 95 % of states.
+
+Head from arm:
+
+- HG1: A guided "Head from arm" section on the Calibrate page runs base pose (confirm), board clip, tiers, Compute,
+  result (applied, fitted, delta, sigma, floor cross-check, held-out numbers, failed limits) and Apply.
+- HG2: The fit recovers mount x/y/z, roll/pitch/yaw, tilt zero and tilt roll from synthetic scenes (0.3 px noise) within
+  1.5 mm / 0.15 deg and refuses results over the RMS, held-out, sigma, coverage and floor cross-check limits.
+- HG3: No arm motion is commanded before its pose and transit pass the FK check (tool, board and arm links clear of the
+  floor, the body and the head; roll rules; stretched-arm rule), and every arm motion goes through mcp_server.
+- HG4: Apply writes `applied/head_chain.json`; head_state_publisher (TF), mcp_server HeadKinematics and front camera,
+  and the web UI head URDF use it; mcp_server without a restart.
+- HG5: The head tilt range is widened to the reprinted mount's recorded limit everywhere it is pinned.
+- HG6: Ansible in sync, READMEs and tests/README.md, and a robot runbook with real numbers.
+
+### design.md: Non-goals
+
+- Learning-based segmentation.
+- Heights from RGB (no monocular depth).
+- Graded traversability cost (declined by the user 2026-10-22).
+- A higher head mapping stream rate (stays 2 Hz, contract head-camera-stream-rate, Q2).
+- Refining the polygons of non-lethal warning areas (they stay cell-aligned, D4, Q3).
+- Driving beyond the Nav2 check of D25 (two short goals, at most 1.5 m, with the user present); every other live step
+  keeps the robot static.
+- Loosening any acceptance threshold, or changing the free / warning / lethal tiers or the rule, to pass.
+- Recording through rclpy probes, the `ros2` CLI, rosbag2 or SSH on the client.
+
+Head from arm:
+
+- Fitting arm joint offsets, link lengths, the arm base pose, or the tool point (epic arm-joint-offsets-from-the-g
+  holds the moved offset solve).
+- The camera intrinsics, the ToF-to-camera extrinsic and the head_camera_joint lever (applied RGB-D calibration), and
+  the 0.04 m tilt offset (degenerate with mount z).
+- Driving the base (the robot is charging; the old drive-straight yaw check is struck).
+- The head as an obstacle in mcp_server's own self-collision body model (noted, not doing now).
+
+### design.md: Anti-goals
+
+- A lethal mark that only RGB supports, or an obstacle on a texture edge (board squares, tile seams, shadows).
+- Lethal output that is removed or delayed by RGB: the lethal latency of ground-detection-robustness
+  (`hysteresis.enter_frames` frames) is unchanged.
+- Placeholder data on any topic: no guessed height on a no_return area, no guessed pose on a recorded sample, no
+  depth invented inside a large hole.
+- Warning churn above 10 % because of the new areas.
+- An rclpy probe or SSH session on the client to get live data.
+- A new node.
+- `ground_voxel_layer` turned on before every live acceptance row passes, or a Nav2 goal sent without the user at the
+  robot.
+- The flying-pixel filter switched off again silently, or retuned so that it starves the ground fit (floor kept < 95 %
+  alone or with the amplitude gate, D53).
+- Fixtures that do not reproduce the live failures being used to declare them fixed.
+- Recordings made on a head chain that is changed afterwards without re-recording (D21).
+
+Head from arm:
+
+- An arm motion with the board attached that was not FK-checked, or a parking move with the board on the gripper.
+- Any elbow_flex, shoulder_lift or shoulder_pan motion without the user's OK in the UI.
+- Placeholder data: a view without a fresh joint sample for all seven joints or without a board detection is not
+  stored; nothing is zero-filled.
+- An applied result that failed a limit, or a consumer that silently ignores the applied chain.
+- Restarting mcp_server on apply (it kills a running agent session, MEMORY), rclpy probes on the client (MEMORY).
+
+### design.md: Constraints
+
+- Umbrella (D20): ground-detection-robustness is closed (done 2026-10-22, review note: live acceptance moved here),
+  so its run 4 artifacts exist on main and its blocker is dropped. The README blockers are the three in-progress
+  epics whose open runbook tasks still list `ansible/group_vars/client.yml`, `docs/markers.md` or
+  `nodes/web_ui/urdf/head.urdf` (head-rgb-d-fusion-of-camera/rgbd-final-suite-and-runbook,
+  printable-metadata-markers-t/markers-final-runbook, rtab-map-rgb-d-3d-mapping-on/final-suite-and-runbook);
+  `ticket.py` orders cross-epic file overlaps through blockers.
+- Live steps (D28) need the user: the scene in place, the light on, the robot static (docked and charging), head moves
+  allowed; arm moves only through the head-from-arm sequence with the user's confirms; driving only in
+  nav2-goal-across-the-scene, short slow goals with the user present at the robot.
+- The current live scene (new layout, box ahead-right of the robot, board about 0.4 m ahead) is the one recorded; the
+  box and ramp placements are measured by the user against the board (D22), not assumed against its edges.
+- The flying-pixel filter stays off on the robot until tof-flying-pixel-retune is deployed, so the baseline recordings
+  hold raw depth (D26).
+
+RGB and amplitude guidance:
+
+- CLAUDE.md: C++ for robot nodes except web_ui and mcp_server; Python type hints, docstrings with types, constants on
+  top, pydantic configs with unknown keys rejected; config files over CLI; Ansible mirrors every node config change
+  (`ros2_nodes` schema); READMEs and `tests/README.md` updated; no placeholder data on topics.
+- No new nodes (user). Live data only through the web_ui websocket/API (user). Recordings: robot static and charging,
+  head moves allowed (user).
+- The free / warning / lethal tiers and the rule (step > 0.04 m or slope > 15 deg) are unchanged (user).
+- ground-detection-robustness is merged and closed (done 2026-10-22); its run 4 artifacts exist on main. They come
+  from these run 4 tasks of that epic:
+  - `replay-fixtures-and-test`: `nodes/ground_estimator_cpp/test/replay_fixture.hpp` (part replay-harness: reader,
+    `ReplayFrame`, the metrics `box_lethal_share`, `board_lethal_frames`, `stray_lethal_share`,
+    `far_side_warning_frames`, `ramp_lethal_frames`, `churn_share`, `plane_share`), `test/test_replay.cpp`,
+    `scripts/ground_replay_export.py`, `tests/test_ground_replay_export.py` and `test/data/replay/{home,box,ramp}.bin`;
+  - `tof-flying-pixel-filter`: `arducam_tof/bridge.py:flying_pixel_filter` (contract tof-depth-flying-pixel-filter);
+  - `warning-area-stability`: the area stability in `CellClassFilter`;
+  - `replay-acceptance-and-docs`: the replay assertions and the latency pin;
+  - `wire-shadow-gate-on-replay` and `shadow-gate-and-segment-step`: the occlusion gate.
+
+  This epic extends them; it does not duplicate them.
+- Contracts used from three other in-progress epics are already delivered on main, so they are not added as blockers:
+  - `head-rgbd-points` (head-rgb-d-fusion-of-camera): `nodes/head_rgbd_cpp/src/head_rgbd_node.cpp` publishes
+    `points()` and the `depth_upsampled` topics;
+  - `tof-points-filtered` (tof-3d-obstacle-detection-fo): the laser_filter cloud path to `/tof/points_filtered` in
+    `ansible/group_vars/client.yml`;
+  - `tof-depth-z` (tof-depth-fix-and-ground-noi): `arducam_tof/bridge.py:radial_to_z`.
+
+  `graph --todo` reports them as "not blocked by owner"; that is expected.
+- Tests: C++ through `scripts/cpp-node-test.sh <pkg>` (no test ref runner for .cpp files, so C++ ACs are `command:`
+  refs); Python per package with `uv run --frozen pytest`.
+- Fixtures go in plain git: at most 3 MB per scene file without pairs and 6 MB with pairs (D9).
+- Run plan (D11): three code runs separated by live steps that the orchestrator triggers.
+  - Run 1: every task without a live precondition.
+  - Live step 1, orchestrator: deploy web_ui and head_rgbd_cpp; the user sets the scene (Q1); then
+    capture-baseline-recordings runs.
+  - Run 2: tof-amplitude-gate and live-report-guidance-metrics (both need the committed baseline truth and frames).
+  - Live step 2, orchestrator: deploy arducam_tof; then capture-gated-recordings runs.
+  - Run 3: guidance-replay-acceptance.
+  - Then the orchestrator deploys ground_estimator_cpp, costmap_zones, mcp_server and web_ui, and runs
+    guidance-live-check-and-cpu.
+
+Head from arm:
+
+- House rules (CLAUDE.md): Python with type hints, pydantic config with every key in the shipped YAML and the
+  client.yml block (`tests/test_head_rgbd_calibration_deploy.py::test_ros2_nodes_entry_matches_defaults` pins them
+  equal, so every task that adds node config keys edits `ansible/group_vars/client.yml` too), constants at the top,
+  test-first, ROS2 logging in nodes, servo safety (least dramatic joints first, ask before big joints), READMEs and
+  tests/README.md, deploy only through `scripts/deploy-nodes.sh` with output in `.logs/`.
+- Python stays in web_ui, mcp_server and the existing Python calibration node and core (user decision).
+- Arm safety (MEMORY feedback_arm_motion_safety): wrist roll only with the gripper at most half open and the arm lifted
+  and forward; negative elbow_flex stretches the arm; a stretched arm with shoulder_lift past about 1.85 rad stalls.
+- Head camera mapping stream 576x324; intrinsics valid with the focus lock, which is held while the mapping stream has a
+  subscriber (`capture.py`).
+- Current head range pan -90..90 deg, tilt -30..+30 deg (+ is down, `head.urdf`); the pose set must work inside it.
+- Arm FK: `urdf_angle = measured_angle + offset` (client.yml comment on `joint_offsets_rad`); the arm URDF root is
+  joined to the robot base_link by `arm.base_in_base_link` {x 0.0592, y -0.05, z 0.100, yaw 0}.
+- `ansible/group_vars/client.yml` is also edited by open tasks of the in-progress epic ground-detection-robustness, so
+  that epic is this one's blocker (ticket.py orders cross-epic file overlaps through blockers).
+- Tasks about an hour, at most 8 files each.
+
+### design.md: Decision coverage
 
 | Decision | Tasks |
 |---|---|
@@ -893,7 +1014,7 @@ User 2026-10-23 chose option 1: the head-from-arm fit uses the floor-fit prior w
 | D63 User 2026-10-23: 'Park should be possible with board for eas | head-arm-pose-capture-sequen |
 | D64 User 2026-10-23 chose option 1: the head-from-arm fit uses t | head-arm-compute-and-apply |
 
-## Contracts
+### design.md: Contracts
 
 | Part | Owner | Consumers | Where defined |
 |---|---|---|---|
@@ -950,7 +1071,7 @@ from head-chain-floor-plane-fit-a, and `head-rgbd-applied-calibration` (the `app
 It owns `head-arm-fit`, `head-arm-calib-api`, `calib-session-kinds` and `arm-pose-check` for the follow-up epic
 arm-joint-offsets-from-the-g.
 
-## Review focus
+### design.md: Review focus
 
 - collision-source-stall-fix: the cause is named with numbers before any change; the stale-source stop and
   `source_timeout` 1.0 s stay (user decision 2026-10-18).
@@ -987,7 +1108,7 @@ arm-joint-offsets-from-the-g.
 - Every consumer reading `head_chain.json`, and an unusable override falling back to the URDF with a warning.
 - No placeholder data: a missing joint sample or detection means no view, never zeros.
 
-## Left to the builder
+### design.md: Left to the builder
 
 - Defaults of the guidance keys inside their validated ranges, chosen on the replay (guidance-replay-acceptance).
 - The guided filter's radius/eps/min_support within the existing ranges (rgbd-upsampling-on).
@@ -1003,7 +1124,7 @@ arm-joint-offsets-from-the-g.
 - The internal parameter vector layout, `x_scale`, the Huber `f_scale` default (1 px) and `max_nfev`.
 - UI layout inside the section, following HeadFloorFit.
 
-## Assumptions and unknowns
+### design.md: Assumptions and unknowns
 
 - The Loki and Mimir history of 2026-10-22 16:20-16:35 CEST is still retained when run 1 runs; the key unit logs are
   saved under `/Users/szymonri/Documents/ros2-lerobot-sverve-platform/.logs/agent-retro-2026-10-22/` with the
@@ -1038,23 +1159,45 @@ arm-joint-offsets-from-the-g.
   worked around.
 - The front camera stream has the same aspect ratio as the mapping stream: probed in mcp-front-camera-applied.
 
-## Open questions
+### approvals.json
 
-- Q1: Before capture-baseline-recordings, can you set the scene: robot static and charging, the 5 cm box with its front face on the far edge of the ChArUco board, the black ramp's long side against one side edge of the board, an empty floor area in head reach; give the box top length x width, the ramp width and which side; and leave it all in place until capture-gated-recordings is done? [answer: yes (D16): user sets and keeps the scene; box/ramp dimensions asked at capture time; the placements are measured against the board (D22)]
-- Q2: Keep the head mapping RGB stream at 2 Hz, so edge points and no_return areas refresh twice a second and are moved through odom in between, instead of raising it (more client CPU, contract head-camera-stream-rate)? [answer: yes (D17): keep head mapping RGB at 2 Hz]
-- Q3: Refine only lethal boundaries (obstacles, drops) with the RGB edges, and keep the non-lethal warning areas on their 10 cm cell polygons so warning churn stays under 10 %? [answer: yes (D18): RGB edges refine only lethal boundaries]
-- Q4: Apply the amplitude gate to /tof/depth/image_raw for every consumer (Nav2 ToF layer, head floor fit, RGB-D calibration), as the flying-pixel filter is, rather than only on the ground estimator's path? [answer: yes (D19): amplitude gate on /tof/depth/image_raw for every consumer]
-- Q5: Fold the pan zero into the head_mount_joint yaw in head_chain.json (TF and head_look_at exact; a raw pan 0 in the Head tab stays off by the fitted yaw, expected under 3 deg) instead of re-zeroing the pan servo? [answer: yes (D48, HQ1): fold pan zero into the head_mount_joint yaw]
-- Q6: Use the floor-fit values as start values and a pass/fail cross-check (10 mm on mount z, 1.5 deg on roll, pitch, tilt zero, tilt roll) with the weighted prior off by default, since the floor fit carries the garage floor slope? [answer: yes (D49, HQ2): floor-fit values as start values and pass/fail cross-check, weighted prior off]
-- Q7: Clip the board only after the arm holds the base pose, hold the arm in place on every stop or error, and park only after you confirm the board is removed (no automatic park with the board on)? [answer: yes (D50, HQ3): clip board only after base pose, hold arm on every stop, park only after board removal confirmed]
-- Q8: Let the solver fit the board-on-jaw pose (standard hand-eye: target-in-gripper unknown) with your measurement only as a start value, so the pose set and the solver do not wait for the hardware step and the poses stay provisional until a dry run without the board? (no: arm-board-pose-set waits for the hardware step) [answer: yes (D51, HQ4): solver fits the board-on-jaw pose, measurement only a start value, poses provisional until a dry run]
-- Q9: Run the head-from-arm calibration live step before recording the ground scene, so every recording and replay carries the calibrated head chain? If the scene's ChArUco board is the board you clip to the gripper, it leaves the scene for the calibration and you put it back and re-measure the box and ramp placements against it before the baseline recording (D21). [answer: yes (D52, Q9): head-from-arm calibration before the scene recording]
-- Q10: Accept these thresholds the user did not state: the retuned filter removes >= 80 % of the mixed pixels at the box edges, the filter plus amplitude gate keep >= 90 % of the floor pixels, live it removes <= 10 % of all pixels, and false warnings behind the box stay in <= 5 % of frames (D23, D26, D27)? [answer: yes, but floor retention stays 95 % (D53, Q10): >= 80 % box-edge mixed removed, >= 95 % floor kept with filter + gate, <= 10 % removed live, false warnings behind the box in <= 5 % of frames]
-- Q11: For the Nav2 check, drive two goals of at most 1.5 m (across the scene around the box, then back) through the mcp_server navigation tools at Nav2's 0.25 m/s cap, with you at the robot and the robot undocked by you (D25)? [answer: yes (D54, Q11): two Nav2 goals of at most 1.5 m through the mcp_server tools, user at the robot]
-
-## Irreversible operations in scope
-
-none (fixtures, configs and runbooks are committed and revertible; recordings live in /tmp on the client and
-`.logs/` on the Mac; the head-from-arm Apply writes `applied/` files that the next apply or a re-seed replaces, the
-previous chain kept in its result directory; the Nav2 check drives two short goals with the user present and deletes
-nothing; nothing is force-pushed).
+- A1: Baseline first: the box, board, ramp and empty scenes are recorded with RGB + amplitude after ground-detection-robustness run 4, without rclpy probes on the client, and their replay numbers (guidance off, gate off) are written down before anything is tuned; ground truth from the ChArUco board pose. [decisions: D8, D9, D10, D11, D14] [tasks: ground-recording-layout, web-ui-ground-recorder-api, ground-record-script, replay-format-v2, scene-truth-from-board, guidance-replay-metrics, capture-baseline-recordings] [status: approved]
+- A2: ToF amplitude guidance: per-pixel confidence from the pixel-aligned amplitude image; low-amplitude pixels dropped so the albedo bias on the printed board drops to p95 |h| <= 2 cm while >= 95 % of the floor 0.3-2.0 m is kept. [decisions: D7] [tasks: tof-amplitude-gate, capture-gated-recordings] [status: approved]
+- A3: RGB-guided edges: boundaries of depth-detected lethal regions (obstacles, drops) snapped to RGB edges through the head_rgbd_cpp guided upsampling, so the box edge error drops from ~5 cm to <= 2 cm on replay. [decisions: D2, D3, D4, D12] [tasks: rgbd-upsampling-on, guidance-config-keys, guidance-frame-core, edge-points-core, guidance-node-wiring, guidance-replay-acceptance] [status: approved]
+- A4: No-return areas: where the RGB sees non-floor and the ToF has no returns (the black ramp) a no_return caution warning area is published, never free and never lethal, with null heights accepted by costmap_zones, mcp_server and web_ui. [decisions: D5, D6] [tasks: area-heights-nullable, costmap-nullable-heights, mcp-nullable-heights, web-ui-no-return-areas, guidance-frame-core, no-return-core, guidance-node-wiring, guidance-replay-acceptance] [status: approved]
+- A5: RGB never creates a lethal obstacle by itself, heights only from depth; texture-only edges on flat floor (board, tile seams, shadows) do not add obstacles. [decisions: D1, D2, D3, D5] [tasks: rgbd-upsampling-on, edge-points-core, no-return-core, guidance-replay-acceptance] [status: approved]
+- A6: Replay recordings that include RGB + amplitude, replay tests against the measured ground truth, the Pi 5 CPU budget measured, and README/runbook/tests updated. [decisions: D9, D10, D13] [tasks: capture-gated-recordings, guidance-replay-acceptance, live-report-guidance-metrics, guidance-live-check-and-cpu] [status: approved]
+- A7: Graded traversability cost declined: the free / warning / lethal tiers and the rule (step > 0.04 m or slope > 15 deg) stay unchanged. [decisions: D1, D15] [tasks: guidance-replay-acceptance, live-report-guidance-metrics] [status: approved]
+- A8: No new nodes; C++ for robot nodes except web_ui and mcp_server; live data via the web_ui websocket only, never rclpy probes on the client; recordings with the robot static and charging, head moves allowed. [decisions: D8, D11] [tasks: web-ui-ground-recorder-api, ground-record-script, capture-baseline-recordings, capture-gated-recordings, guidance-live-check-and-cpu] [status: approved]
+- Q1: User 2026-10-22 approved (yes): user sets and keeps the scene; box/ramp dimensions asked at capture time [decisions: D16] [tasks: capture-baseline-recordings, scene-truth-from-board] [status: approved]
+- Q2: User 2026-10-22 approved (yes): keep head mapping RGB at 2 Hz [decisions: D17] [tasks: rgbd-upsampling-on] [status: approved]
+- Q3: User 2026-10-22 approved (yes): RGB edges refine only lethal boundaries [decisions: D18] [tasks: no-return-core] [status: approved]
+- Q4: User 2026-10-22 approved (yes): amplitude gate on /tof/depth/image_raw for every consumer [decisions: D19] [tasks: tof-amplitude-gate] [status: approved]
+- G1: User 2026-10-22, "Go for all 3 within one epic", item 1, ground detection on the live scene: record THIS scene (box, ramp, board; the new layout ahead/right of the robot) with a recorder that does not use ad-hoc rclpy on the client (the web-ui-ground-recorder-api and ground-record-script tasks), add it as replay fixtures with measured truth, fix the estimator until the live acceptance passes (box lethal >= 95 %, board never lethal, no lethal on empty floor at p95, churn < 10 %), then turn ground_voxel_layer back on and verify Nav2 reaches a goal across the scene. The unmet live acceptance of ground-detection-robustness moves into this epic; live steps need the user (scene in place, light on, robot static, head moves allowed, driving only short slow goals with the user present). [decisions: D21, D22, D23, D24, D25, D28, D29] [tasks: web-ui-ground-recorder-api, ground-record-script, scene-truth-from-board, capture-baseline-recordings, capture-gated-recordings, live-report-guidance-metrics, ground-estimator-live-scene, guidance-replay-acceptance, guidance-live-check-and-cpu, ground-live-acceptance, ground-voxel-layer-on, nav2-goal-across-the-scene] [status: approved]
+- G2: User 2026-10-22, "Go for all 3 within one epic", item 2, ToF flying-pixel filter retune: nodes/bridges/arducam_tof flying_pixel_filter (3x3 jump > max(30 mm, 5 % depth)) removed ~70 % of live pixels and is off in client.yml; retune it on real recorded depth frames (raw depth recordings, same recorder), keep >= 95 % of floor pixels, remove mixed pixels at the box edges, then turn it back on. [decisions: D22, D26, D27, D28, D29] [tasks: replay-format-v2, capture-baseline-recordings, tof-flying-pixel-retune, capture-gated-recordings, tof-filter-live-check] [status: approved]
+- G3: User 2026-10-22, "Go for all 3 within one epic", item 3: the approved head-and-arm calibration plan (head-and-arm-calibration-fro, 20 tasks, approvals H1-H9, gate answers HQ1-HQ4) and the approved RGB and amplitude plan (A1-A8, Q1-Q4) live in this one epic, with their tasks, requirement/AC text, approvals and decisions kept; the arm-joint-offsets follow-up epic stays separate. [decisions: D20, D21, D28, D29] [tasks: calib-robot-runbook, calib-docs-and-test-index, joint-state-still-capture, capture-baseline-recordings] [status: approved]
+- H1: User 2026-10-22: calibrate the head position/angles based on the arm position/angles (the arm is trusted as calibrated): the solve fits the head chain (mount x/y/z, yaw/pitch/roll, pan zero, tilt zero, tilt roll as observable) from the 6x5 ChArUco board clipped to the gripper, seen by the head camera over a scripted set of arm poses, with the floor-fit values as prior/cross-check. [decisions: D31, D32, D33, D34, D36] [tasks: calib-config-and-view-types, head-from-arm-board-solver, session-kinds-joint-poses, joint-state-still-capture, head-arm-compute-and-apply] [status: approved]
+- H2: Arm safety (project rules): least dramatic joints first; any pose moving shoulder_pan, shoulder_lift or elbow needs the user's explicit OK at run time (UI confirmation); every scripted pose FK-checked against self-collision with the robot body and head; wrist roll only half-open and lifted; negative elbow stretches; the existing 6x5 board is the gripper board; arm motion only through mcp_server's guarded tools; no driving (robot charging). [decisions: D37, D38, D39, D45, D47] [tasks: board-on-gripper-hardware-st, robot-mcp-client, arm-pose-safety-check, arm-board-pose-set, head-arm-pose-capture-sequen, head-arm-sequence-http-api, head-arm-calibrate-ui-sectio, calib-ansible-deploy-config] [status: approved]
+- H3: The result must pass held-out validation limits before Apply (like the floor fit); a result over any limit cannot be applied. [decisions: D34, D35] [tasks: head-from-arm-board-solver, head-arm-compute-and-apply, head-arm-sequence-http-api, head-arm-calibrate-ui-sectio] [status: approved]
+- H4: The applied result reaches every head-chain consumer through the existing head_chain.json override: head_state_publisher, mcp_server HeadKinematics and front camera (no mcp_server restart), and the web UI head URDF. [decisions: D36, D40] [tasks: head-arm-compute-and-apply, mcp-head-kinematics-applied, mcp-front-camera-applied, web-ui-applied-head-urdf] [status: approved]
+- H5: A guided step-by-step Head from arm section on the web UI Calibrate page (step cards for the physical steps, confirms, result, Apply). [decisions: D41, D46] [tasks: calib-frontend-api, head-arm-calibrate-ui-sectio, head-arm-pose-capture-sequen] [status: approved]
+- H6: Gate Q1 (kept): after the reprint the head tilt range is -30..+60 deg (+ is down) everywhere it is pinned, or the smaller tilt-down limit the user records. [decisions: D42] [tasks: board-on-gripper-hardware-st, head-tilt-range-widened] [status: approved]
+- H7: Synthetic-scene tests for the fit and the pose check, READMEs and tests/README.md, and a runbook executed on the robot with real numbers. [decisions: D43] [tasks: head-from-arm-board-solver, arm-pose-safety-check, arm-board-pose-set, calib-docs-and-test-index, calib-robot-runbook] [status: approved]
+- H8: User 2026-10-22: the arm joint offset solve (arm-offsets-plate-solver, arm-offsets-compute-apply, arm-calibrate-ui-section) moves to a separate follow-up epic via ticket.py (arm-joint-offsets-from-the-g, blocked by this one), not deleted, so nothing is lost. [decisions: D44] [tasks: calib-docs-and-test-index] [status: approved]
+- H9: User 2026-10-22: Python stays in web_ui, mcp_server and the existing Python calibration code; no rclpy probes on the client. [decisions: D36] [tasks: joint-state-still-capture, calib-robot-runbook] [status: approved]
+- HQ1: User 2026-10-22 approved (yes): fold pan zero into the head_mount_joint yaw [decisions: D48] [tasks: head-from-arm-board-solver, head-arm-compute-and-apply] [status: approved]
+- HQ2: User 2026-10-22 approved (yes): floor-fit values as start values and pass/fail cross-check, weighted prior off [decisions: D49] [tasks: head-from-arm-board-solver, head-arm-compute-and-apply] [status: approved]
+- HQ3: User 2026-10-22 approved (yes): clip board only after base pose, hold arm on every stop, park only after board removal confirmed [decisions: D50] [tasks: head-arm-pose-capture-sequen, head-arm-calibrate-ui-sectio] [status: approved]
+- HQ4: User 2026-10-22 approved (yes): solver fits the board-on-jaw pose, measurement only a start value, poses provisional until a dry run [decisions: D51] [tasks: arm-board-pose-set, head-from-arm-board-solver] [status: approved]
+- Q9: User 2026-10-22 approved (yes): run the head-from-arm calibration live step before recording the ground scene, so every recording and replay carries the calibrated head chain; the board goes back into the scene and the placements are re-measured before the baseline recording (D21) [decisions: D52] [tasks: calib-robot-runbook, capture-baseline-recordings] [status: approved]
+- Q10: User 2026-10-22 approved (yes, with floor retention kept at 95 %, not 90 %): the retuned filter removes >= 80 % of the box-edge mixed pixels, the filter plus amplitude gate keep >= 95 % of the floor pixels, live it removes <= 10 % of all pixels, and false warnings behind the box stay in <= 5 % of frames (D23, D26, D27) [decisions: D53] [tasks: tof-flying-pixel-retune, tof-filter-live-check, ground-estimator-live-scene] [status: approved]
+- Q11: User 2026-10-22 approved (yes): the Nav2 check drives two goals of at most 1.5 m (across the scene around the box, then back) through the mcp_server navigation tools at Nav2 0.25 m/s cap, with the user at the robot and the robot undocked by the user (D25) [decisions: D54] [tasks: nav2-goal-across-the-scene] [status: approved]
+- R1: User 2026-10-22 (answer C, "see retros from live robot - especially 2nd", item 1): collision_monitor raised collision_stop with polygon 'invalid source' during navigate_to_pose's final rotation (spurious; nearest lidar 0.7 m): a source (scan / tof_obstacles / tof_cliff, source_timeout 1.0 s) went stale; diagnose from Mimir/Loki and fix (source rates/QoS/timeout, or stale-source handling) so the final turn is not cut. [decisions: D55, D62] [tasks: collision-source-stall-fix, retro-fixes-live-check] [status: approved]
+- R2: User 2026-10-22 (answer C, item 2): "Front camera has no intrinsics, so pixel_to_ground / mark_candidate_points can't use it" (mcp_server): find which camera mcp calls front and where intrinsics should come from (head_rgbd_calibration RGB intrinsics / camera_info), wire them; object positions must stop being 0.3-0.5 m guesses. [decisions: D59, D62] [tasks: mcp-front-camera-applied, front-camera-ground-points, agent-retro-skill-lessons, retro-fixes-live-check] [status: approved]
+- R3: User 2026-10-22 (answer C, item 3, 1st retro): map reset (epoch 1->2) mid go_to_frontier right after a StopBox collision_stop with no map_guard event: investigate cause and make every map reset logged/explained. [decisions: D57] [tasks: map-reset-requester-event, map-epoch-reset-event] [status: approved]
+- R4: User 2026-10-22 (answer C, item 4): StopBox fired on move_relative dx -0.35 and dyaw -0.6 near a wardrobe (front_left obstacle 0.34 m) while drive vy/vx nudges worked: diagnose velocity-polygon selection for those motions and fix. [decisions: D56, D62] [tasks: stopbox-backing-and-turns, retro-fixes-live-check] [status: approved]
+- R5: User 2026-10-22 (answer C, item 5): floor-level mirror wardrobe makes lidar ghost free space and ghost frontiers: a mirror mitigation (filter or person-drawn keep-out the agent honours) as a task. [decisions: D58, D61, D62] [tasks: frontiers-honour-keep-outs, agent-retro-skill-lessons, retro-fixes-live-check] [status: approved]
+- R6: User 2026-10-22 (answer C, item 6): tilt_warning pitch -19.4 deg near a bean bag before a job: check whether it was real (IMU vs ground) and log. [decisions: D60] [tasks: tilt-event-evidence] [status: approved]
+- R7: User 2026-10-22 (answer C): agent behaviour items (arm parking, frontier choice, batching) are prompt/skill work: one task for the agent skills if they are not already covered. [decisions: D61] [tasks: agent-retro-skill-lessons] [status: approved]
+- PARK: User 2026-10-23: 'Park should be possible with board for easy retries.' Replaces HQ3's park-only-after-the-board-is-off: Park with the calibration board on is allowed when the park path passes the FK pose check with the board outline (plus a sag margin); any other carried object keeps the carry refusal. [decisions: D63] [tasks: head-arm-pose-capture-sequen] [status: approved]
+- FLOORPRIOR: User 2026-10-23 chose option 1: the head-from-arm fit uses the floor-fit prior with floor_prior_weight 10 (replaces D49's prior-off default). Real session calib-20261023-074418 then passes at 2.93 px; the floor fit pins the floor plane relative to base_link, the arm adds x, y, yaw and the pan axis. [decisions: D64] [tasks: head-arm-compute-and-apply] [status: approved]
