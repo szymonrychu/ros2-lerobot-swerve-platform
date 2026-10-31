@@ -192,9 +192,10 @@ def test_back_polygon_clear_of_front_left_obstacle(bearing_deg: int) -> None:
     for name in ("back", "back_left"):
         polygon = sub_polygon(name)
         assert not any(inside(polygon, x, y) for x, y in points), f"{name} holds the cluster at {bearing_deg} deg"
-    if bearing_deg == 30:  # the retrospective's return: the in-place rotation box holds it (why the turns stopped)
-        rotate = sub_polygon("rotate")
-        assert all(inside(rotate, x, y) for x, y in points)
+    # The retrospective's return (0.34 m) was held by the old 0.35 m rotation circle (why the turns stopped); `rotate` is
+    # now the footprint + 2 cm, which holds no return at that distance.
+    rotate = sub_polygon("rotate")
+    assert not any(inside(rotate, x, y) for x, y in points), f"rotate holds the cluster at {bearing_deg} deg"
 
 
 def test_backing_move_does_not_turn_first(ros_iface: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
