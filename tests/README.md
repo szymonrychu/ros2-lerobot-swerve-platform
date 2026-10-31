@@ -1823,7 +1823,7 @@ Static checks of the D7 retirement of the Pi stereo pipeline: `stereo_depth` and
 | `test_ros2_nodes_entries_are_uninstalled_by_the_next_deploy` | Both `ros2_nodes` entries keep their node type, are `present: false` and carry no `config`. |
 | `test_the_entries_name_d7_in_the_comment_above_them` | The comment block directly above each entry names D7. |
 | `test_node_types_keep_only_what_the_uninstall_path_needs` | Each type has only `deploy_mode: native` and a `node_launch_command`: no source dir, `src_shared`, `colcon_source`, apt, env, config path, memory or tier keys. |
-| `test_background_tier_has_no_stereo_type` | The 100/100 weight tier holds no stereo type: exactly `front_camera`, `head_rgbd_calibration`, the two joint-state throttle types and `map3d_uplink`. |
+| `test_background_tier_has_no_stereo_type` | The 100/100 weight tier holds no stereo type: exactly `back_camera`, `front_camera`, `head_rgbd_calibration`, the two joint-state throttle types and `map3d_uplink`. |
 | `test_metrics_target_is_removed` | `monitoring_agent_node_targets` has no stereo node and no `:19113` address. |
 | `test_client_playbook_still_deploys_both_names_so_the_uninstall_runs` | The client playbook still has a deploy step for each name. |
 | `test_ansible_readme_documents_the_retirement` | `ansible/README.md` "Cut-over and rollback" names D7 and `present: false`, has no 19113 and no stereo row in the tier or memory tables. |
