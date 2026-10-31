@@ -1,94 +1,44 @@
-# Pan tilt head control with agent and web UI design
+---
+title: Pan tilt head control with agent and web UI
+repos: [ros2-lerobot-sverve-platform]
+created: 2026-10-18
+owner: Szymon Richert
+rung: 1
+---
 
-## Summary
+# Pan tilt head control with agent and web UI
 
-Two Feetech servos (pan, tilt) carry the head RGB camera (head_camera_cpp, `/head_camera/*`) and the Arducam ToF (`/tof`)
-on one rigid frame. They are a `head` servo group on the base bus node `base_servos` left by the split-bus epic, with per-joint speed
-and acceleration caps and a configurable home pose (forward and down) that the bridge drives to at startup. One head URDF
-(`nodes/web_ui/urdf/head.urdf`) is the geometry source for robot_state_publisher (TF for `head_camera_optical_frame` and
-`tof_optical_frame`), for mcp_server (look-at maths, front camera pose) and for the web UI 3D view. The agent gets
-`set_head_angles`, `head_look_at` and `head_home` under either the arm or the base lease; a release that leaves the agent
-holding no lease homes the head. The web UI Head tab gets live pan/tilt sliders and a Home button.
+## What and why
 
-## Intent and why
+What: Pan/tilt head servos, joint-driven head TF for RGB + ToF, agent and web UI controls
+How: Head servo group on the base bus, robot_state_publisher head URDF, mcp_server tools under arm/base lease, web UI sliders
+Why: The head points the RGB camera and ToF where the robot needs to look
 
-The head points the RGB camera and the ToF where the robot needs to look: the ground in front of it for driving, the
-object for grasping, a frontier when exploring. Today the head mount does not exist in software: the Head tab shows
-disabled sliders, `cameras.front` is validated to sit on `base_link`, and no TF exists for either head camera (the
-head-camera epic explicitly left TF to this epic). The servo bus split (blocking epic) frees the bus capacity the two head
-servos need.
+A 2-servo pan/tilt head carries the Camera Module 3 (head RGB, /head_camera) and the Arducam ToF (/tof) on one rigid frame with a known, configurable spacing. The servos share the base bus (previous epic). The head is controlled from ROS2, the agent and the web UI; TF for both cameras follows the pan/tilt joint states.
 
-## Goals
+## Scope ladder
 
-- G1: a `head` servo group (`head_pan`, `head_tilt`) on the base bus node `base_servos`: configurable IDs, ranges (defaults pan +-90
-  deg, tilt -30/+45 deg, servo centre 2048 = straight and level), per-joint speed/acceleration caps, `/head/joint_states`
-  published, commands on `/head/joint_commands`.
-- G2: a configurable home pose (forward and down, not the servo centre) used at startup, on Home, and when the agent's
-  controlling lease is released.
-- G3: TF from robot_state_publisher on the head URDF (mount, pan, tilt, rigid head frame, both optical frames with the
-  configured spacing) driven by `/head/joint_states`; static_tf_publisher honours roll and pitch.
-- G4: agent head tools (set angles, look at a point once in base_link or map, home) under the arm or the base lease;
-  releasing returns the head home; camera-scene code takes the head pose instead of assuming base_link.
-- G5: web UI Head tab sliders + Home button; head drawn in the 3D view.
-- G6: tests with fake buses/robots, READMEs, deployed; first live test +-5 deg pan only, then widened.
+### Rung 1: agreed scope (migrated)
+
+- 1.1: A `head` servo group (pan, tilt) on the base bus node: configurable IDs, ranges (defaults pan +-90 deg, tilt -30/+45 deg, servo centre 2048 = straight and level), per-joint speed/acceleration caps (the bridge sets goal_speed/acceleration for position joints), joint_states published, commands on /head/joint_commands.
+- 1.2: Home pose: looking forward and down at the ground (configurable angles, not the servo centre); used at startup, on Home, and whenever the controlling lease is released.
+- 1.3: TF: robot_state_publisher with a head URDF (pan axis from behind and above the lidar, mount ~35 cm up, ~10 cm left, ~15 cm forward of base_link as configurable defaults; tilt axis offset; rigid head frame; head_camera_optical_frame and tof_optical_frame with the configured spacing) driven by the head joint states; static_tf_publisher's roll/pitch bug fixed where it matters.
+- 1.4: Agent (mcp_server + claude_agent): head tools to set pan/tilt, look at a point (aims the RGB camera axis once at a point in base_link or map), and home; the head may be moved under the arm lease or the base lease; releasing the lease returns the head home; camera-scene code stops assuming the head camera sits on base_link.
+- 1.5: Web UI: Head tab pan/tilt sliders + Home button (replacing the disabled placeholder), head drawn in the 3D view.
+- 1.6: Tests with fake buses/robots; READMEs; deployed; first live test +-5 deg pan only, then widened.
+
+## Agreed scope
+
+Rung 1, migrated from the epic format: the epic's goals were its agreed scope.
 
 ## Non-goals
 
-- Continuous target tracking (U5: aim once).
-- Auto-aiming from the zoom tool or a web click (the agent may call `head_look_at` and then zoom).
-- Arbitration between the web UI and the agent for the head (orchestrator ruling R1, D13: web UI head commands are
-  always allowed; last writer wins).
-- A stop behaviour for the head: `stop` does not touch the head (moves are capped and short) (my call).
-- Adding the head to the arm's self-collision body model (orchestrator ruling R2: not in this epic).
-- Head camera intrinsics calibration (cameras.front intrinsics stay null until a calibration file exists).
+- Continuous target tracking.
+- Auto-aiming the head from the zoom tool or web click (the agent can call look-at and then zoom).
 
-## Anti-goals
+## Design
 
-- The arm bus or the swerve drive regressing: the follower bus gate (>= 95 Hz) and the base bus rate target from the
-  split epic keep passing.
-- Any servo moving at uncapped full speed after a brownout (D3 writes the caps with every goal).
-- Placeholder data: no head joint state, TF or 3D head pose shown before a real sample (robot_state_publisher publishes
-  the moving joints only from real joint states; the web UI disables the sliders and hides the 3D head until the first
-  sample).
-- A dramatic first live motion: the first test is +-5 deg pan only (CLAUDE.md servo safety, U3).
-- Scope creep into tracking, arbitration services, a C++ head controller node, or calibration.
-
-## Constraints
-
-- ROS 2 Jazzy, Ubuntu 24.04, Pi 5 client. mcp_server, web_ui and claude_agent stay Python (MEMORY "Python nodes
-  stay"); the feetech bridge and static_tf_publisher are existing Python nodes and stay Python; robot_state_publisher is
-  the apt C++ node, so no new code node is written.
-- TDD, test-first with fakes: `nodes/bridges/feetech_servos/tests/sts_bus.py` (emulated STS bus with byte counters),
-  mcp_server `tests/fakes.py` / `FakeRobot`, vitest mocks. No robot in any automated test.
-- No placeholder data on topics (CLAUDE.md).
-- Servo safety (CLAUDE.md): least dramatic movement first; the runbook starts at +-5 deg pan.
-- Deploys only through `scripts/deploy-nodes.sh` with logs in `.logs/`; deploying mcp_server or claude_agent kills a
-  running agent session: check first (MEMORY).
-- The base bus node `base_servos` blocks at startup until every configured servo answers (`bridge.py:_wait_for_servos`): the head
-  servos must be installed with their IDs set before the head group is deployed, or the swerve drive stops working.
-- Planned against the END state of the blocking epics; each task re-reads the files it touches. Expected end state:
-  - Split-bus epic (its design.md D1-D7): `lerobot_follower` drives only the arm; the base bus is `base_servos`
-    (`feetech_servos`, primary namespace `swerve_drive`, `control_loop_hz: 50`, its own `/dev/serial/by-id` adapter,
-    `battery_interval_s: 0`, `node_name` set, metrics 19115) with a client.yml comment marking where the `head`
-    `extra_groups` entry goes; `nodes/bridges/feetech_servos/tests/test_bus_budget.py` loads both configs from client.yml
-    and shows base + a stand-in 2-servo `HEAD` within 0.8 of the 50 Hz period; feetech README `## Bus budget`,
-    `ansible/README.md`, `tests/README.md`, ansible-deploy and teleop-diagnostics skills, MEMORY.md updated.
-  - Head-camera epic: `nodes/head_camera_cpp` publishing `/head_camera/image_raw{,/compressed}` and
-    `/head_camera/camera_info` with frame `head_camera_optical_frame`; mcp_server `topics.head_camera`, tool camera value
-    `front` (described as the head RGB camera); claude_agent `DEFAULT_CAMERA_NOTE` rewritten (D11 there); web_ui Head
-    tab `rgb_camera_topic: /head_camera/image_raw/compressed` with click-to-zoom (`HeadTab.tsx`, `HeadTab.test.tsx`,
-    `camera/zoomApi.ts`), web_ui `server.py` `/api/camera/zoom`; `tests/test_head_camera_live_refs.py`.
-  - Jetson removal epic: Head tab with ToF depth + amplitude only (no fused/stereo toggle), Overview tab gone,
-    `tests/test_jetson_retired.py`, web_ui `config.py` / `default.yaml` / `bridge.py` without stereo fields.
-  - `arducam_tof` publishes with `frame_id: tof_optical_frame` (config default).
-
-## Orchestrator rulings
-
-- R1: web UI head commands are always allowed (operator); last writer wins against the agent; the agent needs the arm
-  or the base lease (D9, D13).
-- R2: the head is not added to the arm self-collision model in this epic (non-goal).
-- R3: the tilt sign is a config value with a documented default, positive tilt = looking down (matches home "forward
-  and down"); decided and confirmed by the user (2026-10-18) (D2).
+Migrated from the epic format; the design sections without a plan.md heading are under Migrated notes.
 
 ## Decisions
 
@@ -241,6 +191,10 @@ assumption remains, and hands over the runbook: install servos and set IDs, depl
 verify `/head/joint_states` and both bus rates, +-5 deg pan only, then tilt +-5 deg, then the full ranges and home,
 TF echo, agent tools, web UI, lease release homing, lidar post shadow check. Serves G6, U3.
 
+## Open questions
+
+none
+
 ## Research
 
 | Lens | Ran or skipped | Adopted ideas | Rejected ideas |
@@ -251,7 +205,7 @@ TF echo, agent tools, web UI, lease release homing, lidar post shadow check. Ser
 | research-docs | skipped as a separate run: the only new external surfaces are robot_state_publisher parameters/remaps (standard) and two STS RAM registers already mapped in `registers.py`; checked against the ROS 2 robot_state_publisher README conventions | `robot_description` as a parameter, `joint_states` remap | - |
 | research-papers | skipped: two-joint look-at is closed-form-seeded least squares, no research core | - | - |
 
-## Research inputs
+### Research inputs
 
 | Source | Entry | Lands in |
 |---|---|---|
@@ -283,7 +237,113 @@ TF echo, agent tools, web UI, lease release homing, lidar post shadow check. Ser
 | reuse | `RobotModel` (`web_ui/frontend/src/components3d/RobotModel.tsx`), robot-part layers (`map3d/layers.ts`) | head-in-3d-map-view |
 | reuse | `frame_id_defaults`, `publish_topics` (`web_ui/web_ui/config.py`) | web-ui-head-command-backend |
 
-## Decision coverage
+## Irreversible operations
+
+- Writing servo IDs to the head servos' EPROM with `scripts/set_servo_id.py` (reversible by writing again; a hardware
+  step done or confirmed by the user before deploy, covered by U2 and G6).
+- No data deletion, migration, secret rotation or force-push.
+
+## Migrated notes
+
+### README.md: Review
+
+Filled when the epic reaches stage `review`: the verdict, the findings acted on, the findings dropped.
+
+Verdict: pass (2026-10-18)
+
+All 18 tasks verified (4 by hand where the verifier crashed) and merged into main with real merges. Full suite green on main 91ab71c2: root 1417, mcp_server 2678, claude_agent 931, web_ui 879, frontend 1017, feetech 324, static_tf 15, lint, lint-nodes, test-ansible, frontend build. Client deployed (--all, failed=0; web_ui redeployed for the last frontend tasks). Live check: base_servos homed the head to pan -0.005 / tilt 0.518 rad (target 0 / 0.524). Open: user to confirm the head faces forward after the startup swing (pan read raw 2 before startup).
+
+### design.md: Summary
+
+Two Feetech servos (pan, tilt) carry the head RGB camera (head_camera_cpp, `/head_camera/*`) and the Arducam ToF (`/tof`)
+on one rigid frame. They are a `head` servo group on the base bus node `base_servos` left by the split-bus epic, with per-joint speed
+and acceleration caps and a configurable home pose (forward and down) that the bridge drives to at startup. One head URDF
+(`nodes/web_ui/urdf/head.urdf`) is the geometry source for robot_state_publisher (TF for `head_camera_optical_frame` and
+`tof_optical_frame`), for mcp_server (look-at maths, front camera pose) and for the web UI 3D view. The agent gets
+`set_head_angles`, `head_look_at` and `head_home` under either the arm or the base lease; a release that leaves the agent
+holding no lease homes the head. The web UI Head tab gets live pan/tilt sliders and a Home button.
+
+### design.md: Intent and why
+
+The head points the RGB camera and the ToF where the robot needs to look: the ground in front of it for driving, the
+object for grasping, a frontier when exploring. Today the head mount does not exist in software: the Head tab shows
+disabled sliders, `cameras.front` is validated to sit on `base_link`, and no TF exists for either head camera (the
+head-camera epic explicitly left TF to this epic). The servo bus split (blocking epic) frees the bus capacity the two head
+servos need.
+
+### design.md: Goals
+
+- G1: a `head` servo group (`head_pan`, `head_tilt`) on the base bus node `base_servos`: configurable IDs, ranges (defaults pan +-90
+  deg, tilt -30/+45 deg, servo centre 2048 = straight and level), per-joint speed/acceleration caps, `/head/joint_states`
+  published, commands on `/head/joint_commands`.
+- G2: a configurable home pose (forward and down, not the servo centre) used at startup, on Home, and when the agent's
+  controlling lease is released.
+- G3: TF from robot_state_publisher on the head URDF (mount, pan, tilt, rigid head frame, both optical frames with the
+  configured spacing) driven by `/head/joint_states`; static_tf_publisher honours roll and pitch.
+- G4: agent head tools (set angles, look at a point once in base_link or map, home) under the arm or the base lease;
+  releasing returns the head home; camera-scene code takes the head pose instead of assuming base_link.
+- G5: web UI Head tab sliders + Home button; head drawn in the 3D view.
+- G6: tests with fake buses/robots, READMEs, deployed; first live test +-5 deg pan only, then widened.
+
+### design.md: Non-goals
+
+- Continuous target tracking (U5: aim once).
+- Auto-aiming from the zoom tool or a web click (the agent may call `head_look_at` and then zoom).
+- Arbitration between the web UI and the agent for the head (orchestrator ruling R1, D13: web UI head commands are
+  always allowed; last writer wins).
+- A stop behaviour for the head: `stop` does not touch the head (moves are capped and short) (my call).
+- Adding the head to the arm's self-collision body model (orchestrator ruling R2: not in this epic).
+- Head camera intrinsics calibration (cameras.front intrinsics stay null until a calibration file exists).
+
+### design.md: Anti-goals
+
+- The arm bus or the swerve drive regressing: the follower bus gate (>= 95 Hz) and the base bus rate target from the
+  split epic keep passing.
+- Any servo moving at uncapped full speed after a brownout (D3 writes the caps with every goal).
+- Placeholder data: no head joint state, TF or 3D head pose shown before a real sample (robot_state_publisher publishes
+  the moving joints only from real joint states; the web UI disables the sliders and hides the 3D head until the first
+  sample).
+- A dramatic first live motion: the first test is +-5 deg pan only (CLAUDE.md servo safety, U3).
+- Scope creep into tracking, arbitration services, a C++ head controller node, or calibration.
+
+### design.md: Constraints
+
+- ROS 2 Jazzy, Ubuntu 24.04, Pi 5 client. mcp_server, web_ui and claude_agent stay Python (MEMORY "Python nodes
+  stay"); the feetech bridge and static_tf_publisher are existing Python nodes and stay Python; robot_state_publisher is
+  the apt C++ node, so no new code node is written.
+- TDD, test-first with fakes: `nodes/bridges/feetech_servos/tests/sts_bus.py` (emulated STS bus with byte counters),
+  mcp_server `tests/fakes.py` / `FakeRobot`, vitest mocks. No robot in any automated test.
+- No placeholder data on topics (CLAUDE.md).
+- Servo safety (CLAUDE.md): least dramatic movement first; the runbook starts at +-5 deg pan.
+- Deploys only through `scripts/deploy-nodes.sh` with logs in `.logs/`; deploying mcp_server or claude_agent kills a
+  running agent session: check first (MEMORY).
+- The base bus node `base_servos` blocks at startup until every configured servo answers (`bridge.py:_wait_for_servos`): the head
+  servos must be installed with their IDs set before the head group is deployed, or the swerve drive stops working.
+- Planned against the END state of the blocking epics; each task re-reads the files it touches. Expected end state:
+  - Split-bus epic (its design.md D1-D7): `lerobot_follower` drives only the arm; the base bus is `base_servos`
+    (`feetech_servos`, primary namespace `swerve_drive`, `control_loop_hz: 50`, its own `/dev/serial/by-id` adapter,
+    `battery_interval_s: 0`, `node_name` set, metrics 19115) with a client.yml comment marking where the `head`
+    `extra_groups` entry goes; `nodes/bridges/feetech_servos/tests/test_bus_budget.py` loads both configs from client.yml
+    and shows base + a stand-in 2-servo `HEAD` within 0.8 of the 50 Hz period; feetech README `## Bus budget`,
+    `ansible/README.md`, `tests/README.md`, ansible-deploy and teleop-diagnostics skills, MEMORY.md updated.
+  - Head-camera epic: `nodes/head_camera_cpp` publishing `/head_camera/image_raw{,/compressed}` and
+    `/head_camera/camera_info` with frame `head_camera_optical_frame`; mcp_server `topics.head_camera`, tool camera value
+    `front` (described as the head RGB camera); claude_agent `DEFAULT_CAMERA_NOTE` rewritten (D11 there); web_ui Head
+    tab `rgb_camera_topic: /head_camera/image_raw/compressed` with click-to-zoom (`HeadTab.tsx`, `HeadTab.test.tsx`,
+    `camera/zoomApi.ts`), web_ui `server.py` `/api/camera/zoom`; `tests/test_head_camera_live_refs.py`.
+  - Jetson removal epic: Head tab with ToF depth + amplitude only (no fused/stereo toggle), Overview tab gone,
+    `tests/test_jetson_retired.py`, web_ui `config.py` / `default.yaml` / `bridge.py` without stereo fields.
+  - `arducam_tof` publishes with `frame_id: tof_optical_frame` (config default).
+
+### design.md: Orchestrator rulings
+
+- R1: web UI head commands are always allowed (operator); last writer wins against the agent; the agent needs the arm
+  or the base lease (D9, D13).
+- R2: the head is not added to the arm self-collision model in this epic (non-goal).
+- R3: the tilt sign is a config value with a documented default, positive tilt = looking down (matches home "forward
+  and down"); decided and confirmed by the user (2026-10-18) (D2).
+
+### design.md: Decision coverage
 
 | Decision | Tasks |
 |---|---|
@@ -303,7 +363,7 @@ TF echo, agent tools, web UI, lease release homing, lidar post shadow check. Ser
 | D14 Head in the 3D view | head-in-3d-map-view |
 | D15 Verification and runbook | head-config-consistency, head-suite-and-robot-runbook |
 
-## Contracts
+### design.md: Contracts
 
 | Part | Owner | Consumers | Where defined |
 |---|---|---|---|
@@ -318,7 +378,7 @@ TF echo, agent tools, web UI, lease release homing, lidar post shadow check. Ser
 | `web-head-fields` | web-ui-head-command-backend | head-tab-pan-tilt-controls, head-in-3d-map-view, head-config-consistency | `nodes/web_ui/web_ui/config.py` |
 | `head-tab-types` | head-tab-pan-tilt-controls | head-in-3d-map-view | `nodes/web_ui/frontend/src/types.ts` |
 
-## Review focus
+### design.md: Review focus
 
 - `bridge_cycle.py`: the 7-byte capped goal block (address 41, field order, little-endian, never a 0 speed or
   acceleration for a capped joint), uncapped joints byte-identical to today, refresh writes carry the caps.
@@ -332,7 +392,7 @@ TF echo, agent tools, web UI, lease release homing, lidar post shadow check. Ser
 - client.yml: the head group lands on the base bus node `base_servos` (not lerobot_follower), its IDs/steps/caps/home agree with the
   URDF and the other configs.
 
-## Left to the builder
+### design.md: Left to the builder
 
 - Internal names of private helpers, the exact URDF visual shapes and colours (within D5's post routing rule), metric
   names if any are added.
@@ -341,7 +401,7 @@ TF echo, agent tools, web UI, lease release homing, lidar post shadow check. Ser
 - Slider styling and layout within `frontend/src/layout/designRules` (tab design tests).
 - Exact refusal message wording (each must name the limit or the missing lease).
 
-## Assumptions and unknowns
+### design.md: Assumptions and unknowns
 
 - The split epic lands as its design says (`base_servos`, `test_bus_budget.py`); head-servo-group-config
   re-reads both before editing.
@@ -356,8 +416,20 @@ TF echo, agent tools, web UI, lease release homing, lidar post shadow check. Ser
 - robot_state_publisher is installed with ros-base on the Pi; the node type still lists the apt package.
 - The arm can reach the head post; the arm self-collision model does not include the head (R2, non-goal).
 
-## Irreversible operations in scope
+### approvals.json
 
-- Writing servo IDs to the head servos' EPROM with `scripts/set_servo_id.py` (reversible by writing again; a hardware
-  step done or confirmed by the user before deploy, covered by U2 and G6).
-- No data deletion, migration, secret rotation or force-push.
+- G1: A head servo group (pan, tilt) on the base bus node: configurable IDs, ranges (defaults pan +-90 deg, tilt -30/+45 deg, servo centre 2048 = straight and level), per-joint speed/acceleration caps for position joints, joint_states published, commands on /head/joint_commands. The group runs on base_servos at the 50 Hz base bus rate (split epic budget: base + head 14.4 ms vs the 20 ms period). [decisions: D1, D2, D3] [tasks: bridge-position-speed-caps, bridge-startup-goal, head-servo-group-config] [status: approved]
+- G2: Home pose looking forward and down at the ground (configurable, not the servo centre), used at startup, on Home, and whenever the controlling lease is released. [decisions: D4, D10] [tasks: bridge-startup-goal, mcp-head-tools, mcp-lease-release-homes-head, head-tab-pan-tilt-controls, head-config-consistency] [status: approved]
+- G3: TF: robot_state_publisher with a head URDF (mount, pan axis from behind and above the lidar, tilt axis offset, rigid head frame, head_camera_optical_frame and tof_optical_frame with the configured spacing) driven by the head joint states; static_tf_publisher's roll/pitch bug fixed. [decisions: D5, D6, D7] [tasks: head-urdf, head-state-publisher-node, static-tf-roll-and-pitch] [status: approved]
+- G4: Agent (mcp_server + claude_agent): head tools to set pan/tilt, look at a point (aims the RGB camera axis once at a point in base_link or map) and home; usable under the arm or the base lease; releasing the lease returns the head home; camera-scene code stops assuming the head camera sits on base_link. Ruling R2: the head is not added to the arm self-collision model in this epic. [decisions: D8, D9, D10, D11, D12] [tasks: mcp-head-kinematics, mcp-head-controller, mcp-head-tools, mcp-lease-release-homes-head, mcp-front-camera-on-head, mcp-lookups-follow-head-pose, agent-head-tools-and-prompt] [status: approved]
+- G5: Web UI: Head tab pan/tilt sliders + Home button replacing the disabled placeholder, head drawn in the 3D view. [decisions: D13, D14] [tasks: web-ui-head-command-backend, head-tab-pan-tilt-controls, head-in-3d-map-view] [status: approved]
+- G6: Tests with fake buses/robots; READMEs; deployed; first live test +-5 deg pan only, then widened. [decisions: D15] [tasks: head-config-consistency, head-suite-and-robot-runbook] [status: approved]
+- U1: Head servos on the base bus (shared with swerve), separate from the arm bus. [decisions: D1] [tasks: head-servo-group-config] [status: approved]
+- U2: IDs, ranges and mount configurable; defaults pan +-90 deg, tilt -30/+45 deg, servo centre 2048 = straight and level; mount ~35 cm up, ~10 cm left, ~15 cm forward of base_link; the pan post comes from behind and above the lidar covering as little of its view as possible; camera-to-ToF spacing configurable in the head URDF. [decisions: D2, D5] [tasks: head-urdf, head-servo-group-config, head-config-consistency] [status: approved]
+- U3: Per-joint speed/acceleration caps; first live test +-5 deg pan only. [decisions: D3, D15] [tasks: bridge-position-speed-caps, head-servo-group-config, head-suite-and-robot-runbook] [status: approved]
+- U4: Home pose looks forward and down at the ground (configurable, not the servo centre). [decisions: D4] [tasks: bridge-startup-goal, mcp-head-tools, head-tab-pan-tilt-controls, head-config-consistency] [status: approved]
+- U5: Agent look-at aims the RGB camera axis once at a point in base_link or map, no tracking; zoom does not auto-aim. [decisions: D8, D9, D12] [tasks: mcp-head-kinematics, mcp-head-tools, agent-head-tools-and-prompt] [status: approved]
+- U6: The head can be moved under the arm lease OR the base lease (belongs to both); releasing the controlling lease moves the head back home. [decisions: D9, D10] [tasks: mcp-head-tools, mcp-lease-release-homes-head] [status: approved]
+- U7: Web UI: Head tab pan/tilt sliders + Home button, head drawn in the 3D view. [decisions: D13, D14] [tasks: web-ui-head-command-backend, head-tab-pan-tilt-controls, head-in-3d-map-view] [status: approved]
+- R1: Orchestrator ruling: web UI head commands are always allowed (operator); last writer wins against the agent; the agent's head tools need the arm or the base lease. [decisions: D9, D13] [tasks: mcp-head-tools, web-ui-head-command-backend, head-tab-pan-tilt-controls] [status: approved]
+- R3: Orchestrator ruling: the tilt sign is a config value with a documented default, positive tilt = looking down (matches home forward and down); decided, confirmed by the user on 2026-10-18. [decisions: D2] [tasks: head-urdf, head-servo-group-config, head-config-consistency] [status: approved]
