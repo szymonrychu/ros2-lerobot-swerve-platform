@@ -334,7 +334,7 @@ def test_offset_polygon_grows_by_the_margin() -> None:
 def test_cliff_polygon_is_the_footprint_grown_by_the_cliff_margin() -> None:
     settings = load_settings(DEFAULT_CONFIG)
     gen = generated()
-    assert settings.cliff_margin_m == 0.25
+    assert settings.cliff_margin_m == 0.05
     assert gen.cliff_polygon == offset_polygon(gen.footprint, settings.cliff_margin_m, settings.decimals)
     cliff = Polygon(gen.cliff_polygon)
     assert cliff.buffer(TOL).contains(Polygon(gen.footprint))
@@ -365,15 +365,15 @@ def test_cliffstop_region_renders_the_direction_aware_sub_polygons() -> None:
             assert region[name][key] == sub[key], f"{name}.{key}"
 
 
-def test_cliffstop_checks_the_cliff_margin_except_while_backing_away() -> None:
-    """Rotation and every command with a forward or sideways component check the footprint + cliff margin (the true
-    edge lies up to ~0.2 m inside the seen below-floor points); a command with a backward component checks the
-    footprint only, so the robot can back away from cliff points inside the margin (nav2 1.3.13
-    Polygon::getCollisionTime returns 0 for points already inside the selected polygon)."""
+def test_cliffstop_checks_the_cliff_margin_only_for_forward_and_sideways_motion() -> None:
+    """Every command with a forward or sideways component checks the footprint + cliff margin; rotation, zero twist
+    and a command with a backward component check the footprint only, so the robot can turn and back away from cliff
+    points inside the margin (nav2 1.3.13 Polygon::getCollisionTime returns 0 for points already inside the selected
+    polygon); a turn is stopped only by below-floor points under the body."""
     gen = generated()
     subs = gen.cliffstop
     assert list(subs) == ["rotate", "forward", "back"]
-    assert subs["rotate"]["points"] == gen.cliff_polygon
+    assert subs["rotate"]["points"] == gen.footprint
     assert subs["rotate"]["linear_max"] == stopbox_polygons(gen.footprint, 0.02, 4)["rotate"]["linear_max"]
     assert subs["forward"]["points"] == gen.cliff_polygon
     assert subs["back"]["points"] == gen.footprint

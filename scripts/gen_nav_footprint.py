@@ -15,8 +15,8 @@ derives:
   radius; the formula lives in footprint_geometry, mcp_server applies it to the dynamic footprint),
 - the collision_monitor StopBox: per direction sector, the footprint swept stopbox_margin_m toward the motion, plus
   the footprint + stopbox_margin_m for rotation in place and zero twist,
-- the collision_monitor CliffStop: the footprint + cliff_margin_m (the head ToF sees the floor beyond a cliff) for
-  rotation and every command with a forward or sideways component, the footprint alone while backing away,
+- the collision_monitor CliffStop: the footprint + cliff_margin_m for every command with a forward or sideways
+  component, the footprint alone for rotation, zero twist and while backing away,
 - the laser_filter self polygon (footprint + laser_filter_margin_m),
 - the mcp_server nav_footprint numbers (circle segments, gap closing, margins, simplification, decimals, costmap
   resolution, maximum cost scaling, parked-arm shadow), so the footprint mcp_server publishes uses the same geometry
@@ -365,9 +365,10 @@ def cliffstop_polygons(footprint: list[Point2], cliff_polygon: list[Point2]) -> 
     """collision_monitor CliffStop velocity sub-polygons (approach model).
 
     nav2 1.3.13 Polygon::getCollisionTime returns 0 for any command when min_points are inside the selected polygon,
-    so one static polygon would also stop backing away from a seen cliff. The head ToF looks forward, so below-floor
-    points are ahead: rotation and commands with a forward or sideways component check the footprint + cliff margin
-    (the true edge lies up to ~0.2 m inside the seen points), commands with a backward component the footprint only.
+    so one static polygon would also stop backing away from a seen cliff. The D435 looks forward, so below-floor points
+    are ahead: commands with a forward or sideways component check the footprint + cliff margin; rotation, zero twist
+    and commands with a backward component check the footprint only, so a turn is stopped only by below-floor points
+    under the body and the robot can turn and back away from a seen cliff.
 
     Args:
         footprint (list[Point2]): Footprint.
@@ -380,7 +381,7 @@ def cliffstop_polygons(footprint: list[Point2], cliff_polygon: list[Point2]) -> 
         ValueError: A sub-polygon has fewer than MIN_POLYGON_POINTS vertices.
     """
     subs = {
-        "rotate": (cliff_polygon, ROTATE_LINEAR_MAX, -FULL_TURN, FULL_TURN),
+        "rotate": (footprint, ROTATE_LINEAR_MAX, -FULL_TURN, FULL_TURN),
         "forward": (cliff_polygon, LINEAR_MAX, -HALF_TURN, HALF_TURN),
         "back": (footprint, LINEAR_MAX, HALF_TURN, -HALF_TURN),
     }

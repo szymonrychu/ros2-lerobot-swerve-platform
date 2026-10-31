@@ -55,13 +55,16 @@ EXPECTED_DEPTH_SOURCES = {
 PARKING_PHRASES = ("to tune", "starting value", "later", "follow-up", "todo", "phase 2", "out of scope")
 DOCKER_SECTION = "## ToF validation in Docker"
 SOURCES_SECTION = "### Sources: lidar plus head D435"
-# CliffStop sub-polygons in Nav2 selection order: rotation and every command with a forward or sideways component
-# check the footprint + cliff margin; backing away checks the footprint only.
+# CliffStop sub-polygons in Nav2 selection order: every command with a forward or sideways component checks the
+# footprint + cliff margin; rotation (and zero twist) and backing away check the footprint only.
 CLIFFSTOP_SUBS = ["rotate", "forward", "back"]
-# Below-floor points (base_link x range, y range) as in the Docker check: a cliff seen inside CliffStop (0.42-0.52 m
-# ahead, the polygon reaches 0.576 m) and one seen outside it (0.62-0.72 m ahead).
-CLIFF_INSIDE = ((0.42, 0.52), (-0.1, 0.1))
-CLIFF_OUTSIDE = ((0.62, 0.72), (-0.1, 0.1))
+# Below-floor points (base_link x range, y range): a cliff seen inside the footprint + 0.05 m margin but outside the
+# body (ahead of the front-left wheel, whose front is x 0.215; the margin reaches x 0.265), one seen beyond the margin
+# (same y, 0.30-0.40 m ahead, within reach of the approach model) and one under the body (the crossbar). The regions are
+# pinned against the generated polygons by test_cliff_regions_match_the_generated_polygons.
+CLIFF_INSIDE = ((0.23, 0.25), (0.11, 0.15))
+CLIFF_OUTSIDE = ((0.30, 0.40), (0.11, 0.15))
+CLIFF_UNDER_BODY = ((-0.05, 0.05), (-0.05, 0.05))
 
 
 def collision_monitor() -> dict:
@@ -290,8 +293,8 @@ def cliff_points(region: tuple[tuple[float, float], tuple[float, float]]) -> lis
 
 def test_cliffstop_is_a_direction_aware_approach_polygon_with_the_generated_points() -> None:
     """CliffStop keeps the approach model and the generated footprint + cliff margin for every command that moves
-    toward or along a seen cliff, and checks only the footprint while backing away (the D435 looks forward, so the
-    cliff points are ahead)."""
+    toward or along a seen cliff, and checks only the footprint while rotating or backing away (the D435 looks
+    forward, so the cliff points are ahead)."""
     cliff = collision_monitor()["CliffStop"]
     assert cliff["type"] == "velocity_polygon"
     assert cliff["holonomic"] is True
@@ -300,18 +303,47 @@ def test_cliffstop_is_a_direction_aware_approach_polygon_with_the_generated_poin
     assert cliff["enabled"] is True
     assert cliff["velocity_polygons"] == CLIFFSTOP_SUBS
     gen = generated()
-    for sub in ("rotate", "forward"):
-        assert polygon_points(cliff, sub) == [list(p) for p in gen.cliff_polygon], sub
-    assert polygon_points(cliff, "back") == [list(p) for p in gen.footprint]
+    assert polygon_points(cliff, "forward") == [list(p) for p in gen.cliff_polygon]
+    for sub in ("rotate", "back"):
+        assert polygon_points(cliff, sub) == [list(p) for p in gen.footprint], sub
 
 
 @pytest.mark.parametrize(
     ("vx", "vy"),
-    [(0.1, 0.0), (0.0, 0.1), (0.0, -0.1), (0.07, 0.07), (0.0, 0.0)],
-    ids=["forward", "left", "right", "forward_left", "at_rest"],
+    [(0.1, 0.0), (0.0, 0.1), (0.0, -0.1), (0.07, 0.07)],
+    ids=["forward", "left", "right", "forward_left"],
 )
 def test_cliffstop_stops_motion_toward_or_along_cliff_points_inside(vx: float, vy: float) -> None:
     assert collision_time(collision_monitor()["CliffStop"], cliff_points(CLIFF_INSIDE), vx, vy) == 0.0
+
+
+@pytest.mark.parametrize(
+    ("vx", "vy"), [(0.0, 0.0), (0.003, 0.0)], ids=["zero_twist_or_pure_rotation", "creeping_rotation"]
+)
+def test_cliffstop_rotation_passes_cliff_points_outside_the_body(vx: float, vy: float) -> None:
+    """Rotation (and a zero twist) checks the bare footprint: below-floor points in the old 0.25 m margin ring, which
+    froze every turn and a new goal next to a ledge, no longer hold the robot."""
+    polygon = collision_monitor()["CliffStop"]
+    assert selected_sub(polygon, vx, vy, 0.5) == "rotate"
+    assert collision_time(polygon, cliff_points(CLIFF_INSIDE), vx, vy) == -1.0
+
+
+def test_cliffstop_rotation_stops_for_cliff_points_under_the_body() -> None:
+    polygon = collision_monitor()["CliffStop"]
+    assert collision_time(polygon, cliff_points(CLIFF_UNDER_BODY), 0.0, 0.0) == 0.0
+
+
+def test_cliff_regions_match_the_generated_polygons() -> None:
+    """CLIFF_INSIDE lies in the cliff polygon but outside the footprint; CLIFF_OUTSIDE lies outside the cliff polygon;
+    CLIFF_UNDER_BODY lies in the footprint: a later margin change fails here, not as a silent test drift."""
+    gen = generated()
+    footprint, cliff = [list(p) for p in gen.footprint], [list(p) for p in gen.cliff_polygon]
+    for x, y in cliff_points(CLIFF_INSIDE):
+        assert point_inside(x, y, cliff) and not point_inside(x, y, footprint), (x, y)
+    for x, y in cliff_points(CLIFF_OUTSIDE):
+        assert not point_inside(x, y, cliff), (x, y)
+    for x, y in cliff_points(CLIFF_UNDER_BODY):
+        assert point_inside(x, y, footprint), (x, y)
 
 
 @pytest.mark.parametrize(

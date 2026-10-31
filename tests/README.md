@@ -1077,7 +1077,7 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   input validation, poi_store down = RobotError, distance/bearing from the robot heading, label / near-point filters, no
   pose = no distance; one-time import of the legacy `objects.json` (fields kept, file renamed `.migrated`, no second
   import, retried while poi_store is down, empty file renamed, corrupt file moved aside)
-- navigation footprint (`test_footprint.py`): static / dynamic / conservative footprints, arm shadow and carried circle,
+- navigation footprint (`test_footprint.py`): static / dynamic / conservative footprints (published points are the outline shrunk by `footprint_tolerance_m`, laser polygon and ArmStop from the unshrunk outline, `shrink_polygon` helper cases incl. dropped islands and a splitting tolerance), arm shadow and carried circle,
   republish tick and consumers; a keep_position release without fresh joint states publishes the conservative
   footprint with the carried circle at once (kind `conservative`, no "footprint unchanged" outcome) and the tick keeps it
 - look_around (`test_look_around.py`): equal-step plan covering 360 deg and its limits, clearance = footprint
@@ -2005,13 +2005,15 @@ in the mcp_server uv environment, cached per client.yml content) and the check t
 | `test_footprint_hugs_the_body_parts` | The footprint adds under 1 % area to the union of the parts and the parked-arm shadow and reaches nowhere more than one costmap cell beyond it. |
 | `test_footprint_changes_with_a_body_number` | Larger wheel radii give a larger footprint. |
 | `test_radii_follow_nav2_definitions` | Circumscribed radius = farthest vertex, inscribed = nearest edge (Nav2 `calculateMinAndMaxDistances`). |
-| `test_inflation_radius_is_the_circumscribed_radius_rounded_up_to_a_cell` | Inflation radius = circumscribed radius rounded up to the 2.5 cm cell. |
-| `test_cost_scaling_is_steep_but_keeps_the_circumscribed_cost_positive` | `cost_scaling_factor` is `footprint_geometry.cost_scaling_factor` (at most `max_cost_scaling_factor`, at most ln(252) / (circumscribed - inscribed)), 20-30, the inflation cost at the circumscribed radius stays >= 1 (MPPI / Smac footprint-check speed-up) and is under 1/4 of the inscribed cost 6 cm out. |
+| `test_footprint_tolerance_shrinks_the_costmap_footprint_only` | `footprint_tolerance_m` is 0.02; `costmap_footprint` equals `shrink_polygon(footprint, 0.02)`, is simple, counter-clockwise, inside the outline and smaller; the laser polygon still contains the unshrunk outline. |
+| `test_footprint_tolerance_must_not_be_negative` | `Settings` rejects a negative `footprint_tolerance_m`. |
+| `test_inflation_radius_is_the_circumscribed_radius_rounded_up_to_a_cell` | Inflation radius = circumscribed radius of the costmap footprint (outline minus tolerance) rounded up to the 2.5 cm cell. |
+| `test_cost_scaling_is_steep_but_keeps_the_circumscribed_cost_positive` | `cost_scaling_factor` is `footprint_geometry.cost_scaling_factor` of the costmap footprint (at most `max_cost_scaling_factor`, at most ln(252) / (circumscribed - inscribed)), 20-30, the inflation cost at the circumscribed radius stays >= 1 (MPPI / Smac footprint-check speed-up) and is under 1/4 of the inscribed cost 6 cm out. |
 | `test_laser_polygon_is_the_footprint_plus_margin_and_keeps_the_notches` | The laser polygon is simple, contains the footprint + 1 cm, reaches at most 1.5 cm beyond it and leaves the rear notch point outside. |
 | `test_offset_polygon_grows_by_the_margin` | A square grows by exactly the margin (mitred corners). |
 | `test_stopbox_sub_polygons_sweep_the_footprint_toward_their_motion` | Nine sub-polygons (rotate + 8 sectors), each simple with 4+ points, containing the footprint and reaching beyond the self-filter polygon; each directional one contains the footprint moved 2 cm along every direction of its sector but not the footprint moved 1.5 cm away. |
-| `test_stopbox_rotate_covers_every_footprint_corner_through_a_full_turn` | Every footprint vertex turned through 360 deg (1 deg steps) stays inside the `rotate` polygon. |
-| `test_stopbox_rotate_is_the_swept_circle_plus_margin` | `rotate` contains the circle of circumscribed radius + 2 cm and is a tight tangent polygon around it. |
+| `test_stopbox_rotate_is_the_footprint_plus_margin` | `rotate` equals the footprint offset by `stopbox_margin_m` (2 cm), is simple with 4+ points, linear 0-0.005, full direction range, yaw limits +-10. |
+| `test_stopbox_rotate_passes_points_beyond_the_margin` | A point 5 cm ahead of the front wheel (inside the old 0.35 m circle) is outside `rotate`; one 1 cm outside the outline is inside. |
 | `test_stopbox_polygons_function_matches_generate` | `stopbox_polygons` gives the same result as `generate`. |
 | `test_nav2_params_equal_the_generator_output` | Re-rendering `nav2_params.yaml` changes nothing. |
 | `test_laser_filter_equals_the_generator_output` | Re-rendering `footprint_filter.yaml` changes nothing. |
@@ -2020,10 +2022,10 @@ in the mcp_server uv environment, cached per client.yml content) and the check t
 | `test_footprint_geometry_is_shared_with_mcp_server` | The generator's outline, parked-arm union, offset and vertex-order functions are imported from `mcp_server.footprint_geometry` (one implementation for the static and the dynamic footprint). |
 | `test_inflation_formula_lives_in_footprint_geometry` | Circumscribed / inscribed radius, inflation radius and cost scaling factor come from `mcp_server.footprint_geometry` (mcp_server sets the dynamic footprint's inflation with the same formula). |
 | `test_generated_values_land_in_the_parsed_yaml` | Parsed footprints, padding, inflation, StopBox order/points/ranges, the laser polygon and the mcp_server `nav_footprint` numbers equal the generator output. |
-| `test_cliff_polygon_is_the_footprint_grown_by_the_cliff_margin` | The cliff polygon equals the footprint offset by `cliff_margin_m` (0.25), contains the footprint and has >= 4 points. |
+| `test_cliff_polygon_is_the_footprint_grown_by_the_cliff_margin` | The cliff polygon equals the footprint offset by `cliff_margin_m` (0.05), contains the footprint and has >= 4 points. |
 | `test_cliff_margin_must_be_positive` | `Settings` rejects `cliff_margin_m` 0. |
 | `test_cliffstop_region_renders_the_direction_aware_sub_polygons` | The `cliffstop` region renders `velocity_polygons: [rotate, forward, back]` and each sub-polygon's points and ranges as generated. |
-| `test_cliffstop_checks_the_cliff_margin_except_while_backing_away` | `rotate` (below the StopBox rotate speed) and `forward` are the cliff polygon, `back` the footprint; every sub-polygon has >= 4 points and yaw limits +-10. |
+| `test_cliffstop_checks_the_cliff_margin_only_for_forward_and_sideways_motion` | `forward` is the cliff polygon (footprint + 0.05 m), `rotate` (below the StopBox rotate speed) and `back` the footprint; every sub-polygon has >= 4 points and yaw limits +-10. |
 | `test_cliffstop_selects_by_command_direction` | Every 5 deg at 0.1 m/s, first-match selection picks `forward` within +-90 deg (sideways included) and `back` beyond. |
 | `test_nav2_cliffstop_polygon_is_wired_and_listed` | `CliffStop` block in nav2_params (holonomic velocity_polygon, approach, 1.2 s, enabled, `depth_cliff`, >= 4 points per sub-polygon) exists and is listed in `polygons`. |
 | `test_main_writes_the_files_and_is_idempotent` | With bigger wheels in a temp config (and no client.yml, whose region is then skipped), `main` rewrites copies of both files (footprint now contains the bigger wheel), a second run changes nothing, and sections outside the generated regions are untouched. |
@@ -3140,10 +3142,13 @@ Static checks of the collision_monitor D435 sources `depth_obstacles` / `depth_c
 | `test_polygons_include_cliffstop` | `polygons` is exactly `StopBox, ArmStop, CliffStop`. |
 | `test_every_polygon_names_only_declared_sources` | Every listed polygon has a non-empty `sources_names` that names only declared observation sources. |
 | `test_polygon_source_sets` | StopBox `scan, depth_obstacles`; ArmStop `scan`; CliffStop `depth_cliff`. |
-| `test_cliffstop_is_a_direction_aware_approach_polygon_with_the_generated_points` | CliffStop is an enabled holonomic `velocity_polygon` with `approach`, `time_before_collision` > 0 and sub-polygons `rotate, forward, back`; `rotate` / `forward` equal the generator's cliff polygon, `back` the footprint. |
-| `test_cliffstop_stops_motion_toward_or_along_cliff_points_inside` | Cliff points 0.42-0.52 m ahead (inside CliffStop): forward, left, right, forward-left and a zero command get collision time 0 (stop). |
+| `test_cliffstop_is_a_direction_aware_approach_polygon_with_the_generated_points` | CliffStop is an enabled holonomic `velocity_polygon` with `approach`, `time_before_collision` > 0 and sub-polygons `rotate, forward, back`; `forward` equals the generator's cliff polygon, `rotate` and `back` the footprint. |
+| `test_cliffstop_stops_motion_toward_or_along_cliff_points_inside` | Cliff points ahead of the front-left wheel inside the footprint + 0.05 m margin: forward, left, right and forward-left get collision time 0 (stop). |
 | `test_cliffstop_passes_backing_away_from_cliff_points_inside` | The same points: back, back-left and back-right get no collision (pass). |
-| `test_cliffstop_slows_the_approach_to_a_cliff_outside_and_passes_backing_away` | Cliff points 0.62-0.72 m ahead: forward 0.2 m/s gets a collision time inside `time_before_collision` (slowdown), backward none. |
+| `test_cliffstop_rotation_passes_cliff_points_outside_the_body` | The same points: a zero twist and a creeping rotation select `rotate` (bare footprint) and get no collision. |
+| `test_cliffstop_rotation_stops_for_cliff_points_under_the_body` | Below-floor points inside the footprint stop a zero twist. |
+| `test_cliff_regions_match_the_generated_polygons` | The test point regions lie where the names say against the generated polygons (inside the cliff polygon and outside the footprint; beyond the cliff polygon; under the body). |
+| `test_cliffstop_slows_the_approach_to_a_cliff_outside_and_passes_backing_away` | Cliff points 0.30-0.40 m ahead of the front-left wheel (beyond the margin): forward 0.2 m/s gets a collision time inside `time_before_collision` (slowdown), backward none. |
 | `test_depth_sources_keep_the_stale_source_stop` | Node `source_timeout` 1.0, both D435 sources enabled and none overrides it (no `source_timeout: 0.0`), so a D435 or head-TF outage stops motion. |
 | `test_comments_explain_the_outage_stop_and_the_runtime_switch` | The collision_monitor comments name "invalid source", `collision_monitor_node.cpp`, `ros2 param set /collision_monitor depth_cliff.enabled false`, the ArmStop edge noise and the arm shadow. |
 | `test_cliffstop_comment_explains_the_direction_aware_shape` | The CliffStop comment names `getCollisionTime`, the `rotate` / `forward` / `back` sub-polygons and that backing away passes. |

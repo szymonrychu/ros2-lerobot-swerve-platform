@@ -43,9 +43,10 @@ stopbox_margin_m: 0.02
 # and slight bumps are legal, and a start whose outline touches one lethal 2.5 cm cell is not "in collision". The
 # laser_filter self polygon, StopBox and CliffStop keep the unshrunk outline. 0.02 = one costmap cell.
 footprint_tolerance_m: 0.02
-# collision_monitor CliffStop polygon = footprint + this. The head ToF (0.35-0.40 m high) sees the lower floor of a 15 cm
-# step about 0.2 m beyond the edge, so the guard reaches past it.
-cliff_margin_m: 0.25
+# collision_monitor CliffStop forward / sideways polygon = footprint + this: below-floor D435 points this close to the body
+# stop a forward or sideways command. Rotation and backing away check the bare footprint. Small on purpose: a wide ring
+# stopped turns and sideways moves next to a ledge and trapped the robot.
+cliff_margin_m: 0.05
 # mcp_server dynamic footprint (arm released with keep_position=true): the arm shadow and carried-object circle are
 # simplified by this (m) before the union with the exact body outline (removes hull vertices, keeps the costmap
 # footprint check cheap; well inside the laser_filter and stopbox margins).
