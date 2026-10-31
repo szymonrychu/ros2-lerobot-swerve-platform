@@ -55,3 +55,6 @@ ansible/.ansible_facts_cache/
 # graphify knowledge graph (generated locally)
 graphify-out/
 .scratchpad
+
+# Per-improvement plans (superpowers flow), local only
+docs/plans/
