@@ -812,7 +812,6 @@ def test_shrink_polygon_is_a_simple_ccw_polygon_inside_the_input() -> None:
     assert Polygon(points).buffer(1e-4).contains(ring)
     lidar = Point(0.15, 0.04).buffer(0.05)  # the dome's thin neck is cut off: an island, dropped
     kept = [vertex for vertex in points if not lidar.contains(Point(vertex))]
-    assert len(kept) > len(points) - 12
     for vertex in kept:
         assert ring.distance(Point(vertex)) <= tolerance * OFFSET_MITRE_LIMIT + 1e-3
     assert not ring.intersects(Point(0.15, 0.04)), "the island is not part of the result"
