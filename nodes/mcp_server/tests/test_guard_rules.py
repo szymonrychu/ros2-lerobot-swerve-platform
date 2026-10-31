@@ -15,7 +15,6 @@ from pydantic import ValidationError
 
 from mcp_server import config as config_module
 from mcp_server import guard_rules, motion_queue, tools
-from mcp_server.models import FootprintState
 from mcp_server.guard_rules import (
     ARM_ORIGINS,
     FIELDS,
@@ -32,6 +31,7 @@ from mcp_server.guard_rules import (
     Verdict,
     field_spec,
 )
+from mcp_server.models import FootprintState
 
 LATENCY_CALLS = 2000
 LATENCY_RUNS = 3
