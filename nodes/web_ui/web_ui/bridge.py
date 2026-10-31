@@ -13,7 +13,6 @@ map_guard node (std_msgs/Empty on /map_guard/map_reset) drops the GPS anchor and
 from __future__ import annotations
 
 import array
-import collections
 import functools
 import json
 import math
@@ -188,11 +187,6 @@ MAP_SUB_QOS = QoSProfile(
     depth=1,
 )
 DEFAULT_SUB_QOS_DEPTH = 10
-# Zoom images kept per tab so a result arriving after its image still finds it.
-ZOOM_IMAGE_HISTORY = 4
-ZOOM_MAX_PX = 1024
-# Zoom result statuses that come with an image.
-ZOOM_IMAGE_STATUSES = frozenset({"ok", "af_failed"})
 
 # Synthetic WS topic carrying the map_frame -> base_frame TF pose (not a ROS topic).
 ROBOT_POSE_TOPIC = "/web_ui/robot_pose"
@@ -459,7 +453,6 @@ class BridgeNode(Node):
         demand_linger_s: float = DEMAND_LINGER_S,
         imu_status_topic: str | None = None,
         servo_state_topics: dict[str, str] | None = None,
-        zoom_topics: dict[str, tuple[str, str, str]] | None = None,
         map3d_limits: dict[str, tuple[int, float]] | None = None,
         ground_stale_s: dict[str, float] | None = None,
         ground_recorder: GroundRecorderConfig | None = None,
@@ -500,8 +493,6 @@ class BridgeNode(Node):
             demand_linger_s (float): Seconds an on-demand subscription outlives the last client wanting it.
             imu_status_topic (str | None): std_msgs/String IMU calibration status topic (Calibrate page), or None.
             servo_state_topics (dict[str, str] | None): Servo group namespace -> torque_state topic (Calibrate page).
-            zoom_topics (dict[str, tuple[str, str, str]] | None): Head tab id -> (command, result, image) topics of
-                the head camera zoom; the publisher and both subscriptions are created at startup.
         """
         super().__init__("web_ui_bridge")
         self._imu_status: tuple[dict[str, Any], float] | None = None
@@ -576,18 +567,6 @@ class BridgeNode(Node):
         self._grasp_command_pub = (
             self.create_publisher(String, grasp_command_topic, DEFAULT_SUB_QOS_DEPTH) if grasp_command_topic else None
         )
-        self._zoom_pubs: dict[str, Any] = {}
-        self._zoom_pending: dict[str, tuple[str, Future, dict[str, Any] | None]] = {}
-        self._zoom_images: dict[str, collections.deque[tuple[int, bytes]]] = {}
-        for tab_id, (command_topic, result_topic, image_topic) in (zoom_topics or {}).items():
-            self._zoom_pubs[tab_id] = self.create_publisher(String, command_topic, DEFAULT_SUB_QOS_DEPTH)
-            self._zoom_images[tab_id] = collections.deque(maxlen=ZOOM_IMAGE_HISTORY)
-            self.subscribe_always_on(
-                String, result_topic, functools.partial(self.on_zoom_result, tab_id), DEFAULT_SUB_QOS_DEPTH
-            )
-            self.subscribe_always_on(
-                CompressedImage, image_topic, functools.partial(self.on_zoom_image, tab_id), DEFAULT_SUB_QOS_DEPTH
-            )
         roles = topic_roles or {}
         self._map_topics = [topic for topic in topics if roles.get(topic) == "map"]
         self.subscribe_always_on(Empty, MAP_GUARD_RESET_TOPIC, self.on_map_guard_reset, DEFAULT_SUB_QOS_DEPTH)
@@ -1339,112 +1318,6 @@ class BridgeNode(Node):
             future.set_result(result)
         except InvalidStateError:
             log.debug("map3d_result_after_cancel")
-
-    def zoom_request_async(self, tab_id: str, u: float, v: float, zoom: int) -> Future | None:
-        """Publish a head camera zoom command with a fresh request_id.
-
-        Args:
-            tab_id (str): Head tab id whose zoom topics to use.
-            u (float): Normalised x of the point in the default view, in [0, 1].
-            v (float): Normalised y of the point in the default view, in [0, 1].
-            zoom (int): Zoom factor (2, 4 or 8).
-
-        Returns:
-            Future | None: Resolves to {"result": <zoom result dict>, "jpeg": bytes | None} once the matching result
-                and, for ok / af_failed, the image with header stamp == result stamp_ns arrived (either order);
-                None when the tab has no zoom or nothing subscribes the command topic.
-        """
-        pub = self._zoom_pubs.get(tab_id)
-        if pub is None or pub.get_subscription_count() == 0:
-            return None
-        request_id = uuid.uuid4().hex
-        future: Future = Future()
-        future.add_done_callback(lambda _fut: self._zoom_pending.pop(request_id, None))
-        with self._lock:
-            self._zoom_pending[request_id] = (tab_id, future, None)
-        command = {"request_id": request_id, "u": u, "v": v, "zoom": zoom, "max_px": ZOOM_MAX_PX, "af": True}
-        pub.publish(String(data=json.dumps(command)))
-        return future
-
-    def on_zoom_result(self, tab_id: str, msg: Any) -> None:
-        """Handle a zoom result: resolve its request now, or once the image with the same stamp arrives.
-
-        Args:
-            tab_id (str): Head tab the result arrived for.
-            msg (Any): std_msgs/String with the result JSON.
-        """
-        try:
-            result = json.loads(msg.data)
-            request_id = result["request_id"]
-            status = result["status"]
-            stamp_ns = int(result["stamp_ns"])
-        except (ValueError, KeyError, TypeError):
-            log.warning("zoom_result_malformed")
-            return
-        with self._lock:
-            entry = self._zoom_pending.get(request_id)
-            if entry is None or entry[0] != tab_id:
-                return
-            if status not in ZOOM_IMAGE_STATUSES:
-                self._zoom_pending.pop(request_id, None)
-                outcome: dict[str, Any] | None = {"result": result, "jpeg": None}
-            else:
-                self._zoom_pending[request_id] = (tab_id, entry[1], result)
-                outcome = self.pair_zoom_locked(request_id, stamp_ns)
-        if outcome is not None:
-            self.resolve_zoom(entry[1], outcome)
-
-    def on_zoom_image(self, tab_id: str, msg: Any) -> None:
-        """Keep a zoom image and resolve the pending request whose result names its stamp.
-
-        Args:
-            tab_id (str): Head tab the image arrived for.
-            msg (Any): sensor_msgs/CompressedImage JPEG with the source frame stamp in the header.
-        """
-        stamp_ns = msg.header.stamp.sec * 1_000_000_000 + msg.header.stamp.nanosec
-        resolved: list[tuple[Future, dict[str, Any]]] = []
-        with self._lock:
-            self._zoom_images.setdefault(tab_id, collections.deque(maxlen=ZOOM_IMAGE_HISTORY)).append(
-                (stamp_ns, bytes(msg.data))
-            )
-            for request_id, (pending_tab, future, result) in list(self._zoom_pending.items()):
-                if pending_tab != tab_id or result is None or int(result["stamp_ns"]) != stamp_ns:
-                    continue
-                outcome = self.pair_zoom_locked(request_id, stamp_ns)
-                if outcome is not None:
-                    resolved.append((future, outcome))
-        for future, outcome in resolved:
-            self.resolve_zoom(future, outcome)
-
-    def pair_zoom_locked(self, request_id: str, stamp_ns: int) -> dict[str, Any] | None:
-        """Pair a pending request's result with the stored image of the same stamp (caller holds the lock).
-
-        Args:
-            request_id (str): Pending request whose result arrived.
-            stamp_ns (int): Image stamp the result names.
-
-        Returns:
-            dict[str, Any] | None: {"result", "jpeg"} and the request is dropped when the image is there, else None.
-        """
-        tab_id, _future, result = self._zoom_pending[request_id]
-        for image_stamp, jpeg in self._zoom_images.get(tab_id, ()):
-            if image_stamp == stamp_ns:
-                del self._zoom_pending[request_id]
-                return {"result": result, "jpeg": jpeg}
-        return None
-
-    @staticmethod
-    def resolve_zoom(future: Future, outcome: dict[str, Any]) -> None:
-        """Complete a zoom future, tolerating one the caller already cancelled.
-
-        Args:
-            future (Future): Pending zoom future.
-            outcome (dict[str, Any]): {"result", "jpeg"}.
-        """
-        try:
-            future.set_result(outcome)
-        except InvalidStateError:
-            log.debug("zoom_result_after_cancel")
 
     def map_status(self) -> MapStatus | None:
         """Return the latest map_manager status.

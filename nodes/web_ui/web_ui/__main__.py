@@ -66,7 +66,6 @@ def main() -> None:
         tilt_stale_s=config.tilt_guard_stale_s,
         imu_status_topic=config.imu_status_topic(),
         servo_state_topics=config.servo_state_topics(),
-        zoom_topics=config.zoom_topics(),
         ground_stale_s=config.ground_state_stale_s(),
         ground_recorder=config.ground_recorder if config.ground_recorder.enabled else None,
     )

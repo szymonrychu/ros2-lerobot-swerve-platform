@@ -2745,10 +2745,6 @@ ros2_nodes:
           label: "Head"
           # D435 colour stream (JPEG transport).
           rgb_camera_topic: /head/d435/color/image_raw/compressed
-          # Click-to-zoom: head_camera_cpp autofocused full-resolution crop (command, result, image).
-          zoom_command_topic: /head_camera/zoom/command
-          zoom_result_topic: /head_camera/zoom/result
-          zoom_image_topic: /head_camera/zoom/image
           # D435 depth preview (on demand): 16UC1 mm over [0, depth_range_m], near bright, invalid 0 black.
           depth_topic: /head/d435/depth/image_rect_raw
           # RGB-D view (on demand): head_rgbd_cpp RGB + aligned D435 depth, paired by stamp (nodes/head_rgbd_cpp).

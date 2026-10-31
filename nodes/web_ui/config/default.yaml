@@ -122,10 +122,6 @@ tabs:
     label: "Head"
     # D435 colour stream (JPEG transport).
     rgb_camera_topic: /head/d435/color/image_raw/compressed
-    # Click-to-zoom: head_camera_cpp autofocused full-resolution crop (command, result, image).
-    zoom_command_topic: /head_camera/zoom/command
-    zoom_result_topic: /head_camera/zoom/result
-    zoom_image_topic: /head_camera/zoom/image
     # D435 depth preview (on demand): 16UC1 mm, near is bright, depth_range_m or beyond is black, invalid 0 is black.
     depth_topic: /head/d435/depth/image_rect_raw
     # RGB-D view (on demand, only while selected): head_rgbd_cpp RGB with the D435 depth aligned to it, paired by header

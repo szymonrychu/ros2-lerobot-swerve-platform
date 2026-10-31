@@ -158,3 +158,31 @@ def test_urdf_files_are_no_cache(app) -> None:
     """URDF responses revalidate so model changes show after a reload."""
     resp = TestClient(app).get("/api/urdf/robot.urdf")
     assert resp.headers["cache-control"] == "no-cache"
+
+
+def test_camera_zoom_route_is_gone(app) -> None:
+    """The head camera zoom route is retired with head_camera_cpp: POST /api/camera/zoom is not served."""
+    client = TestClient(app)
+    resp = client.post("/api/camera/zoom?tab=head", json={"u": 0.5, "v": 0.5, "zoom": 4})
+    assert resp.status_code in (404, 405)
+    assert not [r for r in app.routes if getattr(r, "path", "") == "/api/camera/zoom"]
+
+
+@pytest.mark.parametrize(
+    "key, value",
+    [
+        ("zoom_command_topic", "/head_camera/zoom/command"),
+        ("zoom_result_topic", "/head_camera/zoom/result"),
+        ("zoom_image_topic", "/head_camera/zoom/image"),
+        ("zoom_timeout_s", 8.0),
+    ],
+)
+def test_head_tab_rejects_zoom_keys(key: str, value: object) -> None:
+    """The head tab has no zoom: every zoom key is an unknown key."""
+    from pydantic import ValidationError
+
+    from web_ui.config import TabConfig
+
+    with pytest.raises(ValidationError, match=key):
+        TabConfig.model_validate({"id": "head", "type": "head", "label": "Head", key: value})
+    assert not hasattr(AppConfig(), "zoom_topics")

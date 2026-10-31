@@ -136,8 +136,6 @@ LEGACY_TILE_SOURCE_ID = "default"
 DEFAULT_ARM_SERVICE_TIMEOUT_S = 30.0
 # Seconds POST /api/grasp waits for the mcp_server answer to a grasp plan (IK sampling of every strategy).
 DEFAULT_GRASP_TIMEOUT_S = 30.0
-# Seconds POST /api/camera/zoom waits for the head camera zoom result and image (AF plus a full-resolution still).
-DEFAULT_ZOOM_TIMEOUT_S = 8.0
 # Seconds POST /api/grasp waits for an immediate rejection of an execute/release before answering "accepted".
 DEFAULT_GRASP_ACCEPT_WAIT_S = 1.0
 
@@ -302,10 +300,6 @@ class TabConfig(BaseModel):
     arm_take_control_service: str | None = None  # arm: std_srvs/Trigger taking the arm lease for the web UI
     arm_release_control_service: str | None = None  # arm: std_srvs/Trigger releasing the lease to the leader
     rgb_camera_topic: str | None = None  # head: sensor_msgs/CompressedImage of the head RGB camera
-    zoom_command_topic: str | None = None  # head: std_msgs/String JSON zoom request (head_camera_cpp)
-    zoom_result_topic: str | None = None  # head: std_msgs/String JSON zoom result (matched by request_id)
-    zoom_image_topic: str | None = None  # head: sensor_msgs/CompressedImage zoom crop (paired with the result by stamp)
-    zoom_timeout_s: float = Field(default=DEFAULT_ZOOM_TIMEOUT_S, gt=0)  # head: seconds to wait for a zoom crop
     rgbd_rgb_topic: str | None = None  # head: sensor_msgs/CompressedImage RGB of head_rgbd_cpp (RGB-D view)
     rgbd_depth_topic: str | None = None  # head: sensor_msgs/Image 16UC1 mm depth registered into rgbd_rgb_topic
     depth_range_m: float = Field(
@@ -380,24 +374,6 @@ class TabConfig(BaseModel):
         if v not in VALID_TAB_TYPES:
             raise ValueError(f"tab type must be one of {sorted(VALID_TAB_TYPES)}, got {v!r}")
         return v
-
-    @model_validator(mode="after")
-    def check_zoom_topics(self) -> TabConfig:
-        """Require the three zoom topics together, and only on a head tab.
-
-        Returns:
-            TabConfig: This tab when the zoom topics are all set or all unset.
-        """
-        topics = (self.zoom_command_topic, self.zoom_result_topic, self.zoom_image_topic)
-        if not any(topics):
-            return self
-        if not all(topics):
-            raise ValueError(
-                f"tab {self.id!r}: zoom_command_topic, zoom_result_topic and zoom_image_topic must be set together"
-            )
-        if self.type != "head":
-            raise ValueError(f"tab {self.id!r}: zoom topics are only valid on a head tab (head camera only)")
-        return self
 
     @model_validator(mode="after")
     def apply_head_defaults(self) -> TabConfig:
@@ -887,18 +863,6 @@ class AppConfig(BaseModel):
         if self.gps_status is not None and self.gps_status.rover_topic:
             roles[self.gps_status.rover_topic] = GPS_STATUS_ROLE
         return roles
-
-    def zoom_topics(self) -> dict[str, tuple[str, str, str]]:
-        """Return the zoom topics of every head tab that has them.
-
-        Returns:
-            dict[str, tuple[str, str, str]]: Tab id -> (command, result, image) topics.
-        """
-        return {
-            tab.id: (tab.zoom_command_topic, tab.zoom_result_topic, tab.zoom_image_topic)
-            for tab in self.head_tabs()
-            if tab.zoom_command_topic and tab.zoom_result_topic and tab.zoom_image_topic
-        }
 
     def poi_command_topic(self) -> str | None:
         """Return the POI command topic of the first map_nav tab.
