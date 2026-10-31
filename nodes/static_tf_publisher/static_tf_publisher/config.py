@@ -1,5 +1,6 @@
 """Configuration for static TF publisher (frame offsets from base_link)."""
 
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,6 +9,9 @@ import yaml
 
 DEFAULT_CONFIG_PATH = Path("/etc/ros2/static_tf_publisher/config.yaml")
 ENV_CONFIG_PATH_KEY = "STATIC_TF_PUBLISHER_CONFIG"
+POSE_KEYS = ("x", "y", "z", "roll", "pitch", "yaw")
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -19,10 +23,10 @@ class FrameTransform:
         child_frame: Child frame ID (e.g. imu_link).
         x: Translation x, meters.
         y: Translation y, meters.
-        z: Translation z, meters (default 0).
-        yaw: Rotation about z, radians (default 0).
-        roll: Rotation about x, radians (default 0).
-        pitch: Rotation about y, radians (default 0).
+        z: Translation z, meters.
+        yaw: Rotation about z, radians.
+        roll: Rotation about x, radians (0 for the shorthand form).
+        pitch: Rotation about y, radians (0 for the shorthand form).
     """
 
     parent_frame: str
@@ -38,8 +42,13 @@ class FrameTransform:
 def load_config(path: Path | None = None) -> list[FrameTransform] | None:
     """Load static TF config from YAML.
 
-    Expected format: frames: [{ parent: base_link, child: imu_link, x: 0, y: 0, z: 0, yaw: 0 }, ...]
+    Expected format: frames: [{ parent: base_link, child: imu_link, x: 0, y: 0, z: 0, roll: 0, pitch: 0, yaw: 0 }, ...]
+    Every frames entry must name all of x, y, z, roll, pitch, yaw: an entry missing any is logged as an error and
+    skipped, so no pose is ever defaulted.
     Or shorthand: imu_link: [x, y, yaw], rplidar_frame: [x, y, yaw] with default parent base_link.
+
+    Args:
+        path (Path | None): config file; None reads DEFAULT_CONFIG_PATH.
 
     Returns:
         list[FrameTransform] | None: Parsed transforms, or None if file missing/invalid.
@@ -65,24 +74,12 @@ def load_config(path: Path | None = None) -> list[FrameTransform] | None:
             child = (item.get("child") or item.get("child_frame") or "").strip()
             if not child:
                 continue
-            x = float(item.get("x", 0.0))
-            y = float(item.get("y", 0.0))
-            z = float(item.get("z", 0.0))
-            yaw = float(item.get("yaw", 0.0))
-            roll = float(item.get("roll", 0.0))
-            pitch = float(item.get("pitch", 0.0))
-            out.append(
-                FrameTransform(
-                    parent_frame=parent,
-                    child_frame=child,
-                    x=x,
-                    y=y,
-                    z=z,
-                    yaw=yaw,
-                    roll=roll,
-                    pitch=pitch,
-                )
-            )
+            missing = [key for key in POSE_KEYS if key not in item]
+            if missing:
+                LOGGER.error("frame %s -> %s skipped: missing %s", parent, child, ", ".join(missing))
+                continue
+            pose = {key: float(item[key]) for key in POSE_KEYS}
+            out.append(FrameTransform(parent_frame=parent, child_frame=child, **pose))
 
     # Shorthand: frame_id: [x, y, yaw]
     for key, value in data.items():
