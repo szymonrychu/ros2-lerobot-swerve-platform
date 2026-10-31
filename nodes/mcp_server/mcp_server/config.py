@@ -22,6 +22,7 @@ DEFAULT_CONFIG_PATH = Path("/etc/ros2/mcp_server/config.yaml")
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_URDF = Path("nodes/web_ui/urdf/so101_arm.urdf")
 DEFAULT_HOME_FILE = Path("/var/lib/ros2/arm/home.yaml")
+DRIVE_POSE_FILE_NAME = "drive_pose.yaml"  # stored drive pose, next to the home file
 DEFAULT_CALIBRATION_STALE_MARKER = Path("/var/lib/ros2/arm/calibration_stale.json")
 DEFAULT_CALIBRATION_DIR = Path("/var/lib/ros2/camera_calibration")
 HEAD_CAMERA_PARENT = "d435_color_frame"  # head URDF link (head.urdf_path) the head (D435 colour) camera hangs on
@@ -465,6 +466,45 @@ class SagCompensationSettings(StrictModel):
         return v
 
 
+class DrivePoseSettings(StrictModel):
+    """Arm pose held while a NavigateToPose goal is active (lifted out of the head camera's view)."""
+
+    enabled: bool = False
+    # Measured-space joint targets (rad) naming every arm joint; None = no configured pose (a stored one may exist).
+    joints: dict[str, float] | None = None
+    # Seconds without an active navigation goal before the arm returns home (chained goals do not cycle the arm).
+    lower_delay_s: float = Field(default=3.0, ge=0.0)
+    speed_scale: float = Field(default=0.3, gt=0.0, le=1.0)
+    # Largest per-joint distance (rad) from the drive pose at which the arm still counts as at the drive pose.
+    tolerance_rad: PositiveFloat = 0.05
+    # Longest wait (s) of a navigation request for the lift before it sends its goal anyway.
+    lift_timeout_s: PositiveFloat = 15.0
+    # Pose stored by /arm/set_drive_pose; wins over joints. None = drive_pose.yaml next to arm.home_file.
+    stored_file: Path | None = None
+
+    @field_validator("joints")
+    @classmethod
+    def every_joint_finite(cls, v: dict[str, float] | None) -> dict[str, float] | None:
+        """Require every arm joint, no other name, and finite values.
+
+        Args:
+            v (dict[str, float] | None): Joint name -> measured angle (rad).
+
+        Returns:
+            dict[str, float] | None: The validated joints.
+        """
+        if v is None:
+            return v
+        if set(v) != set(ARM_JOINTS):
+            raise ValueError(
+                f"arm.drive_pose.joints must name exactly the arm joints {list(ARM_JOINTS)}, got {list(v)}"
+            )
+        bad = [name for name, value in v.items() if not math.isfinite(value)]
+        if bad:
+            raise ValueError(f"arm.drive_pose.joints must be finite: {bad}")
+        return v
+
+
 class ArmSettings(StrictModel):
     """Arm model, home pose storage and gripper mapping."""
 
@@ -507,6 +547,19 @@ class ArmSettings(StrictModel):
     reach_inner_m: float = Field(default=0.05, ge=0.0)
     # Gravity sag compensation of arm joint targets and holds (off by default).
     sag_compensation: SagCompensationSettings = Field(default_factory=SagCompensationSettings)
+    # Drive pose held during navigation (mcp_server drive_pose.py; off by default).
+    drive_pose: DrivePoseSettings = Field(default_factory=DrivePoseSettings)
+
+    @model_validator(mode="after")
+    def drive_pose_file_next_to_home(self) -> "ArmSettings":
+        """Default the stored drive pose file to drive_pose.yaml in the home file's directory.
+
+        Returns:
+            ArmSettings: The validated settings.
+        """
+        if self.drive_pose.stored_file is None:
+            self.drive_pose.stored_file = self.home_file.parent / DRIVE_POSE_FILE_NAME
+        return self
 
     @model_validator(mode="after")
     def mount_height_consistent(self) -> "ArmSettings":

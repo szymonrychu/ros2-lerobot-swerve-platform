@@ -3007,6 +3007,23 @@ ros2_nodes:
           k: {shoulder_lift: 0.141, elbow_flex: 0.169}
           k_lowering: {shoulder_lift: 0.004}
           max_rad: 0.12
+        # Drive pose (nodes/mcp_server/README.md, "Drive pose"): while a NavigateToPose goal is active the arm lifts
+        # from home to these measured-space joints, out of the D435 view, and returns home lower_delay_s after the last
+        # goal ended. Off until checked live (servo safety rule). joints: the parked home
+        # (scripts/gen_nav_footprint.yaml parked_arm_joints) until the FK search picks the drive pose.
+        drive_pose:
+          enabled: false
+          joints:
+            shoulder_pan: -0.003
+            shoulder_lift: -1.35
+            elbow_flex: 1.578
+            wrist_flex: -0.1
+            wrist_roll: -1.637
+            gripper: 0.1
+          lower_delay_s: 3.0
+          speed_scale: 0.3
+          tolerance_rad: 0.05
+          lift_timeout_s: 15.0
       # Inverse reachability map grid (nodes/mcp_server/README.md, "Reach map"): explicit values equal to the defaults.
       # The committed artifact nodes/mcp_server/mcp_server/data/reach_map.npz is built from this block plus the body, arm
       # mount, joint limits/offsets and margins above by scripts/gen_reach_map.py; its key must match (tests fail when
