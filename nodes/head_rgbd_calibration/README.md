@@ -1,28 +1,37 @@
 # head_rgbd_calibration
 
-Robot-side capture, review and compute service for the head RGB-D calibration (ChArUco board seen by the Camera Module 3
-mapping stream and the ToF camera). It keeps the selected poses, thumbnails with the detected corners, coverage and
-results on the robot, so a session survives restarts and deploys. The calibration maths lives in
-`shared/ros2_common/head_rgbd_calibration`; this node owns the session state: poses, thumbnails, coverage and results.
+Robot-side capture, review and compute service for the head RealSense D435 calibration. It runs four calibrations and
+keeps their sessions, thumbnails, coverage and results on the robot, so a session survives restarts and deploys:
 
-This README covers the config, the session store (`head_rgbd_calibration/store.py`, `images.py`) and the live capture
-(`head_rgbd_calibration/capture.py`).
+- **D435 intrinsics check**: ChArUco stills of the D435 colour stream with the depth aligned to it; the colour
+  intrinsics fitted from them are compared with the factory camera_info, and the aligned depth is checked against the
+  board plane. No calibration file is written: the D435 factory intrinsics stay authoritative (design D10).
+- **Head floor fit**: a guided head sweep over a flat floor; floor planes in the D435 depth cloud fit the head mount,
+  tilt zero and roll ("Head floor fit").
+- **Head from arm**: the board on the gripper, the arm moves it through scripted poses and the head D435 colour views
+  fit the head chain, the pan axis and the `d435_joint` mount ("Head from arm calibration").
+- **Arm offsets**: the same head_arm sessions re-solve the arm joint offsets and the tool point ("Arm offsets compute
+  and apply").
+
+The calibration maths lives in `shared/ros2_common/head_rgbd_calibration`; this node owns the session state. After an
+apply the head nodes in `restart_units` (`ros2-head_rgbd_cpp.service`, `ros2-head_state_publisher.service`) are
+restarted by the Ansible apply path unit, never by this node.
 
 ## State directory
 
 `state_dir` (default `/var/lib/ros2/head_rgbd_calibration`) is owned by the service user and never touched by deploys.
-Only poses the live counter selected are stored; a 30-pose session is about 6 MB.
+Only the stills the capture judged are stored.
 
 ```
-sessions/<sid>/session.json                 id, created, lens_position, rgb_size, tof_size, tof_info (SDK camera_info) or null, next_pose
-sessions/<sid>/poses/<pid>/rgb.jpg          mapping JPEG bytes exactly as received
-sessions/<sid>/poses/<pid>/amplitude.png    uint16 PNG
-sessions/<sid>/poses/<pid>/depth.png        uint16 mm PNG; absent when no depth frame was within max_pair_dt_s
-sessions/<sid>/poses/<pid>/pose.json        stamps, rgb and tof corner ids and points
+sessions/<sid>/session.json                 id, kind (intrinsics | head_arm), created, rgb_size, next_pose
+sessions/<sid>/poses/<pid>/rgb.jpg          colour JPEG bytes exactly as received
+sessions/<sid>/poses/<pid>/depth.png        aligned depth, uint16 mm PNG (intrinsics sessions)
+sessions/<sid>/poses/<pid>/pose.json        stamps, colour corner ids and points, factory camera_info, hints
 sessions/<sid>/poses/<pid>/rgb_thumb.jpg    <= thumbnail_width_px wide, corners drawn
-sessions/<sid>/poses/<pid>/tof_thumb.jpg    normalised amplitude enlarged 2x, corners drawn
+sessions/<sid>/poses/<pid>/depth_thumb.jpg  colourised aligned depth (turbo), corners drawn (intrinsics sessions)
 sessions/<sid>/results/<rid>/               result files, result.json last
-applied/                                    the applied calibration
+floor_fit/<sid>/                            floor sweep sessions ("Head floor fit")
+applied/                                    applied.json and the applied head_chain.json
 ```
 
 - Ids: session `calib-YYYYmmdd-HHMMSS` (`-N` when that second is taken), pose `001` (zero-padded from `next_pose`, never
@@ -30,67 +39,65 @@ applied/                                    the applied calibration
   `state_dir`: a bad id raises `InvalidId`, a missing item `NotFound` (both answer 404 in the HTTP layer).
 - Writes are atomic: JSON files go through a temp file and `os.replace`; a pose directory is written under a
   `.tmp-<pid>` name and renamed into place. One lock serialises mutations.
-- `session.json` records `rgb_size` and `tof_size` from the first pose; a pose of another size is refused with
-  `ValueError`. A pose whose amplitude frame is empty (no thumbnail possible) is refused too and not stored.
-- Coverage (`SessionStore.coverage`) counts the stored corners per cell of the `coverage` grid, per camera; it is never
+- `session.json` records `rgb_size` from the first pose; a pose of another size is refused with `ValueError`.
+  `SessionStore.add_pose` also refuses a depth that is not the colour size (not aligned), a camera_info for another
+  image size and a depth with no valid pixel; nothing is stored then. `pose.json` records `plane_bias_samples`, the
+  valid aligned depth pixels inside the detected board.
+- A `session.json` without `kind` is a session of the retired RGB + ToF calibration (`rgbd`): it is listed by no route
+  and nothing computes it.
+- Coverage (`SessionStore.coverage`) counts the stored colour corners per cell of the `coverage` grid; it is never
   invented, and a session without poses gives zeros.
 
 ## Capture
 
-`CaptureController(node, store, cfg, clock)` (`head_rgbd_calibration/capture.py`) subscribes the head topics only while
+`CaptureController(node, store, cfg, clock)` (`head_rgbd_calibration/capture.py`) subscribes the D435 topics only while
 a capture runs (design D4) and publishes nothing.
 
-- `start(session_id)` creates a session (`None`) or reopens an existing one to add poses (`NotFound` for an unknown id).
-  It reads `lens_position` from `head_camera_config_file` (the deployed head_camera_cpp `config.yaml`;
-  `default_lens_position` when the key is absent). An unreadable or invalid file, or a reopened session captured at
-  another lens position, fails the start with `CaptureError` naming the reason, and nothing is subscribed. A second
-  start while one runs raises `Busy`. The core `PoseCounter` starts at the stored pose count, so a reopened session
-  continues its numbering.
-- Subscriptions, with the QoS measured on the robot:
+- `start(session_id)` creates an intrinsics session (`None`) or reopens one to add poses (`NotFound` for an unknown id,
+  `CaptureError` for a session of another kind). A second start while a capture or a still session runs raises `Busy`.
+  The pose numbering continues from the stored pose count.
+- Subscriptions:
 
   | Topic | Type | QoS |
   |---|---|---|
-  | `topics.amplitude`, `topics.depth` | `sensor_msgs/Image` | RELIABLE KEEP_LAST `qos.tof_depth` (the publisher is RELIABLE; BEST_EFFORT loses about half the frames under load) |
-  | `topics.tof_info` | `sensor_msgs/CameraInfo` | RELIABLE depth 1 |
-  | `topics.rgb` (mapping stream) | `sensor_msgs/CompressedImage` | BEST_EFFORT KEEP_LAST `qos.rgb_depth` |
+  | `topics.depth` (`/head/d435/aligned_depth_to_color/image_raw`) | `sensor_msgs/Image` 16UC1 mm | RELIABLE KEEP_LAST `qos.depth` (the driver default) |
+  | `topics.rgb_info` (`/head/d435/color/camera_info`) | `sensor_msgs/CameraInfo` | RELIABLE depth 1 |
+  | `topics.rgb` (`/head/d435/color/image_raw/compressed`) | `sensor_msgs/CompressedImage` | BEST_EFFORT KEEP_LAST `qos.rgb` |
 
-- Any subscriber to the mapping topic engages the head camera focus lock (`head_camera_node.cpp`
-  `focus_lock_desired`). So `stop()`, the `max_capture_s` timer and a start that fails part-way all destroy every
-  subscription and the timer: nothing outlives the capture.
-- Frames: amplitude and depth decode as `mono16` / `16UC1` honouring `step` and `is_bigendian`; the RGB frame decodes
-  with `cv2.imdecode` and its JPEG bytes are kept as `rgb.jpg`. A frame that does not decode is logged (throttled) and
-  dropped, never fed. Header stamps order the frames. Each pose the counter captures goes to `SessionStore.add_pose`
-  with the detections of its judgement (no re-detection); the first `/tof/camera_info` of a capture is recorded with
-  `set_tof_info`. A pose the store refuses (for example another image size) is logged and shown in the status.
-- Hints: `SessionStore.add_pose` writes `hints` into `pose.json`, a list of operator texts from
-  `ros2_common.head_rgbd_calibration.hints.capture_hints` (no re-detection, no extra image work). A camera that sees
-  fewer than half the board's inner corners gets `few corners: N RGB - move the board closer / fill the frame` or
-  `few corners: N ToF - move the board closer to the ToF camera / fill its frame`; fewer than 6 corners seen by both
-  cameras (`MIN_COMMON_CORNERS`) gives `only N corners seen by both cameras - not used for the stereo fit; keep the
-  board in both views`. A good pose has `hints: []`. A pose stored before this field existed has no `hints` key:
-  `SessionStore.pose_hints` computes them from the stored detections when the session is read (nothing is written
-  back).
-- `state()` returns `{running, session_id, status, pose_count, started_at, stops_at}`. `status` is the counter status
-  (`waiting for frames` until both the RGB and the amplitude stream delivered a frame, then `moving`, `still - no board
-  in the RGB image`, `still - board not found by the ToF: move closer`, `pose N captured - move to the next pose`), or
-  why the capture stopped. `stops_at` is set only while running.
+- `stop()`, the `max_capture_s` timer and a start that fails part-way destroy every subscription and the timer: nothing
+  outlives the capture.
+- Pairing and stillness (`StillPairCounter`): the driver stamps the aligned depth with its colour frame's stamp, so a
+  colour frame and a depth frame pair on the exact stamp; an unpaired frame more than 1 s older than the newest is
+  dropped. A pair is still when every consecutive pair over `selection.still_window_s` differs by less than
+  `selection.still_rgb_mad` (grey levels) and `selection.still_depth_mad` (mean depth change as a fraction of the
+  median depth); pairs in the first `selection.skip_start_s` (auto exposure settling) are never captured. One still is
+  stored per still window, once the board is detected on the colour and a factory colour camera_info has arrived.
+- Frames: the depth decodes as `16UC1` honouring `step` and `is_bigendian`; the colour decodes with `cv2.imdecode` and
+  its JPEG bytes are kept as `rgb.jpg`. A frame that does not decode is logged (throttled) and dropped. A pose the store
+  refuses is logged and shown in the status.
+- Hints: `pose.json` carries `hints`, operator texts with no re-detection: a still whose colour image shows fewer than
+  half the board's inner corners gets `few corners: N RGB - move the board closer / fill the frame`. A good still has
+  `hints: []`.
+- `state()` returns `{running, session_id, status, pose_count, started_at, stops_at}` (plus `kind: "head_arm"` for a
+  still session). `status` is the counter status (`waiting for frames` until a pair was judged, then `moving`,
+  `still - no board in the colour image`, `still - no colour camera_info yet`, `pose N captured - move to the next
+  pose`), `idle` before the first start, or why the capture stopped. `stops_at` is set only while running.
 - Threads: the subscription and timer callbacks run on the executor thread; `start`, `stop` and `state` run on HTTP
-  threads. One lock guards the shared state and is held only for field updates. Decoding, detection and pose writes
-  run on the executor thread (serialised by a second lock no HTTP call takes); an HTTP call only creates or destroys
-  subscriptions and, for a new session, writes its `session.json`. Callback errors are logged, never raised into the
-  executor.
+  threads. One lock guards the shared state and is held only for field updates. Decoding, pairing, detection and pose
+  writes run on the executor thread (serialised by a second lock no HTTP call takes). Callback errors are logged, never
+  raised into the executor.
 
 ### Still capture (head_arm sessions)
 
 `CaptureController.start_still_session(session_id)` opens a `head_arm` session and subscribes the D435 colour stream,
-its camera_info `topics.rgb_info`, `topics.head_joint_states` and `topics.arm_joint_states` (refused while an RGB-D
-capture runs). `still_camera_info()` is the latest colour camera_info of the running session (None before the first).
-`capture_still(arm_pose, tier, head_offset)` blocks (sequencer thread) until the last `still.window_s` of frames differ
-by at most `still.rgb_mad` and all seven joints moved less than `still.joint_still_rad`, detects `fit.board` in the
-newest frame, and stores it with the head and arm samples nearest its stamp (within `still.max_joint_dt_s`) and the
-latest factory colour camera_info. The outcome reason is `stored`, `no board`, `no colour camera_info`, `joints stale`,
-`not still within <t> s` or `refused: <store message>`; a missing joint means no pose, never a zero. `stop()` destroys
-every subscription. `fit.board` must equal `board`.
+its camera_info `topics.rgb_info`, `topics.head_joint_states` and `topics.arm_joint_states` (refused while an
+intrinsics capture runs). `still_camera_info()` is the latest colour camera_info of the running session (None before
+the first). `capture_still(arm_pose, tier, head_offset)` blocks (sequencer thread) until the last `still.window_s` of
+frames differ by at most `still.rgb_mad` and all seven joints moved less than `still.joint_still_rad`, detects
+`fit.board` in the newest frame, and stores it with the head and arm samples nearest its stamp (within
+`still.max_joint_dt_s`) and the latest factory colour camera_info. The outcome reason is `stored`, `no board`, `no
+colour camera_info`, `joints stale`, `not still within <t> s` or `refused: <store message>`; a missing joint means no
+pose, never a zero. `stop()` destroys every subscription. `fit.board` must equal `board`.
 
 ## Config keys
 
@@ -101,16 +108,22 @@ keys are rejected.
 |---|---|---|
 | `state_dir` | `/var/lib/ros2/head_rgbd_calibration` | Sessions, poses, results |
 | `http_host` / `http_port` | `127.0.0.1` / `18110` | HTTP API bind |
-| `topics.rgb` / `amplitude` / `depth` / `tof_info` | mapping compressed, `/tof/amplitude/image_raw`, `/tof/depth/image_raw`, `/tof/camera_info` | Capture topics |
-| `qos.tof_depth` / `qos.rgb_depth` | 10 / 5 | Subscription queue depths |
+| `topics.rgb` / `depth` / `rgb_info` | `/head/d435/color/image_raw/compressed`, `/head/d435/aligned_depth_to_color/image_raw`, `/head/d435/color/camera_info` | D435 capture topics (`nodes/bridges/realsense_d435/config/topics.yaml`) |
+| `topics.head_joint_states` / `arm_joint_states` | `/head/joint_states`, `/follower/joint_states` | Measured joints of the head_arm still capture |
+| `qos.depth` / `qos.rgb` | 10 / 5 | Subscription queue depths |
 | `max_capture_s` | 900 | Longest single capture |
 | `compute_timeout_s` / `compute_nice` | 600 / 10 | Compute child limits |
-| `head_camera_config_file`, `default_lens_position` | | Lens position source and fallback |
-| `head_urdf_file` | deployed checkout `head.urdf` | URDF the tof_joint comes from |
-| `restart_units`, `restart_check_s` | head nodes, 60 | Restarted after applying |
-| `thumbnail_width_px` | 320 | `rgb_thumb.jpg` width (never enlarged) |
+| `camera_frame` | `d435_color_optical_frame` | Optical frame of the D435 colour stream; the head-from-arm and arm fits solve the camera in it |
+| `head_urdf_file`, `arm_urdf_file` | deployed checkout `head.urdf`, `so101_arm.urdf` | Start head chain (with the applied overrides) and the arm FK |
+| `restart_units`, `restart_check_s` | `ros2-head_rgbd_cpp.service`, `ros2-head_state_publisher.service`; 60 | Units the apply path unit restarts after an apply, reported with their state |
+| `thumbnail_width_px` | 320 | Thumbnail width (never enlarged) |
 | `coverage.cols` / `coverage.rows` | 4 / 3 | Coverage grid |
-| `board`, `selection`, `limits` | core defaults | ChArUco board, still-pose selection (`selection.amplitude_percentiles` also normalises the ToF thumbnail), fit limits |
+| `board` | 6x5, 40 mm squares, 30 mm markers, `DICT_5X5_100`, 4 mm plate | ChArUco board; equals the charuco block of `scripts/markers_generate.yaml` |
+| `selection` | window 0.5 s, colour MAD 2.0, depth MAD 0.01, skip 2.0 s | Still-pair selection of the intrinsics check |
+| `limits` | plane bias 10 mm, plane spread 50 mm, 12 views, RMS 0.5 px, focal 1 %, principal point 5 px | Intrinsics check acceptance limits |
+| `floor` | see "Head floor fit" | Floor sweep and fit |
+| `still` | window 0.6 s, MAD 2.0, joints 0.002 rad, joint dt 0.1 s, timeout 6 s | head_arm still capture |
+| `robot` | `http://127.0.0.1:18200/mcp`, `/etc/ros2/mcp_server/token` | mcp_server the sequencer drives the arm and head through |
 | `fit.board_mount` | measured by the user 2026-10-23 | Start value of the board pose in `gripper_link`: the board on a stick in the closed gripper, plane across the tool axis 2 cm past the URDF tool point, print toward the arm, centre 0.12 m above the tool axis on the side that is up at the parked arm (FK of `scripts/gen_nav_footprint.yaml` `parked_arm_joints`), long edges level there. Hand-measured, not fit-solved (design D47); the fit solves the real mount |
 | `fit.fit_pan_axis` | true | Head-from-arm fit: also fit the head pan axis position (`pan_axis_x_m`, `pan_axis_y_m`: the `head_pan` origin x, y in `head_pan_base`); the `head_tilt` origin moves back by the same shift, so the head is unchanged at pan 0 and only the axis it turns about moves. Session calib-20261023-074418 put the axis 37.9 mm behind and 11.2 mm right of the URDF value: the fixed axis left 13 px at the +-10 deg pan offsets (rms 12.2 px), the free axis fits every head offset at 2.6-2.8 px. The result.json `params` carry both entries (no floor value), `offset_rms_px` lists `{head_offset, views, rms_px}` per head offset (report.md: `## Residuals per head offset`), and a passing `head_chain.json` holds the `head_pan` origin for every consumer of `apply_overrides` (head_state_publisher, mcp_server HeadKinematics, web_ui) |
 | `fit.fit_camera_mount` | true | Head-from-arm fit: also fit the D435 mount on the head (`camera_x_m`, `camera_z_m`, `camera_roll_deg`, `camera_yaw_deg`: the `d435_joint` origin x, z, roll, yaw, refined from the CAD start); its y and pitch are not observable (degenerate with the mount y and the tilt zero) and keep the head URDF values. A passing `head_chain.json` holds the fitted `d435_joint` origin |
@@ -128,65 +141,46 @@ keys are rejected.
 
 ## Compute
 
-`head_rgbd_calibration/compute.py` fits the calibration from one session's stored poses (`SessionStore.load_views`:
-`pose.json` detections and `depth.png` only, never a bag or the RGB/amplitude images). `ComputeJob` in `jobs.py` runs
-it as a child `nice -n <compute_nice> python -m head_rgbd_calibration.compute --config <HEAD_RGBD_CALIBRATION_CONFIG>
---session <sid> --result <rid>`, one at a time (`Busy` otherwise), so it never runs in the web_ui loop or the capture
-process. The child is killed after `compute_timeout_s` (`error: timed out after N s`); a non-zero exit without
-`result.json` reports the last 20 stderr lines as `error`. `state()` returns
+`head_rgbd_calibration/compute.py` runs the D435 intrinsics check of one session's stored stills
+(`SessionStore.load_stills`: colour, aligned depth and the recorded factory camera_info). `ComputeJob` in `jobs.py`
+runs it as a child `nice -n <compute_nice> python -m head_rgbd_calibration.compute --config
+<HEAD_RGBD_CALIBRATION_CONFIG> --session <sid> --result <rid>`, one at a time (`Busy` otherwise), so it never runs in
+the web_ui loop or the capture process. The child is killed after `compute_timeout_s` (`error: timed out after N s`); a
+non-zero exit without `result.json` reports the last 20 stderr lines as `error`. `state()` returns
 `{running, session_id, result_id, started_at, error}`.
 
-Output goes to `sessions/<sid>/results/<rid>/`, written under `.tmp-<rid>` and renamed when complete:
+- Intrinsics: the board is detected on every colour still and the colour intrinsics are fitted from the detections
+  (`check_intrinsics`, at least `limits.min_views` views); the fit RMS, the larger of the fx/fy differences from the
+  factory camera_info (%) and the principal point distance (px) are judged against the `limits.intrinsics_max_*`
+  limits.
+- Board-plane depth bias: per still the board plane is solved by PnP with the factory K and D, and the aligned depth
+  inside the board outline is compared with it; the median of the per-still medians must be within
+  `limits.plane_max_bias_mm` and the median spread within `limits.plane_max_spread_mm`. A bias no still could measure
+  fails `limits.plane_max_bias_mm`.
+- Every still must carry the same factory camera_info (a still without one, or a changed one, is an input error: start
+  a new session).
 
-| File | Content |
-|---|---|
-| `head_camera_calibration.yaml`, `tof_calibration.yaml` | ROS camera_info YAMLs (`head_camera`, `tof`) |
-| `head_rgbd_extrinsics.yaml` | ToF in RGB optical frame, with session, lens position, board, date, RMS |
-| `tof_joint.json` | `{xyz, rpy, note}` of the head URDF `tof_joint` |
-| `head.urdf` | `cfg.head_urdf_file` with that `tof_joint` rewritten (the checkout is never written) |
-| `report.md` | Run report |
-| `result.json` | `id, session, created, passed, failed_limits, rgb_rms_px, tof_rms_px, stereo_rms_px, plane_bias_mm, rgb_views, tof_views, stereo_pairs, lens_position, pose_ids, limits` (plus `error` on failure) |
-| `limits` | every acceptance limit that judged the result: `rgb_max_rms_px, tof_max_rms_px, stereo_max_rms_px, tof_zero_distortion_rms_px, plane_max_bias_mm, plane_max_spread_mm, min_views`; a result fails when the absolute median plane depth bias exceeds `plane_max_bias_mm` (40 mm); pairs where more than half the board pixels lie farther than `plane_max_spread_mm` (50 mm) from the pair median (background inside the board outline) are left out of the median and counted in the report |
+Output goes to `sessions/<sid>/results/<rid>/`, written under `.tmp-<rid>` and renamed when complete: `report.md` (the
+check report) and `result.json` `{id, session, created, kind: "intrinsics", passed, failed_limits, rms_px,
+focal_diff_pct, principal_diff_px, plane_bias_median_mm, plane_bias_spread_mm, views, pose_ids, poses, limits}`, where
+`poses` lists `{id, error_px, plane_bias_mm, plane_spread_mm}` per still (null where the still has no detection or no
+bias). Each failed limit in `failed_limits` names its `limits.*` key. An input error (not an intrinsics session, too few
+views, no or differing factory camera_info) writes only `result.json` with `passed: false`, `error` and `poses: []`.
 
-`result.json` also carries `poses` (one `{id, rgb_error_px, tof_error_px, stereo_error_px, outlier}` per pose; an error
-is `null` where the pose is not in that fit, `outlier` lists the fits `rgb`, `tof`, `stereo` in which it is flagged) and
-`outlier_poses` (ids flagged in any fit). Both are `[]` when the run failed with an `error`.
+## Accept and download
 
-### Per-pose errors and outliers
-
-Compute records each pose's reprojection error (px) in the three fits: OpenCV's per-view errors of the RGB and the ToF
-intrinsic fit, and the per-pair error of the stereo fit (only poses seen by both cameras). A pose is flagged in a fit
-when its error is greater than `max(3 x median of the poses' errors in that fit, that fit's limit)`
-(`OUTLIER_MEDIAN_FACTOR`, limit = `rgb_max_rms_px`, `tof_max_rms_px` or `stereo_max_rms_px`), so a good session flags
-nothing.
-
-- `result.json`: `poses` and `outlier_poses` as above.
-- `report.md`: a `## Per-pose reprojection errors` table (RGB, ToF, stereo, flag; `-` where not in the fit) and a
-  `Flagged poses` list, each line ending `delete pose NNN and Compute again` (`Flagged poses: none` otherwise).
-- `failed_limits`: a failed RGB, ToF or stereo RMS limit whose fit has flagged poses is suffixed, for example
-  `limits.rgb_max_rms_px: RGB RMS 8.280 px exceeds 0.5 px - outlier pose 007 (66.600 px): delete pose 007 and Compute again`.
-- Nothing is pruned automatically: the fit always uses every pose. The operator deletes the pose
-  (`DELETE /api/sessions/{sid}/poses/{pid}`, or the Calibrate page) and runs Compute again.
-
-A run over the limits has `passed: false`, `failed_limits`, and only `report.md` + `result.json`. A core `ValueError`
-(too few views, no ToF camera_info) or an unreadable URDF writes only `result.json` with `passed: false` and `error`,
-so there is no report.
-
-## Apply and download
-
-`head_rgbd_calibration/apply.py` (design D6). `apply_result(store, sid, rid, now)` refuses unless the result's
-`result.json` has `passed: true` (`NotApplicable`), copies `head_camera_calibration.yaml`, `tof_calibration.yaml`,
-`head_rgbd_extrinsics.yaml` and `tof_joint.json` into `<state_dir>/applied/` (each through a temp file and
-`os.replace`), then writes `applied.json` (`session`, `result`, `applied_at`, `files`) last, so a failure mid-apply
-leaves the previous marker intact. The head nodes and the Ansible path unit read this directory; the node never runs
-`systemctl restart`.
+`head_rgbd_calibration/apply.py` (design D6, D10). `apply_result(store, sid, rid, now)` refuses unless the result is an
+intrinsics check (`kind: "intrinsics"`) with `passed: true` (`NotApplicable`). Accepting copies no file: it records
+`{kind: "intrinsics", session, result, applied_at}` in `<state_dir>/applied/applied.json` (through a temp file and
+`os.replace`), keeping the `head_chain` record the floor, head-from-arm and arm applies keep there. A head chain apply
+needs this record (the Calibrate page's Accept check). The node never runs `systemctl restart`.
 
 `applied_state(store, units, run)` returns `applied.json` plus per unit `{name, active_state, restarted}` from the
 unprivileged `systemctl show --timestamp=unix -p ActiveEnterTimestamp -p ActiveState <unit>`; `restarted` is true when
 the unit became active at or after `applied_at`. It is None when nothing is applied.
 
-`download_zip(store, sid, rid)` returns `<sid>-<rid>.zip` holding the three YAMLs, `tof_joint.json`, `head.urdf` and
-`report.md` so the result can be committed.
+`download_zip(store, sid, rid)` returns `<sid>-<rid>.zip` holding `report.md`, `result.json` and, for an arm result,
+`joint_offsets_snippet.yaml`, so the result can be reviewed and committed.
 
 ## HTTP API
 
@@ -196,17 +190,17 @@ malformed ids give 404, busy or not-applicable give 409.
 | Route | Purpose |
 |---|---|
 | `GET /api/state` | capture status, compute status and `applied.json` (null when nothing applied; no systemctl call) |
-| `POST /api/capture/start` | start capture (body optional `session_id`); answers the `GET /api/state` body; 409 while compute runs |
+| `POST /api/capture/start` | start an intrinsics capture (body optional `session_id`); answers the `GET /api/state` body; 409 while compute runs |
 | `POST /api/capture/stop` | stop capture; answers the `GET /api/state` body |
-| `GET /api/sessions` | list sessions |
-| `GET /api/sessions/{sid}` | session detail with poses (each with `hints`), results and `coverage` |
+| `GET /api/sessions` | list the intrinsics sessions `[{id, created, pose_count, result_count}]` |
+| `GET /api/sessions/{sid}` | session detail: poses (`id`, `rgb_corners`, `plane_bias_samples`, `hints`), `coverage` and results; 400 for a session of another kind |
 | `DELETE /api/sessions/{sid}/poses/{pid}` | delete one pose |
-| `GET /api/sessions/{sid}/poses/{pid}/{rgb\|tof}.jpg` | thumbnail, `image/jpeg` |
-| `POST /api/sessions/{sid}/compute` | start compute (202 `{result_id}`); 409 while capture runs or fewer than `limits.min_views` poses |
+| `GET /api/sessions/{sid}/poses/{pid}/{rgb\|depth}.jpg` | thumbnail, `image/jpeg` |
+| `POST /api/sessions/{sid}/compute` | start the check (202 `{result_id}`); 409 while capture runs or fewer than `limits.min_views` poses |
 | `GET /api/sessions/{sid}/results/{rid}` | result with report |
 | `GET /api/sessions/{sid}/results/{rid}/download` | `application/zip`, attachment `<sid>-<rid>.zip` |
-| `POST /api/sessions/{sid}/results/{rid}/apply` | apply a passed result; answers the applied record plus `units`, the same body as `GET /api/applied`; 409 if it did not pass or compute runs |
-| `GET /api/applied` | applied info plus per-unit restart state; 404 when nothing applied |
+| `POST /api/sessions/{sid}/results/{rid}/apply` | accept a passed check; answers the applied record plus `units`, the same body as `GET /api/applied`; 409 if it did not pass or compute runs |
+| `GET /api/applied` | applied record plus per-unit restart state; 404 when nothing applied |
 
 ### Response contract
 
@@ -217,11 +211,12 @@ that real responses have exactly the fixture's keys and value types.
 - State (`GET /api/state`, `POST /api/capture/start`, `POST /api/capture/stop`): `{capture, compute, applied}`.
   `capture` is `{running, session_id, status, pose_count, started_at, stops_at}`, `compute` is
   `{running, session_id, result_id, started_at, error}`, `applied` is the applied record or null.
-- Applied record (`applied.json`, embedded in every response): `{session, result, applied_at, files}`. The keys are
-  `session` and `result` everywhere, not `session_id`/`result_id`.
+- Applied record (`applied.json`, embedded in every response): `{kind, session, result, applied_at}` plus the
+  `head_chain` record once a head chain is applied. The keys are `session` and `result` everywhere, not
+  `session_id`/`result_id`.
 - Apply and `GET /api/applied`: the applied record plus `units`, a list of `{name, active_state, restarted}`.
 - Session (`GET /api/sessions/{sid}`): every pose in `poses` has `hints`, a list of strings (empty for a good pose).
-- Result: the `result.json` fields (including `poses` and `outlier_poses`) plus `report` (markdown or null).
+- Result: the `result.json` fields (including `poses`) plus `report` (markdown or null).
 
 ## Head floor fit
 
@@ -232,7 +227,7 @@ robot level, not on blocks), then start the sweep. Only the head moves.
 
 - `start()` creates the `floor.joint_states_topic` and `floor.cloud_topic` subscriptions and the `floor.command_topic`
   publisher, and refuses (`SweepError`, nothing moved) when no head joint state arrives within `move_timeout_s`. It raises
-  `Busy` while a sweep runs or an RGB-D capture or compute runs (the HTTP layer passes that check as `blocked`).
+  `Busy` while a sweep runs or a D435 intrinsics capture or compute runs (the HTTP layer passes that check as `blocked`).
   One sweep at a time, on a worker thread; a stop is `stop()`.
 - Grid: `floor.tilt_deg` rows, the `floor.pan_deg` direction alternating per row (serpentine); defaults pan
   -30..45 by tilt 20/24/28 deg down, 18 poses, about a minute (pan -60 sees the parked arm; tilt 12 sees the floor
@@ -271,7 +266,7 @@ Files:
 
 ```
 floor_fit/<sid>/observations.json   session, created, sensor_frame, grid, observations, skipped, dropped (cloud drop counts by reason)
-floor_fit/<sid>/results/<rid>/      result.json of a compute; head_chain.json and head.urdf when it passed (no tof_joint.json)
+floor_fit/<sid>/results/<rid>/      result.json of a compute; head_chain.json and head.urdf when it passed
 applied/head_chain.json             the applied head chain override; applied.json gains head_chain {session, result, applied_at}
 ```
 
@@ -330,14 +325,14 @@ stops capture, kills a running compute child and destroys the node.
   unreachable pose skipped with reason, a pose under `min_clouds_per_pose` skipped as partly blocked
   (`test_partly_blocked_pose_is_skipped`), clouds without a joint state dropped and counted, restore of the start pan/tilt
   and destroyed handles on done, stop, error and exception, `Busy`, refusal without a head joint state or while blocked.
-- `tests/test_store.py` - ids and same-second suffix, layout of a stored pose, depth optional, raw JPEG kept, pose ids
-  never reused, size mismatch and empty-amplitude refusal, `load_views`, coverage counts, results listing, path safety
-  (traversal ids, symlink escape), concurrent adds.
-- Hints and per-pose errors: `tests/test_store.py` (`test_add_pose_stores_hints`, `test_add_pose_of_a_good_pose_has_empty_hints`,
-  `test_pose_hints_fallback_for_legacy_pose`), `tests/test_app.py` (`test_session_poses_carry_hints`,
-  `test_session_matches_contract_fixture` against `fixtures/api/session.json`), `tests/test_compute.py`
-  (`test_outlier_pose_named_in_result_and_report`, `test_clean_session_has_pose_errors_without_outliers`,
-  `test_error_result_has_empty_pose_lists`).
+- `tests/test_store.py` - ids and same-second suffix, layout of a stored D435 still (colour, aligned depth, thumbnails,
+  camera_info), raw JPEG kept, pose ids never reused, refusals (another image size, unaligned depth, camera_info of
+  another size, no valid depth), `load_stills`, a session without `kind` read as the ToF-era `rgbd`, head_arm still
+  poses and their refusals, `load_arm_board_views`, `load_arm_camera_infos`, coverage counts, results listing, path
+  safety (traversal ids, symlink escape), concurrent adds.
+- Hints: `tests/test_store.py` (`test_add_pose_stores_hints`, `test_add_pose_of_a_good_pose_has_empty_hints`),
+  `tests/test_app.py` (`test_session_poses_carry_hints`, `test_session_matches_contract_fixture` against
+  `fixtures/api/session.json`), and `tests/test_compute.py` (`test_error_result_has_empty_pose_lists`).
 - `tests/test_robot_client.py` - the tool helpers' names and arguments, structured data, the move timeout, tool errors, unreachable (also inside an exception group), a missing token file, the token never in any text, `release_arm(keep_position)`, and the board-park admin route (own transport and token file, bearer header, missing token file).
 - `tests/test_head_arm_api.py` - the `/api/head-arm/*` routes over a fake sequencer: state and sessions bodies against the contract fixtures, the confirms (base, park, big joints), 409 for busy and wrong-phase requests, sequencer errors mapped to 400, only head_arm sessions listed, compute and apply, a failed result not applicable, an rgbd session 400 on the result routes, unknown ids 404.
 - `tests/test_applied_chain_for_mcp.py` - the page's output consumed by mcp_server (2026-10-29): a synthetic session computed and applied, then the repo head URDF with `apply_overrides` on `applied/` through `mcp_server/head_kinematics.py` places the D435 colour optical frame within 5 mm of the truth chain at 5 head poses (`test_applied_files_place_the_camera_for_the_mcp_kinematics_within_the_target`), `head_chain.json` is in place before `applied.json` changes (mcp_server reloads on that mtime), an apply without an accepted check names the Accept check button, `state_dir/applied` is the directory mcp_server (`head.applied_dir`) and web_ui read, and the web_ui `rgbd_timeout_s` is not below `compute_timeout_s`. `test_head_arm_results.py` also pins the `residual` block of `head_chain.json`.
@@ -345,18 +340,22 @@ stops capture, kills a running compute child and destroys the node.
 - `tests/test_floor_api.py`, `tests/test_floor_results.py` - the floor fit routes and results, including that a floor compute keeps the applied `head_pan` origin that apply writes `source: floor`, and that the floor apply lands `head_chain.json` before `applied.json` (`test_floor_apply_writes_the_head_chain_before_applied_json`: the apply path unit fires on `applied.json` and compares `head_chain.json`).
 - `tests/test_runtime_deps.py` - `httpx`, imported at runtime by the robot client, is a runtime dependency in `pyproject.toml`.
 - `tests/contract.py`, `tests/fixtures/api/*.json` - structural match of a real API body against a literal fixture (helpers and data, not tests).
-- `tests/test_images.py` - RGB thumbnail width, corners drawn, input untouched; ToF thumbnail 2x with corners, `None`
-  for an empty frame.
-- `tests/test_capture.py` - ToF subscriptions RELIABLE, mapping BEST_EFFORT, stop / timeout / failed start leave
-  nothing subscribed, lens position source and failures, `Busy`, unknown session, a still board stored as a pose (raw
-  JPEG, depth, camera_info), reopened session numbering, undecodable frames dropped, frames after stop ignored, a
-  refused pose shown in the status, `decode_mono16` step and endianness, `state` polled while frames arrive.
+- `tests/test_images.py` - RGB thumbnail width, corners drawn, input untouched, never enlarged; the colourised depth
+  thumbnail, input untouched, `None` without valid depth.
+- `tests/test_capture.py` - the D435 subscriptions and QoS (depth and camera_info RELIABLE, colour BEST_EFFORT), nothing
+  subscribed before start, stop / timeout / failed start leave nothing subscribed, `Busy`, unknown session, a still
+  stored with colour, aligned depth and camera_info, pairs only on the exact stamp, moving colour or depth not still,
+  nothing stored before the camera_info or without a board, raw JPEG kept, reopened session numbering, undecodable
+  frames dropped, frames after stop ignored, a refused still shown in the status, `decode_mono16` step and endianness,
+  `state` polled while frames arrive; the head_arm still session (four topics, nearest joints, stale joints, no
+  camera_info, stop and failed start) and the two capture kinds excluding each other.
 - `tests/conftest.py` - stub `rclpy`, `rclpy.qos`, `rclpy.executors`, `sensor_msgs`, `sensor_msgs.msg` (incl. `JointState`, `PointCloud2`) and `sensor_msgs_py.point_cloud2` modules for the dev environment.
 - `tests/pose_factory.py` - helper building poses from the core synthetic board renderer (not a test).
-- `tests/test_apply.py` - apply writes every file and applied.json last, failing result refused, os.replace failure keeps the previous marker, restart flags from a fake systemctl, zip members.
+- `tests/test_apply.py` - accepting a passed check records it in applied.json and copies no file, the marker written atomically, a result of another kind refused, restart flags from a fake systemctl, zip members.
 - Head pan axis: `tests/test_head_arm_results.py` (`test_pan_axis_written_to_head_chain_and_applied`: a synthetic session with the pan axis 30 mm back and 10 mm right gives both pan axis params, `offset_rms_px`, a head_chain.json `head_pan` origin with head_tilt moved back, and after apply the URDF from `apply_overrides` carries it), `tests/test_floor_results.py` (`test_compute_keeps_applied_pan_axis`: a floor compute keeps the applied `head_pan` origin), `tests/test_store.py` (`test_load_arm_board_views` reads `head_offset`).
-- `tests/test_compute.py` - synthetic session through the store: passing result and files, limits exceeded, too few
-  poses, missing ToF camera_info, `tof_joint.json` agrees with `head.urdf`, `main`.
+- `tests/test_compute.py` - synthetic D435 session through the store: a passing check and its files, a focal offset and
+  a plane bias over the limits fail, an unmeasured plane bias fails, a missing or changing factory camera_info, too few
+  poses and a head_arm session are error results, `main`.
 - `tests/test_jobs.py` - command and niceness, busy, timeout, stderr tail, unknown session (fake child commands).
 - `tests/test_app.py` - every route with a fake capture, a fake job and a tmp store: error body shape, 404/409/400/422
   mapping, capture/compute mutual refusal, min_views refusal, coverage, thumbnails `image/jpeg`, zip headers, apply,
@@ -377,7 +376,7 @@ or not applicable).
 | `GET /api/floor/sessions` | `[{id, created, observations, skipped, results}]` (result ids) |
 | `POST /api/floor/sessions/{sid}/compute` | the result; synchronous; 409 while a sweep runs |
 | `GET /api/floor/sessions/{sid}/results/{rid}` | result.json |
-| `POST /api/floor/sessions/{sid}/results/{rid}/apply` | `{head_chain: {session, result, applied_at}, units}`; 409 for a failed result or when no RGB-D calibration is applied |
+| `POST /api/floor/sessions/{sid}/results/{rid}/apply` | `{head_chain: {session, result, applied_at}, units}`; 409 for a failed result or when no D435 intrinsics check is accepted |
 
 A passing compute also writes `head_chain.json` (the applied joints kept, `head_mount_joint` and `head_tilt` replaced; a
 `head_pan` origin from a head-from-arm fit is kept, and so is the `head_tilt` xyz it moved). Apply
@@ -390,15 +389,16 @@ The head-from-arm calibration fits the head chain against the trusted arm: the C
 fit (`shared/ros2_common/head_rgbd_calibration/head_arm_fit.py`, see "Head from arm fit" in `shared/README.md`) solves
 the head mount, the tilt zero and roll and the head pan axis position from the head camera views. It writes the same
 `head_chain.json` as the floor fit, so every consumer of the applied chain (head_state_publisher, mcp_server, web_ui) is
-served by either fit. The arm joint offset solve (the arm's own zero errors) is epic arm-joint-offsets-from-the-g; this
-calibration trusts the offsets in `fit.joint_offsets_rad`.
+served by either fit. This fit trusts the arm offsets in `fit.joint_offsets_rad`; the arm's own zero errors are solved
+from the same sessions by "Arm offsets compute and apply" below.
 
 Order of use: the floor fit first (it gives the start chain and the cross-check values), then the Calibrate page
 section "Head from arm" (`nodes/web_ui/README.md`) or the routes below.
 
 ### Session kind `head_arm`
 
-A session has a `kind` in `session.json`: `rgbd` (the RGB-D capture, default for sessions without the key) or `head_arm`.
+A session has a `kind` in `session.json`: `intrinsics` (the D435 intrinsics check) or `head_arm` (`rgbd`, the retired RGB +
+ToF capture, for sessions without the key).
 A `head_arm` session holds still RGB views only. Each pose directory has `rgb.jpg` (as received), `rgb_thumb.jpg` (corners
 drawn) and `pose.json` with the stamps (`rgb`, `joints`), the detected corner ids and points, the measured `joints` (all
 seven: `head_pan`, `head_tilt` and the five arm joints, never defaults), `arm_pose` (index into the whole scripted set),
@@ -515,7 +515,7 @@ directory `results/<rid>/` holds:
 as `head_chain: {session, result, applied_at, source, floor}`, which starts the apply path unit that restarts the head
 nodes (`restart_units`); the answer lists each unit's state. `source` is `head_arm` for this fit and `floor` for a floor
 fit; `floor` is the floor result the applied chain was checked against, carried forward from the current record. A
-result that did not pass, or an apply while no RGB-D calibration is applied, is refused with 409 (the message names the RGB-D section's Accept check, which creates `applied.json`). The web_ui proxy waits `calibration.rgbd_timeout_s` (600 in client.yml) for the synchronous compute.
+result that did not pass, or an apply while no D435 intrinsics check is accepted, is refused with 409 (the message names the RGB-D section's Accept check, which creates `applied.json`). The web_ui proxy waits `calibration.rgbd_timeout_s` (600 in client.yml) for the synchronous compute.
 
 ### Arm offsets compute and apply (design D9, D17)
 
@@ -556,7 +556,7 @@ wrong kind), 404 for an unknown or malformed id, 409 for a busy or wrong-phase r
 | Route | Body |
 |---|---|
 | `GET /state` | `{sequence, applied}`: the sequencer state (`running`, `phase`, `session_id`, `tier`, `arm_pose` (0-based), `total_poses`, `captured`, `skipped`, `status`, `error`, `big_joints`, `waiting_since`, `board_record`) and the applied head chain (`{session, result, note, source, floor, joints}`, null when none) |
-| `POST /sequence/base {"confirm": true}` | state; 409 while a sequence, an RGB-D capture, a floor sweep or a compute runs |
+| `POST /sequence/base {"confirm": true}` | state; 409 while a sequence, an intrinsics capture, a floor sweep or a compute runs |
 | `POST /sequence/board-attached` | state; 409 outside `waiting_board` |
 | `POST /sequence/big-joints {"confirm": bool}` | state; 409 outside `waiting_big_joints` |
 | `POST /sequence/stop` | state (also when idle) |

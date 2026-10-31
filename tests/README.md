@@ -643,7 +643,7 @@ The `head_state_publisher` node (robot_state_publisher on `nodes/web_ui/urdf/hea
 | `test_launch_file_runs_robot_state_publisher_with_remaps` | The launch file starts robot_state_publisher as `head_state_publisher` and remaps `joint_states` and `robot_description` to `/head/*`. |
 | `test_launch_file_reads_head_urdf_relative_to_itself` | The URDF path comes from `__file__` and names `web_ui/urdf/head.urdf`. |
 | `test_playbook_step_exists_with_tags` | `Deploy head_state_publisher` exists with its node tag and `apt`. |
-| `test_readme_documents_frames_and_check` | The node README names `/tf_static` and the `tf2_echo` check. |
+| `test_readme_documents_frames_and_check` | The node README names `/tf_static` and the `tf2_echo base_link d435_color_optical_frame` check, and no retired `head_camera_optical_frame` or `tof_optical_frame`. |
 | `test_d435_frames_resolve_from_head_urdf` | Every `d435_*` frame in head.urdf is a link with exactly one parent joint and reaches `base_link`, so robot_state_publisher publishes it once. |
 
 `nodes/web_ui/tests/test_head_urdf.py` also pins `test_no_tof_or_head_camera_frames` (no `head_camera_*` or `tof_*` link or joint left) and the D435 chain: `test_d435_chain_hangs_on_head_link` (fixed `d435_link` on `head_link`, depth and colour frames, 0.090 x 0.025 x 0.025 box) and `test_d435_optical_frames_are_rotated` (the standard optical rotation on both optical joints).

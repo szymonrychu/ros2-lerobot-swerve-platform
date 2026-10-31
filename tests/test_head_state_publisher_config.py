@@ -113,7 +113,8 @@ def test_readme_documents_frames_and_check() -> None:
     """The node README explains what is published and how to check it."""
     text = README.read_text()
     assert "/tf_static" in text
-    assert "tf2_echo base_link head_camera_optical_frame" in text
+    assert "tf2_echo base_link d435_color_optical_frame" in text
+    assert "head_camera_optical_frame" not in text and "tof_optical_frame" not in text
 
 
 D435_FRAMES = [

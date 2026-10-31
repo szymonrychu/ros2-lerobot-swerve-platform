@@ -66,28 +66,28 @@ participant "rplidar_a1\n(Client)" as rplidar #64B5F6
 rplidar -> rplidar : /scan\n(sensor_msgs/LaserScan)
 rplidar -> nav2 : /scan\n(for costmap)
 
-== RealSense ==
+== Head D435 depth pipeline ==
 
-participant "realsense_d435i\n(Client)" as realsense #64B5F6
+participant "realsense_d435\n(Client)" as realsense #64B5F6
+participant "head_rgbd_cpp\n(Client)" as rgbd #64B5F6
+participant "d435_obstacle_cloud\n(Client)" as d435cloud #90CAF9
+participant "laser_filter\n(Client)" as lfilter #90CAF9
 
-realsense -> realsense : /camera/color/image_raw\n/camera/depth/...\n/camera/imu\n(Image, PointCloud2, Imu)
-
-== Camera ==
-
-participant "uvc_camera\n(Client)" as cam #64B5F6
-
-cam -> cam : /camera_0/image_compressed\n(sensor_msgs/CompressedImage)
+realsense -> rgbd : /head/d435/color/image_raw\n/head/d435/aligned_depth_to_color/image_raw\n/head/d435/depth/image_rect_raw (+ camera_info, 640x360 @ 15 fps)
+rgbd -> d435cloud : /head/d435/depth_filtered/image_raw + camera_info\n(edge-masked full-FOV depth, every frame)
+d435cloud -> lfilter : /head/d435/points\n(PointCloud2, d435_depth_optical_frame)
+rplidar -> lfilter : /scan
+lfilter -> nav2 : /scan_filtered, /head/d435/points_filtered\n(self-filtered; depth_voxel_layer, collision monitor depth_obstacles / depth_cliff)
 
 == 3D Mapping (RTAB-Map) ==
 
-participant "head_rgbd_cpp\n(Client)" as rgbd #64B5F6
 participant "map3d_uplink\n(Client)" as uplink #90CAF9
 participant "rtabmap_mapping\n(Server)" as rtabmap #A5D6A7
 participant "map3d_manager\n(Server)" as m3dman #A5D6A7
 participant "web_ui / mcp_server\n(Client)" as m3dview #90CAF9
 
 rgbd -> uplink : /head_rgbd/rgb/image_raw/compressed, /head_rgbd/depth/image_raw\n(+ camera_info, 2 Hz exact-stamp pairs)
-rplidar -> uplink : /scan_filtered (7 Hz), /tf, /tf_static\n(map3d_uplink: lazy relay, only while the server subscribes)
+lfilter -> uplink : /scan_filtered (7 Hz), /tf, /tf_static\n(map3d_uplink: lazy relay, only while the server subscribes)
 uplink -> rtabmap : UPLINK /uplink/head_rgbd/rgb/...compressed\n/uplink/head_rgbd/depth/...compressedDepth\n/uplink/scan_filtered, /uplink/tf, /uplink/tf_static\n(DDS/WiFi, single static-peer process)
 m3dview -> uplink : /map3d/command (save, load, reset)
 uplink -> m3dman : /uplink/map3d/command, /uplink/map_guard/map_reset
@@ -102,8 +102,10 @@ participant "ground_estimator_cpp\n(Client)" as ground #64B5F6
 participant "nav2_bringup local costmap\n(Client)" as groundnav #90CAF9
 participant "mcp_server / web_ui\n(Client)" as groundview #90CAF9
 
-rgbd -> ground : /tof/points_filtered (10 Hz, via laser_filter), /imu/data,\n/head_rgbd/points (colour model)
-ground -> groundnav : /ground/obstacle_points, /ground/drop_points (10 Hz)\n(ground_voxel_layer; /ground/warning_areas via costmap_zones)
+lfilter -> ground : /head/d435/points_filtered (15 Hz)
+imu -> ground : /imu/data
+rgbd -> ground : /head_rgbd/points (colour model)
+ground -> groundnav : /ground/obstacle_points, /ground/drop_points (per D435 cloud)\n(ground_voxel_layer; /ground/warning_areas via costmap_zones)
 ground -> groundview : /ground/state (2 Hz), /ground/labelled_points (1 Hz),\n/ground/obstacle_points, /ground/drop_points
 
 == SteamDeck UI ==
