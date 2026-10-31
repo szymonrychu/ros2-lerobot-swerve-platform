@@ -6,9 +6,11 @@ yaml's own `body:`. From its top-view union (an H with a front and a rear notch)
 parked at its stored home (parked_arm_joints, computed with mcp_server's arm model, see parked_shadow) the script
 derives:
 
-- the costmap footprint: body outline + parked-arm shadow (one simple, counter-clockwise, non-convex polygon;
-  footprint_padding 0); without client.yml (no mcp_server arm config) the body outline alone,
-- the inflation radius (Nav2 circumscribed radius rounded up to a costmap cell) and cost_scaling_factor (the steepest
+- the outline: body outline + parked-arm shadow (one simple, counter-clockwise, non-convex polygon); without client.yml
+  (no mcp_server arm config) the body outline alone,
+- the costmap footprint: the outline shrunk by footprint_tolerance_m (footprint_padding 0), so millimetre approaches and
+  slight bumps are legal; StopBox, CliffStop and the laser_filter self polygon keep the unshrunk outline,
+- the inflation radius (Nav2 circumscribed radius of the costmap footprint rounded up to a costmap cell) and cost_scaling_factor (the steepest
   up to max_cost_scaling_factor that keeps the cost >= 1 at the circumscribed radius; the formula lives in
   footprint_geometry, mcp_server applies it to the dynamic footprint),
 - the collision_monitor StopBox: per direction sector, the footprint swept stopbox_margin_m toward the motion, plus
@@ -58,6 +60,7 @@ from mcp_server.footprint_geometry import (  # noqa: E402
     inscribed_radius,
     offset_polygon,
     polygon_text,
+    shrink_polygon,
     static_outline,
     to_points,
 )
@@ -127,6 +130,7 @@ class Settings(BaseModel):
     close_gap_m: float = Field(ge=0.0)
     laser_filter_margin_m: float = Field(ge=0.0)
     stopbox_margin_m: float = Field(gt=0.0)
+    footprint_tolerance_m: float = Field(default=0.02, ge=0.0)
     cliff_margin_m: float = Field(gt=0.0)
     dynamic_simplify_m: float = Field(ge=0.0)
     max_cost_scaling_factor: float = Field(gt=0.0)
@@ -155,6 +159,7 @@ class Generated(BaseModel):
 
     body_source: str
     footprint: list[Point2]
+    costmap_footprint: list[Point2]
     inflation_radius: float
     cost_scaling_factor: float
     stopbox: dict[str, dict]
@@ -431,11 +436,13 @@ def generate(settings: Settings, repo_root: Path) -> Generated:
     outline = body_outline(body.boxes, body.cylinders, settings.circle_segments, settings.close_gap_m)
     footprint = to_points(static_outline(outline, shadow), settings.decimals)
     cliff_polygon = offset_polygon(footprint, settings.cliff_margin_m, settings.decimals)
+    costmap_footprint = shrink_polygon(footprint, settings.footprint_tolerance_m, settings.decimals)
     return Generated(
         body_source=source + (" + parked arm" if shadow else ""),
         footprint=footprint,
-        inflation_radius=inflation_radius(footprint, settings.costmap_resolution),
-        cost_scaling_factor=cost_scaling_factor(footprint, settings.max_cost_scaling_factor),
+        costmap_footprint=costmap_footprint,
+        inflation_radius=inflation_radius(costmap_footprint, settings.costmap_resolution),
+        cost_scaling_factor=cost_scaling_factor(costmap_footprint, settings.max_cost_scaling_factor),
         stopbox=stopbox_polygons(footprint, settings.stopbox_margin_m, settings.decimals),
         laser_polygon=offset_polygon(footprint, settings.laser_filter_margin_m, settings.decimals),
         cliff_polygon=cliff_polygon,
@@ -445,6 +452,7 @@ def generate(settings: Settings, repo_root: Path) -> Generated:
             "close_gap_m": settings.close_gap_m,
             "laser_filter_margin_m": settings.laser_filter_margin_m,
             "stopbox_margin_m": settings.stopbox_margin_m,
+            "footprint_tolerance_m": settings.footprint_tolerance_m,
             "simplify_m": settings.dynamic_simplify_m,
             "decimals": settings.decimals,
             "costmap_resolution": settings.costmap_resolution,
@@ -505,7 +513,7 @@ def region_lines(name: str, gen: Generated) -> list[str]:
         ValueError: Unknown region.
     """
     if name == "footprint":
-        return [f"footprint: {polygon_string(gen.footprint)}", "footprint_padding: 0.0"]
+        return [f"footprint: {polygon_string(gen.costmap_footprint)}", "footprint_padding: 0.0"]
     if name == "inflation":
         return [f"cost_scaling_factor: {gen.cost_scaling_factor}", f"inflation_radius: {gen.inflation_radius}"]
     if name == "laser_polygon":

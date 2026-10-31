@@ -39,6 +39,10 @@ laser_filter_margin_m: 0.01
 # collision_monitor StopBox: the footprint swept this far toward the commanded direction (outside the filter margin);
 # also the mcp_server ArmStop margin around the released arm shadow and carried object.
 stopbox_margin_m: 0.02
+# Costmap footprint (Smac, MPPI, RotationShim, behaviour server) = the outline shrunk by this: millimetre approaches
+# and slight bumps are legal, and a start whose outline touches one lethal 2.5 cm cell is not "in collision". The
+# laser_filter self polygon, StopBox and CliffStop keep the unshrunk outline. 0.02 = one costmap cell.
+footprint_tolerance_m: 0.02
 # collision_monitor CliffStop polygon = footprint + this. The head ToF (0.35-0.40 m high) sees the lower floor of a 15 cm
 # step about 0.2 m beyond the edge, so the guard reaches past it.
 cliff_margin_m: 0.25

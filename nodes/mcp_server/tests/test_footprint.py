@@ -20,7 +20,14 @@ from shapely.geometry import Point, Polygon
 from mcp_server.arm import ArmController
 from mcp_server.config import McpServerConfig, NavFootprintSettings
 from mcp_server.control import ControlManager
-from mcp_server.footprint import NavFootprint, arm_shadow, carried_circle, dynamic_outline, parked_arm_shadow
+from mcp_server.footprint import (
+    NavFootprint,
+    arm_extension,
+    arm_shadow,
+    carried_circle,
+    dynamic_outline,
+    parked_arm_shadow,
+)
 from mcp_server.footprint_geometry import (
     OFFSET_MITRE_LIMIT,
     body_outline,
@@ -31,6 +38,7 @@ from mcp_server.footprint_geometry import (
     polygon_text,
     shrink_polygon,
     to_points,
+    union_outline,
 )
 from mcp_server.ik import ArmKinematics, load_joint_limits
 from mcp_server.tools import build_mcp_server
@@ -156,10 +164,38 @@ def rigid(points: list[tuple[float, float]], x: float, y: float, yaw: float) -> 
 
 def test_static_footprint_is_the_generated_nav2_footprint_and_laser_polygon(tmp_path: Path) -> None:
     robot = footprint_robot(tmp_path)
-    nav = NavFootprint(settings(), robot.arm.cfg.body, robot)
-    assert nav.static_points == static_points()
+    cfg = settings()
+    nav = NavFootprint(cfg, robot.arm.cfg.body, robot)
+    assert cfg.footprint_tolerance_m == 0.02
+    assert nav.current.points == static_points()
+    assert nav.current.points == shrink_polygon(nav.static_points, cfg.footprint_tolerance_m, cfg.decimals)
+    assert nav.static_points != nav.current.points, "static_points stays the unshrunk outline"
     laser = yaml.safe_load(LASER_FILTER_CONFIG.read_text())["polygon"]
     assert polygon_text(nav.current.laser) == laser
+
+
+def test_dynamic_footprint_is_shrunk_by_the_tolerance_but_laser_and_arm_stop_are_not(tmp_path: Path) -> None:
+    robot = footprint_robot(tmp_path)
+    cfg = settings()
+    nav = nav_for(robot)
+    parts = parts_at(robot, SIDEWAYS)
+    nav.publish_dynamic(parts, None)
+    grown = grow_extension(arm_extension(parts, None, cfg.circle_segments), cfg.simplify_m)
+    outline = to_points(union_outline(nav.static, grown), cfg.decimals)
+    assert nav.current.kind == "dynamic"
+    assert nav.current.points == shrink_polygon(outline, cfg.footprint_tolerance_m, cfg.decimals)
+    assert last_polygon(robot, COSTMAP_TOPICS[0]) == nav.current.points
+    assert nav.current.laser == offset_polygon(outline, cfg.laser_filter_margin_m, cfg.decimals)
+    assert last_param(robot, cfg.laser_filter_node, cfg.laser_polygon_param) == polygon_text(nav.current.laser)
+    assert nav.current.arm_stop == nav.arm_stop_points(grown)
+
+
+def test_tolerance_defaults_to_zero_in_the_settings_model() -> None:
+    data = settings().model_dump()
+    del data["footprint_tolerance_m"]
+    assert NavFootprintSettings.model_validate(data).footprint_tolerance_m == 0.0
+    with pytest.raises(ValueError):
+        NavFootprintSettings.model_validate({**data, "footprint_tolerance_m": -0.01})
 
 
 def test_arm_out_sideways_extends_the_footprint(tmp_path: Path) -> None:
@@ -180,7 +216,7 @@ def test_parked_arm_shadow_within_static_footprint(tmp_path: Path) -> None:
     """The parked gripper overhangs the crossbar front by ~10 cm: the static footprint covers it."""
     robot = footprint_robot(tmp_path)
     cfg = settings()
-    static = Polygon(static_points())
+    static = Polygon(nav_for(robot).static_points)  # the unshrunk outline: the costmap footprint is 2 cm inside it
     parts = parts_at(robot, HOME)
     assert static.buffer(cfg.simplify_m).contains(arm_shadow(parts, cfg.circle_segments))
     tool = parts["tool_point"][0]
@@ -236,7 +272,7 @@ def test_mcp_server_start_publishes_the_static_footprint_everywhere(tmp_path: Pa
     nav.start()
     for topic in COSTMAP_TOPICS:
         assert last_polygon(robot, topic) == static_points()
-    laser = offset_polygon(static_points(), settings().laser_filter_margin_m, settings().decimals)
+    laser = offset_polygon(nav.static_points, settings().laser_filter_margin_m, settings().decimals)
     assert last_param(robot, "/laser_filter", "polygon") == polygon_text(laser)
     assert last_param(robot, "/collision_monitor", "ArmStop.enabled") is False
     assert robot.stamped_polygons == []
@@ -259,10 +295,13 @@ def test_keep_position_release_publishes_the_dynamic_footprint(tmp_path: Path) -
     published = last_polygon(robot, COSTMAP_TOPICS[0])
     assert last_polygon(robot, COSTMAP_TOPICS[1]) == published
     assert fp.vertices == len(published)
-    assert Polygon(published).bounds[3] > Polygon(static_points()).bounds[3] + 0.1
+    assert Polygon(published).bounds[3] > Polygon(static_points()).bounds[3] + 0.05
     tool = parts_at(robot, SIDEWAYS)["tool_point"][0]
-    assert Polygon(published).contains(Point(tool[0], tool[1]).buffer(CARRIED - settings().simplify_m - 1e-3))
-    laser = offset_polygon(published, settings().laser_filter_margin_m, settings().decimals)
+    inside = CARRIED - settings().simplify_m - settings().footprint_tolerance_m - 1e-3
+    assert Polygon(published).contains(Point(tool[0], tool[1]).buffer(inside))
+    # The laser polygon grows the unshrunk outline, so it reaches beyond the published (shrunk) footprint.
+    laser = ctl.footprint.current.laser
+    assert Polygon(laser).contains(Polygon(published))
     assert last_param(robot, "/laser_filter", "polygon") == polygon_text(laser)
     topic, frame, arm_stop = robot.stamped_polygons[-1]
     assert topic == ARM_STOP_TOPIC and frame == "base_link"
@@ -529,7 +568,7 @@ def test_start_with_arm_out_publishes_dynamic(tmp_path: Path) -> None:
     nav = nav_for(robot)
     nav.start()
     assert nav.state().kind == "dynamic"
-    assert Polygon(last_polygon(robot, COSTMAP_TOPICS[0])).bounds[3] > Polygon(static_points()).bounds[3] + 0.1
+    assert Polygon(last_polygon(robot, COSTMAP_TOPICS[0])).bounds[3] > Polygon(static_points()).bounds[3] + 0.05
     assert last_param(robot, "/collision_monitor", "ArmStop.enabled") is True
 
 
@@ -543,7 +582,7 @@ def test_start_without_joint_states_publishes_conservative(tmp_path: Path) -> No
     assert (
         Polygon(last_polygon(robot, COSTMAP_TOPICS[0]))
         .buffer(TOL)
-        .contains(mount.buffer(settings().conservative_reach_m - 1e-3))
+        .contains(mount.buffer(settings().conservative_reach_m - settings().footprint_tolerance_m - 1e-3))
     )
 
 
@@ -565,7 +604,7 @@ def test_keep_release_without_fresh_joints_publishes_conservative_footprint(tmp_
     reach = settings().conservative_reach_m
     mount = Point(robot.arm_mount_xy())
     published = Polygon(last_polygon(robot, COSTMAP_TOPICS[0]))
-    assert published.buffer(TOL).contains(mount.buffer(reach + CARRIED - 1e-3))
+    assert published.buffer(TOL).contains(mount.buffer(reach + CARRIED - settings().footprint_tolerance_m - 1e-3))
     assert published.buffer(TOL).contains(Polygon(static_points()))
     assert last_param(robot, "/collision_monitor", "ArmStop.enabled") is True
     # the republish tick keeps the conservative footprint and its carried circle.
@@ -776,6 +815,7 @@ def test_circumscribed_radius_is_the_static_inflation_radius_and_covers_every_ve
     radius = nav.circumscribed_radius()
     assert radius == nav.current.inflation_radius
     assert radius >= max(math.hypot(x, y) for x, y in static_points())
+    assert radius >= max(math.hypot(x, y) for x, y in nav.current.points)
 
 
 def test_circumscribed_radius_follows_the_published_footprint(tmp_path: Path) -> None:

@@ -2995,6 +2995,7 @@ ros2_nodes:
         close_gap_m: 0.01
         laser_filter_margin_m: 0.01
         stopbox_margin_m: 0.02
+        footprint_tolerance_m: 0.02
         simplify_m: 0.005
         decimals: 4
         costmap_resolution: 0.025

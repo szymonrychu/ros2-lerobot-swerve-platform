@@ -672,7 +672,7 @@ def test_nav2_frames() -> None:
 @pytest.mark.parametrize("costmap", ["global_costmap", "local_costmap"])
 def test_nav2_costmap_layers_and_footprint(costmap: str) -> None:
     p = ros_params(nav2(), costmap)
-    assert [tuple(pt) for pt in yaml.safe_load(p["footprint"])] == footprint_geometry().footprint
+    assert [tuple(pt) for pt in yaml.safe_load(p["footprint"])] == footprint_geometry().costmap_footprint
     assert "robot_radius" not in p
     assert "obstacle_layer" in p["plugins"] and "inflation_layer" in p["plugins"]
     obstacle = p["obstacle_layer"]
@@ -1358,7 +1358,7 @@ def test_costmaps_add_no_margin_beyond_the_footprint(costmap: str) -> None:
     to one cell (needed for footprint collision costs) with a steep 20-30/m falloff, the same on both costmaps."""
     p = ros_params(nav2(), costmap)
     assert p["footprint_padding"] == 0.0
-    circumscribed = circumscribed_radius(footprint_geometry().footprint)
+    circumscribed = circumscribed_radius(footprint_geometry().costmap_footprint)
     inflation = p["inflation_layer"]
     assert circumscribed <= inflation["inflation_radius"] < circumscribed + p["resolution"]
     assert 20.0 <= inflation["cost_scaling_factor"] <= 30.0

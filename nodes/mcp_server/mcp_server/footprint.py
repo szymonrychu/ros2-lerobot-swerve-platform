@@ -22,11 +22,11 @@ by more than refresh_threshold_m), keeps the last footprint when the sample is s
 footprint never saw the released pose.
 
 Consumers (through a FootprintSink, implemented by ros_iface.RosRobot):
-- the Nav2 costmaps: the footprint on `<ns>/footprint` (geometry_msgs/Polygon) and their inflation layer's
+- the Nav2 costmaps: the outline shrunk by footprint_tolerance_m on `<ns>/footprint` (geometry_msgs/Polygon) and their inflation layer's
   inflation_radius (circumscribed radius rounded up to a cell) and cost_scaling_factor (steepest that keeps the cost
   >= 1 at the circumscribed radius). A footprint change makes a costmap re-inflate, so the tick republishes to a
   costmap only when its `<ns>/published_footprint` differs (restarted Nav2) or never arrived;
-- the laser_filter `polygon` parameter: the footprint + laser_filter_margin_m (re-sent every tick);
+- the laser_filter `polygon` parameter: the unshrunk outline + laser_filter_margin_m (re-sent every tick);
 - the collision_monitor ArmStop polygon (PolygonStamped, transient local; the arm part outside the static outline,
   grown by stopbox_margin_m) and its `ArmStop.enabled` parameter (true unless static; re-sent every tick).
 A consumer whose parameter service comes up again (restart) gets its values at once (consumer_ready). The last outcome
@@ -65,6 +65,7 @@ from .footprint_geometry import (
     offset_polygon,
     polygon_text,
     same_shape,
+    shrink_polygon,
     static_outline,
     to_points,
     union_outline,
@@ -135,7 +136,7 @@ class Footprint:
     """One consistent published footprint (every consumer value derives from it)."""
 
     kind: FootprintKind
-    points: list[Point2]
+    points: list[Point2]  # costmap footprint: the outline shrunk by footprint_tolerance_m
     laser: list[Point2]
     arm_stop: list[Point2] | None  # None: ArmStop disabled
     inflation_radius: float
@@ -336,7 +337,8 @@ class NavFootprint:
 
         Args:
             kind (FootprintKind): static | dynamic | conservative.
-            points (list[Point2]): Costmap footprint.
+            points (list[Point2]): Outline (unshrunk); the published costmap footprint is it shrunk by
+                footprint_tolerance_m, the laser polygon is it grown by laser_filter_margin_m.
             arm_stop (list[Point2] | None): ArmStop polygon, None = disabled.
             carried (float | None): Carried object radius (m).
             pose_known (bool): The released pose was measured (or the arm homed).
@@ -344,13 +346,14 @@ class NavFootprint:
         Returns:
             Footprint: The footprint.
         """
+        costmap = shrink_polygon(points, self.cfg.footprint_tolerance_m, self.cfg.decimals)
         return Footprint(
             kind=kind,
-            points=points,
+            points=costmap,
             laser=offset_polygon(points, self.cfg.laser_filter_margin_m, self.cfg.decimals),
             arm_stop=arm_stop,
-            inflation_radius=inflation_radius(points, self.cfg.costmap_resolution),
-            cost_scaling_factor=cost_scaling_factor(points, self.cfg.max_cost_scaling_factor),
+            inflation_radius=inflation_radius(costmap, self.cfg.costmap_resolution),
+            cost_scaling_factor=cost_scaling_factor(costmap, self.cfg.max_cost_scaling_factor),
             carried_radius_m=carried,
             pose_known=pose_known,
         )

@@ -34,6 +34,7 @@ from scripts.gen_nav_footprint import (
     render_laser_filter,
     render_nav2,
     resolve_body,
+    shrink_polygon,
     stopbox_polygons,
 )
 
@@ -250,6 +251,27 @@ def test_footprint_changes_with_a_body_number() -> None:
     assert Polygon(after).area > Polygon(before).area
 
 
+def test_footprint_tolerance_shrinks_the_costmap_footprint_only() -> None:
+    """Millimetre approaches and slight bumps are legal: the costmap footprint is the outline minus 2 cm; the outline
+    itself (StopBox, CliffStop, laser_filter) stays."""
+    settings = load_settings(DEFAULT_CONFIG)
+    gen = generated()
+    assert settings.footprint_tolerance_m == 0.02
+    assert gen.costmap_footprint == shrink_polygon(gen.footprint, settings.footprint_tolerance_m, settings.decimals)
+    outline, costmap = Polygon(gen.footprint), Polygon(gen.costmap_footprint)
+    assert LinearRing(gen.costmap_footprint).is_simple and LinearRing(gen.costmap_footprint).is_ccw
+    assert outline.buffer(TOL).contains(costmap)
+    assert costmap.area < outline.area
+    assert Polygon(gen.laser_polygon).buffer(TOL).contains(outline), "the laser polygon keeps the unshrunk outline"
+
+
+def test_footprint_tolerance_must_not_be_negative() -> None:
+    config = yaml.safe_load(DEFAULT_CONFIG.read_text())
+    config["footprint_tolerance_m"] = -0.01
+    with pytest.raises(ValueError):
+        Settings(**config)
+
+
 # --- inflation ----------------------------------------------------------------------------------------
 
 
@@ -264,21 +286,21 @@ def test_inflation_radius_is_the_circumscribed_radius_rounded_up_to_a_cell() -> 
     gen = generated()
     settings = load_settings(DEFAULT_CONFIG)
     res = settings.costmap_resolution
-    circumscribed = circumscribed_radius(gen.footprint)
+    circumscribed = circumscribed_radius(gen.costmap_footprint)
     assert gen.inflation_radius == pytest.approx(math.ceil(circumscribed / res - 1e-9) * res)
     assert circumscribed <= gen.inflation_radius < circumscribed + res
-    assert inflation_radius(gen.footprint, res) == gen.inflation_radius
+    assert inflation_radius(gen.costmap_footprint, res) == gen.inflation_radius
 
 
 def test_cost_scaling_is_steep_but_keeps_the_circumscribed_cost_positive() -> None:
     """MPPI CostCritic and the Smac collision checker only check the full footprint where the centre cost reaches the
     cost at the circumscribed radius; that cost must stay >= 1 or they log an error and lose the speed-up."""
     gen = generated()
-    inscribed = inscribed_radius(gen.footprint)
-    circumscribed = circumscribed_radius(gen.footprint)
+    inscribed = inscribed_radius(gen.costmap_footprint)
+    circumscribed = circumscribed_radius(gen.costmap_footprint)
     factor = gen.cost_scaling_factor
     settings = load_settings(DEFAULT_CONFIG)
-    assert factor == cost_scaling_factor(gen.footprint, settings.max_cost_scaling_factor)
+    assert factor == cost_scaling_factor(gen.costmap_footprint, settings.max_cost_scaling_factor)
     assert factor <= settings.max_cost_scaling_factor
     assert factor <= math.log(INSCRIBED_COST - 1) / (circumscribed - inscribed)
     assert 20.0 <= factor <= 30.0
@@ -518,6 +540,7 @@ def test_mcp_nav_footprint_numbers_come_from_the_generator_config() -> None:
         "close_gap_m": settings.close_gap_m,
         "laser_filter_margin_m": settings.laser_filter_margin_m,
         "stopbox_margin_m": settings.stopbox_margin_m,
+        "footprint_tolerance_m": settings.footprint_tolerance_m,
         "simplify_m": settings.dynamic_simplify_m,
         "decimals": settings.decimals,
         "costmap_resolution": settings.costmap_resolution,
@@ -550,7 +573,7 @@ def test_generated_values_land_in_the_parsed_yaml() -> None:
     doc = yaml.safe_load(NAV2_PARAMS.read_text())
     for costmap in ("global_costmap", "local_costmap"):
         p = doc[costmap][costmap]["ros__parameters"]
-        assert [tuple(pt) for pt in yaml.safe_load(p["footprint"])] == gen.footprint
+        assert [tuple(pt) for pt in yaml.safe_load(p["footprint"])] == gen.costmap_footprint
         assert p["footprint_padding"] == 0.0
         assert p["inflation_layer"]["inflation_radius"] == pytest.approx(gen.inflation_radius)
         assert p["inflation_layer"]["cost_scaling_factor"] == pytest.approx(gen.cost_scaling_factor)
@@ -588,7 +611,8 @@ def test_main_writes_the_files_and_is_idempotent(tmp_path: Path) -> None:
     doc = yaml.safe_load(first[0])
     p = doc["local_costmap"]["local_costmap"]["ros__parameters"]
     footprint = Polygon(yaml.safe_load(p["footprint"]))
-    assert footprint.buffer(TOL).contains(Point(0.1525, 0.1333).buffer(0.07, quad_segs=64))
+    # The costmap footprint is the outline minus the tolerance: it holds the wheel shrunk by it.
+    assert footprint.buffer(TOL).contains(Point(0.1525, 0.1333).buffer(0.07 - 0.02 - TOL, quad_segs=64))
     # Outside the generated regions the file is unchanged.
     assert doc["controller_server"] == yaml.safe_load(NAV2_PARAMS.read_text())["controller_server"]
 

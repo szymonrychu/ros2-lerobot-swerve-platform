@@ -907,6 +907,8 @@ class NavFootprintSettings(StrictModel):
     close_gap_m: float = Field(ge=0.0)  # body outline: gaps narrower than 2 x this are closed
     laser_filter_margin_m: float = Field(ge=0.0)  # laser_filter self polygon = footprint + this
     stopbox_margin_m: float = Field(gt=0.0)  # collision_monitor ArmStop = arm outside the body (+ object) + this
+    # Published costmap footprint = the outline shrunk by this (m); the laser polygon and ArmStop keep the outline.
+    footprint_tolerance_m: float = Field(default=0.0, ge=0.0)
     simplify_m: float = Field(ge=0.0)  # arm shadow + carried circle: grown by this, then simplified by this (m)
     decimals: int = Field(ge=3, le=6)  # decimal places of the published coordinates
     costmap_resolution: float = Field(gt=0.0)  # costmap cell (m): the inflation radius is rounded up to a cell
