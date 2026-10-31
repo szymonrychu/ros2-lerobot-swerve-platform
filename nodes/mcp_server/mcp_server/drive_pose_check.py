@@ -22,6 +22,11 @@ and the pose itself to:
   is hidden by an arm link: the ray from the depth optical frame to the point passes no occluder (occluders: the
   upper arm, forearm and wrist capsules and the wrist end -> tool point, LINK_CAPSULE_RADIUS_M each). The fixed
   shoulder root, the upper arm end cap about the shoulder_lift axis that only shoulder_pan moves, is not counted.
+  No pose leaves the region fully visible (the upper arm next to the shoulder axis hides floor at pans -50..-90 for
+  every shoulder_lift), so the rule is a regression guard: the hidden area summed over the guarded pans
+  (VIEW_GUARD_PAN_MAX_DEG..VIEW_PAN_MIN_DEG) is at most VIEW_MAX_OCCLUDED_M2 and at most VIEW_MAX_HOME_FRACTION of
+  the parked home's. Home hides 1.60 m2 over pans 0..-90 and 1.12 m2 over -50..-90; the pinned drive pose 0.165 m2
+  over -50..-90 (nothing at 0..-40). A shoulder_pan swing would reach 0.088 m2 (not searched: D4 keeps the pan).
 
 Margins and heights are the shared arm_pose_check defaults (PoseCheckConfig: margin_m 0.03, min_tool_height_m 0.10,
 stretched_shoulder_lift_max_rad 1.85, head envelope 0.075 / 0.09 m). The D435 depth field of view is the datasheet
@@ -78,6 +83,9 @@ D435_DEPTH_VFOV_DEG = 58.0
 VIEW_TILT_DEG = 30.0
 VIEW_PAN_MIN_DEG = -90.0
 VIEW_PAN_STEP_DEG = 10.0
+VIEW_GUARD_PAN_MAX_DEG = -50.0  # the guarded pans: -50..-90 deg
+VIEW_MAX_OCCLUDED_M2 = 0.18
+VIEW_MAX_HOME_FRACTION = 0.15
 HEAD_AIM_CONFIG = REPO_ROOT / "nodes" / "head_aim_cpp" / "config" / "head_aim.yaml"
 REGION_CELL_M = 0.02  # floor region grid
 SCORE_CELL_M = 0.04  # ranking grid
@@ -419,21 +427,37 @@ class DrivePoseChecker:
         """
         return sum(area for _, area in self.occluded_per_pan(pose, self.score_floor, SCORE_CELL_M))
 
-    def view_violation(self, pose: Mapping[str, float]) -> DrivePoseViolation | None:
-        """Whether the arm hides floor of the region ahead of and beside the right wheels at any checked pan.
+    def guarded_occlusion_m2(self, pose: Mapping[str, float]) -> float:
+        """Hidden floor of the region summed over the guarded pans (VIEW_GUARD_PAN_MAX_DEG..VIEW_PAN_MIN_DEG).
 
         Args:
+            pose (Mapping[str, float]): Arm pose.
+
+        Returns:
+            float: Area (m^2).
+        """
+        hidden = self.occluded_per_pan(pose, self.region, REGION_CELL_M)
+        return sum(area for pan, area in hidden if pan <= VIEW_GUARD_PAN_MAX_DEG)
+
+    def view_violation(self, home: Mapping[str, float], pose: Mapping[str, float]) -> DrivePoseViolation | None:
+        """Whether the arm hides too much floor of the region ahead of and beside the right wheels (module docstring).
+
+        Args:
+            home (Mapping[str, float]): Parked home (the reference area).
             pose (Mapping[str, float]): Drive pose.
 
         Returns:
-            DrivePoseViolation | None: The pans and areas hidden, None when nothing is.
+            DrivePoseViolation | None: The guarded area against both limits, None when within them.
         """
-        hidden = [(pan, area) for pan, area in self.occluded_per_pan(pose, self.region, REGION_CELL_M) if area > 0.0]
-        if not hidden:
+        area = self.guarded_occlusion_m2(pose)
+        limit = min(VIEW_MAX_OCCLUDED_M2, VIEW_MAX_HOME_FRACTION * self.guarded_occlusion_m2(home))
+        if area <= limit:
             return None
-        pans = ", ".join(f"pan {pan:.0f} deg {area * 1e4:.0f} cm2" for pan, area in hidden)
         return DrivePoseViolation(
-            "view", f"arm hides floor beside the right wheels at tilt {VIEW_TILT_DEG:.0f} deg: {pans}"
+            "view",
+            f"arm hides {area:.3f} m2 of floor beside the right wheels over pans {VIEW_GUARD_PAN_MAX_DEG:.0f}.."
+            f"{VIEW_PAN_MIN_DEG:.0f} deg at tilt {VIEW_TILT_DEG:.0f} deg > {limit:.3f} m2 (at most "
+            f"{VIEW_MAX_OCCLUDED_M2} m2 and {VIEW_MAX_HOME_FRACTION:.0%} of home)",
         )
 
     def pose_violations(self, home: Mapping[str, float], pose: Mapping[str, float]) -> list[DrivePoseViolation]:
@@ -450,7 +474,7 @@ class DrivePoseChecker:
         changed = [j for j in UNCHANGED_JOINTS if abs(pose[j] - home[j]) > SAME_RAD]
         if changed:
             out.append(DrivePoseViolation("roll", f"{', '.join(changed)} differ from home"))
-        view = self.view_violation(pose)
+        view = self.view_violation(home, pose)
         if view is not None:
             out.append(view)
         return out

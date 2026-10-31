@@ -95,9 +95,36 @@ def test_floor_region_is_ahead_of_and_beside_the_right_wheels_within_the_lookahe
 
 
 def test_the_parked_home_occludes_the_floor_beside_the_right_wheels(checker: DrivePoseChecker) -> None:
-    """Home passes every check but the view: its arm hides floor of the region while the head pans right."""
+    """Home passes every check but the view: its arm hides 1.60 m2 of the region summed over pans 0..-90 and
+    1.12 m2 over pans -50..-90 (the guarded ones)."""
     assert failed(checker.check(HOME, HOME)) == {"view"}
-    assert checker.region_occlusion_m2(HOME) > 0.0
+    assert checker.region_occlusion_m2(HOME) == pytest.approx(1.60, abs=0.01)
+    assert checker.guarded_occlusion_m2(HOME) == pytest.approx(1.12, abs=0.01)
+
+
+@pytest.mark.parametrize(
+    "home_m2, pose_m2, passes",
+    [
+        (1.12, 0.165, True),  # the pinned drive pose (home 1.12 m2 over pans -50..-90)
+        (1.12, 0.0, True),
+        (1.5, 0.181, False),  # above VIEW_MAX_OCCLUDED_M2
+        (1.0, 0.16, False),  # above 15 % of home
+        (1.0, 0.15, True),
+    ],
+)
+def test_view_passes_at_most_0_18_m2_and_15_percent_of_home_over_pans_minus_50_to_minus_90(
+    checker: DrivePoseChecker, monkeypatch: pytest.MonkeyPatch, home_m2: float, pose_m2: float, passes: bool
+) -> None:
+    """The view rule is a regression guard: no pose leaves the region fully visible (the upper arm next to the
+    shoulder axis hides some floor at pans -50..-90), so the hidden area is bounded instead of zero."""
+    monkeypatch.setattr(
+        checker,
+        "occluded_per_pan",
+        lambda pose, floor, cell: [(-40.0, 5.0), (-90.0, home_m2 if pose is HOME else pose_m2)],  # -40 not guarded
+    )
+    pose = dict(HOME)
+    violations = checker.pose_violations(HOME, pose)
+    assert ("view" not in failed(violations)) is passes
 
 
 def test_the_fixed_shoulder_root_is_ignored(checker: DrivePoseChecker) -> None:
