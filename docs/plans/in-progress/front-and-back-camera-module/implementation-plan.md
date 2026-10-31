@@ -338,7 +338,8 @@ directly; check for a running agent session before deploying mcp_server or claud
 3. The user calibrates front intrinsics on the web_ui Calibrate page (CSI section) with the ChArUco board and applies;
    check `/front_camera/camera_info` appears and marker_detector reports front detections of a printed marker.
 4. When the second CM3 is fitted on cam1 (Q2): set `client_back_camera_fitted: true` and the `back_camera` entry
-   `enabled: true`, commit, push, deploy `back_camera` (writes `dtoverlay=imx708,cam1`, the client reboots once). If
+   `enabled: true`, add the 19122 entry to `monitoring_agent_node_targets` (test_node_metrics_wiring allows
+   targets for enabled nodes only), commit, push, deploy `back_camera` (writes `dtoverlay=imx708,cam1`, the client reboots once). If
    the unit logs camera-not-found, set `camera_id` to the listed cam1 id and redeploy. Then repeat steps 2 and 3 for
    `back_camera_mount` and the back intrinsics.
 5. Measure CPU and memory of `ros2-front_camera.service` and `ros2-back_camera.service` from Mimir (p50 and 24 h peak
