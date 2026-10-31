@@ -1,62 +1,43 @@
-# Servo torque off and neutral recording in the web UI design
+---
+title: Servo torque off and neutral recording in the web UI
+repos: [ros2-lerobot-sverve-platform]
+created: 2026-10-20
+owner: Szymon Richert
+rung: 1
+---
 
-## Summary
+# Servo torque off and neutral recording in the web UI
 
-Web UI controls (Calibrate page) to release servo torque per group (arm = follower arm, base = the 4 steering servos,
-head = pan/tilt), record the present physical pose as the new neutral, and re-enable torque holding the present
-position, optionally saving the recorded neutral into the servo EEPROM first. Everything that touches the bus runs
-inside the running feetech bridge (the sole bus owner) through std_srvs/Trigger services; the bridge publishes a live
-per-group torque state topic. While a group is released every command source for it is quieted (bridge gate,
-set_register, filter_node, swerve_controller, mcp_server, web_ui), so no goal reaches a limp servo and re-enable cannot
-jump. An arm re-zero writes a stale marker that flags the fitted arm joint offsets and the stored home until they are
-re-calibrated.
+## What and why
 
-## Intent and why
+What: Torque off, record neutral and re-enable torque + save per servo group in the web UI
+How: Bridge-side torque and runtime centre commands, quieted command sources, web_ui routes and Calibrate page controls
+Why: Re-zeroing servos today needs SSH, a stopped node and a sudo command
 
-Re-zeroing a servo today needs SSH, a stopped node and `sudo nodes/bridges/feetech_servos/scripts/calibrate_servos.py center`. After the head mount
-inversion (2026-10-20) and before the ChArUco arm calibration (epic head-and-arm-calibration-fro, blocked by this one)
-the user needs to put joints at a physical zero by hand and store it, from the browser, without stopping nodes.
+Web UI controls to release servo torque per group (arm, base steering, head), record the current physical positions as the new neutral (servo EEPROM centre, executed inside the running bridge), and re-enable torque holding the present position. Command sources for a released group are quieted so nothing drives a limp servo and re-enable cannot jump.
 
-## Goals
+## Scope ladder
 
-- Three torque-off buttons (arm, base, head) with a confirm dialog; the released servos go limp, measured joint_states
-  keep publishing.
-- Per group: "Record neutral" captures the present pose and previews the shift; "Re-enable torque + save" writes the
-  neutral into each servo's EEPROM (DefineMiddle inside the bridge), verifies it reads ~2048, keeps the angle limits,
-  refreshes the bridge command limits, then enables torque holding the present position; "Re-enable torque" enables
-  without saving.
-- Re-enable never moves a joint: goal_position = present before torque_enable = 1, both bypassing the write cache.
-- While released: the bridge drops every goal for the group, set_register cannot re-enable or move it,
-  filter_node/swerve_controller/mcp_server/web_ui do not command it.
-- Arm re-zero marks arm joint offsets and home stale (marker file); mcp_server reports it and refuses arm_home until a
-  new home is recorded.
-- Live torque state per group on `/{group}/torque_state`.
-- The set_register `torque_enable=128` hole is closed.
-- Ansible, READMEs, tests/README.md in sync; staged robot runbook with head_pan first.
+### Rung 1: agreed scope (migrated)
+
+- 1.1: Bridge: torque off/on per group with hold-on-enable and cache bypass, live torque state, runtime centre (DefineMiddle with EEPROM unlock/lock, verify, refresh limits), the set_register torque_enable=128 hole closed.
+- 1.2: Command sources quieted while a group is released (mcp_server lease, swerve_controller steering, filter_node).
+- 1.3: Web UI: three torque-off buttons, "Record neutral", "Re-enable torque + save", confirm dialogs, state; arm re-zero marks arm offsets/home stale.
+- 1.4: Docs, runbook, bench test on head_pan first, tests.
+
+## Agreed scope
+
+Rung 1, migrated from the epic format: the epic's goals were its agreed scope.
 
 ## Non-goals
 
-- Drive wheel servos: wheel mode, no neutral (D-C1).
-- Leader arm re-zero (D-C2; the UI warns, follow-up).
-- Software joint offsets (no offset in command_mapping; the neutral lives in the servo).
-- Re-fitting arm offsets, tool offset, sag or the gripper camera mount after a re-zero (epic head-and-arm-calibration-fro).
+- Drive wheel servos (wheel mode, no neutral).
+- Leader arm re-zero (follow-up; the UI warns).
+- Software joint offsets.
 
-## Anti-goals
+## Design
 
-- A joint moving on re-enable, or a goal written into a released servo.
-- Any placeholder torque state (unknown is omitted, never defaulted).
-- A partially centred group silently re-enabled as if all were saved.
-- Stalling the base drive while another group saves: wheels are stopped first.
-
-## Constraints
-
-- CLAUDE.md: test-first, type hints, constants at top, ROS2 logging, no placeholder data on topics, Ansible in sync
-  via `ros2_nodes` schema, READMEs and tests/README.md updated, deploy only with `scripts/deploy-nodes.sh`.
-- Servo safety: bench on head_pan first, least dramatic joints first; ask the user before releasing the arm.
-- web_ui ROS-thread affinity: every create/destroy on the bridge timer (apply_demand), publishes FIFO.
-- The bridge executor is single-threaded and drained inside the control loop (`drain_callbacks`), so service callbacks
-  run on the bus-owner thread; nothing may touch the bus from another thread.
-- Tasks at most 8 files, about an hour each.
+Migrated from the epic format; the design sections without a plan.md heading are under Migrated notes.
 
 ## Decisions
 
@@ -159,6 +140,12 @@ blocks or wheels braked), the arm only after the user confirms they support it. 
 ### D13: Two-step record then save
 2026-10-20 gate: two steps as designed: Record neutral captures and previews; Re-enable torque + save writes the servo EEPROM; plain Re-enable torque without saving (user decision)
 
+## Open questions
+
+- Q1: Arm re-zero excludes the gripper (torque off still releases it), because its fixed open/close steps and the leader gripper mapping would shift? [answer: approved by the user at the gate 2026-10-20 (D11): gripper excluded]
+- Q2: Two steps: Record neutral only captures and previews the shift; the EEPROM is written only by Re-enable torque + save (plus a plain Re-enable torque without saving)? [answer: approved by the user at the gate 2026-10-20 (D13): two-step record then save]
+- Q3: Base torque off releases only the 4 steering servos; the drive wheels stay torqued and braked (robot cannot be pushed by hand)? [answer: approved by the user at the gate 2026-10-20 (D12): steering only, wheels braked]
+
 ## Research
 
 | Lens | Ran | Adopted | Rejected |
@@ -166,7 +153,7 @@ blocks or wheels braked), the arm only after the user confirms they support it. 
 | code-internal (brief torque-neutral.md) | ran | bridge-side sequence (brief facts 12-17), cmd_center copy (`nodes/bridges/feetech_servos/scripts/calibrate_servos.py:297-350`), Trigger route pattern (`web_ui/server.py:1055-1087`), Calibrate page modules (`web_ui/imu_calibration.py`), filter proximity rule (`filter_node/arbitration.py`) | set_register-based torque from web_ui (brief fact 11-13), software offsets (`command_mapping.py:12,49`) |
 | external | skipped: STS3215 behaviour is bench-tested, not documented reliably | - | - |
 
-## Research inputs
+### Research inputs
 
 | Source | Entry | Lands in |
 |---|---|---|
@@ -185,7 +172,76 @@ blocks or wheels braked), the arm only after the user confirms they support it. 
 | brief fact 23 | bench unknowns | suite-and-robot-runbook |
 | brief fact 24 natural tasks a-f | task split | every task |
 
-## Decision coverage
+## Irreversible operations
+
+- Servo EEPROM writes (DefineMiddle, angle limits): covered by the confirm dialog, the 20-step move check, verify before
+  limits, and reversible by recording the old pose again; the runbook asks the user before the arm.
+
+## Migrated notes
+
+### README.md: Review
+
+Filled when the epic reaches stage `review`: the verdict, the findings acted on, the findings dropped.
+
+### design.md: Summary
+
+Web UI controls (Calibrate page) to release servo torque per group (arm = follower arm, base = the 4 steering servos,
+head = pan/tilt), record the present physical pose as the new neutral, and re-enable torque holding the present
+position, optionally saving the recorded neutral into the servo EEPROM first. Everything that touches the bus runs
+inside the running feetech bridge (the sole bus owner) through std_srvs/Trigger services; the bridge publishes a live
+per-group torque state topic. While a group is released every command source for it is quieted (bridge gate,
+set_register, filter_node, swerve_controller, mcp_server, web_ui), so no goal reaches a limp servo and re-enable cannot
+jump. An arm re-zero writes a stale marker that flags the fitted arm joint offsets and the stored home until they are
+re-calibrated.
+
+### design.md: Intent and why
+
+Re-zeroing a servo today needs SSH, a stopped node and `sudo nodes/bridges/feetech_servos/scripts/calibrate_servos.py center`. After the head mount
+inversion (2026-10-20) and before the ChArUco arm calibration (epic head-and-arm-calibration-fro, blocked by this one)
+the user needs to put joints at a physical zero by hand and store it, from the browser, without stopping nodes.
+
+### design.md: Goals
+
+- Three torque-off buttons (arm, base, head) with a confirm dialog; the released servos go limp, measured joint_states
+  keep publishing.
+- Per group: "Record neutral" captures the present pose and previews the shift; "Re-enable torque + save" writes the
+  neutral into each servo's EEPROM (DefineMiddle inside the bridge), verifies it reads ~2048, keeps the angle limits,
+  refreshes the bridge command limits, then enables torque holding the present position; "Re-enable torque" enables
+  without saving.
+- Re-enable never moves a joint: goal_position = present before torque_enable = 1, both bypassing the write cache.
+- While released: the bridge drops every goal for the group, set_register cannot re-enable or move it,
+  filter_node/swerve_controller/mcp_server/web_ui do not command it.
+- Arm re-zero marks arm joint offsets and home stale (marker file); mcp_server reports it and refuses arm_home until a
+  new home is recorded.
+- Live torque state per group on `/{group}/torque_state`.
+- The set_register `torque_enable=128` hole is closed.
+- Ansible, READMEs, tests/README.md in sync; staged robot runbook with head_pan first.
+
+### design.md: Non-goals
+
+- Drive wheel servos: wheel mode, no neutral (D-C1).
+- Leader arm re-zero (D-C2; the UI warns, follow-up).
+- Software joint offsets (no offset in command_mapping; the neutral lives in the servo).
+- Re-fitting arm offsets, tool offset, sag or the gripper camera mount after a re-zero (epic head-and-arm-calibration-fro).
+
+### design.md: Anti-goals
+
+- A joint moving on re-enable, or a goal written into a released servo.
+- Any placeholder torque state (unknown is omitted, never defaulted).
+- A partially centred group silently re-enabled as if all were saved.
+- Stalling the base drive while another group saves: wheels are stopped first.
+
+### design.md: Constraints
+
+- CLAUDE.md: test-first, type hints, constants at top, ROS2 logging, no placeholder data on topics, Ansible in sync
+  via `ros2_nodes` schema, READMEs and tests/README.md updated, deploy only with `scripts/deploy-nodes.sh`.
+- Servo safety: bench on head_pan first, least dramatic joints first; ask the user before releasing the arm.
+- web_ui ROS-thread affinity: every create/destroy on the bridge timer (apply_demand), publishes FIFO.
+- The bridge executor is single-threaded and drained inside the control loop (`drain_callbacks`), so service callbacks
+  run on the bus-owner thread; nothing may touch the bus from another thread.
+- Tasks at most 8 files, about an hour each.
+
+### design.md: Decision coverage
 
 | Decision | Tasks |
 |---|---|
@@ -203,7 +259,7 @@ blocks or wheels braked), the arm only after the user confirms they support it. 
 | D12 Base release is steering only, wheels braked | bridge-torque-release-enable, swerve-released-steering, ansible-servo-neutral-config |
 | D13 Two-step record then save | bridge-runtime-neutral-save, web-ui-servo-routes, calibrate-page-servo-section |
 
-## Contracts
+### design.md: Contracts
 
 | Part | Owner | Consumers | Where defined |
 |---|---|---|---|
@@ -217,7 +273,7 @@ blocks or wheels braked), the arm only after the user confirms they support it. 
 Cross-epic (docs/plans/contracts.json): `arm-calibration-stale-marker`, `servo-torque-state-topic` and
 `calibration-config-servos-flag` are consumed by head-and-arm-calibration-fro.
 
-## Review focus
+### design.md: Review focus
 
 - `torque_control.py` and the `BridgeCycle` gate: no goal_position write for a released id on any path (pending,
   refresh, startup, set_register); enable order (goal = present before torque 1) and cache bypass.
@@ -225,14 +281,14 @@ Cross-epic (docs/plans/contracts.json): `arm-calibration-stale-marker`, `servo-t
 - filter_node and mcp_server lease transitions on release and re-enable (no stale setpoint republished).
 - web_ui: no ROS create/destroy outside apply_demand.
 
-## Left to the builder
+### design.md: Left to the builder
 
 - Internal class and helper names inside the named modules, as long as the Interfaces in each task hold.
 - How the frontend lays out the cards (MUI, touch targets from `theme.ts`).
 - Whether swerve_controller publishes nothing or zero drive with NaN steering while released, as long as no finite
   steering target is published and the wheels are commanded 0 or left to the bridge watchdog.
 
-## Assumptions and unknowns
+### design.md: Assumptions and unknowns
 
 - Whether a goal_position write with torque off re-enables torque on the STS3215: moot by design (no goal reaches a
   released servo); the runbook observes it if seen.
@@ -242,12 +298,14 @@ Cross-epic (docs/plans/contracts.json): `arm-calibration-stale-marker`, `servo-t
 - `/var/lib/ros2/arm` exists on the client (`ansible/playbooks/tasks/mcp_server_setup.yml:44`, owner ansible_user); the
   marker writer creates missing parents.
 
-## Open questions
-- Q1: Arm re-zero excludes the gripper (torque off still releases it), because its fixed open/close steps and the leader gripper mapping would shift? [answer: approved by the user at the gate 2026-10-20 (D11): gripper excluded]
-- Q2: Two steps: Record neutral only captures and previews the shift; the EEPROM is written only by Re-enable torque + save (plus a plain Re-enable torque without saving)? [answer: approved by the user at the gate 2026-10-20 (D13): two-step record then save]
-- Q3: Base torque off releases only the 4 steering servos; the drive wheels stay torqued and braked (robot cannot be pushed by hand)? [answer: approved by the user at the gate 2026-10-20 (D12): steering only, wheels braked]
+### approvals.json
 
-## Irreversible operations in scope
-
-- Servo EEPROM writes (DefineMiddle, angle limits): covered by the confirm dialog, the 20-step move check, verify before
-  limits, and reversible by recording the old pose again; the runbook asks the user before the arm.
+- A1: Torque off buttons in the web UI for arm, base (the 4 steering servos) and head, 3 in total, each behind a confirm dialog; the group goes limp and its live torque state is shown. [decisions: D1, D2, D4, D8] [tasks: bridge-torque-release-enable, bridge-torque-services-topic, web-ui-servo-routes, calibrate-page-servo-section, ansible-servo-neutral-config] [status: approved]
+- A2: "Record neutral" and "Re-enable torque + save" per group (arm, base steering, head): the new neutral is stored in the servo EEPROM (DefineMiddle), executed inside the running bridge. [decisions: D3, D4, D9] [tasks: bridge-runtime-neutral-save, web-ui-servo-routes, calibrate-page-servo-section, ansible-servo-neutral-config] [status: approved]
+- A3: Re-enable holds the present position (no jump); an arm re-zero marks the fitted arm offsets and home stale until re-calibrated. [decisions: D1, D3, D7] [tasks: bridge-torque-release-enable, bridge-runtime-neutral-save, mcp-arm-calibration-stale, web-ui-servo-routes, calibrate-page-servo-section] [status: approved]
+- A4: Follower arm only; the UI warns that teleop needs the leader re-zeroed in the same pose (the leader re-zero is not part of this epic). [decisions: D4, D8] [tasks: calibrate-page-servo-section, ansible-servo-neutral-config] [status: approved]
+- A5: While a group is released its command sources are quieted (bridge, set_register, filter_node, swerve_controller, mcp_server, web_ui) so no goal reaches a limp servo and re-enable cannot jump; the set_register torque_enable=128 hole is closed. [decisions: D2, D5, D6, D8] [tasks: bridge-torque-release-enable, set-register-torque-guard, filter-node-released-arm, swerve-released-steering, mcp-torque-off-gate, web-ui-quiet-released-groups, released-group-banners] [status: approved]
+- A6: Tests, READMEs and Ansible in sync, and a staged robot runbook that bench-tests head_pan first. [decisions: D10] [tasks: ansible-servo-neutral-config, suite-and-robot-runbook] [status: approved]
+- U1: 2026-10-20 gate: the gripper is excluded from the arm re-zero (neutral_exclude_joints: [gripper]); arm torque off still releases it [decisions: D11] [tasks: bridge-runtime-neutral-save, ansible-servo-neutral-config, calibrate-page-servo-section] [status: approved]
+- U2: 2026-10-20 gate: base release = the 4 steering servos; the drive wheels stay torqued and braked [decisions: D12] [tasks: bridge-torque-release-enable, swerve-released-steering, ansible-servo-neutral-config] [status: approved]
+- U3: 2026-10-20 gate: two steps as designed: Record neutral captures and previews; Re-enable torque + save writes the servo EEPROM; plain Re-enable torque without saving [decisions: D13] [tasks: bridge-runtime-neutral-save, web-ui-servo-routes, calibrate-page-servo-section] [status: approved]
