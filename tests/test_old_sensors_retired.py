@@ -3,8 +3,13 @@
 The head ToF (arducam_tof) is retired once every consumer reads the D435 (design D11): its ros2_nodes entry is
 present: false with no config (the next deploy uninstalls the unit, venv and config), Alloy no longer scrapes its
 metrics port, and no enabled node's config, env or launch command and no nav2 parameter names a /tof/ topic.
+
+The gripper USB camera (gripper_uvc_camera) is retired the same way: the head D435 sees the jaws, so its entry is
+present: false, Alloy does not scrape it, the master2master relay of its stream is gone and no tracked config names
+/camera_0.
 """
 
+import subprocess
 from pathlib import Path
 
 import yaml
@@ -15,6 +20,10 @@ NAV2_PARAMS = REPO_ROOT / "nodes" / "nav2_bringup" / "config" / "nav2_params.yam
 TOF_NODE = "arducam_tof"
 TOF_METRICS_PORT = 19112
 TOF_TOPIC_PREFIX = "/tof/"
+GRIPPER_NODE = "gripper_uvc_camera"
+GRIPPER_NODE_TYPE = "uvc_camera"
+GRIPPER_METRICS_PORT = 19105
+GRIPPER_TOPIC_PREFIX = "/camera_0"
 RETIREMENT_COMMENT = "Retired (D435 switchover): present: false uninstalls the unit, venv and config on the next deploy"
 
 
@@ -64,18 +73,47 @@ def running_node_texts(variables: dict) -> dict[str, str]:
     return out
 
 
+def retirement_comment(name: str) -> str:
+    """Return the comment lines right above a ros2_nodes entry of client.yml, joined.
+
+    Args:
+        name (str): Node name.
+
+    Returns:
+        str: The joined comment text of the three lines above ``- name: <name>``.
+    """
+    lines = CLIENT_VARS.read_text().splitlines()
+    index = lines.index(f"  - name: {name}")
+    return " ".join(
+        line.strip().lstrip("#").strip() for line in lines[index - 3 : index] if line.strip().startswith("#")
+    )
+
+
+def tracked_config_files() -> list[Path]:
+    """Return client.yml, every tracked file under a node's config/ directory and every role template.
+
+    Returns:
+        list[Path]: Absolute paths.
+    """
+    tracked = subprocess.run(
+        ["git", "ls-files", "nodes", "ansible/roles"], cwd=REPO_ROOT, capture_output=True, text=True, check=True
+    ).stdout.split()
+    picked = [
+        path
+        for path in tracked
+        if (path.startswith("nodes/") and "/config/" in path)
+        or (path.startswith("ansible/roles/") and "/templates/" in path)
+    ]
+    return [CLIENT_VARS, *(REPO_ROOT / path for path in picked)]
+
+
 def test_arducam_tof_is_retired() -> None:
     """arducam_tof is present: false without config, unscraped, and no enabled consumer reads a /tof/ topic."""
     variables = load_client()
     entry = next(n for n in variables["ros2_nodes"] if n["name"] == TOF_NODE)
     assert entry == {"name": TOF_NODE, "node_type": TOF_NODE, "present": False}
 
-    lines = CLIENT_VARS.read_text().splitlines()
-    index = lines.index(f"  - name: {TOF_NODE}")
-    comment = " ".join(
-        line.strip().lstrip("#").strip() for line in lines[index - 3 : index] if line.strip().startswith("#")
-    )
-    assert RETIREMENT_COMMENT in comment
+    assert RETIREMENT_COMMENT in retirement_comment(TOF_NODE)
 
     targets = variables["monitoring_agent_node_targets"]
     assert TOF_NODE not in {t["node"] for t in targets}
@@ -84,3 +122,22 @@ def test_arducam_tof_is_retired() -> None:
     readers = {name for name, text in running_node_texts(variables).items() if TOF_TOPIC_PREFIX in text}
     assert not readers
     assert TOF_TOPIC_PREFIX not in NAV2_PARAMS.read_text()
+
+
+def test_gripper_camera_is_retired() -> None:
+    """gripper_uvc_camera is present: false without env, unscraped, and no tracked config names /camera_0."""
+    variables = load_client()
+    entry = next(n for n in variables["ros2_nodes"] if n["name"] == GRIPPER_NODE)
+    assert entry == {"name": GRIPPER_NODE, "node_type": GRIPPER_NODE_TYPE, "present": False}
+    assert RETIREMENT_COMMENT in retirement_comment(GRIPPER_NODE)
+
+    targets = variables["monitoring_agent_node_targets"]
+    assert GRIPPER_NODE not in {t["node"] for t in targets}
+    assert not any(t["address"].endswith(f":{GRIPPER_METRICS_PORT}") for t in targets)
+
+    hits = [
+        str(path.relative_to(REPO_ROOT))
+        for path in tracked_config_files()
+        if path.is_file() and GRIPPER_TOPIC_PREFIX in path.read_text(errors="ignore")
+    ]
+    assert hits == []

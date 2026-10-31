@@ -253,18 +253,6 @@ def test_filter_node_autonomy_params() -> None:
         assert cfg[key] == topic, key
 
 
-def test_gripper_camera_disabled_for_memory() -> None:
-    """User 2026-10-28: stopped (still installed) so the enabled memory_low sum has room for the D435 ground nodes."""
-    entry = node_entry("gripper_uvc_camera")
-    assert entry["present"] is True and entry["enabled"] is False
-
-
-def test_gripper_camera_rotated_180_at_source() -> None:
-    env = node_entry("gripper_uvc_camera")["env"]
-    assert "UVC_ROTATE_DEG=180" in env
-    assert sum(e.startswith("UVC_ROTATE_DEG=") for e in env) == 1
-
-
 def test_mcp_server_arm_mount_measured_and_height_agree_with_claude_agent() -> None:
     arm = node_config("mcp_server")["arm"]
     assert arm["arm_base_height_m"] == 0.100

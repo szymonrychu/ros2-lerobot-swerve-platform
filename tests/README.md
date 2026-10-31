@@ -1821,8 +1821,7 @@ Client CPU load trims (load about 13 on 4 cores made the EKF miss its rate and t
 
 | Test | Description |
 |------|-------------|
-| `test_master2master_is_disabled` | `master2master` stays `present: true` but `enabled: false` (its `/controller/*` relays, the gripper camera included, served only the legacy Steam Deck UI). |
-| `test_gripper_camera_publish_rate_is_capped` | `gripper_uvc_camera` env has `UVC_MAX_FPS=10`. |
+| `test_master2master_is_disabled` | `master2master` stays `present: true` but `enabled: false` (its `/controller/*` relays served only the legacy Steam Deck UI). |
 | `test_imu_publishes_at_25_hz` | `bno055_imu` config has `publish_hz: 25` (software i2c-gpio busy-waits; about 0.18 core). |
 | `test_imu_covariance_window_spans_two_seconds` | `covariance_window / publish_hz == 2.0` and `covariance_min_samples` stays 20. |
 | `test_imu_consumer_timeouts_cover_25_hz` | Every IMU staleness limit in client.yml (tilt guard `imu_timeout_s`, ground estimator `imu.timeout_s`, floor guard `imu_max_age_s`, map_guard and map_guard_cpp `input_timeout_s`) is at least 3 IMU periods (0.12 s). |
@@ -2128,9 +2127,7 @@ fake `ssh`; no ROS needed).
 | `test_mcp_server_node_entry_and_config` | Present + enabled `ros2_nodes` entry; config block keys (incl. `control`), server 0.0.0.0:18200 `/mcp`, repo-relative arm URDF that exists, home file `/var/lib/ros2/arm/home.yaml`; the `grasp_check` block is an allowed key. |
 | `test_mcp_server_topics_match_filter_node_lease` | mcp_server autonomy command/release/active source and follower feedback topics equal filter_node's. |
 | `test_filter_node_autonomy_params` | filter_node config sets `autonomy_input_topic`, `autonomy_release_topic`, `active_source_topic`. |
-| `test_gripper_camera_disabled_for_memory` | `gripper_uvc_camera` is present and disabled (user 2026-10-28: memory_low room for the D435 ground nodes). |
 | `test_shoulder_lift_upper_limit_allows_reaching_below_the_floor` | mcp_server `arm.joint_limit_overrides_rad` widens shoulder_lift to [-1.745, 1.9] rad (tested on the robot: 1.87 rad reached without collision, the stretched arm cannot be lifted beyond about 1.85). |
-| `test_gripper_camera_rotated_180_at_source` | `gripper_uvc_camera` env sets `UVC_ROTATE_DEG=180` exactly once (the wrist image is upside down at wrist roll 0; rotation happens in the camera node, not downstream). |
 | `test_mcp_server_nav_tolerances_match_nav2_goal_checker` | mcp_server `nav.goal_xy_tolerance_m` / `goal_yaw_tolerance_deg` in client.yml equal the nav2_params.yaml goal checker (0.01 m, 0.035 rad ~ 2 deg). |
 | `test_claude_agent_nav_tolerances_match_mcp_server` | claude_agent `nav_goal_xy_tolerance_cm` / `nav_goal_yaw_tolerance_deg` (and the `nav_intermediate_*` pair) in client.yml equal the mcp_server `nav` values. |
 | `test_mcp_server_arm_mount_measured_and_height_agree_with_claude_agent` | mcp_server config `arm.arm_base_height_m` is 0.100 and `arm.base_in_base_link` is the mount measured 2026-10-10 `{x: 0.0592, y: -0.05, z: 0.104, yaw: 0.0}`; the claude_agent `arm_base_height_m` states the same height. |
@@ -2445,7 +2442,7 @@ Static invariants of the head RGB-D adapter deploy (`head_rgbd_cpp` in `ansible/
 | `test_inputs_are_the_d435_aligned_pair` | The deployed config and the defaults read `/head/d435/aligned_depth_to_color/image_raw`, `/head/d435/color/image_raw` and `/head/d435/color/camera_info` at `output.rate_hz` 2.0; `realsense_d435` launches as `head`/`d435` with `align_depth.enable: true`. |
 | `test_output_rate_matches_the_mapping_budget` | `output.rate_hz` equals the `expected_rate_hz` of all four `/head_rgbd/*` uplink streams of `nodes/rtabmap_mapping/config/map3d_topics.yaml`. |
 | `test_client_playbook_step_order` | `Deploy head_rgbd_cpp` after the head_camera_cpp and arducam_tof steps, tags `[head_rgbd_cpp, apt, python, build, config]`. |
-| `test_rgbd_and_ground_nodes_are_enabled` | User 2026-10-28: `head_rgbd_cpp`, `ground_estimator_cpp`, `realsense_d435`, `d435_obstacle_cloud` and `head_camera_cpp` are present and enabled and the two are scraped; `gripper_uvc_camera` is present and disabled (memory_low room, D14), `arducam_tof` is retired (`present: false`), and neither is scraped. |
+| `test_rgbd_and_ground_nodes_are_enabled` | User 2026-10-28: `head_rgbd_cpp`, `ground_estimator_cpp`, `realsense_d435`, `d435_obstacle_cloud` and `head_camera_cpp` are present and enabled and the two are scraped; `gripper_uvc_camera` and `arducam_tof` are retired (`present: false`, memory_low room, D14), and neither is scraped. |
 
 ### `test_pi_camera_boot_config.py`
 
@@ -3333,11 +3330,12 @@ Retirement pins for the ToF-only code paths of `nodes/head_rgbd_cpp` (the D435 p
 
 ### `test_old_sensors_retired.py`
 
-Retirement pins for the old head sensors of the D435 switchover (design D11: retired only after every consumer reads the D435). Reads `ansible/group_vars/client.yml` and `nodes/nav2_bringup/config/nav2_params.yaml` only.
+Retirement pins for the old head sensors of the D435 switchover (design D11: retired only after every consumer reads the D435). Reads `ansible/group_vars/client.yml`, `nodes/nav2_bringup/config/nav2_params.yaml` and the tracked node config and role template files (`git ls-files`).
 
 | Test | What it checks |
 |---|---|
 | `test_arducam_tof_is_retired` | The `arducam_tof` entry is exactly `name`, `node_type` and `present: false` (no `config`) under the comment "Retired (D435 switchover): present: false uninstalls the unit, venv and config on the next deploy"; no `monitoring_agent_node_targets` entry names it or port 19112; no present and enabled node's config, node or type env or type launch command, and no nav2 parameter, names a `/tof/` topic. |
+| `test_gripper_camera_is_retired` | The `gripper_uvc_camera` entry is exactly `name`, `node_type: uvc_camera` and `present: false` (no env) under the same retirement comment; no `monitoring_agent_node_targets` entry names it or port 19105; neither client.yml (the master2master relay included), a tracked file under a node's `config/` nor a role template names `/camera_0`. |
 
 ### `test_head_rgbd_calibration_deploy.py`
 

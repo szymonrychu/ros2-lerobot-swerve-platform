@@ -221,13 +221,12 @@ def test_client_playbook_step_order() -> None:
 
 def test_rgbd_and_ground_nodes_are_enabled() -> None:
     """User 2026-10-28: ground (slope and obstacle) estimation runs on the D435 (design D1, D7). The RGB-D adapter, the
-    ground estimator and their D435 inputs run and are scraped; gripper_uvc_camera stays installed but stopped, so the
-    enabled memory_low sum stays within the cap (D14), and arducam_tof is retired (present: false); neither is
-    scraped."""
+    ground estimator and their D435 inputs run and are scraped; gripper_uvc_camera and arducam_tof are retired
+    (present: false), so the enabled memory_low sum stays within the cap (D14); neither is scraped."""
     nodes = {n["name"]: n for n in client_vars()["ros2_nodes"]}
     for name in ("head_rgbd_cpp", "ground_estimator_cpp", "realsense_d435", "d435_obstacle_cloud", "head_camera_cpp"):
         assert nodes[name]["present"] is True and nodes[name]["enabled"] is True, name
-    assert nodes["gripper_uvc_camera"]["present"] is True and nodes["gripper_uvc_camera"]["enabled"] is False
+    assert nodes["gripper_uvc_camera"]["present"] is False
     assert nodes["arducam_tof"]["present"] is False
     targets = {t["node"] for t in client_vars()["monitoring_agent_node_targets"]}
     assert {"head_rgbd_cpp", "ground_estimator_cpp"} <= targets

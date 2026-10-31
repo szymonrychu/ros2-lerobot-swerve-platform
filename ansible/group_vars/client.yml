@@ -1212,10 +1212,6 @@ ros2_nodes:
           dest: /controller/odom
           direction: out
           type: Odometry
-        - source: /camera_0/image_raw/compressed
-          dest: /controller/camera_0/image_compressed
-          direction: out
-          type: CompressedImage
         # Controller-originated: relay SteamDeck commands into client ROS2 graph
         - source: /controller/goal_pose
           dest: /goal_pose
@@ -1410,23 +1406,11 @@ ros2_nodes:
         activation_debounce_cycles: 2
       delay_safety_max_skew_s: 0.4
       watchdog_timeout_s: 0.5
-  # Gripper USB camera (reconnected): /camera_0/image_raw and /camera_0/image_raw/compressed (web_ui camera tab, mcp_server).
-  # Disabled (user 2026-10-28): stopped, still installed, so the enabled memory_low sum stays <= 2560 MiB with
-  # head_rgbd_cpp and ground_estimator_cpp enabled on the D435; the retirement makes it present: false.
+  # Gripper USB camera: the head D435 sees the jaws and every former consumer reads /head/d435/*.
+  # Retired (D435 switchover): present: false uninstalls the unit, venv and config on the next deploy.
   - name: gripper_uvc_camera
     node_type: uvc_camera
-    present: true
-    enabled: false
-    env:
-      # By id: the overview CSI camera (rp1-cfe) takes /dev/video0..9, so numbered devices are not stable.
-      - UVC_DEVICE=/dev/v4l/by-id/usb-Arducam_Arducam_5MP_USB_Camera_YL20240927V0-video-index0
-      - UVC_TOPIC=/camera_0/image_raw
-      # Image is upside down at wrist roll 0 (confirmed by the agent): rotate every published frame 180 deg at source.
-      - UVC_ROTATE_DEG=180
-      # About 18 fps uncapped; 10 fps is enough for the agent and the web UI and saves CPU on the loaded client.
-      - UVC_MAX_FPS=10
-      # Prometheus /metrics on 127.0.0.1 (scraped by Alloy).
-      - METRICS_PORT=19105
+    present: false
   # Head ToF on CSI cam1: the D435 replaces it and every former consumer reads /head/d435/*.
   # Retired (D435 switchover): present: false uninstalls the unit, venv and config on the next deploy.
   - name: arducam_tof
@@ -3791,7 +3775,6 @@ monitoring_agent_node_targets:
   - {node: head_camera_cpp, address: "127.0.0.1:19116", path: /metrics}
   - {node: head_rgbd_cpp, address: "127.0.0.1:19117", path: /metrics}
   - {node: ground_estimator_cpp, address: "127.0.0.1:19119", path: /metrics}
-  # gripper_uvc_camera (19105) is disabled (user 2026-10-28): a disabled target reads as down.
   - {node: base_servos, address: "127.0.0.1:19115", path: /metrics}
   - {node: web_ui, address: "127.0.0.1:8080", path: /metrics}
   - {node: test_joint_api, address: "127.0.0.1:18080", path: /metrics}

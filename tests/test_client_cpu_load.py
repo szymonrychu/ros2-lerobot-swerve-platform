@@ -31,15 +31,9 @@ def client_node(name: str, text: str | None = None) -> dict:
 
 
 def test_master2master_is_disabled() -> None:
-    """Its /controller/* relays (the gripper camera included) served only the legacy Steam Deck UI."""
+    """Its /controller/* relays served only the legacy Steam Deck UI."""
     node = client_node("master2master")
     assert node["present"] is True and node["enabled"] is False
-
-
-def test_gripper_camera_publish_rate_is_capped() -> None:
-    """The UVC camera delivered about 18 fps; 10 fps is enough for the agent and the web UI."""
-    env = client_node("gripper_uvc_camera")["env"]
-    assert "UVC_MAX_FPS=10" in env
 
 
 def node_config(name: str) -> dict:
