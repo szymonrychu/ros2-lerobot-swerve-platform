@@ -2,12 +2,15 @@
 
 import threading
 from collections.abc import Callable
+from pathlib import Path
 
 import pytest
+import yaml
 
 from mcp_server.arm import ArmError
 from mcp_server.config import DrivePoseSettings
 from mcp_server.drive_pose import DrivePose, DrivePoseState
+from mcp_server.drive_pose_check import DrivePoseViolation
 from mcp_server.models import ArmMotionResult
 
 HOME = {
@@ -48,6 +51,9 @@ class FakeArm:
 
     def torque_off(self) -> bool:
         return self.released
+
+    def stored_home(self) -> dict[str, float] | None:
+        return dict(HOME) if self.home_stored else None
 
     def at_home(self) -> bool | None:
         if not self.fresh or not self.home_stored:
@@ -126,13 +132,17 @@ class FakeWorker:
 
 
 class Rig:
-    def __init__(self, enabled: bool = True, joints: dict[str, float] | None = DRIVE) -> None:
+    def __init__(
+        self, enabled: bool = True, joints: dict[str, float] | None = DRIVE, stored_file: Path | None = None
+    ) -> None:
         self.arm = FakeArm()
         self.gates = FakeGates()
         self.worker = FakeWorker()
         self.now = 100.0
         self.statics: list[str] = []
-        self.settings = DrivePoseSettings(enabled=enabled, joints=joints, lower_delay_s=3.0, speed_scale=0.3)
+        self.settings = DrivePoseSettings(
+            enabled=enabled, joints=joints, lower_delay_s=3.0, speed_scale=0.3, stored_file=stored_file
+        )
         self.drive = DrivePose(
             self.settings,
             self.arm,
@@ -420,3 +430,85 @@ def test_state_stamp_moves_on_every_change() -> None:
     stamp = rig.drive.state().stamp_ns
     rig.tick(True)
     assert rig.drive.state().stamp_ns == stamp
+
+
+# --- stored drive pose (/arm/set_drive_pose) -------------------------------------------------------------------------
+
+STORED = DRIVE | {"elbow_flex": -1.2}
+
+
+def no_violation(_home: dict[str, float], _pose: dict[str, float]) -> list[DrivePoseViolation]:
+    return []
+
+
+def test_store_pose_writes_the_measured_pose_after_the_check_and_uses_it(tmp_path: Path) -> None:
+    path = tmp_path / "arm" / "drive_pose.yaml"
+    rig = Rig(stored_file=path)
+    rig.arm.positions = dict(STORED)
+    checked: list[tuple[dict[str, float], dict[str, float]]] = []
+
+    def check(home: dict[str, float], pose: dict[str, float]) -> list[DrivePoseViolation]:
+        checked.append((dict(home), dict(pose)))
+        return []
+
+    ok, message = rig.drive.store_pose(check)
+    assert ok is True and str(path) in message
+    assert checked == [(HOME, STORED)], "checked from the stored home"
+    assert yaml.safe_load(path.read_text()) == {"joints": STORED}
+    assert [p.name for p in path.parent.iterdir()] == ["drive_pose.yaml"], "atomic: no temp file left"
+    rig.arm.positions = dict(HOME)
+    rig.tick(True)
+    rig.worker.run()
+    assert rig.arm.calls[1] == ("home_motion", STORED, None, 0.3), "the stored pose wins over the config joints"
+
+
+def test_a_failed_check_refuses_naming_the_checks_and_stores_nothing(tmp_path: Path) -> None:
+    path = tmp_path / "drive_pose.yaml"
+    rig = Rig(stored_file=path)
+
+    def check(_home: dict[str, float], _pose: dict[str, float]) -> list[DrivePoseViolation]:
+        return [DrivePoseViolation("body", "lift leg 2 sample 3"), DrivePoseViolation("view", "pan -60 deg")]
+
+    ok, message = rig.drive.store_pose(check)
+    assert ok is False and "body" in message and "view" in message and "lift leg 2 sample 3" in message
+    assert not path.exists()
+    assert rig.drive.joints == DRIVE
+
+
+def test_store_pose_is_refused_without_fresh_joint_states_or_home(tmp_path: Path) -> None:
+    rig = Rig(stored_file=tmp_path / "drive_pose.yaml")
+    rig.arm.fresh = False
+    ok, message = rig.drive.store_pose(no_violation)
+    assert ok is False and "joint states" in message
+    rig.arm.fresh, rig.arm.home_stored = True, False
+    ok, message = rig.drive.store_pose(no_violation)
+    assert ok is False and "home" in message
+    assert not (tmp_path / "drive_pose.yaml").exists()
+
+
+def test_the_stored_pose_survives_a_controller_restart(tmp_path: Path) -> None:
+    path = tmp_path / "drive_pose.yaml"
+    rig = Rig(stored_file=path)
+    rig.arm.positions = dict(STORED)
+    assert rig.drive.store_pose(no_violation)[0] is True
+    assert Rig(stored_file=path).drive.joints == STORED
+    assert Rig(stored_file=path, joints=None).drive.joints == STORED, "a stored pose needs no config joints"
+
+
+@pytest.mark.parametrize(
+    "content",
+    ["joints: [not, a, mapping", "joints:\n  shoulder_pan: 0.0\n", "joints:\n  shoulder_pan: .nan\n"],
+    ids=["unparsable", "missing joints", "not finite"],
+)
+def test_an_unreadable_stored_file_falls_back_to_the_config_with_a_warning(
+    tmp_path: Path, content: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    path = tmp_path / "drive_pose.yaml"
+    path.write_text(content)
+    rig = Rig(stored_file=path)
+    assert rig.drive.joints == DRIVE
+    assert any(r.levelname == "WARNING" and str(path) in r.getMessage() for r in caplog.records)
+
+
+def test_no_stored_file_uses_the_config_joints(tmp_path: Path) -> None:
+    assert Rig(stored_file=tmp_path / "missing.yaml").drive.joints == DRIVE

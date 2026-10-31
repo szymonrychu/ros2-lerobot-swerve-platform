@@ -15,18 +15,26 @@ States (DrivePoseState.state): idle, lifting, lifted, lowering, disabled, "skipp
   where it is; it never blocks navigation and is cleared when the goal ends. Every reason is logged once, on the
   transition. A goal that starts during the lowering lifts again once the lowering motion ended.
 
+The pose is the one stored by /arm/set_drive_pose (store_pose: the measured pose, kept only when the drive pose check
+from the stored home passes, written atomically to stored_file) when that file is readable, else the configured joints
+(load_pose, at construction, so a stored pose survives a restart). set_enabled is the runtime on/off (not persisted).
+
 Motions run on one worker thread (submit), so tick never blocks.
 """
 
 import logging
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Protocol
 
+from pydantic import ValidationError
+
 from .arm import ArmError
 from .config import DrivePoseSettings
+from .drive_pose_check import DrivePoseViolation
+from .home_store import HomeStoreError, load_home, save_home
 from .models import ArmMotionResult, DrivePoseState
 
 LOGGER = logging.getLogger(__name__)
@@ -71,6 +79,9 @@ class DriveArm(Protocol):
 
     def at_home(self) -> bool | None:
         """Whether the arm is at its stored home (None: no home or stale states)."""
+
+    def stored_home(self) -> dict[str, float] | None:
+        """The stored home pose (None: none stored; HomeStoreError when unreadable)."""
 
     def acquire(self) -> Any:
         """Take the autonomy lease at the measured pose."""
@@ -148,6 +159,7 @@ class DrivePose:
         self.clock = clock
         self.clock_ns = clock_ns
         self.enabled = settings.enabled
+        self.joints = self.load_pose()  # the stored pose (/arm/set_drive_pose) wins over settings.joints
         self.cond = threading.Condition(threading.RLock())
         self.phase = IDLE
         self.reason = ""
@@ -211,6 +223,65 @@ class DrivePose:
         with self.cond:
             self.enabled = enabled
             self.changed()
+
+    # --- stored pose -----------------------------------------------------------------------------------------------
+
+    def load_pose(self) -> dict[str, float] | None:
+        """The drive pose: the one stored at settings.stored_file, else settings.joints (also when the stored file is
+        unreadable or invalid, with a warning).
+
+        Returns:
+            dict[str, float] | None: Joint name -> rad (measured space), None without any pose.
+        """
+        path = self.settings.stored_file
+        if path is None or not path.is_file():
+            return self.settings.joints
+        try:
+            stored = DrivePoseSettings(joints=load_home(path)).joints
+        except (HomeStoreError, ValidationError, OSError) as exc:
+            LOGGER.warning("drive pose: stored pose %s unreadable, using the configured joints: %s", path, exc)
+            return self.settings.joints
+        LOGGER.info("drive pose: using the stored pose %s", path)
+        return stored
+
+    def store_pose(
+        self, check: Callable[[dict[str, float], dict[str, float]], Sequence[DrivePoseViolation]]
+    ) -> tuple[bool, str]:
+        """/arm/set_drive_pose: store the measured pose (atomically, at settings.stored_file) as the drive pose when
+        check(stored home, measured pose) finds no violation.
+
+        Args:
+            check (Callable[[dict[str, float], dict[str, float]], Sequence[DrivePoseViolation]]): The drive pose check
+                (drive_pose_check.check_drive_pose on the node config); empty = pass.
+
+        Returns:
+            tuple[bool, str]: success and message (the failed checks when refused).
+        """
+        sample = self.arm.fresh_sample()
+        if sample is None:
+            return False, f"set drive pose refused: {NO_JOINT_STATES}"
+        try:
+            home = self.arm.stored_home()
+        except HomeStoreError as exc:
+            return False, f"set drive pose refused: home pose unreadable: {exc}"
+        if home is None:
+            return False, f"set drive pose refused: {NO_HOME}"
+        path = self.settings.stored_file
+        if path is None:
+            return False, "set drive pose refused: no stored_file configured"
+        pose = self.arm.measured(sample)
+        violations = check(home, pose)
+        if violations:
+            failed = sorted({v.check for v in violations})
+            details = "; ".join(f"{v.check}: {v.detail}" for v in violations)
+            return False, f"set drive pose refused: failed checks {', '.join(failed)} ({details})"
+        try:
+            save_home(path, pose)
+        except (OSError, HomeStoreError) as exc:
+            return False, f"set drive pose failed: cannot store {path}: {exc}"
+        with self.cond:
+            self.joints = dict(pose)
+        return True, f"drive pose stored at {path}: {pose}"
 
     # --- triggers --------------------------------------------------------------------------------------------------
 
@@ -286,7 +357,7 @@ class DrivePose:
         Returns:
             str | None: Reason, None when the lift may start.
         """
-        if self.settings.joints is None:
+        if self.joints is None:
             return NO_POSE
         if self.arm.torque_off():
             return TORQUE_OFF
@@ -315,8 +386,8 @@ class DrivePose:
         if failure is not None:
             self.set_phase(SKIPPED, failure)
             return
-        assert self.settings.joints is not None
-        pose = dict(self.settings.joints)
+        assert self.joints is not None
+        pose = dict(self.joints)
         self.aborted = False
         self.set_phase(LIFTING)
         self.submit(lambda: self.lift_job(pose))
@@ -356,7 +427,7 @@ class DrivePose:
         sample = self.arm.fresh_sample()
         if sample is None:
             return NO_JOINT_STATES
-        joints = self.settings.joints or {}
+        joints = self.joints or {}
         moved = moved_joints(self.arm.measured(sample), joints, self.settings.tolerance_rad)
         if moved:
             return f"arm moved off the drive pose ({', '.join(moved)})"

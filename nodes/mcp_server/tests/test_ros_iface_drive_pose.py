@@ -1,7 +1,9 @@
 """ros_iface.RosRobot drive pose wiring without ROS: the ROS packages are replaced by mocks (conftest ros_iface).
 
 Covers: the 5 Hz timer ticks DrivePose with nav_active(); /arm/drive_pose/state (std_msgs/String JSON, reliable +
-transient_local, depth 1) is published on every change and at 1 Hz, nothing before the controller is bound.
+transient_local, depth 1) is published on every change and at 1 Hz, nothing before the controller is bound;
+/arm/set_drive_pose stores the measured pose only after check_drive_pose from the stored home passes;
+/arm/drive_pose/enable toggles at runtime (not persisted); both refused without fresh joint states.
 """
 
 import json
@@ -13,6 +15,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from mcp_server.control import ControlManager
+from mcp_server.drive_pose_check import DrivePoseViolation
 from mcp_server.models import DrivePoseState
 
 from .test_tools import FakeRobot
@@ -128,3 +131,97 @@ def test_state_is_published_on_change_and_at_one_hz(ros_iface: ModuleType, tmp_p
     tick()
     assert published(robot)[-1]["state"] == "idle" and published(robot)[-1]["enabled"] is True
     assert len(published(robot)) == 3
+
+
+# --- /arm/set_drive_pose and /arm/drive_pose/enable ------------------------------------------------------------------
+
+
+def service(robot: Any, name: str) -> Any:
+    """The callback of the service created on name."""
+    return next(c.args[2] for c in robot.node.create_service.call_args_list if c.args[1] == name)
+
+
+def response() -> SimpleNamespace:
+    return SimpleNamespace(success=None, message=None)
+
+
+def test_set_drive_pose_stores_the_measured_pose_checked_from_the_stored_home(
+    ros_iface: ModuleType, tmp_path: Path, monkeypatch: Any
+) -> None:
+    robot = make_robot(ros_iface, tmp_path, monkeypatch)
+    bind(robot)
+    robot.arm.set_home()
+    home = robot.arm.stored_home()
+    robot.arm_backend.positions["elbow_flex"] = 0.4
+    checks: list[tuple[Any, dict[str, float], dict[str, float]]] = []
+
+    def check(config: Any, start: dict[str, float], pose: dict[str, float]) -> list[Any]:
+        checks.append((config, dict(start), dict(pose)))
+        return []
+
+    monkeypatch.setattr(ros_iface, "check_drive_pose", check)
+    answer = service(robot, "/arm/set_drive_pose")(None, response())
+    assert answer.success is True
+    assert checks == [(robot.cfg, home, robot.arm.measured(robot.arm.fresh_sample()))]
+    stored = robot.cfg.arm.drive_pose.stored_file
+    assert stored == tmp_path / "drive_pose.yaml" and stored.is_file()
+    assert robot.drive_pose.joints["elbow_flex"] == pytest.approx(0.4)
+
+
+def test_set_drive_pose_refuses_naming_the_failed_checks(
+    ros_iface: ModuleType, tmp_path: Path, monkeypatch: Any
+) -> None:
+    robot = make_robot(ros_iface, tmp_path, monkeypatch)
+    bind(robot)
+    robot.arm.set_home()
+    monkeypatch.setattr(
+        ros_iface, "check_drive_pose", lambda *_a: [DrivePoseViolation("footprint", "lift leg 1 sample 4")]
+    )
+    answer = service(robot, "/arm/set_drive_pose")(None, response())
+    assert answer.success is False and "footprint" in answer.message
+    assert not robot.cfg.arm.drive_pose.stored_file.exists()
+
+
+def test_set_drive_pose_refused_without_fresh_joint_states(
+    ros_iface: ModuleType, tmp_path: Path, monkeypatch: Any
+) -> None:
+    robot = make_robot(ros_iface, tmp_path, monkeypatch)
+    bind(robot)
+    robot.arm.set_home()
+    robot.arm_backend.stale_after = robot.arm_backend.t
+    robot.arm_backend.t += 100.0
+    answer = service(robot, "/arm/set_drive_pose")(None, response())
+    assert answer.success is False and "joint states" in answer.message
+
+
+def test_enable_toggles_at_runtime_and_is_not_persisted(
+    ros_iface: ModuleType, tmp_path: Path, monkeypatch: Any
+) -> None:
+    robot = make_robot(ros_iface, tmp_path, monkeypatch)
+    bind(robot)
+    enable = service(robot, "/arm/drive_pose/enable")
+    answer = enable(SimpleNamespace(data=True), response())
+    assert answer.success is True and robot.drive_pose.state().enabled is True
+    assert robot.cfg.arm.drive_pose.enabled is False, "the config stays the boot default"
+    answer = enable(SimpleNamespace(data=False), response())
+    assert answer.success is True and robot.drive_pose.state().state == "disabled"
+    bind(robot)  # a controller restart boots from the config again
+    assert robot.drive_pose.state().enabled is False
+
+
+def test_enable_refused_without_fresh_joint_states(ros_iface: ModuleType, tmp_path: Path, monkeypatch: Any) -> None:
+    robot = make_robot(ros_iface, tmp_path, monkeypatch)
+    bind(robot)
+    robot.arm_backend.stale_after = robot.arm_backend.t
+    robot.arm_backend.t += 100.0
+    answer = service(robot, "/arm/drive_pose/enable")(SimpleNamespace(data=True), response())
+    assert answer.success is False and "joint states" in answer.message
+    assert robot.drive_pose.state().enabled is False
+
+
+def test_services_refused_before_the_controller_is_bound(
+    ros_iface: ModuleType, tmp_path: Path, monkeypatch: Any
+) -> None:
+    robot = make_robot(ros_iface, tmp_path, monkeypatch)
+    assert service(robot, "/arm/set_drive_pose")(None, response()).success is False
+    assert service(robot, "/arm/drive_pose/enable")(SimpleNamespace(data=True), response()).success is False

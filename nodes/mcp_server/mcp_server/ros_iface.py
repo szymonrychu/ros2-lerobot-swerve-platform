@@ -39,7 +39,7 @@ from ros2_common.maps import MapResult, MapStatus
 from scipy.spatial.transform import Rotation
 from sensor_msgs.msg import BatteryState, CameraInfo, CompressedImage, Image, Imu, JointState, LaserScan, PointCloud2
 from std_msgs.msg import Bool, String
-from std_srvs.srv import Trigger
+from std_srvs.srv import SetBool, Trigger
 from tf2_msgs.msg import TFMessage
 from tf2_ros import Buffer, TransformException
 
@@ -67,6 +67,7 @@ from .config import McpServerConfig
 from .control import ControlManager, LeaderActivity, NavGoalRegistry
 from .depth_source import DepthFrame, DepthSource
 from .drive_pose import DrivePose
+from .drive_pose_check import check_drive_pose
 from .feeds import FeedsSpinner
 from .floor_guard import monitor_tilt_sample
 from .footprint import costmap_node, published_footprint_topic
@@ -1007,8 +1008,9 @@ class RosRobot:
     # --- drive pose (drive_pose.DrivePose, created by bind_control) -----------------------------------------------
 
     def init_drive_pose_io(self, config: McpServerConfig) -> None:
-        """The /arm/drive_pose/state publisher, the 5 Hz controller tick and the 1 Hz state republish (both publish
-        nothing until bind_control created the controller).
+        """The /arm/drive_pose/state publisher, the 5 Hz controller tick, the 1 Hz state republish (both publish
+        nothing until bind_control created the controller) and the /arm/set_drive_pose and /arm/drive_pose/enable
+        services.
 
         Args:
             config (McpServerConfig): Node configuration.
@@ -1018,6 +1020,11 @@ class RosRobot:
         self.drive_pose_pub = self.node.create_publisher(String, config.topics.drive_pose_state, DRIVE_POSE_STATE_QOS)
         self.node.create_timer(DRIVE_POSE_TICK_S, self.on_drive_pose_tick, callback_group=self.group)
         self.node.create_timer(DRIVE_POSE_REPUBLISH_S, self.republish_drive_pose_state, callback_group=self.group)
+        t = config.topics
+        self.node.create_service(Trigger, t.set_drive_pose_service, self.on_set_drive_pose, callback_group=self.group)
+        self.node.create_service(
+            SetBool, t.drive_pose_enable_service, self.on_drive_pose_enable, callback_group=self.group
+        )
 
     def on_drive_pose_tick(self) -> None:
         """Timer: tick the controller with the navigation state and publish its state when it changed."""
@@ -1042,6 +1049,46 @@ class RosRobot:
         """
         self.drive_pose_published = state
         self.drive_pose_pub.publish(String(data=state.model_dump_json()))
+
+    def on_set_drive_pose(self, _request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
+        """/arm/set_drive_pose: store the measured pose as the drive pose when the drive pose check from the stored
+        home passes (DrivePose.store_pose).
+
+        Args:
+            _request (Trigger.Request): Empty request.
+            response (Trigger.Response): Response to fill.
+
+        Returns:
+            Trigger.Response: success and message (the failed checks when refused).
+        """
+        if self.drive_pose is None:
+            response.success, response.message = False, "set drive pose refused: mcp_server is not ready"
+            return response
+        response.success, response.message = self.drive_pose.store_pose(
+            lambda home, pose: check_drive_pose(self.cfg, home, pose)
+        )
+        return response
+
+    def on_drive_pose_enable(self, request: SetBool.Request, response: SetBool.Response) -> SetBool.Response:
+        """/arm/drive_pose/enable: allow or block new lifts at runtime (not persisted). A lifted arm still lowers at
+        goal end.
+
+        Args:
+            request (SetBool.Request): data: enable.
+            response (SetBool.Response): Response to fill.
+
+        Returns:
+            SetBool.Response: success and message; refused without fresh joint states.
+        """
+        if self.drive_pose is None:
+            response.success, response.message = False, "drive pose enable refused: mcp_server is not ready"
+        elif self.arm.fresh_sample() is None:
+            response.success, response.message = False, "drive pose enable refused: no fresh joint states"
+        else:
+            enabled = bool(request.data)
+            self.drive_pose.set_enabled(enabled)
+            response.success, response.message = True, f"drive pose {'enabled' if enabled else 'disabled'}"
+        return response
 
     def store_published_footprint(self, topic: str, msg: PolygonStamped) -> None:
         """Keep the footprint a costmap reports using (`<costmap>/published_footprint`, its global frame).

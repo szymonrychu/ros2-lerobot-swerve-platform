@@ -193,6 +193,10 @@ class TopicSettings(StrictModel):
     set_home_service: str = "/arm/set_home"
     # Drive pose controller state (std_msgs/String JSON {state, reason, enabled, stamp_ns}, latched).
     drive_pose_state: str = "/arm/drive_pose/state"
+    # std_srvs/Trigger: store the measured arm pose as the drive pose (after the drive pose check).
+    set_drive_pose_service: str = "/arm/set_drive_pose"
+    # std_srvs/SetBool: runtime on/off of the drive pose lift (not persisted; arm.drive_pose.enabled is the boot value).
+    drive_pose_enable_service: str = "/arm/drive_pose/enable"
     # std_srvs/Trigger services of the web UI Arm tab (ControlManager.take_web_ui / release_web_ui).
     take_control_service: str = "/arm/take_control"
     release_control_service: str = "/arm/release_control"
