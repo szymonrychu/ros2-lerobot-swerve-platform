@@ -3,7 +3,7 @@ title: Front and back Camera Module 3 on CSI
 repos: [ros2-lerobot-sverve-platform]
 created: 2026-10-28
 owner: ""
-rung: ""
+rung: "4"
 ---
 
 # Front and back Camera Module 3 on CSI
@@ -41,7 +41,7 @@ Rungs are cumulative: each rung includes everything above it.
 
 - 3.1: web_ui shows live front and back streams.
 
-### Rung 4: complete - markers, agent and live proof (recommended)
+### Rung 4: complete - markers, agent and live proof (recommended, agreed)
 
 - 4.1: marker_detector scans front and back as well as the D435.
 - 4.2: claude_agent skills and evals use head/front/back; measured CPU and memory of the two cameras on the client
@@ -49,7 +49,13 @@ Rungs are cumulative: each rung includes everything above it.
 
 ## Agreed scope
 
-not agreed yet
+Rung 4 (complete), all items 1.1-4.2. The user's gate answer, verbatim: "Go" (accepting recommendations: rung 4
+complete; Q16 yes run after the D435 code steps, reusing head_camera_cpp and the cam0 overlay; Q17 yes second CM3
+fitted on cam1 in place of the ToF before rung 2 deploys, until then rung 2 stops at deploy; Q18 yes front/back static
+TF from the user's tape measurement, no CAD guess; Q19 yes both cameras use the old 1152x648 compressed profile, no
+zoom). The gate's Q16-Q19 are this file's Q1-Q4. Orchestrator binding: the TF values come from the user's tape
+measurement, so the code takes them from config with no default guess and the plan names where the user enters them;
+deploys, the cam1 overlay and reboot, and live checks run after merge with the user.
 
 ## Non-goals
 
@@ -67,10 +73,10 @@ none recorded in the epic format
 
 ## Open questions
 
-- Q1: Run this plan after realsense-d435-head-switchov's code steps, keeping head_camera_cpp and the cam0 overlay rather than deleting and restoring them (D435 Q8)? [recommended: yes]
-- Q2: The second Camera Module 3 is (or will be) fitted on cam1 in place of the ToF before rung 2 is deployed; until then rung 2 ships code and stops at deploy? [recommended: yes]
-- Q3: The front and back mount poses for the static TF come from the user's tape measurement of the mounted cameras (no CAD guess published)? [recommended: yes]
-- Q4: Both cameras reuse the retired head_camera_cpp profile (1152x648 compressed, no zoom)? [recommended: yes]
+- Q1: Run this plan after realsense-d435-head-switchov's code steps, keeping head_camera_cpp and the cam0 overlay rather than deleting and restoring them (D435 Q8)? [answer: yes; the D435 code steps are merged, head_camera_cpp and the imx708,cam0 overlay are kept]
+- Q2: The second Camera Module 3 is (or will be) fitted on cam1 in place of the ToF before rung 2 is deployed; until then rung 2 ships code and stops at deploy? [answer: yes]
+- Q3: The front and back mount poses for the static TF come from the user's tape measurement of the mounted cameras (no CAD guess published)? [answer: yes; config only, no default value]
+- Q4: Both cameras reuse the retired head_camera_cpp profile (1152x648 compressed, no zoom)? [answer: yes]
 
 ## Research
 
