@@ -24,6 +24,7 @@ import { PhotoLayer } from '../photos/PhotoLayer'
 import type { Photo } from '../photos/api'
 import { PoiLayer } from '../poi/PoiLayer'
 import type { Poi } from '../poi/types'
+import { orbitBindings } from './cameraBindings'
 import { pickGround } from './picking'
 import { useInvalidateOnResize } from './useInvalidateOnResize'
 import type { TileSourceInfo } from './tileSources'
@@ -52,6 +53,7 @@ const CAMERA_FOV = 50
 const INITIAL_CAMERA: ThreeTuple = [-3, 3, 3]
 const ORBIT_MAX_POLAR = Math.PI / 2 - 0.05 // keep the orbit camera above the ground
 const OBLIQUE_ELEVATION = Math.PI / 4 // camera elevation when leaving the top view
+const MAX_GOAL_PICK_M = 40 // orbit view: ground picks are pulled back to this distance from the camera
 const COSTMAP_OPACITY = 0.55
 
 /** Imperative handle the tab uses for camera buttons and ground picking. */
@@ -137,6 +139,9 @@ function CameraRig({
     const c = orbitRef.current
     if (!c) return
     const target = c.target
+    const bindings = orbitBindings({ topView, goalMode })
+    c.mouseButtons = bindings.mouseButtons
+    c.touches = bindings.touches
     const dist = Math.max(camera.position.distanceTo(target), 1)
     if (topView) {
       c.enableRotate = false
@@ -145,11 +150,6 @@ function CameraRig({
       c.minAzimuthAngle = 0
       c.maxAzimuthAngle = 0
       c.screenSpacePanning = true
-      // Goal mode: one finger / left button draws the goal; two fingers, wheel and right button still pan + zoom.
-      c.mouseButtons = goalMode
-        ? { MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN }
-        : { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN }
-      c.touches = goalMode ? { TWO: THREE.TOUCH.DOLLY_PAN } : { ONE: THREE.TOUCH.PAN, TWO: THREE.TOUCH.DOLLY_PAN }
       camera.position.set(target.x, target.y + dist, target.z)
     } else {
       c.enableRotate = true
@@ -158,8 +158,6 @@ function CameraRig({
       c.minAzimuthAngle = -Infinity
       c.maxAzimuthAngle = Infinity
       c.screenSpacePanning = true
-      c.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN }
-      c.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN }
       const offset = camera.position.clone().sub(target)
       if (offset.y > 0.95 * offset.length()) {
         // Coming out of the top view: tilt to an oblique view behind the current heading.
@@ -179,7 +177,8 @@ function CameraRig({
       pick: (clientX, clientY) => {
         const rect = gl.domElement.getBoundingClientRect()
         camera.updateMatrixWorld()
-        return pickGround(camera, clientX - rect.left, clientY - rect.top, rect.width, rect.height)
+        // Near the horizon a pixel maps to a far ground point: the orbit view limits the pick range.
+        return pickGround(camera, clientX - rect.left, clientY - rect.top, rect.width, rect.height, 0, topView ? undefined : MAX_GOAL_PICK_M)
       },
       centerOn: (p) => {
         const c = orbitRef.current
@@ -215,7 +214,7 @@ function CameraRig({
     return () => {
       controllerRef.current = null
     }
-  }, [camera, gl, orbitRef, controllerRef, invalidate])
+  }, [camera, gl, orbitRef, controllerRef, invalidate, topView])
 
   return null
 }

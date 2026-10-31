@@ -136,7 +136,9 @@ function Help({ topView, goalMode }: Pick<LayersPanelProps, 'topView' | 'goalMod
     ? goalMode
       ? 'Press to place the goal, drag to set heading. Two fingers / right button pan, wheel or pinch zooms.'
       : 'Top view: drag to pan, wheel or pinch to zoom.'
-    : 'Orbit: drag to rotate, right button / two fingers pan, wheel or pinch zooms.'
+    : goalMode
+      ? 'Press to place the goal, drag to set heading. Right button rotates, two fingers pan, wheel or pinch zooms.'
+      : 'Orbit: drag to rotate, right button / two fingers pan, wheel or pinch zooms.'
   return (
     <Box>
       <Box>{gesture}</Box>

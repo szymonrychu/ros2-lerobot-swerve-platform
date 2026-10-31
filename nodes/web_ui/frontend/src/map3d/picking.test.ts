@@ -58,6 +58,46 @@ describe('pickGround', () => {
     expect(top.y).toBeCloseTo(5)
   })
 
+  it('clamps a hit farther than maxDistanceM to that distance on the same bearing', () => {
+    const cam = new THREE.PerspectiveCamera(50, 1, 0.1, 1000)
+    cam.position.set(0, 2, 0) // above ROS (0, 0)
+    cam.lookAt(0, 0, -100) // along ROS +y, shallow: the centre ray hits the ground ~100 m away
+    cam.updateMatrixWorld()
+    const far = pickGround(cam, 50, 50, 100, 100)!
+    expect(far.y).toBeGreaterThan(40)
+    const clamped = pickGround(cam, 50, 50, 100, 100, 0, 40)!
+    expect(Math.hypot(clamped.x, clamped.y)).toBeCloseTo(40)
+    expect(clamped.x / Math.hypot(clamped.x, clamped.y)).toBeCloseTo(far.x / Math.hypot(far.x, far.y))
+    expect(clamped.y).toBeGreaterThan(0)
+  })
+
+  it('leaves a hit within maxDistanceM unchanged', () => {
+    const cam = new THREE.PerspectiveCamera(50, 1, 0.1, 100)
+    cam.position.set(3, 10, -4)
+    cam.up.set(0, 0, -1)
+    cam.lookAt(3, 0, -4)
+    cam.updateMatrixWorld()
+    expect(pickGround(cam, 50, 50, 100, 100, 0, 40)).toEqual(pickGround(cam, 50, 50, 100, 100))
+  })
+
+  it('measures the distance from the camera ground projection, not from the origin', () => {
+    const cam = new THREE.PerspectiveCamera(50, 1, 0.1, 100)
+    cam.position.set(100, 10, 0) // above ROS (100, 0)
+    cam.up.set(0, 0, -1)
+    cam.lookAt(100, 0, 0)
+    cam.updateMatrixWorld()
+    const hit = pickGround(cam, 50, 50, 100, 100, 0, 40)!
+    expect(hit.x).toBeCloseTo(100)
+  })
+
+  it('stays null above the horizon with a distance limit', () => {
+    const cam = new THREE.PerspectiveCamera(50, 1, 0.1, 100)
+    cam.position.set(0, 1, 0)
+    cam.lookAt(0, 5, -1)
+    cam.updateMatrixWorld()
+    expect(pickGround(cam, 50, 50, 100, 100, 0, 40)).toBeNull()
+  })
+
   it('returns null when the camera looks above the horizon', () => {
     const cam = new THREE.PerspectiveCamera(50, 1, 0.1, 100)
     cam.position.set(0, 1, 0)

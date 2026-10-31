@@ -159,6 +159,20 @@ describe('map toolbar controls', () => {
     expect(screen.getByTestId('map-status-line').textContent).toContain('Press on the map to set the goal')
   })
 
+  it('Set goal is enabled in the default orbit view and goal mode survives toggling Top view', async () => {
+    await renderTab()
+    const goal = () => screen.getByRole('button', { name: 'Set goal' })
+    expect((goal() as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.click(goal())
+    expect(goal().getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByTestId('map-status-line').textContent).toContain('Press on the map to set the goal')
+    fireEvent.click(screen.getByRole('button', { name: 'Top view' }))
+    expect(goal().getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: 'Top view' }))
+    expect(goal().getAttribute('aria-pressed')).toBe('true')
+    expect((goal() as HTMLButtonElement).disabled).toBe(false)
+  })
+
   it('POI placement shows the vertex count in the status line, not in a label', async () => {
     await renderTab()
     fireEvent.click(screen.getByRole('button', { name: 'Top view' }))

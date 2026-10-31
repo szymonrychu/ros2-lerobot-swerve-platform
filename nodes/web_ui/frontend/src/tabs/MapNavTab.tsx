@@ -1,7 +1,7 @@
 /**
  * Map tab: one 3D view in the ROS map frame merging the SLAM map, local costmap, GPS tiles, Nav2 plans/goal/
  * footprint and the robot (swerve base + display-only arm). Free orbit by default; "Top view" locks a top-down
- * camera in which goals are set by press + drag. The 3D scene is a separate lazily loaded chunk.
+ * camera. Goals are set by press + drag in both views. The 3D scene is a separate lazily loaded chunk.
  */
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -251,10 +251,6 @@ export default function MapNavTab({
     )
   }, [mapBox])
 
-  // Goal setting only exists in the locked top view.
-  useEffect(() => {
-    if (!topView) setGoalMode(false)
-  }, [topView])
   useEffect(() => {
     if (!goalMode) {
       draftRef.current = null
@@ -328,7 +324,7 @@ export default function MapNavTab({
   }, [pendingFocus, poi.pois, photos.photos, selectPhotoOnMap, selectPoi])
   const servo = useServoGroups()
   const baseReleased = releasedLabel(servo, 'base') !== null
-  const goalButton = goalButtonState({ hasGoalTopic: Boolean(tab.goal_topic), topView, tilt })
+  const goalButton = goalButtonState({ hasGoalTopic: Boolean(tab.goal_topic), tilt })
   const goalBlocked = tilt.navBlocked || baseReleased
   useEffect(() => {
     if (goalBlocked) setGoalMode(false)
@@ -348,8 +344,8 @@ export default function MapNavTab({
     [tab.goal_topic, mapFrame, publish, goalBlocked],
   )
 
-  // Goal gesture: listeners on the container (bubble phase). Arm handles stop propagation on the canvas in the
-  // capture phase, so a press on them never starts a goal; OrbitControls ignores one-finger/left presses in goal mode.
+  // Goal gesture (Top view and orbit view): listeners on the container (bubble phase). OrbitControls ignores
+  // one-finger/left presses in goal mode, so the press-drag belongs to the goal.
   useEffect(() => {
     const el = containerRef.current
     if (!el || !goalMode) return

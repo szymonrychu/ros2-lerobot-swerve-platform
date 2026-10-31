@@ -95,6 +95,15 @@ describe('LayersPanel', () => {
     expect(tip).not.toMatch(/arm/i)
   })
 
+  it('explains the orbit goal gesture: press to place, right button rotates, two fingers pan', async () => {
+    wrap(<LayersPanel {...props({ topView: false, goalMode: true })} />)
+    fireEvent.mouseOver(within(screen.getByTestId('overlay-panel-header')).getByRole('button', { name: 'Map help' }))
+    const tip = (await screen.findByRole('tooltip')).textContent ?? ''
+    expect(tip).toMatch(/Press to place the goal, drag to set heading/)
+    expect(tip).toMatch(/Right button rotates/)
+    expect(tip).toMatch(/two fingers pan/)
+  })
+
   it('draws swatches from the palette and no robot pose line', () => {
     wrap(<LayersPanel {...props()} />)
     expect(screen.getByTestId('layer-swatch-goal').getAttribute('data-color')).toBe(LAYER_SWATCH.goal)

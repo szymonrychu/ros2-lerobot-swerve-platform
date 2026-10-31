@@ -7,24 +7,20 @@ const ERROR = tiltStatus({ level: 'error', roll_deg: 25, pitch_deg: 4 })
 const OK = tiltStatus(undefined)
 
 describe('goalButtonState', () => {
-  it('is enabled in top view with a goal topic and a level robot', () => {
-    expect(goalButtonState({ hasGoalTopic: true, topView: true, tilt: OK })).toEqual({ disabled: false, tooltip: '' })
+  it('is enabled with an empty tooltip in any view with a goal topic and a level robot', () => {
+    expect(goalButtonState({ hasGoalTopic: true, tilt: OK })).toEqual({ disabled: false, tooltip: '' })
   })
 
-  it('is disabled with the tilt text as tooltip during warning and error, even in top view', () => {
-    expect(goalButtonState({ hasGoalTopic: true, topView: true, tilt: WARNING })).toEqual({
+  it('is disabled with the tilt text as tooltip during warning and error', () => {
+    expect(goalButtonState({ hasGoalTopic: true, tilt: WARNING })).toEqual({
       disabled: true,
       tooltip: WARNING.navBlockedReason,
     })
-    expect(goalButtonState({ hasGoalTopic: true, topView: true, tilt: ERROR }).disabled).toBe(true)
-    expect(goalButtonState({ hasGoalTopic: true, topView: true, tilt: ERROR }).tooltip).toContain('Tilt error')
+    expect(goalButtonState({ hasGoalTopic: true, tilt: ERROR }).disabled).toBe(true)
+    expect(goalButtonState({ hasGoalTopic: true, tilt: ERROR }).tooltip).toContain('Tilt error')
   })
 
-  it('keeps the top-view hint at ok level and the button disabled without a goal topic', () => {
-    expect(goalButtonState({ hasGoalTopic: true, topView: false, tilt: OK })).toEqual({
-      disabled: true,
-      tooltip: 'Switch to Top view to set goals',
-    })
-    expect(goalButtonState({ hasGoalTopic: false, topView: true, tilt: OK }).disabled).toBe(true)
+  it('is disabled without a goal topic', () => {
+    expect(goalButtonState({ hasGoalTopic: false, tilt: OK }).disabled).toBe(true)
   })
 })
