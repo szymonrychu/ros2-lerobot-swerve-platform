@@ -63,7 +63,7 @@ AUTONOMY = {
 TILE_CACHE_DIR = "/var/cache/web_ui/tiles"
 TILE_CACHE_TASKS = PLAYBOOKS_DIR / "tasks" / "web_ui_tile_cache_dir.yml"
 LEGACY_MAP_KEYS = {"urdf_file", "topic", "arm_urdf_file", "arm_joint_topic", "scan_topic", "costmap_topic"}
-WEB_UI_TABS = ["map", "agent", "retros", "arm", "head", "poi"]
+WEB_UI_TABS = ["map", "agent", "retros", "arm", "head", "cameras", "poi"]
 REMOVED_WEB_UI_TABS = {"arm_servos", "local_nav", "gps_nav", "scene3d", "robot_status"}
 
 
@@ -531,7 +531,13 @@ def test_web_ui_tab_set() -> None:
     assert not {"tof_depth_topic", "tof_amplitude_topic", "tof_range_m"} & set(head)
     assert "camera_info_topic" not in head
     assert head["depth_range_m"] == 4.0
-    poi = tabs[5]
+    cameras = tabs[5]
+    assert cameras["type"] == "camera"
+    assert [t["topic"] for t in cameras["topics"]] == [
+        "/front_camera/image_raw/compressed",
+        "/back_camera/image_raw/compressed",
+    ]
+    poi = tabs[6]
     assert poi["type"] == "poi"
     assert poi["id"] == "poi"
     assert poi["label"] == "POI"

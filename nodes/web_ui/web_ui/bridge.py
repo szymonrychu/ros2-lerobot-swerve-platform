@@ -155,8 +155,9 @@ TOPIC_TYPE_HINTS: dict[str, type] = {
     "/goal_pose": PoseStamped,
     # Head D435 colour stream (JPEG transport), shown on the Arm tab.
     "/head/d435/color/image_raw/compressed": CompressedImage,
-    # head_camera_cpp preview (Camera Module 3).
-    "/head_camera/image_raw/compressed": CompressedImage,
+    # CSI body cameras (front_camera, back_camera: Camera Module 3, head_camera_cpp binary), shown on the Cameras tab.
+    "/front_camera/image_raw/compressed": CompressedImage,
+    "/back_camera/image_raw/compressed": CompressedImage,
 }
 
 # Minimum seconds between two serialised previews of one head topic (the browser gets at most this rate, and the Pi

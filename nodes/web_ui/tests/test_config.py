@@ -423,6 +423,20 @@ def client_web_ui_config() -> AppConfig:
     return AppConfig.model_validate(yaml.safe_load(node["config"]))
 
 
+def test_client_cameras_tab_lists_front_then_back() -> None:
+    """The deployed web_ui config validates; its cameras tab shows the front then the back CSI camera."""
+    cfg = client_web_ui_config()
+    tab = next(t for t in cfg.tabs if t.id == "cameras")
+    assert tab.type == "camera"
+    assert [(t.topic, t.label) for t in tab.topics] == [
+        ("/front_camera/image_raw/compressed", "Front"),
+        ("/back_camera/image_raw/compressed", "Back"),
+    ]
+    assert {"/front_camera/image_raw/compressed", "/back_camera/image_raw/compressed"} <= set(
+        cfg.all_subscribed_topics()
+    )
+
+
 def test_head_tab_type_is_valid() -> None:
     """head is a valid tab type."""
     assert "head" in VALID_TAB_TYPES

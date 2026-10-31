@@ -2826,6 +2826,14 @@ ros2_nodes:
           head_pan_range_deg: [-90, 90]
           head_tilt_range_deg: [-30, 45]
           head_home_deg: [0, 30]
+        # Cameras tab: the CSI body cameras (front_camera on cam0, back_camera on cam1, 1152x648 JPEG at 15 fps) in one
+        # grid, front then back. The back stream waits while back_camera is disabled (module not fitted).
+        - id: cameras
+          type: camera
+          label: "Cameras"
+          topics:
+            - {topic: /front_camera/image_raw/compressed, label: Front}
+            - {topic: /back_camera/image_raw/compressed, label: Back}
         - id: poi
           type: poi
           label: "POI"
