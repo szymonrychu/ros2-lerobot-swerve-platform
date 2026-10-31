@@ -57,7 +57,7 @@ AGENT = {
     ],
 }
 # Background tier: work the robot can lose: the systemd default weight and no OOM protection, below every robot and
-# agent tier. The joint-state throttles are the cheap 10 Hz relays for idle consumers, head_camera_cpp the head
+# agent tier. The joint-state throttles are the cheap 10 Hz relays for idle consumers, front_camera the CSI front
 # camera preview, head_rgbd_calibration the operator capture and compute tool, map3d_uplink the map3d stream relay
 # (the retired depth nodes that once shared the tier are gone, D7; head_rgbd_cpp moved to the normal tier when it
 # became the edge-masked depth source of d435_obstacle_cloud).
@@ -66,7 +66,7 @@ BACKGROUND = {
     "types": [
         "joint_state_throttle_follower",
         "joint_state_throttle_swerve",
-        "head_camera_cpp",
+        "front_camera",
         "head_rgbd_calibration",
         "map3d_uplink",
     ],
@@ -329,8 +329,8 @@ def test_tiers_do_not_overlap() -> None:
 
 def test_every_client_type_is_tiered() -> None:
     """Every client node type except the uninstalled ones (fastdds_discovery_server, the retired Pi camera and depth
-    types, D7, the retired bridge type, the retired ToF obstacle cloud, D5, and the deleted ToF and UVC camera
-    bridges) is in a tier, and those carry no tier keys."""
+    types, D7, the retired bridge type, the retired ToF obstacle cloud, D5, the deleted ToF and UVC camera bridges, and
+    the retired head camera type head_camera_cpp) is in a tier, and those carry no tier keys."""
     uninstalled = {
         "fastdds_discovery_server",
         "stereo_depth",
@@ -341,6 +341,7 @@ def test_every_client_type_is_tiered() -> None:
         "tof_obstacle_cloud",
         "arducam_tof",
         "uvc_camera",
+        "head_camera_cpp",
     }
     assert set(type_defaults(CLIENT_VARS)) - TIERED_TYPES == uninstalled
     for name in uninstalled:

@@ -239,10 +239,10 @@ In-repo C++ node deploy: the local-source colcon build of `ansible/roles/ros2_no
 | `test_a_local_build_restarts_only_its_own_node` | The build notifies the restart handler and queues only `node_name`. |
 | `test_local_build_runs_in_the_low_priority_scope` | Every configured local source renders `systemd-run --scope`, CPUWeight 20, IOWeight 10, nice 19, ionice idle, one worker, Release with `BUILD_TESTING=OFF`, `--base-paths` of its own tree, `MAKEFLAGS=-j2`, and a chained source sources the workspace. |
 | `test_pinned_build_command_is_unchanged` | A pinned source still renders Release only, no `--base-paths`, `MAKEFLAGS=-j4`. |
-| `test_cpp_node_type_is_a_local_colcon_build` | (per `_cpp` type with a Python counterpart; `head_camera_cpp` has its own identity test) native, `node_src_dir ""`, `src_paths []`, the `ros2 run` launch command, `colcon_source` = local ros2_common_cpp then the node package in `/opt/ros2-ws` with stamped apt packages that are installed, the C++ build apt packages, config path and env var, and the Python node's tier and memory keys. |
-| `test_head_camera_cpp_identity_is_pinned_libcamera_then_the_two_local_trees` | `head_camera_cpp` (no Python counterpart) builds the pinned libcamera, then `ros2_common_cpp` and itself as local sources; launch command, env var and config path. |
+| `test_cpp_node_type_is_a_local_colcon_build` | (per `_cpp` type with a Python counterpart; `front_camera` has its own identity test) native, `node_src_dir ""`, `src_paths []`, the `ros2 run` launch command, `colcon_source` = local ros2_common_cpp then the node package in `/opt/ros2-ws` with stamped apt packages that are installed, the C++ build apt packages, config path and env var, and the Python node's tier and memory keys. |
+| `test_front_camera_identity_is_pinned_libcamera_then_the_two_local_trees` | `front_camera` (the `head_camera_cpp` binary, no Python counterpart) builds the pinned libcamera, then `ros2_common_cpp` and `head_camera_cpp` as local sources; launch command with the `__node:=front_camera` remap, env var and config path. |
 | `test_package_xml_apt_names_maps_ros_system_and_local_keys` | `package_xml_apt_names` maps ROS keys to `ros-jazzy-<dashed>`, system rosdep keys via `ROSDEP_APT`, keeps `lib*-dev` names, drops in-tree local packages and `test_depend`. |
-| `test_cpp_node_apt_packages_cover_every_in_tree_package_xml` | (per `_cpp` type, `head_camera_cpp` included; only `local` sources' package.xml are read, the pinned libcamera counts as a local package) every build/run dependency of each local source's `package.xml` that is in the tree (`ros2_common_cpp` and the `head_camera_cpp` node package) is in the type's `apt_packages`. |
+| `test_cpp_node_apt_packages_cover_every_in_tree_package_xml` | (per C++ type, `front_camera` included; only `local` sources' package.xml are read, the pinned libcamera counts as a local package) every build/run dependency of each local source's `package.xml` that is in the tree (`ros2_common_cpp` and the `head_camera_cpp` node package) is in the type's `apt_packages`. |
 | `test_ros2_common_cpp_is_a_discovered_cpp_package` | The chained `shared/ros2_common_cpp` is a C++ package found by `discover_cpp_package_dirs`. |
 | `test_cpp_node_entry_is_live_with_the_python_config` | (per `_cpp` type) the `ros2_nodes` entry follows the Python node's, `present: true`, `enabled: true` (since the cut-over), the same `config: |` block (metrics port 19110). |
 | `test_client_playbook_deploys_the_cpp_node_after_its_python_counterpart` | The `Deploy <name>_cpp` include follows the Python node's, with the node, build and config tags and the node tag applied. |
@@ -372,7 +372,7 @@ Packaging of `shared/` as the installable uv/hatchling package `ros2-common`.
 ### `test_unit_cgroups.py`
 
 Cgroup model of the ROS2 units: robot headroom guaranteed, background constrained (no `CPUQuota` / `MemoryHigh` for robot
-units, weight tiers, `MemoryLow`, `MemoryMax` safety net, `Restart=always`, host slice drop-ins). The C++ ports sit in their Python node's tier: `map_guard_cpp` normal; `head_rgbd_cpp` normal too (since 2026-10-29 its edge-masked full-FOV depth feeds `d435_obstacle_cloud`); `head_rgbd_calibration` (operator calibration tool) and `map3d_uplink` (map3d stream relay) join `head_camera_cpp` in the background tier (weights 100/100, no OOM protection); the retired types carry no tier. Every robot type has a `MemoryLow` and a `MemoryMax` of at least twice it (no pinned measurements). `test_config_error_exit_is_not_restarted` checks `RestartPreventExitStatus=78`; the `MemoryLow` sum test only bounds it by `MAX_MEMORY_LOW_SUM_MIB` (no pinned total).
+units, weight tiers, `MemoryLow`, `MemoryMax` safety net, `Restart=always`, host slice drop-ins). The C++ ports sit in their Python node's tier: `map_guard_cpp` normal; `head_rgbd_cpp` normal too (since 2026-10-29 its edge-masked full-FOV depth feeds `d435_obstacle_cloud`); `head_rgbd_calibration` (operator calibration tool) and `map3d_uplink` (map3d stream relay) join `front_camera` (the CSI front camera) in the background tier (weights 100/100, no OOM protection); the retired types, `head_camera_cpp` among them, carry no tier. Every robot type has a `MemoryLow` and a `MemoryMax` of at least twice it (no pinned measurements). `test_config_error_exit_is_not_restarted` checks `RestartPreventExitStatus=78`; the `MemoryLow` sum test only bounds it by `MAX_MEMORY_LOW_SUM_MIB` (no pinned total).
 
 ### `test_config_exit_codes.py`
 
@@ -394,7 +394,7 @@ The mains of mcp_server and claude_agent return `os.EX_CONFIG` (78) for config/t
 | `test_background_tier_is_below_every_robot_and_agent_tier` | The background tier has the default weight 100 and `oom_score_adjust` 0; every robot and agent tier has a higher weight and a lower `oom_score_adjust`. |
 | `test_tiers_dominate_default_system_work` | Every tier is above the default weight 100 with a negative `OOMScoreAdjust`, ordered critical > normal > agent. |
 | `test_tiers_do_not_overlap` | A node type is in one tier only (background included). |
-| `test_every_client_type_is_tiered` | Every client type but the uninstalled ones (`fastdds_discovery_server`, the retired camera, depth and bridge types, `tof_obstacle_cloud`, the deleted `arducam_tof` and `uvc_camera` bridges) is in a robot, agent or background tier; those carry no tier keys. |
+| `test_every_client_type_is_tiered` | Every client type but the uninstalled ones (`fastdds_discovery_server`, the retired camera, depth and bridge types, `tof_obstacle_cloud`, the deleted `arducam_tof` and `uvc_camera` bridges, the retired `head_camera_cpp`) is in a robot, agent or background tier; those carry no tier keys. |
 | `test_every_robot_type_has_memory_low_below_memory_max` | Every tiered type (background included) has `memory_low` >= 32 MiB and `memory_max` at least 2x it; mcp_server at least 1G. |
 | `test_memory_low_sum_leaves_room_for_the_os` | The enabled nodes protect at most `MAX_MEMORY_LOW_SUM_MIB`, under a third of the 8 GB Pi. |
 | `test_server_keeps_its_limits_without_tiers` | Server types keep `CPUQuota` / `MemoryMax`, carry no tier keys, render no `MemoryHigh` / `MemoryLow`. |
@@ -1822,7 +1822,7 @@ Static checks of the D7 retirement of the Pi stereo pipeline: `stereo_depth` and
 | `test_ros2_nodes_entries_are_uninstalled_by_the_next_deploy` | Both `ros2_nodes` entries keep their node type, are `present: false` and carry no `config`. |
 | `test_the_entries_name_d7_in_the_comment_above_them` | The comment block directly above each entry names D7. |
 | `test_node_types_keep_only_what_the_uninstall_path_needs` | Each type has only `deploy_mode: native` and a `node_launch_command`: no source dir, `src_shared`, `colcon_source`, apt, env, config path, memory or tier keys. |
-| `test_background_tier_has_no_stereo_type` | The 100/100 weight tier holds no stereo type: exactly `head_camera_cpp`, `head_rgbd_calibration`, the two joint-state throttle types and `map3d_uplink`. |
+| `test_background_tier_has_no_stereo_type` | The 100/100 weight tier holds no stereo type: exactly `front_camera`, `head_rgbd_calibration`, the two joint-state throttle types and `map3d_uplink`. |
 | `test_metrics_target_is_removed` | `monitoring_agent_node_targets` has no stereo node and no `:19113` address. |
 | `test_client_playbook_still_deploys_both_names_so_the_uninstall_runs` | The client playbook still has a deploy step for each name. |
 | `test_ansible_readme_documents_the_retirement` | `ansible/README.md` "Cut-over and rollback" names D7 and `present: false`, has no 19113 and no stereo row in the tier or memory tables. |
@@ -2269,11 +2269,11 @@ Static checks of the web_ui Agent tab in `ansible/group_vars/client.yml` (no ROS
 
 ### `test_head_camera_live_refs.py`
 
-Repo-wide guard that the retired front camera left no live reference and that no doc or prompt states the old preview size.
+Repo-wide guard that the retired pi_cameras front camera left no live reference and that no doc or prompt states the old preview size. The CSI front camera's topics, MCP topic setting and optical frame are live again, so only the retired pi_cameras topic-setting and config-key names are searched.
 
 | Test | What it covers |
 |---|---|
-| `test_no_live_front_camera_reference` | `git grep` over tracked files for the retired front camera topic, config key, topic setting and optical frame names finds nothing outside `docs/plans/**` and the retirement records (the retired pi_cameras tests, the pinned MEMORY.md decision lines, pinned by a retirement test, the absence assertions in `test_mcp_server_config.py` and the web_ui `subscription.test.ts`, the retired entry in `client.yml`, `MEMORY.md`, this test). |
+| `test_no_live_front_camera_reference` | `git grep` over tracked files for the retired pi_cameras topic setting and config key names finds nothing outside `docs/plans/**` and the retirement records (the retired pi_cameras tests, the pinned MEMORY.md decision lines, pinned by a retirement test, the absence assertions in `test_mcp_server_config.py` and the web_ui `subscription.test.ts`, the retired entry in `client.yml`, `MEMORY.md`, this test). |
 | `test_no_640x480_head_or_front_preview_size` | The mcp_server tool descriptions, the claude_agent prompt and config, and the web_ui README never pair a front or head camera preview with 640x480 or 10 fps. |
 
 ### `test_head_live_refs.py`
@@ -2286,21 +2286,29 @@ Repo-wide guard that the pan/tilt head is live: no placeholder wording and no fr
 | `test_front_camera_not_pinned_to_base_link` | mcp_server has no `FRONT_CAMERA_PARENT = "base_link"` and no "front camera works in base_link" docstring claim. |
 | `test_grep_tracked_fails_loudly_on_git_error` | The `grep_tracked` helper raises (instead of returning zero hits) when `git grep` fails, e.g. on an invalid regex, so the two guards cannot pass vacuously. |
 
-### `test_head_camera_deploy.py`
+### `test_csi_camera_deploy.py`
 
-Static invariants of the head camera deploy (the `head_camera_cpp` node type in `ansible/group_vars/client.yml`; the `ros2_nodes` entry is retired, pinned in `test_old_sensors_retired.py`, and the type and source stay for front-and-back-camera-module): the libcamera source is the pinned dict of `pi_cameras` (same build stamp, nothing rebuilds), the patch is a byte-identical copy.
+Static invariants of the CSI Camera Module 3 deploy (front-and-back-camera-module): the `front_camera` node type and entry in `ansible/group_vars/client.yml` run the `head_camera_cpp` binary on CSI cam0; the libcamera source is the pinned dict of `pi_cameras` (same build stamp, nothing rebuilds), the patch is a byte-identical copy; `head_camera_cpp` keeps only its uninstall path; the front static TF is rendered (Jinja, `trim_blocks` like Ansible) only from the measured `front_camera_mount`.
 
 | Test | What it pins |
 |---|---|
-| `test_node_type_fields` | `deploy_mode: native`, launch command `ros2 run head_camera_cpp head_camera_node`, empty `node_src_dir` and `src_paths`. |
+| `test_node_type_fields` | `front_camera`: `deploy_mode: native`, launch command `ros2 run head_camera_cpp head_camera_node --ros-args -r __node:=front_camera`, empty `node_src_dir` and `src_paths`. |
 | `test_libcamera_source_is_the_pinned_dict_of_pi_cameras` | The first `colcon_source` equals the recorded libcamera dict (repo, commit, package, workspace, meson args, patch). |
 | `test_patch_is_a_byte_identical_copy_of_the_pinned_one` | `nodes/head_camera_cpp/patches/libcamera-0001-add-package-xml.patch` has the recorded sha1 of the original patch. |
 | `test_sources_build_libcamera_then_common_then_the_node` | Order libcamera, `ros2_common_cpp`, `head_camera_cpp`; the local sources carry cmake args, `base_paths`, `jobs 2` and `stamp_apt_packages`. |
 | `test_no_apt_camera_stack_and_all_build_packages` | No `ros-jazzy-libcamera` / `ros-jazzy-camera-ros`; libcamera build packages and the package.xml dependencies are installed. |
 | `test_background_tier` | `memory_low` 128M, `memory_max` 384M, weights 100, `oom_score_adjust` 0, `nice` 10. |
-| `test_config_path_and_env` | `/etc/ros2/head_camera_cpp` and `HEAD_CAMERA_CONFIG`. |
-| `test_docs_describe_head_camera_cpp` | `nodes/head_camera_cpp/README.md` has `## Zoom interface` and `## Configuration`; the node README, `nodes/README.md`, `ansible/README.md`, the ansible-deploy SKILL and `MEMORY.md` name `head_camera_cpp`; `nodes/README.md` and the SKILL mark `pi_cameras` retired. |
-| `test_client_playbook_deploys_head_camera_cpp_right_after_pi_cameras` | `deploy_nodes_client.yml` has a `Deploy head_camera_cpp` step directly after `Deploy pi_cameras` (resolve_and_deploy, apply tag and `_deploy_node_name` `head_camera_cpp`, tags incl. apt/python/build/config). |
+| `test_config_path_and_env` | `/etc/ros2/front_camera` and `HEAD_CAMERA_CONFIG=/etc/ros2/front_camera/config.yaml`. |
+| `test_head_camera_cpp_type_keeps_only_the_uninstall_path` | The `head_camera_cpp` type is exactly `deploy_mode: native` and its launch command. |
+| `test_front_camera_entry_is_present_enabled_with_the_design_config` | The `front_camera` entry is present and enabled; its config is the cam0 id, `front_camera_optical_frame`, `/front_camera`, 1152x648, 66666 us, continuous AF, JPEG 70, the applied `front_camera_calibration.yaml`, metrics port 19121, `zoom.enabled: false`, `mapping.enabled: false`. |
+| `test_front_camera_is_scraped_on_19121` | `monitoring_agent_node_targets` scrapes `front_camera` on `127.0.0.1:19121`, the only target on that port. |
+| `test_client_playbook_deploys_front_camera_after_head_camera_cpp` | `deploy_nodes_client.yml` has a `Deploy front_camera` step directly after `Deploy head_camera_cpp` (resolve_and_deploy, apply tag and `_deploy_node_name` `front_camera`, tags incl. apt/python/build/config). |
+| `test_boot_config_include_carries_the_front_camera_tag` | The `pi_camera_boot_config.yml` include (and its `apply`) carries the `front_camera` tag. |
+| `test_front_camera_mount_is_null_until_measured` | `front_camera_mount` is defined in client.yml and `null`. |
+| `test_no_front_camera_frame_without_a_measured_mount` | Rendered with `front_camera_mount: null`, the static_tf_publisher config has no `front_camera_*` frame and still has `imu_link` and `laser_frame`. |
+| `test_measured_mount_publishes_link_and_optical_frame` | Rendered with a test-only mount, `base_link -> front_camera_link` carries the given values and `front_camera_link -> front_camera_optical_frame` is zero translation with roll -pi/2, pitch 0, yaw -pi/2. |
+| `test_partial_mount_fails_to_render` | A mount missing `z` is an undefined-variable render error, never a defaulted 0. |
+| `test_docs_describe_head_camera_cpp` | `nodes/head_camera_cpp/README.md` has `## Zoom interface`, `## Configuration` and `## Instances: front_camera and back_camera`; the node README, `nodes/README.md`, `ansible/README.md`, the ansible-deploy SKILL and `MEMORY.md` name `head_camera_cpp`; `nodes/README.md` and the SKILL mark `pi_cameras` retired. |
 
 ### `test_ground_docs.py`
 
@@ -2413,7 +2421,7 @@ Static checks of `ansible/playbooks/tasks/pi_camera_boot_config.yml` (IMX708 on 
 | `test_tof_overlay_is_removed_and_cam0_kept` | `dtoverlay=arducam-pivariety,cam1` is removed with `state: absent`; exactly `camera_auto_detect=0` and `dtoverlay=imx708,cam0` are written. |
 | `test_every_line_task_is_aarch64_only_and_registers_its_result` | Five `lineinfile` tasks, each aarch64-only, tagged `boot`, with its own registered result. |
 | `test_client_reboots_only_when_a_line_changed` | The last task reboots (timeout 120) when any registered result changed. |
-| `test_client_playbook_includes_the_boot_config_under_the_camera_node_tags` | `pre_tasks` includes the file with tags `boot`, `pi_cameras`, `arducam_tof`, `head_camera_cpp` (also on `apply`), so the uninstall deploy of a retired camera node also cleans the boot config. |
+| `test_client_playbook_includes_the_boot_config_under_the_camera_node_tags` | `pre_tasks` includes the file with tags `boot`, `pi_cameras`, `arducam_tof`, `head_camera_cpp`, `front_camera` (also on `apply`), so the uninstall deploy of a retired camera node also cleans the boot config and the front_camera deploy writes the cam0 overlay. |
 | `test_ansible_readme_describes_the_boot_config` | `ansible/README.md` names the file, the two written lines and the removed ToF overlay. |
 | `test_tests_readme_lists_every_test_of_this_file` | Every test of this file is listed here. |
 
@@ -2429,7 +2437,7 @@ Static checks of the two Pi camera retirements (D7 the overview camera, D9 `pi_c
 | `test_pi_cameras_entry_is_uninstalled_by_the_next_deploy` | The `pi_cameras` ros2_nodes entry is `present: false` with no config. |
 | `test_pi_cameras_entry_names_d9_in_its_comment` | The comment above the entry names D9. |
 | `test_pi_cameras_node_type_keeps_only_launch_command_and_camera_ros_purge` | The node type keys are exactly `deploy_mode`, `node_launch_command`, `colcon_purge`, and the purge list names `camera_ros` only (libcamera stays). |
-| `test_only_head_camera_cpp_builds_libcamera_and_nobody_builds_camera_ros` | Only `head_camera_cpp` builds libcamera; no node type builds camera_ros. |
+| `test_only_the_csi_cameras_build_libcamera_and_nobody_builds_camera_ros` | Only `front_camera` builds libcamera; no node type builds camera_ros. |
 | `test_pi_cameras_sources_and_old_tests_are_deleted` | `nodes/pi_cameras`, the two old pi_cameras test files do not exist. |
 | `test_client_playbook_still_deploys_pi_cameras_so_the_uninstall_runs` | The playbook still deploys the name so the uninstall runs. |
 | `test_old_boot_file_and_old_tests_are_deleted` | `overview_camera_boot_config.yml`, `pi_camera_overlays_removed.yml` and the two `test_overview_camera*.py` files are gone. |
@@ -2550,7 +2558,7 @@ Node metrics wiring in `ansible/group_vars/client.yml` against the port contract
 | `test_server_group_vars_untouched` | No metrics port in `group_vars/server.yml`; the server's and the agent defaults' node target lists are empty. |
 | `test_a_port_is_shared_only_by_a_python_and_cpp_pair` | Two contract nodes share a port only as `<name>`/`<name>_cpp` (at least one such pair exists). |
 | `test_a_python_and_cpp_pair_is_never_both_enabled` | Of every `<name>`/`<name>_cpp` pair in `ros2_nodes` (map_guard at least) at most one is present and enabled: both would bind the same port and publish the same topics. |
-| `test_every_enabled_contract_node_has_a_matching_scrape_target` | Each enabled contract node (count derived from the port contract minus disabled nodes) has a target `127.0.0.1:<configured port>` with path `/metrics`, and no other targets exist. Disabled nodes other than topic_scraper_api are only members of a Python/C++ pair; the retired gripper_uvc_camera, head_camera_cpp and arducam_tof have no contract port. |
+| `test_every_enabled_contract_node_has_a_matching_scrape_target` | Each enabled contract node (count derived from the port contract minus disabled nodes) has a target `127.0.0.1:<configured port>` with path `/metrics`, and no other targets exist. Disabled nodes other than topic_scraper_api are only members of a Python/C++ pair; the retired gripper_uvc_camera, head_camera_cpp and arducam_tof have no contract port; `front_camera` is scraped on its `metrics_port` 19121. |
 
 ### `monitoring_helpers.py`
 
@@ -2754,7 +2762,7 @@ Static invariants of the cut-over to the C++ nodes (`ansible/group_vars/client.y
 | `test_python_node_stays_present_and_disabled_for_rollback` | `map_guard` stays `present: true`, `enabled: false` (rollback). |
 | `test_cpp_config_block_equals_the_python_block` | The parsed `_cpp` config equals the Python node's and keeps its metrics port (19110). |
 | `test_map_guard_cpp_keeps_dry_run` | The map_guard_cpp config still has `dry_run: true`. |
-| `test_background_tier_holds_only_throttles_and_previews` | Among running nodes the background tier (100/100/0) holds exactly `head_rgbd_calibration`, the two joint-state throttle nodes and `map3d_uplink` (`head_camera_cpp` is retired). |
+| `test_background_tier_holds_only_throttles_and_previews` | Among running nodes the background tier (100/100/0) holds exactly `front_camera`, `head_rgbd_calibration`, the two joint-state throttle nodes and `map3d_uplink` (`head_camera_cpp` is retired). |
 | `test_only_the_running_node_of_each_pair_is_scraped` | `monitoring_agent_node_targets` lists the `_cpp` names and not the disabled Python ones. |
 | `test_readme_documents_cutover_and_rollback` | `ansible/README.md` has a "Cut-over and rollback" section naming both nodes, `enabled: false` and `scripts/deploy-nodes.sh`. |
 

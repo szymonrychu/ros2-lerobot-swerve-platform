@@ -91,7 +91,7 @@ def test_background_tier_has_no_stereo_type() -> None:
     types = load_client()["ros2_node_type_defaults"]
     background = [n for n, t in types.items() if (t.get("cpu_weight"), t.get("io_weight")) == (100, 100)]
     assert sorted(background) == [
-        "head_camera_cpp",
+        "front_camera",
         "head_rgbd_calibration",
         "joint_state_throttle_follower",
         "joint_state_throttle_swerve",

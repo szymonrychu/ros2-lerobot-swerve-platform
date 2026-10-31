@@ -343,23 +343,27 @@ ros2_node_type_defaults:
     colcon_purge:
       - package: camera_ros
         workspace: /opt/ros2-ws
-  # Head RGB camera (Camera Module 3 on CSI cam0): 15 fps /head_camera/* plus autofocused full-resolution zoom crops
-  # (nodes/head_camera_cpp/README.md). It replaces pi_cameras and builds against the same pinned libcamera: the first
-  # colcon_source dict is identical to pi_cameras' (repo, commit, meson_args, patch contents; the patch path is not part
-  # of the stamp key), so the existing stamp matches and nothing rebuilds. The apt ros-jazzy-libcamera and
-  # ros-jazzy-camera-ros packages must NOT be installed: they would shadow the fork. camera_ros is not built. Never
-  # enable it together with pi_cameras: one process owns the camera. Then ros2_common_cpp and the node build as local
-  # sources (-j2).
-  # Background tier like pi_cameras, a preview the robot can lose. The figures are carried over from pi_cameras
-  # (one process, one camera, with the full-resolution still buffers). The working set to compare them with is the
-  # Mimir p50 and 24 h peak: MemoryLow is ~1.33x p50, MemoryMax 4x the peak.
+  # Retired head Camera Module 3 (D435 switchover): only the uninstall path stays (deploy_mode and launch command, like
+  # pi_cameras). The head_camera_cpp binary itself is built and run by front_camera and back_camera below.
   head_camera_cpp:
     deploy_mode: native
     node_launch_command: "ros2 run head_camera_cpp head_camera_node"
+  # Front body camera (front-and-back-camera-module): a Camera Module 3 on CSI cam0, fixed to the body, running the
+  # head_camera_cpp binary as node front_camera (nodes/head_camera_cpp/README.md, "Instances"): 15 fps /front_camera/*,
+  # no zoom, no mapping stream. It builds against the same pinned libcamera the retired pi_cameras built: the first
+  # colcon_source dict is identical to pi_cameras' (repo, commit, meson_args, patch contents; the patch path is not part
+  # of the stamp key), so the existing stamp matches and nothing rebuilds. The apt ros-jazzy-libcamera and
+  # ros-jazzy-camera-ros packages must NOT be installed: they would shadow the fork. camera_ros is not built. Then
+  # ros2_common_cpp and the node build as local sources (-j2). The build list and apt packages are anchored for
+  # back_camera. Background tier, a preview the robot can lose; the figures are carried over from head_camera_cpp (one
+  # process, one camera) until measured: MemoryLow ~1.33x the Mimir p50, MemoryMax 4x the 24 h peak.
+  front_camera:
+    deploy_mode: native
+    node_launch_command: "ros2 run head_camera_cpp head_camera_node --ros-args -r __node:=front_camera"
     node_src_dir: ""
     # Runs no repo file (the binary is in /opt/ros2-ws/install): the build stamp restarts it when its source changes.
     src_paths: []
-    colcon_source:
+    colcon_source: &csi_camera_colcon_source
       - repo: https://github.com/raspberrypi/libcamera.git
         commit: v0.7.2+rpt20260817
         package: libcamera
@@ -399,10 +403,10 @@ ros2_node_type_defaults:
     io_weight: 100
     oom_score_adjust: 0
     nice: 10
-    config_path: /etc/ros2/head_camera_cpp
+    config_path: /etc/ros2/front_camera
     env:
-      - HEAD_CAMERA_CONFIG=/etc/ros2/head_camera_cpp/config.yaml
-    apt_packages:
+      - HEAD_CAMERA_CONFIG=/etc/ros2/front_camera/config.yaml
+    apt_packages: &csi_camera_apt_packages
       - git
       - build-essential
       - cmake
@@ -1133,6 +1137,12 @@ ros2_node_type_defaults:
     # CLAUDE_CODE_OAUTH_TOKEN=<token>, written by playbooks/tasks/claude_agent_setup.yml from the deployer's env (never in git).
     environment_file: /etc/ros2/claude_agent/env
 
+# Measured mount of the front body camera (front_camera_link in base_link: x forward, y left, z up, from the
+# ground-projected centre between the wheels like the lidar entry), as {x, y, z, roll, pitch, yaw} in metres and
+# radians. Only the user's tape measurement goes here, never an estimate: while null, static_tf_publisher publishes no
+# front camera frame. Every key is required (a missing one fails the deploy render).
+front_camera_mount: null
+
 # Nodes to deploy: name (logical/service name), node_type (maps to image/config), present, enabled, config.
 ros2_nodes:
   - name: fastdds_discovery_server
@@ -1438,6 +1448,28 @@ ros2_nodes:
   - name: head_camera_cpp
     node_type: head_camera_cpp
     present: false
+  # Front body camera (Camera Module 3, CSI cam0): /front_camera/image_raw/compressed at 15 fps (1152x648, JPEG 70,
+  # continuous AF), no zoom and no mapping stream. camera_info only once the front intrinsics are applied on the web_ui
+  # Calibrate page (the applied file below); until then none is published. TF: front_camera_mount (static_tf_publisher).
+  - name: front_camera
+    node_type: front_camera
+    present: true
+    enabled: true
+    config: |
+      camera_id: /base/axi/pcie@120000/rp1/i2c@88000/imx708@1a # CSI cam0, the probed libcamera id
+      frame_id: front_camera_optical_frame
+      topic_namespace: /front_camera
+      width: 1152
+      height: 648
+      frame_duration_us: 66666 # 15 fps
+      af_mode: continuous
+      jpeg_quality: 70
+      camera_info_file: /var/lib/ros2/head_rgbd_calibration/applied/front_camera_calibration.yaml
+      metrics_port: 19121
+      zoom:
+        enabled: false
+      mapping:
+        enabled: false
   # Head RGB-D adapter: the D435 aligned depth + raw colour (/head/d435/*) -> /head_rgbd/* (depth and JPEG RGB with
   # camera_infos, coloured cloud), paired sets at output.rate_hz; the full-FOV depth ->
   # /head/d435/depth_filtered/image_raw + camera_info (edge-masked, every frame, read by d435_obstacle_cloud).
@@ -2105,6 +2137,28 @@ ros2_nodes:
           # Lidar is mounted rotated 180 deg (bench test 2026-10-03: forward motion shortened the 180 deg range).
           yaw: 3.14159265
         # No overhead camera frame is published: base_link -> camera optical frame has no measured mount pose.
+        # Front body camera: published only once front_camera_mount holds the user's tape measurement. The Jinja
+        # statements sit in YAML comments and the values are quoted so the unrendered block still parses as YAML; the
+        # Ansible render (trim_blocks) keeps the text after each tag, so the if/endif lines stay comments.
+        # {% if front_camera_mount %}front_camera_mount is set
+        - parent: base_link
+          child: front_camera_link
+          x: "{{ front_camera_mount.x }}"
+          y: "{{ front_camera_mount.y }}"
+          z: "{{ front_camera_mount.z }}"
+          roll: "{{ front_camera_mount.roll }}"
+          pitch: "{{ front_camera_mount.pitch }}"
+          yaw: "{{ front_camera_mount.yaw }}"
+        # REP-103 optical frame (z forward, x right, y down): a fixed convention, not a measurement.
+        - parent: front_camera_link
+          child: front_camera_optical_frame
+          x: 0.0
+          y: 0.0
+          z: 0.0
+          roll: -1.5707963267948966
+          pitch: 0.0
+          yaw: -1.5707963267948966
+        # {% endif %}end of the front camera frames
   # Lidar odometry for the EKF (see nodes/rf2o_laser_odometry/README.md); must start before the EKF fuses /odom_rf2o_twist.
   - name: rf2o_laser_odometry
     node_type: rf2o_laser_odometry
@@ -3734,6 +3788,7 @@ monitoring_agent_node_targets:
   - {node: head_rgbd_cpp, address: "127.0.0.1:19117", path: /metrics}
   - {node: ground_estimator_cpp, address: "127.0.0.1:19119", path: /metrics}
   - {node: base_servos, address: "127.0.0.1:19115", path: /metrics}
+  - {node: front_camera, address: "127.0.0.1:19121", path: /metrics}
   - {node: web_ui, address: "127.0.0.1:8080", path: /metrics}
   - {node: test_joint_api, address: "127.0.0.1:18080", path: /metrics}
   - {node: mcp_server, address: "127.0.0.1:18200", path: /metrics}

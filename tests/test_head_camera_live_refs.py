@@ -1,11 +1,13 @@
-"""Repo-wide guard: the retired front camera left no live reference, and no doc states the old preview size."""
+"""Repo-wide guard: the retired pi_cameras front camera left no live reference; no doc states the old preview size."""
 
 import re
 import subprocess
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-LIVE_REF_PATTERN = "/front_camera|front_camera_topic|topics\\.front_camera|pi_cameras_config|front_camera_optical_frame"
+# /front_camera, topics.front_camera and front_camera_optical_frame are live again (the CSI front camera of
+# front-and-back-camera-module); only the retired pi_cameras names stay forbidden.
+LIVE_REF_PATTERN = "front_camera_topic|pi_cameras_config"
 ALLOWED_PREFIXES = ("docs/plans/", "docs/research/")
 ALLOWED_FILES = frozenset(
     {

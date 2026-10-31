@@ -36,6 +36,8 @@ CONFIG_METRICS_PORTS = {
     "head_rgbd_cpp": 19117,
     # Standalone C++ node: the ground estimator.
     "ground_estimator_cpp": 19119,
+    # The CSI front camera (head_camera_cpp binary); 19116 stays the retired head camera's.
+    "front_camera": 19121,
 }
 CPP_SUFFIX = "_cpp"
 ENV_METRICS_PORTS = {"rplidar_a1": 19106}

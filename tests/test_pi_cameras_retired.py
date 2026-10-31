@@ -5,7 +5,7 @@ only what the uninstall path needs. The boot config that replaced its overlay fi
 test_pi_camera_boot_config.py.
 
 D9 of the head camera epic retires pi_cameras the same way: its entry is present: false with no config, its node type
-keeps only the launch command and the camera_ros purge (libcamera stays: head_camera_cpp builds against it), and
+keeps only the launch command and the camera_ros purge (libcamera stays: front_camera builds against it), and
 nodes/pi_cameras and its two test files are deleted.
 
 The Arducam ToF SDK apt task (ansible/playbooks/tasks/arducam_tof_sdk.yml) goes with the head ToF (D435 switchover):
@@ -106,10 +106,10 @@ def test_pi_cameras_node_type_keeps_only_launch_command_and_camera_ros_purge() -
     assert defaults["colcon_purge"][0]["workspace"] == "/opt/ros2-ws"
 
 
-def test_only_head_camera_cpp_builds_libcamera_and_nobody_builds_camera_ros() -> None:
+def test_only_the_csi_cameras_build_libcamera_and_nobody_builds_camera_ros() -> None:
     defaults = load_client()["ros2_node_type_defaults"]
     builders = [name for name, node in defaults.items() if "raspberrypi/libcamera" in str(node.get("colcon_source"))]
-    assert builders == ["head_camera_cpp"]
+    assert builders == ["front_camera"]
     camera_ros = [name for name, node in defaults.items() if "camera_ros.git" in str(node.get("colcon_source"))]
     assert camera_ros == []
 

@@ -19,7 +19,7 @@ CONFIG_TXT = "/boot/firmware/config.txt"
 RETIRED_OVERLAYS = ("dtoverlay=imx219,cam0", "dtoverlay=imx219,cam1")
 TOF_OVERLAY = "dtoverlay=arducam-pivariety,cam1"
 WRITTEN_LINES = ("camera_auto_detect=0", "dtoverlay=imx708,cam0")
-INCLUDE_TAGS = ["boot", "pi_cameras", "arducam_tof", "head_camera_cpp"]
+INCLUDE_TAGS = ["boot", "pi_cameras", "arducam_tof", "head_camera_cpp", "front_camera"]
 
 
 def boot_tasks() -> list[dict]:
