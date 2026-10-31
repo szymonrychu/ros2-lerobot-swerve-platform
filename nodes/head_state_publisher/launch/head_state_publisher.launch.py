@@ -3,8 +3,8 @@
 
 The URDF is nodes/web_ui/urdf/head.urdf, resolved relative to this file so it works from the deployed checkout.
 If /var/lib/ros2/head_rgbd_calibration/applied/head_chain.json exists, its origins replace the URDF head_mount_joint,
-head_tilt and head_camera_joint origins; tof_joint.json there replaces the tof_joint origin (head_description.py), so an
-applied calibration takes effect after a restart without editing the repo URDF.
+head_pan, head_tilt and d435_joint origins (head_description.py), so an applied calibration takes effect after a restart
+without editing the repo URDF. A tof_joint.json left there by the retired head ToF is ignored.
 Joint states come from /head/joint_states (published by base_servos' head group).
 """
 

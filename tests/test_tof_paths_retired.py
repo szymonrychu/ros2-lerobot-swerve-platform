@@ -1,4 +1,4 @@
-"""Retirement pins: the ToF-only code paths of head_rgbd_cpp are gone.
+"""Retirement pins: the ToF-only code paths of head_rgbd_cpp are gone, and no live code names the old head frames.
 
 The D435 publishes its depth already aligned to the colour camera (realsense2_camera align_depth.enable), so
 head_rgbd_cpp no longer registers a ToF depth into the RGB camera, compensates head motion between the two, upsamples
@@ -42,6 +42,20 @@ TOF_ONLY_BUILD_FILES = (
     "scripts/cpp-node-test.Dockerfile",
 )
 # An #include of upsample.hpp or tof_filter.hpp, by any path prefix and with either delimiter.
+# The frames of the retired head ToF and Camera Module 3 (head.urdf owns only the d435 frames now).
+RETIRED_FRAMES = ("tof_optical_frame", "tof_link", "head_camera_optical_frame", "head_camera_link")
+LIVE_CODE_GLOBS = ("*.py", "*.cpp", "*.hpp", "*.ts", "*.tsx", "*.yaml", "*.yml", "*.urdf")
+# Docs, tests and fixtures use the names as recorded-data frame ids; nodes/head_camera_cpp is kept for
+# front-and-back-camera-module (plan Q8).
+NOT_LIVE_PATHSPECS = (
+    ":!docs/",
+    ":!tests/",
+    ":!**/tests/**",
+    ":!**/test/**",
+    ":!*.test.ts",
+    ":!*.test.tsx",
+    ":!nodes/head_camera_cpp/",
+)
 UPSAMPLE_OR_TOF_FILTER_INCLUDE = r'#include[[:space:]]*[<"]([^<>"]*/)?(upsample|tof_filter)\.hpp[>"]'
 
 
@@ -86,3 +100,11 @@ def test_head_rgbd_tof_build_dependencies_are_gone() -> None:
     found = git("grep", "-n", "-E", TOF_ONLY_BUILD_TERMS, "--", *TOF_ONLY_BUILD_FILES)
     assert found.returncode in (0, 1), found.stderr
     assert found.stdout == "", f"still declared:\n{found.stdout}"
+
+
+def test_no_tracked_code_names_tof_or_head_camera_frames() -> None:
+    """No tracked live code or config names a frame of the retired head ToF or Camera Module 3."""
+    pattern = "|".join(RETIRED_FRAMES)
+    result = git("grep", "-n", "-E", pattern, "--", *LIVE_CODE_GLOBS, *NOT_LIVE_PATHSPECS)
+    assert result.returncode in (0, 1), result.stderr
+    assert result.stdout == ""

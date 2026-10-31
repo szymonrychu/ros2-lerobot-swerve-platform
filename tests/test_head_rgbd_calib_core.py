@@ -1,7 +1,6 @@
 """Tests for the head RGB-D calibration core in shared/ros2_common/head_rgbd_calibration."""
 
 import ast
-import difflib
 import subprocess
 import sys
 from pathlib import Path
@@ -20,15 +19,12 @@ from ros2_common.head_rgbd_calibration.frames import (
     stamp_ns,
 )
 from ros2_common.head_rgbd_calibration.intrinsics import calibrate
-from ros2_common.head_rgbd_calibration.urdf_text import NOTE_MARKER, Origin, rewrite_tof_joint
 
 from tests.rgbd_synthetic import board_poses, render_rgb, rgb_camera
 
 ROOT = Path(__file__).resolve().parent.parent
 CORE_DIR = ROOT / "shared" / "ros2_common" / "head_rgbd_calibration"
 URDF_TEXT = CORE_DIR / "urdf_text.py"
-HEAD_URDF = ROOT / "nodes" / "web_ui" / "urdf" / "head.urdf"
-FIXED_ORIGIN = Origin(xyz=(0.01, -0.02, 0.03), rpy=(0.1, -0.2, 0.3))
 FORBIDDEN_MODULES = {"scripts", "rosbags", "subprocess"}
 
 
@@ -112,23 +108,9 @@ def test_urdf_text_loads_by_path_without_numpy() -> None:
         "sys.modules['urdf_text'] = module\n"
         "spec.loader.exec_module(module)\n"
         "assert 'numpy' not in sys.modules\n"
-        "assert callable(module.rewrite_tof_joint)\n"
+        "assert callable(module.rewrite_joint_origin)\n"
     )
     subprocess.run([sys.executable, "-I", "-c", code], check=True)
-
-
-def test_core_rewrite_tof_joint_touches_only_tof_joint() -> None:
-    before = HEAD_URDF.read_text()
-    after = rewrite_tof_joint(before, FIXED_ORIGIN, "2026-01-01 rms 0.1")
-    diff = [
-        line
-        for line in difflib.unified_diff(before.splitlines(), after.splitlines(), lineterm="", n=0)
-        if line[0] in "+-" and not line.startswith(("+++", "---"))
-    ]
-    assert diff
-    assert all("<origin" in line or NOTE_MARKER in line for line in diff)
-    assert sum(NOTE_MARKER in line for line in diff) <= 2
-    assert "0.010000000 -0.020000000 0.030000000" in after
 
 
 def test_moved_modules_left_scripts() -> None:

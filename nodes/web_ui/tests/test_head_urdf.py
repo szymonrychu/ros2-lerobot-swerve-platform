@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import math
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -20,7 +19,6 @@ LIDAR_XYZ = (0.158, 0.06, 0.20)
 LIDAR_RADIUS = 0.035
 FOOTPRINT_LENGTH = 0.47
 FOOTPRINT_WIDTH = 0.386
-OPTICAL_RPY = (-1.5708, 0.0, -1.5708)
 # d435_color_joint: the factory Color-to-Depth extrinsic of the head D435 in body axes (captured 2026-10-28).
 D435_COLOR_XYZ = (0.0001761, 0.0150171, -0.0000698)
 D435_COLOR_RPY = (0.0082621, -0.0014919, 0.0056971)
@@ -59,15 +57,11 @@ def parent_child(joint: ET.Element) -> tuple[str, str]:
 
 
 def test_chain_parent_child_order(joints: dict[str, ET.Element]) -> None:
-    """The joints form base_link -> pan -> tilt -> head -> camera/tof frames."""
+    """The joints form base_link -> pan -> tilt -> head; the D435 frames hang on head_link (next test)."""
     expected = {
         "head_mount_joint": ("base_link", "head_pan_base"),
         "head_pan": ("head_pan_base", "head_pan_link"),
         "head_tilt": ("head_pan_link", "head_link"),
-        "head_camera_joint": ("head_link", "head_camera_link"),
-        "head_camera_optical_joint": ("head_camera_link", "head_camera_optical_frame"),
-        "tof_joint": ("head_link", "tof_link"),
-        "tof_optical_joint": ("tof_link", "tof_optical_frame"),
     }
     for name, pc in expected.items():
         assert parent_child(joints[name]) == pc, name
@@ -93,33 +87,21 @@ def test_joint_types_axes_limits(joints: dict[str, ET.Element]) -> None:
     for lim in (pl, tl):
         assert float(lim.get("velocity", "")) == 1.0
         assert float(lim.get("effort", "0")) > 0
-    for name in (
-        "head_mount_joint",
-        "head_camera_joint",
-        "head_camera_optical_joint",
-        "tof_joint",
-        "tof_optical_joint",
-    ):
-        assert joints[name].get("type") == "fixed", name
+    assert joints["head_mount_joint"].get("type") == "fixed"
 
 
-def test_mount_and_camera_origins(joints: dict[str, ET.Element]) -> None:
-    """Mount, tilt offset and camera / ToF origins."""
+def test_mount_and_tilt_origins(joints: dict[str, ET.Element]) -> None:
+    """Mount and tilt offset origins."""
     assert origin(joints["head_mount_joint"]) == pytest.approx([0.15, 0.10, 0.31])
     assert origin(joints["head_pan"]) == pytest.approx([0, 0, 0])
     assert origin(joints["head_tilt"]) == pytest.approx([0, 0, 0.04])
-    assert origin(joints["head_camera_joint"]) == pytest.approx([0.02, -0.025, 0])
-    # tof_joint is overwritten by the RGB-D calibration handoff: only bounds are asserted here.
-    tof = origin(joints["tof_joint"])
-    assert abs(tof[0]) <= 0.05
-    assert all(abs(a) <= 0.1 for a in origin(joints["tof_joint"], "rpy"))
 
 
-def test_optical_rpy(joints: dict[str, ET.Element]) -> None:
-    """Both optical frames use the REP 103 optical rotation."""
-    for name in ("head_camera_optical_joint", "tof_optical_joint"):
-        assert origin(joints[name], "rpy") == pytest.approx(list(OPTICAL_RPY))
-        assert origin(joints[name]) == pytest.approx([0, 0, 0])
+def test_no_tof_or_head_camera_frames(urdf: ET.Element, joints: dict[str, ET.Element]) -> None:
+    """The retired head ToF and Camera Module 3 frames are gone: the D435 is the only head sensor."""
+    links = {link.get("name") for link in urdf.findall("link")}
+    assert not links & {"head_camera_link", "head_camera_optical_frame", "tof_link", "tof_optical_frame"}
+    assert not set(joints) & {"head_camera_joint", "head_camera_optical_joint", "tof_joint", "tof_optical_joint"}
 
 
 D435_OPTICAL_RPY = (-1.5707963, 0.0, -1.5707963)
@@ -154,14 +136,6 @@ def test_d435_optical_frames_are_rotated(joints: dict[str, ET.Element]) -> None:
     for name in ("d435_depth_optical_joint", "d435_color_optical_joint"):
         assert origin(joints[name], "rpy") == pytest.approx(list(D435_OPTICAL_RPY), abs=1e-6)
         assert origin(joints[name]) == pytest.approx([0, 0, 0])
-
-
-def test_tof_left_of_rgb_with_spacing(joints: dict[str, ET.Element]) -> None:
-    """ToF (left, +y) sits 0.05 +- 0.015 m from the RGB camera (right, -y); the calibration may nudge it."""
-    rgb, tof = origin(joints["head_camera_joint"]), origin(joints["tof_joint"])
-    assert tof[1] > rgb[1]
-    spacing = math.dist(rgb, tof)
-    assert math.isclose(spacing, 0.05, abs_tol=0.015)
 
 
 def visual_boxes_and_cylinders(link: ET.Element) -> list[tuple[ET.Element, list[float]]]:

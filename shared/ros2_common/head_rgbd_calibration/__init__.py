@@ -11,7 +11,8 @@ Modules:
     floor_fit, head_arm_fit, arm_offsets_fit: the head chain and arm offsets fits.
     arm_pose_check: the arm pose collision check of the head-from-arm sequence.
     views: the arm board view type.
-    urdf_text: standard-library tof_joint origin rewrite (the head_state_publisher launch loads it by path).
+    urdf_text: standard-library joint origin rewrite and head_chain.json override (the head_state_publisher launch
+        loads it by path).
 
 The core never imports `scripts`, `rosbags`, `subprocess` or ssh code.
 """

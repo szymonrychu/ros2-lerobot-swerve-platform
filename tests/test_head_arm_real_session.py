@@ -17,7 +17,7 @@ from ros2_common.head_rgbd_calibration.charuco import Detection
 from ros2_common.head_rgbd_calibration.config import BoardMountConfig, FloorFitConfig, HeadArmFitConfig
 from ros2_common.head_rgbd_calibration.floor_fit import FloorObservation, PlaneFit, fit_head_chain_floor
 from ros2_common.head_rgbd_calibration.head_arm_fit import FLOOR_PARAMS, HeadArmFit, fit_head_from_arm, limit_checks
-from ros2_common.head_rgbd_calibration.urdf_text import TOF_JOINT, Origin, rewrite_joint_origin
+from ros2_common.head_rgbd_calibration.urdf_text import Origin, rewrite_joint_origin
 from ros2_common.head_rgbd_calibration.views import ArmBoardView
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -31,6 +31,10 @@ PRIOR_RMS_PX = 2.93
 CAMERA_Z_SIGMA_MM = 1.0
 FLOOR_DISAGREEMENT = ["floor_delta:mount_roll_deg", "floor_delta:mount_pitch_deg", "floor_delta:tilt_zero_deg"]
 URDF_DIR = REPO_ROOT / "nodes" / "web_ui" / "urdf"
+# head.urdf as it was when the session was recorded (with the retired head camera and ToF frames, removed from
+# nodes/web_ui/urdf/head.urdf by the D435 switchover).
+RECORDED_URDF = REPO_ROOT / "tests" / "fixtures" / "head_arm" / "head_tof_rgb.urdf"
+TOF_JOINT = "tof_joint"
 # The session was recorded with the retired head RGB camera and the floor sweep with the retired ToF.
 SESSION_CAMERA_FRAME = "head_camera_optical_frame"
 SESSION_DEPTH_FRAME = "tof_optical_frame"
@@ -69,8 +73,8 @@ def load_session() -> tuple[dict, list[ArmBoardView]]:
 
 
 def applied_urdf(doc: dict) -> str:
-    """nodes/web_ui/urdf/head.urdf with the session's applied head_chain.json joints."""
-    text = (URDF_DIR / "head.urdf").read_text()
+    """The recorded head URDF with the session's applied head_chain.json joints."""
+    text = RECORDED_URDF.read_text()
     for joint, origin in doc["head_chain"].items():
         text = rewrite_joint_origin(text, joint, Origin(tuple(origin["xyz"]), tuple(origin["rpy"])), "applied")
     return text

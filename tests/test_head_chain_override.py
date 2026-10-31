@@ -45,7 +45,7 @@ def changed_lines(before: str, after: str) -> list[str]:
 
 def test_constants(ut: ModuleType) -> None:
     assert ut.HEAD_CHAIN_FILE == "head_chain.json"
-    assert ut.TOF_JOINT_FILE == "tof_joint.json"
+    assert not hasattr(ut, "TOF_JOINT_FILE") and not hasattr(ut, "rewrite_tof_joint")
     assert ut.APPLIED_MARKER_FILE == "applied.json"
     assert ut.HEAD_CHAIN_JOINTS == ("head_mount_joint", "head_pan", "head_tilt", "d435_joint")
 
@@ -81,12 +81,6 @@ def test_head_tilt_keeps_axis_and_limit(ut: ModuleType, urdf_text: str) -> None:
     assert '<limit lower="-0.5236" upper="0.7854" effort="2.0" velocity="1.0"/>' in out
 
 
-def test_rewrite_tof_joint_is_rewrite_joint_origin(ut: ModuleType, urdf_text: str) -> None:
-    origin = ut.Origin((0.02, 0.03, 0.001), (0.0, 0.01, 0.0))
-    assert ut.rewrite_tof_joint(urdf_text, origin, "n") == ut.rewrite_joint_origin(urdf_text, "tof_joint", origin, "n")
-    assert "<!-- tof_joint calibrated: n -->" in ut.rewrite_tof_joint(urdf_text, origin, "n")
-
-
 def test_rewrite_unknown_joint_raises(ut: ModuleType, urdf_text: str) -> None:
     with pytest.raises(ValueError, match="nope"):
         ut.rewrite_joint_origin(urdf_text, "nope", ut.Origin((0, 0, 0), (0, 0, 0)), "n")
@@ -96,15 +90,18 @@ def write_chain(tmp_path: Path, joints: dict) -> None:
     (tmp_path / "head_chain.json").write_text(json.dumps({"joints": joints, "note": "chain"}))
 
 
-def test_apply_overrides_chain_then_tof(ut: ModuleType, urdf_text: str, tmp_path: Path) -> None:
+def test_apply_overrides_chain_and_ignores_a_left_tof_joint_file(
+    ut: ModuleType, urdf_text: str, tmp_path: Path
+) -> None:
+    """A tof_joint.json left on the robot by the retired head ToF is ignored without a warning."""
     write_chain(tmp_path, {"head_tilt": valid_joint(), "d435_joint": valid_joint((0.5, 0.6, 0.7))})
     (tmp_path / "tof_joint.json").write_text(json.dumps({"xyz": [9, 8, 7], "rpy": [0, 0, 0], "note": "tof"}))
     out, warnings = ut.apply_overrides(urdf_text, tmp_path)
     assert warnings == []
     assert "<!-- head_tilt calibrated: chain -->" in out
     assert "<!-- d435_joint calibrated: chain -->" in out
-    assert "<!-- tof_joint calibrated: tof -->" in out
-    assert 'xyz="9.000000000 8.000000000 7.000000000"' in out
+    assert "tof_joint" not in out
+    assert 'xyz="9.000000000 8.000000000 7.000000000"' not in out
     assert 'xyz="0.500000000 0.600000000 0.700000000"' in out
 
 
@@ -141,19 +138,6 @@ def test_invalid_override_files_warn_and_keep_urdf(ut: ModuleType, urdf_text: st
     out, warnings = ut.apply_overrides(urdf_text, tmp_path)
     assert out == urdf_text
     assert len(warnings) == 1 and "head_chain.json" in warnings[0]
-
-
-def test_invalid_chain_does_not_block_tof(ut: ModuleType, urdf_text: str, tmp_path: Path) -> None:
-    (tmp_path / "head_chain.json").write_text("{bad")
-    (tmp_path / "tof_joint.json").write_text(json.dumps({"xyz": [1, 2, 3], "rpy": [0, 0, 0], "note": "t"}))
-    out, warnings = ut.apply_overrides(urdf_text, tmp_path)
-    assert len(warnings) == 1 and "tof_joint calibrated" in out
-
-
-def test_invalid_tof_one_warning(ut: ModuleType, urdf_text: str, tmp_path: Path) -> None:
-    (tmp_path / "tof_joint.json").write_text(json.dumps({"xyz": [1, 2], "rpy": [0, 0, 0], "note": "t"}))
-    out, warnings = ut.apply_overrides(urdf_text, tmp_path)
-    assert out == urdf_text and len(warnings) == 1 and "tof_joint.json" in warnings[0]
 
 
 def test_parse_head_chain_error_names_key(ut: ModuleType) -> None:

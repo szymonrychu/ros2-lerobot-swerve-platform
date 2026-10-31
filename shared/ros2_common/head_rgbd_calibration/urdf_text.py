@@ -9,11 +9,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-TOF_JOINT = "tof_joint"
-NOTE_MARKER = f"{TOF_JOINT} calibrated"
 NUMBER_FORMAT = "{:.9f}"
 HEAD_CHAIN_FILE = "head_chain.json"
-TOF_JOINT_FILE = "tof_joint.json"
 APPLIED_MARKER_FILE = "applied.json"
 LEGACY_CHAIN_JOINT = "head_camera_joint"
 HEAD_CHAIN_JOINTS = ("head_mount_joint", "head_pan", "head_tilt", "d435_joint")
@@ -47,7 +44,7 @@ def rewrite_joint_origin(urdf_text: str, joint: str, origin: Origin, note: str) 
     Raises:
         ValueError: The joint or its origin is missing.
     """
-    marker = NOTE_MARKER if joint == TOF_JOINT else f"{joint} calibrated"
+    marker = f"{joint} calibrated"
     joint_re = re.compile(
         rf"(?P<indent>[ \t]*)(?P<comment><!--\s*{re.escape(marker)}[^>]*?-->[ \t]*\n[ \t]*)?"
         rf'(?P<joint><joint\s+name="{re.escape(joint)}".*?</joint>)',
@@ -69,11 +66,6 @@ def rewrite_joint_origin(urdf_text: str, joint: str, origin: Origin, note: str) 
     indent = match.group("indent")
     comment = f"{indent}<!-- {marker}: {note} -->\n"
     return urdf_text[: match.start()] + comment + indent + body + urdf_text[match.end() :]
-
-
-def rewrite_tof_joint(urdf_text: str, origin: Origin, note: str) -> str:
-    """Replace the tof_joint origin and its calibration comment (see rewrite_joint_origin)."""
-    return rewrite_joint_origin(urdf_text, TOF_JOINT, origin, note)
 
 
 def parse_vec3(value: object, where: str) -> tuple[float, float, float]:
@@ -209,9 +201,10 @@ def head_chain_json(
 
 
 def apply_overrides(urdf_text: str, applied_dir: Path) -> tuple[str, list[str]]:
-    """Apply head_chain.json (each joint) and then tof_joint.json to a URDF.
+    """Apply head_chain.json (each joint) to a URDF.
 
-    A missing file is skipped silently; an unreadable or invalid file is skipped whole with one warning.
+    A missing file is skipped silently; an unreadable or invalid file is skipped whole with one warning. A
+    tof_joint.json left on the robot by the retired head ToF is ignored (the joint is gone).
 
     Args:
         urdf_text: Repo URDF text.
@@ -220,27 +213,19 @@ def apply_overrides(urdf_text: str, applied_dir: Path) -> tuple[str, list[str]]:
     Returns:
         The new URDF text and the warning strings.
     """
-    warnings: list[str] = []
-    for filename in (HEAD_CHAIN_FILE, TOF_JOINT_FILE):
-        path = Path(applied_dir) / filename
-        if not path.is_file():
-            continue
-        try:
-            data = json.loads(path.read_text())
-            if not isinstance(data, dict):
-                raise ValueError("top level must be an object")
-            note = data.get("note", "")
-            if not isinstance(note, str):
-                raise ValueError("note must be a string")
-            if filename == HEAD_CHAIN_FILE:
-                origins = parse_head_chain(data)
-            else:
-                origins = {TOF_JOINT: Origin(parse_vec3(data.get("xyz"), "xyz"), parse_vec3(data.get("rpy"), "rpy"))}
-            text = urdf_text
-            for name, origin in origins.items():
-                text = rewrite_joint_origin(text, name, origin, note)
-        except (OSError, ValueError) as error:
-            warnings.append(f"{path}: {error}")
-            continue
-        urdf_text = text
-    return urdf_text, warnings
+    path = Path(applied_dir) / HEAD_CHAIN_FILE
+    if not path.is_file():
+        return urdf_text, []
+    try:
+        data = json.loads(path.read_text())
+        if not isinstance(data, dict):
+            raise ValueError("top level must be an object")
+        note = data.get("note", "")
+        if not isinstance(note, str):
+            raise ValueError("note must be a string")
+        text = urdf_text
+        for name, origin in parse_head_chain(data).items():
+            text = rewrite_joint_origin(text, name, origin, note)
+    except (OSError, ValueError) as error:
+        return urdf_text, [f"{path}: {error}"]
+    return text, []

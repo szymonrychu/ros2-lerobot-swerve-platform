@@ -240,9 +240,9 @@ def test_base_urdf_applies_only_the_head_chain(cfg: NodeConfig, state: Path) -> 
     (applied / "tof_joint.json").write_text(
         json.dumps({"xyz": [0.01, 0.02, 0.03], "rpy": [0.0, 0.0, 0.0], "note": "x"})
     )
-    chain = UrdfChain.from_text(base_urdf(cfg))
-    assert chain.origin(MOUNT)[0] == pytest.approx((0.1, 0.2, 0.9))
-    assert chain.origin("tof_joint") == UrdfChain.from_text(URDF_PATH.read_text()).origin("tof_joint")
+    text = base_urdf(cfg)
+    assert UrdfChain.from_text(text).origin(MOUNT)[0] == pytest.approx((0.1, 0.2, 0.9))
+    assert "tof_joint" not in text
 
 
 def test_result_has_no_tof_joint(cfg: NodeConfig, state: Path) -> None:
@@ -257,7 +257,7 @@ def test_result_has_no_tof_joint(cfg: NodeConfig, state: Path) -> None:
     fitted = UrdfChain.from_text((directory / "head.urdf").read_text())
     for name, joint in chain["joints"].items():
         assert fitted.origin(name)[0] == pytest.approx(joint["xyz"], abs=1e-6)
-    assert fitted.origin("tof_joint") == UrdfChain.from_text(URDF_PATH.read_text()).origin("tof_joint")
+    assert "tof_joint" not in (directory / "head.urdf").read_text()
 
 
 def test_failed_result_writes_no_head_urdf(cfg: NodeConfig, state: Path) -> None:

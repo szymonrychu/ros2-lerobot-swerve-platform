@@ -1,12 +1,10 @@
 <?xml version="1.0"?>
 <!--
-  Pan/tilt head of the swerve robot: RGB camera (right) and ToF (left) on one rigid head.
+  Pan/tilt head of the swerve robot: the Intel RealSense D435 (depth and colour) on one rigid head.
   Read by robot_state_publisher (TF), mcp_server (aiming) and the web_ui 3D view.
 
   ESTIMATES: the mount (head_mount_joint xyz 0.15 0.10 0.31), the tilt offset (0.04 m) and the
-  camera / ToF origins are estimates, to be measured on the built head and edited here.
-  Camera-to-ToF spacing: the y origins of head_camera_joint (-0.025) and tof_joint (+0.025),
-  so 0.05 m; change both to change the spacing.
+  d435_joint origin are estimates; the head calibration (head_chain.json) refines them.
 
   Servo centre 2048 = 0 rad = head straight ahead and level.
   Sign conventions (REP 103): head_pan positive = looking left (CCW seen from above, +z);
@@ -83,32 +81,6 @@
     <origin xyz="0 0 0.04" rpy="0 0 0"/>
     <axis xyz="0 1 0"/>
     <limit lower="-0.5236" upper="0.7854" effort="2.0" velocity="1.0"/>
-  </joint>
-
-  <link name="head_camera_link"/>
-  <joint name="head_camera_joint" type="fixed">
-    <parent link="head_link"/>
-    <child link="head_camera_link"/>
-    <origin xyz="0.02 -0.025 0" rpy="0 0 0"/>
-  </joint>
-  <link name="head_camera_optical_frame"/>
-  <joint name="head_camera_optical_joint" type="fixed">
-    <parent link="head_camera_link"/>
-    <child link="head_camera_optical_frame"/>
-    <origin xyz="0 0 0" rpy="-1.5708 0 -1.5708"/>
-  </joint>
-
-  <link name="tof_link"/>
-  <joint name="tof_joint" type="fixed">
-    <parent link="head_link"/>
-    <child link="tof_link"/>
-    <origin xyz="0.02 0.025 0" rpy="0 0 0"/>
-  </joint>
-  <link name="tof_optical_frame"/>
-  <joint name="tof_optical_joint" type="fixed">
-    <parent link="tof_link"/>
-    <child link="tof_optical_frame"/>
-    <origin xyz="0 0 0" rpy="-1.5708 0 -1.5708"/>
   </joint>
 
   <!-- Intel RealSense D435 on the head (design D4): the driver publishes no TF, this URDF owns every d435 frame.

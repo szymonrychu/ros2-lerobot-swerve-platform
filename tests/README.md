@@ -98,7 +98,8 @@ The head-from-arm fit on the real session calib-20261023-074418 (`tests/fixtures
 corner detections and measured joints of the 113 views, the applied intrinsics, head_chain.json, floor values and board
 mount start) and the floor sweep floor-20261022-064337 (`tests/fixtures/head_arm/floor-20261022-064337.json`: its
 per-cloud floor planes and the applied tof_joint). The session was recorded with the retired head RGB camera and ToF, so
-the fits run with `camera_frame=head_camera_optical_frame` and `sensor_frame=tof_optical_frame`, and with
+the fits run on `tests/fixtures/head_arm/head_tof_rgb.urdf` (head.urdf as recorded, with the frames the D435 switchover
+removed) with `camera_frame=head_camera_optical_frame` and `sensor_frame=tof_optical_frame`, and with
 `fit_camera_mount: false` (the model the evidence was taken with) except where named. Pins the diagnosis and the
 evidence behind the `fit.limits` values.
 
@@ -645,29 +646,16 @@ The `head_state_publisher` node (robot_state_publisher on `nodes/web_ui/urdf/hea
 | `test_readme_documents_frames_and_check` | The node README names `/tf_static` and the `tf2_echo` check. |
 | `test_d435_frames_resolve_from_head_urdf` | Every `d435_*` frame in head.urdf is a link with exactly one parent joint and reaches `base_link`, so robot_state_publisher publishes it once. |
 
-`nodes/web_ui/tests/test_head_urdf.py` also pins the D435 chain: `test_d435_chain_hangs_on_head_link` (fixed `d435_link` on `head_link`, depth and colour frames, 0.090 x 0.025 x 0.025 box) and `test_d435_optical_frames_are_rotated` (the standard optical rotation on both optical joints).
-
-### `test_head_tof_joint_override.py`
-
-The applied `tof_joint` override in the head_state_publisher launch (`head_description.py`, stdlib only; called with the applied directory).
-
-| Test | What it covers |
-|---|---|
-| `test_override_rewrites_only_tof_joint` | The tof_joint origin carries the JSON values; every other line is unchanged. |
-| `test_missing_override_keeps_repo_urdf` | No override file returns the repo URDF. |
-| `test_invalid_override_ignored_with_warning` | Invalid JSON and wrong shapes return the repo URDF and log a warning naming the file. |
-| `test_head_description_is_stdlib_only` | `head_description.py` imports only standard library modules. |
-| `test_launch_file_references_override_pieces` | The launch file names `head_description`, the applied path and `urdf_text.py`. |
+`nodes/web_ui/tests/test_head_urdf.py` also pins `test_no_tof_or_head_camera_frames` (no `head_camera_*` or `tof_*` link or joint left) and the D435 chain: `test_d435_chain_hangs_on_head_link` (fixed `d435_link` on `head_link`, depth and colour frames, 0.090 x 0.025 x 0.025 box) and `test_d435_optical_frames_are_rotated` (the standard optical rotation on both optical joints).
 
 ### `test_head_chain_launch.py`
 
-The applied `head_chain.json` plus `tof_joint.json` in the head_state_publisher launch.
+The applied `head_chain.json` in the head_state_publisher launch (a `tof_joint.json` left by the retired head ToF is ignored).
 
 | Test | What it covers |
 |---|---|
-| `test_chain_file_changes_three_joint_origins` | head_chain.json changes the head_mount_joint, head_tilt and head_camera_joint origins. |
-| `test_chain_and_tof_together` | Both override files apply in one description. |
-| `test_invalid_chain_warns_and_tof_still_applies` | An invalid chain file logs a warning, keeps the URDF chain, tof override still applies. |
+| `test_chain_file_changes_three_joint_origins` | head_chain.json changes the head_mount_joint, head_tilt and d435_joint origins. |
+| `test_invalid_chain_warns_and_keeps_the_urdf` | An invalid chain file logs a warning naming head_chain.json and returns the repo URDF. |
 | `test_unloadable_urdf_text_returns_urdf` | A urdf_text module that fails to load logs a warning and returns the URDF unchanged. |
 | `test_launch_passes_overridden_text` | `generate_launch_description` with `APPLIED_DIR` monkeypatched passes the overridden text as `robot_description`. |
 
@@ -677,18 +665,15 @@ The `head_chain.json` format and `apply_overrides` in `urdf_text.py` (design D1,
 
 | Test | What it covers |
 |---|---|
-| `test_constants` | File name constants and `HEAD_CHAIN_JOINTS` (head_mount_joint, head_pan, head_tilt, head_camera_joint). |
+| `test_constants` | File name constants and `HEAD_CHAIN_JOINTS` (head_mount_joint, head_pan, head_tilt, d435_joint); no `TOF_JOINT_FILE` or `rewrite_tof_joint`. |
 | `test_head_chain_json_round_trip` | `head_chain_json` output has sorted keys and 9 decimals and `parse_head_chain` returns the same origins. |
 | `test_each_chain_joint_rewritten_only` | Each chain joint rewrite changes only its origin line and comment; a second rewrite replaces the comment. |
 | `test_head_tilt_keeps_axis_and_limit` | A head_tilt rewrite keeps `<axis>` and `<limit>`. |
-| `test_rewrite_tof_joint_is_rewrite_joint_origin` | `rewrite_tof_joint` equals `rewrite_joint_origin` for tof_joint with the `tof_joint calibrated` marker. |
 | `test_rewrite_unknown_joint_raises` | An unknown joint raises ValueError. |
-| `test_apply_overrides_chain_then_tof` | `apply_overrides` applies the chain joints and then the tof override. |
+| `test_apply_overrides_chain_and_ignores_a_left_tof_joint_file` | `apply_overrides` applies the chain joints; a `tof_joint.json` in the same directory is ignored without a warning. |
 | `test_apply_overrides_head_pan_origin` | A head_chain.json `head_pan` entry (the head-from-arm pan axis) rewrites only the head_pan origin line (plus its comment), keeping the axis. |
 | `test_empty_dir_gives_identical_text` | No override files give the identical text and no warnings. |
 | `test_invalid_override_files_warn_and_keep_urdf` | Bad JSON, unknown joint, 2-vector, NaN, bool and empty joints each give one warning and leave the text unchanged. |
-| `test_invalid_chain_does_not_block_tof` | An invalid head_chain.json still lets tof_joint.json apply. |
-| `test_invalid_tof_one_warning` | An invalid tof_joint.json gives one warning naming the file. |
 | `test_parse_head_chain_error_names_key` | The ValueError names the offending key. |
 | `test_urdf_text_imports_only_stdlib` | `urdf_text.py` imports only standard library modules (checked with `ast`). |
 
@@ -3294,7 +3279,7 @@ Retirement pins for the ssh-streamed live pose counter and the ToF+CM3 offline c
 
 ### `test_tof_paths_retired.py`
 
-Retirement pins for the ToF-only code paths of `nodes/head_rgbd_cpp` (the D435 publishes its depth already aligned to the colour camera). Asserts on `git ls-files` and `git grep`, never the filesystem.
+Retirement pins for the ToF-only code paths of `nodes/head_rgbd_cpp` (the D435 publishes its depth already aligned to the colour camera) and for the old head frame names. Asserts on `git ls-files` and `git grep`, never the filesystem.
 
 | Test | What it checks |
 |---|---|
@@ -3302,6 +3287,7 @@ Retirement pins for the ToF-only code paths of `nodes/head_rgbd_cpp` (the D435 p
 | `test_head_rgbd_upsampling_and_tof_filter_are_gone` | `git ls-files` returns nothing for the guided depth upsampling and ToF flying-pixel filter sources, headers and gtests (`src/core/{upsample,tof_filter}.cpp`, `include/head_rgbd_cpp/{upsample,tof_filter}.hpp`, `test/core/test_{upsample,tof_filter}.cpp`), and no tracked file under `nodes/head_rgbd_cpp` has an `#include` of `upsample.hpp` or `tof_filter.hpp`. |
 | `test_head_rgbd_tof_fixtures_are_gone` | `git ls-files` returns nothing for the synthetic ToF scene `test/core/synthetic_scene.hpp` and the `test/data` dir (the ToF calibration fixture `tof_calibration.yaml`), and no tracked file under `nodes/head_rgbd_cpp` names `synthetic_scene.hpp`, `test/data` or `HEAD_RGBD_TEST_DATA_DIR`. |
 | `test_head_rgbd_tof_build_dependencies_are_gone` | `nodes/head_rgbd_cpp/CMakeLists.txt`, `package.xml` and `scripts/cpp-node-test.Dockerfile` name none of the ToF-only build dependencies: OpenCV `calib3d`, `ximgproc` / opencv contrib, `camera_calibration_parsers`, `tf2*`, Eigen. |
+| `test_no_tracked_code_names_tof_or_head_camera_frames` | No tracked `.py`, `.cpp`, `.hpp`, `.ts`, `.tsx`, `.yaml`, `.yml` or `.urdf` file names `tof_optical_frame`, `tof_link`, `head_camera_optical_frame` or `head_camera_link`, outside `docs/`, test files (`tests/`, `*/tests/`, `*/test/`, `*.test.ts(x)`: recorded-data and fixture frame ids) and `nodes/head_camera_cpp/` (kept for front-and-back-camera-module). |
 
 ### `test_old_sensors_retired.py`
 

@@ -1,4 +1,4 @@
-"""head_state_publisher publishes the applied head chain and tof_joint (design D7, D8)."""
+"""head_state_publisher publishes the applied head chain (design D7, D8)."""
 
 import importlib.util
 import json
@@ -21,7 +21,6 @@ CHAIN_XYZ = {
     "d435_joint": "0.05 -0.025 0.06",
 }
 CHAIN_RPY = {"head_mount_joint": "0.01 0.02 0.0", "head_tilt": "0.0 0.0 0.0", "d435_joint": "0.0 0.03 0.0"}
-TOF = {"xyz": [0.01, 0.02, 0.03], "rpy": [0.1, 0.2, 0.3], "note": "tof"}
 
 
 def load(path: Path, name: str) -> ModuleType:
@@ -58,23 +57,13 @@ def test_chain_file_changes_three_joint_origins(description: ModuleType, tmp_pat
     assert "0.050000000 -0.025000000 0.060000000" in result
 
 
-def test_chain_and_tof_together(description: ModuleType, tmp_path: Path) -> None:
-    (tmp_path / "head_chain.json").write_text(chain_json())
-    (tmp_path / "tof_joint.json").write_text(json.dumps(TOF))
-    result = build(description, tmp_path)
-    assert "0.111000000 0.222000000 0.333000000" in result
-    assert "0.010000000 0.020000000 0.030000000" in result
-
-
-def test_invalid_chain_warns_and_tof_still_applies(
+def test_invalid_chain_warns_and_keeps_the_urdf(
     description: ModuleType, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     (tmp_path / "head_chain.json").write_text("{not json")
-    (tmp_path / "tof_joint.json").write_text(json.dumps(TOF))
     with caplog.at_level(logging.WARNING):
         result = build(description, tmp_path)
-    assert "0.111000000" not in result
-    assert "0.010000000 0.020000000 0.030000000" in result
+    assert result == URDF.read_text()
     assert any(r.levelno == logging.WARNING and "head_chain.json" in r.getMessage() for r in caplog.records)
 
 
