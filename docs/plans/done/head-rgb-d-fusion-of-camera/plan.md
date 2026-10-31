@@ -1,77 +1,43 @@
-# Head RGB-D fusion of camera and ToF design
+---
+title: Head RGB-D fusion of camera and ToF
+repos: [ros2-lerobot-sverve-platform]
+created: 2026-10-18
+owner: Szymon Richert
+rung: 1
+---
 
-## Summary
+# Head RGB-D fusion of camera and ToF
 
-A new C++ node `nodes/head_rgbd_cpp` on the client Pi 5 registers the head Arducam ToF depth (240x180, 10 Hz) into the
-head Camera Module 3 image and publishes an exact-stamp RGB-D pair: a 16UC1 registered depth image in
-`head_camera_optical_frame` (default 288x162, half the 576x324 mapping image, RGB/4 of the 1152x648 stream), its
-camera_info, the paired RGB JPEG passed through unchanged with its camera_info, and a coloured cloud at a reduced rate.
-Registration is our own z-buffer (depth_image_proc's RegisterNode has a Jazzy out-of-bounds bug and no motion
-compensation) with a jump-edge flying-pixel filter, tf2 time-travel motion compensation and a motion gate; RGB-guided
-upsampling (masked guided filter) is optional and off by default. Intrinsics and the ToF-to-RGB extrinsic come from an
-offline ChArUco calibration tool over a short rosbag; the extrinsic is written into the head URDF, the single geometry
-source. The head camera locks focus only while its mapping stream has subscribers (this node subscribes lazily). The
-RTAB-Map epic consumes the pair instead of registering on the server. The methodology is written down with measured
-targets and validated on the robot.
+## What and why
 
-## Intent and why
+What: Register head ToF depth into the Camera Module 3 frame: aligned RGB-D pair, coloured cloud, calibration tool and written methodology
+How: Calibration (intrinsics, extrinsics), approximate-time sync, reprojection with occlusion, optional guided upsampling, C++ node reusing depth_image_proc
+Why: 3D mapping and perception need colour and depth that line up
 
-The head carries an RGB camera and a ToF depth camera a few centimetres apart on one rigid pan/tilt frame. 3D mapping,
-obstacle display, the agent and the web UI need colour and depth that line up in time and in pixels. Without a
-registration step every consumer has to solve calibration, synchronisation and occlusion itself, and the obvious
-off-the-shelf path (depth_image_proc register) silently misregisters while the head moves. The user wants one node that
-does it right and a written, measured methodology (U1, U2), and wants RTAB-Map to use that node's pair (U3) with the
-camera focus locked only while calibrated intrinsics are needed (U4).
+The head carries a Camera Module 3 (RGB, 1152x648 @ 30 fps, rolling shutter, autofocus) and an Arducam ToF (240x180 depth + amplitude, ~10 Hz, up to 4 m) on one rigid frame with a known spacing. A fusion node registers ToF depth into the RGB camera so downstream consumers (3D mapping, obstacle display, the agent and the web UI) get a time-aligned, RGB-registered depth image and a coloured point cloud. The methodology (calibration, synchronisation, registration, upsampling, validation) is written down and measured.
 
-## Goals
+## Scope ladder
 
-- G1: Methodology document: intrinsic calibration of both cameras (ToF SDK intrinsics vs a calibration on the amplitude
-  image), extrinsic ToF-to-RGB calibration feeding the head URDF, time synchronisation (approximate time, latency budget,
-  pan/tilt motion and rolling-shutter error), registration with occlusion handling, optional RGB-guided upsampling and
-  its validity mask, and the validation procedure with measured reprojection error and depth accuracy.
-- G2: A C++ fusion node publishing an RGB-registered 16UC1 depth image in `head_camera_optical_frame` (RGB resolution or
-  a configurable fraction), its camera_info and a coloured point cloud at a configurable reduced rate; nothing published
-  without real synchronised inputs, a loaded calibration and valid TF.
-- G3: A calibration tool producing the intrinsics and extrinsics files consumed by the node and the head URDF, tested on
-  synthetic data.
-- G4: Unit tests on synthetic scenes for projection, registration, filtering, upsampling and sync/motion gating; CPU on
-  the Pi 5 measured in Grafana within 0.2 core; Ansible node type, config, README; deployed and validated against a
-  target at known distances.
-- G5: The RTAB-Map epic consumes the registered RGB-D pair from this node.
+### Rung 1: agreed scope (migrated)
+
+- 1.1: Methodology document (in the node README / docs): intrinsic calibration of both cameras (the ToF intrinsics from its SDK vs a checkerboard on the amplitude image), extrinsic ToF-to-RGB calibration on the rigid head frame (checkerboard seen by both; result feeds the head URDF), time synchronisation of 10 Hz depth with 30 Hz RGB (approximate time, latency budget, motion/pan-tilt and rolling-shutter error), registration (reproject ToF points into the RGB frame with occlusion handling), optional RGB-guided depth upsampling (e.g. joint bilateral / guided filter) and its validity mask, and the validation procedure with measured reprojection error and depth accuracy.
+- 1.2: A fusion node (C++, reusing depth_image_proc register / point_cloud_xyzrgb where they fit, own code only for what they lack) publishing an RGB-registered depth image (16UC1, in head_camera_optical_frame, RGB resolution or a configurable fraction), its camera_info, and a coloured point cloud at a configurable reduced rate; nothing published without real synchronised inputs and valid TF.
+- 1.3: A calibration tool/script producing the extrinsics and intrinsics files consumed by the node and the head URDF, with tests on synthetic data.
+- 1.4: Unit tests for the projection/registration/upsampling maths on synthetic scenes; CPU budget measured on the Pi 5 (Grafana) within an agreed figure; Ansible node type, config, README; deployed and validated on the robot against a target at known distances.
+- 1.5: The RTAB-Map epic consumes the registered RGB-D pair from this node.
+
+## Agreed scope
+
+Rung 1, migrated from the epic format: the epic's goals were its agreed scope.
 
 ## Non-goals
 
-- Learning-based depth completion (no GPU), optimisation-based upsampling (TGV/MRF, fast bilateral solver).
-- Changing the head camera or ToF drivers beyond what synchronisation and the calibrated-intrinsics focus lock need.
-- Multipath correction, per-row rolling-shutter modelling, continuous-time (Kalibr) calibration.
-- Feeding Nav2 costmaps (the ToF obstacle epic uses the raw ToF).
+- Learning-based depth completion (no GPU).
+- Changing the head camera or ToF drivers beyond what synchronisation needs.
 
-## Anti-goals
+## Design
 
-- Placeholder data on any topic: interpolated depth outside the validity mask, a camera_info without a calibration,
-  depth published while TF or the RGB pair is missing, zeros published "to keep the topic alive".
-- A second geometry source: the node reading extrinsics from a file while the URDF says something else.
-- Permanent focus lock (close-up shots keep continuous AF outside mapping/fusion use).
-- Fusion cost that pushes the already busy client Pi 5 over budget (> 0.2 core at the default path), or a 30 fps raw or
-  JPEG RGB stream decoded by the node.
-- Two calibration scripts for the same camera (the RTAB-Map epic's planned RGB-only script is folded into this tool).
-
-## Constraints
-
-- CLAUDE.md: C++ for new non-web nodes, established libraries first (OpenCV calib3d/aruco/ximgproc, message_filters,
-  tf2, camera_calibration_parsers, image_geometry, depth_image_proc conversions, rosbags), pydantic for Python config,
-  config files over CLI, TDD, type hints, no placeholder data on topics, numpy guard for Python nodes, Ansible kept in
-  sync via the `ros2_nodes` schema, deploy only through `scripts/deploy-nodes.sh`.
-- C++ packages build and test with `scripts/cpp-node-test.sh <pkg>` (docker, ros:jazzy-ros-base), shared helpers in
-  `shared/ros2_common_cpp` (config loading, Prometheus metrics, process CPU series).
-- Cross-process transport on the client is Fast DDS UDPv4 with 1 MiB buffers: 2.2 MB raw frames drop fragments
-  (front-camera epic D2), so the node never subscribes raw RGB.
-- Plans against the end state of the blocking epics: head_camera_cpp (front-camera epic) publishes `/head_camera/*` with
-  camera_info only from a `camera_info_file` and `af_mode` continuous|auto|manual; the pan/tilt epic's
-  robot_state_publisher publishes `head_camera_optical_frame` and `tof_optical_frame` from `nodes/web_ui/urdf/head.urdf`
-  and the head joint states; arducam_tof publishes `/tof/depth/image_raw` (16UC1 mm, 0 invalid) and
-  `/tof/amplitude/image_raw` (mono16) at <= 10 Hz.
-- Servo safety: the only motion used for validation is a small head pan sweep inside the pan/tilt epic's verified range.
+Migrated from the epic format; the design sections without a plan.md heading are under Migrated notes.
 
 ## Decisions
 
@@ -235,73 +201,9 @@ instead of the raw ToF depth and ToF camera_info; the server drops `depth_image_
 rgbd_sync exact pairs; map3d_manager watches the two `/uplink/head_rgbd/*` camera_infos; the head camera mapping stream,
 focus lock and calibration tasks move to this epic. Serves G5, U3.
 
-## Methodology
+## Open questions
 
-### Calibration
-
-- Focus: intrinsics are valid only at a fixed focus (autofocus changes focal length and distortion, WACV 2016
-  doi:10.1109/WACV.2016.7477646). The RGB is calibrated at `lens_position` with the mapping lock engaged; the run report
-  records the lens position, and changing `lens_position` invalidates the calibration (the README says so).
-- Intrinsics (Zhang, doi:10.1109/34.888718): ChArUco (doi:10.1016/j.patcog.2014.01.005) on the 576x324 RGB and on the
-  normalised 240x180 amplitude image, `cv2.calibrateCamera`, plumb_bob. For the ToF the tool runs twice: with distortion
-  fixed to zero (`CALIB_ZERO_TANGENT_DIST | CALIB_FIX_K1 | CALIB_FIX_K2 | CALIB_FIX_K3`) and free. If the zero-distortion
-  RMS is <= 0.3 px the SDK's "already undistorted" claim holds and D is written as zero; otherwise the measured D is
-  written. The SDK fx/fy/cx/cy from `/tof/camera_info` are recorded next to the measured values (difference reported in
-  %).
-- Extrinsic: `cv2.stereoCalibrate(..., flags=CALIB_FIX_INTRINSIC)` over corner IDs seen in both images of a still pair
-  (joint depth/colour calibration as the reference method, doi:10.1109/TPAMI.2012.125). Check (doi:10.1109/TPAMI.2014.2363827):
-  the board plane from RGB PnP, transformed into the ToF frame, against the median ToF depth inside the board polygon:
-  reported as plane depth bias.
-- Depth bias (wiggling, doi:10.1016/j.cviu.2009.11.002; warm-up and reflectivity, doi:10.1109/TCI.2015.2510506): measured
-  at 0.5/1/2/3 m after a 20 minute warm-up; a per-distance correction is added only if the residual bias exceeds 1 cm
-  (it is then a new task, not silently skipped). Multipath near corners and floors (doi:10.1109/ICSENS.2014.6985077) is
-  documented, not corrected.
-
-### Synchronisation
-
-- Stamps: RGB at start of exposure (libcamera SensorTimestamp); ToF at frame return minus the measured
-  `stamp_latency_ms`.
-- Pairing: ApproximateTime with `max_pair_dt_s` 0.06; output stamped with the RGB stamp (exact pairs downstream).
-- Latency budget: ToF exposure plus processing (offset removed by `stamp_latency_ms`), pairing residual <= 50 ms at
-  10 Hz ToF (compensated by D6), node processing <= 15 ms p95 at the default path.
-- Error model: misalignment in output pixels = pan rate x residual time x (output fx / 1 rad); at 288 px (fx about 220)
-  1 deg is about 3.8 px. Rolling shutter: constant half-readout absorbed into the offset; per-row skew under 1 output
-  pixel below 30 deg/s.
-
-### Registration
-
-- Ray table from the ToF calibration, motion-compensated transform from TF, projection with distortion into the RGB
-  intrinsics scaled to the output size, footprint splat clipped to the image, nearest depth wins (occlusion).
-- Occlusion shadows (RGB sees, ToF does not) stay 0; points behind the RGB camera or outside `[depth.min_m, depth.max_m]`
-  (0.1, 4.0) are skipped.
-
-### Filtering
-
-- ToF confidence thresholding stays in the bridge (`confidence_threshold`); it does not remove flying pixels (SCCG 2008,
-  doi:10.1145/1921264.1921293), so the jump-edge filter of D7 runs before reprojection.
-
-### Upsampling
-
-- Optional masked guided filter (doi:10.1109/TPAMI.2012.213) to 576x324 with the validity rule of D8; fast global
-  smoother (doi:10.1109/TIP.2014.2366600) documented as the alternative. Evaluated with the ToFMark-style RMSE against
-  registered depth held out at full resolution on synthetic scenes (doi:10.1109/ICCV.2013.127 protocol).
-
-### Validation metrics and targets
-
-| Metric | How | Target |
-|---|---|---|
-| RGB intrinsic RMS reprojection | calibrateCamera on the capture bag | <= 0.5 px at 576x324 |
-| ToF intrinsic RMS reprojection | calibrateCamera on normalised amplitude | <= 0.3 px |
-| Stereo RMS | stereoCalibrate, RGB pixels | <= 1.0 px at 576x324 |
-| Plane depth bias (ToF vs RGB PnP) | extrinsic check on board poses | <= 15 mm median |
-| Depth accuracy, raw ToF | flat matte target, perpendicular, central 20x20 ROI, 50 frames, after 20 min warm-up, tape reference | abs(bias) <= 20 mm and RMSE <= 20 mm at 0.5/1/2 m; <= 40 mm at 3 m |
-| Registration adds no bias | median(registered) - median(raw) over the same target | abs <= 5 mm |
-| Edge alignment | board 1 m in front of a wall >= 2.5 m: distance from registered depth-step pixels to the RGB board outline | median <= 1.0 px at 288x162 |
-| Valid-pixel ratio | flat wall at 1.5 m, inside the ToF field of view | >= 0.85 of output pixels filled |
-| ToF-RGB time offset after the fix | pan sweep +-20 deg at 20 deg/s, offset from ToF-projected vs RGB corner tracks | abs <= 10 ms |
-| Motion | the same sweep with compensation on | median edge alignment <= 1.5 px; pairs above the rate limit dropped |
-| CPU | Grafana, 10 min, `mapping.rate_hz` 10, upsampling off | head_rgbd_cpp <= 0.2 core p95; upsampling on reported |
-| Placeholder check | ToF stopped, TF missing, no calibration | nothing on `/head_rgbd/*` |
+none
 
 ## Research
 
@@ -312,7 +214,7 @@ focus lock and calibration tasks move to this epic. Serves G5, U3.
 | research-code-internal | ran (in the brief's Plan inputs and this planner's read of arducam_tof bridge.py, head_camera_cpp plans, map_guard_cpp, ros2_common_cpp) | `depth_to_mm`, `camera_info_msg`, `TofBridge.publish_frame` (bridge.py), the RTAB-Map epic's planned calibration script and mapping stream, ros2_common_cpp config/metrics, scripts/cpp-node-test.sh | a second calibration script |
 | research-code-external | skipped | (the papers lens covered the analogues; no open design fork beyond D1-D3, settled by the user's U1-U4) | |
 
-## Research inputs
+### Research inputs
 
 | Source | Entry | Lands in |
 |---|---|---|
@@ -352,7 +254,165 @@ focus lock and calibration tasks move to this epic. Serves G5, U3.
 | user U3 | RTAB-Map consumes the pair | head-rgbd-node-wiring (exact pairs); RTAB-Map epic amended (D12) |
 | user U4 | focus locked only while needed | head-camera-mapping-publish, head-rgbd-node-wiring (lazy inputs) |
 
-## Decision coverage
+## Irreversible operations
+
+- none (calibration files and URDF values are versioned in git; deploys are reversible by redeploying the previous
+  commit).
+
+## Migrated notes
+
+### README.md: Review
+
+Filled when the epic reaches stage `review`: the verdict, the findings acted on, the findings dropped.
+
+Verdict: pass (2026-10-22)
+
+Closed by user decision 2026-10-22 (answer A): every remaining task is done, verified and merged. The one leftover
+live runbook task rgbd-final-suite-and-runbook moved, requirement and acceptance conditions verbatim, to the follow-up epic head-rgb-d-fusion-runbook (docs/plans/todo/head-rgb-d-fusion-runbook),
+blocked by drivable-ground-tof-filterin. The runbook moved to head-rgb-d-fusion-runbook.
+
+### design.md: Summary
+
+A new C++ node `nodes/head_rgbd_cpp` on the client Pi 5 registers the head Arducam ToF depth (240x180, 10 Hz) into the
+head Camera Module 3 image and publishes an exact-stamp RGB-D pair: a 16UC1 registered depth image in
+`head_camera_optical_frame` (default 288x162, half the 576x324 mapping image, RGB/4 of the 1152x648 stream), its
+camera_info, the paired RGB JPEG passed through unchanged with its camera_info, and a coloured cloud at a reduced rate.
+Registration is our own z-buffer (depth_image_proc's RegisterNode has a Jazzy out-of-bounds bug and no motion
+compensation) with a jump-edge flying-pixel filter, tf2 time-travel motion compensation and a motion gate; RGB-guided
+upsampling (masked guided filter) is optional and off by default. Intrinsics and the ToF-to-RGB extrinsic come from an
+offline ChArUco calibration tool over a short rosbag; the extrinsic is written into the head URDF, the single geometry
+source. The head camera locks focus only while its mapping stream has subscribers (this node subscribes lazily). The
+RTAB-Map epic consumes the pair instead of registering on the server. The methodology is written down with measured
+targets and validated on the robot.
+
+### design.md: Intent and why
+
+The head carries an RGB camera and a ToF depth camera a few centimetres apart on one rigid pan/tilt frame. 3D mapping,
+obstacle display, the agent and the web UI need colour and depth that line up in time and in pixels. Without a
+registration step every consumer has to solve calibration, synchronisation and occlusion itself, and the obvious
+off-the-shelf path (depth_image_proc register) silently misregisters while the head moves. The user wants one node that
+does it right and a written, measured methodology (U1, U2), and wants RTAB-Map to use that node's pair (U3) with the
+camera focus locked only while calibrated intrinsics are needed (U4).
+
+### design.md: Goals
+
+- G1: Methodology document: intrinsic calibration of both cameras (ToF SDK intrinsics vs a calibration on the amplitude
+  image), extrinsic ToF-to-RGB calibration feeding the head URDF, time synchronisation (approximate time, latency budget,
+  pan/tilt motion and rolling-shutter error), registration with occlusion handling, optional RGB-guided upsampling and
+  its validity mask, and the validation procedure with measured reprojection error and depth accuracy.
+- G2: A C++ fusion node publishing an RGB-registered 16UC1 depth image in `head_camera_optical_frame` (RGB resolution or
+  a configurable fraction), its camera_info and a coloured point cloud at a configurable reduced rate; nothing published
+  without real synchronised inputs, a loaded calibration and valid TF.
+- G3: A calibration tool producing the intrinsics and extrinsics files consumed by the node and the head URDF, tested on
+  synthetic data.
+- G4: Unit tests on synthetic scenes for projection, registration, filtering, upsampling and sync/motion gating; CPU on
+  the Pi 5 measured in Grafana within 0.2 core; Ansible node type, config, README; deployed and validated against a
+  target at known distances.
+- G5: The RTAB-Map epic consumes the registered RGB-D pair from this node.
+
+### design.md: Non-goals
+
+- Learning-based depth completion (no GPU), optimisation-based upsampling (TGV/MRF, fast bilateral solver).
+- Changing the head camera or ToF drivers beyond what synchronisation and the calibrated-intrinsics focus lock need.
+- Multipath correction, per-row rolling-shutter modelling, continuous-time (Kalibr) calibration.
+- Feeding Nav2 costmaps (the ToF obstacle epic uses the raw ToF).
+
+### design.md: Anti-goals
+
+- Placeholder data on any topic: interpolated depth outside the validity mask, a camera_info without a calibration,
+  depth published while TF or the RGB pair is missing, zeros published "to keep the topic alive".
+- A second geometry source: the node reading extrinsics from a file while the URDF says something else.
+- Permanent focus lock (close-up shots keep continuous AF outside mapping/fusion use).
+- Fusion cost that pushes the already busy client Pi 5 over budget (> 0.2 core at the default path), or a 30 fps raw or
+  JPEG RGB stream decoded by the node.
+- Two calibration scripts for the same camera (the RTAB-Map epic's planned RGB-only script is folded into this tool).
+
+### design.md: Constraints
+
+- CLAUDE.md: C++ for new non-web nodes, established libraries first (OpenCV calib3d/aruco/ximgproc, message_filters,
+  tf2, camera_calibration_parsers, image_geometry, depth_image_proc conversions, rosbags), pydantic for Python config,
+  config files over CLI, TDD, type hints, no placeholder data on topics, numpy guard for Python nodes, Ansible kept in
+  sync via the `ros2_nodes` schema, deploy only through `scripts/deploy-nodes.sh`.
+- C++ packages build and test with `scripts/cpp-node-test.sh <pkg>` (docker, ros:jazzy-ros-base), shared helpers in
+  `shared/ros2_common_cpp` (config loading, Prometheus metrics, process CPU series).
+- Cross-process transport on the client is Fast DDS UDPv4 with 1 MiB buffers: 2.2 MB raw frames drop fragments
+  (front-camera epic D2), so the node never subscribes raw RGB.
+- Plans against the end state of the blocking epics: head_camera_cpp (front-camera epic) publishes `/head_camera/*` with
+  camera_info only from a `camera_info_file` and `af_mode` continuous|auto|manual; the pan/tilt epic's
+  robot_state_publisher publishes `head_camera_optical_frame` and `tof_optical_frame` from `nodes/web_ui/urdf/head.urdf`
+  and the head joint states; arducam_tof publishes `/tof/depth/image_raw` (16UC1 mm, 0 invalid) and
+  `/tof/amplitude/image_raw` (mono16) at <= 10 Hz.
+- Servo safety: the only motion used for validation is a small head pan sweep inside the pan/tilt epic's verified range.
+
+### design.md: Methodology
+
+#### Calibration
+
+- Focus: intrinsics are valid only at a fixed focus (autofocus changes focal length and distortion, WACV 2016
+  doi:10.1109/WACV.2016.7477646). The RGB is calibrated at `lens_position` with the mapping lock engaged; the run report
+  records the lens position, and changing `lens_position` invalidates the calibration (the README says so).
+- Intrinsics (Zhang, doi:10.1109/34.888718): ChArUco (doi:10.1016/j.patcog.2014.01.005) on the 576x324 RGB and on the
+  normalised 240x180 amplitude image, `cv2.calibrateCamera`, plumb_bob. For the ToF the tool runs twice: with distortion
+  fixed to zero (`CALIB_ZERO_TANGENT_DIST | CALIB_FIX_K1 | CALIB_FIX_K2 | CALIB_FIX_K3`) and free. If the zero-distortion
+  RMS is <= 0.3 px the SDK's "already undistorted" claim holds and D is written as zero; otherwise the measured D is
+  written. The SDK fx/fy/cx/cy from `/tof/camera_info` are recorded next to the measured values (difference reported in
+  %).
+- Extrinsic: `cv2.stereoCalibrate(..., flags=CALIB_FIX_INTRINSIC)` over corner IDs seen in both images of a still pair
+  (joint depth/colour calibration as the reference method, doi:10.1109/TPAMI.2012.125). Check (doi:10.1109/TPAMI.2014.2363827):
+  the board plane from RGB PnP, transformed into the ToF frame, against the median ToF depth inside the board polygon:
+  reported as plane depth bias.
+- Depth bias (wiggling, doi:10.1016/j.cviu.2009.11.002; warm-up and reflectivity, doi:10.1109/TCI.2015.2510506): measured
+  at 0.5/1/2/3 m after a 20 minute warm-up; a per-distance correction is added only if the residual bias exceeds 1 cm
+  (it is then a new task, not silently skipped). Multipath near corners and floors (doi:10.1109/ICSENS.2014.6985077) is
+  documented, not corrected.
+
+#### Synchronisation
+
+- Stamps: RGB at start of exposure (libcamera SensorTimestamp); ToF at frame return minus the measured
+  `stamp_latency_ms`.
+- Pairing: ApproximateTime with `max_pair_dt_s` 0.06; output stamped with the RGB stamp (exact pairs downstream).
+- Latency budget: ToF exposure plus processing (offset removed by `stamp_latency_ms`), pairing residual <= 50 ms at
+  10 Hz ToF (compensated by D6), node processing <= 15 ms p95 at the default path.
+- Error model: misalignment in output pixels = pan rate x residual time x (output fx / 1 rad); at 288 px (fx about 220)
+  1 deg is about 3.8 px. Rolling shutter: constant half-readout absorbed into the offset; per-row skew under 1 output
+  pixel below 30 deg/s.
+
+#### Registration
+
+- Ray table from the ToF calibration, motion-compensated transform from TF, projection with distortion into the RGB
+  intrinsics scaled to the output size, footprint splat clipped to the image, nearest depth wins (occlusion).
+- Occlusion shadows (RGB sees, ToF does not) stay 0; points behind the RGB camera or outside `[depth.min_m, depth.max_m]`
+  (0.1, 4.0) are skipped.
+
+#### Filtering
+
+- ToF confidence thresholding stays in the bridge (`confidence_threshold`); it does not remove flying pixels (SCCG 2008,
+  doi:10.1145/1921264.1921293), so the jump-edge filter of D7 runs before reprojection.
+
+#### Upsampling
+
+- Optional masked guided filter (doi:10.1109/TPAMI.2012.213) to 576x324 with the validity rule of D8; fast global
+  smoother (doi:10.1109/TIP.2014.2366600) documented as the alternative. Evaluated with the ToFMark-style RMSE against
+  registered depth held out at full resolution on synthetic scenes (doi:10.1109/ICCV.2013.127 protocol).
+
+#### Validation metrics and targets
+
+| Metric | How | Target |
+|---|---|---|
+| RGB intrinsic RMS reprojection | calibrateCamera on the capture bag | <= 0.5 px at 576x324 |
+| ToF intrinsic RMS reprojection | calibrateCamera on normalised amplitude | <= 0.3 px |
+| Stereo RMS | stereoCalibrate, RGB pixels | <= 1.0 px at 576x324 |
+| Plane depth bias (ToF vs RGB PnP) | extrinsic check on board poses | <= 15 mm median |
+| Depth accuracy, raw ToF | flat matte target, perpendicular, central 20x20 ROI, 50 frames, after 20 min warm-up, tape reference | abs(bias) <= 20 mm and RMSE <= 20 mm at 0.5/1/2 m; <= 40 mm at 3 m |
+| Registration adds no bias | median(registered) - median(raw) over the same target | abs <= 5 mm |
+| Edge alignment | board 1 m in front of a wall >= 2.5 m: distance from registered depth-step pixels to the RGB board outline | median <= 1.0 px at 288x162 |
+| Valid-pixel ratio | flat wall at 1.5 m, inside the ToF field of view | >= 0.85 of output pixels filled |
+| ToF-RGB time offset after the fix | pan sweep +-20 deg at 20 deg/s, offset from ToF-projected vs RGB corner tracks | abs <= 10 ms |
+| Motion | the same sweep with compensation on | median edge alignment <= 1.5 px; pairs above the rate limit dropped |
+| CPU | Grafana, 10 min, `mapping.rate_hz` 10, upsampling off | head_rgbd_cpp <= 0.2 core p95; upsampling on reported |
+| Placeholder check | ToF stopped, TF missing, no calibration | nothing on `/head_rgbd/*` |
+
+### design.md: Decision coverage
 
 | Decision | Tasks |
 |---|---|
@@ -369,7 +429,7 @@ focus lock and calibration tasks move to this epic. Serves G5, U3.
 | D11 Methodology and validation | rgbd-validation-metrics, rgbd-methodology-doc, rgbd-final-suite-and-runbook |
 | D12 RTAB-Map consumes the pair | head-rgbd-node-wiring, head-rgbd-node-type |
 
-## Contracts
+### design.md: Contracts
 
 | Part | Owner | Consumers | Where defined |
 |---|---|---|---|
@@ -391,7 +451,7 @@ focus lock and calibration tasks move to this epic. Serves G5, U3.
 | `head-rgbd-cloud` | rgbd-cloud-builder | head-rgbd-node-wiring | `nodes/head_rgbd_cpp/include/head_rgbd_cpp/cloud.hpp` |
 | `head-rgbd-topics` | head-rgbd-node-wiring | head-rgbd-node-type | `nodes/head_rgbd_cpp/src/head_rgbd_node.cpp` |
 
-## Review focus
+### design.md: Review focus
 
 - registration.cpp: footprint clipping at all four borders, z-buffer ordering, distortion applied in the right direction
   (undistort ToF rays, distort RGB projection), scaled intrinsics for the output divisor.
@@ -404,7 +464,7 @@ focus lock and calibration tasks move to this epic. Serves G5, U3.
 - Calibration tool: still-window selection never pairs frames more than 50 ms apart; YAML formats readable by
   camera_calibration_parsers; URDF rewrite touches only the `tof_joint` origin.
 
-## Left to the builder
+### design.md: Left to the builder
 
 - ChArUco board defaults within: squares 5-8 by 4-6, square 30-50 mm, any DICT_4X4/5X5 dictionary, as long as the
   printed board fits A4/A3 and the tests use the same definition. The shipped default is fixed at 6x5, 40/30 mm,
@@ -414,7 +474,7 @@ focus lock and calibration tasks move to this epic. Serves G5, U3.
 - Internal structure of the C++ core (free functions vs small classes), provided the contract headers named above exist.
 - Exact metric bucket boundaries; the metrics port, chosen free per tests/test_node_metrics_wiring.py.
 
-## Assumptions and unknowns
+### design.md: Assumptions and unknowns
 
 - `depth_image_proc/conversions.hpp` is installed and exported by ros-jazzy-depth-image-proc: confirmed by the builder in
   the cpp-node-test container; fallback named in D9.
@@ -428,7 +488,14 @@ focus lock and calibration tasks move to this epic. Serves G5, U3.
   uses an Explore query if no panel lists head_rgbd_cpp.
 - The head is built and the pan/tilt URDF/TF is live: blocking epic deliverable.
 
-## Irreversible operations in scope
+### approvals.json
 
-- none (calibration files and URDF values are versioned in git; deploys are reversible by redeploying the previous
-  commit).
+- G1: Methodology document: intrinsic calibration of both cameras (ToF SDK intrinsics vs a calibration on the amplitude image), extrinsic ToF-to-RGB calibration feeding the head URDF, time synchronisation of 10 Hz depth with the RGB stream (approximate time, latency budget, pan/tilt motion and rolling-shutter error), registration with occlusion handling, optional RGB-guided upsampling and its validity mask, and the validation procedure with measured reprojection error and depth accuracy. [decisions: D3, D5, D7, D8, D11] [tasks: rgbd-methodology-doc, rgbd-validation-metrics, rgbd-final-suite-and-runbook] [status: approved]
+- G2: A C++ fusion node (reusing depth_image_proc where it fits, own code only for what it lacks) publishing an RGB-registered 16UC1 depth image in head_camera_optical_frame (RGB resolution or a configurable fraction), its camera_info and a coloured point cloud at a configurable reduced rate; nothing published without real synchronised inputs and valid TF. [decisions: D1, D2, D5, D6, D7, D8, D9] [tasks: tof-stamp-latency-fix, head-camera-mapping-config, head-camera-mapping-publish, head-rgbd-package-config, tof-jump-edge-filter, rgbd-registration-zbuffer, rgbd-motion-compensation, rgbd-guided-upsampling, rgbd-cloud-builder, head-rgbd-node-wiring] [status: approved]
+- G3: A calibration tool producing the intrinsics and extrinsics files consumed by the node and the head URDF, with tests on synthetic data. [decisions: D3, D4] [tasks: rgbd-calibration-frames, rgbd-intrinsics-calibration, rgbd-extrinsic-calibration, urdf-extrinsics-handoff, rgbd-calibrate-cli] [status: approved]
+- G4: Unit tests for the projection/registration/upsampling maths on synthetic scenes; CPU budget measured on the Pi 5 (Grafana) within 0.2 core; Ansible node type, config, README; deployed and validated on the robot against a target at known distances. [decisions: D7, D10, D11] [tasks: tof-jump-edge-filter, rgbd-registration-zbuffer, rgbd-motion-compensation, rgbd-guided-upsampling, head-rgbd-node-type, rgbd-final-suite-and-runbook] [status: approved]
+- G5: The RTAB-Map epic consumes the registered RGB-D pair from this node (its uplink, server pipeline and status are amended; it is blocked by this epic). [decisions: D12, D1] [tasks: head-rgbd-node-wiring, head-rgbd-node-type] [status: approved]
+- U1: A fusion node registering ToF depth into the RGB camera, publishing a registered depth image, its camera_info and a coloured cloud. [decisions: D1, D7, D9] [tasks: head-rgbd-node-wiring, rgbd-registration-zbuffer, rgbd-cloud-builder] [status: approved]
+- U2: The methodology is written down and measured: calibration, synchronisation, registration, upsampling, validation. [decisions: D3, D5, D8, D11] [tasks: rgbd-methodology-doc, rgbd-validation-metrics, rgbd-final-suite-and-runbook] [status: approved]
+- U3: The RTAB-Map epic consumes the registered RGB-D pair from this node. [decisions: D12, D1] [tasks: head-rgbd-node-wiring, head-rgbd-node-type] [status: approved]
+- U4: The head camera keeps continuous autofocus normally and locks focus (about 1 m) only while mapping or fusion consumers need calibrated intrinsics, consistent with the RTAB-Map epic's mapping.lock_focus. [decisions: D2] [tasks: head-camera-mapping-config, head-camera-mapping-publish, head-rgbd-node-wiring, head-rgbd-node-type] [status: approved]
