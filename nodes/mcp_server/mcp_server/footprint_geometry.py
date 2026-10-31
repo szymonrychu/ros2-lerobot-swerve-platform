@@ -24,6 +24,10 @@ OFFSET_MITRE_LIMIT = 1.5
 INFLATED_COST_MAX = 252
 # Cost scaling factors are rounded down to this step (1/m), so the rounded value still meets the bound.
 COST_SCALING_STEP = 0.1
+# Minimum number of vertices a footprint polygon needs (Nav2 and collision_monitor reject fewer).
+MIN_POLYGON_POINTS = 4
+# shrink_polygon drops islands (a thin neck cut by the tolerance) up to this fraction of the input area; more is a split.
+MAX_DROPPED_AREA_FRACTION = 0.02
 # same_shape: allowed difference of the rigid-motion invariants (m); a costmap republishes float32 coordinates moved
 # into its global frame.
 SAME_SHAPE_TOL_M = 1e-3
@@ -290,6 +294,40 @@ def offset_polygon(points: list[Point2], margin: float, decimals: int) -> list[P
         list[Point2]: Grown polygon.
     """
     return to_points(Polygon(points).buffer(margin, join_style="mitre", mitre_limit=OFFSET_MITRE_LIMIT), decimals)
+
+
+def shrink_polygon(points: list[Point2], tolerance: float, decimals: int) -> list[Point2]:
+    """Shrink a polygon inward by `tolerance` (mitred corners, bevelled past 1.5 x tolerance): the costmap footprint is
+    the outline minus the tolerance, so a millimetre approach or a slight bump is legal.
+
+    Args:
+        points (list[Point2]): Polygon.
+        tolerance (float): Inward offset (m); 0 returns the points unchanged.
+        decimals (int): Decimal places.
+
+    Returns:
+        list[Point2]: Shrunk polygon.
+
+    Raises:
+        ValueError: The result is empty, splits into several large parts or has fewer than 4 vertices.
+    """
+    if tolerance <= 0.0:
+        return list(points)
+    source = Polygon(points)
+    shrunk = source.buffer(-tolerance, join_style="mitre", mitre_limit=OFFSET_MITRE_LIMIT)
+    if shrunk.is_empty:
+        raise ValueError(f"footprint tolerance {tolerance} m removes the whole polygon")
+    if shrunk.geom_type == "MultiPolygon":
+        # A thin neck (the lidar dome on its pocket) can leave a small island: dropped, never a split body.
+        main = max(shrunk.geoms, key=lambda part: part.area)
+        dropped = shrunk.area - main.area
+        if dropped > MAX_DROPPED_AREA_FRACTION * source.area:
+            raise ValueError(f"footprint tolerance {tolerance} m splits the polygon into several large parts")
+        shrunk = main
+    result = to_points(shrunk, decimals)
+    if len(result) < MIN_POLYGON_POINTS:
+        raise ValueError(f"footprint tolerance {tolerance} m leaves {len(result)} vertices")
+    return result
 
 
 def polygon_text(points: list[Point2]) -> str:

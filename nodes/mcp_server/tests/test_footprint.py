@@ -22,11 +22,15 @@ from mcp_server.config import McpServerConfig, NavFootprintSettings
 from mcp_server.control import ControlManager
 from mcp_server.footprint import NavFootprint, arm_shadow, carried_circle, dynamic_outline, parked_arm_shadow
 from mcp_server.footprint_geometry import (
+    OFFSET_MITRE_LIMIT,
+    body_outline,
     circumscribed_radius,
     grow_extension,
     inscribed_radius,
     offset_polygon,
     polygon_text,
+    shrink_polygon,
+    to_points,
 )
 from mcp_server.ik import ArmKinematics, load_joint_limits
 from mcp_server.tools import build_mcp_server
@@ -786,3 +790,44 @@ def test_circumscribed_radius_follows_the_published_footprint(tmp_path: Path) ->
     assert nav.current.kind == "conservative"
     assert nav.circumscribed_radius() == nav.current.inflation_radius
     assert nav.circumscribed_radius() > static_radius
+
+
+def outline_points() -> list[tuple[float, float]]:
+    """The deployed body outline (H shape, no parked arm) as written points."""
+    cfg = deployed_config()
+    nav = cfg.nav_footprint
+    assert nav is not None
+    return to_points(
+        body_outline(cfg.body.boxes, cfg.body.cylinders, nav.circle_segments, nav.close_gap_m), nav.decimals
+    )
+
+
+def test_shrink_polygon_is_a_simple_ccw_polygon_inside_the_input() -> None:
+    points = outline_points()
+    tolerance = 0.02
+    shrunk = shrink_polygon(points, tolerance, 4)
+    ring = Polygon(shrunk)
+    assert len(shrunk) >= 4
+    assert ring.is_valid and ring.exterior.is_simple and ring.exterior.is_ccw
+    assert Polygon(points).buffer(1e-4).contains(ring)
+    lidar = Point(0.15, 0.04).buffer(0.05)  # the dome's thin neck is cut off: an island, dropped
+    kept = [vertex for vertex in points if not lidar.contains(Point(vertex))]
+    assert len(kept) > len(points) - 12
+    for vertex in kept:
+        assert ring.distance(Point(vertex)) <= tolerance * OFFSET_MITRE_LIMIT + 1e-3
+    assert not ring.intersects(Point(0.15, 0.04)), "the island is not part of the result"
+    assert ring.area < Polygon(points).area
+
+
+def test_shrink_polygon_with_zero_tolerance_returns_the_points() -> None:
+    points = outline_points()
+    assert shrink_polygon(points, 0.0, 4) == points
+
+
+def test_shrink_polygon_rejects_a_tolerance_that_splits_or_removes_the_polygon() -> None:
+    thin = [(0.1, 0.0175), (-0.1, 0.0175), (-0.1, -0.0175), (0.1, -0.0175)]
+    with pytest.raises(ValueError):
+        shrink_polygon(thin, 0.05, 4)
+    waist = [(0.2, 0.1), (0.02, 0.1), (0.02, 0.01), (-0.02, 0.01), (-0.02, 0.1), (-0.2, 0.1), (-0.2, -0.1), (0.2, -0.1)]
+    with pytest.raises(ValueError):
+        shrink_polygon(waist, 0.06, 4)
