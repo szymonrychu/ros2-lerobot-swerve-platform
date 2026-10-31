@@ -1793,6 +1793,7 @@ class RosRobot:
             control (ControlManager): Lease manager (shared with the agent's take_control / release_control).
         """
         control.leader_moving = lambda: self.leader.moving(time.monotonic())
+        control.nav_active = self.nav_active
         self.control = control
 
     def on_leader_joints(self, msg: JointState) -> None:

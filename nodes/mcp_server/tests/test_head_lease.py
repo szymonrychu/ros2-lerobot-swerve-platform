@@ -92,6 +92,29 @@ def test_keep_position_keeps_the_head(robot: FakeRobot) -> None:
     assert robot.head_backend.commands == []
 
 
+def test_release_while_navigating_keeps_the_head(robot: FakeRobot) -> None:
+    ctl = manager(robot)
+    ctl.nav_active = lambda: True
+    ctl.take("arm")
+    result = ctl.release("arm")
+    assert result.reset == {"arm": "homed", "head": "kept: navigating"}
+    assert robot.head_backend.commands == []
+
+
+def test_release_with_navigation_idle_homes_the_head(robot: FakeRobot) -> None:
+    ctl = manager(robot)
+    ctl.nav_active = lambda: False
+    ctl.take("arm")
+    assert ctl.release("arm").reset["head"] == "homed"
+
+
+def test_keep_position_wins_over_navigating(robot: FakeRobot) -> None:
+    ctl = manager(robot)
+    ctl.nav_active = lambda: True
+    ctl.take("arm")
+    assert ctl.release("arm", keep_position=True).reset["head"] == "kept"
+
+
 def test_battery_cutoff_skips_the_head_home(robot: FakeRobot) -> None:
     ctl = manager(robot, guard=make_guard(LOW_V))
     ctl.take("arm")

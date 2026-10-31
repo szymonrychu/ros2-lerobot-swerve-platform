@@ -364,6 +364,9 @@ class ControlManager:
         self.web_ui_generation: int | None = None
         # Whether the leader arm is moving now (ros_iface binds LeaderActivity.moving); take_web_ui refuses then.
         self.leader_moving: Callable[[], bool] = lambda: False
+        # Whether the base moves or a NavigateToPose goal is active (ros_iface binds RosInterface.nav_active);
+        # release_head then leaves the head to the head_aim node instead of homing it.
+        self.nav_active: Callable[[], bool] = lambda: False
 
     @property
     def web_ui_held(self) -> bool:
@@ -621,7 +624,7 @@ class ControlManager:
 
         Returns:
             str | None: None without a head or when nothing was released (no motion); else kept | kept: <arm|base>
-                lease held | skipped: battery_cutoff | homed | failed: <status or error>.
+                lease held | kept: navigating | skipped: battery_cutoff | homed | failed: <status or error>.
         """
         if self.head is None:
             return None
@@ -632,6 +635,8 @@ class ControlManager:
         for name in SUBSYSTEMS:
             if self.held(name):
                 return f"kept: {name} lease held"
+        if self.nav_active():
+            return "kept: navigating"
         if self.guard is not None and self.guard.is_cutoff():
             return "skipped: battery_cutoff"
         try:
