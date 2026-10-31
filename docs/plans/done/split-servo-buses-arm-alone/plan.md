@@ -1,68 +1,42 @@
-# Split servo buses: arm alone, base plus head design
+---
+title: Split servo buses arm alone base plus head
+repos: [ros2-lerobot-sverve-platform]
+created: 2026-10-18
+owner: Szymon Richert
+rung: 1
+---
 
-## Summary
+# Split servo buses arm alone base plus head
 
-The SO-101 follower arm keeps the existing Feetech USB adapter alone; the eight swerve servos (IDs 32-39) move to a
-second USB-serial adapter driven by a second instance of the unchanged `feetech_servos` bridge, named `base_servos` (shaped like the retired
-`swerve_drive_servos`, namespace `swerve_drive`). Topics stay `/swerve_drive/joint_states` and
-`/swerve_drive/joint_commands`; the two consumers of the bridge's per-instance topics (`set_register`,
-`servo_registers`) are re-pointed. The base bus runs at 50 Hz (the swerve_controller loop), the arm bus stays at
-100 Hz. A fake-bus byte-count test anchored on the robot's measured 95.7 Hz shows the arm-only bus at about 108 Hz of
-capacity and base + a 2-servo head at about 69 Hz of capacity while driving. A staged runbook deploys the software
-before the base servo chain is rewired, so arm teleop is never left unconfigured.
+## What and why
 
-## Intent and why
+What: Arm on its own Feetech bus; swerve base (and later the head) on a second adapter
+How: Second feetech bridge node for the base, serial/udev config, Ansible, bus-cost tests, staged robot verification
+Why: The shared bus is at its rate limit; the head needs bus capacity and the arm teleop loop must stay fast
 
-The arm and the swerve base share one Feetech bus inside `lerobot_follower`. It runs at about 95.7 Hz against its
-95 Hz gate (`ansible/group_vars/client.yml:1146-1148`); 126 extra bytes per cycle already broke the gate once
-(93.4 Hz, rolled back, `MEMORY.md:140`). The fake-bus probe below shows it is worse while driving: the four wheel
-goal writes are single transactions with replies, so a driving cycle costs about 8.9 ms of bus time against 4.3 ms
-idle, which projects the shared bus to about 66 Hz while the base moves. The pan/tilt head (next epic) needs bus
-capacity, and the arm teleop loop must stay fast. A second adapter (U1) gives the arm its own bus (U2) and puts the
-base and later the head on the other (U3).
+The SO-101 follower arm and the swerve base servos share one Feetech USB bus inside lerobot_follower, which already runs at about 95.7 Hz against its 95 Hz gate. A second USB-serial adapter is added: the arm keeps a bus of its own (latency-critical teleop), and the swerve base moves to the new bus, which will also carry the two pan/tilt head servos (next epic). Base and head both run at lower rates and are both covered by the base lease.
 
-## Goals
+## Scope ladder
 
-- G1: `lerobot_follower` drives only the arm (IDs 1-6) on adapter `usb-1a86_USB_Single_Serial_5A7A059004`; on the
-  robot `/follower/joint_states` publishes at >= 98 Hz over 60 s, idle and while the base drives (old gate 95 Hz).
-- G2: `base_servos` (feetech_servos) drives IDs 32-39 on the second adapter through its
-  `/dev/serial/by-id/` path, same joint names, modes, inversion, velocity watchdog (0.3 s) and startup torque
-  behaviour; swerve_controller, the tilt guard and mcp_server keep working on the same joint topics.
-- G3: the base bus config has room for a `head` extra group; `tests/test_bus_budget.py` (fake bus, real configs from
-  client.yml) shows base + head fit the base rate target and the arm-only bus keeps >= 5 % headroom at 100 Hz.
-- G4: Ansible entries, serial preflight, cgroup tier, metrics target, READMEs, tests, the teleop-diagnostics and
-  ansible-deploy skills and MEMORY.md are updated; deployed and verified on the robot with least-dramatic motion first.
+### Rung 1: agreed scope (migrated)
+
+- 1.1: lerobot_follower drives only the arm on its own bus; the follower bus rate gate keeps passing with margin.
+- 1.2: A separate node (feetech bridge instance) drives the swerve base servos on the second adapter, with its own serial device (stable /dev/serial/by-id path or udev rule), velocity watchdog and startup torque behaviour unchanged; swerve_controller and every base consumer work unchanged (same topics).
+- 1.3: The second bus's servo-group config has room for a `head` group (pan/tilt) added by the next epic; a byte-count bus-cost test (fake bus) shows base + head fit its rate target.
+- 1.4: Ansible: node types, ros2_nodes entries, udev/serial config, cgroup tier, metrics targets; READMEs, tests and the teleop-diagnostics skill updated; deployed and verified on the robot (arm teleop rate, swerve drive, both bus rates), least-dramatic motion first per CLAUDE.md.
+
+## Agreed scope
+
+Rung 1, migrated from the epic format: the epic's goals were its agreed scope.
 
 ## Non-goals
 
-- Adding the head servos, head IDs, head topics or the head lease (pan/tilt epic).
-- Changing servo firmware, IDs, baud rate or calibration.
-- Re-enabling `publish_current_joints` on the now faster arm bus (not in the approved goals).
-- A udev rule: the adapters expose unique serial numbers, so `/dev/serial/by-id/` is stable (D2).
+- Adding the head servos (pan/tilt epic).
+- Changing servo firmware, IDs or calibration.
 
-## Anti-goals
+## Design
 
-- Arm teleop left without a working bridge at any point of the rollout (a restarted old-config follower blocks
-  forever in `_wait_for_servos` once IDs 32-39 leave its bus, `nodes/bridges/feetech_servos/bridge.py:70-93`).
-- A tilt-guard `torque_off` write silently dropped because it still goes to `/follower/set_register`, where the
-  drive joints are no longer known (`set_register.py:56`, `unknown_joint`).
-- Two bridges publishing `/battery_state`, two ROS nodes named `feetech_servos_bridge`, or two metrics endpoints
-  both labelled `lerobot_follower`.
-- Any placeholder joint state on either bus (CLAUDE.md "No Placeholder Data on Topics").
-- Bridge code forked per bus: one codebase, two configs.
-
-## Constraints
-
-- CLAUDE.md: Python type hints, constants at the top, docstrings with types, tests first, per-node uv, Ansible kept in
-  sync with nodes via the `ros2_nodes` schema, deploy only through `scripts/deploy-nodes.sh` with logs in `.logs/`,
-  servo tests least-dramatic first (gripper; wheel yaw axes, minimal amplitude).
-- The bridge is one serial port per process (`run_bridge`), `extra_groups` share that port.
-- Metrics ports: 19113 is claimed by the head-camera epic (`docs/plans/todo/front-camera-30-fps-stream-w/design.md:237`),
-  19114 is the retired Jetson bridge asserted absent by `tests/test_jetson_retired.py:112-114`; this epic uses 19115.
-- This epic starts after `remove-the-jetson-coprocesso` and `front-camera-30-fps-stream-w`; both edit
-  `ansible/group_vars/client.yml` and `tests/README.md`, so tasks rebase onto them.
-- Deploying mcp_server kills a running agent session (memory); client deploys wait for an idle agent.
-- No robot access while planning: unknown device paths are confirmed before the run (Assumptions A1, A2).
+Migrated from the epic format; the design sections without a plan.md heading are under Migrated notes.
 
 ## Decisions
 
@@ -184,6 +158,10 @@ power off, the user moves the base servo chain to the second adapter, power on. 
 3 cm forward at 0.03 m/s (steering stays centred), then a 10 cm move. Rollback after stage 2 needs the rewire undone
 too. Serves G1, G4, U1, U2, U3.
 
+## Open questions
+
+none
+
 ## Research
 
 | Lens | Ran or skipped | Adopted ideas | Rejected ideas |
@@ -196,7 +174,7 @@ too. Serves G1, G4, U1, U2, U3.
 | research-code-external | skipped: no design fork with external analogues (one more instance of an in-repo node) | - | - |
 | research-papers | skipped: no algorithmic core | - | - |
 
-## Research inputs
+### Research inputs
 
 | Source | Entry | Lands in |
 |---|---|---|
@@ -222,7 +200,87 @@ too. Serves G1, G4, U1, U2, U3.
 | finding | `NODE_NAME = "lerobot_follower"` and rclpy `Node("feetech_servos_bridge")` hard-coded | bridge-instance-identity |
 | finding | metrics ports 19113 (head camera plan), 19114 (retired Jetson bridge test) | split-bus-group-vars (19115) |
 
-## Decision coverage
+## Irreversible operations
+
+- None in software: every change is a config or code commit, revertible with a redeploy.
+- The physical rewiring (stage 2) is done by the user with the servos powered off; rolling back needs the rewire
+  undone before redeploying the old config (runbook states it).
+
+## Migrated notes
+
+### README.md: Review
+
+Filled when the epic reaches stage `review`: the verdict, the findings acted on, the findings dropped.
+
+Verdict: pass (2026-10-18)
+
+All 8 tasks (+2 discovered notes) verified and merged; deployed 2026-10-18: arm on its own adapter (5AE6081020, IDs 1-6), base_servos on 5A7A059004 (swerve 32-39 + head 20/21); base 48.7 Hz idle, /odom 3.7 cm and 11.3 cm nudges correct, consumers OK. Open item for the user: arm bus 94.7 Hz idle / 89 Hz driving vs the 98 Hz gate (cycle 4.1 ms of 10 ms: CPU/timer-bound, not bus); arm teleop tracking check pending the user moving the leader.
+
+### design.md: Summary
+
+The SO-101 follower arm keeps the existing Feetech USB adapter alone; the eight swerve servos (IDs 32-39) move to a
+second USB-serial adapter driven by a second instance of the unchanged `feetech_servos` bridge, named `base_servos` (shaped like the retired
+`swerve_drive_servos`, namespace `swerve_drive`). Topics stay `/swerve_drive/joint_states` and
+`/swerve_drive/joint_commands`; the two consumers of the bridge's per-instance topics (`set_register`,
+`servo_registers`) are re-pointed. The base bus runs at 50 Hz (the swerve_controller loop), the arm bus stays at
+100 Hz. A fake-bus byte-count test anchored on the robot's measured 95.7 Hz shows the arm-only bus at about 108 Hz of
+capacity and base + a 2-servo head at about 69 Hz of capacity while driving. A staged runbook deploys the software
+before the base servo chain is rewired, so arm teleop is never left unconfigured.
+
+### design.md: Intent and why
+
+The arm and the swerve base share one Feetech bus inside `lerobot_follower`. It runs at about 95.7 Hz against its
+95 Hz gate (`ansible/group_vars/client.yml:1146-1148`); 126 extra bytes per cycle already broke the gate once
+(93.4 Hz, rolled back, `MEMORY.md:140`). The fake-bus probe below shows it is worse while driving: the four wheel
+goal writes are single transactions with replies, so a driving cycle costs about 8.9 ms of bus time against 4.3 ms
+idle, which projects the shared bus to about 66 Hz while the base moves. The pan/tilt head (next epic) needs bus
+capacity, and the arm teleop loop must stay fast. A second adapter (U1) gives the arm its own bus (U2) and puts the
+base and later the head on the other (U3).
+
+### design.md: Goals
+
+- G1: `lerobot_follower` drives only the arm (IDs 1-6) on adapter `usb-1a86_USB_Single_Serial_5A7A059004`; on the
+  robot `/follower/joint_states` publishes at >= 98 Hz over 60 s, idle and while the base drives (old gate 95 Hz).
+- G2: `base_servos` (feetech_servos) drives IDs 32-39 on the second adapter through its
+  `/dev/serial/by-id/` path, same joint names, modes, inversion, velocity watchdog (0.3 s) and startup torque
+  behaviour; swerve_controller, the tilt guard and mcp_server keep working on the same joint topics.
+- G3: the base bus config has room for a `head` extra group; `tests/test_bus_budget.py` (fake bus, real configs from
+  client.yml) shows base + head fit the base rate target and the arm-only bus keeps >= 5 % headroom at 100 Hz.
+- G4: Ansible entries, serial preflight, cgroup tier, metrics target, READMEs, tests, the teleop-diagnostics and
+  ansible-deploy skills and MEMORY.md are updated; deployed and verified on the robot with least-dramatic motion first.
+
+### design.md: Non-goals
+
+- Adding the head servos, head IDs, head topics or the head lease (pan/tilt epic).
+- Changing servo firmware, IDs, baud rate or calibration.
+- Re-enabling `publish_current_joints` on the now faster arm bus (not in the approved goals).
+- A udev rule: the adapters expose unique serial numbers, so `/dev/serial/by-id/` is stable (D2).
+
+### design.md: Anti-goals
+
+- Arm teleop left without a working bridge at any point of the rollout (a restarted old-config follower blocks
+  forever in `_wait_for_servos` once IDs 32-39 leave its bus, `nodes/bridges/feetech_servos/bridge.py:70-93`).
+- A tilt-guard `torque_off` write silently dropped because it still goes to `/follower/set_register`, where the
+  drive joints are no longer known (`set_register.py:56`, `unknown_joint`).
+- Two bridges publishing `/battery_state`, two ROS nodes named `feetech_servos_bridge`, or two metrics endpoints
+  both labelled `lerobot_follower`.
+- Any placeholder joint state on either bus (CLAUDE.md "No Placeholder Data on Topics").
+- Bridge code forked per bus: one codebase, two configs.
+
+### design.md: Constraints
+
+- CLAUDE.md: Python type hints, constants at the top, docstrings with types, tests first, per-node uv, Ansible kept in
+  sync with nodes via the `ros2_nodes` schema, deploy only through `scripts/deploy-nodes.sh` with logs in `.logs/`,
+  servo tests least-dramatic first (gripper; wheel yaw axes, minimal amplitude).
+- The bridge is one serial port per process (`run_bridge`), `extra_groups` share that port.
+- Metrics ports: 19113 is claimed by the head-camera epic (`docs/plans/todo/front-camera-30-fps-stream-w/design.md:237`),
+  19114 is the retired Jetson bridge asserted absent by `tests/test_jetson_retired.py:112-114`; this epic uses 19115.
+- This epic starts after `remove-the-jetson-coprocesso` and `front-camera-30-fps-stream-w`; both edit
+  `ansible/group_vars/client.yml` and `tests/README.md`, so tasks rebase onto them.
+- Deploying mcp_server kills a running agent session (memory); client deploys wait for an idle agent.
+- No robot access while planning: unknown device paths are confirmed before the run (Assumptions A1, A2).
+
+### design.md: Decision coverage
 
 | Decision | Tasks |
 |---|---|
@@ -237,7 +295,7 @@ too. Serves G1, G4, U1, U2, U3.
 | D9 Docs and diagnostics | docs-and-diagnostics, bus-budget-test, tilt-guard-torque-topic, mcp-base-servo-registers |
 | D10 Staged robot verification | final-suite-and-runbook |
 
-## Contracts
+### design.md: Contracts
 
 | Part | Owner | Consumers | Where defined |
 |---|---|---|---|
@@ -246,7 +304,7 @@ too. Serves G1, G4, U1, U2, U3.
 | `topics.base_servo_registers` | mcp-base-servo-registers | split-bus-group-vars | `nodes/mcp_server/mcp_server/config.py` |
 | `base_servos entry` | split-bus-group-vars | serial-device-preflight, bus-budget-test, docs-and-diagnostics | `ansible/group_vars/client.yml` |
 
-## Review focus
+### design.md: Review focus
 
 - client.yml joint entries of `base_servos`: IDs, `mode: velocity` and `inverted: true` exactly as before
   (left wheels 32 and 39); a wrong inversion drives a wheel backwards.
@@ -255,14 +313,14 @@ too. Serves G1, G4, U1, U2, U3.
 - The bus budget test reads the real client.yml configs, not copies, and its anchor constants cite the measurement.
 - Battery: exactly one `/battery_state` publisher; base bridge creates none.
 
-## Left to the builder
+### design.md: Left to the builder
 
 - Test names and helper layout inside the new test files, within the ACs.
 - Wording of the client.yml comments and README sections.
 - Whether the preflight uses `ansible.builtin.stat` + `assert` or `fail` with a `find` listing, as long as the
   failure message lists `/dev/serial/by-id/` and the play fails before restarts.
 
-## Assumptions and unknowns
+### design.md: Assumptions and unknowns
 
 - A1: CONFIRMED 2026-10-18 (read-only `ls -l /dev/serial/by-id/` + ID scan on the robot). The user moved the ARM
   cable, not the base: the arm (lerobot_follower, IDs 1-6) is on the NEW adapter
@@ -277,8 +335,13 @@ too. Serves G1, G4, U1, U2, U3.
 - A5: the base servos and the arm share one battery pack, so the follower's 6-servo battery reading covers the
   robot. Confirmed in stage 3 (`/battery_state` voltage unchanged versus stage 0).
 
-## Irreversible operations in scope
+### approvals.json
 
-- None in software: every change is a config or code commit, revertible with a redeploy.
-- The physical rewiring (stage 2) is done by the user with the servos powered off; rolling back needs the rewire
-  undone before redeploying the old config (runbook states it).
+- G1: lerobot_follower drives only the arm on its own bus; the follower bus rate gate keeps passing with margin. [decisions: D1, D4, D5, D10] [tasks: split-bus-group-vars, bus-budget-test, final-suite-and-runbook] [status: approved]
+- G2: A separate feetech bridge instance drives the swerve base servos on the second adapter, with its own serial device (stable /dev/serial/by-id path or udev rule), velocity watchdog and startup torque behaviour unchanged; swerve_controller and every base consumer work unchanged (same topics). [decisions: D1, D2, D3, D6] [tasks: bridge-instance-identity, tilt-guard-torque-topic, mcp-base-servo-registers, split-bus-group-vars, serial-device-preflight] [status: approved]
+- G3: The second bus's servo-group config has room for a head group (pan/tilt) added by the next epic; a byte-count bus-cost test (fake bus) shows base + head fit its rate target. [decisions: D4, D5, D7] [tasks: split-bus-group-vars, bus-budget-test] [status: approved]
+- G4: Ansible: node types, ros2_nodes entries, udev/serial config, cgroup tier, metrics targets; READMEs, tests and the teleop-diagnostics skill updated; deployed and verified on the robot (arm teleop rate, swerve drive, both bus rates), least-dramatic motion first per CLAUDE.md. [decisions: D2, D3, D8, D9, D10] [tasks: split-bus-group-vars, serial-device-preflight, bridge-instance-identity, tilt-guard-torque-topic, mcp-base-servo-registers, bus-budget-test, docs-and-diagnostics, final-suite-and-runbook] [status: approved]
+- U1: A second USB-serial adapter is added. [decisions: D2, D10] [tasks: serial-device-preflight, split-bus-group-vars, final-suite-and-runbook] [status: approved]
+- U2: The arm keeps a bus of its own. [decisions: D1, D4, D5] [tasks: split-bus-group-vars, bus-budget-test, final-suite-and-runbook] [status: approved]
+- U3: The swerve base moves to the second bus, which will also carry the pan/tilt head servos (base + head share, arm alone). [decisions: D1, D4, D7, D10] [tasks: split-bus-group-vars, bus-budget-test, final-suite-and-runbook] [status: approved]
+- U4: The head may later be moved under the arm lease or the base lease: leave config room, do not implement the head. [decisions: D5, D7] [tasks: bus-budget-test, split-bus-group-vars] [status: approved]
