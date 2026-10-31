@@ -8,6 +8,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import { TOUCH_TARGET_PX } from '../theme'
 import { ArmCalibration } from './ArmCalibration'
 import { clearCalibrateHash } from './calibrateRoute'
+import { CsiIntrinsics } from './CsiIntrinsics'
 import { HeadArmCalibration } from './HeadArmCalibration'
 import { HeadFloorFit } from './HeadFloorFit'
 import { ImuCalibration } from './ImuCalibration'
@@ -78,6 +79,7 @@ export function CalibratePage({ onBack }: Props) {
         <>
           {state.config.imu && <ImuCalibration />}
           {state.config.rgbd && <RgbdCalibration />}
+          {state.config.rgbd && <CsiIntrinsics />}
           {state.config.rgbd && <HeadFloorFit />}
           {state.config.rgbd && <HeadArmCalibration armRun={armRun} />}
           {state.config.rgbd && <ArmCalibration onRunChange={setArmRun} />}

@@ -136,6 +136,33 @@ describe('CalibratePage', () => {
     expect(screen.queryByText('Head from arm')).toBeNull()
   })
 
+  it('shows the CSI camera intrinsics section after the RGB-D section only with rgbd configured', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.includes('/csi/')) {
+        const capture = { running: false, camera: null, session_id: null, status: 'idle', view_count: 0, started_at: null, stops_at: null }
+        return new Response(JSON.stringify({ camera: 'front', capture, session: null, applied: null }))
+      }
+      if (url.endsWith('/state')) {
+        const capture = { running: false, session_id: null, status: 'idle', pose_count: 0, started_at: null, stops_at: null }
+        const compute = { running: false, session_id: null, result_id: null, started_at: null, error: null }
+        return new Response(JSON.stringify({ capture, compute, applied: null }))
+      }
+      if (url.endsWith('/sessions')) return new Response('[]')
+      return new Response(JSON.stringify({ imu: false, rgbd: true }))
+    }))
+    render(<CalibratePage onBack={() => {}} />)
+    const rgbd = await screen.findByText('D435 intrinsics check')
+    const csi = await screen.findByText('CSI camera intrinsics')
+    expect(rgbd.compareDocumentPosition(csi) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    const floor = await screen.findByText('Head floor fit')
+    expect(csi.compareDocumentPosition(floor) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    cleanup()
+    respond(200, { imu: true, rgbd: false })
+    render(<CalibratePage onBack={() => {}} />)
+    await screen.findByText('IMU calibration')
+    expect(screen.queryByText('CSI camera intrinsics')).toBeNull()
+  })
+
   it('imu only with rgbd false', async () => {
     respond(200, { imu: true, rgbd: false })
     render(<CalibratePage onBack={() => {}} />)
