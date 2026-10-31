@@ -1,4 +1,4 @@
-// readiness.hpp without ROS: the state JSON parse, the ready states and the timeout fallback.
+// readiness.hpp without ROS: the state JSON parse, the waiting states, receipt freshness and the timeout fallback.
 #include <gtest/gtest.h>
 
 #include <cstdint>
@@ -13,20 +13,19 @@ namespace
 using arm_drive_wait_bt_cpp::DrivePoseState;
 using arm_drive_wait_bt_cpp::evaluate;
 using arm_drive_wait_bt_cpp::parse_state;
-using arm_drive_wait_bt_cpp::state_is_ready;
+using arm_drive_wait_bt_cpp::state_waits;
 
 constexpr int64_t START_NS = 1700000000000000000;
 constexpr double TIMEOUT_S = 8.0;
+constexpr double FRESH_AGE_S = 0.5;
+constexpr double STALE_AGE_S = 2.6;
 
 std::string state_json(const std::string & state, int64_t stamp_ns)
 {
   return "{\"state\":\"" + state + "\",\"reason\":\"\",\"enabled\":true,\"stamp_ns\":" + std::to_string(stamp_ns) + "}";
 }
 
-DrivePoseState state_at(const std::string & state, int64_t stamp_ns)
-{
-  return DrivePoseState{state, "", true, stamp_ns};
-}
+DrivePoseState fresh(const std::string & state, bool enabled = true) { return DrivePoseState{state, "", enabled, 1}; }
 
 }  // namespace
 
@@ -67,56 +66,65 @@ TEST(ParseState, MissingOrMistypedFieldIsNullopt)
   EXPECT_FALSE(parse_state("{\"state\":\"lifted\",\"reason\":\"\",\"enabled\":true,\"stamp_ns\":\"1\"}").has_value());
 }
 
-TEST(StateIsReady, LiftedSkippedAndDisabledAtOrAfterTheStart)
+TEST(StateWaits, LiftingLoweringAndEnabledIdleWait)
+{
+  EXPECT_TRUE(state_waits(fresh("lifting")));
+  EXPECT_TRUE(state_waits(fresh("lowering")));
+  EXPECT_TRUE(state_waits(fresh("idle", true)));
+}
+
+TEST(StateWaits, LiftedSkippedDisabledAndDisabledIdleGo)
 {
   for (const std::string state : {"lifted", "skipped: torque off", "skipped: stopped", "disabled"}) {
-    EXPECT_TRUE(state_is_ready(state_at(state, START_NS), START_NS)) << state;
-    EXPECT_TRUE(state_is_ready(state_at(state, START_NS + 1), START_NS)) << state;
+    EXPECT_FALSE(state_waits(fresh(state))) << state;
   }
+  EXPECT_FALSE(state_waits(fresh("idle", false)));
 }
 
-TEST(StateIsReady, IdleLiftingAndLoweringAreNotReady)
-{
-  for (const std::string state : {"idle", "lifting", "lowering", "skipped", "", "LIFTED"}) {
-    EXPECT_FALSE(state_is_ready(state_at(state, START_NS + 1), START_NS)) << state;
-  }
-}
-
-TEST(StateIsReady, AStampBeforeTheStartIsNotReady)
+TEST(Evaluate, FreshReadyStatesGoAtOnce)
 {
   for (const std::string state : {"lifted", "skipped: torque off", "disabled"}) {
-    EXPECT_FALSE(state_is_ready(state_at(state, START_NS - 1), START_NS)) << state;
+    const auto readiness = evaluate(fresh(state), FRESH_AGE_S, 0.0, TIMEOUT_S);
+    EXPECT_TRUE(readiness.ready) << state;
+    EXPECT_EQ(readiness.reason, state);
   }
 }
 
-TEST(Evaluate, ReadyStateIsReadyWithTheStateAsReason)
+TEST(Evaluate, TheDisabledDefaultDoesNotWait)
 {
-  const auto readiness = evaluate(state_at("skipped: torque off", START_NS), START_NS, 0.1, TIMEOUT_S);
+  const auto readiness = evaluate(DrivePoseState{"disabled", "", false, 1}, FRESH_AGE_S, 0.0, TIMEOUT_S);
   EXPECT_TRUE(readiness.ready);
-  EXPECT_EQ(readiness.reason, "skipped: torque off");
+  EXPECT_EQ(readiness.reason, "disabled");
 }
 
-TEST(Evaluate, NotReadyBeforeTheTimeout)
+TEST(Evaluate, NoStateDoesNotWait)
 {
-  EXPECT_FALSE(evaluate(state_at("lifting", START_NS), START_NS, 7.9, TIMEOUT_S).ready);
-  EXPECT_FALSE(evaluate(state_at("lifted", START_NS - 1), START_NS, 7.9, TIMEOUT_S).ready);
-  EXPECT_FALSE(evaluate(std::nullopt, START_NS, 7.9, TIMEOUT_S).ready);
+  const auto readiness = evaluate(std::nullopt, 0.0, 0.0, TIMEOUT_S);
+  EXPECT_TRUE(readiness.ready);
+  EXPECT_EQ(readiness.reason, "no fresh state");
 }
 
-TEST(Evaluate, TimeoutIsReadyWithReasonTimeout)
+TEST(Evaluate, AStaleStateDoesNotWait)
 {
-  for (const auto & latest :
-       {std::optional<DrivePoseState>{}, std::optional<DrivePoseState>{state_at("lifting", START_NS)},
-        std::optional<DrivePoseState>{state_at("lifted", START_NS - 1)}}) {
-    const auto readiness = evaluate(latest, START_NS, TIMEOUT_S, TIMEOUT_S);
-    EXPECT_TRUE(readiness.ready);
-    EXPECT_EQ(readiness.reason, "timeout");
+  for (const std::string state : {"lifting", "lowering", "idle"}) {
+    const auto readiness = evaluate(fresh(state), STALE_AGE_S, 0.0, TIMEOUT_S);
+    EXPECT_TRUE(readiness.ready) << state;
+    EXPECT_EQ(readiness.reason, "no fresh state") << state;
   }
 }
 
-TEST(Evaluate, AReadyStateWinsOverTheTimeout)
+TEST(Evaluate, FreshWaitingStatesWaitUntilTheTimeout)
 {
-  const auto readiness = evaluate(state_at("lifted", START_NS), START_NS, TIMEOUT_S + 1.0, TIMEOUT_S);
-  EXPECT_TRUE(readiness.ready);
-  EXPECT_EQ(readiness.reason, "lifted");
+  for (const auto & state : {fresh("lifting"), fresh("lowering"), fresh("idle", true)}) {
+    EXPECT_FALSE(evaluate(state, FRESH_AGE_S, 7.9, TIMEOUT_S).ready) << state.state;
+    const auto readiness = evaluate(state, FRESH_AGE_S, TIMEOUT_S, TIMEOUT_S);
+    EXPECT_TRUE(readiness.ready) << state.state;
+    EXPECT_EQ(readiness.reason, "timeout") << state.state;
+  }
+}
+
+TEST(Evaluate, FreshnessBoundaryIsFreshS)
+{
+  EXPECT_FALSE(evaluate(fresh("lifting"), arm_drive_wait_bt_cpp::FRESH_S, 0.0, TIMEOUT_S).ready);
+  EXPECT_TRUE(evaluate(fresh("lifting"), arm_drive_wait_bt_cpp::FRESH_S + 0.01, 0.0, TIMEOUT_S).ready);
 }

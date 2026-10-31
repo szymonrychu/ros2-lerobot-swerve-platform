@@ -26,17 +26,17 @@ std::optional<DrivePoseState> parse_state(const std::string & json)
     state->get<std::string>(), reason->get<std::string>(), enabled->get<bool>(), stamp_ns->get<int64_t>()};
 }
 
-bool state_is_ready(const DrivePoseState & state, int64_t start_ns)
+bool state_waits(const DrivePoseState & state)
 {
-  if (state.stamp_ns < start_ns) {
-    return false;
-  }
-  return state.state == LIFTED || state.state == DISABLED || state.state.rfind(SKIPPED_PREFIX, 0) == 0;
+  return state.state == LIFTING || state.state == LOWERING || (state.state == IDLE && state.enabled);
 }
 
-Readiness evaluate(const std::optional<DrivePoseState> & latest, int64_t start_ns, double elapsed_s, double timeout_s)
+Readiness evaluate(const std::optional<DrivePoseState> & latest, double age_s, double elapsed_s, double timeout_s)
 {
-  if (latest.has_value() && state_is_ready(*latest, start_ns)) {
+  if (!latest.has_value() || age_s > FRESH_S) {
+    return Readiness{true, NO_FRESH_STATE};
+  }
+  if (!state_waits(*latest)) {
     return Readiness{true, latest->state};
   }
   if (elapsed_s >= timeout_s) {

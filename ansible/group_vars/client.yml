@@ -964,7 +964,8 @@ ros2_node_type_defaults:
     # Repo paths whose change restarts the node (no Python package dir): its launch/config files.
     src_paths: [nodes/nav2_bringup]
     # The MPPI overlay (only with nav2_mppi_overlay) then the arm wait BT plugin (always), both in /opt/ros2-ws, the
-    # workspace the launcher sources.
+    # workspace the launcher sources. Overlay first on purpose: a later source's stamp chains the earlier ones
+    # (_colcon_chain_key), so plugin-first would rebuild the stop-all xtensor MPPI on every plugin change.
     colcon_source: "{{ ([nav2_mppi_overlay_source] if nav2_mppi_overlay | bool else []) + [arm_drive_wait_bt_source] }}"
     # Rollback (overlay off): /opt/ros2-ws stays sourced for the plugin, so the deploy purges the overlay from it and
     # the apt MPPI plugin is used.

@@ -1,6 +1,7 @@
 // WaitForArmDriveReady in a BT factory, loaded from the built plugin library (BT_REGISTER_NODES): a one-node tree is
-// ticked while a test publisher sends /arm/drive_pose/state messages; RUNNING until a ready state stamped after the
-// start arrives, then SUCCESS; SUCCESS after timeout_s without one; never FAILURE. The repo NavigateToPose tree
+// ticked while a test publisher sends /arm/drive_pose/state messages; RUNNING only while a fresh state is lifting,
+// lowering or enabled idle (SUCCESS on the timeout); SUCCESS at once on lifted, skipped or disabled, without a
+// publisher and on a stale state; never FAILURE. The repo NavigateToPose tree
 // (nodes/nav2_bringup/behavior_trees/navigate_to_pose_arm_wait.xml) loads into a factory with the nav2 built-in BT
 // plugins and this one, and is the stock Jazzy tree behind the wait.
 #include <behaviortree_cpp/bt_factory.h>
@@ -32,7 +33,7 @@ constexpr milliseconds TICK_PERIOD{20};
 constexpr milliseconds SETTLE{300};
 constexpr double LONG_TIMEOUT_S = 30.0;
 constexpr double SHORT_TIMEOUT_S = 0.5;
-constexpr int64_t NS_PER_S = 1000000000;
+constexpr milliseconds PAST_FRESH{2700};  // longer than FRESH_S
 constexpr const char * STOCK_BT = "navigate_w_recovery_and_replanning_only_if_path_becomes_invalid.xml";
 constexpr const char * RECOVERY_OPEN = "<RecoveryNode number_of_retries=\"6\" name=\"NavigateRecovery\">";
 constexpr const char * RECOVERY_TAG = "<RecoveryNode ";
@@ -44,16 +45,17 @@ int64_t wall_ns()
     .count();
 }
 
-std::string state_json(const std::string & state, int64_t stamp_ns)
+std::string state_json(const std::string & state, bool enabled = true)
 {
-  return "{\"state\":\"" + state + "\",\"reason\":\"\",\"enabled\":true,\"stamp_ns\":" + std::to_string(stamp_ns) + "}";
+  return "{\"state\":\"" + state + "\",\"reason\":\"\",\"enabled\":" + (enabled ? "true" : "false") +
+         ",\"stamp_ns\":" + std::to_string(wall_ns()) + "}";
 }
 
-std::string one_node_tree(double timeout_s)
+std::string one_node_tree(double timeout_s, const std::string & topic = TEST_TOPIC)
 {
   return "<root BTCPP_format=\"4\" main_tree_to_execute=\"Main\"><BehaviorTree ID=\"Main\">"
          "<WaitForArmDriveReady topic=\"" +
-         std::string(TEST_TOPIC) + "\" timeout_s=\"" + std::to_string(timeout_s) + "\"/></BehaviorTree></root>";
+         topic + "\" timeout_s=\"" + std::to_string(timeout_s) + "\"/></BehaviorTree></root>";
 }
 
 // The library names of the nav2 built-in BT plugins, as bt_navigator loads them before plugin_lib_names.
@@ -161,72 +163,85 @@ protected:
 
 }  // namespace
 
-TEST_F(WaitForArmDriveReadyTest, RunningUntilLiftedThenSuccess)
+TEST_F(WaitForArmDriveReadyTest, WaitsWhileLiftingThenSuccessOnLifted)
 {
   auto tree = factory_.createTreeFromText(one_node_tree(LONG_TIMEOUT_S), blackboard_);
+  publish(state_json("lifting"));
+  std::this_thread::sleep_for(SETTLE);
   expect_running_for(tree, SETTLE);
-  publish(state_json("lifting", wall_ns()));
-  expect_running_for(tree, SETTLE);
-  publish(state_json("lifted", wall_ns()));
+  publish(state_json("lifted"));
   const auto [status, elapsed_s] = tick_until_done(tree, milliseconds(5000));
   EXPECT_EQ(status, BT::NodeStatus::SUCCESS);
   EXPECT_LT(elapsed_s, 2.0);
 }
 
-TEST_F(WaitForArmDriveReadyTest, SkippedAndDisabledAreReady)
+TEST_F(WaitForArmDriveReadyTest, WaitsWhileLoweringAndWhileIdleWithThePoseEnabled)
 {
-  for (const std::string state : {"skipped: torque off", "disabled"}) {
+  for (const std::string state : {"lowering", "idle"}) {
     auto tree = factory_.createTreeFromText(one_node_tree(LONG_TIMEOUT_S), blackboard_);
+    publish(state_json(state, true));
+    std::this_thread::sleep_for(SETTLE);
     expect_running_for(tree, SETTLE);
-    publish(state_json(state, wall_ns()));
+    publish(state_json("lifted"));
     EXPECT_EQ(tick_until_done(tree, milliseconds(5000)).first, BT::NodeStatus::SUCCESS) << state;
   }
 }
 
-TEST_F(WaitForArmDriveReadyTest, ALatchedStateFromBeforeTheStartDoesNotCount)
+TEST_F(WaitForArmDriveReadyTest, FreshLiftedSkippedAndDisabledGoOnTheFirstTick)
 {
-  publish(state_json("lifted", wall_ns() - NS_PER_S));
-  auto tree = factory_.createTreeFromText(one_node_tree(LONG_TIMEOUT_S), blackboard_);
-  expect_running_for(tree, SETTLE);
-  publish("not json");
-  expect_running_for(tree, SETTLE);
-  publish(state_json("lifted", wall_ns()));
-  EXPECT_EQ(tick_until_done(tree, milliseconds(5000)).first, BT::NodeStatus::SUCCESS);
+  for (const auto & [state, enabled] : std::vector<std::pair<std::string, bool>>{
+         {"lifted", true}, {"skipped: torque off", true}, {"disabled", false}, {"idle", false}}) {
+    auto tree = factory_.createTreeFromText(one_node_tree(LONG_TIMEOUT_S), blackboard_);
+    publish(state_json(state, enabled));
+    std::this_thread::sleep_for(SETTLE);
+    EXPECT_EQ(tree.tickOnce(), BT::NodeStatus::SUCCESS) << state;
+  }
 }
 
-TEST_F(WaitForArmDriveReadyTest, SuccessAfterTheTimeoutWithoutAMessage)
+TEST_F(WaitForArmDriveReadyTest, NoPublisherGoesOnTheFirstTick)
+{
+  auto tree = factory_.createTreeFromText(one_node_tree(LONG_TIMEOUT_S, "/test/arm/nobody_publishes"), blackboard_);
+  std::this_thread::sleep_for(SETTLE);
+  EXPECT_EQ(tree.tickOnce(), BT::NodeStatus::SUCCESS);
+}
+
+TEST_F(WaitForArmDriveReadyTest, AStaleStateDoesNotWait)
+{
+  auto tree = factory_.createTreeFromText(one_node_tree(LONG_TIMEOUT_S), blackboard_);
+  publish(state_json("lifting"));
+  std::this_thread::sleep_for(SETTLE);
+  ASSERT_EQ(tree.tickOnce(), BT::NodeStatus::RUNNING);
+  tree.haltTree();
+  // No republish (mcp_server gone): the next goal finds the lifting state older than FRESH_S.
+  std::this_thread::sleep_for(PAST_FRESH);
+  EXPECT_EQ(tree.tickOnce(), BT::NodeStatus::SUCCESS);
+}
+
+TEST_F(WaitForArmDriveReadyTest, SuccessOnTheTimeoutWhileLifting)
 {
   auto tree = factory_.createTreeFromText(one_node_tree(SHORT_TIMEOUT_S), blackboard_);
+  publish(state_json("lifting"));
+  std::this_thread::sleep_for(SETTLE);
   const auto [status, elapsed_s] = tick_until_done(tree, milliseconds(5000));
   EXPECT_EQ(status, BT::NodeStatus::SUCCESS);
   EXPECT_GE(elapsed_s, SHORT_TIMEOUT_S - 0.05);
   EXPECT_LT(elapsed_s, SHORT_TIMEOUT_S + 1.0);
 }
 
-TEST_F(WaitForArmDriveReadyTest, EveryGoalWaitsAgain)
-{
-  auto tree = factory_.createTreeFromText(one_node_tree(LONG_TIMEOUT_S), blackboard_);
-  expect_running_for(tree, SETTLE);
-  publish(state_json("lifted", wall_ns()));
-  ASSERT_EQ(tick_until_done(tree, milliseconds(5000)).first, BT::NodeStatus::SUCCESS);
-  // The next goal ticks the same tree again: the old lifted stamp predates this start.
-  std::this_thread::sleep_for(milliseconds(10));
-  expect_running_for(tree, SETTLE);
-  publish(state_json("lifted", wall_ns()));
-  EXPECT_EQ(tick_until_done(tree, milliseconds(5000)).first, BT::NodeStatus::SUCCESS);
-}
-
 TEST_F(WaitForArmDriveReadyTest, DefaultPorts)
 {
+  auto default_pub = probe_->create_publisher<std_msgs::msg::String>(
+    "/arm/drive_pose/state", rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local());
   auto tree = factory_.createTreeFromText(
     "<root BTCPP_format=\"4\" main_tree_to_execute=\"Main\"><BehaviorTree ID=\"Main\">"
     "<WaitForArmDriveReady/></BehaviorTree></root>",
     blackboard_);
-  EXPECT_EQ(tree.tickOnce(), BT::NodeStatus::RUNNING);
-  auto default_pub = probe_->create_publisher<std_msgs::msg::String>(
-    "/arm/drive_pose/state", rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local());
   std_msgs::msg::String msg;
-  msg.data = state_json("disabled", wall_ns());
+  msg.data = state_json("lifting");
+  default_pub->publish(msg);
+  std::this_thread::sleep_for(SETTLE);
+  expect_running_for(tree, SETTLE);
+  msg.data = state_json("disabled", false);
   default_pub->publish(msg);
   EXPECT_EQ(tick_until_done(tree, milliseconds(5000)).first, BT::NodeStatus::SUCCESS);
 }

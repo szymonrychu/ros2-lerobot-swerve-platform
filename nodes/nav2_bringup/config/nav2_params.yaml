@@ -23,8 +23,9 @@ bt_navigator:
     # Replan only when the path becomes invalid: the default BT replans at 1 Hz and every replan resets the goal
     # checker latch and the rotation shim's position check (1 cm / 2 deg goals then overshoot). The repo tree is the
     # stock navigate_w_recovery_and_replanning_only_if_path_becomes_invalid.xml behind one WaitForArmDriveReady
-    # (nodes/arm_drive_wait_bt_cpp): each goal waits up to 8 s for mcp_server's arm drive pose (lifted, skipped or
-    # disabled). Fallback: a skipped lift or the timeout drives on with today's view; the wait never fails a goal.
+    # (nodes/arm_drive_wait_bt_cpp): each goal waits up to 8 s while mcp_server's arm drive pose is lifting, lowering
+    # or not yet started. Fallback: lifted, skipped, disabled or no fresh state go at once, the timeout drives on with
+    # today's view; the wait never fails a goal.
     # navigate_through_poses keeps the stock tree.
     default_nav_to_pose_bt_xml: /opt/ros2-lerobot-swerve-platform/nodes/nav2_bringup/behavior_trees/navigate_to_pose_arm_wait.xml
     # Jazzy appends these to its built-in BT plugins: libarm_drive_wait_bt_node.so, built into /opt/ros2-ws by ansible.

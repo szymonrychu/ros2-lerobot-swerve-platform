@@ -358,10 +358,10 @@ like the Smac `lattice_filepath`). That tree is the stock Jazzy (nav2_bt_navigat
 `navigate_w_recovery_and_replanning_only_if_path_becomes_invalid.xml`, unchanged, as the second child of a root
 `Sequence` whose first child is `WaitForArmDriveReady` (`topic` `/arm/drive_pose/state`, `timeout_s` 8.0, from
 [nodes/arm_drive_wait_bt_cpp](../arm_drive_wait_bt_cpp/README.md)). Each NavigateToPose goal, from the web UI
-`/goal_pose` as well as from mcp_server, first waits until mcp_server reports the arm lifted to its drive pose (out of the
-head camera's view), the lift skipped or the drive pose disabled; replans and recoveries run inside `NavigateRecovery`
-and never wait again. Fallback: a skipped lift or the 8 s timeout drives on with today's view; the wait never fails a
-goal. `navigate_through_poses` keeps the stock tree.
+`/goal_pose` as well as from mcp_server, first waits while mcp_server reports the arm lifting, lowering or not yet
+started (idle with the drive pose enabled); replans and recoveries run inside `NavigateRecovery` and never wait again.
+Fallback: it goes at once on lifted, a skipped lift, the drive pose disabled or no fresh state (mcp_server down), and
+drives on with today's view after the 8 s timeout; the wait never fails a goal. `navigate_through_poses` keeps the stock tree.
 
 `plugin_lib_names: ["arm_drive_wait_bt_node"]`: Jazzy's bt_navigator loads its built-in BT plugins and appends this
 list, so only the repo plugin is named. ansible builds `libarm_drive_wait_bt_node.so` into `/opt/ros2-ws` with

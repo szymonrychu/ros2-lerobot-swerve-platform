@@ -24,18 +24,21 @@ timeout. The package builds the shared library `arm_drive_wait_bt_node`, which b
 | `timeout_s` | double | `8.0` | the longest wait; SUCCESS (reason `timeout`, logged as a warning) after it |
 
 Input: `/arm/drive_pose/state`, `std_msgs/String` with the JSON `{state, reason, enabled, stamp_ns}` (mcp_server
-`DrivePoseState`; `stamp_ns` is the wall clock of the last change), subscribed reliable + transient_local, depth 1, so
-the latched state arrives at once. The subscription uses the rclcpp node of the blackboard entry `node`
-(bt_navigator's client node) on its own callback group, spun on every tick.
+`DrivePoseState`, latched and republished at 1 Hz), subscribed reliable + transient_local, depth 1. The subscription
+uses the rclcpp node of the blackboard entry `node` (bt_navigator's client node) on a callback group no executor spins;
+every tick takes the received messages itself and keeps the last state with its receipt time (steady clock). A state
+is fresh while it is at most `FRESH_S` (2.5 s, one lost republish) old; `stamp_ns` is not used.
 
 Per goal (`onStart`, then `onRunning` on every BT tick):
 
-- **SUCCESS** on `lifted`, `skipped: <reason>` or `disabled` stamped at or after the wait's start (wall clock, the same
-  clock as mcp_server's stamps on the robot), or once `timeout_s` passed (steady clock);
-- **RUNNING** on `idle`, `lifting`, `lowering`, an older stamp, malformed JSON or no message yet;
+- **RUNNING** only while the fresh state is `lifting`, `lowering` or `idle` with `enabled` true (the controller has not
+  seen the goal yet, under 200 ms), at most `timeout_s`, then **SUCCESS** (reason `timeout`);
+- **SUCCESS** at once on a fresh `lifted`, `skipped: <reason>` or `disabled` (the shipped default never waits), and at
+  once with reason `no fresh state` when no state was received, the last one is older than 2.5 s or malformed
+  (mcp_server down: never block);
 - never **FAILURE**. A halt (cancel, preempt) leaves nothing to undo.
 
-The outcome is logged once per goal: INFO with the state and the wait, WARN on the timeout.
+The outcome is logged once per goal: INFO with the state and the wait, WARN on the timeout and on no fresh state.
 
 ## Build and test
 
