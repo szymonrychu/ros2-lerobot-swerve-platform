@@ -1,0 +1,32 @@
+# Head aim defaults. Installed to /etc/ros2/head_aim_cpp/config.yaml (HEAD_AIM_CONFIG).
+# Unknown keys are rejected; any error exits 78.
+
+plan_topic: /transformed_global_plan  # nav_msgs/Path, the pruned near path of the controller; the aim signal
+cmd_vel_topic: /cmd_vel_smoothed  # geometry_msgs/Twist, travel direction when the path is too short to give one
+goal_status_topic: /navigate_to_pose/_action/status  # action_msgs/GoalStatusArray; aiming runs only while a goal is active
+head_command_topic: /head/joint_commands  # sensor_msgs/JointState, output; also read for the yield window
+camera_info_topic: /head/d435/depth_filtered/camera_info  # sensor_msgs/CameraInfo of the D435 depth, gives the vertical field of view
+base_frame: base_link  # robot frame the path is transformed into and the footprint is expressed in
+head_frame: head_link  # frame whose origin is on the tilt axis; it does not move with pan or tilt
+source_tag: head_aim  # header.frame_id of every command, must be in the head bridge's direct_command_sources
+yield_sources: [web_ui, autonomy]  # header.frame_id values of head commands that pause auto-aim for yield_s
+yield_s: 10.0  # seconds auto-aim stays silent after a command from a yield source, >= 0
+footprint_min_x: -0.215  # footprint bounding box in base_link (contains the wheel envelopes), metres, rear edge
+footprint_max_x: 0.3225  # front edge, metres, > footprint_min_x
+footprint_min_y: -0.196  # right edge, metres
+footprint_max_y: 0.196  # left edge, metres, > footprint_min_y
+lookahead_m: 0.4  # how far beyond the leading footprint edge the look point lies along the path, metres, > 0
+floor_margin_m: 0.05  # how far past the leading edge the bottom of the camera frustum lands on the floor, metres, >= 0
+pan_min_rad: -1.5708  # lowest pan command (right), rad, >= -1.5708 (servo limit)
+pan_max_rad: 1.5708  # highest pan command (left), rad, <= 1.5708 (servo limit), > pan_min_rad
+tilt_min_rad: -0.5236  # lowest tilt command (up), rad, >= -0.5236 (servo limit)
+tilt_max_rad: 0.7854  # highest tilt command (down), rad, <= 0.7854 (servo limit), > tilt_min_rad
+home_pan_rad: 0.0  # pan sent once when the goal ends, rad, within the pan range
+home_tilt_rad: 0.5236  # tilt sent once when the goal ends, rad, within the tilt range (30 deg down, the head startup pose)
+reaim_pan_deg: 10.0  # a new command only when the pan target moved more than this, degrees, >= 0
+reaim_tilt_deg: 5.0  # a new command only when the tilt target moved more than this, degrees, >= 0
+min_reaim_interval_s: 1.0  # shortest time between two commands, seconds, >= 0 (lets the head settle so ground_estimator keeps frames)
+rate_hz: 5.0  # aim loop rate, Hz, 0 < v <= 50
+tf_timeout_s: 0.1  # seconds to wait for a transform, 0..0.5
+input_timeout_s: 1.0  # older path, cmd_vel, goal status or camera_info is not used, seconds, > 0
+min_travel_speed_mps: 0.02  # slowest cmd_vel that gives a travel direction when the path does not, m/s, > 0
