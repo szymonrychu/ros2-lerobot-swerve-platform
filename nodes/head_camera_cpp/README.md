@@ -1,10 +1,12 @@
 # head_camera_cpp
 
-The head RGB camera node: an rclcpp node that owns the head Camera Module 3 (IMX708, CSI cam0) through libcamera. It
-publishes a default stream (30 fps by the code default, 15 fps deployed) (1152x648) and, on request, autofocused full-resolution zoom crops. The Camera Module 3
-and the Arducam ToF (`arducam_tof`, CSI cam1) form the robot head on the pan/tilt stand. The node replaces `camera_ros`
-and the retired `pi_cameras` node: nothing else opens the camera, and `pi_cameras` and `camera_ros` are gone from the
-client.
+An rclcpp node that owns one Camera Module 3 (IMX708) through libcamera. It publishes a default stream (1152x648; 30
+fps by the code default, 15 fps deployed) and, with `zoom.enabled` (code default true), autofocused full-resolution
+zoom crops on request. It was the head camera until the head D435 replaced it (the `head_camera_cpp` Ansible entry is
+`present: false` and its type only uninstalls the old unit); today it runs as the body-fixed `front_camera` (CSI cam0)
+and `back_camera` (CSI cam1) instances below, without zoom. The node replaces `camera_ros` and the retired `pi_cameras`
+node: nothing else opens these cameras, and `pi_cameras` and `camera_ros` are gone from the client. The `/head_camera`
+names below are the code defaults; the instances override them.
 
 ## Topics
 
@@ -45,8 +47,8 @@ libcamera lists (`camera '<id>' not found; available: ...`) and retries every 2 
 
 With `zoom.enabled: false` none of this interface exists.
 
-The contract lives once in `include/head_camera_cpp/zoom_json.hpp`; this section mirrors it. Consumers: the
-`mcp_server` `get_camera_image` tool (agent) and the web_ui Head tab (click-to-zoom).
+The contract lives once in `include/head_camera_cpp/zoom_json.hpp`; this section mirrors it. No consumer
+uses it today: mcp_server and web_ui dropped the zoom contract with the head D435, and both instances disable it.
 
 **Request**, JSON on `/head_camera/zoom/command`:
 
@@ -217,13 +219,16 @@ Prometheus text on `127.0.0.1:<metrics_port>/metrics` (default 19116; scraped th
 
 ## Deploy
 
-Ansible node type `head_camera_cpp` in `ansible/group_vars/client.yml` (native, `ros2 run head_camera_cpp
-head_camera_node`), entry `head_camera_cpp` on the client, background cgroup tier (`memory_low` 128M, `memory_max` 384M,
-weights 100, `nice` 10). It is built with colcon into `/opt/ros2-ws` in this order: the pinned libcamera fork, then
-`ros2_common_cpp`, then this package.
+Ansible node types `front_camera` and `back_camera` in `ansible/group_vars/client.yml` (native, `ros2 run head_camera_cpp
+head_camera_node --ros-args -r __node:=<name>_camera`, config via `HEAD_CAMERA_CONFIG`), background cgroup tier
+(`memory_low` 128M, `memory_max` 384M, weights 100, `nice` 10, carried over until measured). `front_camera` owns the
+build list and `back_camera` aliases it: built with colcon into `/opt/ros2-ws` in this order, the pinned libcamera fork,
+then `ros2_common_cpp`, then this package. `back_camera` is `present: true`, `enabled: false` until the second module
+is fitted on cam1 (`client_back_camera_fitted` gates its `dtoverlay=imx708,cam1` boot line). The `head_camera_cpp` type
+keeps only `deploy_mode` and its launch command, so deploying it uninstalls the old head unit.
 
 ```bash
-./scripts/deploy-nodes.sh client head_camera_cpp 2>&1 | tee .logs/deploy-client.log
+./scripts/deploy-nodes.sh client front_camera 2>&1 | tee .logs/deploy-client.log
 ```
 
 **libcamera fork dependency.** The node links the Raspberry Pi libcamera fork (`raspberrypi/libcamera`, tag
@@ -232,8 +237,8 @@ weights 100, `nice` 10). It is built with colcon into `/opt/ros2-ws` in this ord
 the build stamp is unchanged and nothing rebuilds. The apt `ros-jazzy-libcamera` and `ros-jazzy-camera-ros` packages
 must not be installed; `camera_ros` was purged from `/opt/ros2-ws` when `pi_cameras` was retired.
 
-Verify on the robot: `ros2 topic hz /head_camera/image_raw/compressed` shows about 15 Hz, `head_camera_capture_fps` is
-about 15, and publishing a request on `/head_camera/zoom/command` yields an image and an `ok` result.
+Verify on the robot: `ros2 topic hz /front_camera/image_raw/compressed` shows about 15 Hz and `head_camera_capture_fps`
+on port 19121 is about 15.
 
 ## Deployed frame rate
 

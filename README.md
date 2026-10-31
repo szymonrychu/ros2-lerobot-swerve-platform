@@ -100,6 +100,7 @@ PlantUML sources are in [`docs/diagrams/`](docs/diagrams/). Regenerate with:
 | Haptic controller | **Disabled** | Force-feedback and zero-G hold for leader gripper (code present, `enabled: false`) |
 | Swerve drive | **Working** | 4-wheel swerve: feetech bridge (8 servos) + controller (cmd_vel, FK/IK, odom) |
 | RealSense D435 head camera | **Working** | Colour + depth + depth aligned to colour (640x360 @ 15 fps, no IMU) on the pan/tilt head, `/head/d435/*` via ros-jazzy-realsense2-camera; the only head and arm camera (the head ToF, the head Camera Module 3 and the gripper camera are retired) |
+| Front and back CSI cameras | **Front deployed by code, back gated** | Two body-fixed Camera Module 3s (IMX708) on CSI cam0 (`front_camera`) and cam1 (`back_camera`), `/front_camera/*` and `/back_camera/*` at 1152x648, 15 fps, JPEG 70, no zoom; `back_camera` stays disabled until the second module is fitted (`client_back_camera_fitted`) |
 | RPLidar-A1 | **Working** | 2D lidar `sensor_msgs/LaserScan` on `/scan` via ros-jazzy-rplidar-ros |
 | Web UI dashboard | **Working** | Browser-based robot dashboard: D435 head camera, IMU 3D, servo graphs, local/GPS map, 3D URDF scene, robot status |
 | Nav2 (MVP) | **Working** | 2D nav stack: odom, scan, IMU, goal → cmd_vel; EKF fuses odom+IMU |
@@ -127,7 +128,7 @@ PlantUML sources are in [`docs/diagrams/`](docs/diagrams/). Regenerate with:
 | `bno055_imu` | bno055_imu | `/imu/data` (pub, `sensor_msgs/Imu`) | BNO055 (`/dev/i2c-1`) |
 | `base_servos` | feetech_servos | `/swerve_drive/joint_states` (pub), `/swerve_drive/joint_commands` (sub) | 8× ST3215 swerve servos (IDs 32-39) on the second USB adapter, 50 Hz |
 | `swerve_controller` | swerve_controller | `/cmd_vel` (sub), `/odom` (pub), `/swerve_drive/joint_commands` (pub); TF off (EKF owns odom→base_link) | — |
-| `static_tf_publisher` | static_tf_publisher | TF base_link → imu_link, laser_frame | — |
+| `static_tf_publisher` | static_tf_publisher | TF base_link → imu_link, laser_frame; base_link → `front_camera_link` / `back_camera_link` → `*_camera_optical_frame` only once `front_camera_mount` / `back_camera_mount` hold the user's tape measurement | — |
 | `rf2o_laser_odometry` | rf2o_laser_odometry (source build) | `/scan_filtered` (sub), `/odom_rf2o` (pub) | — |
 | `rf2o_odom_relay` | rf2o_odom_relay | `/odom_rf2o` (sub), `/odom_rf2o_twist` (pub) | — |
 | `robot_localization_ekf` | robot_localization_ekf | `/odom` (sub), `/odom_rf2o_twist` (sub), `/imu/data` (sub), `/odometry/filtered` (pub), TF odom→base_link | — |
@@ -137,12 +138,14 @@ PlantUML sources are in [`docs/diagrams/`](docs/diagrams/). Regenerate with:
 | `realsense_d435` | realsense_d435 | `/head/d435/*` (colour, depth, depth aligned to colour, camera_info; 640x360 @ 15 fps, no TF) | RealSense D435 on the pan/tilt head (USB 3.0) |
 | `head_rgbd_cpp` | head_rgbd_cpp | `/head/d435/*` (sub) -> `/head_rgbd/*` (aligned depth + JPEG RGB + coloured cloud) and the edge-masked `/head/d435/depth_filtered/*` | — |
 | `d435_obstacle_cloud` | d435_obstacle_cloud | `/head/d435/depth_filtered/*` (sub) -> `/head/d435/points` (pub); laser_filter -> `/head/d435/points_filtered` | — |
-| `marker_detector` | marker_detector | D435 colour + `/head_rgbd/depth/*` (sub) -> `/markers/detections` (pub); marker pose with `depth_plane`, no zoom stills | — |
-| `head_camera_cpp` | head_camera_cpp | Retired (`present: false`): the head D435 colour replaced the Camera Module 3; the node stays in `nodes/head_camera_cpp` for front-and-back-camera-module, which reuses it on cam0 | — |
+| `marker_detector` | marker_detector | `cameras:` head (D435 colour + `/head_rgbd/depth/*`, `depth_plane`), front and back (`/front_camera/*`, `/back_camera/*` compressed + camera_info) (sub) -> `/markers/detections` (pub); a camera without camera_info is skipped; no zoom stills | — |
+| `head_camera_cpp` | head_camera_cpp | Retired on the head (`present: false`; the type only uninstalls the old unit): the head D435 colour replaced the Camera Module 3; `nodes/head_camera_cpp` is the source `front_camera` and `back_camera` run | — |
+| `front_camera` | head_camera_cpp (`__node:=front_camera`) | `/front_camera/image_raw/compressed`, `/front_camera/camera_info` (once intrinsics are applied); frame `front_camera_optical_frame`; background tier, metrics 19121 | Camera Module 3 (IMX708) on CSI cam0, body-fixed |
+| `back_camera` | head_camera_cpp (`__node:=back_camera`) | `/back_camera/image_raw/compressed`, `/back_camera/camera_info` (once intrinsics are applied); frame `back_camera_optical_frame`; background tier, metrics 19122; `present: true`, `enabled: false` until the module is fitted | Camera Module 3 (IMX708) on CSI cam1, body-fixed |
 | `test_joint_api` | test_joint_api | REST :18080 → `/filter/input_joint_updates` (pub) | — |
 | `topic_scraper_api` | topic_scraper_api | HTTP :18100 | — |
-| `web_ui` | web_ui | HTTP :8080, WS `/ws` (20 Hz topic broadcast). Tabs: 3D Map (SLAM map, costmap, GPS tiles, plans, goal, robot URDF, interactive arm), Arm, Head (D435), Agent, POI; calls `/arm/home`, `/arm/set_home` | — |
-| `mcp_server` | mcp_server | MCP Streamable HTTP :18200 `/mcp` (bearer token). Tools: robot/arm state, camera images, map summary, `navigate_to_pose` (Nav2 action), `move_relative`, `drive`, `stop`, arm joint/cartesian moves, gripper, arm home. Arm setpoints go to `/filter/autonomy_joint_commands`; serves `/arm/home`, `/arm/set_home`; reads the head D435 colour `/head/d435/color/image_raw/compressed` (tool camera `front`; no gripper camera) | — |
+| `web_ui` | web_ui | HTTP :8080, WS `/ws` (20 Hz topic broadcast). Tabs: 3D Map (SLAM map, costmap, GPS tiles, plans, goal, robot URDF, interactive arm), Arm, Head (D435), Cameras (front and back CSI), Agent, POI; Calibrate page with front/back CSI intrinsics; calls `/arm/home`, `/arm/set_home` | — |
+| `mcp_server` | mcp_server | MCP Streamable HTTP :18200 `/mcp` (bearer token). Tools: robot/arm state, camera images, map summary, `navigate_to_pose` (Nav2 action), `move_relative`, `drive`, `stop`, arm joint/cartesian moves, gripper, arm home. Arm setpoints go to `/filter/autonomy_joint_commands`; serves `/arm/home`, `/arm/set_home`; reads the head D435 colour `/head/d435/color/image_raw/compressed` (tool camera `head`; `get_camera_image` also takes `front` and `back`, the CSI `/front_camera` and `/back_camera` compressed images; no gripper camera) | — |
 | `haptic_controller` | haptic_controller | Disabled (`mode: off`) | — |
 
 ### Topic flow (leader–follower path)
