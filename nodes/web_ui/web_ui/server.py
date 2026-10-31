@@ -1341,9 +1341,9 @@ def build_app(
 
     @app.post("/api/grasp")
     async def grasp_command(tab: str, request: Request) -> JSONResponse:
-        tab_cfg = find_map_nav_tab(tab)
+        tab_cfg = find_map_nav_tab(tab) or find_arm_tab(tab)
         if tab_cfg is None:
-            return action_response("grasp", False, f"no map_nav tab {tab!r}", 404)
+            return action_response("grasp", False, f"no map_nav or arm tab {tab!r}", 404)
         if (blocked := arm_released_block("grasp")) is not None:
             return blocked
         try:
@@ -1391,8 +1391,8 @@ def build_app(
     @app.post("/api/grasp/stop")
     async def grasp_stop(tab: str) -> JSONResponse:
         # Stopping is never blocked (battery cut-off included).
-        if find_map_nav_tab(tab) is None:
-            return action_response("grasp_stop", False, f"no map_nav tab {tab!r}", 404)
+        if find_map_nav_tab(tab) is None and find_arm_tab(tab) is None:
+            return action_response("grasp_stop", False, f"no map_nav or arm tab {tab!r}", 404)
         if bridge_node is None:
             return action_response("grasp_stop", False, "ROS bridge unavailable", 503)
         sent = bridge_node.grasp_request_async({"action": "stop"})

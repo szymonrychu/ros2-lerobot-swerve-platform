@@ -147,6 +147,7 @@ def test_ws_publish_allowed_when_stale(tmp_path: Path) -> None:
         ("/api/arm/take_control?tab=arm", None),
         ("/api/arm/jog?tab=arm", {"kind": "cartesian", "direction": "up"}),
         ("/api/grasp?tab=map", {"action": "release"}),
+        ("/api/grasp?tab=arm", {"action": "release"}),
     ],
 )
 def test_arm_routes_409_while_released(tmp_path: Path, path: str, body: Any) -> None:

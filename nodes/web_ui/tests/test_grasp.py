@@ -172,7 +172,9 @@ class FakeBridge:
 def make_client(tmp_path: Path, bridge: Any, battery_guard: Any = None, **tab: Any) -> TestClient:
     from web_ui.server import build_app
 
-    config = AppConfig(tabs=[TabConfig(id="map", type="map_nav", label="Map", **tab)])
+    config = AppConfig(
+        tabs=[TabConfig(id="map", type="map_nav", label="Map", **tab), TabConfig(id="arm", type="arm", label="Arm")]
+    )
     app = build_app(
         config=config, urdf_dir=tmp_path, static_dir=tmp_path / "none", bridge_node=bridge, battery_guard=battery_guard
     )
@@ -328,3 +330,26 @@ def test_api_grasp_stop_503_and_504(tmp_path: Path) -> None:
         assert make_client(tmp_path, FakeBridge(never=True)).post("/api/grasp/stop?tab=map").status_code == 504
     assert make_client(tmp_path, None).post("/api/grasp/stop?tab=map").status_code == 503
     assert make_client(tmp_path, FakeBridge()).post("/api/grasp/stop?tab=nope").status_code == 404
+
+
+def test_api_grasp_accepts_an_arm_tab_id(tmp_path: Path) -> None:
+    bridge = FakeBridge(PLANNED)
+    resp = make_client(tmp_path, bridge).post("/api/grasp?tab=arm", json=PLAN_BODY)
+    assert resp.status_code == 200 and resp.json() == PLANNED
+    assert bridge.payloads == [PLAN_BODY]
+
+
+def test_api_grasp_stop_accepts_an_arm_tab_id(tmp_path: Path) -> None:
+    stop = {"ok": True, "request_id": "rid", "action": "stop", "result": {"arm_held": True, "message": "held"}}
+    bridge = FakeBridge(stop)
+    resp = make_client(tmp_path, bridge).post("/api/grasp/stop?tab=arm")
+    assert resp.status_code == 200 and resp.json() == stop
+    assert bridge.payloads == [{"action": "stop"}]
+
+
+def test_api_grasp_unknown_tab_message_names_both_tab_types(tmp_path: Path) -> None:
+    bridge = FakeBridge(PLANNED)
+    for path in ("/api/grasp?tab=nope", "/api/grasp/stop?tab=nope"):
+        resp = make_client(tmp_path, bridge).post(path, json=PLAN_BODY)
+        assert resp.status_code == 404
+        assert resp.json()["message"] == "no map_nav or arm tab 'nope'"
