@@ -309,6 +309,27 @@ def test_arm_tab_defaults() -> None:
     assert tab.arm_set_home_service == "/arm/set_home"
     assert tab.arm_take_control_service == "/arm/take_control"
     assert tab.arm_release_control_service == "/arm/release_control"
+    assert tab.arm_command_topic == "/filter/web_ui_joint_commands"
+
+
+def test_map_nav_tab_has_no_arm_command_topic_but_publish_topics_list_the_arm_one() -> None:
+    """The MAP tab no longer drives the arm; the allowlist gets the topic from the arm tab."""
+    cfg = AppConfig(
+        tabs=[TabConfig(id="map", type="map_nav", label="Map"), TabConfig(id="arm", type="arm", label="Arm")]
+    )
+    assert cfg.tabs[0].arm_command_topic is None
+    assert "/filter/web_ui_joint_commands" in cfg.publish_topics()
+
+
+def test_default_yaml_arm_command_topic_lives_on_the_arm_tab_only() -> None:
+    cfg = load_config(Path(__file__).resolve().parents[1] / "config" / "default.yaml")
+    holders = [t.type for t in cfg.tabs if t.arm_command_topic]
+    assert holders == ["arm"]
+    raw = yaml.safe_load((Path(__file__).resolve().parents[1] / "config" / "default.yaml").read_text())
+    map_raw = next(t for t in raw["tabs"] if t["type"] == "map_nav")
+    arm_raw = next(t for t in raw["tabs"] if t["type"] == "arm")
+    assert "arm_command_topic" not in map_raw
+    assert arm_raw["arm_command_topic"] == "/filter/web_ui_joint_commands"
 
 
 def test_default_arm_tab_uses_the_head_camera() -> None:

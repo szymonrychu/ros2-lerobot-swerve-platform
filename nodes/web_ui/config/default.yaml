@@ -82,7 +82,6 @@ tabs:
     base_joint_states_topic: /swerve_drive/joint_states
     arm_urdf: so101_arm.urdf
     arm_joint_states_topic: /follower/joint_states
-    arm_command_topic: /filter/web_ui_joint_commands
     # Pan/tilt head model (URDF under the URDF directory) driven by the head joint states.
     head_urdf: head.urdf
     head_joint_states_topic: /head/joint_states
@@ -114,6 +113,8 @@ tabs:
     head_camera_topic: /head_camera/image_raw/compressed
     arm_urdf: so101_arm.urdf
     arm_joint_states_topic: /follower/joint_states
+    # Where the draggable arm publishes (filter_node web_ui input).
+    arm_command_topic: /filter/web_ui_joint_commands
 
   # Head tab: the RealSense D435 on the pan/tilt head (realsense_d435, live topics pinned in
   # nodes/bridges/realsense_d435/config/topics.yaml): colour plus a greyscale preview of its 16UC1 mm depth.

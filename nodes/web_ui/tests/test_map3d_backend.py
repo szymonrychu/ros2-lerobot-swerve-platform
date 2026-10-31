@@ -162,7 +162,7 @@ def test_map_nav_new_field_defaults() -> None:
     assert tab.arm_urdf == "so101_arm.urdf"
     assert tab.base_joint_states_topic == "/swerve_drive/joint_states"
     assert tab.arm_joint_states_topic == "/follower/joint_states"
-    assert tab.arm_command_topic == "/filter/web_ui_joint_commands"
+    assert tab.arm_command_topic is None
     assert tab.gps_anchor_min_points >= 3
     assert tab.gps_anchor_min_spread_m > 0
     assert tab.gps_anchor_max_residual_m > 0
@@ -270,7 +270,7 @@ def test_default_yaml_tab_set_map_first() -> None:
     tab = cfg.tabs[0]
     assert tab.local_costmap_topic == "/local_costmap/costmap"
     assert tab.gps_fix_topic == "/client/gps/fix"
-    assert tab.arm_command_topic == "/filter/web_ui_joint_commands"
+    assert tab.arm_command_topic is None
     assert tab.base_urdf == "robot.urdf"
     assert tab.arm_urdf == "so101_arm.urdf"
     assert tab.base_joint_states_topic == "/swerve_drive/joint_states"

@@ -2573,7 +2573,6 @@ ros2_nodes:
           base_joint_states_topic: /swerve_drive/joint_states
           arm_urdf: so101_arm.urdf
           arm_joint_states_topic: /follower/joint_states
-          arm_command_topic: /filter/web_ui_joint_commands
           # Pan/tilt head model driven by the head_state_publisher joint states.
           head_urdf: head.urdf
           head_joint_states_topic: /head/joint_states
@@ -2641,6 +2640,8 @@ ros2_nodes:
           head_camera_topic: /head_camera/image_raw/compressed
           arm_urdf: so101_arm.urdf
           arm_joint_states_topic: /follower/joint_states
+          # Where the draggable arm publishes (filter_node web_ui input).
+          arm_command_topic: /filter/web_ui_joint_commands
           arm_offset: [0.0592, -0.05, 0.100]
           gripper_camera_mount:
             xyz: [-0.0046, 0.0364, -0.0364]

@@ -156,6 +156,11 @@ def test_leader_bridge_has_no_neutral_keys() -> None:
         assert not [k for k in extra if k.startswith("neutral_")]
 
 
+def test_arm_command_topic_is_on_the_arm_tab() -> None:
+    holders = [t for t in node_config("web_ui")["tabs"] if "arm_command_topic" in t]
+    assert [t["type"] for t in holders] == ["arm"]
+
+
 def test_web_ui_command_topics_match_configured_topics() -> None:
     web = web_ui_groups()
     assert web["arm"]["command_topics"] == [tab_value("arm_command_topic")]
