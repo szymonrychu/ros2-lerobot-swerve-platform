@@ -1,13 +1,31 @@
-# Client CPU budget recovery after overload record
+# Client CPU budget recovery after overload retro
 
-## Summary
+## Review
+
+Migrated from the epic format.
+
+## What went well
+
+none recorded in the epic format
+
+## What went wrong or could improve
+
+none recorded in the epic format
+
+## Recommendations
+
+none
+
+## Delivery record (migrated)
+
+### Summary
 
 Asked: win back ~1.0-1.2 of the Pi 5 client's 4 cores with eight user-picked savings (IMU 25 Hz, EventsExecutor in five nodes, head camera 15 fps, raw subscriptions in marker_detector and mcp_server, idle filter_node feedback, costmap_zones changed-masks, Alloy 15 s), plus a runbook.
 Shipped: all eight items, the runbook, and a second pass added after measurement (nav2 bonds off, 3 unused servers removed, mcp_server feeds node). 17 task files: 15 code tasks built and verified, 1 runbook task, 1 discovered task rejected (folded into the runbook).
 Measured (docs/runbooks/client-cpu-budget.md ## Results): 3.74 -> 3.31 (after the 8 items) -> 2.29 cores; idle 0-1 % -> 41 %; load 25-42 -> 5.0.
 Verdict: pass (2026-10-22). Not measured: EKF rate; `failed to get costmap frame (odom)` re-check after a drive.
 
-## Planned vs built
+### Planned vs built
 
 Verifier head = `tasks[].verification.head` from the plan-execute returns (run1 / tail / pass2). Rounds from the returns. Red = implementer's own `tests.red` run; "none recorded" means the return carries no red run (a `tdd-revert` result is not quoted as red). Files = `filesChanged` in the return, which lists only the last round's files for several tasks (unknown for the rest).
 
@@ -48,7 +66,7 @@ Approvals (`approvals.json`; status from the returns, A7/A9 per the orchestrator
 
 The second-pass tasks (mcp-server-raw-feed-subscrip, nav2-bonds-off-unused-server) have no ledger entry: the approvals returns of the tail and pass2 runs list none for them (pass2 `approvals` is empty). Status: unknown.
 
-## Deviations and rulings
+### Deviations and rulings
 
 - costmap-zones-changed-masks: gate-repeat escalation on "parking wording" at nodes/costmap_zones/README.md lines 122/124. Accepted as false positive: the lines state the measured root cause (TF timeliness under load, filters outside costmap_zones). Cost if wrong: a deferral hides an unfixed cause of the odom frame errors; mitigated by the conditional runbook check.
 - local-filters-transform-tole (discovered task): rejected. Raising the local filters' transform_tolerance 0.2 -> 0.5 is conditional on the errors persisting after the CPU fixes; folded into cpu-budget-runbook as a check. Cost if wrong: the errors persist until someone runs the check; the Results section says it is still to be re-checked after a drive.
@@ -58,11 +76,11 @@ The second-pass tasks (mcp-server-raw-feed-subscrip, nav2-bonds-off-unused-serve
 - Declined findings upheld by the plan-execute reviewers: nav2 verification claims a1/a2/a4 "unmet" (they are met in other files); mcp-server-raw-feed full-suite and `__main__` wiring test.
 - forwardMerged: none in any of the three returns.
 
-## Duplicates reconciled
+### Duplicates reconciled
 
 none (all three returns: `duplicates: []`).
 
-## Discovered and blocked
+### Discovered and blocked
 
 - Local filters' transform_tolerance (0.2) may need raising to 0.5 if `failed to get costmap frame (odom)` persists. Rejected as a task, kept as a runbook check; the orchestrator re-checks after a drive.
 - EKF `/odometry/filtered` ~30 Hz not measured (web_ui does not forward it; topic_scraper_api left disabled). Who can clear it: the orchestrator or the user, by enabling topic_scraper_api temporarily.
@@ -72,12 +90,12 @@ none (all three returns: `duplicates: []`).
 - Process gaps from the returns: filter-node-events-executor red evidence reconstructed by the verifier, not the implementer; tests/README.md did not list nodes/filter_node/tests/test_feedback_takeover.py at review time; nav2 round-2 edit to tests/README.md unnamed.
 - Nothing in `undelivered`, `blocked` or `misattributed` in any return.
 
-## Research that changed the plan
+### Research that changed the plan
 
 - Measurement after the first eight items (3.31 cores, nav2 0.58, mcp_server 0.59) and two nav2 bond-reset segfaults (22:58, 23:36) added the second pass: nav2 bonds off, 3 servers removed, mcp_server feeds node. Source: docs/runbooks/client-cpu-budget.md ## Results.
 - rclpy Jazzy source: `EventsExecutor.spin_once` honours its timeout (runs `events_queue_.Run(end)`), so control-loop pacing is unchanged (filter-node-events-executor process gap).
 
-## Cost
+### Cost
 
 Agents by role, continuations, audits: unknown (not in the inputs beyond per-task rounds: 1-3). Three plan-execute runs (run1, tail, pass2); wall-clock unknown.
 
@@ -103,11 +121,11 @@ Agents by role, continuations, audits: unknown (not in the inputs beyond per-tas
 
 README Time: Estimate 905 min | Actual 0 min | Remaining 60 min (actuals were never filled in).
 
-## MRs and deploy
+### MRs and deploy
 
 No MRs: task branches merged locally into main (e.g. e6092364, 60273ff6, feb3c541, c4bebd57, 9a54af81..491148fc, ccaed407, 4a19d85a); not pushed by this record's author. Deploy: client --all, monitoring client and server, then nav2_bringup and mcp_server (README Review). Results commit e1fd716b. nav2 active since 00:46 with bonds off.
 
-## Lessons routed to
+### Lessons routed to
 
 - Reviewer must diff a replaced upstream file against the installed one (nav2 launch file: ~370 unintended lines passed one verifier): add a test in tests/test_nav_stack_config.py that pins navigation_launch.py to the installed file minus a named edit list (mechanical).
 - Parking-wording gate flags README prose describing root causes and runbooks executed after merge (3 false positives): scope the gate to added code/TODO markers or let tasks pre-declare "runbook executed post-merge"; the rule is a judgement call, edit the plan-execute parking checklist.

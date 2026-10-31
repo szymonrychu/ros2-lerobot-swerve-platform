@@ -1,46 +1,48 @@
-# Client CPU budget recovery after overload design
+---
+title: Client CPU budget recovery after overload
+repos: [ros2-lerobot-sverve-platform]
+created: 2026-10-21
+owner: Szymon Richert
+rung: 1
+---
 
-## Summary
+# Client CPU budget recovery after overload
 
-Eight independent savings on the Pi 5 client, about 1.0-1.2 cores in all, chosen by the user as one epic (D1 of the brief): `/imu/data` at 25 Hz, the rclpy EventsExecutor behind a per-node config switch in five single-threaded high-rate Python nodes, the head camera at 15 fps, raw subscriptions decoded on the timer in marker_detector and mcp_server, throttled arm feedback in filter_node while idle, per-mask publish-on-change in costmap_zones, and the client's Alloy at 15 s. Every item is reversible by config, pinned by tests, and measured by a runbook the orchestrator executes after merge.
+## What and why
 
-## Intent and why
+What: win back about 1.0-1.2 of the Pi 5 client's 4 cores with the eight savings the user picked (D1): IMU at 25 Hz, the rclpy EventsExecutor in five high-rate single-threaded Python nodes, head camera at 15 fps, raw (lazy) subscriptions in marker_detector and mcp_server, the throttled arm feedback in filter_node while idle, costmap_zones publishing only changed masks, and the client's Alloy scraping every 15 s.
+How: config changes in `ansible/group_vars/client.yml` pinned by root tests, small test-first node changes (a per-node `executor: events|single_threaded` switch with a config rollback, raw subscriptions decoded on the timer, a feedback-rate switch, per-mask publish-on-change), Grafana windows checked against the slower scrape, and a runbook that measures per-service CPU 30 min before and after and checks nav2 stays up.
+Why: the client is saturated (us 82 sy 18 id 0, run queue 42-47, services ~3.6-3.7 cores): nav2's bond timed out and its container segfaulted, web_ui marks the head camera stale (8.5 of ~19 fps delivered), and the rplidar driver restarted.
 
-The client is saturated: vmstat us 82 sy 18 id 0, run queue 42-47, services ~3.6-3.7 of 4 cores (Mimir 30 min rate sums). Consequences on 2026-10-21: the nav2 bond timed out at 18:44:58 UTC, deactivating the stack, and the container segfaulted at 18:45:43 (exit -11, Loki); web_ui marks `/head_camera/image_raw/compressed` stale (subscribers get 8.5 of ~19 fps); the rplidar driver restarted earlier that day. Navigation cannot be trusted until the client has headroom again.
+Research on 2026-10-21 measured the client per service (Mimir 30 min rate sums, ps, vmstat, Loki). The user chose to implement all eight savings from the brief as one epic, keeping the project rules: robot nodes get cgroup weights, not tight caps; web_ui and mcp_server stay Python; new non-web/mcp nodes are C++. Every change is reversible by config, and the orchestrator executes the final runbook on the robot after merge, deploying only through `scripts/deploy-nodes.sh`. ToF depth fix and ground noise robustness edits the same `client.yml` and merges first.
 
-## Goals
+## Scope ladder
 
-- bno055_imu `publish_hz: 25`, every IMU consumer checked, staleness limits pinned at >= 3 periods.
-- swerve_drive_controller, laser_filter, marker_detector, filter_node, and the feetech bridges (lerobot_follower, base_servos) run `executor: events` on the client; `executor: single_threaded` restores today's behaviour per node.
-- head_camera_cpp `frame_duration_us: 66666` (15 fps), every consumer checked.
-- marker_detector decodes image and camera_info only in its process timer.
-- filter_node subscribes `/follower/joint_states/throttled` while idle, full rate while a source commands.
-- mcp_server decodes `/head/joint_states` on read and `/imu/data` on the monitor tick.
-- costmap_zones republishes only masks whose cells changed; the local-costmap "failed to get costmap frame (odom)" cause is named and fixed when it is in costmap_zones.
-- The client's Alloy scrapes every 15 s; no Grafana window is below 60 s.
-- Runbook: per-service CPU 30 min before and after, nav2 active 30 min, head camera stale counter flat, EKF `/odometry/filtered` ~30 Hz.
+### Rung 1: agreed scope (migrated)
+
+- 1.1: `/imu/data` at 25 Hz with every IMU consumer checked and its staleness limits pinned.
+- 1.2: swerve_drive_controller, laser_filter, marker_detector, filter_node and the feetech bridges (lerobot_follower, base_servos) run the EventsExecutor on the client, each switchable back with `executor: single_threaded`.
+- 1.3: head_camera_cpp at 15 fps (`frame_duration_us: 66666`) with every consumer checked.
+- 1.4: marker_detector decodes the head image and camera_info only in its 2 Hz timer; mcp_server decodes `/head/joint_states` on read and `/imu/data` on its monitor tick.
+- 1.5: filter_node reads `/follower/joint_states/throttled` while no source commands, full rate while one does.
+- 1.6: costmap_zones republishes only masks whose cells changed, and the local-costmap frame errors have a named root cause (fixed when it is in costmap_zones).
+- 1.7: The client's Alloy scrapes every 15 s and no Grafana query uses a rate window below 60 s.
+- 1.8: The runbook shows per-service CPU before and after, nav2 active for 30 min, the head camera stale counter flat and the EKF at ~30 Hz.
+
+## Agreed scope
+
+Rung 1, migrated from the epic format: the epic's goals were its agreed scope.
 
 ## Non-goals
 
-- arducam_tof FRAME_RATE, nav2's duplicate ground_clear raytrace and unused servers, the web_ui broadcast loop (not picked).
-- EventsExecutor in mcp_server or web_ui; porting either off Python.
-- CPU caps on robot nodes (they get cgroup weights; background work is constrained instead).
-- The server's Alloy interval.
+- arducam_tof `FRAME_RATE`, nav2's duplicate ground_clear raytrace and unused servers, the web_ui broadcast loop (not picked by the user).
+- The EventsExecutor in mcp_server or web_ui, or any node with callback groups or a MultiThreadedExecutor.
+- Tight CPU caps on robot nodes; porting web_ui or mcp_server off Python.
+- Changing the server's Alloy interval.
 
-## Anti-goals
+## Design
 
-- Any regression in safety behaviour: tilt guard, collision monitor, bump detection, the filter_node takeover rule, the feetech velocity watchdog.
-- Placeholder data on any topic to keep rates up.
-- A change that can only be undone by a code revert (every item has a config rollback or is a pure efficiency fix with unchanged outputs).
-- Saving CPU by starving a consumer: a consumer that silently stops working at the lower rate is a failure even if the CPU drops.
-
-## Constraints
-
-- Project rules: type hints, pydantic/dataclass config loaders already in each node, constants at the top, imports at the top with no try/except, tests per new function, READMEs and tests/README.md kept current.
-- Every deploy through `scripts/deploy-nodes.sh`, logged to `.logs/`; the orchestrator executes the runbook after merge.
-- ToF depth fix and ground noise robustness edits `ansible/group_vars/client.yml` and is this epic's blocker; it merges first (README `blockers`, required by `ticket.py` for the shared file).
-- Servo safety: no task moves a servo.
-- installed rclpy 7.1.12 (Jazzy) on the client provides `rclpy.experimental.EventsExecutor`.
+Migrated from the epic format; the design sections without a plan.md heading are under Migrated notes.
 
 ## Decisions
 
@@ -83,6 +85,10 @@ The last task writes `docs/runbooks/client-cpu-budget.md` and the `scripts/node_
 ### D10: Gate Q1 (recommended answer, user said go 2026-10-21): mcp_s
 Gate Q1 (recommended answer, user said go 2026-10-21): mcp_server decodes every queued IMU sample at the monitor tick so bump detection stays exact (user decision)
 
+## Open questions
+
+- Q1: Keep mcp_server bump detection exact by decoding every queued raw IMU sample at the monitor tick (the IMU part of item 6 then saves less; the head joint states carry most of the saving), rather than decoding only the newest sample per 0.25 s tick? [recommended: yes]
+
 ## Research
 
 | Lens | Ran or skipped | Adopted | Rejected |
@@ -93,7 +99,7 @@ Gate Q1 (recommended answer, user said go 2026-10-21): mcp_server decodes every 
 | research-papers | skipped: no algorithmic question | none | none |
 | research-docs | skipped: Grafana `$__rate_interval` rule (max(4 x timeInterval, interval + timeInterval)) is standard; Nav2 filter source is read in costmap-zones-changed-masks | datasource timeInterval follows the slowest scrape | none |
 
-## Research inputs
+### Research inputs
 
 | Source | Entry | Lands in |
 |---|---|---|
@@ -113,7 +119,63 @@ Gate Q1 (recommended answer, user said go 2026-10-21): mcp_server decodes every 
 | reuse: scripts/node_cpu_compare.py and node_cpu_compare.yaml | before/after per unit from Mimir | cpu-budget-runbook |
 | fix-as-ac: mcp_server per-call subscription destroy raced the executor (2026-10-08) | swap subscriptions only from the main loop | filter-node-idle-feedback (a7) |
 
-## Decision coverage
+## Irreversible operations
+
+none. Every change is a config value or code with a config rollback; deploys go through `scripts/deploy-nodes.sh`.
+
+## Migrated notes
+
+### README.md: Review
+
+Filled when the epic reaches stage `review`: the verdict, the findings acted on, the findings dropped.
+
+Verdict: pass (2026-10-22)
+
+All 15 code tasks verified on their heads (two re-verified by the orchestrator: nav2 launch replaced by the installed 1.3.13 file plus the two intended edits after a diff showed ~370 unintended differences; feeds node). Root suite 2034 passed, mcp_server 2839 passed. Deployed client --all, monitoring client and server, then nav2_bringup and mcp_server. Runbook results (docs/runbooks/client-cpu-budget.md): 3.74 -> 2.29 cores, idle 0-1 % -> 41 %, load 25-42 -> 5; nav2 active since 00:46 with bonds off.
+
+### design.md: Summary
+
+Eight independent savings on the Pi 5 client, about 1.0-1.2 cores in all, chosen by the user as one epic (D1 of the brief): `/imu/data` at 25 Hz, the rclpy EventsExecutor behind a per-node config switch in five single-threaded high-rate Python nodes, the head camera at 15 fps, raw subscriptions decoded on the timer in marker_detector and mcp_server, throttled arm feedback in filter_node while idle, per-mask publish-on-change in costmap_zones, and the client's Alloy at 15 s. Every item is reversible by config, pinned by tests, and measured by a runbook the orchestrator executes after merge.
+
+### design.md: Intent and why
+
+The client is saturated: vmstat us 82 sy 18 id 0, run queue 42-47, services ~3.6-3.7 of 4 cores (Mimir 30 min rate sums). Consequences on 2026-10-21: the nav2 bond timed out at 18:44:58 UTC, deactivating the stack, and the container segfaulted at 18:45:43 (exit -11, Loki); web_ui marks `/head_camera/image_raw/compressed` stale (subscribers get 8.5 of ~19 fps); the rplidar driver restarted earlier that day. Navigation cannot be trusted until the client has headroom again.
+
+### design.md: Goals
+
+- bno055_imu `publish_hz: 25`, every IMU consumer checked, staleness limits pinned at >= 3 periods.
+- swerve_drive_controller, laser_filter, marker_detector, filter_node, and the feetech bridges (lerobot_follower, base_servos) run `executor: events` on the client; `executor: single_threaded` restores today's behaviour per node.
+- head_camera_cpp `frame_duration_us: 66666` (15 fps), every consumer checked.
+- marker_detector decodes image and camera_info only in its process timer.
+- filter_node subscribes `/follower/joint_states/throttled` while idle, full rate while a source commands.
+- mcp_server decodes `/head/joint_states` on read and `/imu/data` on the monitor tick.
+- costmap_zones republishes only masks whose cells changed; the local-costmap "failed to get costmap frame (odom)" cause is named and fixed when it is in costmap_zones.
+- The client's Alloy scrapes every 15 s; no Grafana window is below 60 s.
+- Runbook: per-service CPU 30 min before and after, nav2 active 30 min, head camera stale counter flat, EKF `/odometry/filtered` ~30 Hz.
+
+### design.md: Non-goals
+
+- arducam_tof FRAME_RATE, nav2's duplicate ground_clear raytrace and unused servers, the web_ui broadcast loop (not picked).
+- EventsExecutor in mcp_server or web_ui; porting either off Python.
+- CPU caps on robot nodes (they get cgroup weights; background work is constrained instead).
+- The server's Alloy interval.
+
+### design.md: Anti-goals
+
+- Any regression in safety behaviour: tilt guard, collision monitor, bump detection, the filter_node takeover rule, the feetech velocity watchdog.
+- Placeholder data on any topic to keep rates up.
+- A change that can only be undone by a code revert (every item has a config rollback or is a pure efficiency fix with unchanged outputs).
+- Saving CPU by starving a consumer: a consumer that silently stops working at the lower rate is a failure even if the CPU drops.
+
+### design.md: Constraints
+
+- Project rules: type hints, pydantic/dataclass config loaders already in each node, constants at the top, imports at the top with no try/except, tests per new function, READMEs and tests/README.md kept current.
+- Every deploy through `scripts/deploy-nodes.sh`, logged to `.logs/`; the orchestrator executes the runbook after merge.
+- ToF depth fix and ground noise robustness edits `ansible/group_vars/client.yml` and is this epic's blocker; it merges first (README `blockers`, required by `ticket.py` for the shared file).
+- Servo safety: no task moves a servo.
+- installed rclpy 7.1.12 (Jazzy) on the client provides `rclpy.experimental.EventsExecutor`.
+
+### design.md: Decision coverage
 
 | Decision | Tasks |
 |---|---|
@@ -128,7 +190,7 @@ Gate Q1 (recommended answer, user said go 2026-10-21): mcp_server decodes every 
 | D9 Runbook after merge | cpu-budget-runbook |
 | D10 Gate Q1 (recommended answer, user said go 2026-10-21): mcp_s | mcp-raw-imu-and-head-states |
 
-## Contracts
+### design.md: Contracts
 
 | Part | Owner | Consumers | Where defined |
 |---|---|---|---|
@@ -139,7 +201,7 @@ Cross-epic (`docs/plans/contracts.json`): `imu-data-rate` (consumer rgb-d-ground
 
 The `executor` config key is per node (each executor task builds its own; client-executor-config depends on all five), so it is not a shared part.
 
-## Review focus
+### design.md: Review focus
 
 - filter-node-idle-feedback: the takeover/proximity rule must see full-rate positions from the first active cycle; the subscription swap must never run inside a callback.
 - feetech-events-executor and filter-node-events-executor: `spin_once` semantics on the EventsExecutor (non-blocking at 0.0, honouring the timeout) in loops that drive servos.
@@ -147,24 +209,29 @@ The `executor` config key is per node (each executor task builds its own; client
 - costmap-zones-changed-masks: a missed republish would leave Nav2 with a stale latched mask; geometry changes must republish all.
 - Every config task: the consumer checks are real reads, not assumptions.
 
-## Left to the builder
+### design.md: Left to the builder
 
 - The exact name and shape of the keep-all monitor feed in mcp_server (class or option), within staleness.py.
 - `IMU_FEED_MAX_SAMPLES` (any bound that covers several ticks at 25 Hz).
 - The digest function in costmap_zones (any stable hash of the mask bytes plus geometry).
 - Wording and placement of README sections, beyond the headings named in the ACs.
 
-## Assumptions and unknowns
+### design.md: Assumptions and unknowns
 
 - EventsExecutor `spin_once(timeout_sec)` honours the timeout and returns at 0.0 without blocking: confirmed by the implementers from the rclpy jazzy source (feetech-events-executor, filter-node-events-executor), and on the robot by the runbook.
 - The savings are the research agent's estimates (-0.18, -0.3, -0.12, -0.07, -0.08, -0.08, -0.04, -0.06 core); the runbook measures them.
 - Cause of the local-costmap frame errors: unknown; costmap-zones-changed-masks settles it from the Nav2 source and Loki.
 - Whether any IMU consumer has a sample-count window: imu-publish-rate-25-hz checks each one.
 
-## Open questions
+### approvals.json
 
-- Q1: Keep mcp_server bump detection exact by decoding every queued raw IMU sample at the monitor tick (the IMU part of item 6 then saves less; the head joint states carry most of the saving), rather than decoding only the newest sample per 0.25 s tick? [recommended: yes]
-
-## Irreversible operations in scope
-
-none. Every change is a config value or code with a config rollback; deploys go through `scripts/deploy-nodes.sh`.
+- A1: bno055_imu publishes /imu/data at 25 Hz instead of 50 Hz, with every IMU consumer checked and its staleness limits pinned by tests. [decisions: D1] [tasks: imu-publish-rate-25-hz] [status: approved]
+- A2: swerve_drive_controller, laser_filter, marker_detector, filter_node and the feetech bridges (lerobot_follower, base_servos) run the rclpy EventsExecutor on the client behind a per-node executor: events|single_threaded config switch; not mcp_server or web_ui. [decisions: D2] [tasks: swerve-events-executor, laser-filter-events-executor, marker-events-executor, filter-node-events-executor, feetech-events-executor, client-executor-config] [status: approved]
+- A3: head_camera_cpp runs at 15 fps (frame_duration_us 66666) on the client, with every consumer checked for rate assumptions. [decisions: D3] [tasks: head-camera-15-fps] [status: approved]
+- A4: marker_detector subscribes the head image and camera_info raw and deserializes them only in its process timer. [decisions: D4] [tasks: marker-detector-raw-image] [status: approved]
+- A5: filter_node uses /follower/joint_states/throttled while idle and the full-rate feedback while a source is actively commanding. [decisions: D5] [tasks: filter-node-idle-feedback] [status: approved]
+- A6: mcp_server subscribes /imu/data and /head/joint_states raw and deserializes them only on the monitor tick or on read. [decisions: D6] [tasks: mcp-raw-imu-and-head-states] [status: approved]
+- A7: costmap_zones publishes only the masks that changed, and the local-costmap 'failed to get costmap frame (odom)' cause is found and fixed when it is in costmap_zones' mask or info messages. [decisions: D7] [tasks: costmap-zones-changed-masks] [status: approved]
+- A8: The client's Alloy scrapes every 15 s instead of 5 s, with Grafana rate windows below 4x the new interval widened. [decisions: D8] [tasks: alloy-scrape-interval-15-s] [status: approved]
+- A9: A final runbook (deploy through scripts/deploy-nodes.sh, per-service CPU 30 min before and after, nav2 stays active 30 min, head camera stale counter flat, EKF ~30 Hz) that the orchestrator executes after merge. [decisions: D9] [tasks: cpu-budget-runbook] [status: approved]
+- G1: Gate Q1 (recommended answer, user said go 2026-10-21): mcp_server decodes every queued IMU sample at the monitor tick so bump detection stays exact [decisions: D10] [tasks: mcp-raw-imu-and-head-states] [status: approved]
