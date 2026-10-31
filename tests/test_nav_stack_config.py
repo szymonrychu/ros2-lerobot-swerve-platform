@@ -1069,6 +1069,7 @@ def test_web_ui_has_map_nav_tab() -> None:
         "global_plan_topic": "/plan",
         "local_plan_topic": LOCAL_PLAN_TOPIC,
         "goal_topic": "/goal_pose",
+        "drive_pose_state_topic": "/arm/drive_pose/state",
         "map_frame": "map",
         "base_frame": "base_link",
         "map_save_path": MAP_BASE,
