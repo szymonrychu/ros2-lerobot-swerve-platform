@@ -1864,9 +1864,7 @@ Static checks of the `arducam_tof` deployment (Arducam ToF depth camera, Client 
 | `test_node_type_has_no_dds_peer` | No `ROS_STATIC_PEERS` on the node type. |
 | `test_ros2_nodes_entry_is_retired` | `ros2_nodes` entry is `present: false` with no `config` (the next deploy uninstalls the unit, venv and config). |
 | `test_metrics_port_is_scraped_exactly_when_the_node_is_enabled` | The metrics port is in `monitoring_agent_node_targets` only when the node is present and enabled, so the retired node is unscraped. |
-| `test_sdk_task_adds_the_arducam_repo_and_installs_the_sdk` | `arducam_tof_sdk.yml` adds the Arducam apt repo and installs `arducam-tof-sdk-dev`. |
-| `test_sdk_task_is_idempotent_and_never_fails_the_deploy` | The SDK task tolerates an unavailable repo or package. |
-| `test_client_playbook_includes_the_sdk_task_and_deploys_the_node` | `deploy_nodes_client.yml` includes the SDK task and the tagged `Deploy arducam_tof` block. |
+| `test_client_playbook_deploys_the_node` | `deploy_nodes_client.yml` has the tagged `Deploy arducam_tof` block (the uninstall path). |
 
 ### test_leader_bridge_config.py
 
@@ -2443,16 +2441,16 @@ Static invariants of the head RGB-D adapter deploy (`head_rgbd_cpp` in `ansible/
 
 ### `test_pi_camera_boot_config.py`
 
-Static checks of `ansible/playbooks/tasks/pi_camera_boot_config.yml` (IMX708 on CSI cam0, Arducam ToF on cam1).
+Static checks of `ansible/playbooks/tasks/pi_camera_boot_config.yml` (IMX708 on CSI cam0 kept for front-and-back-camera-module, the retired Arducam ToF overlay on cam1 removed).
 
 | Test | What it pins |
 |---|---|
 | `test_retired_imx219_overlays_are_removed` | `dtoverlay=imx219,cam0` and `dtoverlay=imx219,cam1` are removed with `state: absent`. |
-| `test_auto_detect_is_off_and_both_overlays_are_written` | Exactly `camera_auto_detect=0`, `dtoverlay=imx708,cam0` and `dtoverlay=arducam-pivariety,cam1` are written. |
+| `test_tof_overlay_is_removed_and_cam0_kept` | `dtoverlay=arducam-pivariety,cam1` is removed with `state: absent`; exactly `camera_auto_detect=0` and `dtoverlay=imx708,cam0` are written. |
 | `test_every_line_task_is_aarch64_only_and_registers_its_result` | Five `lineinfile` tasks, each aarch64-only, tagged `boot`, with its own registered result. |
 | `test_client_reboots_only_when_a_line_changed` | The last task reboots (timeout 120) when any registered result changed. |
-| `test_client_playbook_includes_the_boot_config_under_both_camera_node_tags` | `pre_tasks` includes the file with tags `boot`, `pi_cameras`, `arducam_tof`, `head_camera_cpp` (also on `apply`). |
-| `test_ansible_readme_describes_the_boot_config` | `ansible/README.md` names the file and the three written lines. |
+| `test_client_playbook_includes_the_boot_config_under_the_camera_node_tags` | `pre_tasks` includes the file with tags `boot`, `pi_cameras`, `arducam_tof`, `head_camera_cpp` (also on `apply`), so the uninstall deploy of a retired camera node also cleans the boot config. |
+| `test_ansible_readme_describes_the_boot_config` | `ansible/README.md` names the file, the two written lines and the removed ToF overlay. |
 | `test_tests_readme_lists_every_test_of_this_file` | Every test of this file is listed here. |
 
 ### `test_pi_cameras_retired.py`
@@ -2473,6 +2471,7 @@ Static checks of the two Pi camera retirements (D7 the overview camera, D9 `pi_c
 | `test_old_boot_file_and_old_tests_are_deleted` | `overview_camera_boot_config.yml`, `pi_camera_overlays_removed.yml` and the two `test_overview_camera*.py` files are gone. |
 | `test_client_playbook_still_deploys_overview_camera_so_the_uninstall_runs` | The playbook still deploys the name so the uninstall runs. |
 | `test_ansible_readme_describes_the_removal` | `ansible/README.md` names neither removed boot file and has no memory row for `overview_camera`. |
+| `test_arducam_sdk_task_is_gone` | `git ls-files ansible/playbooks/tasks/arducam_tof_sdk.yml` is empty and no playbook names `arducam_tof_sdk` (the Arducam ToF SDK install went with the head ToF). |
 | `test_tests_readme_lists_every_test_of_this_file` | Every test of this file is listed here. |
 
 ### test_ansible_deploy_speed.py

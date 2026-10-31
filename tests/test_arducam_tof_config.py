@@ -1,8 +1,8 @@
-"""Static invariants of the arducam_tof deployment (Ansible group_vars, SDK install task, playbook wiring).
+"""Static invariants of the arducam_tof deployment (Ansible group_vars, playbook wiring).
 
 arducam_tof published the Arducam ToF depth, amplitude and camera_info topics from CSI cam1. It is retired by the D435
 switchover (present: false, no config: the next deploy uninstalls it); its node type stays declared for that uninstall,
-it is unscraped, and its SDK install never fails a deploy.
+and it is unscraped (the SDK install task is gone, tests/test_pi_cameras_retired.py).
 """
 
 from pathlib import Path
@@ -12,11 +12,8 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent.parent
 GROUP_VARS = REPO_ROOT / "ansible" / "group_vars"
 CLIENT_PLAYBOOK = REPO_ROOT / "ansible" / "playbooks" / "deploy_nodes_client.yml"
-SDK_TASKS = REPO_ROOT / "ansible" / "playbooks" / "tasks" / "arducam_tof_sdk.yml"
 NODE = "arducam_tof"
 METRICS_PORT = 19112
-APT_REPO = "https://arducam.github.io/arducam_ppa linux main"
-SDK_PACKAGE = "arducam-tof-sdk-dev"
 NORMAL_TIER = (500, 500, -500)
 
 
@@ -86,27 +83,8 @@ def test_metrics_port_is_scraped_exactly_when_the_node_is_enabled() -> None:
         assert NODE not in targets
 
 
-def test_sdk_task_adds_the_arducam_repo_and_installs_the_sdk() -> None:
-    text = SDK_TASKS.read_text()
-    assert APT_REPO in text
-    assert SDK_PACKAGE in text
-    tasks = yaml.safe_load(text)
-    assert tasks, "task file is empty"
-
-
-def test_sdk_task_is_idempotent_and_never_fails_the_deploy() -> None:
-    text = SDK_TASKS.read_text()
-    assert "ansible.builtin.apt_repository" in text
-    assert "state: present" in text
-    assert "block:" in text and "rescue:" in text
-    assert "state: absent" in text  # a failed install removes the repo again so the batched node apt run stays clean
-    assert "ansible.builtin.debug" in text
-    assert "ansible.builtin.command" not in text and "ansible.builtin.shell" not in text
-
-
-def test_client_playbook_includes_the_sdk_task_and_deploys_the_node() -> None:
+def test_client_playbook_deploys_the_node() -> None:
     text = CLIENT_PLAYBOOK.read_text()
-    assert "tasks/arducam_tof_sdk.yml" in text
     assert "name: Deploy arducam_tof" in text
     assert "_deploy_node_name: arducam_tof" in text
     assert "tags: [arducam_tof, apt, python, build, config]" in text

@@ -1,8 +1,8 @@
 ---
-# Boot config for the Pi 5 CSI ports: the Camera Module 3 (IMX708, the head RGB camera of head_camera_cpp) on cam0 and the Arducam
-# ToF camera on cam1. The firmware's auto detection does not know the ToF, so it is turned off and both overlays are
-# written explicitly; the IMX219 overlays of the retired Pi camera pair are removed. The firmware reads config.txt at
-# boot, so the client reboots when (and only when) a line changed. Same pattern as the UART overlay in
+# Boot config for the Pi 5 CSI ports: the Camera Module 3 (IMX708) overlay on cam0 stays for front-and-back-camera-module,
+# which reuses head_camera_cpp on it. Auto detection stays off and the cam0 overlay is written explicitly. The overlays
+# of retired cameras are removed: the IMX219 pair and the Arducam ToF on cam1 (retired by the D435 switchover). The
+# firmware reads config.txt at boot, so the client reboots when (and only when) a line changed. Same pattern as the UART overlay in
 # deploy_nodes_client.yml and bno055_i2c_boot_config.yml. Included from pre_tasks (after the stop-all) by the full
 # client playbook (tags boot, pi_cameras, head_camera_cpp and arducam_tof, so a deploy of any camera node reaches it).
 - name: Remove the IMX219 overlay from CSI cam0 (left camera, retired)
@@ -23,7 +23,7 @@
   register: imx219_cam1_result
   tags: [boot]
 
-- name: Turn camera auto detection off (it does not detect the Arducam ToF)
+- name: Turn camera auto detection off (cam0 is configured explicitly)
   ansible.builtin.lineinfile:
     path: /boot/firmware/config.txt
     line: "camera_auto_detect=0"
@@ -44,13 +44,11 @@
   register: imx708_cam0_result
   tags: [boot]
 
-- name: Enable the Arducam ToF overlay on CSI cam1 (Pivariety driver, ships with the Ubuntu raspi kernel)
+- name: Remove the Arducam ToF overlay from CSI cam1 (retired, the head D435 replaces it)
   ansible.builtin.lineinfile:
     path: /boot/firmware/config.txt
-    line: "dtoverlay=arducam-pivariety,cam1"
     regexp: "^dtoverlay=arducam-pivariety,cam1$"
-    insertafter: "^dtoverlay=imx708,cam0$"
-    create: true
+    state: absent
   when: ansible_machine == "aarch64"
   register: tof_cam1_result
   tags: [boot]

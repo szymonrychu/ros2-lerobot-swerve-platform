@@ -7,8 +7,12 @@ test_pi_camera_boot_config.py.
 D9 of the head camera epic retires pi_cameras the same way: its entry is present: false with no config, its node type
 keeps only the launch command and the camera_ros purge (libcamera stays: head_camera_cpp builds against it), and
 nodes/pi_cameras and its two test files are deleted.
+
+The Arducam ToF SDK apt task (ansible/playbooks/tasks/arducam_tof_sdk.yml) goes with the head ToF (D435 switchover):
+the file is untracked and no playbook includes it.
 """
 
+import subprocess
 from pathlib import Path
 
 import yaml
@@ -19,6 +23,7 @@ CLIENT_VARS = ANSIBLE / "group_vars" / "client.yml"
 CLIENT_PLAYBOOK = ANSIBLE / "playbooks" / "deploy_nodes_client.yml"
 TASKS = ANSIBLE / "playbooks" / "tasks"
 REMOVED_TASKS = TASKS / "pi_camera_overlays_removed.yml"
+SDK_TASKS = "ansible/playbooks/tasks/arducam_tof_sdk.yml"
 OLD_TASKS = TASKS / "overview_camera_boot_config.yml"
 PI_CAMERAS_DIR = REPO_ROOT / "nodes" / "pi_cameras"
 ANSIBLE_README = ANSIBLE / "README.md"
@@ -135,6 +140,14 @@ def test_ansible_readme_describes_the_removal() -> None:
     assert "overview_camera_boot_config" not in readme
     assert "pi_camera_overlays_removed" not in readme
     assert "| overview_camera |" not in readme, "no memory table row for a retired node"
+
+
+def test_arducam_sdk_task_is_gone() -> None:
+    tracked = subprocess.run(["git", "ls-files", SDK_TASKS], cwd=REPO_ROOT, capture_output=True, text=True, check=True)
+    assert tracked.stdout == ""
+    playbooks = sorted((ANSIBLE / "playbooks").rglob("*.yml"))
+    assert playbooks
+    assert not [str(p.relative_to(REPO_ROOT)) for p in playbooks if "arducam_tof_sdk" in p.read_text()]
 
 
 def test_tests_readme_lists_every_test_of_this_file() -> None:

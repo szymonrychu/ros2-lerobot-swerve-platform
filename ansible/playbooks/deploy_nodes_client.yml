@@ -78,16 +78,12 @@
         reboot_timeout: 120
       tags: [boot, gps_rtk_rover]
 
-    - name: CSI camera overlays (IMX708 on cam0, Arducam ToF on cam1), reboot only when changed
+    - name: CSI camera overlays (IMX708 on cam0 kept, retired overlays removed), reboot only when changed
       ansible.builtin.include_tasks:
         file: tasks/pi_camera_boot_config.yml
         apply:
           tags: [boot, pi_cameras, arducam_tof, head_camera_cpp]
       tags: [boot, pi_cameras, arducam_tof, head_camera_cpp]
-
-    - name: Arducam ToF SDK apt repo and package (non-fatal when unavailable)
-      ansible.builtin.include_tasks: tasks/arducam_tof_sdk.yml
-      tags: [arducam_tof, apt]
 
     - name: BNO055 software I2C bus (i2c-gpio on GPIO2/3), reboot only when changed
       ansible.builtin.include_tasks:

@@ -533,7 +533,7 @@ ALLOWED_REFERENCES: tuple[tuple[str, str, str], ...] = (
     ("ansible/README.md", "^\\-\\ the\\ live\\ nftables\\ table\\ `ip\\ jetson_link`\\ \\(only", "retirement-doc"),
     (
         "ansible/README.md",
-        "^\\*\\*CSI\\ camera\\ boot\\ config\\.\\*\\*\\ `playbooks/tasks/pi_camera_boot_config\\.yml`\\ \\(included\\ from\\ `pre_tasks`\\ of\\ `deploy_nodes_client\\.yml`,\\ tags\\ `boot`,\\ `pi_cameras`\\ and\\ `arducam_tof`\\)\\ takes\\ the\\ retired\\ `dtoverlay=imx219,cam0`\\ and\\ `dtoverlay=imx219,cam1`\\ out\\ of\\ `/boot/firmware/config\\.txt`\\ \\(`state:\\ absent`\\),\\ writes\\ `camera_auto_detect=0`\\ \\(auto\\ detection\\ does\\ not\\ know\\ the\\ Arducam\\ ToF\\)\\ and\\ the\\ two\\ explicit\\ overlays\\ `dtoverlay=imx708,cam0`\\ \\(Camera\\ Module\\ 3,\\ `pi_cameras`\\ front\\)\\ and\\ `dtoverlay=arducam\\-pivariety,cam1`\\ \\(Arducam\\ ToF,\\ `arducam_tof`\\)\\.\\ Every\\ task\\ runs\\ on\\ aarch64\\ only\\ and\\ registers\\ its\\ result,\\ and\\ the\\ client\\ reboots\\ only\\ when\\ a\\ line\\ changed\\.\\ `overview_camera`\\ is\\ `presen",
+        "^\\*\\*CSI\\ camera\\ boot\\ config\\.\\*\\*\\ `playbooks/tasks/pi_camera_boot_config\\.yml`\\ \\(included\\ from\\ `pre_tasks`\\ of\\ `deploy_nodes_client\\.yml`,\\ tags\\ `boot`,\\ `pi_cameras`,\\ `arducam_tof`\\ and\\ `head_camera_cpp`",
         "retirement-doc",
     ),
     (
