@@ -50,19 +50,24 @@ def write_cfg(tmp_path: Path, body: str) -> Path:
     return path
 
 
+FULL_POSE = "    x: 0.0\n    y: 0.0\n    z: 0.0\n"
+
+
 def test_config_roll_pitch_present(tmp_path: Path) -> None:
-    out = load_config(write_cfg(tmp_path, "frames:\n  - child: a\n    roll: 0.1\n    pitch: -0.2\n    yaw: 0.3\n"))
+    body = "frames:\n  - child: a\n" + FULL_POSE + "    roll: 0.1\n    pitch: -0.2\n    yaw: 0.3\n"
+    out = load_config(write_cfg(tmp_path, body))
     assert out is not None
     assert (out[0].roll, out[0].pitch, out[0].yaw) == (0.1, -0.2, 0.3)
 
 
-def test_config_roll_pitch_absent(tmp_path: Path) -> None:
-    out = load_config(write_cfg(tmp_path, "frames:\n  - child: a\n    yaw: 0.3\n"))
-    assert out is not None
-    assert (out[0].roll, out[0].pitch) == (0.0, 0.0)
+def test_config_roll_pitch_absent_is_rejected(tmp_path: Path) -> None:
+    out = load_config(write_cfg(tmp_path, "frames:\n  - child: a\n" + FULL_POSE + "    yaw: 0.3\n"))
+    assert out is None
 
 
 @pytest.mark.parametrize("key", ["roll", "pitch"])
 def test_config_roll_pitch_invalid(tmp_path: Path, key: str) -> None:
+    other = "pitch" if key == "roll" else "roll"
+    body = "frames:\n  - child: a\n" + FULL_POSE + f"    yaw: 0.0\n    {other}: 0.0\n    {key}: abc\n"
     with pytest.raises(ValueError):
-        load_config(write_cfg(tmp_path, f"frames:\n  - child: a\n    {key}: abc\n"))
+        load_config(write_cfg(tmp_path, body))
