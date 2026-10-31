@@ -648,6 +648,27 @@ TEST_F(NodeTest, ZoomWhileLockedRestoresTheMappingLock)
   EXPECT_TRUE(backend_->lock_at_start_video().back());
 }
 
+TEST_F(NodeTest, NoZoomInterfaceWhenDisabled)
+{
+  Config config = test_config();
+  config.zoom.enabled = false;
+  start(config);
+  EXPECT_TRUE(node_->get_subscriptions_info_by_topic(config_.zoom_command()).empty());
+  EXPECT_TRUE(node_->get_publishers_info_by_topic(config_.zoom_image()).empty());
+  EXPECT_TRUE(node_->get_publishers_info_by_topic(config_.zoom_result()).empty());
+  EXPECT_EQ(node_->metrics().render().find("head_camera_zoom_"), std::string::npos);
+  listen(config_.image_raw_compressed(), reliable_1(), compressed_);
+  ASSERT_TRUE(emit_until([this] { return size_of(compressed_) >= 1; }));
+}
+
+TEST_F(NodeTest, ZoomInterfaceExistsWhenEnabled)
+{
+  start(test_config());
+  EXPECT_EQ(node_->get_subscriptions_info_by_topic(config_.zoom_command()).size(), 1u);
+  EXPECT_EQ(node_->get_publishers_info_by_topic(config_.zoom_image()).size(), 1u);
+  EXPECT_EQ(node_->get_publishers_info_by_topic(config_.zoom_result()).size(), 1u);
+}
+
 // --- metrics (D13) -------------------------------------------------------------------------------------------------
 
 TEST_F(NodeTest, CaptureFpsCountsEveryCallbackFrame)

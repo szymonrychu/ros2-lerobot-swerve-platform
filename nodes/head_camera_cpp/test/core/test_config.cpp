@@ -277,6 +277,15 @@ mapping:
   EXPECT_EQ(other.mapping_image_topic(), "/x/mapping/image_raw/compressed");
 }
 
+TEST(Config, ZoomEnabledParsesAndDefaultsTrue)
+{
+  EXPECT_TRUE(head_camera_cpp::from_yaml(YAML::Load("{}")).zoom.enabled);
+  EXPECT_TRUE(head_camera_cpp::from_yaml(YAML::Load("zoom: {factors: [2]}")).zoom.enabled);
+  EXPECT_TRUE(errors_of("zoom: {enabled: false}").empty());
+  EXPECT_FALSE(head_camera_cpp::from_yaml(YAML::Load("zoom: {enabled: false}")).zoom.enabled);
+  expect_rejected("zoom: {enabled: maybe}", "zoom.enabled");
+}
+
 TEST(Config, MappingInvalidValuesAreRejectedWithTheKey)
 {
   expect_rejected("lens_position: -0.1", "lens_position");

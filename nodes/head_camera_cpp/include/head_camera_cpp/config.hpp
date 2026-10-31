@@ -25,6 +25,7 @@ constexpr long DEFAULT_METRICS_PORT = 19116;  // NOLINT(runtime/int)
 // The zoom still capture: full-resolution autofocused crops on request.
 struct ZoomConfig
 {
+  bool enabled = true;  // false: no zoom command subscription, zoom publishers, metrics or worker thread
   std::array<int, 2> still_size{4608, 2592};  // full sensor mode of the still (width, height)
   std::vector<int> factors{2, 4, 8};          // allowed zoom factors, a non-empty subset of 2, 4, 8
   int default_max_px = 1024;                  // longest side of a zoom image when the request names none

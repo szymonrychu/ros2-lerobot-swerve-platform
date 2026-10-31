@@ -83,6 +83,8 @@ private:
   };
 
   void init();
+  /// The zoom controller, worker thread, metrics, publishers and command subscription (only with zoom.enabled).
+  void init_zoom();
   void on_video_frame(const VideoFrame & frame);
   void video_loop();
   void publish_frame(const Frame & frame);
@@ -103,7 +105,7 @@ private:
   std::unique_ptr<CameraBackend> backend_;
   std::unique_ptr<Clock> clock_;
   ros2_common_cpp::Metrics metrics_;
-  std::unique_ptr<ZoomController> zoom_;
+  std::unique_ptr<ZoomController> zoom_;  // null with zoom.enabled false
 
   rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr image_pub_;
   rclcpp::Publisher<sensor_msgs::msg::CompressedImage>::SharedPtr compressed_pub_;

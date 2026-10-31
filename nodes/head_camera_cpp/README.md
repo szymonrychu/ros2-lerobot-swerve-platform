@@ -23,7 +23,27 @@ frame there is no message, and failed zooms publish no image.
 Every header carries `frame_id` `head_camera_optical_frame`. This node does not publish a TF for that frame; the
 pan/tilt head's transform tree owns it, and no consumer here depends on it.
 
+## Instances: front_camera and back_camera
+
+The same `head_camera_node` binary runs as two body-fixed Camera Module 3 instances, one Ansible node type each
+(`front_camera`, `back_camera`), started with `--ros-args -r __node:=<name>_camera` and their own config file
+(`HEAD_CAMERA_CONFIG=/etc/ros2/<name>_camera/config.yaml`):
+
+| Instance | CSI port | `topic_namespace` | `frame_id` | `metrics_port` |
+|---|---|---|---|---|
+| `front_camera` | cam0 (`/base/axi/pcie@120000/rp1/i2c@88000/imx708@1a`) | `/front_camera` | `front_camera_optical_frame` | 19121 |
+| `back_camera` | cam1 (`/base/axi/pcie@120000/rp1/i2c@80000/imx708@1a`) | `/back_camera` | `back_camera_optical_frame` | 19122 |
+
+Both publish `image_raw`, `image_raw/compressed` (1152x648, 15 fps, JPEG 70, continuous AF) and, once a calibration
+is applied (`/var/lib/ros2/head_rgbd_calibration/applied/<name>_camera_calibration.yaml`), `camera_info`. They run
+with `zoom.enabled: false` (no `zoom/*` topics) and `mapping.enabled: false` (no mapping stream). The
+`base_link -> <name>_camera_link -> <name>_camera_optical_frame` transforms come from `static_tf_publisher`, once the
+measured mount is entered in `ansible/group_vars/client.yml`. When `camera_id` is not found, the node logs the ids
+libcamera lists (`camera '<id>' not found; available: ...`) and retries every 2 s.
+
 ## Zoom interface
+
+With `zoom.enabled: false` none of this interface exists.
 
 The contract lives once in `include/head_camera_cpp/zoom_json.hpp`; this section mirrors it. Consumers: the
 `mcp_server` `get_camera_image` tool (agent) and the web_ui Head tab (click-to-zoom).
@@ -167,6 +187,7 @@ invalid value, stop the node with exit code 78. Every error line names its key (
 | `jpeg_quality` | `70` | Quality (1..100) of `image_raw/compressed` |
 | `camera_info_file` | none | Optional YAML calibration file for `camera_info`; deployed: `/var/lib/ros2/head_rgbd_calibration/applied/head_camera_calibration.yaml` (see Calibration source) |
 | `metrics_port` | `19116` | Prometheus port (1..65535); `null` disables metrics |
+| `zoom.enabled` | `true` | `false`: no `zoom/command` subscription, no `zoom/image` or `zoom/result` publisher, no zoom worker thread and no `head_camera_zoom_*` metrics; the other `zoom.*` keys are still validated |
 | `zoom.still_size` | `[4608, 2592]` | Full-resolution still (width, height) the crops are cut from |
 | `zoom.factors` | `[2, 4, 8]` | Allowed zoom factors; non-empty subset of 2, 4, 8 |
 | `zoom.default_max_px` | `1024` | Longest side of a zoom image when the request names none |

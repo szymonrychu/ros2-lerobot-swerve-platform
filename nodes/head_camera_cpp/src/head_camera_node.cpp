@@ -155,34 +155,16 @@ void HeadCameraNode::init()
   capture_fps_ = &metrics_.gauge("head_camera_capture_fps", "Video frames per second delivered by the camera");
   encode_seconds_ =
     &metrics_.histogram("head_camera_encode_seconds", "Time to JPEG-encode one video frame", ENCODE_BUCKETS);
-  for (const auto status : ALL_STATUSES) {
-    metrics_.counter("head_camera_zoom_requests_total", ZOOM_REQUESTS_HELP, {{"status", to_string(status)}});
-  }
-  for (const char * phase : {"af", "switch", "capture", "restore"}) {
-    metrics_.histogram("head_camera_zoom_phase_seconds", ZOOM_PHASE_HELP, PHASE_BUCKETS, {{"phase", phase}});
-  }
 
   published_mapping_image_ =
     &metrics_.counter("head_camera_frames_published_total", published_help, {{"topic", "mapping_image"}});
   published_mapping_info_ =
     &metrics_.counter("head_camera_frames_published_total", published_help, {{"topic", "mapping_camera_info"}});
 
-  // RESTORE returns the lens to the mapping lock when it is active, else to the configured AF mode.
-  zoom_ = std::make_unique<ZoomController>(
-    *backend_, *clock_, config_.zoom, [] { std::exit(1); },
-    [this] {
-      const bool wanted = focus_lock_desired();
-      focus_lock_applied_ = wanted;
-      return wanted;
-    });
-
   image_pub_ = create_publisher<sensor_msgs::msg::Image>(config_.image_raw(), reliable_qos(IMAGE_QOS_DEPTH));
   compressed_pub_ =
     create_publisher<sensor_msgs::msg::CompressedImage>(config_.image_raw_compressed(), reliable_qos(IMAGE_QOS_DEPTH));
   info_pub_ = create_publisher<sensor_msgs::msg::CameraInfo>(config_.camera_info(), reliable_qos(IMAGE_QOS_DEPTH));
-  zoom_image_pub_ =
-    create_publisher<sensor_msgs::msg::CompressedImage>(config_.zoom_image(), reliable_qos(ZOOM_IMAGE_QOS_DEPTH));
-  zoom_result_pub_ = create_publisher<std_msgs::msg::String>(config_.zoom_result(), reliable_qos(COMMAND_QOS_DEPTH));
 
   if (config_.mapping.enabled) {
     const rclcpp::QoS best_effort = rclcpp::QoS(rclcpp::KeepLast(IMAGE_QOS_DEPTH)).best_effort();
@@ -225,13 +207,13 @@ void HeadCameraNode::init()
     RCLCPP_WARN(get_logger(), "mapping image is published without camera_info: no calibration is loaded");
   }
 
+  if (config_.zoom.enabled) {
+    init_zoom();
+  } else {
+    RCLCPP_INFO(get_logger(), "zoom disabled: no %s subscription", config_.zoom_command().c_str());
+  }
   video_thread_ = std::thread([this] { video_loop(); });
-  zoom_thread_ = std::thread([this] { zoom_loop(); });
-
   backend_->set_video_callback([this](const VideoFrame & frame) { on_video_frame(frame); });
-  command_sub_ = create_subscription<std_msgs::msg::String>(
-    config_.zoom_command(), reliable_qos(COMMAND_QOS_DEPTH),
-    [this](const std_msgs::msg::String & msg) { on_command(msg); });
 
   {
     std::lock_guard<std::mutex> lock(backend_mutex_);
@@ -248,6 +230,31 @@ void HeadCameraNode::init()
   }
 }
 
+void HeadCameraNode::init_zoom()
+{
+  for (const auto status : ALL_STATUSES) {
+    metrics_.counter("head_camera_zoom_requests_total", ZOOM_REQUESTS_HELP, {{"status", to_string(status)}});
+  }
+  for (const char * phase : {"af", "switch", "capture", "restore"}) {
+    metrics_.histogram("head_camera_zoom_phase_seconds", ZOOM_PHASE_HELP, PHASE_BUCKETS, {{"phase", phase}});
+  }
+  // RESTORE returns the lens to the mapping lock when it is active, else to the configured AF mode.
+  zoom_ = std::make_unique<ZoomController>(
+    *backend_, *clock_, config_.zoom, [] { std::exit(1); },
+    [this] {
+      const bool wanted = focus_lock_desired();
+      focus_lock_applied_ = wanted;
+      return wanted;
+    });
+  zoom_image_pub_ =
+    create_publisher<sensor_msgs::msg::CompressedImage>(config_.zoom_image(), reliable_qos(ZOOM_IMAGE_QOS_DEPTH));
+  zoom_result_pub_ = create_publisher<std_msgs::msg::String>(config_.zoom_result(), reliable_qos(COMMAND_QOS_DEPTH));
+  zoom_thread_ = std::thread([this] { zoom_loop(); });
+  command_sub_ = create_subscription<std_msgs::msg::String>(
+    config_.zoom_command(), reliable_qos(COMMAND_QOS_DEPTH),
+    [this](const std_msgs::msg::String & msg) { on_command(msg); });
+}
+
 HeadCameraNode::~HeadCameraNode()
 {
   retry_timer_.reset();
@@ -259,7 +266,9 @@ HeadCameraNode::~HeadCameraNode()
     zoom_stopping_ = true;
   }
   zoom_ready_.notify_all();
-  zoom_thread_.join();
+  if (zoom_thread_.joinable()) {
+    zoom_thread_.join();
+  }
   {
     std::lock_guard<std::mutex> lock(backend_mutex_);
     backend_->stop();
@@ -434,7 +443,7 @@ void HeadCameraNode::publish_frame(const Frame & frame)
 void HeadCameraNode::publish_mapping(const Frame & frame, const std_msgs::msg::Header & header)
 {
   // The encode runs only for a due frame with a subscriber, and never while a zoom holds the camera.
-  if (!mapping_pub_ || zoom_->busy() || mapping_pub_->get_subscription_count() == 0) {
+  if (!mapping_pub_ || (zoom_ && zoom_->busy()) || mapping_pub_->get_subscription_count() == 0) {
     return;
   }
   if (!mapping_decimator_->due(frame.stamp_ns)) {

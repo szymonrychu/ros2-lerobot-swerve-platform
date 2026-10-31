@@ -95,12 +95,13 @@ ZoomConfig parse_zoom(const YAML::Node & node, Errors & errors)
   const std::string p = "zoom.";
   ros2_common_cpp::forbid_unknown(
     node,
-    {"still_size", "factors", "default_max_px", "min_max_px", "max_max_px", "jpeg_quality", "af_timeout_s",
+    {"enabled", "still_size", "factors", "default_max_px", "min_max_px", "max_max_px", "jpeg_quality", "af_timeout_s",
      "switch_timeout_s", "settle_frames", "still_buffers", "watchdog_s", "restore_retry_delay_s", "af_window_fraction"},
     errors, "zoom");
   if (!node.IsMap()) {
     return z;
   }
+  z.enabled = field<bool>(node, p, "enabled", z.enabled, errors);
   z.still_size = size_pair(node, p, "still_size", z.still_size, errors);
 
   if (const YAML::Node factors = node["factors"]; factors.IsDefined()) {
