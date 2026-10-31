@@ -1011,8 +1011,8 @@ def test_stopbox_stops_toward_an_obstacle_and_lets_the_robot_escape(face: str) -
 
 def test_stopbox_ignores_notch_obstacles_unless_moving_into_them() -> None:
     """An obstacle deep in the rear notch stops no motion at all (rotation in place checks the footprint + 2 cm, not
-    the swept circle); one just behind the crossbar stops only the motion that drives the crossbar into it. The front notch lies
-    under the parked gripper: an obstacle there is inside the footprint and stops every motion."""
+    the swept circle); one just behind the crossbar stops only the motion that drives the crossbar into it. The front
+    notch lies under the parked gripper: an obstacle there is inside the footprint and stops every motion."""
     speed = 0.1
     moves = {"forward": (speed, 0.0), "back": (-speed, 0.0), "left": (0.0, speed), "right": (0.0, -speed)}
     for name, (vx, vy) in moves.items():
