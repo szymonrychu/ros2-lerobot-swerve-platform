@@ -1,61 +1,43 @@
-# RGB-D ground estimation and plane-relative obstacles design
+---
+title: RGB-D ground estimation and plane-relative obstacles
+repos: [ros2-lerobot-sverve-platform]
+created: 2026-10-20
+owner: Szymon Richert
+rung: 1
+---
 
-## Summary
+# RGB-D ground estimation and plane-relative obstacles
 
-A new C++ node `ground_estimator_cpp` on the client fits the floor plane from the 10 Hz self-filtered head ToF cloud
-(`/tof/points_filtered`) with an IMU gravity prior, and publishes obstacle and drop-off clouds (base_link coordinates, points selected by plane-relative height bands), a JSON
-ground state (plane, slope, tilt_guard-limit cross-check, step and drop-off edges as surface regions) and an RGB-D
-colour-labelled cloud (floor vs obstacle, from `/head_rgbd/points`). Nav2 gets a second STVL layer in the local
-costmap fed by those clouds, alongside the existing fixed odom-z bands; the collision monitor keeps the
-10 Hz ToF bands and the global costmap stays static + lidar. mcp_server and the web UI consume the estimate. Ansible
-node type (normal tier), metrics, a Grafana panel, a CPU budget measured on the Pi 5 and a robot runbook close it.
+## What and why
 
-## Intent and why
+What: Ground plane, step and drop-off estimation from the head ToF/RGB-D feeding obstacles and Nav2
+How: C++ ground node with IMU prior, Nav2 local costmap sources alongside the fixed bands, consumers and UI
+Why: Obstacle bands assume a flat floor at odom z=0; no ground estimate exists
 
-The user wants the head RGB-D (verified on the robot 2026-10-20) used for obstacle estimation, path planning and ground
-level/shape estimation. Today every ToF consumer assumes a flat floor at odom z = 0: the STVL bands (6 cm..0.6 m
-obstacles, -1.0..-0.10 m cliffs), the collision monitor and the mcp `obstacles_3d` summary. A slope, a floor tilt or
-the ToF depth long bias (0-40 mm, pushes floor points below the floor) eat into those margins, and no component knows
-the real floor height, slope, steps or drop-off edges. A fitted plane makes the bands relative to the measured floor
-and gives the arm floor_guard and the agent real terrain instead of per-call guesses.
+The head ToF/RGB-D stream (head_rgbd_cpp, calibrated 2026-10-20) is integrated into obstacle estimation, Nav2 path planning and ground level/shape estimation. A new C++ ground node fits the floor plane from the 10 Hz ToF cloud with an IMU prior and selects obstacle, step and drop-off points by their height above the fitted plane (the clouds keep base_link coordinates); the RGB-D colour labels floor versus obstacle. The marks feed the local costmap alongside the existing fixed odom-z bands until validated; the collision monitor keeps the 10 Hz ToF.
 
-## Goals
+## Scope ladder
 
-- `ground_estimator_cpp` publishes, only from real synchronised data with valid TF, at the ToF rate: the floor plane
-  (normal, height at base_link, inlier ratio, fit or held), obstacle and drop-off clouds selected by plane-relative bands, step and
-  drop-off edges as `SurfaceRegion`-compatible half-planes, slope vs gravity with a tilt_guard-limit level, the plane vs
-  base tilt cross-check, and (at the RGB-D cloud rate) a floor/obstacle colour-labelled cloud.
-- Nav2 local costmap: a `ground_voxel_layer` marks from the band-selected ground clouds alongside `tof_voxel_layer`;
-  switch-over criteria written in the nav2_bringup README; collision monitor, CliffStop and global costmap unchanged.
-- mcp_server `get_map_summary` reports the ground estimate; floor_guard can build its Terrain from the measured regions.
-- web UI map shows the labelled ground points, the fitted plane patch and the edges.
-- Ansible node type with tier, metrics port, Grafana panel, CPU budget measured on the Pi 5, READMEs, tests/README,
-  runbook with the switch-over validation.
+### Rung 1: agreed scope (migrated)
+
+- 1.1: C++ ground node: floor plane (with IMU prior) from /tof/points_filtered, obstacle and drop-off clouds selected by plane-relative bands (base_link coordinates kept), step and drop-off regions, RGB-D colour floor label; real data only.
+- 1.2: Nav2: new observation sources in the local costmap alongside the current tof bands; a step, drop or ramp higher than one third of the wheel diameter or steeper than the max slope is a lethal obstacle, anything lower or gentler (including colour-flagged flat objects) is a slow-down warning area (speed limit plus a passable cost band); switch-over criteria documented.
+- 1.3: Ground estimate available to consumers (mcp_server surfaces/Terrain, tilt_guard cross-check) and visible in the web UI map.
+- 1.4: Ansible node type, cgroup tier, metrics + Grafana panel, CPU budget measured on the Pi 5; README, runbook, tests.
+
+## Agreed scope
+
+Rung 1, migrated from the epic format: the epic's goals were its agreed scope.
 
 ## Non-goals
 
-- Global costmap changes (stays static + lidar, ruling Q3).
-- ToF depth-bias correction (after the head mount reprint and head-rgbd-fusion runbook step 5).
-- Learning-based segmentation; multi-plane (stairs as several planes) fitting; switching the fixed bands off.
-- Feeding the ground clouds to the collision monitor.
+- Global costmap stays static + lidar (ruling Q3).
+- ToF depth-bias correction (after the head mount reprint).
+- Learning-based segmentation.
 
-## Anti-goals
+## Design
 
-- Placeholder data on any ground topic (zero planes, empty "keep-alive" clouds when no plane is valid).
-- Removing or weakening any existing ToF band, collision source or the fail-safe stop on a ToF outage.
-- A CPU cost on the Pi 5 that takes headroom from Nav2/servos (the node runs at 10 Hz on ~2700 points).
-- A custom ROS message package for one state topic.
-
-## Constraints
-
-- New nodes are C++ (MEMORY "Python nodes stay": only web_ui and mcp_server stay Python); layout of
-  `nodes/head_rgbd_cpp` (core static lib + gtests per `test/core/test_*.cpp`, node lib, `main.cpp`,
-  `shared/ros2_common_cpp` config/metrics, `colcon_source` with `-j2`), tested with `scripts/cpp-node-test.sh`.
-- Test-first for every behaviour; CLAUDE.md no placeholder data; pydantic in Python; config files over CLI.
-- Ansible `ros2_nodes` schema, cgroup tiers (client.yml:27-33), deploy only via `scripts/deploy-nodes.sh`.
-- `scripts/gen_nav_footprint.py` owns the generated blocks of nav2_params.yaml; they are not hand-edited.
-- Deploying mcp_server kills a running agent session (MEMORY): the runbook checks first.
-- Each task about 60 min and at most 8 files.
+Migrated from the epic format; the design sections without a plan.md heading are under Migrated notes.
 
 ## Decisions
 
@@ -210,6 +192,12 @@ Q2 answered yes: floor_guard uses the measured ground regions only when a call s
 ### D17: Run in parallel with the related epics
 Q3 answered yes: this epic runs in parallel with tof-3d-obstacle-detection-fo and head-rgb-d-fusion-of-camera (no README blockers); the orchestrator queues their final tasks; tasks touching shared files (tests/test_tof_obstacle_wiring.py, client.yml) rebase on whatever lands first. The three graph --todo contract-order lines are an accepted ruling. (user decision)
 
+## Open questions
+
+- Q1: Should points the RGB-D colour model labels as non-floor while geometrically flat (floor_colour_mismatch: rugs, paper, liquid) also mark the Nav2 local costmap in this epic? [answer: replaced by the user's obstacle vs warning rule (D14, D15): above 1/3 wheel diameter or too steep is lethal, otherwise a slow-down warning area; colour-flagged flat objects follow the same rule]
+- Q2: Should floor_guard use the measured ground regions only when a call opts in (use_ground_estimate, default off), refusing the motion when requested but no fresh estimate exists? [answer: yes (D16)]
+- Q3: Should this epic wait (README blockers) until tof-3d-obstacle-detection-fo and head-rgb-d-fusion-of-camera are done? graph --todo flags the three registered contracts (head-rgbd-points, tof-points-filtered, nav2-tof-voxel-bands) because no blocker orders them; both owners have only their robot runbook tasks left and the consumed topics are already on main. [answer: yes, run in parallel (D17)]
+
 ## Research
 
 | Lens | Ran or skipped | Adopted | Rejected |
@@ -219,7 +207,7 @@ Q3 answered yes: this epic runs in parallel with tof-3d-obstacle-detection-fo an
 | research-papers | skipped: plane fitting with a gravity prior is textbook RANSAC; no learning (non-goal) | none | learning segmentation |
 | research-docs | skipped: STVL and collision monitor parameters already used and documented in nav2_params.yaml:242-329, 732-750 | STVL PointCloud2 sources, frustum clearing | feeding collision_monitor |
 
-## Research inputs
+### Research inputs
 
 | Source | Entry | Lands in |
 |---|---|---|
@@ -239,7 +227,79 @@ Q3 answered yes: this epic runs in parallel with tof-3d-obstacle-detection-fo an
 | brief: depth-bias correction | rejected: user decision, after the mount reprint | none |
 | brief: global costmap | rejected: ruling Q3 keeps static + lidar | none |
 
-## Decision coverage
+## Irreversible operations
+
+none (deploys via scripts/deploy-nodes.sh are reversible by redeploying; the runbook checks for a running agent
+session before deploying mcp_server).
+
+## Migrated notes
+
+### README.md: Review
+
+Filled when the epic reaches stage `review`: the verdict, the findings acted on, the findings dropped.
+
+Verdict: pass (2026-10-27)
+
+Closed 2026-10-27 at the D435 switchover gate (Q3, user approved). Every delivered task was already merged to main under the earlier flow; the remaining runbook/final-suite task was superseded by a realsense-d435-head-switchov task (dated note on the task). No new code in this close. Root suite on main 2026-10-27: 2156 passed, 9 skipped; test-ansible 0 failures.
+
+### design.md: Summary
+
+A new C++ node `ground_estimator_cpp` on the client fits the floor plane from the 10 Hz self-filtered head ToF cloud
+(`/tof/points_filtered`) with an IMU gravity prior, and publishes obstacle and drop-off clouds (base_link coordinates, points selected by plane-relative height bands), a JSON
+ground state (plane, slope, tilt_guard-limit cross-check, step and drop-off edges as surface regions) and an RGB-D
+colour-labelled cloud (floor vs obstacle, from `/head_rgbd/points`). Nav2 gets a second STVL layer in the local
+costmap fed by those clouds, alongside the existing fixed odom-z bands; the collision monitor keeps the
+10 Hz ToF bands and the global costmap stays static + lidar. mcp_server and the web UI consume the estimate. Ansible
+node type (normal tier), metrics, a Grafana panel, a CPU budget measured on the Pi 5 and a robot runbook close it.
+
+### design.md: Intent and why
+
+The user wants the head RGB-D (verified on the robot 2026-10-20) used for obstacle estimation, path planning and ground
+level/shape estimation. Today every ToF consumer assumes a flat floor at odom z = 0: the STVL bands (6 cm..0.6 m
+obstacles, -1.0..-0.10 m cliffs), the collision monitor and the mcp `obstacles_3d` summary. A slope, a floor tilt or
+the ToF depth long bias (0-40 mm, pushes floor points below the floor) eat into those margins, and no component knows
+the real floor height, slope, steps or drop-off edges. A fitted plane makes the bands relative to the measured floor
+and gives the arm floor_guard and the agent real terrain instead of per-call guesses.
+
+### design.md: Goals
+
+- `ground_estimator_cpp` publishes, only from real synchronised data with valid TF, at the ToF rate: the floor plane
+  (normal, height at base_link, inlier ratio, fit or held), obstacle and drop-off clouds selected by plane-relative bands, step and
+  drop-off edges as `SurfaceRegion`-compatible half-planes, slope vs gravity with a tilt_guard-limit level, the plane vs
+  base tilt cross-check, and (at the RGB-D cloud rate) a floor/obstacle colour-labelled cloud.
+- Nav2 local costmap: a `ground_voxel_layer` marks from the band-selected ground clouds alongside `tof_voxel_layer`;
+  switch-over criteria written in the nav2_bringup README; collision monitor, CliffStop and global costmap unchanged.
+- mcp_server `get_map_summary` reports the ground estimate; floor_guard can build its Terrain from the measured regions.
+- web UI map shows the labelled ground points, the fitted plane patch and the edges.
+- Ansible node type with tier, metrics port, Grafana panel, CPU budget measured on the Pi 5, READMEs, tests/README,
+  runbook with the switch-over validation.
+
+### design.md: Non-goals
+
+- Global costmap changes (stays static + lidar, ruling Q3).
+- ToF depth-bias correction (after the head mount reprint and head-rgbd-fusion runbook step 5).
+- Learning-based segmentation; multi-plane (stairs as several planes) fitting; switching the fixed bands off.
+- Feeding the ground clouds to the collision monitor.
+
+### design.md: Anti-goals
+
+- Placeholder data on any ground topic (zero planes, empty "keep-alive" clouds when no plane is valid).
+- Removing or weakening any existing ToF band, collision source or the fail-safe stop on a ToF outage.
+- A CPU cost on the Pi 5 that takes headroom from Nav2/servos (the node runs at 10 Hz on ~2700 points).
+- A custom ROS message package for one state topic.
+
+### design.md: Constraints
+
+- New nodes are C++ (MEMORY "Python nodes stay": only web_ui and mcp_server stay Python); layout of
+  `nodes/head_rgbd_cpp` (core static lib + gtests per `test/core/test_*.cpp`, node lib, `main.cpp`,
+  `shared/ros2_common_cpp` config/metrics, `colcon_source` with `-j2`), tested with `scripts/cpp-node-test.sh`.
+- Test-first for every behaviour; CLAUDE.md no placeholder data; pydantic in Python; config files over CLI.
+- Ansible `ros2_nodes` schema, cgroup tiers (client.yml:27-33), deploy only via `scripts/deploy-nodes.sh`.
+- `scripts/gen_nav_footprint.py` owns the generated blocks of nav2_params.yaml; they are not hand-edited.
+- Deploying mcp_server kills a running agent session (MEMORY): the runbook checks first.
+- Each task about 60 min and at most 8 files.
+
+### design.md: Decision coverage
 
 | Decision | Tasks |
 |---|---|
@@ -261,7 +321,7 @@ Q3 answered yes: this epic runs in parallel with tof-3d-obstacle-detection-fo an
 | D16 floor_guard opt-in, refuse when stale | mcp-floor-guard-ground |
 | D17 Run in parallel with the related epics | nav2-ground-voxel-layer, ground-node-wiring |
 
-## Contracts
+### design.md: Contracts
 
 | Part | Owner | Consumers | Where defined |
 |---|---|---|---|
@@ -288,7 +348,7 @@ consumed by ground-node-wiring, nav2-ground-voxel-layer). The tof epic's escalat
 lists `tests/test_tof_obstacle_wiring.py`; nav2-ground-voxel-layer only scopes its STVL-source check to
 `tof_voxel_layer` and adds the ground chain, so whichever lands second rebases.
 
-## Review focus
+### design.md: Review focus
 
 - No placeholder data: no cloud without a valid (fit or held) plane; state `plane: null` with a reason instead.
 - TF at the cloud stamp, plane held in odom and moved to the current base_link correctly (sign conventions of the
@@ -298,13 +358,13 @@ lists `tests/test_tof_obstacle_wiring.py`; nav2-ground-voxel-layer only scopes i
 - floor_guard: `use_ground_estimate` never weakens the default surface model; requested-but-stale refuses.
 - CPU: the fit runs on the decimated band only; no per-point allocations in the 10 Hz path.
 
-## Left to the builder
+### design.md: Left to the builder
 
 - Internal structure of the core library functions, as long as the headers named in the Contracts exist.
 - The exact edge-line construction of D5 within: through the cluster boundary nearest the robot, region away from it.
 - Grafana panel layout within robot-slam.json.
 
-## Assumptions and unknowns
+### design.md: Assumptions and unknowns
 
 - PCL (`libpcl-dev`, `ros-jazzy-pcl-conversions`) resolves through rosdep in the cpp-node-test image and builds on the
   Pi 5 with `-j2` within memory; confirmed by ground-package-config (docker) and the runbook deploy.
@@ -314,13 +374,13 @@ lists `tests/test_tof_obstacle_wiring.py`; nav2-ground-voxel-layer only scopes i
   anyway (lazy publishing serves any subscriber).
 - The numeric defaults (D2, D4, D5, D6, D11) are confirmed or corrected by the runbook scenes (runbook "Threshold validation"); the CPU budget, the container C++ suite, the frontend suite and the PCL -j2 build on the Pi are validated in CI and on the robot (runbook "Build and CI validation"), not by build-time ACs.
 
-## Open questions
+### approvals.json
 
-- Q1: Should points the RGB-D colour model labels as non-floor while geometrically flat (floor_colour_mismatch: rugs, paper, liquid) also mark the Nav2 local costmap in this epic? [answer: replaced by the user's obstacle vs warning rule (D14, D15): above 1/3 wheel diameter or too steep is lethal, otherwise a slow-down warning area; colour-flagged flat objects follow the same rule]
-- Q2: Should floor_guard use the measured ground regions only when a call opts in (use_ground_estimate, default off), refusing the motion when requested but no fresh estimate exists? [answer: yes (D16)]
-- Q3: Should this epic wait (README blockers) until tof-3d-obstacle-detection-fo and head-rgb-d-fusion-of-camera are done? graph --todo flags the three registered contracts (head-rgbd-points, tof-points-filtered, nav2-tof-voxel-bands) because no blocker orders them; both owners have only their robot runbook tasks left and the consumed topics are already on main. [answer: yes, run in parallel (D17)]
-
-## Irreversible operations in scope
-
-none (deploys via scripts/deploy-nodes.sh are reversible by redeploying; the runbook checks for a running agent
-session before deploying mcp_server).
+- A1: A new C++ ground node fits the floor plane from the 10 Hz ToF cloud with an IMU prior and gives plane-relative obstacle, step and drop-off marks; only real data is published. [decisions: D1, D2, D4, D7] [tasks: ground-package-config, ground-plane-fit, ground-band-segmentation, ground-state-json, ground-node-wiring] [status: approved]
+- A2: The plane-relative marks feed Nav2 alongside the current fixed bands (switch-over only after validation, criteria documented); the collision monitor keeps the 10 Hz ToF; the global costmap stays static + lidar; no depth-bias correction in this epic. [decisions: D8, D13] [tasks: nav2-ground-voxel-layer, ground-final-suite-runbook] [status: approved]
+- A3: The ground estimate (floor height, slope with the tilt_guard cross-check, steps and drop-offs as surface regions) is available to consumers: mcp_server map summary and floor_guard Terrain. [decisions: D3, D5, D9, D16] [tasks: ground-node-type, ground-plane-tracker, ground-state-json, ground-step-edges, mcp-floor-guard-ground, mcp-ground-summary] [status: approved]
+- A4: RGB-D colour labels floor vs obstacle, and the ground estimate is visible in the web UI map. [decisions: D6, D10] [tasks: ground-colour-labels, ground-node-wiring, web-ui-ground-backend, web-ui-ground-frontend] [status: approved]
+- A5: Ansible node type with the ros2_nodes schema and a cgroup tier, metrics with a Grafana panel, and the CPU budget measured on the Pi 5. [decisions: D11] [tasks: ground-node-type, ground-dashboard-panels, ground-final-suite-runbook] [status: approved]
+- A6: READMEs, tests/README.md, MEMORY entry, runbook and a final robot verification executed after merge. [decisions: D12] [tasks: ground-node-readme, ground-final-suite-runbook] [status: approved]
+- A7: Obstacle vs warning rule (replaces Q1): a step, threshold, drop or ramp cluster is an OBSTACLE (lethal: its points go to /ground/obstacle_points or /ground/drop_points and the ground_voxel_layer) when its edge step exceeds one third of the wheel diameter (traversability.wheel_radius_m 0.06 from swerve_drive_controller wheel_radius_m, max_step_fraction 1/3 -> 0.04 m, configurable, pinned equal by a consistency test) or its surface slope exceeds traversability.max_slope_deg (default 8 deg, my call: the lower of the tilt_guard warn limits, roll 8 / pitch 12, because a swerve base can meet a ramp at any heading, so driving onto a steeper ramp would at once raise a tilt_guard warning); otherwise it is a WARNING area, clear to ride through at reduced speed. Colour-flagged flat objects (floor_colour_mismatch clusters) are classified by the same rule. Tests cover both sides of each threshold (0.035/0.045 m sills and drops, 6/10 deg ramps, exactly 0.04 m and 8 deg are warnings). [decisions: D14, D15] [tasks: costmap-ground-warnings, ground-colour-labels, ground-final-suite-runbook, ground-node-type, ground-node-wiring, ground-package-config, ground-state-json, ground-step-edges, ground-traversability-rule, mcp-ground-summary, nav2-ground-voxel-layer, web-ui-ground-frontend] [status: approved]
+- A8: Q3 answered yes: this epic runs in parallel with tof-3d-obstacle-detection-fo and head-rgb-d-fusion-of-camera (no README blockers); the orchestrator queues their final tasks; tasks touching shared files (tests/test_tof_obstacle_wiring.py, client.yml) rebase on whatever lands first. The three graph --todo contract-order lines are an accepted ruling. [decisions: D17] [tasks: nav2-ground-voxel-layer, ground-node-wiring] [status: approved]
