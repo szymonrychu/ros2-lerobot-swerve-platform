@@ -296,20 +296,31 @@ def test_arm_is_a_valid_tab_type() -> None:
 
 def test_arm_tab_defaults() -> None:
     tab = TabConfig(id="arm", type="arm", label="Arm")
-    assert tab.gripper_camera_topic == "/camera_0/image_raw/compressed"
-    assert tab.head_camera_topic == "/head_camera/image_raw/compressed"
+    assert tab.head_camera_topic == "/head/d435/color/image_raw/compressed"
     assert tab.arm_joint_states_topic == "/follower/joint_states"
     assert tab.arm_urdf == "so101_arm.urdf"
     assert tab.arm_offset == (0.0592, -0.05, 0.100)
-    assert tab.gripper_camera_mount is not None
-    assert tab.gripper_camera_mount.xyz == (-0.0046, 0.0364, -0.0364)
-    assert tab.gripper_camera_mount.rpy == (-1.5622, 1.1950, -1.4466)
     assert tab.active_source_topic == "/filter/active_source"
     assert tab.arm_home_service == "/arm/home"
     assert tab.arm_set_home_service == "/arm/set_home"
     assert tab.arm_take_control_service == "/arm/take_control"
     assert tab.arm_release_control_service == "/arm/release_control"
     assert tab.arm_command_topic == "/filter/web_ui_joint_commands"
+
+
+def test_arm_tab_has_no_gripper_camera() -> None:
+    """The gripper camera is retired: its arm tab keys are rejected and the head camera is the D435 colour stream."""
+    for key, value in (
+        ("gripper_camera_topic", "/camera_0/image_raw/compressed"),
+        ("gripper_camera_mount", {"xyz": [0, 0, 0], "rpy": [0, 0, 0]}),
+    ):
+        with pytest.raises(ValidationError, match=key):
+            TabConfig.model_validate({"id": "arm", "type": "arm", "label": "Arm", key: value})
+    assert TabConfig(id="arm", type="arm", label="Arm").head_camera_topic == "/head/d435/color/image_raw/compressed"
+    raw = yaml.safe_load((Path(__file__).resolve().parents[1] / "config" / "default.yaml").read_text())
+    arm_raw = next(t for t in raw["tabs"] if t["type"] == "arm")
+    assert not [k for k in arm_raw if k.startswith("gripper_camera")]
+    assert arm_raw["head_camera_topic"] == "/head/d435/color/image_raw/compressed"
 
 
 def test_map_nav_tab_has_no_arm_command_topic_but_publish_topics_list_the_arm_one() -> None:
@@ -333,10 +344,10 @@ def test_default_yaml_arm_command_topic_lives_on_the_arm_tab_only() -> None:
 
 
 def test_default_arm_tab_uses_the_head_camera() -> None:
-    """The shipped default config's arm tab streams the head camera through head_camera_topic."""
+    """The shipped default config's arm tab streams the head D435 colour through head_camera_topic."""
     cfg = load_config(Path(__file__).resolve().parents[1] / "config" / "default.yaml")
     arm = next(t for t in cfg.tabs if t.type == "arm")
-    assert arm.head_camera_topic == "/head_camera/image_raw/compressed"
+    assert arm.head_camera_topic == "/head/d435/color/image_raw/compressed"
     assert "front_camera" not in "".join(cfg.all_subscribed_topics())
 
 
@@ -345,28 +356,26 @@ def test_arm_tab_overrides_and_empty_rejected() -> None:
         id="arm",
         type="arm",
         label="Arm",
-        gripper_camera_topic="/g",
         head_camera_topic="/o",
-        gripper_camera_mount={"xyz": [1, 2, 3], "rpy": [0.1, 0.2, 0.3]},
         arm_offset=(1.0, 2.0, 3.0),
     )
-    assert (tab.gripper_camera_topic, tab.head_camera_topic) == ("/g", "/o")
-    assert tab.gripper_camera_mount is not None and tab.gripper_camera_mount.xyz == (1, 2, 3)
+    assert tab.head_camera_topic == "/o"
     assert tab.arm_offset == (1.0, 2.0, 3.0)
     with pytest.raises(ValidationError):
-        TabConfig(id="arm", type="arm", label="Arm", gripper_camera_topic=" ")
+        TabConfig(id="arm", type="arm", label="Arm", head_camera_topic=" ")
 
 
 def test_other_tabs_get_no_arm_defaults() -> None:
     tab = TabConfig(id="c", type="camera", label="C", topic="/x")
-    assert tab.gripper_camera_topic is None and tab.gripper_camera_mount is None and tab.active_source_topic is None
+    assert tab.head_camera_topic is None and tab.active_source_topic is None
 
 
 def test_arm_tab_topics_subscribed_and_services_listed() -> None:
     cfg = AppConfig(tabs=[TabConfig(id="arm", type="arm", label="Arm")])
     topics = cfg.all_subscribed_topics()
-    for topic in ("/camera_0/image_raw/compressed", "/head_camera/image_raw/compressed", "/follower/joint_states"):
+    for topic in ("/head/d435/color/image_raw/compressed", "/follower/joint_states"):
         assert topic in topics
+    assert not [t for t in topics if t.startswith("/camera_0/")]
     assert not [t for t in topics if t.startswith("/overview_camera/") or t.startswith("/front" + "_camera/")]
     assert cfg.trigger_services() == ["/arm/home", "/arm/release_control", "/arm/set_home", "/arm/take_control"]
 

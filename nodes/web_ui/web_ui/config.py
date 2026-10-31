@@ -113,8 +113,7 @@ MAP_NAV_DEFAULTS: dict[str, str] = {
 POI_TAB_DEFAULTS: dict[str, str] = {key: MAP_NAV_DEFAULTS[key] for key in ("poi_list_topic", "poi_photos_topic")}
 # Defaults filled into arm tabs for fields left unset (topics, services; same service names as the map_nav defaults).
 ARM_TAB_DEFAULTS: dict[str, str] = {
-    "gripper_camera_topic": "/camera_0/image_raw/compressed",
-    "head_camera_topic": "/head_camera/image_raw/compressed",
+    "head_camera_topic": "/head/d435/color/image_raw/compressed",
     "arm_urdf": MAP_NAV_DEFAULTS["arm_urdf"],
     "arm_joint_states_topic": MAP_NAV_DEFAULTS["arm_joint_states_topic"],
     "arm_command_topic": "/filter/web_ui_joint_commands",
@@ -128,9 +127,6 @@ ARM_TAB_DEFAULTS: dict[str, str] = {
 }
 # Arm mount in the base frame (ROS x, y, z metres); the same value as ansible mcp_server arm.base_in_base_link.
 ARM_TAB_DEFAULT_ARM_OFFSET: tuple[float, float, float] = (0.0592, -0.05, 0.100)
-# Gripper camera mount relative to the arm URDF link gripper_link; the same value as ansible cameras.gripper.mount.
-ARM_TAB_DEFAULT_CAMERA_XYZ: tuple[float, float, float] = (-0.0046, 0.0364, -0.0364)
-ARM_TAB_DEFAULT_CAMERA_RPY: tuple[float, float, float] = (-1.5622, 1.1950, -1.4466)
 # Default disk cache cap for proxied map tiles (MiB).
 DEFAULT_TILE_CACHE_MAX_MB = 256
 DEFAULT_TILE_MAX_ZOOM = 18
@@ -169,7 +165,6 @@ GENERIC_TOPIC_ATTRS: tuple[str, ...] = (
     "base_joint_states_topic",
     "arm_joint_states_topic",
     "head_joint_states_topic",
-    "gripper_camera_topic",
     "head_camera_topic",
     "color_topic",
     "depth_topic",
@@ -258,18 +253,6 @@ class TileSourceConfig(BaseModel):
     attribution: str | None = None
 
 
-class CameraMount(BaseModel):
-    """Pose of a camera relative to its parent URDF link.
-
-    Attributes:
-        xyz: Translation in metres.
-        rpy: Roll, pitch, yaw in radians (URDF fixed-axis convention).
-    """
-
-    xyz: tuple[float, float, float]
-    rpy: tuple[float, float, float]
-
-
 class TabConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -314,9 +297,7 @@ class TabConfig(BaseModel):
     head_home_deg: tuple[float, float] | None = None  # head: (pan, tilt) degrees the Home button commands
     arm_offset: tuple[float, float, float] | None = None
     arm_command_topic: str | None = None
-    gripper_camera_topic: str | None = None  # arm: sensor_msgs/CompressedImage of the gripper camera
-    head_camera_topic: str | None = None  # arm: sensor_msgs/CompressedImage of the head camera
-    gripper_camera_mount: CameraMount | None = None  # arm: gripper camera pose in gripper_link (= mcp_server mount)
+    head_camera_topic: str | None = None  # arm: sensor_msgs/CompressedImage of the head D435 colour stream
     active_source_topic: str | None = None  # arm: std_msgs/String of the filter_node command source in control
     arm_take_control_service: str | None = None  # arm: std_srvs/Trigger taking the arm lease for the web UI
     arm_release_control_service: str | None = None  # arm: std_srvs/Trigger releasing the lease to the leader
@@ -449,7 +430,7 @@ class TabConfig(BaseModel):
 
     @model_validator(mode="after")
     def apply_arm_defaults(self) -> TabConfig:
-        """Fill unset arm-tab fields (ARM_TAB_DEFAULTS, arm offset, camera mount) and reject empty ones.
+        """Fill unset arm-tab fields (ARM_TAB_DEFAULTS, arm offset) and reject empty ones.
 
         Returns:
             TabConfig: This tab with arm defaults applied; other tab types are untouched.
@@ -464,8 +445,6 @@ class TabConfig(BaseModel):
                 raise ValueError(f"arm tab {self.id!r}: {field} must not be empty")
         if self.arm_offset is None:
             self.arm_offset = ARM_TAB_DEFAULT_ARM_OFFSET
-        if self.gripper_camera_mount is None:
-            self.gripper_camera_mount = CameraMount(xyz=ARM_TAB_DEFAULT_CAMERA_XYZ, rpy=ARM_TAB_DEFAULT_CAMERA_RPY)
         return self
 
     @model_validator(mode="after")

@@ -109,8 +109,7 @@ tabs:
   - id: arm
     type: arm
     label: "Arm"
-    gripper_camera_topic: /camera_0/image_raw/compressed
-    head_camera_topic: /head_camera/image_raw/compressed
+    head_camera_topic: /head/d435/color/image_raw/compressed
     arm_urdf: so101_arm.urdf
     arm_joint_states_topic: /follower/joint_states
     # Where the draggable arm publishes (filter_node web_ui input).

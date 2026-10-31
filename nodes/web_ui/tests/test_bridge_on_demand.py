@@ -30,7 +30,7 @@ from web_ui.config import AppConfig, TabConfig
 from web_ui.gps_anchor import CompassSettings
 from web_ui.tilt_guard import TILT_GUARD_ERROR_SOURCE, TILT_GUARD_STATE_TOPIC
 
-ON_DEMAND = {"/odom", "/camera_0/image_raw/compressed", "/plan", "/poi/list", "/client/gps/status", "/h/rgb"}
+ON_DEMAND = {"/odom", "/head/d435/color/image_raw/compressed", "/plan", "/poi/list", "/client/gps/status", "/h/rgb"}
 ALWAYS_ON_ROLES = {
     "/map": "map",
     "/battery": "battery",
@@ -638,3 +638,14 @@ def test_publish_dict_outside_the_window_publishes_directly(ros: FakeRos) -> Non
     node.publish_now(GOAL, {})  # consumes the wait state
     node.publish_dict(GOAL, {})
     assert pub.publish.call_count == 2
+
+
+def test_no_gripper_camera_type_hint() -> None:
+    """The retired gripper camera topics have no type hint; the head D435 colour stream of the arm tab resolves."""
+    from sensor_msgs.msg import CompressedImage
+
+    from web_ui.bridge import TOPIC_TYPE_HINTS, subscription_spec
+
+    assert not [t for t in TOPIC_TYPE_HINTS if t.startswith("/camera_0/")]
+    assert subscription_spec("/camera_0/image_raw/compressed", None) is None
+    assert subscription_spec("/head/d435/color/image_raw/compressed", None)[0] is CompressedImage

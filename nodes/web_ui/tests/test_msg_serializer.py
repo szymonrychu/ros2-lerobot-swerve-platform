@@ -120,7 +120,7 @@ def test_serialize_camera_info() -> None:
 
 def test_color_image_non_rgbd_topic_no_color_small() -> None:
     """Color image on non-RGBD topic does not include color_small_b64."""
-    result = msg_to_dict(_make_rgb_image_msg(), topic="/controller/camera_0/image_raw")
+    result = msg_to_dict(_make_rgb_image_msg(), topic="/head/d435/color/image_raw")
     assert "jpeg_b64" in result
     assert "color_small_b64" not in result
 

@@ -1164,7 +1164,7 @@ def test_default_yaml_reads_no_master2master_relay_topics() -> None:
 def test_topic_type_hints_have_no_master2master_relay_topics() -> None:
     """Type hints cover the robot's own topics (gps fix, scan, camera, goal) instead of the /controller/* relays."""
     from nav_msgs.msg import OccupancyGrid
-    from sensor_msgs.msg import Image, LaserScan, NavSatFix
+    from sensor_msgs.msg import CompressedImage, LaserScan, NavSatFix
 
     from web_ui.bridge import TOPIC_TYPE_HINTS
 
@@ -1172,7 +1172,7 @@ def test_topic_type_hints_have_no_master2master_relay_topics() -> None:
     assert TOPIC_TYPE_HINTS["/client/gps/fix"] is NavSatFix
     assert TOPIC_TYPE_HINTS["/scan"] is LaserScan
     assert TOPIC_TYPE_HINTS["/local_costmap/costmap"] is OccupancyGrid
-    assert TOPIC_TYPE_HINTS["/camera_0/image_raw"] is Image
+    assert TOPIC_TYPE_HINTS["/head/d435/color/image_raw/compressed"] is CompressedImage
 
 
 def test_client_yml_web_ui_tabs_validate_and_head_matches_default() -> None:

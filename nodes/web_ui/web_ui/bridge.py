@@ -153,10 +153,10 @@ TOPIC_TYPE_HINTS: dict[str, type] = {
     "/client/gps/fix": NavSatFix,  # gps_rtk_rover fix (status bar Lat/Lon overlays)
     "/scan": LaserScan,
     "/local_costmap/costmap": OccupancyGrid,
-    "/camera_0/image_raw": Image,
     "/goal_pose": PoseStamped,
-    "/camera_0/image_raw/compressed": CompressedImage,
-    # head_camera_cpp preview (Camera Module 3 on the pan/tilt head), shown on the Arm and Head tabs.
+    # Head D435 colour stream (JPEG transport), shown on the Arm tab.
+    "/head/d435/color/image_raw/compressed": CompressedImage,
+    # head_camera_cpp preview (Camera Module 3).
     "/head_camera/image_raw/compressed": CompressedImage,
 }
 
