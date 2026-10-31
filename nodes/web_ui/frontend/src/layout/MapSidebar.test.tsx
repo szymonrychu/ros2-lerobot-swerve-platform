@@ -277,11 +277,10 @@ describe('MapNavTab with the docked sidebar', () => {
     expect(screen.queryByTestId('photo-list-panel')).toBeNull()
   })
 
-  it('docks the grasp panel', async () => {
+  it('has no grasp panel: Grasp moved to the Arm tab', async () => {
     await renderTab()
-    fireEvent.click(screen.getByRole('button', { name: /Grasp/ }))
-    fireEvent.click(screen.getAllByRole('menuitem')[0])
-    expectDocked(panelTitled(/^Grasp$/))
+    expect(screen.queryByRole('button', { name: /Grasp/ })).toBeNull()
+    expect(screen.queryByLabelText('Grasp panel')).toBeNull()
   })
 
   it('with every panel closed there is no sidebar and the map takes the full width', async () => {
