@@ -4,6 +4,7 @@ import {
   allowBigJoints,
   applyHeadArm,
   boardAttached,
+  computeArm,
   computeHeadArm,
   getHeadArmResult,
   getHeadArmState,
@@ -18,6 +19,43 @@ import sessionsFx from "../../../../head_rgbd_calibration/tests/fixtures/api/hea
 import applyFx from "../../../../head_rgbd_calibration/tests/fixtures/api/floor_apply.json";
 
 const B = "/api/calibration/rgbd/head-arm";
+/** result.json of a passed arm offsets fit (kind "arm"), as arm_results.compute_arm writes it. */
+const ARM_RESULT = {
+  id: "r-20261031-120000",
+  session: "calib-20261031-110000",
+  kind: "arm",
+  floor_session: "floor-20261030-090000",
+  floor: { session: "floor-20261030-090000", result: "r-20261030-091000" },
+  created: "2026-10-31T12:00:00+01:00",
+  passed: true,
+  failed_limits: [],
+  error: null,
+  rms_px: 0.61,
+  holdout_rms_px: 0.72,
+  holdout_tool_mm: 1.9,
+  wrist_roll_fitted: false,
+  tool_fitted: false,
+  tool_offset_m: [0.0, 0.0, -0.0981],
+  offsets: {
+    shoulder_pan: { value: 0.02, sigma: 0.001, current: 0.0182 },
+    wrist_roll: { value: 0.0, sigma: null, current: 0.0 },
+  },
+  head: { mount_x_m: { value: 0.156, sigma: 0.0001, urdf: 0.155 } },
+  limits: [{ name: "rms_px", value: 0.61, limit: 1.5, ok: true }],
+  snippet: "    joint_offsets_rad:\n      shoulder_pan: 0.0200\n",
+};
+/** An arm result that stopped on an input error: only the base keys and the error. */
+const ARM_ERROR = {
+  id: "r-20261031-120100",
+  session: "calib-20261031-110000",
+  kind: "arm",
+  floor_session: null,
+  floor: null,
+  created: "2026-10-31T12:01:00+01:00",
+  passed: false,
+  failed_limits: [],
+  error: "apply a head calibration first",
+};
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
 function stub(status: number, body: unknown) {
@@ -101,6 +139,43 @@ describe("headArmApi", () => {
     expect(f).toHaveBeenLastCalledWith(`${B}/sessions/s/results/r`, {
       cache: "no-store",
     });
+  });
+  it("computeArm posts the floor session", async () => {
+    const f = stub(200, ARM_RESULT);
+    expect(await computeArm("a/b", "floor-20261030-090000")).toEqual({
+      ok: true,
+      value: ARM_RESULT,
+    });
+    expect(f).toHaveBeenLastCalledWith(`${B}/sessions/a%2Fb/compute-arm`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ floor_session: "floor-20261030-090000" }),
+    });
+    await computeArm("s");
+    expect(f).toHaveBeenLastCalledWith(`${B}/sessions/s/compute-arm`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ floor_session: null }),
+    });
+  });
+  it("computeArm and getHeadArmResult accept an arm result, also one that stopped on an error", async () => {
+    stub(200, ARM_ERROR);
+    expect(await computeArm("s")).toEqual({ ok: true, value: ARM_ERROR });
+    stub(200, ARM_RESULT);
+    expect(await getHeadArmResult("s", "r")).toEqual({
+      ok: true,
+      value: ARM_RESULT,
+    });
+    const { snippet: _s, ...rest } = ARM_RESULT;
+    stub(200, { ...rest, snippet: 3 });
+    const bad = await getHeadArmResult("s", "r");
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.message).toContain("snippet");
+    const { floor_session: _f, ...noFloor } = ARM_ERROR;
+    stub(200, noFloor);
+    const missing = await computeArm("s");
+    expect(missing.ok).toBe(false);
+    if (!missing.ok) expect(missing.message).toContain("floor_session");
   });
   it("applyHeadArm accepts the apply answer", async () => {
     const f = stub(200, applyFx);

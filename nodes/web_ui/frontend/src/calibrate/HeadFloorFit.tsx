@@ -218,7 +218,7 @@ export function HeadFloorFit() {
       </Typography>
       <Typography variant="body2" color="text.secondary">
         Robot on a flat floor, not on blocks; about 2 m in front and 1.5 m to each side clear; only the head moves.
-        The sweep fits the head mount z, roll, pitch, tilt zero and tilt roll from the ToF floor plane.
+        The sweep fits the head mount z, roll, pitch, tilt zero and tilt roll from the floor plane from the D435 depth.
       </Typography>
       {error && <Alert severity="error">{error}</Alert>}
       {sweep?.error && <Alert severity="error">{sweep.error}</Alert>}

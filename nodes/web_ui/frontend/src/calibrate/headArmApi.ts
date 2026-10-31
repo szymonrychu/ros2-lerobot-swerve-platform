@@ -89,6 +89,56 @@ export interface HeadArmResult {
   floor: { session: string; result: string } | null;
 }
 
+/** One arm joint offset of an arm result (rad); `sigma` is null for an offset the fit kept fixed. */
+export interface ArmOffset {
+  value: number;
+  sigma: number | null;
+  current: number;
+}
+
+/** One head parameter of an arm result with its value in the head URDF the fit started from (null when unknown). */
+export interface ArmHeadParam {
+  value: number;
+  sigma: number | null;
+  urdf: number | null;
+}
+
+/** One checked limit of an arm result. */
+export interface ArmLimit {
+  name: string;
+  value: number | null;
+  limit: number | null;
+  ok: boolean;
+}
+
+/**
+ * result.json of one arm offsets fit (`kind: "arm"`, POST .../compute-arm). A fit that stopped on an input error
+ * carries only the keys up to `error`; the fit keys are present once the fit ran.
+ */
+export interface ArmResult {
+  id: string;
+  session: string;
+  kind: string;
+  floor_session: string | null;
+  floor: { session: string; result: string } | null;
+  created: string;
+  passed: boolean;
+  failed_limits: string[];
+  error: string | null;
+  rms_px?: number | null;
+  holdout_rms_px?: number | null;
+  holdout_tool_mm?: number | null;
+  wrist_roll_fitted?: boolean;
+  tool_fitted?: boolean;
+  /** Tool point in gripper_frame_link (m): the fitted one when `tool_fitted`, else the current one. */
+  tool_offset_m?: number[];
+  offsets?: Record<string, ArmOffset>;
+  head?: Record<string, ArmHeadParam>;
+  limits?: ArmLimit[];
+  /** The joint_offsets_rad snippet for the arm config, committed by hand. */
+  snippet?: string;
+}
+
 /** One head_arm session of GET /head-arm/sessions. */
 export interface HeadArmSession {
   id: string;
@@ -166,6 +216,56 @@ const RESULT: Record<string, Check> = {
   ),
   floor: isFloor,
 };
+const ARM_KIND = "arm";
+const isNullNum: Check = isNullOr(isNum);
+const allOf =
+  (shape: Record<string, Check>): Check =>
+  (p) =>
+    isObj(p) && Object.values(p).every((x) => badKey(x, shape) === null);
+/** Keys every arm result carries, also one that stopped on an input error. */
+const ARM_RESULT: Record<string, Check> = {
+  id: isStr,
+  session: isStr,
+  kind: isStr,
+  floor_session: isNullOr(isStr),
+  floor: isFloor,
+  created: isStr,
+  passed: isBool,
+  failed_limits: isArrayOf(isStr),
+  error: isNullOr(isStr),
+};
+/** Keys of a fit that ran, checked when present. */
+const ARM_FIT: Record<string, Check> = {
+  rms_px: isNullNum,
+  holdout_rms_px: isNullNum,
+  holdout_tool_mm: isNullNum,
+  wrist_roll_fitted: isBool,
+  tool_fitted: isBool,
+  tool_offset_m: isNumArray,
+  offsets: allOf({ value: isNum, sigma: isNullNum, current: isNum }),
+  head: allOf({ value: isNum, sigma: isNullNum, urdf: isNullNum }),
+  limits: isArrayOf(
+    (l) =>
+      badKey(l, {
+        name: isStr,
+        value: isNullNum,
+        limit: isNullNum,
+        ok: isBool,
+      }) === null,
+  ),
+  snippet: isStr,
+};
+
+function badArmResult(v: unknown): string | null {
+  const base = badKey(v, ARM_RESULT);
+  if (base !== null || !isObj(v)) return base;
+  return Object.keys(ARM_FIT).find((k) => k in v && !ARM_FIT[k](v[k])) ?? null;
+}
+
+/** A result of either kind: an arm result by its `kind`, else a head-from-arm result. */
+const badAnyResult = (v: unknown) =>
+  isObj(v) && v.kind === ARM_KIND ? badArmResult(v) : badKey(v, RESULT);
+
 const SESSION: Record<string, Check> = {
   id: isStr,
   created: isStr,
@@ -210,7 +310,7 @@ async function request<T>(
       };
 }
 
-const post = (body?: Record<string, boolean>): RequestInit =>
+const post = (body?: Record<string, unknown>): RequestInit =>
   body
     ? {
         ...POST,
@@ -264,12 +364,21 @@ export const listHeadArmSessions = () =>
   request<HeadArmSession[]>(`${BASE}/sessions`, GET, badSessions);
 export const computeHeadArm = (sid: string) =>
   request<HeadArmResult>(`${sessionPath(sid)}/compute`, POST, badResult);
+/** Fits the arm offsets to a head_arm session; without `floorSession` the node uses the applied chain's floor session. */
+export const computeArm = (sid: string, floorSession?: string) =>
+  request<ArmResult>(
+    `${sessionPath(sid)}/compute-arm`,
+    post({ floor_session: floorSession ?? null }),
+    badArmResult,
+  );
+/** A stored result of either kind (an arm result has `kind: "arm"`). */
 export const getHeadArmResult = (sid: string, rid: string) =>
-  request<HeadArmResult>(
+  request<HeadArmResult | ArmResult>(
     `${sessionPath(sid)}/results/${seg(rid)}`,
     GET,
-    badResult,
+    badAnyResult,
   );
+/** Applies a passed result: a head-from-arm result, or the head chain of an arm result (the node dispatches on kind). */
 export const applyHeadArm = (sid: string, rid: string) =>
   request<FloorApplied>(
     `${sessionPath(sid)}/results/${seg(rid)}/apply`,

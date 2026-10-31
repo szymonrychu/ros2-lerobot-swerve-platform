@@ -41,6 +41,36 @@ const click = async (name: string | RegExp) => {
 }
 
 describe('HeadArmCalibration', () => {
+  it('says the D435 watches the board on the fixed jaw (D435 wording)', async () => {
+    setState(seq({}))
+    const { container } = render(<HeadArmCalibration />)
+    await screen.findByText(/without the board/)
+    expect(screen.getByText(/the head D435 watches the ChArUco board on the fixed jaw/)).toBeTruthy()
+    expect(container.textContent).not.toMatch(/ToF/)
+  })
+
+  it('names the sequencer skip reasons with their counts', async () => {
+    setState(seq({ running: true, phase: 'capturing', session_id: 'x', skipped: { 'inside D435 min-Z': 3, 'outside colour FOV': 2 } }))
+    render(<HeadArmCalibration />)
+    await screen.findByText(/5 skipped/)
+    expect(screen.getByText('inside D435 min-Z: 3')).toBeTruthy()
+    expect(screen.getByText('outside colour FOV: 2')).toBeTruthy()
+  })
+
+  it('shows the d435_joint camera rows of the fit', async () => {
+    setState(seq({}))
+    m.computeHeadArm.mockResolvedValue(ok(resultFx as api.HeadArmResult))
+    render(<HeadArmCalibration />)
+    await screen.findByText(/without the board/)
+    await click('Compute')
+    await screen.findByText('Passed')
+    for (const label of ['D435 x (mm)', 'D435 z (mm)', 'D435 roll (deg)', 'D435 yaw (deg)']) {
+      expect(screen.getByText(label)).toBeTruthy()
+    }
+    const p = resultFx.params.camera_x_m
+    expect(screen.getByText('D435 x (mm)').closest('tr')?.textContent).toContain((p.value * 1000).toFixed(2))
+  })
+
   it('moves only after the dialog confirm and names the joints', async () => {
     setState(seq({}))
     m.moveToBase.mockResolvedValue(ok(seq({ running: true, phase: 'moving_to_base' })))

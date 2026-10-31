@@ -67,6 +67,14 @@ describe('HeadFloorFit', () => {
     expect(screen.getByRole('button', { name: 'Compute' }).hasAttribute('disabled')).toBe(true)
   })
 
+  it('says the floor plane comes from the D435 depth (D435 wording)', async () => {
+    install(world({ sweep: { ...IDLE, session_id: null } }))
+    const { container } = render(<HeadFloorFit />)
+    await screen.findByText('Head floor fit')
+    expect(screen.getByText(/floor plane from the D435 depth/)).toBeTruthy()
+    expect(container.textContent).not.toMatch(/ToF/)
+  })
+
   it('start posts, then progress polls while running and Stop ends it', async () => {
     vi.useFakeTimers()
     const w = world({ sweep: { ...IDLE, session_id: null } })

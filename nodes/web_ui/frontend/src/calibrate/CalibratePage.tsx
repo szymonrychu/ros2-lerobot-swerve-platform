@@ -6,6 +6,7 @@ import IconButton from '@mui/material/IconButton'
 import Typography from '@mui/material/Typography'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import { TOUCH_TARGET_PX } from '../theme'
+import { ArmCalibration } from './ArmCalibration'
 import { clearCalibrateHash } from './calibrateRoute'
 import { HeadArmCalibration } from './HeadArmCalibration'
 import { HeadFloorFit } from './HeadFloorFit'
@@ -77,8 +78,8 @@ export function CalibratePage({ onBack }: Props) {
           {state.config.rgbd && <RgbdCalibration />}
           {state.config.rgbd && <HeadFloorFit />}
           {state.config.rgbd && <HeadArmCalibration />}
+          {state.config.rgbd && <ArmCalibration />}
           {state.config.servos && <ServoNeutral />}
-          <Typography color="text.secondary">Arm calibration - deferred</Typography>
         </>
       )}
     </Box>

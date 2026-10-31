@@ -60,6 +60,11 @@ const PARAM_ROWS: ParamRow[] = [
   { label: 'Mount yaw (deg)', key: 'mount_yaw_deg', scale: 1, digits: 3 },
   { label: 'Tilt zero (deg)', key: 'tilt_zero_deg', scale: 1, digits: 3 },
   { label: 'Tilt roll (deg)', key: 'tilt_roll_deg', scale: 1, digits: 3 },
+  // d435_joint (head_tilt -> D435): x, z, roll, yaw are fitted; y and pitch stay at the URDF values (design D32b).
+  { label: 'D435 x (mm)', key: 'camera_x_m', scale: M_TO_MM, digits: 2 },
+  { label: 'D435 z (mm)', key: 'camera_z_m', scale: M_TO_MM, digits: 2 },
+  { label: 'D435 roll (deg)', key: 'camera_roll_deg', scale: 1, digits: 3 },
+  { label: 'D435 yaw (deg)', key: 'camera_yaw_deg', scale: 1, digits: 3 },
   // Head pan axis position relative to the head (head_pan origin x, y); only when the fit frees it.
   { label: 'Pan axis x (mm)', key: 'pan_axis_x_m', scale: M_TO_MM, digits: 2 },
   { label: 'Pan axis y (mm)', key: 'pan_axis_y_m', scale: M_TO_MM, digits: 2 },
@@ -137,7 +142,25 @@ function ResultView({ result }: { result: HeadArmResult }) {
   )
 }
 
-function Confirm(props: {
+/**
+ * One line per sequencer skip reason with its count (for example "inside D435 min-Z: 3", "outside colour FOV: 2").
+ *
+ * @param skipped - skip reason -> count of the sequence
+ */
+export function SkipReasons({ skipped }: { skipped: Record<string, number> }) {
+  return (
+    <>
+      {Object.entries(skipped).map(([reason, n]) => (
+        <Typography key={reason} variant="body2" color="text.secondary">
+          {`${reason}: ${n}`}
+        </Typography>
+      ))}
+    </>
+  )
+}
+
+/** Confirm dialog with a cancel and a confirm button. */
+export function Confirm(props: {
   open: boolean
   title: string
   children: string
@@ -249,8 +272,8 @@ export function HeadArmCalibration() {
         Head from arm
       </Typography>
       <Typography variant="body2" color="text.secondary">
-        The head chain is fitted against the trusted arm: the arm holds the ChArUco board in front of the head camera
-        and the head pan and tilt are measured against it. Robot not driving.
+        The head chain is fitted against the trusted arm: the head D435 watches the ChArUco board on the fixed jaw while
+        the arm moves it, and the head pan and tilt are measured against it. Robot not driving.
       </Typography>
       {error && <Alert severity="error">{error}</Alert>}
       {sequence?.error && <Alert severity="error">{sequence.error}</Alert>}
@@ -294,6 +317,7 @@ export function HeadArmCalibration() {
           <Typography variant="body2">
             {`${sequence.tier === null ? 'Tier -' : `Tier ${sequence.tier}`}, pose ${sequence.arm_pose === null ? '-' : sequence.arm_pose + 1} of ${sequence.total_poses}, ${sequence.captured} captured, ${skipped} skipped - ${sequence.status}`}
           </Typography>
+          <SkipReasons skipped={sequence.skipped} />
         </Box>
       )}
       <Box sx={{ display: 'flex', gap: 1, mt: 1, flexWrap: 'wrap' }}>

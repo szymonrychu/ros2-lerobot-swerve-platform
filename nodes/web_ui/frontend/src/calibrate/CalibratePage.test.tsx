@@ -3,6 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { CalibratePage } from './CalibratePage'
 
+/** Waits until the config has loaded (the spinner is gone). */
+async function loaded(): Promise<void> {
+  await waitFor(() => expect(screen.queryByRole('progressbar')).toBeNull())
+}
+
 function respond(status: number, body: unknown = {}): void {
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(body), { status })))
 }
@@ -43,7 +48,7 @@ describe('CalibratePage', () => {
     cleanup()
     respond(200, { imu: false })
     render(<CalibratePage onBack={() => {}} />)
-    await screen.findByText('Arm calibration - deferred')
+    await loaded()
     expect(screen.queryByText('IMU calibration')).toBeNull()
   })
 
@@ -53,10 +58,12 @@ describe('CalibratePage', () => {
     await screen.findByText('IMU calibration')
   })
 
-  it('always shows the deferred arm line once loaded', async () => {
+  it('has no deferred arm line', async () => {
     respond(200, { imu: false })
     render(<CalibratePage onBack={() => {}} />)
-    await screen.findByText('Arm calibration - deferred')
+    await loaded()
+    expect(screen.queryByText(/deferred/)).toBeNull()
+    expect(screen.queryByText('Arm calibration')).toBeNull()
   })
 
   it('renders both sections with imu and rgbd', async () => {
@@ -119,7 +126,9 @@ describe('CalibratePage', () => {
     const floor = await screen.findByText('Head floor fit')
     const arm = await screen.findByText('Head from arm')
     expect(floor.compareDocumentPosition(arm) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(screen.getByText('Arm calibration - deferred')).toBeTruthy()
+    const armCalibration = await screen.findByText('Arm calibration')
+    expect(arm.compareDocumentPosition(armCalibration) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(screen.queryByText(/deferred/)).toBeNull()
     cleanup()
     respond(200, { imu: true, rgbd: false })
     render(<CalibratePage onBack={() => {}} />)
@@ -154,7 +163,7 @@ describe('CalibratePage', () => {
     cleanup()
     respond(200, { imu: false, servos: false })
     render(<CalibratePage onBack={() => {}} />)
-    await screen.findByText('Arm calibration - deferred')
+    await loaded()
     expect(screen.queryByText('Servo torque and neutral')).toBeNull()
   })
 })

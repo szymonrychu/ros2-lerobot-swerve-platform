@@ -106,20 +106,20 @@ describe('Calibrate routing', () => {
   it('loading with #/calibrate opens the page directly', async () => {
     window.location.hash = '#/calibrate'
     await renderApp()
-    await screen.findByText('Arm calibration - deferred')
+    await screen.findByText('IMU calibration')
   })
 
   it('back clears the hash and a tab selection leaves the page', async () => {
     window.location.hash = '#/calibrate'
     await renderApp()
-    await screen.findByText('Arm calibration - deferred')
+    await screen.findByText('IMU calibration')
     fireEvent.click(screen.getByRole('button', { name: 'Back' }))
-    await waitFor(() => expect(screen.queryByText('Arm calibration - deferred')).toBeNull())
+    await waitFor(() => expect(screen.queryByText('IMU calibration')).toBeNull())
     expect(window.location.hash).toBe('')
     window.location.hash = '#/calibrate'
-    await screen.findByText('Arm calibration - deferred')
+    await screen.findByText('IMU calibration')
     fireEvent.click(screen.getByRole('tab', { name: 'Places' }))
-    await waitFor(() => expect(screen.queryByText('Arm calibration - deferred')).toBeNull())
+    await waitFor(() => expect(screen.queryByText('IMU calibration')).toBeNull())
     expect(window.location.hash).toBe('')
   })
 })

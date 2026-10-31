@@ -20,7 +20,7 @@ export interface AppliedHeadChain {
   result: string;
   note: string;
   /** Which fit wrote the record; absent in records written before the head-from-arm fit. */
-  source?: "floor" | "head_arm";
+  source?: "floor" | "head_arm" | "arm";
   /** The floor fit used as prior or cross-check (floor records: the fit itself). */
   floor?: { session: string; result: string } | null;
   joints: Record<string, { xyz?: number[]; rpy?: number[] }>;
@@ -88,7 +88,7 @@ export interface FloorApplied {
     session: string;
     result: string;
     applied_at: string;
-    source?: "floor" | "head_arm";
+    source?: "floor" | "head_arm" | "arm";
     floor?: { session: string; result: string } | null;
   };
   units: { name: string; restarted: boolean; active_state?: string }[];
