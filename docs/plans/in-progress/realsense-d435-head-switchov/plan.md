@@ -1,83 +1,49 @@
-# RealSense D435 head switchover design
+---
+title: RealSense D435 head switchover
+repos: [ros2-lerobot-sverve-platform]
+created: 2026-10-27
+owner: Szymon Richert
+rung: 1
+---
 
-## Summary
+# RealSense D435 head switchover
 
-The Intel RealSense D435 (device serial 935422070045 (935422070045 is the ASIC/firmware-update serial), USB 8086:0b07) on the pan/tilt head becomes the robot's only head
-RGB-D sensor and the only camera. It runs on the client as the apt `realsense2_camera` node (`/head/d435/*`, frames
-`d435_*`), owned by Ansible. Its depth feeds a renamed obstacle cloud node, laser_filter, Nav2 and ground_estimator_cpp.
-Its aligned depth plus colour feed head_rgbd_cpp. That node is reduced to an adapter that keeps the `/head_rgbd/*`
-contract for RTAB-Map, ground guidance, marker_detector and web_ui. MCP keeps the camera name `front` for the D435 colour
-and loses `gripper`. The calibration screen is re-based on the D435. Arm joint offsets and the tool point are re-solved
-from the head D435 watching a gripper-held ChArUco board. The head ToF, the head Camera Module 3 and the gripper UVC
-camera are retired, together with their consumers and ToF-only code.
+## What and why
 
-## Intent and why
+What: Make the D435 on the pan/tilt head the only head RGB-D sensor and retire head ToF, head RGB and gripper camera
+How: realsense2_camera node via Ansible, D435 joint on the head chain, ground/nav/web_ui/MCP re-pointed to D435 topics, calibration lib and screen re-based on D435, old sensor nodes retired
+Why: D435 permanently replaces the ToF+RGB head and the gripper camera; ground estimation and 3D view were disabled pending it
 
-User request (verbatim): "start implementation for the switchover, assume similar position as current head unit.
-restore ground estimation and other 3d view functionality, replace existing gripper position estimation and MCP tools.
-it's a bit epic including doing necessary recalibration, so it might also touch the calibration screen." Context: "It
-will permanently replace gripper camera (eventually), but will be mounted on separate head."
+## Scope ladder
 
-Ground estimation, the Nav2 head inputs and the 3D view were switched off on 2026-10-24 "until a RealSense D435 replaces
-the head ToF". The D435 is now on the robot, so those features come back on it. The old sensors go, so the robot keeps
-one consistent sensor model.
+### Rung 1: agreed scope (migrated)
 
-## Goals
+- 1.1: The D435 (device serial 935422070045 (935422070045 is the ASIC/firmware-update serial)) runs on the client as the realsense2_camera node, deployed by Ansible, with udev for 0b07, a matched-fps profile, explicit camera_name/namespace and the live topic list pinned in config.
+- 1.2: The D435 sits on the pan/tilt head chain in head.urdf / head_state_publisher at a position similar to the current head unit, replacing the ToF and head RGB frames.
+- 1.3: Ground estimation is restored on D435 depth: ground_estimator_cpp (and head_rgbd_cpp or its replacement) enabled, obstacle cloud and self-filter re-pointed, replay fixtures re-recorded.
+- 1.4: Nav2 head inputs disabled on 2026-10-24 "until a RealSense D435 replaces the head ToF" are re-enabled on the D435 cloud (my call: the lidar-only decision was conditional on this).
+- 1.5: Every web_ui 3D view feature (Head RGB-D layer, Ground layer, ToF obstacles layer, Head tab RGB-D view) shows D435 data.
+- 1.6: The arm joint offset / tool point solve (2026-10-10, gripper camera) is re-done from the head D435 watching a gripper-held ChArUco board.
+- 1.7: Every MCP tool that uses the gripper camera, head RGB, ToF or RGB-D is D435-backed; claude_agent prompt, skills and evals match.
+- 1.8: Recalibration runs on the D435: head mount extrinsics through the pan/tilt chain, floor fit, intrinsics check against factory; the web_ui calibration screen drives it.
+- 1.9: The head ToF (arducam_tof), head RGB (head_camera_cpp, Camera Module 3) and gripper UVC camera are retired (present: false) with their consumers, ToF-only code paths and relays removed or re-pointed (marker_detector moves to D435 colour+depth).
+- 1.10: All READMEs, tests/README.md and MEMORY.md reflect the D435; all lint and tests green; deployed to the client.
 
-The README goals, each covered by the tasks in Decision coverage:
+## Agreed scope
 
-- G1 D435 runs on the client as realsense2_camera, deployed by Ansible, with udev for 0b07, a matched-fps profile,
-  explicit camera_name/namespace and the live topic list pinned in config.
-- G2 D435 on the pan/tilt head chain in head.urdf / head_state_publisher, at a position similar to the old head unit,
-  replacing the ToF and head RGB frames.
-- G3 Ground estimation restored on D435 depth: ground_estimator_cpp and head_rgbd_cpp enabled, obstacle cloud and
-  self-filter re-pointed, replay fixtures re-recorded.
-- G4 Nav2 head inputs disabled on 2026-10-24 re-enabled on the D435 cloud.
-- G5 Every web_ui 3D view feature (Head RGB-D layer, Ground layer, ToF obstacles layer, Head tab RGB-D view) shows D435
-  data.
-- G6 Arm joint offset / tool point solve re-done from the head D435 watching a gripper-held ChArUco board.
-- G7 Every MCP tool using the gripper camera, head RGB, ToF or RGB-D is D435-backed; claude_agent prompt, skills and
-  evals match.
-- G8 Recalibration on the D435: head mount extrinsics through the pan/tilt chain, floor fit, intrinsics check against
-  factory; the web_ui calibration screen drives it.
-- G9 Head ToF, head RGB and gripper UVC camera retired (present: false) with their consumers. ToF-only code paths and
-  relays are removed or re-pointed. marker_detector moves to D435 colour+depth.
-- G10 READMEs, tests/README.md and MEMORY.md reflect the D435; all lint and tests green; deployed to the client.
+Rung 1, migrated from the epic format: the epic's goals were its agreed scope.
 
 ## Non-goals
 
 - Physical mounting or printing of the D435 head.
 - Moving web_ui or mcp_server off Python.
-- Learned or markerless gripper tracking (DREAM, URDF-mesh ICP) or a live gripper-tracking node.
+- Learned / markerless gripper tracking (DREAM, URDF-mesh ICP) or a live gripper-tracking node.
 - RTAB-Map 3D mapping changes beyond re-pointing its source topics.
 - Retiring the lidar or changing lidar-based planning.
-- New MCP capabilities (for example a per-pixel depth tool). Existing tools are re-based; none is added.
 
-## Anti-goals
+## Design
 
-- Raw D435 images crossing WiFi (the Pi 5 fell to 4-5 Hz over WiFi in prior art; UDPv4 fragment drops in-tree).
-- Placeholder data on any topic while the D435 is starting, missing or dropping frames (CLAUDE.md rule).
-- The enabled memory_low sum above the 2560 MiB cap of tests/test_unit_cgroups.py, or the client CPU saturated by
-  host-side align.
-- A second copy of the D435 factory extrinsics in several configs (one source: head.urdf).
-- Servo motion beyond the least-dramatic rule in any live step without the user watching.
-
-## Constraints
-
-- CLAUDE.md: TDD, type hints, pydantic config, file config over CLI, no placeholder topic data, the `ros2_nodes`
-  schema, deploy only via `scripts/deploy-nodes.sh` with logs in `.logs/`, READMEs and tests/README.md updated with the
-  code, servo least-dramatic-movement rule.
-- Memory notes: no ad-hoc rclpy probes on the client (use the web_ui websocket, topic_scraper_api, Mimir/Loki). Deploying
-  mcp_server/claude_agent kills a running agent session. Arm motion safety (wrist roll only half-open and lifted;
-  negative elbow stretches; FK-check poses).
-- Installed on the Pi: ros-jazzy-realsense2-camera 4.58.4, librealsense2 2.58.4 (apt, V4L2 backend). Firmware must
-  be >= 5.17.3.10.
-- Pi 5 USB budget: a 5 V 5 A supply (1.6 A) is needed for the ~0.7 A D435.
-- Grep guards: tests/test_head_camera_live_refs.py forbids `front_camera` names and `640x480`/`10 fps` near
-  "front"/"head" in mcp_server, claude_agent and READMEs unless "calibrat"/"intrinsic" is nearby. The guard
-  nodes/web_ui/tests/test_stale_names_gone.py forbids `image_rect` in frontend .ts/.tsx; topic names live in config
-  only.
-- Cross-epic file overlap: the in-progress ToF epics are this epic's blockers (D15).
+Migrated from the epic format; the design sections without a plan.md heading are under Migrated notes.
 
 ## Decisions
 
@@ -272,6 +238,13 @@ Decision: `scripts/d435_diag.sh` follows bno055_diag.sh: SSH reads only (systemc
 adds `sensor_msgs/msg/CameraInfo` to allowed_types so stream rates are measurable without raw images). It never starts
 an rclpy participant. Live tasks cite its output as evidence. (my call)
 
+## Open questions
+
+- Q1: Zoom (head_camera_cpp full-resolution crop) has no D435 equivalent: retire it with head_camera_cpp in mcp_server (get_camera_image zoom), web_ui click-to-zoom and marker_detector, rather than emulate it as a digital crop of the 640x360 D435 frame? [recommended: yes, retire it everywhere; mcp-zoom-retired, web-ui-zoom-route-retired and marker-detector-zoom-retired assume this]
+- Q2: Tool point: fit tool_offset_m in the plate solve as the fitted board pose composed with the clip's CAD board-to-jaw-tip offset (new config plate_mount.tool_in_board_m), so the 2026-10-10 tool point is re-done from the same D435 views? [recommended: yes; accepted only if the held-out tool error is under 5 mm, else the 2026-10-10 value stays and the report says so]
+- Q3: The superseded ToF tasks in drivable-ground-tof-filterin, tof-3d-obstacle-detection-fo, rgb-d-ground-estimation-and and tof-depth-fix-and-ground-noi are this epic's blockers (ticket.py file-overlap rule) and cannot be marked wontfix: may the orchestrator amend each superseded task (ticket.py amend) to a note pointing at the task here that replaces it and close those epics, after the independent tasks listed in design D15 finish? [recommended: yes]
+- Q4: If the D435 firmware reads below 5.17.3.10 at bring-up, flash it with rs-fw-update (unit stopped, flash backup with -b first) without a further stop? [recommended: yes; it is listed as an irreversible operation]
+
 ## Research
 
 | Lens | Ran / skipped | Adopted ideas | Rejected ideas |
@@ -282,7 +255,7 @@ an rclpy participant. Live tasks cite its output as evidence. (my call)
 | research-papers | skipped: no novel algorithmic core (plane fit and PnP in-tree), recorded in discovery.md section 9 | - | - |
 | research-reviewer | skipped: plan-changing claims were probed (0b07, apt versions, transports); the rest are live ACs | - | - |
 
-## Research inputs
+### Research inputs
 
 Recent retros: `ticket.py retro --history` returned `[]` (no done epic has a RETRO.md), so no retro proposals apply.
 
@@ -347,7 +320,110 @@ Plan inputs from the briefs, each placed:
 - idea rejected: intra-process component container (docs.md) - consumers are separate systemd units; revisit only if the budget task measures a DDS copy cost
 - idea rejected: eye_on_base robot_base_frame = head tilt link, calibrateRobotWorldHandEye, ICP refinement, Kalib, groundfloor benchmark (prior-art.md) - covered by D9 or out of scope
 
-## Decision coverage
+## Irreversible operations
+
+- D435 firmware flash with `rs-fw-update` (only if the read firmware is below 5.17.3.10). Safeguard: the unit is stopped,
+  a flash backup is taken with `rs-fw-update -b` first, and `-r` recovery is documented in the runbook (Q4).
+- Deleting tracked sources of retired nodes (nodes/bridges/arducam_tof, nodes/head_camera_cpp, nodes/bridges/uvc_camera,
+  scripts/head_rgbd_calibrate.py and scripts/head_rgbd_calibration/, ToF-only C++ and calibration modules). Recoverable from git
+  history. Pinned by retirement tests.
+- Uninstalling units, venvs and configs on the client by `present: false` deploys (arducam_tof, head_camera_cpp,
+  gripper_uvc_camera, tof_obstacle_cloud), and removing the CSI camera boot overlays (a reboot). The applied ToF/CM3
+  calibration files under /var/lib/ros2/head_rgbd_calibration/applied stay on disk (not deleted).
+- Committing new arm `joint_offsets_rad` / `tool_offset_m` to client.yml and deploying mcp_server (changes every arm
+  motion). Safeguard: the result passes the held-out limits and the snippet is reviewed in the commit; the old values are
+  in git.
+
+### D32b: d435_joint partly free in the head-from-arm fit (my call, 2026-10-28)
+
+Decision: the fit frees d435_joint x, z, roll, yaw; y is unobservable from board views and pitch folds into tilt_zero (synthetic correlation 0.9995), so both stay at the URDF/CAD values. Source: calibration-library-d435-fra implementer identifiability run.
+
+## Migrated notes
+
+### README.md: Review
+
+Filled when the epic reaches stage `review`: the verdict, the findings acted on, the findings dropped.
+
+### design.md: Summary
+
+The Intel RealSense D435 (device serial 935422070045 (935422070045 is the ASIC/firmware-update serial), USB 8086:0b07) on the pan/tilt head becomes the robot's only head
+RGB-D sensor and the only camera. It runs on the client as the apt `realsense2_camera` node (`/head/d435/*`, frames
+`d435_*`), owned by Ansible. Its depth feeds a renamed obstacle cloud node, laser_filter, Nav2 and ground_estimator_cpp.
+Its aligned depth plus colour feed head_rgbd_cpp. That node is reduced to an adapter that keeps the `/head_rgbd/*`
+contract for RTAB-Map, ground guidance, marker_detector and web_ui. MCP keeps the camera name `front` for the D435 colour
+and loses `gripper`. The calibration screen is re-based on the D435. Arm joint offsets and the tool point are re-solved
+from the head D435 watching a gripper-held ChArUco board. The head ToF, the head Camera Module 3 and the gripper UVC
+camera are retired, together with their consumers and ToF-only code.
+
+### design.md: Intent and why
+
+User request (verbatim): "start implementation for the switchover, assume similar position as current head unit.
+restore ground estimation and other 3d view functionality, replace existing gripper position estimation and MCP tools.
+it's a bit epic including doing necessary recalibration, so it might also touch the calibration screen." Context: "It
+will permanently replace gripper camera (eventually), but will be mounted on separate head."
+
+Ground estimation, the Nav2 head inputs and the 3D view were switched off on 2026-10-24 "until a RealSense D435 replaces
+the head ToF". The D435 is now on the robot, so those features come back on it. The old sensors go, so the robot keeps
+one consistent sensor model.
+
+### design.md: Goals
+
+The README goals, each covered by the tasks in Decision coverage:
+
+- G1 D435 runs on the client as realsense2_camera, deployed by Ansible, with udev for 0b07, a matched-fps profile,
+  explicit camera_name/namespace and the live topic list pinned in config.
+- G2 D435 on the pan/tilt head chain in head.urdf / head_state_publisher, at a position similar to the old head unit,
+  replacing the ToF and head RGB frames.
+- G3 Ground estimation restored on D435 depth: ground_estimator_cpp and head_rgbd_cpp enabled, obstacle cloud and
+  self-filter re-pointed, replay fixtures re-recorded.
+- G4 Nav2 head inputs disabled on 2026-10-24 re-enabled on the D435 cloud.
+- G5 Every web_ui 3D view feature (Head RGB-D layer, Ground layer, ToF obstacles layer, Head tab RGB-D view) shows D435
+  data.
+- G6 Arm joint offset / tool point solve re-done from the head D435 watching a gripper-held ChArUco board.
+- G7 Every MCP tool using the gripper camera, head RGB, ToF or RGB-D is D435-backed; claude_agent prompt, skills and
+  evals match.
+- G8 Recalibration on the D435: head mount extrinsics through the pan/tilt chain, floor fit, intrinsics check against
+  factory; the web_ui calibration screen drives it.
+- G9 Head ToF, head RGB and gripper UVC camera retired (present: false) with their consumers. ToF-only code paths and
+  relays are removed or re-pointed. marker_detector moves to D435 colour+depth.
+- G10 READMEs, tests/README.md and MEMORY.md reflect the D435; all lint and tests green; deployed to the client.
+
+### design.md: Non-goals
+
+- Physical mounting or printing of the D435 head.
+- Moving web_ui or mcp_server off Python.
+- Learned or markerless gripper tracking (DREAM, URDF-mesh ICP) or a live gripper-tracking node.
+- RTAB-Map 3D mapping changes beyond re-pointing its source topics.
+- Retiring the lidar or changing lidar-based planning.
+- New MCP capabilities (for example a per-pixel depth tool). Existing tools are re-based; none is added.
+
+### design.md: Anti-goals
+
+- Raw D435 images crossing WiFi (the Pi 5 fell to 4-5 Hz over WiFi in prior art; UDPv4 fragment drops in-tree).
+- Placeholder data on any topic while the D435 is starting, missing or dropping frames (CLAUDE.md rule).
+- The enabled memory_low sum above the 2560 MiB cap of tests/test_unit_cgroups.py, or the client CPU saturated by
+  host-side align.
+- A second copy of the D435 factory extrinsics in several configs (one source: head.urdf).
+- Servo motion beyond the least-dramatic rule in any live step without the user watching.
+
+### design.md: Constraints
+
+- CLAUDE.md: TDD, type hints, pydantic config, file config over CLI, no placeholder topic data, the `ros2_nodes`
+  schema, deploy only via `scripts/deploy-nodes.sh` with logs in `.logs/`, READMEs and tests/README.md updated with the
+  code, servo least-dramatic-movement rule.
+- Memory notes: no ad-hoc rclpy probes on the client (use the web_ui websocket, topic_scraper_api, Mimir/Loki). Deploying
+  mcp_server/claude_agent kills a running agent session. Arm motion safety (wrist roll only half-open and lifted;
+  negative elbow stretches; FK-check poses).
+- Installed on the Pi: ros-jazzy-realsense2-camera 4.58.4, librealsense2 2.58.4 (apt, V4L2 backend). Firmware must
+  be >= 5.17.3.10.
+- Pi 5 USB budget: a 5 V 5 A supply (1.6 A) is needed for the ~0.7 A D435.
+- Grep guards: tests/test_head_camera_live_refs.py forbids `front_camera` names and `640x480`/`10 fps` near
+  "front"/"head" in mcp_server, claude_agent and READMEs unless "calibrat"/"intrinsic" is nearby. The guard
+  nodes/web_ui/tests/test_stale_names_gone.py forbids `image_rect` in frontend .ts/.tsx; topic names live in config
+  only.
+- Cross-epic file overlap: the in-progress ToF epics are this epic's blockers (D15).
+
+### design.md: Decision coverage
 
 | Decision | Tasks |
 |---|---|
@@ -368,7 +444,7 @@ Plan inputs from the briefs, each placed:
 | D15 superseded epics | final-suite-and-deploy |
 | D16 diagnostics script | d435-diagnostics-script, d435-live-bring-up-and-topic |
 
-## Review focus
+### design.md: Review focus
 
 - No placeholder data: head_rgbd_cpp publishes nothing without an exact-stamp colour + aligned depth + camera_info set,
   and every MCP/web_ui path answers "not available" instead of synthesising (tests per task).
@@ -380,7 +456,7 @@ Plan inputs from the briefs, each placed:
   sequences keep the shoulder confirm; FK-checked poses.
 - Tests changed or deleted are named with the reason (no longer accurate). No test is weakened to pass.
 
-## Left to the builder
+### design.md: Left to the builder
 
 - C++ structure of the head_rgbd_cpp adapter (exact-time sync policy, where throttling happens), within D1's contract.
 - point_cloud_xyz decimation/voxel numbers for 640x360, within "cloud <= 3000 points per frame, 5 cm voxel".
@@ -389,7 +465,7 @@ Plan inputs from the briefs, each placed:
 - Exact wording of the claude_agent camera note and skills, within D8.
 - Layout of the Calibrate D435 intrinsics check UI, within D10's fields.
 
-## Assumptions and unknown facts
+### design.md: Assumptions and unknown facts
 
 - The live topic names under 4.58.4 with namespace head / name d435 are assumed `/head/d435/{color/image_raw,
   color/image_raw/compressed, color/camera_info, depth/image_rect_raw, depth/camera_info,
@@ -405,27 +481,3 @@ Plan inputs from the briefs, each placed:
 - The Pi 5 power supply is 5 V 5 A: the bring-up task checks `usb_max_current_enable` / the PSU log line.
 - Server-side RTAB-Map inputs were not traced beyond map3d_topics.yaml. rtab-map-sources-from-config reads them from
   the launch file and pins them.
-
-## Open questions
-- Q1: Zoom (head_camera_cpp full-resolution crop) has no D435 equivalent: retire it with head_camera_cpp in mcp_server (get_camera_image zoom), web_ui click-to-zoom and marker_detector, rather than emulate it as a digital crop of the 640x360 D435 frame? [recommended: yes, retire it everywhere; mcp-zoom-retired, web-ui-zoom-route-retired and marker-detector-zoom-retired assume this]
-- Q2: Tool point: fit tool_offset_m in the plate solve as the fitted board pose composed with the clip's CAD board-to-jaw-tip offset (new config plate_mount.tool_in_board_m), so the 2026-10-10 tool point is re-done from the same D435 views? [recommended: yes; accepted only if the held-out tool error is under 5 mm, else the 2026-10-10 value stays and the report says so]
-- Q3: The superseded ToF tasks in drivable-ground-tof-filterin, tof-3d-obstacle-detection-fo, rgb-d-ground-estimation-and and tof-depth-fix-and-ground-noi are this epic's blockers (ticket.py file-overlap rule) and cannot be marked wontfix: may the orchestrator amend each superseded task (ticket.py amend) to a note pointing at the task here that replaces it and close those epics, after the independent tasks listed in design D15 finish? [recommended: yes]
-- Q4: If the D435 firmware reads below 5.17.3.10 at bring-up, flash it with rs-fw-update (unit stopped, flash backup with -b first) without a further stop? [recommended: yes; it is listed as an irreversible operation]
-
-## Irreversible operations in scope
-
-- D435 firmware flash with `rs-fw-update` (only if the read firmware is below 5.17.3.10). Safeguard: the unit is stopped,
-  a flash backup is taken with `rs-fw-update -b` first, and `-r` recovery is documented in the runbook (Q4).
-- Deleting tracked sources of retired nodes (nodes/bridges/arducam_tof, nodes/head_camera_cpp, nodes/bridges/uvc_camera,
-  scripts/head_rgbd_calibrate.py and scripts/head_rgbd_calibration/, ToF-only C++ and calibration modules). Recoverable from git
-  history. Pinned by retirement tests.
-- Uninstalling units, venvs and configs on the client by `present: false` deploys (arducam_tof, head_camera_cpp,
-  gripper_uvc_camera, tof_obstacle_cloud), and removing the CSI camera boot overlays (a reboot). The applied ToF/CM3
-  calibration files under /var/lib/ros2/head_rgbd_calibration/applied stay on disk (not deleted).
-- Committing new arm `joint_offsets_rad` / `tool_offset_m` to client.yml and deploying mcp_server (changes every arm
-  motion). Safeguard: the result passes the held-out limits and the snippet is reviewed in the commit; the old values are
-  in git.
-
-### D32b: d435_joint partly free in the head-from-arm fit (my call, 2026-10-28)
-
-Decision: the fit frees d435_joint x, z, roll, yaw; y is unobservable from board views and pitch folds into tilt_zero (synthetic correlation 0.9995), so both stay at the URDF/CAD values. Source: calibration-library-d435-fra implementer identifiability run.
