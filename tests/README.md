@@ -3685,3 +3685,15 @@ Parses `ansible/roles/system_optimize/tasks/main.yml`: Wi-Fi power save stays of
 | `test_script_runs_iw_power_save_off_on_each_wlan` | `/usr/local/sbin/wifi-powersave-off.sh` (root 0755) runs `iw dev <if> set power_save off` for each `/sys/class/net/wlan*`. |
 | `test_unit_enabled_and_started_after_daemon_reload` | The unit is enabled and started with `daemon_reload`, guarded by the variable. |
 | `test_not_networkmanager_only` | The immediate `iw` task stays; the NetworkManager file is guarded by the existence of NetworkManager's conf dir. |
+
+### `test_markers_runbook.py`
+
+Static checks of `docs/runbooks/printable-markers.md` (and later `docs/markers.md`): the printable markers runbook reads the D435.
+
+| Test | Covers |
+|---|---|
+| `test_runbook_reads_the_d435` | Names `/head/d435/color`; no `head_camera_cpp`, `/head_camera/`, `1152`, `head_camera_calibration.yaml` or zoom. |
+| `test_prerequisites_are_the_d435_calibration` | Prerequisites name `docs/calibration/`, `docs/runbooks/d435-switchover.md` and `./scripts/d435_diag.sh`. |
+| `test_pose_distances_are_in_d435_range` | Pose step: 0.4 / 0.55 / 0.7 m and 30 deg, 3 cm and 5 deg kept, a non-decoding distance is a finding, no 1.5 m. |
+| `test_thresholds_kept` | `100 ms`, `640x360`, `0.3 core` and `20 sightings` present. |
+| `test_results_rows_match_steps` | Results table has one row per numbered step, each starting with its number. |
