@@ -66,7 +66,7 @@ from .camera_scene import CameraInfoData
 from .config import McpServerConfig
 from .control import ControlManager, LeaderActivity, NavGoalRegistry
 from .depth_source import DepthFrame, DepthSource
-from .drive_pose import DrivePose
+from .drive_pose import DISABLED, LIFTED, SKIPPED_PREFIX, DrivePose
 from .drive_pose_check import check_drive_pose
 from .feeds import FeedsSpinner
 from .floor_guard import monitor_tilt_sample
@@ -2692,6 +2692,8 @@ class RosRobot:
 
         Returns:
             NavigationResult: Outcome (status 'interrupted' + interrupted_by on a critical event) and final pose.
+
+        The arm is lifted to its drive pose first (lift_for_navigation); the goal is sent whatever the lift's outcome.
         """
         if not all(math.isfinite(v) for v in (x, y, yaw)):
             raise RobotError("goal must be finite")
@@ -2699,6 +2701,7 @@ class RosRobot:
             raise BaseMotionBusyError("another base motion is running; call stop first")
         try:
             self.base_stop.clear()
+            self.lift_for_navigation()
             with self.monitor.base_motion(), self.motion_rate("base"):
                 watch = self.monitor.watch(BASE_INTERRUPTS)
                 return run_nav(
@@ -2715,6 +2718,18 @@ class RosRobot:
                 )
         finally:
             self.base_motion.release()
+
+    def lift_for_navigation(self) -> None:
+        """Before this server sends a NavigateToPose goal: ask the drive pose controller for the lift (the goal edge)
+        and wait for lifted, skipped or disabled, at most arm.drive_pose.lift_timeout_s. Never refuses the goal."""
+        drive = self.drive_pose
+        if drive is None:
+            return
+        timeout = self.cfg.arm.drive_pose.lift_timeout_s
+        outcome = drive.request_lift(timeout)
+        if outcome.state in (LIFTED, DISABLED) or outcome.state.startswith(SKIPPED_PREFIX):
+            return
+        self.log.warning(f"navigate: drive pose still {outcome.state} after {timeout:g} s; sending the goal anyway")
 
     def dock(self, goal: DockGoal, timeout_s: float) -> DockResult:
         """Send a DockRobot goal to the grasp docking server and block until it finishes, times out, stop is called or a

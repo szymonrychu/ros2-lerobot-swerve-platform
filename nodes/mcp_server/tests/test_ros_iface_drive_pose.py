@@ -3,10 +3,14 @@
 Covers: the 5 Hz timer ticks DrivePose with nav_active(); /arm/drive_pose/state (std_msgs/String JSON, reliable +
 transient_local, depth 1) is published on every change and at 1 Hz, nothing before the controller is bound;
 /arm/set_drive_pose stores the measured pose only after check_drive_pose from the stored home passes;
-/arm/drive_pose/enable toggles at runtime (not persisted); both refused without fresh joint states.
+/arm/drive_pose/enable toggles at runtime (not persisted); both refused without fresh joint states; navigate asks for
+the lift (request_lift, the goal edge) before sending its goal and sends it whatever the outcome.
 """
 
+import contextlib
 import json
+import threading
+import time
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
@@ -15,9 +19,11 @@ from unittest.mock import MagicMock
 import pytest
 
 from mcp_server.control import ControlManager
+from mcp_server.drive_pose import DrivePose
 from mcp_server.drive_pose_check import DrivePoseViolation
 from mcp_server.models import DrivePoseState
 
+from .test_drive_pose import DRIVE, FakeArm
 from .test_tools import FakeRobot
 
 STATE_TOPIC = "/arm/drive_pose/state"
@@ -225,3 +231,83 @@ def test_services_refused_before_the_controller_is_bound(
     robot = make_robot(ros_iface, tmp_path, monkeypatch)
     assert service(robot, "/arm/set_drive_pose")(None, response()).success is False
     assert service(robot, "/arm/drive_pose/enable")(SimpleNamespace(data=True), response()).success is False
+
+
+# --- navigate lifts before sending its goal --------------------------------------------------------------------------
+
+
+class FakeDrive:
+    """DrivePose stand-in recording request_lift and answering with a fixed state."""
+
+    def __init__(self, events: list[str], state: str) -> None:
+        self.events = events
+        self.answer = state
+        self.enabled = True
+
+    def request_lift(self, timeout_s: float) -> DrivePoseState:
+        self.events.append(f"request_lift {timeout_s:g}")
+        return DrivePoseState(state=self.answer, enabled=True, stamp_ns=1)
+
+
+def nav_robot(module: ModuleType, tmp_path: Path, monkeypatch: Any, events: list[str]) -> Any:
+    """A robot whose navigate runs against a recording run_nav (no Nav2)."""
+    robot = make_robot(module, tmp_path, monkeypatch)
+    robot.base_motion = threading.Lock()
+    robot.base_stop = threading.Event()
+    robot.monitor = MagicMock()
+    robot.motion_rate = lambda *_subsystems: contextlib.nullcontext()
+
+    def run_nav(_port: Any, goal: Any, *_args: Any) -> Any:
+        events.append(f"goal {goal.x:g}")
+        return "nav result"
+
+    monkeypatch.setattr(module, "run_nav", run_nav)
+    return robot
+
+
+@pytest.mark.parametrize("answer", ["lifted", "skipped: torque off", "lifting"], ids=["lifted", "skipped", "timeout"])
+def test_navigate_requests_the_lift_then_sends_the_goal_whatever_the_outcome(
+    ros_iface: ModuleType, tmp_path: Path, monkeypatch: Any, answer: str
+) -> None:
+    events: list[str] = []
+    robot = nav_robot(ros_iface, tmp_path, monkeypatch, events)
+    robot.drive_pose = FakeDrive(events, answer)
+    assert robot.navigate(1.5, 0.0, 0.0, "map", 30.0) == "nav result"
+    assert events == [f"request_lift {robot.cfg.arm.drive_pose.lift_timeout_s:g}", "goal 1.5"]
+
+
+def test_navigate_with_the_controller_disabled_does_not_wait(
+    ros_iface: ModuleType, tmp_path: Path, monkeypatch: Any
+) -> None:
+    events: list[str] = []
+    robot = nav_robot(ros_iface, tmp_path, monkeypatch, events)
+    bind(robot)
+    robot.cfg.arm.drive_pose.lift_timeout_s = 30.0
+    assert robot.drive_pose.state().state == "disabled"
+    started = time.monotonic()
+    robot.navigate(2.0, 0.0, 0.0, "map", 30.0)
+    assert time.monotonic() - started < 1.0 and events == ["goal 2"]
+
+
+def test_navigate_lift_counts_as_the_goal_edge(ros_iface: ModuleType, tmp_path: Path, monkeypatch: Any) -> None:
+    """The lift starts at the request: the BT wait sees lifted at once (the worker runs the lift synchronously)."""
+    events: list[str] = []
+    robot = nav_robot(ros_iface, tmp_path, monkeypatch, events)
+    control = bind(robot)
+    drive = DrivePose(
+        robot.cfg.arm.drive_pose.model_copy(update={"enabled": True, "joints": {**DRIVE}}),
+        FakeArm(),
+        control,
+        publish_static=lambda: None,
+        submit=lambda job: job(),
+    )
+    robot.drive_pose = drive
+    robot.navigate(1.0, 0.0, 0.0, "map", 30.0)
+    assert drive.state().state == "lifted" and events == ["goal 1"]
+
+
+def test_navigate_without_a_controller_sends_the_goal(ros_iface: ModuleType, tmp_path: Path, monkeypatch: Any) -> None:
+    events: list[str] = []
+    robot = nav_robot(ros_iface, tmp_path, monkeypatch, events)
+    robot.navigate(1.0, 0.0, 0.0, "map", 30.0)
+    assert events == ["goal 1"]
