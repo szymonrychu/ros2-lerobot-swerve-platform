@@ -20,11 +20,11 @@ function setViewport(width: number): void {
   }) as typeof window.matchMedia
 }
 
-function renderPanel(source: string | undefined) {
+function renderPanel(source: string | undefined, props: { released?: boolean; releasedJoints?: string[] } = {}) {
   const topicData = source === undefined ? {} : { [SOURCE_TOPIC]: { data: source } }
   return render(
     <ThemeProvider theme={theme}>
-      <ArmJogPanel tab={TAB} topicData={topicData} />
+      <ArmJogPanel tab={TAB} topicData={topicData} {...props} />
     </ThemeProvider>,
   )
 }
@@ -199,5 +199,41 @@ describe('ArmJogPanel', () => {
     setViewport(400)
     renderPanel('autonomy')
     expect(screen.getByTestId('overlay-panel').getAttribute('data-layout')).toBe('phone')
+  })
+})
+
+describe('ArmJogPanel reason caption', () => {
+  const caption = () => screen.queryByTestId('arm-jog-reason')?.textContent ?? null
+
+  it('says Take control to jog while the lease is not held', () => {
+    renderPanel('leader')
+    expect(caption()).toBe('Take control to jog')
+  })
+
+  it('has no caption while jogging is possible', () => {
+    renderPanel('autonomy')
+    expect(caption()).toBeNull()
+  })
+
+  it('released shows the joint names and keeps Release enabled', () => {
+    renderPanel('autonomy', { released: true, releasedJoints: ['elbow_flex', 'gripper'] })
+    expect(caption()).toBe('Arm torque is off: elbow_flex, gripper released (Calibrate page)')
+    expect((screen.getByRole('button', { name: 'Release' }) as HTMLButtonElement).disabled).toBe(false)
+    expect((screen.getByRole('button', { name: 'Up' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('released wins over the lease caption', () => {
+    renderPanel('leader', { released: true })
+    expect(caption()).toBe('Arm torque is off (Calibrate page)')
+  })
+
+  it('shows Arm action in flight while a jog is running', async () => {
+    let resolve: (v: unknown) => void = () => undefined
+    fetchMock.mockReturnValue(new Promise((r) => (resolve = r)))
+    renderPanel('autonomy')
+    fireEvent.click(screen.getByRole('button', { name: 'Up' }))
+    await waitFor(() => expect(caption()).toBe('Arm action in flight'))
+    resolve({ status: 200, json: async () => ({ ok: true, message: 'done' }) })
+    await waitFor(() => expect(caption()).toBeNull())
   })
 })

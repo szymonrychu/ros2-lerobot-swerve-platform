@@ -37,6 +37,7 @@ export default function ArmTab({ tab, topicData, publish }: Props) {
   const layout = useLayout()
   const servo = useServoGroups()
   const released = releasedLabel(servo, 'arm') !== null
+  const releasedList = releasedJoints(servo, 'arm')
   const [armReady, setArmReady] = useState(false)
   const [action, setAction] = useState<ActionResult>({ state: 'idle', message: '' })
   const armMount = useMemo(() => tab.arm_offset ?? DEFAULT_ARM_OFFSET, [tab.arm_offset])
@@ -57,7 +58,7 @@ export default function ArmTab({ tab, topicData, publish }: Props) {
   const onPick = useCallback((point: Vec2) => applyClick(point, BASE_LINK_POSE), [applyClick])
   const controls = armControlState({
     released,
-    releasedJoints: releasedJoints(servo, 'arm'),
+    releasedJoints: releasedList,
     busy: action.state === 'busy',
     armReady,
     activeSource: activeSourceOf(tab, topicData),
@@ -113,7 +114,7 @@ export default function ArmTab({ tab, topicData, publish }: Props) {
       </Box>
       {graspOpen && <GraspPanel state={grasp} onClose={() => setGraspOpen(false)} />}
       <Box data-testid="arm-jog-slot" sx={{ flex: '0 0 auto' }}>
-        <ArmJogPanel tab={tab} topicData={topicData} released={released} />
+        <ArmJogPanel tab={tab} topicData={topicData} released={released} releasedJoints={releasedList} />
       </Box>
     </Box>
   )

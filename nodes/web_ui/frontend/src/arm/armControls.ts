@@ -33,6 +33,16 @@ export interface ControlState {
 }
 
 /**
+ * Why a limp arm cannot be commanded.
+ *
+ * @param joints - joint names that report torque off; may be empty
+ * @returns the reason text, naming the joints when known
+ */
+export function releasedReason(joints: string[]): string {
+  return joints.length ? `Arm torque is off: ${joints.join(', ')} released ${RELEASED_SUFFIX}` : `Arm torque is off ${RELEASED_SUFFIX}`
+}
+
+/**
  * The command source filter_node reports on the arm tab's active_source_topic.
  *
  * @param tab - arm tab config (active_source_topic)
@@ -67,10 +77,7 @@ export function releasedJoints(servo: ServoGroupsState, groupId: string): string
 export function armControlState(input: ArmControlInput): Record<ArmControl, ControlState> {
   const off = (reason: string): ControlState => ({ disabled: true, reason })
   const on: ControlState = { disabled: false, reason: '' }
-  const releasedReason = input.releasedJoints.length
-    ? `Arm torque is off: ${input.releasedJoints.join(', ')} released ${RELEASED_SUFFIX}`
-    : `Arm torque is off ${RELEASED_SUFFIX}`
-  const released = input.released ? off(releasedReason) : null
+  const released = input.released ? off(releasedReason(input.releasedJoints)) : null
   const busy = input.busy ? off(BUSY_REASON) : null
   const drag =
     released ??

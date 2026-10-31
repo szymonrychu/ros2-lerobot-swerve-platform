@@ -21,7 +21,7 @@ import { useLayout } from '../layout/useLayout'
 import { confirmClick, RESET_CONFIRM_MS } from '../map/mapActions'
 import { TabConfig } from '../types'
 import { ArmAction, ArmResult, JogSpec, postArm } from './armApi'
-import { activeSourceOf, HELD_SOURCE } from './armControls'
+import { activeSourceOf, BUSY_REASON, HELD_SOURCE, releasedReason } from './armControls'
 
 const LEASE_ACTIONS = ['take_control', 'release', 'home'] as const
 type LeaseAction = (typeof LEASE_ACTIONS)[number]
@@ -74,7 +74,11 @@ interface Props {
   topicData: Record<string, unknown>
   /** Arm torque is off: every command but Release is disabled. */
   released?: boolean
+  /** Joint names that report torque off, named in the reason caption. */
+  releasedJoints?: string[]
 }
+
+const NOT_HELD_REASON = 'Take control to jog'
 
 /**
  * Jog panel of the Arm tab: active command source, Take control / Release / Home and small-step jog buttons.
@@ -83,8 +87,9 @@ interface Props {
  * @param tab - arm tab config (id, active_source_topic)
  * @param topicData - latest payload per topic
  * @param released - arm torque is off, disables everything but Release
+ * @param releasedJoints - joint names that report torque off
  */
-export default function ArmJogPanel({ tab, topicData, released = false }: Props) {
+export default function ArmJogPanel({ tab, topicData, released = false, releasedJoints = [] }: Props) {
   const layout = useLayout()
   const [result, setResult] = useState<ArmResult | null>(null)
   const [armed, setArmed] = useState<{ action: LeaseAction; at: number } | null>(null)
@@ -112,6 +117,7 @@ export default function ArmJogPanel({ tab, topicData, released = false }: Props)
     if (next.fire) void run(action)
   }
 
+  const reason = released ? releasedReason(releasedJoints) : busy ? BUSY_REASON : held ? '' : NOT_HELD_REASON
   const leaseDisabled: Record<LeaseAction, boolean> = { take_control: busy || released, release: !held || busy, home: busy || released }
 
   return (
@@ -152,7 +158,11 @@ export default function ArmJogPanel({ tab, topicData, released = false }: Props)
             </ToolGroup>
           </Stack>
         ))}
-        {!held && <Typography variant="caption" color="text.secondary">Take control to jog the arm.</Typography>}
+        {reason && (
+          <Typography data-testid="arm-jog-reason" variant="caption" color="text.secondary">
+            {reason}
+          </Typography>
+        )}
         {result && (
           <Alert severity={result.ok ? 'success' : 'error'} role={result.ok ? 'status' : 'alert'} onClose={() => setResult(null)}>
             {result.message}
