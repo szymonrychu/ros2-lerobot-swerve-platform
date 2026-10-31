@@ -50,3 +50,20 @@ export function parseActionResult(status: number, body: unknown): ActionResult {
   }
   return { state, message }
 }
+
+/**
+ * POST a tab action route (e.g. /api/arm/home) with the tab id and turn the answer into a displayable result.
+ * Never throws: a network failure is an error result.
+ *
+ * @param path route path without the query string
+ * @param tabId id of the tab the route acts for
+ * @returns the parsed result
+ */
+export async function postTabAction(path: string, tabId: string): Promise<ActionResult> {
+  try {
+    const resp = await fetch(`${path}?tab=${encodeURIComponent(tabId)}`, { method: 'POST' })
+    return parseActionResult(resp.status, await resp.json())
+  } catch (err) {
+    return { state: 'error', message: `Request failed: ${String(err)}` }
+  }
+}

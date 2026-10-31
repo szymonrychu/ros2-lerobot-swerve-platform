@@ -1,6 +1,6 @@
 // @vitest-environment node
-import { describe, expect, it } from 'vitest'
-import { confirmClick, isCleared, parseActionResult, RESET_CONFIRM_MS } from './mapActions'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { confirmClick, isCleared, parseActionResult, postTabAction, RESET_CONFIRM_MS } from './mapActions'
 
 describe('confirmClick', () => {
   it('first click arms without firing', () => {
@@ -38,5 +38,23 @@ describe('parseActionResult', () => {
   it('falls back to the HTTP status when the body has no message', () => {
     expect(parseActionResult(500, {})).toEqual({ state: 'error', message: 'HTTP 500' })
     expect(parseActionResult(502, null)).toEqual({ state: 'error', message: 'HTTP 502' })
+  })
+})
+
+describe('postTabAction', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('posts to the route with the encoded tab id and parses the answer', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ status: 200, json: async () => ({ ok: true, message: 'done' }) })
+    vi.stubGlobal('fetch', fetchMock)
+    expect(await postTabAction('/api/arm/home', 'a b')).toEqual({ state: 'ok', message: 'done' })
+    expect(fetchMock).toHaveBeenCalledWith('/api/arm/home?tab=a%20b', { method: 'POST' })
+  })
+
+  it('turns a network failure into an error result', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('down')))
+    expect(await postTabAction('/api/arm/home', 'arm')).toEqual({ state: 'error', message: 'Request failed: Error: down' })
   })
 })

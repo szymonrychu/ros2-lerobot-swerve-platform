@@ -3,9 +3,11 @@ import { lazy, Suspense, useState } from 'react'
 import { ReleasedBannerView, releasedLabel } from '../calibrate/ReleasedBanner'
 import { useServoGroups } from '../calibrate/servoApi'
 import ArmJogPanel from '../arm/ArmJogPanel'
+import ArmActions from '../arm/ArmActions'
 import { activeSourceOf, armControlState, releasedJoints } from '../arm/armControls'
 import { CameraStream } from '../components/CameraStream'
 import { useLayout } from '../layout/useLayout'
+import type { ActionResult } from '../map/mapActions'
 import { TabConfig } from '../types'
 
 const ArmView = lazy(() => import('../arm/ArmView.tsx'))
@@ -31,14 +33,16 @@ export default function ArmTab({ tab, topicData, publish }: Props) {
   const servo = useServoGroups()
   const released = releasedLabel(servo, 'arm') !== null
   const [armReady, setArmReady] = useState(false)
-  const drag = armControlState({
+  const [action, setAction] = useState<ActionResult>({ state: 'idle', message: '' })
+  const controls = armControlState({
     released,
     releasedJoints: releasedJoints(servo, 'arm'),
-    busy: false,
+    busy: action.state === 'busy',
     armReady,
     activeSource: activeSourceOf(tab, topicData),
     graspBusy: false,
-  }).drag
+  })
+  const drag = controls.drag
   // The draggable arm in the 3D view is a command source too: drop its goals while the arm is limp.
   const guardedPublish: Props['publish'] = (topic, msgType, data) => {
     if (!released) publish(topic, msgType, data)
@@ -71,6 +75,9 @@ export default function ArmTab({ tab, topicData, publish }: Props) {
             />
           </Suspense>
         </Box>
+      </Box>
+      <Box data-testid="arm-actions-slot" sx={{ flex: '0 0 auto' }}>
+        <ArmActions tabId={tab.id} controls={controls} action={action} onAction={setAction} />
       </Box>
       <Box data-testid="arm-jog-slot" sx={{ flex: '0 0 auto' }}>
         <ArmJogPanel tab={tab} topicData={topicData} released={released} />

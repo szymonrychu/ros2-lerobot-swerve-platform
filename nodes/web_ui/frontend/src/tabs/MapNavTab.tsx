@@ -37,7 +37,7 @@ import BookmarkAddIcon from '@mui/icons-material/BookmarkAdd'
 import BackHandIcon from '@mui/icons-material/BackHand'
 import log from '../logging'
 import { Pose2D, Vec2, yawToQuaternion } from '../map/mapMath'
-import { ActionResult, confirmClick, isCleared, parseActionResult, RESET_CONFIRM_MS } from '../map/mapActions'
+import { ActionResult, confirmClick, isCleared, postTabAction, RESET_CONFIRM_MS } from '../map/mapActions'
 import { baseMarkerLabel, basePlacement } from '../gps/basePlacement'
 import { BaseGpsPayload, GPS_BASE_STATUS_KEY, isBaseSample } from '../gps/gpsStatus'
 import { anchorSummary, validAnchor } from '../map3d/geo'
@@ -525,12 +525,7 @@ export default function MapNavTab({
 
   const runAction = async (path: string, busyMessage: string) => {
     setAction({ state: 'busy', message: busyMessage })
-    try {
-      const resp = await fetch(`${path}?tab=${encodeURIComponent(tab.id)}`, { method: 'POST' })
-      setAction(parseActionResult(resp.status, await resp.json()))
-    } catch (err) {
-      setAction({ state: 'error', message: `Request failed: ${String(err)}` })
-    }
+    setAction(await postTabAction(path, tab.id))
   }
 
   const togglePoiMode = (mode: 'add_point' | 'add_area') => {

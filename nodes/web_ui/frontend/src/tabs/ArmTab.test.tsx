@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen, within } from '@testing-library/react'
 import { ThemeProvider } from '@mui/material/styles'
 import { theme } from '../theme'
 import { ARM_COLORS } from '../map3d/palette'
@@ -73,6 +73,25 @@ describe('ArmTab', () => {
     expect(screen.getByAltText('head camera').getAttribute('src')).toBe('data:image/jpeg;base64,BBB')
     expect(screen.getByTestId('arm-view-slot')).toBeTruthy()
     expect(screen.getByTestId('arm-jog-slot')).toBeTruthy()
+    expect(screen.getByTestId('arm-actions-slot')).toBeTruthy()
+  })
+
+  it('puts Arm home and Set home in the actions slot', () => {
+    setViewport(1400)
+    renderTab({})
+    const slot = screen.getByTestId('arm-actions-slot')
+    expect(within(slot).getByRole('button', { name: 'Arm home' })).toBeTruthy()
+    expect(within(slot).getByRole('button', { name: 'Set home' })).toBeTruthy()
+  })
+
+  it('disables Arm home and Set home with the joint names while the arm is released', () => {
+    setViewport(1400)
+    setServo('arm', 'released')
+    renderTab({})
+    const slot = screen.getByTestId('arm-actions-slot')
+    expect((within(slot).getByRole('button', { name: 'Arm home' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((within(slot).getByRole('button', { name: 'Set home' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(within(slot).getByTestId('arm-actions-reason').textContent).toBe('Arm torque is off: a released (Calibrate page)')
   })
 
   it('desktop: places streams side by side with the 3D view slot', () => {
