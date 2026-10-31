@@ -8,6 +8,7 @@ import { theme } from '../theme'
 import type { TabConfig } from '../types'
 import ArmTab from '../tabs/ArmTab'
 import ArmView from './ArmView.tsx'
+import { ARM_CAMERA_MODES } from './armView.ts'
 
 const JOINTS = '/arm/joint_states'
 const canvasEl = vi.hoisted(() => {
@@ -113,12 +114,18 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('ArmView', () => {
-  it('renders a demand-frameloop canvas with the four mode buttons', () => {
+  it('renders a demand-frameloop canvas with the three mode buttons', () => {
     render(view({}))
     expect(last(mocks.frameloop)).toBe('demand')
-    for (const name of ['Side L', 'Side R', 'Above', 'Gripper']) {
+    for (const name of ['Side L', 'Side R', 'Above']) {
       expect(screen.getByRole('button', { name })).toBeTruthy()
     }
+  })
+
+  it('no gripper camera mode', () => {
+    render(view({}))
+    expect(screen.queryByRole('button', { name: 'Gripper' })).toBeNull()
+    expect(ARM_CAMERA_MODES).toEqual(['side-left', 'side-right', 'above'])
   })
 
   it('invalidates when joint states update', () => {

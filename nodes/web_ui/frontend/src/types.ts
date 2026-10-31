@@ -14,12 +14,6 @@ export interface TabTopicSpec {
   label?: string | null // camera tab: caption of this stream
 }
 
-/** Camera pose relative to its parent URDF link: translation in metres, roll/pitch/yaw in radians. */
-export interface CameraMount {
-  xyz: [number, number, number]
-  rpy: [number, number, number]
-}
-
 export interface TabConfig {
   id: string
   type: string
@@ -74,9 +68,8 @@ export interface TabConfig {
   grasp_command_topic?: string // default /grasp/command (grasp requests go through POST /api/grasp)
   grasp_result_topic?: string // default /grasp/result
   grasp_timeout_s?: number // seconds POST /api/grasp waits for a plan (default 30)
-  // arm tab: cameras, arm-glued 3D view and arm control (backend fills defaults for unset fields)
-  gripper_camera_topic?: string // sensor_msgs/CompressedImage of the gripper camera
-  head_camera_topic?: string // sensor_msgs/CompressedImage of the head camera
+  // arm tab: head camera, arm-glued 3D view and arm control (backend fills defaults for unset fields)
+  head_camera_topic?: string // sensor_msgs/CompressedImage of the head D435 colour stream
   rgb_camera_topic?: string // head tab: sensor_msgs/CompressedImage of the head D435 colour stream
   rgbd_rgb_topic?: string // head tab: head_rgbd RGB (JPEG payload with stamp), subscribed only while the RGB-D view is open
   rgbd_depth_topic?: string // head tab: head_rgbd registered depth (raw uint16 mm payload with stamp), subscribed with rgbd_rgb_topic
@@ -87,7 +80,6 @@ export interface TabConfig {
   head_tilt_range_deg?: [number, number] // head tab: tilt slider range in degrees
   head_home_deg?: [number, number] // head tab: Home pose, pan then tilt, degrees
   head_urdf?: string // map_nav: head URDF under /api/urdf/
-  gripper_camera_mount?: CameraMount // gripper camera pose in the URDF link gripper_link (same as mcp_server)
   active_source_topic?: string // default /filter/active_source (which command source drives the arm)
   arm_home_service?: string // default /arm/home
   arm_set_home_service?: string // default /arm/set_home

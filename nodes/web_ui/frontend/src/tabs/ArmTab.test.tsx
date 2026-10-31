@@ -6,6 +6,7 @@ import { theme } from '../theme'
 import { ARM_COLORS } from '../map3d/palette'
 import { TabConfig } from '../types'
 import ArmTab from './ArmTab'
+import { tabTopics } from '../hooks/subscription'
 import { designViolations, SOURCES } from '../layout/designRules'
 
 const servoMock = vi.hoisted(() => ({ groups: [] as unknown[], notConfigured: false }))
@@ -41,14 +42,12 @@ vi.mock('../arm/ArmView.tsx', () => ({
   },
 }))
 
-const GRIPPER = '/gripper/image_raw'
-const FRONT = '/head_camera/image_raw/compressed'
+const FRONT = '/head/rgb/compressed'
 
 const TAB = {
   id: 'arm',
   type: 'arm',
   label: 'Arm',
-  gripper_camera_topic: GRIPPER,
   head_camera_topic: FRONT,
   grasp_command_topic: '/grasp/command',
 } as TabConfig
@@ -75,9 +74,8 @@ afterEach(cleanup)
 describe('ArmTab', () => {
   it('phone: stacks streams and the 3D view vertically', () => {
     setViewport(400)
-    renderTab({ [GRIPPER]: { jpeg_b64: 'AAA' }, [FRONT]: { jpeg_b64: 'BBB' } })
+    renderTab({ [FRONT]: { jpeg_b64: 'BBB' } })
     expect(screen.getByTestId('arm-layout').getAttribute('data-direction')).toBe('column')
-    expect(screen.getByAltText('gripper camera').getAttribute('src')).toBe('data:image/jpeg;base64,AAA')
     expect(screen.getByAltText('head camera').getAttribute('src')).toBe('data:image/jpeg;base64,BBB')
     expect(screen.getByTestId('arm-view-slot')).toBeTruthy()
     expect(screen.getByTestId('arm-jog-slot')).toBeTruthy()
@@ -104,17 +102,31 @@ describe('ArmTab', () => {
 
   it('desktop: places streams side by side with the 3D view slot', () => {
     setViewport(1400)
-    renderTab({ [GRIPPER]: { jpeg_b64: 'AAA' }, [FRONT]: { jpeg_b64: 'BBB' } })
+    renderTab({ [FRONT]: { jpeg_b64: 'BBB' } })
     expect(screen.getByTestId('arm-layout').getAttribute('data-direction')).toBe('row')
     expect(screen.getByTestId('arm-view-slot')).toBeTruthy()
   })
 
   it('shows the waiting message, never a placeholder image, for a stream without a frame', () => {
     setViewport(1400)
-    renderTab({ [FRONT]: { jpeg_b64: 'BBB' } })
-    expect(screen.getByText(`Waiting for ${GRIPPER}...`)).toBeTruthy()
+    renderTab({})
+    expect(screen.getByText(`Waiting for ${FRONT}...`)).toBeTruthy()
+    expect(screen.queryByAltText('head camera')).toBeNull()
+  })
+
+  it('only the head camera stream', () => {
+    setViewport(1400)
+    const legacy = { ...TAB, gripper_camera_topic: '/gripper' } as unknown as TabConfig
+    render(
+      <ThemeProvider theme={theme}>
+        <ArmTab tab={legacy} topicData={{ '/gripper': { jpeg_b64: 'AAA' }, [FRONT]: { jpeg_b64: 'BBB' } }} publish={vi.fn()} />
+      </ThemeProvider>,
+    )
     expect(screen.queryByAltText('gripper camera')).toBeNull()
-    expect(screen.getByAltText('head camera')).toBeTruthy()
+    expect(screen.queryByText('Waiting for /gripper...')).toBeNull()
+    expect(screen.getAllByRole('img').map((i) => i.getAttribute('alt'))).toEqual(['head camera'])
+    expect(tabTopics(legacy)).not.toContain('/gripper')
+    expect(tabTopics(legacy)).toContain(FRONT)
   })
 
   it.each(['tabs/ArmTab.tsx', 'arm/ArmView.tsx', 'components3d/InteractiveArm.tsx'])('%s has no design violations', (path) => {

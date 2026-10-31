@@ -15,7 +15,7 @@ export function tabTopics(t: TabConfig): string[] {
     t.topic,
     ...(t.topics?.map((ts) => ts.topic) ?? []),
     t.color_topic, t.depth_topic, t.camera_info_topic,
-    t.gripper_camera_topic, t.head_camera_topic,
+    t.head_camera_topic,
     t.rgb_camera_topic,
     t.map_topic, t.global_plan_topic, t.local_plan_topic, t.footprint_topic,
     t.local_costmap_topic, t.base_joint_states_topic, t.arm_joint_states_topic, t.head_joint_states_topic,

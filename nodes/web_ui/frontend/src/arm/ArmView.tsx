@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
-import PanToolIcon from '@mui/icons-material/PanTool'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
@@ -18,27 +17,23 @@ import type { Vec2 } from '../map/mapMath'
 import { isClick } from '../poi/editor'
 import { rosToThree } from '../map3d/coords'
 import { SCENE_COLORS } from '../map3d/palette'
-import type { ArmCameraMode, ArmCameraMount } from '../map3d/armCamera'
 import { TOKENS } from '../theme'
 import { TabConfig } from '../types'
 import { WAITING_REASON } from './armControls'
-import { ARM_CAMERA_MODES, applyArmCamera } from './armView.ts'
+import { ARM_CAMERA_MODES, applyArmCamera, type ArmCameraMode } from './armView.ts'
 import { armViewGroundY, pickArmViewGround } from './armViewPick'
 
 const MODE_LABELS: Record<ArmCameraMode, string> = {
   'side-left': 'Side L',
   'side-right': 'Side R',
   above: 'Above',
-  gripper: 'Gripper',
 }
 const MODE_ICONS: Record<ArmCameraMode, ReactNode> = {
   'side-left': <ChevronLeftIcon />,
   'side-right': <ChevronRightIcon />,
   above: <ExpandLessIcon />,
-  gripper: <PanToolIcon />,
 }
 const DEFAULT_MODE: ArmCameraMode = 'side-left'
-const DEFAULT_MOUNT: ArmCameraMount = { xyz: [0, 0, 0], rpy: [0, 0, 0] }
 const CAMERA_FOV = 50
 const FREE_CAMERA_POSITION: [number, number, number] = [0.5, 0.4, 0.5]
 const FREE_CAMERA_TARGET: [number, number, number] = [0, 0.15, 0]
@@ -111,7 +106,6 @@ function ArmScene({ tab, armJoints, mode, publish, draggable, onArmReady, pickMo
   const { invalidate, camera } = useThree()
   const orbitRef = useRef<OrbitControlsImpl | null>(null)
   const robotRef = useRef<URDFRobot | null>(null)
-  const mount = tab.gripper_camera_mount ?? DEFAULT_MOUNT
   const armOffset = tab.arm_offset ?? DEFAULT_ARM_OFFSET
   const baseLinkOrigin = rosToThree({ x: -armOffset[0], y: -armOffset[1], z: -armOffset[2] })
 
@@ -140,7 +134,7 @@ function ArmScene({ tab, armJoints, mode, publish, draggable, onArmReady, pickMo
     const robot = robotRef.current
     const controls = orbitRef.current
     if (mode === null || !robot || !controls) return
-    applyArmCamera(camera, controls.target, robot, mode, mount)
+    applyArmCamera(camera, controls.target, robot, mode)
   })
 
   return (
@@ -189,9 +183,9 @@ interface Props {
 
 /**
  * The Arm tab's own 3D view: the follower arm from arm_joint_states_topic with camera modes glued to the arm
- * (side left, side right, above, gripper). Picking the active mode again frees the camera for orbiting.
+ * (side left, side right, above). Picking the active mode again frees the camera for orbiting.
  *
- * @param tab - tab config (arm_urdf, arm_joint_states_topic, arm_command_topic, gripper_camera_mount)
+ * @param tab - tab config (arm_urdf, arm_joint_states_topic, arm_command_topic, arm_offset)
  * @param topicData - latest payload per topic
  * @param publish - ROS publish helper for the draggable arm
  * @param dragDisabledReason - why dragging is off, or null; the display-only arm is drawn for any reason but waiting

@@ -26,10 +26,10 @@ interface Props {
 const CELL_SX = { flex: '1 1 0', minWidth: 0, minHeight: 0, overflow: 'hidden', position: 'relative' } as const
 
 /**
- * Arm tab: gripper and head camera streams, the draggable 3D arm, Arm home / Set home / Grasp and the jog panel.
- * Phone stacks everything vertically; tablet and desktop put the streams side by side with the 3D view.
+ * Arm tab: the head D435 colour stream, the draggable 3D arm, Arm home / Set home / Grasp and the jog panel.
+ * Phone stacks everything vertically; tablet and desktop put the stream side by side with the 3D view.
  *
- * @param tab - tab config (gripper_camera_topic, head_camera_topic, arm_offset, grasp_command_topic)
+ * @param tab - tab config (head_camera_topic, arm_offset, grasp_command_topic)
  * @param topicData - latest payload per topic
  * @param publish - ROS publish helper
  */
@@ -80,9 +80,6 @@ export default function ArmTab({ tab, topicData, publish }: Props) {
         data-direction={direction}
         sx={{ flex: '1 1 auto', minHeight: 0, display: 'flex', flexDirection: direction, gap: 1 }}
       >
-        <Box sx={{ ...CELL_SX, minHeight: streamMinHeight }}>
-          <CameraStream topic={tab.gripper_camera_topic} data={topicData[tab.gripper_camera_topic ?? '']} alt="gripper camera" />
-        </Box>
         <Box sx={{ ...CELL_SX, minHeight: streamMinHeight }}>
           <CameraStream topic={tab.head_camera_topic} data={topicData[tab.head_camera_topic ?? '']} alt="head camera" />
         </Box>
