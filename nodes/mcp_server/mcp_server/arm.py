@@ -495,6 +495,43 @@ def setpoint_band(history: list[tuple[float, dict[str, float]]], since: float) -
     return band
 
 
+def home_routes(
+    kin: ArmKinematics, start: dict[str, float], goal: dict[str, float]
+) -> list[tuple[str, list[dict[str, float]]]]:
+    """Candidate routes home, the straight joint path first, then via safe intermediates (see HOME_LIFTS_M).
+
+    Args:
+        kin (ArmKinematics): Arm kinematics (the tool lifts use its FK and IK).
+        start (dict[str, float]): Start pose (every arm joint).
+        goal (dict[str, float]): Home pose (every arm joint).
+
+    Returns:
+        list[tuple[str, list[dict[str, float]]]]: (description, legs) per route; the last leg is the goal.
+    """
+    folded = start | {SHOULDER_LIFT: goal[SHOULDER_LIFT], ELBOW_FLEX: goal[ELBOW_FLEX]}
+    routes: list[tuple[str, list[dict[str, float]]]] = [
+        ("direct", [goal]),
+        ("raise shoulder_lift and elbow_flex to home first", [folded, goal]),
+        ("fold elbow_flex first", [start | {ELBOW_FLEX: goal[ELBOW_FLEX]}, folded, goal]),
+        ("raise shoulder_lift first", [start | {SHOULDER_LIFT: goal[SHOULDER_LIFT]}, folded, goal]),
+        ("straighten wrist_flex first", [start | {WRIST_FLEX: goal[WRIST_FLEX]}, folded, goal]),
+    ]
+    tool = kin.forward(start)
+    for lift in HOME_LIFTS_M:
+        try:
+            up = start | kin.inverse(tool.x, tool.y, tool.z + lift, tool.pitch, seed=start)
+        except UnreachableError:
+            continue
+        routes.append((f"lift the tool {lift * 100:.0f} cm straight up first", [up, goal]))
+        routes.append(
+            (
+                f"lift the tool {lift * 100:.0f} cm up, then raise shoulder_lift and elbow_flex",
+                [up, up | {SHOULDER_LIFT: goal[SHOULDER_LIFT], ELBOW_FLEX: goal[ELBOW_FLEX]}, goal],
+            )
+        )
+    return routes
+
+
 class ArmController:
     """Streams safe arm motions on the autonomy topic and keeps the lease alive.
 
@@ -2885,7 +2922,7 @@ class ArmController:
         return self.check_body([start, *points])
 
     def home_routes(self, start: dict[str, float], goal: dict[str, float]) -> list[tuple[str, list[dict[str, float]]]]:
-        """Candidate routes home, the straight joint path first, then via safe intermediates (see HOME_LIFTS_M).
+        """Candidate routes home from start (module function home_routes on this arm's kinematics).
 
         Args:
             start (dict[str, float]): Start pose (every arm joint).
@@ -2894,28 +2931,7 @@ class ArmController:
         Returns:
             list[tuple[str, list[dict[str, float]]]]: (description, legs) per route; the last leg is the goal.
         """
-        folded = start | {SHOULDER_LIFT: goal[SHOULDER_LIFT], ELBOW_FLEX: goal[ELBOW_FLEX]}
-        routes: list[tuple[str, list[dict[str, float]]]] = [
-            ("direct", [goal]),
-            ("raise shoulder_lift and elbow_flex to home first", [folded, goal]),
-            ("fold elbow_flex first", [start | {ELBOW_FLEX: goal[ELBOW_FLEX]}, folded, goal]),
-            ("raise shoulder_lift first", [start | {SHOULDER_LIFT: goal[SHOULDER_LIFT]}, folded, goal]),
-            ("straighten wrist_flex first", [start | {WRIST_FLEX: goal[WRIST_FLEX]}, folded, goal]),
-        ]
-        tool = self.kin.forward(start)
-        for lift in HOME_LIFTS_M:
-            try:
-                up = start | self.kin.inverse(tool.x, tool.y, tool.z + lift, tool.pitch, seed=start)
-            except UnreachableError:
-                continue
-            routes.append((f"lift the tool {lift * 100:.0f} cm straight up first", [up, goal]))
-            routes.append(
-                (
-                    f"lift the tool {lift * 100:.0f} cm up, then raise shoulder_lift and elbow_flex",
-                    [up, up | {SHOULDER_LIFT: goal[SHOULDER_LIFT], ELBOW_FLEX: goal[ELBOW_FLEX]}, goal],
-                )
-            )
-        return routes
+        return home_routes(self.kin, start, goal)
 
     def plan_home(self, pose: dict[str, float]) -> tuple[str, list[dict[str, float]]]:
         """First home route whose every leg (a straight joint path) clears the robot body.
