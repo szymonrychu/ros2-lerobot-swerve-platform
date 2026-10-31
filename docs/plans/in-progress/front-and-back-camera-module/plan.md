@@ -2,8 +2,8 @@
 title: Front and back Camera Module 3 on CSI
 repos: [ros2-lerobot-sverve-platform]
 created: 2026-10-28
-owner: ""
-rung: "4"
+owner: Szymon Richert
+rung: 4
 ---
 
 # Front and back Camera Module 3 on CSI
