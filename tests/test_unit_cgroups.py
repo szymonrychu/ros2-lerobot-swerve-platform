@@ -39,7 +39,7 @@ NORMAL = {
     "types": [
         "rplidar_a1", "rf2o_laser_odometry", "rf2o_odom_relay", "robot_localization_ekf", "nav2_bringup",
         "head_state_publisher", "slam_toolbox", "laser_filter", "gps_rtk", "poi_store", "uvc_camera", "realsense_d435",
-        "test_joint_api", "map_guard", "map_guard_cpp", "map_manager", "costmap_zones", "arducam_tof",
+        "test_joint_api", "map_guard", "map_guard_cpp", "map_manager", "costmap_zones",
         "d435_obstacle_cloud", "marker_detector", "ground_estimator_cpp", "head_rgbd_cpp",
         "head_aim_cpp",
     ],
@@ -329,8 +329,8 @@ def test_tiers_do_not_overlap() -> None:
 
 def test_every_client_type_is_tiered() -> None:
     """Every client node type except the uninstalled ones (fastdds_discovery_server, the retired Pi camera and depth
-    types, D7, the retired bridge type and the retired ToF obstacle cloud, D5) is in a tier, and those
-    carry no tier keys."""
+    types, D7, the retired bridge type, the retired ToF obstacle cloud, D5, and the deleted ToF bridge) is in a tier,
+    and those carry no tier keys."""
     uninstalled = {
         "fastdds_discovery_server",
         "stereo_depth",
@@ -339,6 +339,7 @@ def test_every_client_type_is_tiered() -> None:
         "pi_cameras",
         "jetson_bridge_cpp",
         "tof_obstacle_cloud",
+        "arducam_tof",
     }
     assert set(type_defaults(CLIENT_VARS)) - TIERED_TYPES == uninstalled
     for name in uninstalled:

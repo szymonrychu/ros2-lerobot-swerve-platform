@@ -393,7 +393,7 @@ The mains of mcp_server and claude_agent return `os.EX_CONFIG` (78) for config/t
 | `test_background_tier_is_below_every_robot_and_agent_tier` | The background tier has the default weight 100 and `oom_score_adjust` 0; every robot and agent tier has a higher weight and a lower `oom_score_adjust`. |
 | `test_tiers_dominate_default_system_work` | Every tier is above the default weight 100 with a negative `OOMScoreAdjust`, ordered critical > normal > agent. |
 | `test_tiers_do_not_overlap` | A node type is in one tier only (background included). |
-| `test_every_client_type_is_tiered` | Every client type but the uninstalled ones (`fastdds_discovery_server`, the retired camera, depth and bridge types, `tof_obstacle_cloud`) is in a robot, agent or background tier; those carry no tier keys. |
+| `test_every_client_type_is_tiered` | Every client type but the uninstalled ones (`fastdds_discovery_server`, the retired camera, depth and bridge types, `tof_obstacle_cloud`, the deleted `arducam_tof` bridge) is in a robot, agent or background tier; those carry no tier keys. |
 | `test_every_robot_type_has_memory_low_below_memory_max` | Every tiered type (background included) has `memory_low` >= 32 MiB and `memory_max` at least 2x it; mcp_server at least 1G. |
 | `test_memory_low_sum_leaves_room_for_the_os` | The enabled nodes protect at most `MAX_MEMORY_LOW_SUM_MIB`, under a third of the 8 GB Pi. |
 | `test_server_keeps_its_limits_without_tiers` | Server types keep `CPUQuota` / `MemoryMax`, carry no tier keys, render no `MemoryHigh` / `MemoryLow`. |
@@ -738,10 +738,6 @@ Servo torque and neutral (`test_torque_control.py`, `test_torque_services.py`, `
 ### Per-node tests (uvc_camera)
 
 The **uvc_camera** node has tests under `nodes/bridges/uvc_camera/tests/`. Run from `nodes/bridges/uvc_camera`: `uv run pytest tests/ -v` (or `uv run poe test`). `test_config.py` covers env-based config (`get_config`): defaults, env overrides, device as path or index, stripping whitespace and fallback for empty topic/frame_id; `UVC_ROTATE_DEG` and `UVC_MAX_FPS` (`get_max_fps`: unset is no cap, positive number, invalid values raise). `test_frame.py` covers `rotate_frame` and `frame_due` (publish-rate throttle: no cap, first frame, period). Config lives in `config.py` (no ROS/OpenCV deps) for testability. Metrics (`test_metrics.py`: `camera_frames_published_total`, `camera_frames_dropped_total{reason}` read_fail/fps_cap, `camera_encode_seconds` histogram buckets, `camera_reopens_total`); `reopen_due` threshold (`test_frame.py`); `METRICS_PORT` resolved through `resolve_metrics_port(None)` (`test_config.py`).
-
-### Per-node tests (arducam_tof)
-
-The **arducam_tof** node has tests under `nodes/bridges/arducam_tof/tests/`. Run from `nodes/bridges/arducam_tof`: `uv run pytest tests -q` (the `ArducamDepthCamera` SDK and rclpy are mocked, so they run on macOS). `test_config.py` covers `TofConfig` / `load_config`: an empty file gives the defaults, every key is read, unknown keys and out-of-range values are rejected, `frame_id` is stripped, a missing file, invalid YAML or a non-mapping is a config error, and the path comes from `ARDUCAM_TOF_CONFIG`. `test_bridge.py` covers the topic and encoding contract (`/tof/depth/image_raw` 16UC1, `/tof/amplitude/image_raw` mono16, `/tof/camera_info`); depth below `confidence_threshold`, non-finite or out of range is 0 and the rest rounded millimetres; amplitude rounded and clipped to mono16, falling back to confidence when the SDK has no amplitude; the publish timer runs at `publish_rate_hz`; a good frame publishes depth, amplitude and camera_info with one header, `frame_id` and near range from config, the range in metres retried when the SDK rejects millimetres; a missing frame, a frame request error, a frame of another type or a malformed frame publishes nothing, is logged and counted (`tof_frames_dropped_total{reason}`) and the frame is released; a camera that fails to open, start or set up after start is stopped and closed as needed, logged and retried without publishing; a constructor error is an open failure; camera_info is skipped without intrinsics and the principal point defaults to the image centre; a camera without frames for the reopen delay is closed and reopened; `close` stops and closes an open camera; `run` shuts down cleanly; `main` returns 1 on a config error and runs the bridge with the loaded config.
 
 ### Per-node tests (lerobot_teleop)
 
@@ -1853,19 +1849,6 @@ Static checks of the D7 retirement of the Pi stereo pipeline: `stereo_depth` and
 | `test_tests_readme_lists_every_test_of_this_file` | This README has a row for every test of this file. |
 | `test_stereo_sources_are_deleted` | `nodes/stereo_depth` does not exist (parametrized per retired node directory); only the uninstall entry remains. |
 
-### test_arducam_tof_config.py
-
-Static checks of the `arducam_tof` deployment (Arducam ToF depth camera, Client only), retired by the D435 switchover: the node type stays declared for the uninstall path, the entry is `present: false`.
-
-| Test | Covers |
-|---|---|
-| `test_node_type_is_declared_on_the_client` | Native node type `python3 -m arducam_tof`, `nodes/bridges/arducam_tof`, `/etc/ros2/arducam_tof`, `ARDUCAM_TOF_CONFIG`. |
-| `test_node_type_is_in_the_normal_cgroup_tier_with_memory_limits` | Normal-tier cgroup weights with `memory_low` and `memory_max`. |
-| `test_node_type_has_no_dds_peer` | No `ROS_STATIC_PEERS` on the node type. |
-| `test_ros2_nodes_entry_is_retired` | `ros2_nodes` entry is `present: false` with no `config` (the next deploy uninstalls the unit, venv and config). |
-| `test_metrics_port_is_scraped_exactly_when_the_node_is_enabled` | The metrics port is in `monitoring_agent_node_targets` only when the node is present and enabled, so the retired node is unscraped. |
-| `test_client_playbook_deploys_the_node` | `deploy_nodes_client.yml` has the tagged `Deploy arducam_tof` block (the uninstall path). |
-
 ### test_leader_bridge_config.py
 
 Static checks of the `leader_bridge` deployment (leader arm teleop relay, Client only).
@@ -2579,7 +2562,7 @@ Node metrics wiring in `ansible/group_vars/client.yml` against the port contract
 | Test | Description |
 |------|-------------|
 | `test_config_metrics_port` | (lerobot_follower, filter_node, bno055_imu, gps_rtk_rover, swerve_controller, rf2o_odom_relay, poi_store, map_manager, map_guard, costmap_zones, the side-by-side C++ port map_guard_cpp 19110, and the standalone C++ node head_rgbd_cpp 19117) `metrics_port` from 19101 up (the retired arducam_tof no longer holds 19112); base_servos 19115; marker_detector 19118 (added by the marker epic, which also lists `marker_detector` among the `src_shared` node types of `test_node_types_using_ros2_metrics_declare_src_shared`). |
-| `test_env_metrics_port` | gripper_uvc_camera `METRICS_PORT=19105`, rplidar_a1 `METRICS_PORT=19106`. |
+| `test_env_metrics_port` | rplidar_a1 `METRICS_PORT=19106`. |
 | `test_http_nodes_keep_their_port` | web_ui 8080, test_joint_api 18080, topic_scraper_api 18100, mcp_server 18200, claude_agent 18300, without a `metrics_port` key. |
 | `test_rplidar_imports_ros2_metrics_without_a_venv` | rplidar_a1 (no venv): `python3-prometheus-client` apt package, `shared/ros2_metrics` in `src_extra_paths`, `PYTHONPATH` starting with `<ros2_repo_dest>/shared/ros2_metrics`. |
 | `test_node_types_using_ros2_metrics_declare_src_shared` | Every venv node type that imports ros2_metrics sets `src_shared: true`. |
@@ -3333,6 +3316,7 @@ Retirement pins for the old head sensors of the D435 switchover (design D11: ret
 | `test_arducam_tof_is_retired` | The `arducam_tof` entry is exactly `name`, `node_type` and `present: false` (no `config`) under the comment "Retired (D435 switchover): present: false uninstalls the unit, venv and config on the next deploy"; no `monitoring_agent_node_targets` entry names it or port 19112; no present and enabled node's config, node or type env or type launch command, and no nav2 parameter, names a `/tof/` topic. |
 | `test_gripper_camera_is_retired` | The `gripper_uvc_camera` entry is exactly `name`, `node_type: uvc_camera` and `present: false` (no env) under the same retirement comment; no `monitoring_agent_node_targets` entry names it or port 19105; neither client.yml (the master2master relay included), a tracked file under a node's `config/` nor a role template names `/camera_0`. |
 | `test_head_camera_is_retired` | The `head_camera_cpp` entry is exactly `name`, `node_type` and `present: false` (no `config`) under the retirement comment, which names front-and-back-camera-module as the reuser; the node type stays; no `monitoring_agent_node_targets` entry names it or port 19116; no present and enabled node's config, env or launch command names a `/head_camera/` topic. |
+| `test_arducam_tof_source_is_gone` | `git ls-files nodes/bridges/arducam_tof` is empty, `pyproject.toml` lint-nodes, `scripts/lint-all-nodes.sh` and `.github/workflows/ci.yml` do not name `bridges/arducam_tof`, and the `arducam_tof` node type is the uninstall stub (only `deploy_mode` and `node_launch_command`). |
 
 ### `test_head_rgbd_calibration_deploy.py`
 

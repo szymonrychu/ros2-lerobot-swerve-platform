@@ -134,24 +134,12 @@ ros2_node_type_defaults:
     cpu_weight: 500
     io_weight: 500
     oom_score_adjust: -500
+  # Retired (D435 switchover): the head D435 replaces the Arducam ToF and nodes/bridges/arducam_tof is deleted.
+  # present: false makes a deploy of this name run only the uninstall path of roles/ros2_node_deploy/tasks/main.yml
+  # (deploy_mode and a launch command, nothing else).
   arducam_tof:
     deploy_mode: native
     node_launch_command: "python3 -m arducam_tof"
-    node_src_dir: "nodes/bridges/arducam_tof"
-    # No pythonpath_parent: the package sits one level down (nodes/bridges/arducam_tof/arducam_tof), so PYTHONPATH is
-    # the node dir itself.
-    # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
-    src_shared: true
-    # Retired (D435 switchover, ros2_nodes entry present: false). Estimate, never measured: a 240x180 ToF frame pair is
-    # small, so MemoryLow follows uvc_camera (p50 66.7 MiB) with the SDK and numpy, MemoryMax 2x or more.
-    memory_low: "64M"
-    memory_max: "192M"
-    cpu_weight: 500
-    io_weight: 500
-    oom_score_adjust: -500
-    config_path: /etc/ros2/arducam_tof
-    env:
-      - ARDUCAM_TOF_CONFIG=/etc/ros2/arducam_tof/config.yaml
   # Retired (D5): the D435 replaces the head ToF and d435_obstacle_cloud replaces this node. present: false makes a
   # deploy of this name run only the uninstall path of roles/ros2_node_deploy/tasks/main.yml (deploy_mode and a launch
   # command, nothing else). ros-jazzy-rtabmap-util stays installed: d435_obstacle_cloud runs the same executable.

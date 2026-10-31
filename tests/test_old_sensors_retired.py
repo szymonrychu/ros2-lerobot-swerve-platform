@@ -11,6 +11,9 @@ present: false, Alloy does not scrape it, the master2master relay of its stream 
 The head Camera Module 3 (head_camera_cpp) is retired as well: present: false without config, unscraped, and no enabled
 node's config, env or launch command names a /head_camera/ topic. Its node type and nodes/head_camera_cpp stay for
 front-and-back-camera-module (plan Q8).
+
+Once retired, the arducam_tof bridge source is deleted: nodes/bridges/arducam_tof is untracked, no lint or CI list
+names it, and its node type is the uninstall stub (deploy_mode and launch command only).
 """
 
 import subprocess
@@ -31,6 +34,8 @@ GRIPPER_TOPIC_PREFIX = "/camera_0"
 HEAD_CAMERA_NODE = "head_camera_cpp"
 HEAD_CAMERA_METRICS_PORT = 19116
 HEAD_CAMERA_TOPIC_PREFIX = "/head_camera/"
+UNINSTALL_STUB_KEYS = {"deploy_mode", "node_launch_command"}
+LINT_LISTS = ("pyproject.toml", "scripts/lint-all-nodes.sh", ".github/workflows/ci.yml")
 RETIREMENT_COMMENT = "Retired (D435 switchover): present: false uninstalls the unit, venv and config on the next deploy"
 
 
@@ -114,6 +119,20 @@ def tracked_config_files() -> list[Path]:
     return [CLIENT_VARS, *(REPO_ROOT / path for path in picked)]
 
 
+def assert_bridge_source_is_gone(node_type: str) -> None:
+    """Assert nodes/bridges/<node_type> is untracked, unlisted for lint and CI, and its node type is the stub.
+
+    Args:
+        node_type (str): Node type name, equal to its bridge directory name.
+    """
+    source_dir = f"nodes/bridges/{node_type}"
+    tracked = subprocess.run(["git", "ls-files", source_dir], cwd=REPO_ROOT, capture_output=True, text=True, check=True)
+    assert tracked.stdout == ""
+    for path in LINT_LISTS:
+        assert f"bridges/{node_type}" not in (REPO_ROOT / path).read_text(), path
+    assert set(load_client()["ros2_node_type_defaults"][node_type]) == UNINSTALL_STUB_KEYS
+
+
 def test_arducam_tof_is_retired() -> None:
     """arducam_tof is present: false without config, unscraped, and no enabled consumer reads a /tof/ topic."""
     variables = load_client()
@@ -165,3 +184,8 @@ def test_head_camera_is_retired() -> None:
 
     readers = {name for name, text in running_node_texts(variables).items() if HEAD_CAMERA_TOPIC_PREFIX in text}
     assert not readers
+
+
+def test_arducam_tof_source_is_gone() -> None:
+    """The retired arducam_tof bridge is deleted; its node type stays only for the uninstall deploy."""
+    assert_bridge_source_is_gone(TOF_NODE)

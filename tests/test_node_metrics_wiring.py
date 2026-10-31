@@ -70,7 +70,6 @@ SHARED_NODE_TYPES = [
     "bno055_imu",
     "gps_rtk",
     "uvc_camera",
-    "arducam_tof",
     "map_manager",
     "poi_store",
     "marker_detector",
