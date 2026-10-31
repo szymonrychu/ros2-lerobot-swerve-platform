@@ -1,78 +1,47 @@
-# Head RGB-D calibration in the web UI Calibrate page design
+---
+title: Head RGB-D calibration in the web UI Calibrate page
+repos: [ros2-lerobot-sverve-platform]
+created: 2026-10-19
+owner: Szymon Richert
+rung: 1
+---
 
-## Summary
+# Head RGB-D calibration in the web UI Calibrate page
 
-The head RGB-D calibration (Camera Module 3 mapping stream + Arducam ToF, ChArUco board) moves from the Mac terminal
-to the robot, driven from the web UI's hidden Calibrate page next to the IMU section. A new Python node,
-`head_rgbd_calibration`, subscribes the head topics only while a capture session runs, stores only the usable still
-poses in `/var/lib/ros2/head_rgbd_calibration`, computes the calibration in a niced child process, and applies a
-result by copying it into `applied/`, which a systemd path unit turns into a restart of head_camera_cpp,
-head_rgbd_cpp and head_state_publisher. web_ui proxies the node's localhost HTTP API under
-`/api/calibration/rgbd/*`; the frontend shows the live status, thumbnails with corners, a coverage grid, past
-sessions, reports, Apply and Download. The calibration maths moves unchanged into `shared/ros2_common`, the CLI keeps
-working on top of it, and the ssh live counter is retired.
+## What and why
 
-## Intent and why
+What: Capture, review, compute and apply the head RGB-D calibration from the web UI Calibrate page, all on the robot
+How: A robot-side calibration capture and compute service fed by the live topics, poses stored in a state dir, web_ui routes and a Calibrate page section, an apply path the head nodes and URDF pick up
+Why: The terminal flow lost frames and bags on the loaded robot and gave the operator no view of usable poses
 
-The terminal flow failed repeatedly on the loaded robot (load ~28 on 4 cores): frames streamed over ssh were lost,
-bags came back empty, and the operator could not see which poses were usable. The operator wants to stand at the
-robot with the board and a phone or laptop browser, see each pose being stored, prune bad ones, compute, and apply
-the result without a redeploy, with nothing streamed to the Mac.
+Calibrating the head RGB-D pair (Camera Module 3 mapping stream + Arducam ToF) from the Mac terminal failed repeatedly: frames streamed over ssh were lost on the loaded robot, bags came back empty, and the operator could not see which poses were usable. The operator wants the whole flow on the robot, driven from the web UI's hidden Calibrate page (hamburger menu, #/calibrate), next to the IMU calibration section (enabled on the robot in 053adfe3).
 
-## Goals
+From the page the operator starts a capture session, moves the ChArUco board through poses and sees each stored pose appear live (count, RGB and ToF thumbnails with the detected corners, an image-coverage hint, a status line such as "moving" / "move closer"), deletes bad poses, lists and reopens past sessions, launches the calibration computation on a session and reads its report (RMS values, view counts, limits), then applies the result so the head nodes use it, or downloads the YAMLs to commit them.
 
-- G1: Start and stop a capture from the Calibrate page; it runs on the robot and stores only usable still poses
-  (RGB JPEG, ToF amplitude, ToF depth, both detections, two thumbnails) under the state dir.
-- G2: While capturing, the page shows the pose count, the current status line (`moving`, `still - no board in the RGB
-  image`, `still - board not found by the ToF: move closer`, `still - no ToF frame close in time`,
-  `pose N captured - move to the next pose`), and the thumbnails as poses are stored.
-- G3: Delete single poses; see a coverage grid for the RGB and the ToF image; list past sessions, reopen any (view,
-  delete, add poses) and compute on any.
-- G4: Compute RGB intrinsics, ToF intrinsics, the stereo extrinsic, limits and the report on the robot from a session's
-  stored poses, without blocking web_ui or starving the robot nodes; the page shows the report.
-- G5: Apply a passing result: head_camera_cpp (camera_info), head_rgbd_cpp (ToF intrinsics) and head_state_publisher
-  (tof_joint) use it after an automatic restart, no redeploy; the applied files survive Ansible deploys. Download a
-  result as a zip of its YAMLs, the tof_joint origin, the rewritten head.urdf and the report.
-- G6: The IMU section keeps working on the same page.
-- G7: The CLI (`scripts/head_rgbd_calibrate.py` capture, capture-validation, calibrate, urdf, validate) keeps working on
-  the shared core; `live.py`, `live_relay.py` and `capture.live` are gone.
+## Scope ladder
+
+### Rung 1: agreed scope (migrated)
+
+- 1.1: Start and stop a head RGB-D calibration capture from the web UI Calibrate page; the capture runs on the robot and stores only usable still poses (RGB + ToF amplitude + depth + detections) in a robot state dir.
+- 1.2: The page shows the session live: pose count, current status, RGB and ToF thumbnails with corners, a coverage hint for both images.
+- 1.3: Delete single poses; list past sessions and reopen any of them.
+- 1.4: Compute the calibration (RGB intrinsics, ToF intrinsics, stereo extrinsic, limits, report) on the robot from a session, without starving the robot stack or the web UI, and show the report.
+- 1.5: Apply a computed result: head_camera_cpp, head_rgbd_cpp and the head URDF (tof_joint) use it without a redeploy, and it survives deploys. Download the result YAMLs.
+- 1.6: The IMU section keeps working on the same page.
+
+## Agreed scope
+
+Rung 1, migrated from the epic format: the epic's goals were its agreed scope.
 
 ## Non-goals
 
-- No change to the board, the marker generator, the solvers or the limits.
-- Validation captures (distances, wall, sweep, time offset) stay in the CLI.
-- No frame streaming to the dev machine; no video stream in the page (thumbnails of stored poses only).
-- The web UI's URDF viewer (`/api/urdf/head.urdf`) keeps serving the repo head.urdf; the applied tof_joint reaches
-  TF consumers through head_state_publisher (my call).
-- No hot-reload services in the C++ nodes (apply restarts them, D6).
+- No change to the ChArUco board, the marker generator, or the calibration maths (solvers, limits) beyond what running on the robot needs.
+- Validation captures (wall distances, pan sweep, time offset) stay in the existing CLI.
+- No streaming of frames to the dev machine.
 
-## Anti-goals
+## Design
 
-- web_ui OOM or event-loop stalls caused by calibration work (web_ui MemoryMax 512M stays untouched by this work).
-- The focus lock engaged while nobody captures (the mapping subscription must not outlive a capture).
-- Placeholder data: no fabricated detections, thumbnails, coverage or camera_info; a missing value is absent.
-- A deploy that overwrites an applied calibration.
-- Decoding whole bags or holding a whole session in memory.
-
-## Constraints
-
-- Facts measured on the robot this session: CPU saturated by the normal stack; `/tof/amplitude/image_raw` and
-  `/tof/depth/image_raw` are RELIABLE at the publisher and a BEST_EFFORT subscriber loses about half the frames, so the
-  node subscribes them RELIABLE; `/head_camera/mapping/image_raw/compressed` is BEST_EFFORT 2 Hz 576x324 and any
-  subscriber engages the focus lock (`head_camera_node.cpp:280-282`); RGB stillness uses `frames.rgb_difference`
-  (mains flicker); ToF detection needs `detect_tof` (2x upscale) and the board within about 0.45 m; ROS processes need
-  `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST FASTDDS_BUILTIN_TRANSPORTS=UDPv4` (node units already set it).
-- Memory: web_ui MemoryMax 512M; store only selected poses; compute from them.
-- Reuse, do not rebuild: `charuco.detect/make_board`, `frames.rgb_difference/tof_diff_fraction/normalise_amplitude/
-  still_pairs`, `live.PoseCounter`, `pipeline.detect_tof/run_calibration/failed_limits/report_markdown`, the
-  intrinsics/extrinsics writers, `urdf_handoff`.
-- CLAUDE.md: type hints, pydantic config, constants at the top, no placeholder topic data, tests per function, README
-  per node, `tests/README.md` updated, Ansible `ros2_nodes` schema in sync, `poe lint-ansible` / `test-ansible` green.
-  web_ui stays Python; a new Python node is allowed because it reuses the Python core.
-- Verification: root `uv run pytest tests/ -v`, `uv run poe lint`, `uv run poe lint-nodes`, `uv run poe lint-ansible`,
-  `uv run poe test-ansible`; web_ui `cd nodes/web_ui && uv sync && uv run pytest tests/ -v`, `uv run poe lint`;
-  frontend `cd nodes/web_ui/frontend && npx tsc --noEmit && npm test && npm run lint`. Deploy is the orchestrator's,
-  after merge, through `scripts/deploy-nodes.sh`.
+Migrated from the epic format; the design sections without a plan.md heading are under Migrated notes.
 
 ## Decisions
 
@@ -194,6 +163,10 @@ as the cross-epic contract `head-rgbd-applied-calibration`. Serves A7.
 
 (a) Apply restarts head_camera_cpp, head_rgbd_cpp and head_state_publisher through a systemd path unit (D6) rather than hot reload in the C++ nodes (calib-node-apply-download, calib-node-ansible-deploy). (b) Apply is refused for a result that fails any limit (RGB, ToF or stereo RMS, view counts); the operator deletes poses or recaptures and recomputes (calib-node-apply-download a2, calib-node-http-api a6, rgbd-sessions-and-results-ui). (c) A capture stops by itself after 15 minutes (`max_capture_s` 900) so the head camera focus lock is released (calib-node-live-capture a4).
 
+## Open questions
+
+None. Q1-Q3 (restart through a path unit, refuse failing results, 15-minute auto-stop) were approved at the gate and are D12.
+
 ## Research
 
 | Lens | Ran or skipped | Adopted | Rejected |
@@ -203,7 +176,7 @@ as the cross-epic contract `head-rgbd-applied-calibration`. Serves A7.
 | research-papers | skipped: no new algorithm; the maths is unchanged | - | - |
 | research-docs | skipped: rclpy QoS, FastAPI, systemd path units and cv2.aruco are used as the repo already uses them; QoS facts were measured on the robot | systemd `PathChanged=` semantics confirmed at deploy (Assumptions) | - |
 
-## Research inputs
+### Research inputs
 
 | Source | Entry | Lands in |
 |---|---|---|
@@ -232,7 +205,105 @@ as the cross-epic contract `head-rgbd-applied-calibration`. Serves A7.
 | brief risk | `CalibrationConfig` name clash | calib-node-scaffold-config (node model `NodeConfig`), web-ui-rgbd-calib-proxy |
 | brief risk | `scripts/` outside root lint | calib-core-config-charuco (the core moves under `shared/`, which root lint covers) |
 
-## Decision coverage
+## Irreversible operations
+
+- Deleting a pose or (through the store only) a result removes files under `/var/lib/ros2/head_rgbd_calibration`;
+  covered by a ConfirmDialog in the UI. Sessions are never deleted by this work.
+- Apply replaces the files in `applied/`; the previous applied result stays in its session's `results/` dir and can be
+  re-applied.
+- `git rm` of `scripts/head_rgbd_calibration/live.py`, `live_relay.py`, `tests/test_head_rgbd_calib_live.py` and the
+  transitional re-exports `scripts/head_rgbd_calibration/{charuco,intrinsics,extrinsics,urdf_handoff}.py` (reversible
+  through git).
+- Removing the head_rgbd_cpp `config_files` entry leaves a stale `/etc/ros2/head_rgbd_cpp/tof_calibration.yaml` only if
+  one was ever deployed; nothing reads it after head-nodes-use-applied-calib.
+
+## Migrated notes
+
+### README.md: Review
+
+Filled when the epic reaches stage `review`: the verdict, the findings acted on, the findings dropped.
+
+Verdict: pass (2026-10-20)
+
+- E2E on the robot 2026-10-20: session calib-20261020-083900, 38 poses, RGB 0.10 px, ToF 0.28 px, stereo 0.28 px RMS; applied r-20261020-092536; head_rgbd publishes pairs (0 drops, valid ratio 0.42); user confirmed the RGB-D overlay is mostly right.
+- Finding acted on: plane depth check measured the ToF's own depth error (0-40 mm long at 0.2-0.4 m), 15 mm refused a good calibration; limit 40 mm, background-contaminated pairs rejected (33a73511).
+- Known residual: depth overlay shifts right for close objects (parallax from the ToF depth error); depth correction deferred to the obstacle work.
+
+### design.md: Summary
+
+The head RGB-D calibration (Camera Module 3 mapping stream + Arducam ToF, ChArUco board) moves from the Mac terminal
+to the robot, driven from the web UI's hidden Calibrate page next to the IMU section. A new Python node,
+`head_rgbd_calibration`, subscribes the head topics only while a capture session runs, stores only the usable still
+poses in `/var/lib/ros2/head_rgbd_calibration`, computes the calibration in a niced child process, and applies a
+result by copying it into `applied/`, which a systemd path unit turns into a restart of head_camera_cpp,
+head_rgbd_cpp and head_state_publisher. web_ui proxies the node's localhost HTTP API under
+`/api/calibration/rgbd/*`; the frontend shows the live status, thumbnails with corners, a coverage grid, past
+sessions, reports, Apply and Download. The calibration maths moves unchanged into `shared/ros2_common`, the CLI keeps
+working on top of it, and the ssh live counter is retired.
+
+### design.md: Intent and why
+
+The terminal flow failed repeatedly on the loaded robot (load ~28 on 4 cores): frames streamed over ssh were lost,
+bags came back empty, and the operator could not see which poses were usable. The operator wants to stand at the
+robot with the board and a phone or laptop browser, see each pose being stored, prune bad ones, compute, and apply
+the result without a redeploy, with nothing streamed to the Mac.
+
+### design.md: Goals
+
+- G1: Start and stop a capture from the Calibrate page; it runs on the robot and stores only usable still poses
+  (RGB JPEG, ToF amplitude, ToF depth, both detections, two thumbnails) under the state dir.
+- G2: While capturing, the page shows the pose count, the current status line (`moving`, `still - no board in the RGB
+  image`, `still - board not found by the ToF: move closer`, `still - no ToF frame close in time`,
+  `pose N captured - move to the next pose`), and the thumbnails as poses are stored.
+- G3: Delete single poses; see a coverage grid for the RGB and the ToF image; list past sessions, reopen any (view,
+  delete, add poses) and compute on any.
+- G4: Compute RGB intrinsics, ToF intrinsics, the stereo extrinsic, limits and the report on the robot from a session's
+  stored poses, without blocking web_ui or starving the robot nodes; the page shows the report.
+- G5: Apply a passing result: head_camera_cpp (camera_info), head_rgbd_cpp (ToF intrinsics) and head_state_publisher
+  (tof_joint) use it after an automatic restart, no redeploy; the applied files survive Ansible deploys. Download a
+  result as a zip of its YAMLs, the tof_joint origin, the rewritten head.urdf and the report.
+- G6: The IMU section keeps working on the same page.
+- G7: The CLI (`scripts/head_rgbd_calibrate.py` capture, capture-validation, calibrate, urdf, validate) keeps working on
+  the shared core; `live.py`, `live_relay.py` and `capture.live` are gone.
+
+### design.md: Non-goals
+
+- No change to the board, the marker generator, the solvers or the limits.
+- Validation captures (distances, wall, sweep, time offset) stay in the CLI.
+- No frame streaming to the dev machine; no video stream in the page (thumbnails of stored poses only).
+- The web UI's URDF viewer (`/api/urdf/head.urdf`) keeps serving the repo head.urdf; the applied tof_joint reaches
+  TF consumers through head_state_publisher (my call).
+- No hot-reload services in the C++ nodes (apply restarts them, D6).
+
+### design.md: Anti-goals
+
+- web_ui OOM or event-loop stalls caused by calibration work (web_ui MemoryMax 512M stays untouched by this work).
+- The focus lock engaged while nobody captures (the mapping subscription must not outlive a capture).
+- Placeholder data: no fabricated detections, thumbnails, coverage or camera_info; a missing value is absent.
+- A deploy that overwrites an applied calibration.
+- Decoding whole bags or holding a whole session in memory.
+
+### design.md: Constraints
+
+- Facts measured on the robot this session: CPU saturated by the normal stack; `/tof/amplitude/image_raw` and
+  `/tof/depth/image_raw` are RELIABLE at the publisher and a BEST_EFFORT subscriber loses about half the frames, so the
+  node subscribes them RELIABLE; `/head_camera/mapping/image_raw/compressed` is BEST_EFFORT 2 Hz 576x324 and any
+  subscriber engages the focus lock (`head_camera_node.cpp:280-282`); RGB stillness uses `frames.rgb_difference`
+  (mains flicker); ToF detection needs `detect_tof` (2x upscale) and the board within about 0.45 m; ROS processes need
+  `ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST FASTDDS_BUILTIN_TRANSPORTS=UDPv4` (node units already set it).
+- Memory: web_ui MemoryMax 512M; store only selected poses; compute from them.
+- Reuse, do not rebuild: `charuco.detect/make_board`, `frames.rgb_difference/tof_diff_fraction/normalise_amplitude/
+  still_pairs`, `live.PoseCounter`, `pipeline.detect_tof/run_calibration/failed_limits/report_markdown`, the
+  intrinsics/extrinsics writers, `urdf_handoff`.
+- CLAUDE.md: type hints, pydantic config, constants at the top, no placeholder topic data, tests per function, README
+  per node, `tests/README.md` updated, Ansible `ros2_nodes` schema in sync, `poe lint-ansible` / `test-ansible` green.
+  web_ui stays Python; a new Python node is allowed because it reuses the Python core.
+- Verification: root `uv run pytest tests/ -v`, `uv run poe lint`, `uv run poe lint-nodes`, `uv run poe lint-ansible`,
+  `uv run poe test-ansible`; web_ui `cd nodes/web_ui && uv sync && uv run pytest tests/ -v`, `uv run poe lint`;
+  frontend `cd nodes/web_ui/frontend && npx tsc --noEmit && npm test && npm run lint`. Deploy is the orchestrator's,
+  after merge, through `scripts/deploy-nodes.sh`.
+
+### design.md: Decision coverage
 
 | Decision | Tasks |
 |---|---|
@@ -249,7 +320,7 @@ as the cross-epic contract `head-rgbd-applied-calibration`. Serves A7.
 | D11 docs and overlap | rgbd-calib-runbook-and-docs |
 | D12 user-approved decisions | calib-node-apply-download, calib-node-ansible-deploy, calib-node-http-api, calib-node-live-capture, rgbd-sessions-and-results-ui |
 
-## Contracts
+### design.md: Contracts
 
 | Part | Owner | Consumers | Where defined |
 |---|---|---|---|
@@ -265,7 +336,7 @@ as the cross-epic contract `head-rgbd-applied-calibration`. Serves A7.
 
 Cross-epic: `head-rgbd-applied-calibration` (registered in `docs/plans/contracts.json`), owner task head-nodes-use-applied-calib, defined in `ansible/group_vars/client.yml`; consumer epic head-rgb-d-fusion-of-camera (its task rgbd-final-suite-and-runbook).
 
-## Node HTTP API
+### design.md: Node HTTP API
 
 Contract `rgbd-calib-node-http-api` (all JSON errors `{ok: false, message}`):
 
@@ -286,7 +357,7 @@ Contract `rgbd-calib-node-http-api` (all JSON errors `{ok: false, message}`):
 
 web_ui maps `/api/calibration/rgbd/<rest>` to node `/api/<rest>`.
 
-## Review focus
+### design.md: Review focus
 
 - `calib-node-live-capture`: subscription lifetime (nothing subscribed after stop, timeout or a start failure), RELIABLE
   QoS on ToF, thread safety between the executor thread, the HTTP handlers and the store.
@@ -295,14 +366,14 @@ web_ui maps `/api/calibration/rgbd/<rest>` to node `/api/<rest>`.
 - The core move is behaviour-neutral: existing calibration tests pass with only import changes.
 - No placeholder data: a pose without a ToF detection is never stored, a missing depth stays absent.
 
-## Left to the builder
+### design.md: Left to the builder
 
 - Internal module split inside the node beyond the files named in the tasks, provided the contracts hold.
 - Thumbnail JPEG quality and the exact corner drawing style.
 - Coverage grid size within 3x2 to 6x4 (default 4x3).
 - MUI layout of the section, provided touch targets use `TOUCH_TARGET_PX` and the design-rules tests pass.
 
-## Assumptions and unknowns
+### design.md: Assumptions and unknowns
 
 - systemd `PathChanged=` fires on an `os.replace` of `applied.json` (inotify `IN_MOVED_TO` is in its mask); confirmed on
   the robot at deploy by applying a result and reading the units' `ActiveEnterTimestamp` (the node reports it).
@@ -311,18 +382,12 @@ web_ui maps `/api/calibration/rgbd/<rest>` to node `/api/<rest>`.
   (then capture start fails with the reason).
 - The node venv uses `--system-site-packages` for rclpy like every native Python node (role main.yml:201).
 
-## Open questions
+### approvals.json
 
-None. Q1-Q3 (restart through a path unit, refuse failing results, 15-minute auto-stop) were approved at the gate and are D12.
-
-## Irreversible operations in scope
-
-- Deleting a pose or (through the store only) a result removes files under `/var/lib/ros2/head_rgbd_calibration`;
-  covered by a ConfirmDialog in the UI. Sessions are never deleted by this work.
-- Apply replaces the files in `applied/`; the previous applied result stays in its session's `results/` dir and can be
-  re-applied.
-- `git rm` of `scripts/head_rgbd_calibration/live.py`, `live_relay.py`, `tests/test_head_rgbd_calib_live.py` and the
-  transitional re-exports `scripts/head_rgbd_calibration/{charuco,intrinsics,extrinsics,urdf_handoff}.py` (reversible
-  through git).
-- Removing the head_rgbd_cpp `config_files` entry leaves a stale `/etc/ros2/head_rgbd_cpp/tof_calibration.yaml` only if
-  one was ever deployed; nothing reads it after head-nodes-use-applied-calib.
+- A1: Results live on the robot: the computed calibration is written to a robot state dir (/var/lib/ros2/head_rgbd_calibration); an Apply button makes head_camera_cpp (camera_info), head_rgbd_cpp (ToF calibration) and the head URDF tof_joint use it without a redeploy (restart triggered on the robot), it survives Ansible deploys, and a Download button returns the result YAMLs so they can be committed. [decisions: D3, D6, D7, D8, D12] [tasks: calib-node-session-store, calib-node-compute-job, calib-node-apply-download, calib-node-http-api, head-urdf-tof-joint-override, calib-node-ansible-deploy, head-nodes-use-applied-calib, rgbd-sessions-and-results-ui] [status: approved]
+- A2: Everything runs on the robot and nothing is streamed to the Mac; the operator sees live the pose count, the current status (moving / no board in RGB / board not found by the ToF: move closer / pose N captured) and the thumbnails as poses are stored. [decisions: D1, D3, D4, D10] [tasks: calib-pose-counter-in-core, calib-node-live-capture, calib-node-http-api, web-ui-rgbd-calib-proxy, rgbd-calib-frontend-api, rgbd-capture-section-ui] [status: approved]
+- A3: Pose list features, all required: RGB and ToF thumbnails with the detected corners drawn; delete single poses; a coverage hint showing which image areas of RGB and ToF the stored poses cover; past sessions kept (list them, reopen any, recompute on any). [decisions: D3, D4, D5, D9, D10] [tasks: calib-node-session-store, calib-node-live-capture, calib-node-compute-job, calib-node-http-api, web-ui-rgbd-calib-proxy, rgbd-calib-frontend-api, rgbd-capture-section-ui, rgbd-sessions-and-results-ui] [status: approved]
+- A4: The calibration is computed on the robot from the stored poses only, without decoding bags, without running in the web_ui event loop or its 512M budget, and without starving the robot nodes (own cgroup, niced child process). [decisions: D1, D5] [tasks: calib-node-scaffold-config, calib-node-compute-job, calib-node-ansible-deploy] [status: approved]
+- A5: The calibration core is reused, not rebuilt: it moves into shared/ros2_common, importable from node venvs; the existing CLI keeps working on top of it; live.py, live_relay.py and capture.live are removed with a retirement test. [decisions: D2] [tasks: calib-core-config-charuco, calib-core-frames-intrinsics, calib-core-extrinsics-urdf, calib-core-calibrate-run, calib-pose-counter-in-core, retire-ssh-live-counter, calib-core-retire-shims] [status: approved]
+- A6: The IMU section, enabled on the robot in 053adfe3, keeps working on the same Calibrate page. [decisions: D9, D10] [tasks: web-ui-rgbd-calib-proxy, rgbd-capture-section-ui, head-nodes-use-applied-calib] [status: approved]
+- A7: camera_info_file and tof_calibration_file point at the applied state files, with committed repo files only seeding an empty applied dir; docs/runbooks/head-rgbd-fusion.md steps 2-3 describe the web UI flow; the overlap with head-rgb-d-fusion-of-camera (rgbd-final-suite-and-runbook) is noted in design.md. [decisions: D7, D11] [tasks: head-nodes-use-applied-calib, calib-node-ansible-deploy, rgbd-calib-runbook-and-docs] [status: approved]

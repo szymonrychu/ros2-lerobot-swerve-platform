@@ -1,10 +1,28 @@
-# Head RGB-D calibration in the web UI Calibrate page record
+# Head RGB-D calibration in the web UI Calibrate page retro
 
-## Summary
+## Review
+
+Migrated from the epic format.
+
+## What went well
+
+none recorded in the epic format
+
+## What went wrong or could improve
+
+none recorded in the epic format
+
+## Recommendations
+
+none
+
+## Delivery record (migrated)
+
+### Summary
 
 Asked: capture, review, compute and apply the head RGB-D calibration from the web UI Calibrate page, all on the robot. Shipped: robot-side head_rgbd_calibration node, shared calibration core in shared/ros2_common, web_ui proxy and Calibrate page section (live capture, pose list, sessions, results, apply, download), head nodes and URDF reading the applied calibration, Ansible deploy, runbook. Verdict: pass (2026-10-20), E2E on the robot. 26 of 26 tasks marked done. Short-form record: no plan-execute return value was supplied, so per-task review rounds, continuations, files, verifier heads and verification tails are unknown.
 
-## Planned vs built
+### Planned vs built
 
 | task | status | review rounds | continuations | files | verifier head | verification tail |
 |---|---|---|---|---|---|---|
@@ -51,7 +69,7 @@ Approvals (from `approvals.json`; no plan-execute approvals return supplied, so 
 
 E2E on the robot 2026-10-20: session calib-20261020-083900, 38 poses, RGB 0.10 px, ToF 0.28 px, stereo 0.28 px RMS; applied r-20261020-092536; head_rgbd publishes pairs (0 drops, valid ratio 0.42).
 
-## Deviations and rulings
+### Deviations and rulings
 
 - Plane-bias limit 15 mm -> 40 mm, plus rejection of background-contaminated plane pairs (33a73511). What: first compute on the E2E session failed, plane bias 19.9 mm > 15 mm. Why: the check measured the ToF's own depth error (reads 0-40 mm long at 0.2-0.4 m; black squares read about 2x white), so 15 mm refused a good calibration. Ruling by the user. Cost if wrong: a bad plane fit within 40 mm would be accepted; mitigated by the background-pair rejection and the limit being config (`plane_max_bias_mm`, ce334203).
 - Verifier crash on `--prev-head unknown` for calib-node-scaffold-config (rulings.json, 2026-10-19). Accepted after the orchestrator re-ran the task verify on HEAD 52434e47: 16 passed, lint clean, 14 passed (ci_workflow, node_lint_coverage), clean tree. Cost if wrong: that task has no independent verifier head.
@@ -59,28 +77,28 @@ E2E on the robot 2026-10-20: session calib-20261020-083900, 38 poses, RGB 0.10 p
 - Integration fixes after the merges: 1736bd7b and ce334203 (tier tests, plane_max_bias_mm config, fixture allowlist).
 - forwardMerged: unknown (no return value supplied).
 
-## Duplicates reconciled
+### Duplicates reconciled
 
 none recorded. The overlap with head-rgb-d-fusion-of-camera (rgbd-final-suite-and-runbook) is noted in design.md.
 
-## Discovered and blocked
+### Discovered and blocked
 
 - Depth overlay shifts right for close objects (parallax from the ToF depth error). Deferred to a depth correction in the obstacle work; the user confirmed the overlay is otherwise mostly right. Who can clear it: the obstacle-work epic owner (Szymon Richert).
 - declined / cannotVerify: unknown (no return value supplied).
 
-## Research that changed the plan
+### Research that changed the plan
 
 ToF depth error measured on the robot (0-40 mm long at 0.2-0.4 m, black squares about 2x white) changed the plane-bias limit from 15 mm to 40 mm and added background-contaminated pair rejection (33a73511).
 
-## Cost
+### Cost
 
 Agents and wall-clock: unknown. README Time: estimate 1410 min, actual 0 min (not filled), remaining 175 min. Task files carry `estimate` only; every `actual` is empty.
 
-## MRs and deploy
+### MRs and deploy
 
 No MR/PR: merged directly on main (merges f42c78bb, e892b6d7, 2a94085f; fixes 1736bd7b, ce334203, 33a73511). Not pushed by this record. Deploy: applied and exercised on the robot 2026-10-20 (E2E above); deploy log not seen.
 
-## Lessons routed to
+### Lessons routed to
 
 - Plane-depth limits must be checked against measured sensor error on the real device: add a test that the compute path rejects background-contaminated pairs and that the bias limit comes from config (done in 33a73511 and ce334203; no further check proposed).
 - Verifier tooling crashed on `--prev-head unknown`: add a check in the verifier script that handles an unknown prev-head (mechanical; owner is the claude-infra-plugin).
