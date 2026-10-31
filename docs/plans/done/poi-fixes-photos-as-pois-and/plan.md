@@ -1,81 +1,47 @@
-# POI fixes: photos as POIs and cleanups design
+---
+title: POI fixes photos as POIs and cleanups
+repos: [ros2-lerobot-sverve-platform]
+created: 2026-10-18
+owner: Szymon Richert
+rung: 1
+---
 
-## Summary
+# POI fixes photos as POIs and cleanups
 
-Robot photos become POIs of the live map: poi_store lists them in `/poi/list` and moves the revision on every photo
-change, a map save writes the POIs and the photos (records and JPEGs) into the bundle, a map load restores both and
-replaces the live photos, and every map cleanup (delete, web UI Reset map, kidnap discard) removes the map's POIs and
-photos. Every POI cleanup (single delete, clear, delete-marked, replace) deletes the photo POIs in its set, record and
-JPEG. map_manager tracks and persists which saved map owns the live set, so delete works after a save and after a
-restart, and every result reports the counts actually removed. This supersedes named-maps D3 (reset keeps POIs) and D8
-(photos stay global).
+## What and why
 
-## Intent and why
+What: Make photos first-class map POIs and make map and POI cleanups remove POIs and photos
+How: poi_store photo/POI unification with map ownership, map_manager delete/reset fixes, web UI and MCP clear paths, test-first
+Why: Map and POI cleanups leave stale POIs and photos behind, which misleads navigation and the agent
 
-User reports after the named-maps delivery (2026-10-18): "photos are also POIs"; "map cleanup didn't clean POIs (was
-supposed to)"; "POIs cleanup didn't delete photos"; and the binding rule "Map is supposed to be saved with POI, which
-includes photos." Standing rules: POIs are coupled with their map, deleting a map deletes its POIs, a new agent session
-deletes nothing, an uncontrolled move the matcher cannot recover deletes the live map and POIs (kidnap), saved bundles
-are never deleted by kidnap.
+User-reported POI defects after the named-maps delivery (2026-10-18):
 
-Verified on main (8ad601ff):
-- Photos live only in poi_store's PhotoStore (`nodes/poi_store/poi_store/photo_store.py`, `index.jsonl` plus
-  `<id>.jpg` under `/var/lib/ros2/poi/lookups`), never in `poi.json`, `/poi/list` or its revision
-  (`nodes/poi_store/poi_store/store.py:1-4`). mcp_server writes the JPEG and asks poi_store to index it
-  (`nodes/mcp_server/mcp_server/lookup_tools.py:201-247`). web_ui (`nodes/web_ui/web_ui/photos.py:22`) and mcp_server
-  (`nodes/mcp_server/mcp_server/lookup_store.py:1`) read `index.jsonl` read-only.
-- Bug A: `MapManager.delete` (`nodes/map_manager/map_manager/manager.py:624-654`) empties the live POIs only when
-  `active_map == name`; `active_map` starts None (line 219) and is set only by `complete_load` (line 285), never by
-  `save`, and is lost on restart, yet the message says "deleted map X and its POIs". Tests
-  (`nodes/map_manager/tests/test_manager.py:640-680`) cover delete-after-load only.
-- Bug B: web UI Reset map (`nodes/web_ui/web_ui/server.py:794-819`, dialog `MapNavTab.tsx:1050-1058`) resets SLAM only.
-- Bug C: `op_delete` of a non-photo POI, `op_clear` and `op_replace` only `strip_photo_links`
-  (`store.py:198-217, 358-426`); the clear filters cannot select photos (`models.py:178`, `web_ui/server.py:117`,
-  `ClearPoisDialog.tsx:18-19`); map delete and kidnap use `replace([])`, which never touches photos.
-- map_manager and poi_store both run on the client as `ansible_user`
-  (`ansible/roles/ros2_node_deploy/templates/ros2-node-native.service.j2:8`), photo dir and maps dir are under
-  `/var/lib/ros2` owned by that user (`ansible/playbooks/tasks/poi_store_dir.yml`, `slam_maps_dir.yml`).
+- "photos are also POIs" - robot photos (kind "photo", today a separate global store in index.jsonl outside poi.json, /poi/list and the map bundles; design D8) must be first-class POIs of the map they were taken on.
+- "map cleanup didn't clean POIs (was supposed to)" - map_manager delete only clears the live POIs when active_map == name; active_map is None after a save or a restart, so save-then-delete leaves the POIs while reporting success. The web UI "Reset map" clears SLAM only (design D3).
+- "POIs cleanup didn't delete photos" - POI delete, clear and replace only strip photo links; photo files and records stay, and clear filters cannot select photos.
 
-## Goals
+## Scope ladder
 
-- `/poi/list` carries every photo as a POI of kind "photo" (the `photo_as_poi` form) after the non-photo POIs, and its
-  revision moves on every change of the photo set (add, update, delete, bulk delete, link strip, retention prune).
-- A map save writes the POIs and the photos (index records and JPEG files) into the bundle; a map load restores both and
-  the live photos not in the bundle are deleted; deleting a saved map deletes its bundled photos.
-- Deleting the saved map that owns the live set removes the live POIs and photos, after a save, after a load and after
-  a map_manager restart; deleting any other saved map removes its bundle (POIs and photos) and leaves the live set alone.
-- Web UI Reset map clears the live POIs and photos and the live owner; saved bundles stay.
-- Kidnap discard removes the live POIs and photos and clears the live owner; saved bundles stay.
-- A photo POI in the set of a single delete, clear, delete-marked or replace loses its record and its JPEG; photo kind
-  is selectable in the clear filters of poi_store, the web UI and MCP `clear_pois`.
-- Every cleanup result names the POIs and photos actually removed.
+### Rung 1: agreed scope (migrated)
+
+- 1.1: Photos are POIs: listed, filtered, marked and deleted with the other POIs, owned by the map they were taken on, saved in and loaded from that map's bundle.
+- 1.2: Every map cleanup clears that map's POIs including photos: deleting a saved map (whatever the active-map state, including after save and after restart), resetting the live map, and the kidnap discard.
+- 1.3: Every POI cleanup deletes the photos it covers: single delete of a photo POI, clear by filter (photo kind selectable), delete-marked, replace; photo files on disk go with their records.
+- 1.4: No silent success: delete results report what was actually removed.
+
+## Agreed scope
+
+Rung 1, migrated from the epic format: the epic's goals were its agreed scope.
 
 ## Non-goals
 
-- A new agent session deletes nothing (driving-agent task new-session-keeps-pois owns that).
-- Saved bundles are deleted only by an explicit map delete, never by reset or kidnap.
-- Web UI zoom captures stay transient.
-- No `map_id` on POIs: ownership is the live set as a whole.
+- "New session" still deletes nothing (user rule U9).
+- Saved map bundles are never deleted by kidnap or reset, only by an explicit map delete.
+- Web UI zoom captures stay transient (not stored as photos).
 
-## Anti-goals
+## Design
 
-- A `/poi/list` consumer crashing or dropping zones because of photo entries (photo x/y may be null).
-- Deleting a non-photo POI deleting the photos linked to it.
-- A cleanup reporting success while POIs or photos stay behind.
-- Loading a map silently losing its photos to the retention timer.
-- The agent's `list_pois` context flooded with thousands of photos.
-
-## Constraints
-
-- CLAUDE.md: Python type hints, pydantic for models, constants at the top, docstrings with types, tests first, READMEs
-  and `tests/README.md` kept current, Ansible in sync with node config, deploy only through `scripts/deploy-nodes.sh`.
-- `index.jsonl` stays the photo storage and its line format stays readable by web_ui and mcp_server (read-only readers).
-- poi_store stays the only writer of `index.jsonl`; JPEG drops into the photo dir by other nodes follow the existing
-  "write the JPEG, then ask poi_store to index it" pattern only for mcp_server (the camera path).
-- Built on the merged driving-agent-skills-and-wor epic: its `PoiPanels.tsx`, `DeleteMarkedDialog.tsx`,
-  `PoiListToolbar.tsx`, `poi/selection.ts`, `categories.ts`, `perception_tools.py`/`perception_models.py` category args
-  and `shared/ros2_common/poi_categories.py` are extended, never redone. Its delete-marked uses the `clearPois` ids path.
-- Bundle format stays `version: 1`; bundles saved before this epic (no `photos/` directory) still list and load.
+Migrated from the epic format; the design sections without a plan.md heading are under Migrated notes.
 
 ## Decisions
 
@@ -179,6 +145,11 @@ Serves A5.
 map POIs restored by a load, and the hourly age prune would delete a restored map's older photos. `max_records` and
 `max_bytes` stay as disk guards. (my call; open question Q1) Serves A4.
 
+## Open questions
+
+- Q1: Photo age retention (14 days) would delete a loaded map's photos older than 14 days within the hour. Turn the age limit off and keep only the count and size limits (D10)? [recommended: yes, age limit off; 3000 photos / 300 MB stay as disk guards]
+- Q2: MCP clear_pois defaults to the agent's own POIs of every kind; with photos as POIs that default now also deletes the agent's photos (almost all photos). Keep that default (D7)? [recommended: yes, the default includes the agent's own photos; the prompt says so]
+
 ## Research
 
 | Lens | Ran or skipped | Adopted | Rejected |
@@ -187,7 +158,7 @@ map POIs restored by a load, and the hourly age prune would delete a restored ma
 | consumer sweep of `/poi/list` (planner grep) | ran | costmap_zones tolerant (`zones.py:65,107`), mcp `describe_pois` crashes on null x (`poi_client.py:213`), web UI `parsePoiList` (`usePoiEditor.ts:77`) | none |
 | external prior art | skipped: internal storage and contract change, no library choice | none | none |
 
-## Research inputs
+### Research inputs
 
 | Source | Entry | Lands in |
 |---|---|---|
@@ -203,7 +174,101 @@ map POIs restored by a load, and the hourly age prune would delete a restored ma
 | prompt review | agent prompt says photos survive and are never cleared (`prompt.py:283-294`) | agent-prompt-photos-with-map |
 | retention review | age prune would delete restored photos | photo-retention-age-optional |
 
-## Decision coverage
+## Irreversible operations
+
+- Photo deletions (record and JPEG) by clear, delete-marked, replace, map delete, Reset map and kidnap discard: the
+  approved behaviour (A2, A3, A4); every path is user-initiated or the approved kidnap rule, and the web UI dialogs
+  name the counts before confirming.
+- Turning off the age retention (D10) keeps more data, not less.
+
+## Migrated notes
+
+### README.md: Review
+
+Filled when the epic reaches stage `review`: the verdict, the findings acted on, the findings dropped.
+
+Verdict: pass (2026-10-18)
+
+All 15 tasks verified and merged into main. Two stale tests fixed on main (named-maps prompt phrases, concurrent reset fake answering clear_live). Full suite green on main: root 1417, map_manager 172, poi_store 248, mcp_server 2678, claude_agent 931, web_ui 879, frontend 1017, lint, test-ansible. Client deployed (--all, failed=0). Live hand checks (save/load/delete a map with photos, Reset map clearing POIs and photos) are manual checks for the user.
+
+### design.md: Summary
+
+Robot photos become POIs of the live map: poi_store lists them in `/poi/list` and moves the revision on every photo
+change, a map save writes the POIs and the photos (records and JPEGs) into the bundle, a map load restores both and
+replaces the live photos, and every map cleanup (delete, web UI Reset map, kidnap discard) removes the map's POIs and
+photos. Every POI cleanup (single delete, clear, delete-marked, replace) deletes the photo POIs in its set, record and
+JPEG. map_manager tracks and persists which saved map owns the live set, so delete works after a save and after a
+restart, and every result reports the counts actually removed. This supersedes named-maps D3 (reset keeps POIs) and D8
+(photos stay global).
+
+### design.md: Intent and why
+
+User reports after the named-maps delivery (2026-10-18): "photos are also POIs"; "map cleanup didn't clean POIs (was
+supposed to)"; "POIs cleanup didn't delete photos"; and the binding rule "Map is supposed to be saved with POI, which
+includes photos." Standing rules: POIs are coupled with their map, deleting a map deletes its POIs, a new agent session
+deletes nothing, an uncontrolled move the matcher cannot recover deletes the live map and POIs (kidnap), saved bundles
+are never deleted by kidnap.
+
+Verified on main (8ad601ff):
+- Photos live only in poi_store's PhotoStore (`nodes/poi_store/poi_store/photo_store.py`, `index.jsonl` plus
+  `<id>.jpg` under `/var/lib/ros2/poi/lookups`), never in `poi.json`, `/poi/list` or its revision
+  (`nodes/poi_store/poi_store/store.py:1-4`). mcp_server writes the JPEG and asks poi_store to index it
+  (`nodes/mcp_server/mcp_server/lookup_tools.py:201-247`). web_ui (`nodes/web_ui/web_ui/photos.py:22`) and mcp_server
+  (`nodes/mcp_server/mcp_server/lookup_store.py:1`) read `index.jsonl` read-only.
+- Bug A: `MapManager.delete` (`nodes/map_manager/map_manager/manager.py:624-654`) empties the live POIs only when
+  `active_map == name`; `active_map` starts None (line 219) and is set only by `complete_load` (line 285), never by
+  `save`, and is lost on restart, yet the message says "deleted map X and its POIs". Tests
+  (`nodes/map_manager/tests/test_manager.py:640-680`) cover delete-after-load only.
+- Bug B: web UI Reset map (`nodes/web_ui/web_ui/server.py:794-819`, dialog `MapNavTab.tsx:1050-1058`) resets SLAM only.
+- Bug C: `op_delete` of a non-photo POI, `op_clear` and `op_replace` only `strip_photo_links`
+  (`store.py:198-217, 358-426`); the clear filters cannot select photos (`models.py:178`, `web_ui/server.py:117`,
+  `ClearPoisDialog.tsx:18-19`); map delete and kidnap use `replace([])`, which never touches photos.
+- map_manager and poi_store both run on the client as `ansible_user`
+  (`ansible/roles/ros2_node_deploy/templates/ros2-node-native.service.j2:8`), photo dir and maps dir are under
+  `/var/lib/ros2` owned by that user (`ansible/playbooks/tasks/poi_store_dir.yml`, `slam_maps_dir.yml`).
+
+### design.md: Goals
+
+- `/poi/list` carries every photo as a POI of kind "photo" (the `photo_as_poi` form) after the non-photo POIs, and its
+  revision moves on every change of the photo set (add, update, delete, bulk delete, link strip, retention prune).
+- A map save writes the POIs and the photos (index records and JPEG files) into the bundle; a map load restores both and
+  the live photos not in the bundle are deleted; deleting a saved map deletes its bundled photos.
+- Deleting the saved map that owns the live set removes the live POIs and photos, after a save, after a load and after
+  a map_manager restart; deleting any other saved map removes its bundle (POIs and photos) and leaves the live set alone.
+- Web UI Reset map clears the live POIs and photos and the live owner; saved bundles stay.
+- Kidnap discard removes the live POIs and photos and clears the live owner; saved bundles stay.
+- A photo POI in the set of a single delete, clear, delete-marked or replace loses its record and its JPEG; photo kind
+  is selectable in the clear filters of poi_store, the web UI and MCP `clear_pois`.
+- Every cleanup result names the POIs and photos actually removed.
+
+### design.md: Non-goals
+
+- A new agent session deletes nothing (driving-agent task new-session-keeps-pois owns that).
+- Saved bundles are deleted only by an explicit map delete, never by reset or kidnap.
+- Web UI zoom captures stay transient.
+- No `map_id` on POIs: ownership is the live set as a whole.
+
+### design.md: Anti-goals
+
+- A `/poi/list` consumer crashing or dropping zones because of photo entries (photo x/y may be null).
+- Deleting a non-photo POI deleting the photos linked to it.
+- A cleanup reporting success while POIs or photos stay behind.
+- Loading a map silently losing its photos to the retention timer.
+- The agent's `list_pois` context flooded with thousands of photos.
+
+### design.md: Constraints
+
+- CLAUDE.md: Python type hints, pydantic for models, constants at the top, docstrings with types, tests first, READMEs
+  and `tests/README.md` kept current, Ansible in sync with node config, deploy only through `scripts/deploy-nodes.sh`.
+- `index.jsonl` stays the photo storage and its line format stays readable by web_ui and mcp_server (read-only readers).
+- poi_store stays the only writer of `index.jsonl`; JPEG drops into the photo dir by other nodes follow the existing
+  "write the JPEG, then ask poi_store to index it" pattern only for mcp_server (the camera path).
+- Built on the merged driving-agent-skills-and-wor epic: its `PoiPanels.tsx`, `DeleteMarkedDialog.tsx`,
+  `PoiListToolbar.tsx`, `poi/selection.ts`, `categories.ts`, `perception_tools.py`/`perception_models.py` category args
+  and `shared/ros2_common/poi_categories.py` are extended, never redone. Its delete-marked uses the `clearPois` ids path.
+- Bundle format stays `version: 1`; bundles saved before this epic (no `photos/` directory) still list and load.
+
+### design.md: Decision coverage
 
 | Decision | Tasks |
 |---|---|
@@ -218,7 +283,7 @@ map POIs restored by a load, and the hourly age prune would delete a restored ma
 | D9 Results report actual counts | poi-cleanups-delete-photos, poi-replace-export-photos, map-live-owner-persisted, map-clear-live-and-discard, web-ui-reset-clears-pois, web-ui-reset-dialog-counts, web-ui-photo-pois-cleanup, web-ui-delete-marked-photos, mcp-poi-tools-photos |
 | D10 Photo age retention off | photo-retention-age-optional |
 
-## Contracts
+### design.md: Contracts
 
 | Part | Owner | Consumers | Where defined |
 |---|---|---|---|
@@ -237,7 +302,7 @@ map POIs restored by a load, and the hourly age prune would delete a restored ma
 - Cross-epic: `poi-command-photo-ops` and `poi-clear-photo-kind` are registered with `ticket.py contract` for
   printable-metadata-markers-t, which edits `poi_store/models.py` and `store.py` after this epic.
 
-## Review focus
+### design.md: Review focus
 
 - `PoiStore.op_replace` with photos: all-or-nothing validation before any file or index change, rollback of the
   in-memory POIs on a failed write, JPEGs of removed photos unlinked only after the index rewrite.
@@ -247,14 +312,14 @@ map POIs restored by a load, and the hourly age prune would delete a restored ma
 - Consumers with photo entries: `describe_pois`, web UI POI list and map layer show each photo once.
 - No placeholder data: a failed export, link or replace is reported, never papered over with empty sets.
 
-## Left to the builder
+### design.md: Left to the builder
 
 - Internal helper names and the split between `PhotoStore` and `PoiStore` methods, within the contracts above.
 - Exact wording of result messages, as long as they name both counts.
 - How map_manager's `PoiPort` returns the poi_store result `data` (a third tuple item or a small dataclass).
 - Whether `export_photos` takes an optional `ids` filter in its first version (map_manager uses "all").
 
-## Assumptions and unknowns
+### design.md: Assumptions and unknowns
 
 - `/poi/list` size grows with the photo count (up to `max_records` 3000, roughly 0.7 KB per photo POI). Confirmed at
   deploy by measuring the latched message size and the web UI responsiveness; if it is a problem the next step is a
@@ -269,14 +334,10 @@ map POIs restored by a load, and the hourly age prune would delete a restored ma
   hold `ansible/group_vars/client.yml` and `nodes/web_ui/web_ui/server.py` (ticket.py file-overlap check), which
   photo-retention-age-optional and web-ui-reset-clears-pois edit.
 
-## Open questions
+### approvals.json
 
-- Q1: Photo age retention (14 days) would delete a loaded map's photos older than 14 days within the hour. Turn the age limit off and keep only the count and size limits (D10)? [recommended: yes, age limit off; 3000 photos / 300 MB stay as disk guards]
-- Q2: MCP clear_pois defaults to the agent's own POIs of every kind; with photos as POIs that default now also deletes the agent's photos (almost all photos). Keep that default (D7)? [recommended: yes, the default includes the agent's own photos; the prompt says so]
-
-## Irreversible operations in scope
-
-- Photo deletions (record and JPEG) by clear, delete-marked, replace, map delete, Reset map and kidnap discard: the
-  approved behaviour (A2, A3, A4); every path is user-initiated or the approved kidnap rule, and the web UI dialogs
-  name the counts before confirming.
-- Turning off the age retention (D10) keeps more data, not less.
+- A1: User (verbatim): "photos are also POIs". Photos are POIs of the live map: listed in /poi/list and its revision, filtered, marked and deleted with the other POIs; every /poi/list consumer handles them. [decisions: D1, D2] [tasks: poi-list-includes-photos, web-ui-photo-pois-cleanup, mcp-poi-tools-photos, agent-prompt-photos-with-map] [status: approved]
+- A2: User (verbatim): "map cleanup didn't clean POIs (was supposed to)". Deleting a saved map removes its POIs and photos whatever the active-map state (after save, after restart); deleting the map that owns the live set also empties the live POIs and photos, deleting another map leaves the live set alone; web UI Reset map and the kidnap discard clear the live POIs and photos; saved bundles are never deleted by reset or kidnap; a new session deletes nothing. [decisions: D5, D6, D8] [tasks: map-live-owner-persisted, maps-contract-photos-clear, map-clear-live-and-discard, web-ui-reset-clears-pois, web-ui-reset-dialog-counts, agent-prompt-photos-with-map] [status: approved]
+- A3: User (verbatim): "POIs cleanup didn't delete photos". A photo POI in the set of a single delete, clear, delete-marked or replace loses its record and its JPEG; photo kind is selectable in the clear filters of poi_store, the web UI dialog and MCP clear_pois. [decisions: D7] [tasks: poi-cleanups-delete-photos, web-ui-reset-clears-pois, web-ui-photo-pois-cleanup, web-ui-delete-marked-photos, mcp-poi-tools-photos] [status: approved]
+- A4: User decision (verbatim): "Map is supposed to be saved with POI, which includes photos." A map save writes the POIs and the photos (records and JPEG files) into the bundle; a map load restores both into the live set, replacing the live photos; deleting a saved map deletes its bundled photos. [decisions: D3, D4, D10] [tasks: photo-store-sync-ops, photo-retention-age-optional, poi-replace-export-photos, maps-contract-photos-clear, map-bundle-photos] [status: approved]
+- A5: Delete results report the actual counts removed (POIs and photos), in poi_store, map_manager, the web UI and MCP; no silent success. [decisions: D9] [tasks: poi-cleanups-delete-photos, poi-replace-export-photos, map-live-owner-persisted, map-clear-live-and-discard, web-ui-reset-clears-pois, web-ui-photo-pois-cleanup, web-ui-delete-marked-photos, web-ui-reset-dialog-counts, mcp-poi-tools-photos] [status: approved]
