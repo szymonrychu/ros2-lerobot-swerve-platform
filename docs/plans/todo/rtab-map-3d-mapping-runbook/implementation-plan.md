@@ -1,27 +1,23 @@
----
-title: Final suite and runbook
-status: todo
-repo: ros2-lerobot-sverve-platform
-value: "The 3D map is proven on the robot: a mapped room aligned with the 2D map, measured CPU, memory and WiFi cost on both Pis, built from the calibrated head RGB-D pair."
-files: [docs/runbooks/map3d-mapping.md, ansible/group_vars/client.yml, nodes/rtabmap_mapping/config/map3d_topics.yaml, nodes/rtabmap_mapping/README.md]
-verify: "uv run pytest tests/ -q && uv run poe lint && uv run poe lint-nodes && uv run poe test-ansible && uv run poe test-cpp && scripts/rtabmap-launch-probe.sh && (cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint) && (cd nodes/claude_agent && uv run --frozen pytest tests -q && uv run --frozen poe lint) && (cd nodes/web_ui && uv run --frozen pytest tests -q && uv run --frozen poe lint) && (cd nodes/web_ui/frontend && npx tsc --noEmit && npm test && npm run lint && npm run build)"
-depends_on: []
-owns: []
-uses: []
-model: sonnet
-estimate: 90
-actual: ""
-review: ""
-worktree: ""
-branch: ""
-verified_head: ""
-run: ""
-provides: []
----
+# RTAB-Map 3D mapping runbook implementation plan
 
-# Final suite and runbook
+## Agreed rung
 
-## Requirement
+Not agreed yet: a draft migrated from the epic's tasks; the plan-writer revises it after the gate.
+
+## Approach
+
+Migrated from the epic format: one step per task file, in dependency order, each with its status, files, verify, verified head and every body section.
+
+## Chunk 1: migrated tasks (model: sonnet)
+
+### S1: Final suite and runbook
+
+- Status: todo
+- Files: `docs/runbooks/map3d-mapping.md`, `ansible/group_vars/client.yml`, `nodes/rtabmap_mapping/config/map3d_topics.yaml`, `nodes/rtabmap_mapping/README.md`
+- Verify: `uv run pytest tests/ -q && uv run poe lint && uv run poe lint-nodes && uv run poe test-ansible && uv run poe test-cpp && scripts/rtabmap-launch-probe.sh && (cd nodes/mcp_server && uv run --frozen pytest tests -q && uv run --frozen poe lint) && (cd nodes/claude_agent && uv run --frozen pytest tests -q && uv run --frozen poe lint) && (cd nodes/web_ui && uv run --frozen pytest tests -q && uv run --frozen poe lint) && (cd nodes/web_ui/frontend && npx tsc --noEmit && npm test && npm run lint && npm run build)`
+- Verified head: none
+
+#### Requirement
 
 - Full suite green (the verify command, every line read).
 - `docs/runbooks/map3d-mapping.md`, written and then executed with the results filled in (date, numbers, pass/fail per step):
@@ -34,7 +30,7 @@ provides: []
   7. Placeholder check: with the ToF unplugged (or arducam_tof stopped) head_rgbd_cpp publishes no pair and no depth reaches the server, status shows `waiting_for_inputs`, nothing fake is published.
 - The task ends with the runbook committed with real numbers, or with a named blocker (robots offline) per CLAUDE.md (deploy skipped when RPi targets are offline).
 
-## Acceptance conditions
+#### Acceptance conditions
 
 - a1: the whole repository suite, linters and the rtabmap probe pass [evidence: command: uv run pytest tests/ -q && uv run poe lint && uv run poe lint-nodes && uv run poe test-ansible && uv run poe test-cpp && scripts/rtabmap-launch-probe.sh]
 - a2: the runbook records a mapped room, alignment agreement >= 0.8, CPU/memory on both Pis and WiFi bandwidth [evidence: doc-section: docs/runbooks/map3d-mapping.md#Results]
@@ -42,30 +38,42 @@ provides: []
 - a4: measured stream sizes replace the estimated budget and stay within it [evidence: test: tests/test_map3d_topics.py]
 - a5: the deployed stack publishes no placeholder data when the ToF is missing [evidence: judgement]
 
-## Files
+#### Files
 
 - `docs/runbooks/map3d-mapping.md`
 - `ansible/group_vars/client.yml`
 - `nodes/rtabmap_mapping/config/map3d_topics.yaml`
 - `nodes/rtabmap_mapping/README.md`
 
-## Interfaces
+#### Interfaces
 
 - `docs/runbooks/map3d-mapping.md` with a `## Results` section.
 
-## Expected outcome
+#### Expected outcome
 
 The epic's goals are verified on the robot with recorded numbers.
 
-## Steps
+#### Steps
 
 - Run the full verify command; fix or report any failure with its output.
 - Write the runbook; execute it step by step with `.logs/` logs; fill `## Results`.
 - Commit the measured budgets and the runbook: `docs: 3D mapping runbook and measured budget`.
 
-## Notes
+#### Notes
 
 - Servo safety: the head pans are the only motion besides slow driving; keep pans within the pan/tilt epic's verified range.
 - Use the ansible-deploy skill before deploying (CLAUDE.md).
 
 - 2026-10-22: moved verbatim from rtab-map-rgb-d-3d-mapping-on/final-suite-and-runbook (user answer A); the epic rtab-map-rgb-d-3d-mapping-on is done. Its old depends_on (inside that epic) is done; this epic is blocked by drivable-ground-tof-filterin instead.
+
+## Files to delete
+
+none recorded in the epic format
+
+## Final verify
+
+none recorded in the epic format
+
+## After merge
+
+none
