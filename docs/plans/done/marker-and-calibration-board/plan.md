@@ -1,44 +1,44 @@
-# Marker and calibration board generator design
+---
+title: Marker and calibration board generator
+repos: [ros2-lerobot-sverve-platform]
+created: 2026-10-18
+owner: Szymon Richert
+rung: 1
+---
 
-## Summary
+# Marker and calibration board generator
 
-Split from printable-metadata-markers-t so the boards and markers can be printed before the head RGB-D calibration
-(epic head-rgb-d-fusion-of-camera) and before marker detection exist. Markers are QR Model 2 symbols (version 2-3,
-EC Q, alphanumeric) carrying `P1/K:<KIND>/N:<NAME>/S:<MM>[/<KEY>:<VAL>...]`; the codec lives in
-`shared/ros2_common/marker_payload.py`. A root `scripts/markers/` package driven by `scripts/markers_generate.yaml`
-writes per marker an exact-size PDF and a two-colour Bambu AMS print set (base STL, module STL, two-object 3MF), and the
-ChArUco board (6x5 squares of 40 mm, 30 mm DICT_5X5_100 markers, plate 250x210 mm on a 256 mm bed) from the single
-board spec the fusion calibration tool must equal.
+## What and why
 
-## Intent and why
+What: Config-driven generator of QR metadata markers and the ChArUco calibration board as exact-size PDF and two-colour STL/3MF
+How: Shared payload codec, segno QR, reportlab PDF, trimesh+manifold3d meshes, OpenCV ChArUco, one yaml config
+Why: Markers and the calibration board must be printable before the head calibration and marker detection can run
 
-The user wants self-describing printed markers for fixed places and the same tool to print the head RGB-D calibration
-board (U1, U2, U5, U6). The fusion epic's runbook prints the board, and the detection epic needs the payload codec, so
-this generator lands first.
+A generator for printable square black/white markers and the head RGB-D calibration board. Each marker is a QR Model 2 symbol carrying a short versioned payload: the POI it stands for (kind, name, optional parameters) and its physical side length. From one config file the generator writes a print-ready PDF at exact physical size and a two-colour print set for a Bambu Lab printer with AMS (white base body and black raised modules as separate STLs plus a 3MF with both parts). It also writes the ChArUco calibration board used by the head RGB-D fusion calibration, from the single board spec both share. The payload codec lives in shared/ so the detection epic (printable-metadata-markers-t) and the POI store read the same format.
 
-## Goals
+## Scope ladder
 
-- G1: a documented, versioned payload format and codec that round-trips and rejects unknown major versions.
-- G2: one config-driven command writes, per marker, a PDF whose symbol edge equals the encoded size within 0.1 mm, two
-  STLs (base, modules) and a 3MF with both; tests check sizes, module grid and decode the rendered outputs.
-- G3: the ChArUco board PDF and two-colour STL/3MF from the single board spec, fitting a 256x256 mm bed.
-- G4: READMEs and tests for codec and generator.
+### Rung 1: agreed scope (migrated)
+
+- 1.1: A metadata format (versioned, compact) encoded in the marker: POI kind, name/id, side length in mm, optional parameters; documented, with a decoder that rejects unknown versions.
+- 1.2: Generator (Python CLI driven by a config file per CLAUDE.md) that outputs a print-ready PDF (exact physical size, quiet zone, human-readable label) and two-colour STL (separate base and module bodies, configurable thickness/relief, Bambu AMS friendly; 3MF with both parts) for a marker spec; tests check sizes, module grid and round-trip decode of the rendered image.
+- 1.3: The generator also produces the calibration pattern (PDF + two-colour STL) specified by the head RGB-D fusion epic (ChArUco board), with the exact square/marker sizes that epic needs, and fits a 256x256 mm print bed.
+- 1.4: READMEs and tests for the codec and the generator.
+
+## Agreed scope
+
+Rung 1, migrated from the epic format: the epic's goals were its agreed scope.
 
 ## Non-goals
 
-- Marker detection, pose, POIs (printable-metadata-markers-t).
-- Printing (the user prints); coloured or non-square markers; camera calibration (fusion epic).
+- Detecting markers, estimating their pose, and turning them into POIs (epic printable-metadata-markers-t).
+- Printing the markers (done by the user).
+- Coloured or non-square markers.
+- Calibrating the head cameras (epic head-rgb-d-fusion-of-camera).
 
-## Anti-goals
+## Design
 
-- A second board definition drifting from the one the calibration detects.
-- Silent rescaling: a PDF whose printed size differs from the encoded size.
-- Print files committed to git (outputs go to the gitignored `.logs/markers`).
-
-## Constraints
-
-- CLAUDE.md: established libraries, config files over CLI arguments, type hints, TDD.
-- Root uv env (Python 3.12, opencv-python-headless >= 4.9 already present); Bambu bed 256x256 mm; FDM module >= 1.5 mm.
+Migrated from the epic format; the design sections without a plan.md heading are under Migrated notes.
 
 ## Decisions
 
@@ -120,6 +120,10 @@ refuses a plate larger than `bed_mm` and `marker_mm >= square_mm`. Alternative: 
 leaves under 6 mm on the bed, smaller ToF cells). PDF on a rigid plate is the recommended print; the STL is the
 alternative. Serves U6, G3.
 
+## Open questions
+
+none
+
 ## Research
 
 | Lens | Ran or skipped | Adopted | Rejected |
@@ -130,8 +134,7 @@ alternative. Serves U6, G3.
 | research-code-internal | planner read the code instead of a separate reuse-hunter run (one repo, parts named in the brief) | shared pydantic model precedent (shared/ros2_common/photos.py:PhotoSelector); root scripts imported as `scripts.<module>` (tests/test_nav_footprint.py) | none |
 | research-practitioner | skipped: the prior-art brief already carries the 3D-printing and print-scaling practice | - | - |
 
-
-## Research inputs
+### Research inputs
 
 | Source | Entry | Lands in |
 |---|---|---|
@@ -150,7 +153,61 @@ alternative. Serves U6, G3.
 | markers-research.md ideas rejected | Micro QR/rMQR/JAB/CCTag; OpenSCAD lazy-union; AprilTag/ArUco alone | rejected: reasons in D1 and Research |
 | markers-research.md (other entries) | decoder, PnP, POI model, detector items | rejected here: delivered by printable-metadata-markers-t |
 
-## Decision coverage
+## Irreversible operations
+
+None.
+
+## Migrated notes
+
+### README.md: Review
+
+Filled when the epic reaches stage `review`: the verdict, the findings acted on, the findings dropped.
+
+Verdict: pass (2026-10-18)
+
+Scope audit inside run 2 finished clean (finished: true, undelivered: []); 6/6 tasks verified and merged; main: root 1220 passed, lint clean; CLI scripts.markers_generate --help works.
+
+### design.md: Summary
+
+Split from printable-metadata-markers-t so the boards and markers can be printed before the head RGB-D calibration
+(epic head-rgb-d-fusion-of-camera) and before marker detection exist. Markers are QR Model 2 symbols (version 2-3,
+EC Q, alphanumeric) carrying `P1/K:<KIND>/N:<NAME>/S:<MM>[/<KEY>:<VAL>...]`; the codec lives in
+`shared/ros2_common/marker_payload.py`. A root `scripts/markers/` package driven by `scripts/markers_generate.yaml`
+writes per marker an exact-size PDF and a two-colour Bambu AMS print set (base STL, module STL, two-object 3MF), and the
+ChArUco board (6x5 squares of 40 mm, 30 mm DICT_5X5_100 markers, plate 250x210 mm on a 256 mm bed) from the single
+board spec the fusion calibration tool must equal.
+
+### design.md: Intent and why
+
+The user wants self-describing printed markers for fixed places and the same tool to print the head RGB-D calibration
+board (U1, U2, U5, U6). The fusion epic's runbook prints the board, and the detection epic needs the payload codec, so
+this generator lands first.
+
+### design.md: Goals
+
+- G1: a documented, versioned payload format and codec that round-trips and rejects unknown major versions.
+- G2: one config-driven command writes, per marker, a PDF whose symbol edge equals the encoded size within 0.1 mm, two
+  STLs (base, modules) and a 3MF with both; tests check sizes, module grid and decode the rendered outputs.
+- G3: the ChArUco board PDF and two-colour STL/3MF from the single board spec, fitting a 256x256 mm bed.
+- G4: READMEs and tests for codec and generator.
+
+### design.md: Non-goals
+
+- Marker detection, pose, POIs (printable-metadata-markers-t).
+- Printing (the user prints); coloured or non-square markers; camera calibration (fusion epic).
+
+### design.md: Anti-goals
+
+- A second board definition drifting from the one the calibration detects.
+- Silent rescaling: a PDF whose printed size differs from the encoded size.
+- Print files committed to git (outputs go to the gitignored `.logs/markers`).
+
+### design.md: Constraints
+
+- CLAUDE.md: established libraries, config files over CLI arguments, type hints, TDD.
+- Root uv env (Python 3.12, opencv-python-headless >= 4.9 already present); Bambu bed 256x256 mm; FDM module >= 1.5 mm.
+
+### design.md: Decision coverage
 
 | Decision | Tasks |
 |---|---|
@@ -162,7 +219,7 @@ alternative. Serves U6, G3.
 | D6 Two-colour STL and 3MF | marker-stl-3mf-output |
 | D7 ChArUco board | charuco-board-output, markers-generate-cli |
 
-## Contracts
+### design.md: Contracts
 
 | Part | Owner | Consumers | Where defined |
 |---|---|---|---|
@@ -176,21 +233,28 @@ alternative. Serves U6, G3.
 `marker-payload` is also consumed across epics by printable-metadata-markers-t (marker-decode, poi-marker-model,
 marker-map-pose-poi), and `charuco-spec` by head-rgb-d-fusion-of-camera (rgbd-calibration-frames equality test).
 
-## Review focus
+### design.md: Review focus
 
 - Physical size checks measure the rendered raster, not layout numbers.
 - segno `boost_error=False`; canonical payload order; mesh bodies watertight and disjoint.
 
-## Left to the builder
+### design.md: Left to the builder
 
 - Mesh construction method (manifold3d unions or merged-run extrusion) within D6's checks.
 - Internal helper structure of `scripts/markers/`.
 
-## Assumptions and unknowns
+### design.md: Assumptions and unknowns
 
 - trimesh writes multi-object 3MF and Bambu Studio honours `Metadata/model_settings.config`: the structure is tested;
   the filament assignment is confirmed by the user in Bambu Studio (printable-metadata-markers-t runbook step 1).
 
-## Irreversible operations in scope
+### approvals.json
 
-None.
+- G1: A versioned, compact metadata format encoded in the marker (POI kind, name/id, side length in mm, optional parameters), documented, with a decoder that rejects unknown versions. [decisions: D1, D2, D3] [tasks: marker-payload-codec, marker-qr-symbol] [status: approved]
+- G2: A config-file driven generator that writes a print-ready PDF (exact physical size, quiet zone, label) and two-colour STL (separate base and module bodies, configurable thickness/relief, Bambu AMS friendly, 3MF with both parts); tests check sizes, module grid and round-trip decode of the rendered output. [decisions: D4, D5, D6] [tasks: marker-qr-symbol, marker-pdf-output, marker-stl-3mf-output, markers-generate-cli] [status: approved]
+- G3: The generator also produces the calibration pattern (PDF and two-colour STL) the head RGB-D fusion epic needs, with that epic's exact square and marker sizes, fitting a 256x256 mm bed. [decisions: D7] [tasks: charuco-board-output, markers-generate-cli] [status: approved]
+- G4: READMEs and tests for the codec and the generator. [decisions: D2, D4] [tasks: marker-payload-codec, markers-generate-cli] [status: approved]
+- U1: Any black/white square-ish marker is fine; decision: QR Model 2. [decisions: D1] [tasks: marker-qr-symbol] [status: approved]
+- U2: Metadata in the marker allows automatic POI conversion and states its size (always square). [decisions: D2, D3] [tasks: marker-payload-codec] [status: approved]
+- U5: Outputs PDF and two-colour STL for a Bambu Lab printer with AMS: base body plus raised black modules as separate objects; 3MF with both parts. [decisions: D5, D6] [tasks: marker-pdf-output, marker-stl-3mf-output, markers-generate-cli] [status: approved]
+- U6: The generator also produces the RGB-D calibration pattern (ChArUco). [decisions: D7] [tasks: charuco-board-output, markers-generate-cli] [status: approved]
