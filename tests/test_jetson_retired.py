@@ -711,7 +711,7 @@ ALLOWED_REFERENCES: tuple[tuple[str, str, str], ...] = (
     ("nodes/pi_cameras/README.md", r"The retired `/overview_camera/\*` names are not used here", "retirement-doc"),
     # rgbd-calibration (cont.): the D435 is a stereo camera and its depth error model says so; unrelated to the Jetson.
     (
-        "nodes/bridges/realsense_d435i/README.md",
+        "nodes/bridges/realsense_d435/README.md",
         r"a stereo camera puts between the edge",
         "rgbd-calibration",
     ),

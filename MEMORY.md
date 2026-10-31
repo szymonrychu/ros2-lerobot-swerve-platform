@@ -13,7 +13,7 @@
 
 ## Linting and Python nodes
 
-* **Per-node uv**: Each Python node has its own `pyproject.toml` and `uv.lock` (master2master, uvc_camera, feetech_servos, lerobot_teleop). Run `uv sync` and `uv run poe lint` / `uv run poe lint-fix` inside each node directory. From repo root: `uv run poe lint-nodes` or `./scripts/lint-all-nodes.sh` to lint all nodes. Root `poe lint` covers only `tests`, `shared` (no `src` package).
+* **Per-node uv**: Each Python node has its own `pyproject.toml` and `uv.lock` (for example master2master, feetech_servos, lerobot_teleop). Run `uv sync` and `uv run poe lint` / `uv run poe lint-fix` inside each node directory. From repo root: `uv run poe lint-nodes` or `./scripts/lint-all-nodes.sh` to lint all nodes. Root `poe lint` covers only `tests`, `shared` (no `src` package).
 * **Docker**: Node images build from the node's `pyproject.toml` and `uv.lock` (no requirements.txt); use `uv sync --frozen --no-dev`.
 * **Pre-commit**: Pre-commit only runs on files known to git. If nothing is tracked yet (e.g. before first commit), run `./scripts/run-pre-commit.sh` — it stages all files and runs all hooks. Then run `pre-commit install` for hooks on every commit.
 * **Python conventions**: Prefer established libraries (e.g. Feetech servo library, pydantic for config); prefer file config over CLI; write unit tests. Per senior review: constants at top of file in SCREAMING_SNAKE_CASE; fewer private functions; imports at top, no try/except on imports; docstrings must include in/out variables with their types.
@@ -37,10 +37,10 @@
 ## Rules alignment and testability (post-review)
 
 * **master2master**: Imports (`signal`, `rclpy`) at top of `proxy.py`; docstring Args fixed for `run_all_relays`. Extra tests: `normalize_topic` edge cases, `load_config` from file, `parse_rule_entry` invalid type.
-* **UVC camera**: Config split to `config.py` (no ROS/OpenCV) for testability; `get_config` strips topic/frame_id and falls back to defaults. Tests in `nodes/bridges/uvc_camera/tests/test_config.py`; pytest `pythonpath = ["."]` so `config` resolves.
+* **UVC camera**: retired with the gripper camera by the D435 head switchover (2026-10-31); `nodes/bridges/uvc_camera` is deleted and `gripper_uvc_camera` is `present: false`.
 * **Lerobot teleop**: Config split to `config.py` (no ROS deps); tests in `nodes/lerobot_teleop/tests/test_config.py`; same pythonpath pattern.
 * **Feetech**: Tests for `load_config_from_env`; `BridgeConfig` and master2master `TopicRule` docstrings (Attributes). Shared `clamp` tests: equal bounds, at bounds.
-* **Node tests**: uvc_camera and lerobot_teleop need `uv sync` before first run; run from node dir with `uv run poe test`.
+* **Node tests**: lerobot_teleop needs `uv sync` before first run; run from node dir with `uv run poe test`.
 
 ## Topic scraper debug pipeline and Docker DNS
 
@@ -87,10 +87,10 @@
 * **gps_rtk** node: Single codebase, configurable `mode: base` (Server) or `mode: rover` (Client). Base: LC29H(BS) on native UART; configures module (MSM7, ref 1005, NMEA), reads mixed NMEA+RTCM3 stream, publishes `sensor_msgs/NavSatFix` on `/server/gps/fix`, serves RTCM3 on TCP port 5016. Rover: LC29H(DA); connects to base TCP, forwards RTCM3 to serial, reads NMEA, publishes `/client/gps/fix`. Serial handler uses byte-level state machine to split NMEA lines and RTCM3 frames (0xD3 + length + CRC24Q) from proprietary binary on native RPi UART. Config: `GPS_RTK_CONFIG` or `/etc/ros2/gps_rtk/config.yaml`; serial_port (e.g. `/dev/ttyAMA0` on RPi 4 with `dtoverlay=disable-bt`), baud_rate, topic, rtcm_tcp_port (base), rtcm_server_host/port (rover). One-time base survey-in: `scripts/calibrate_rtk_base.py` (run via `scripts/rtk_calibrate.sh` from your computer; uses `send_cmd_wait_for` so responses are matched to commands on a busy serial); completion = non-zero ECEF in status response; then power cycle. Deploy: Ansible adds `gps_rtk_base` (server) and `gps_rtk_rover` (client). Serial device: **server (RPi 4)** uses `/dev/ttyAMA0` (PL011 on GPIO 14/15 when `dtoverlay=disable-bt`); **client (RPi 5)** uses `/dev/ttyAMA0` (GPIO UART with `dtoverlay=uart0-pi5`). Playbooks ensure `enable_uart=1` in `/boot/firmware/config.txt`. Container needs `numpy` (sensor_msgs dependency); if gps_rtk_base restarts in a loop, remove stale container: `docker rm -f ros2-gps_rtk_base` then `systemctl start ros2-gps_rtk_base`.
 * **GPS RTK post-calibration verification**: After base survey-in and power cycle, from a host with network access to both RPis: `./scripts/rtk_status.sh` (services + RTCM 5016), `./scripts/rtk_status.sh --fix` or `./scripts/rtk_verify.sh` for one-shot fix status; `./scripts/rtk_verify.sh --watch` to poll; `./scripts/rtk_verify.sh --capture 60` to capture and summarize. Client NavSatFix `status=2` = RTK fix (goal). Requires topic_scraper_api on server and client (port 18100).
 
-## RPLidar A1 and RealSense D435i (client)
+## RPLidar A1 and the head RealSense D435 (client)
 
 * **rplidar_a1** node: Client-only. Uses [rplidar_ros](https://github.com/Slamtec/rplidar_ros) (Slamtec, BSD-2-Clause) via `ros-jazzy-rplidar-ros`. Publishes `sensor_msgs/LaserScan` on `/scan`. Device: `/dev/ttyUSB0` (or `/dev/serial/by-id/...`); container `--device=/dev/ttyUSB0:/dev/ttyUSB0`. Headless launch in `nodes/bridges/rplidar_a1/launch/rplidar_a1.launch.py` (no RViz). Env `RPLIDAR_SERIAL_PORT` overrides default port.
-* **realsense_d435i** node: Client-only. Uses [realsense-ros](https://github.com/realsenseai/realsense-ros) (Intel RealSense, Apache 2.0) via `ros-jazzy-realsense2-camera`. Publishes color, depth, point cloud, IMU (D435i). Launch enables accel/gyro and `unite_imu_method:=linear_interpolation` so unified `sensor_msgs/Imu` is on `/camera/imu` for robot_localization. Container runs with `--privileged` for USB 3.0 access.
+* **realsense_d435** node (decision 2026-10-27, realsense-d435-head-switchover; bring-up 2026-10-28): the plain D435 on the pan/tilt head (USB PID 0b07, no IMU, serial 935422070045, firmware 5.17.3.10) is the only head and arm camera; it replaced the head Arducam ToF, the head Camera Module 3 and the gripper camera (retired `present: false` 2026-10-31). Stock `realsense2_camera` via `ros-jazzy-realsense2-camera` (realsense-ros, Intel RealSense, Apache 2.0), config in `nodes/bridges/realsense_d435/config/`: `/head/d435/*`, depth and colour 640x360 @ 15 fps (hardware sync, min-Z 150 mm), depth aligned to colour, no driver cloud, `publish_tf: false` (head.urdf owns the `d435_*` frames, `d435_joint` is the calibrated mount). Its node deploy installs the udev rule (0b07) and `uvcvideo quirks=128`. The former `realsense_d435i` entry (another product, PID 0b3a, with an IMU) is gone. Health: `scripts/d435_diag.sh`.
 
 ## Servo bus split (arm alone, base on a second adapter)
 
@@ -182,8 +182,9 @@
 - **Agreement threshold**: median of >= 5 samples in 5 s of the map_guard metric (shared `scan_agreement.py`) >= `localised_ratio` 0.6 (= map_guard `healthy_ratio`) and not ambiguous gives `localised`; otherwise map_manager stays paused and reports `not_localised` / `ambiguous`; map_guard_cpp holds on `/map_manager/localised = false`.
 - **Boot unchanged**: unnamed Save map / Reset map and the `slam.launch.py` resume of `slam_map` are as before. Moved by hand: map_guard asks map_manager to relocalise first and only discards the live map and POIs when that fails.
 
-## Head camera (2026-10-18)
+## Head camera (2026-10-18) - SUPERSEDED 2026-10-31 by the head D435 (see "RPLidar A1 and the head RealSense D435")
 
+- Historical: `head_camera_cpp` is `present: false` (kept in the repo for front-and-back-camera-module, which reuses it on cam0), the ToF is retired and the zoom contract is gone everywhere (mcp_server, web_ui, marker_detector).
 - **Decision**: the head camera is the Camera Module 3 (IMX708, CSI cam0) plus the Arducam ToF (cam1) on the pan/tilt stand. `nodes/head_camera_cpp` (C++, libcamera) owns it and publishes `/head_camera/*` with frame `head_camera_optical_frame` (the node publishes no TF; the pan/tilt chain owns the parent of this frame). Default stream 1152x648 at 30 fps.
 - **Zoom contract**: JSON request on `/head_camera/zoom/command` (`request_id`, `u`, `v`, `zoom` 2/4/8, `max_px` 256..1024, `af`), JPEG on `/head_camera/zoom/image` cut from the 4608x2592 still, JSON result on `/head_camera/zoom/result` (statuses ok, af_failed, busy, timeout, camera_error, invalid; `stamp_ns` equals the image stamp for pairing). Defined in `zoom_json.hpp`.
 - **pi_cameras retired** (`present: false`, `camera_ros` purged, directory and tests deleted); head_camera_cpp builds the same pinned libcamera fork. The mcp_server `get_camera_image` camera value `front` is kept (it maps to `topics.head_camera`).
@@ -208,9 +209,10 @@
 - **Lease**: the head is under lease "any" (arm or base); home is commanded on the last release.
 - **Signs (R3, confirmed 2026-10-18)**: pan positive = looking left (CCW from above); tilt positive = looking down. The tilt servo is mounted reversed (`inverted: true` on `head_tilt`, found 2026-10-20 after re-centring at 2048 = level), so the convention and URDF axis stay; tilt range is -30..+45 deg (steps 1536..2389; the reprinted mount allows 45 deg down, recorded 2026-10-23).
 
-## Head RGB-D fusion (2026-10-19)
+## Head RGB-D fusion (2026-10-19) - re-based on the D435 (2026-10-29)
 
-- **Decision**: head ToF depth is registered on the client by `head_rgbd_cpp` into the head camera mapping image (576x324, default output 288x162) and published as exact-stamp pairs (RGB stamp on depth, camera_infos, RGB and cloud). RTAB-Map consumes the pair. The head URDF is the only extrinsic source; the node never reads the extrinsics file. Focus is locked only while the mapping stream has subscribers (the node subscribes lazily). Methodology and targets: `docs/head-rgbd-fusion-methodology.md`.
+- Now: `head_rgbd_cpp` pairs the D435 aligned depth with its colour (no registration of its own) and publishes the same `/head_rgbd/*` contract; it also republishes the edge-masked full-FOV depth for `d435_obstacle_cloud`.
+- **Historical decision**: head ToF depth is registered on the client by `head_rgbd_cpp` into the head camera mapping image (576x324, default output 288x162) and published as exact-stamp pairs (RGB stamp on depth, camera_infos, RGB and cloud). RTAB-Map consumes the pair. The head URDF is the only extrinsic source; the node never reads the extrinsics file. Focus is locked only while the mapping stream has subscribers (the node subscribes lazily). Methodology and targets: `docs/head-rgbd-fusion-methodology.md`.
 ## 3D mapping (RTAB-Map on the server)
 
 - **D1**: RTAB-Map runs in one component_container on the Pi 4b (`rtabmap_mapping`), installed from the split `ros-jazzy-rtabmap-*` apt packages, never the `rtabmap_ros` metapackage (pulls rtabmap_viz and Qt); the Pi 5 has no CPU headroom.
@@ -220,16 +222,19 @@
 - **D13**: the lidar reaches the 3D map through slam_toolbox's `/map` walls (shown as lidar-derived structure, `source: lidar_2d` for the agent), not through RTAB-Map's fusion of scan and depth points.
 - Pointers: `nodes/rtabmap_mapping/README.md`, `nodes/map3d_uplink/README.md`, `nodes/map3d_manager_cpp/README.md`, design `docs/plans/done/rtab-map-rgb-d-3d-mapping-on/plan.md`.
 
-## Head ToF 3D obstacles (2026-10-19)
+## Head ToF 3D obstacles (2026-10-19) - moved to the D435 (2026-10-31)
 
-- **Decision**: the head ToF depth becomes obstacles and cliffs through `tof_obstacle_cloud` (rtabmap_util `point_cloud_xyz`, `/tof/points`), the `laser_filter` self filter (`/tof/points_filtered`), an STVL (`spatio_temporal_voxel_layer`) `tof_voxel_layer` in the local costmap only, and two collision_monitor pointcloud sources (`tof_obstacles` into StopBox, `tof_cliff` into CliffStop).
+- Now: `d435_obstacle_cloud` (`/head/d435/points`), the laser_filter self filter (`/head/d435/points_filtered`), the STVL `depth_voxel_layer` in the local costmap and the collision_monitor pointcloud sources `depth_obstacles` (StopBox) and `depth_cliff` (CliffStop); `depth_obstacles.enabled` and `depth_cliff.enabled` are the runtime switches. The ToF names below are historical.
+- **Historical decision**: the head ToF depth becomes obstacles and cliffs through `tof_obstacle_cloud` (rtabmap_util `point_cloud_xyz`, `/tof/points`), the `laser_filter` self filter (`/tof/points_filtered`), an STVL (`spatio_temporal_voxel_layer`) `tof_voxel_layer` in the local costmap only, and two collision_monitor pointcloud sources (`tof_obstacles` into StopBox, `tof_cliff` into CliffStop).
 - **Height bands, not obstacles_detection**: floor and overhang are separated by fixed bands in base_link (obstacles 6 cm to 0.6 m, cliffs -1 m to -10 cm; STVL and collision monitor use the same numbers), not by rtabmap's `obstacles_detection`; the head TF comes from the pan/tilt joint states.
 - **Lidar layers stay separate**: the lidar `obstacle_layer` keeps its own grid, so ToF clearing never erases lidar cells (U5); slam_toolbox keeps `map -> odom` and no ToF node publishes TF.
-- **Fail-safe**: a ToF or head-TF outage makes the collision_monitor sources invalid and stops motion; `tof_obstacles.enabled` and `tof_cliff.enabled` are runtime switches.
+- **Fail-safe**: a head depth or head-TF outage makes the collision_monitor sources (`depth_obstacles`, `depth_cliff`) invalid and stops motion; `depth_obstacles.enabled` and `depth_cliff.enabled` are runtime switches.
 - **CPU budget**: the pipeline adds at most 0.15 core mean on the client (new unit plus nav2_bringup and laser_filter deltas), EKF keeps 30 Hz; measured with `scripts/node_cpu_compare.py`.
-- Wiring is pinned across files by `tests/test_tof_obstacle_wiring.py`.
+- Wiring is pinned across files by `tests/test_d435_obstacle_wiring.py` (formerly `test_tof_obstacle_wiring.py`).
 
-## Ground plane from the head ToF (2026-10-20)
+## Ground plane from the head ToF (2026-10-20) - now on the D435 cloud
+
+- Now: `ground_estimator_cpp` reads the 15 Hz D435 cloud `/head/d435/points_filtered`; the ToF figures below are historical.
 
 - **Decision**: `ground_estimator_cpp` fits the floor plane from the 10 Hz ToF (`/tof/points_filtered`) with an IMU prior and publishes plane-relative `/ground/obstacle_points` and `/ground/drop_points`, plus `/ground/labelled_points`, `/ground/state` and `/ground/warning_areas`.
 - **Nav2**: the plane-relative bands feed a second STVL layer (`ground_voxel_layer`) alongside the fixed bands; the fixed bands remain active while the runbook switch-over criteria are checked. The collision monitor keeps the 10 Hz ToF bands and the global costmap stays static + lidar.
@@ -239,18 +244,18 @@
 ## Printable metadata markers (2026-10-19)
 
 - **Decision**: fixed places (base, charger, drop-off, button, switch, tool station) are marked with printed QR Model 2 symbols carrying the P1 text payload `P1/K:<KIND>/N:<NAME>/S:<MM>[/KEY:VAL]`, not AprilTag/ArUco. QR carries the meaning and the true side length itself (no id table), is printable on paper and in two colours on the Bambu AMS, and zxing-cpp plus OpenCV IPPE give a full 6-DoF pose from 24 refined finder corners. AprilTag `tagStandard41h12` via `apriltag_ros` is the documented alternative if field range proves insufficient (it replaces only the decode and pose stages).
-- **POIs**: the detector (`nodes/marker_detector`) sends `upsert_marker` to `poi_store`, which keeps one `marker` POI per `marker.key` (`<kind>/<N>`), refines its pose by confidence-weighted mean, replaces it on relocation and never overwrites user name/note/status. Automatic zoom requests are controlled by `zoom.auto_zoom` (default `false`; set `true` to enable).
+- **POIs**: the detector (`nodes/marker_detector`) sends `upsert_marker` to `poi_store`, which keeps one `marker` POI per `marker.key` (`<kind>/<N>`), refines its pose by confidence-weighted mean, replaces it on relocation and never overwrites user name/note/status. Zoom stills are retired with head_camera_cpp (2026-10-31): the detector reads the D435 colour and settles the planar pose ambiguity with the aligned depth (`depth_plane`).
 - **ChArUco spec owned by the generator**: the 6x5, 40 mm board lives in the `charuco` block of `scripts/markers_generate.yaml`; the calibration `BoardConfig` (`ros2_common.head_rgbd_calibration`) must equal it (pinned by `tests/test_head_arm_calib_config.py`). Guide: `docs/markers.md`.
 
 ## Head RGB-D calibration on the robot (2026-10-19)
 
-- **Decision**: head RGB-D calibration is captured, computed and applied on the robot from the web UI Calibrate page (`/var/lib/ros2/head_rgbd_calibration/applied`); Apply restarts the head nodes (head_camera_cpp, head_rgbd_cpp, head_state_publisher). Repo files under `nodes/*/config` and `nodes/web_ui/urdf/head.urdf` only seed an empty applied dir. The CLI stays for bags, validation captures and offline calibration.
+- **Decision**: head RGB-D calibration is captured, computed and applied on the robot from the web UI Calibrate page (`/var/lib/ros2/head_rgbd_calibration/applied`); Apply restarts the head nodes (since the D435: head_rgbd_cpp, head_state_publisher). Since the D435 (2026-10-31) the factory intrinsics stay authoritative: the RGB-D section is an intrinsics check, the head chain comes from the floor fit or head-from-arm (`head_chain.json`, `d435_joint` included), and nothing is seeded into the applied dir. The CLI stays for bags, validation captures and offline calibration.
 
 ## Servo torque off and neutral (2026-10-20)
 
 - **Decision**: servo neutral lives in the servo EEPROM and is re-zeroed from the web UI Calibrate page inside the running bridge (torque off, record neutral, re-enable torque + save); follower arm only; an arm re-zero leaves `/var/lib/ros2/arm/calibration_stale.json` (joint_offsets and home stale). Robot runbook: `docs/runbooks/servo-torque-neutral.md`.
 
-## Head remount: ToF z-depth and ground noise (2026-10-21)
+## Head remount: ToF z-depth and ground noise (2026-10-21) - historical (ToF retired 2026-10-31)
 
 - **Decision**: after the pan/tilt mount reprint the SDK depth is radial (not z); arducam_tof converts it to z in arducam_tof with the calibrated K and publishes that K. The head_pan servo is mounted reversed (`inverted: true`, +pan = left, CCW from above). ground_estimator_cpp takes a per-cell (10 cm) temporal median of plane-relative heights before segmentation. The ToF obstacle band (STVL tof_mark and collision monitor tof_obstacles) is 10 cm. The obstacle vs warning rule unchanged (max step 0.04 m, max slope 8 deg). Robot runbook: `docs/runbooks/head-remount-floor-check.md`.
 

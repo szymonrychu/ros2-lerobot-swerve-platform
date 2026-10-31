@@ -82,7 +82,7 @@ The same generator prints the ChArUco board that `scripts/head_rgbd_calibrate.py
 | plate | 250 x 210 mm, 4 mm thick, 5 mm margin, black flush inlay 1.2 mm |
 | outputs | PDF (A4 landscape), STL pair and 3MF, stem `charuco-6x5-40mm` |
 
-Why 6x5 with 40 mm squares: the plate must fit the 256 mm Bambu bed, so 6 x 40 mm plus margins is 250 mm; 40 mm squares are large enough for the 576x324 mapping image and the low-resolution ToF amplitude image to resolve corners; the row count stays odd so the legacy OpenCV ChArUco layout (even-row change) cannot flip the board origin. Print at 100 % and mount rigid, like the markers.
+Why 6x5 with 40 mm squares: the plate must fit the 256 mm Bambu bed, so 6 x 40 mm plus margins is 250 mm; 40 mm squares are large enough for the 640x360 head D435 colour image to resolve corners; the row count stays odd so the legacy OpenCV ChArUco layout (even-row change) cannot flip the board origin. Print at 100 % and mount rigid, like the markers.
 
 The same board is also the gripper board of the head-from-arm calibration (`nodes/head_rgbd_calibration/README.md`, "Head from arm calibration"): the sequence stops at "Clip the board to the fixed jaw" and the user clips the printed plate to the gripper's fixed jaw before the arm moves it in front of the head camera. The fit solves the real board pose in `gripper_link`; the start value is the hand-measured mount of the plate on a stick in the closed gripper (`fit.board_mount`). Keep the plate flat and rigid on the gripper, and print at 100 % so the 40 mm squares are exact: the fit takes the board geometry from the config, not from the print.
 
@@ -90,11 +90,11 @@ The same board is also the gripper board of the head-from-arm calibration (`node
 
 `marker_detector` runs on the client next to `poi_store`; defaults are in `nodes/marker_detector/README.md`.
 
-- Stream path: the newest frame of the D435 colour `/head/d435/color/image_raw/compressed` (640x360) at most `process_hz` (2) times per second, decoded with zxing-cpp on the grey image (QR only). Without `/head/d435/color/camera_info` nothing is processed.
+- Stream path: the newest frame of the head D435 colour `/head/d435/color/image_raw/compressed` (640x360) at most `process_hz` (2) times per second, decoded with zxing-cpp on the grey image (QR only), with the factory intrinsics of `/head/d435/color/camera_info`. Without a valid camera_info nothing is processed.
 - Pose pipeline: 24 finder corners (outer 7x7 and inner 3x3 square of three finders) are refined with `cornerSubPix`, `solvePnPGeneric` (IPPE) returns the two planar solutions, each is refined with Levenberg-Marquardt, the pose is transformed through TF (`map <- camera frame` at the image stamp) and sent as one `upsert_marker` command on `/poi/command`.
-- Ambiguity and depth: the best solution is accepted when the second one's reprojection RMS is at least `pose.ambiguity_ratio` (2.0) times larger. Otherwise, with `depth_plane.enabled` (default true), the D435 depth aligned to the colour image (`/head_rgbd/depth/image_raw`) within `depth_plane.max_dt_s` (0.15 s) gives a plane inside the marker polygon (at least `depth_plane.min_valid_px` 30 valid pixels, residual under `depth_plane.max_residual_mm` 10), and the solution whose +z is within `depth_plane.max_angle_deg` (20) of the plane normal wins when the other is not. Otherwise the detection is rejected as `ambiguous`. Also rejected: RMS above `pose.max_rms_px` (1.0), module under `pose.min_module_px` (4 px), marker behind the camera, confidence under `pose.min_confidence` (0.3).
+- Ambiguity and depth plane: the best solution is accepted when the second one's reprojection RMS is at least `pose.ambiguity_ratio` (2.0) times larger. Otherwise, with `depth_plane.enabled` (default true), the D435 depth aligned to the colour (`/head_rgbd/depth/image_raw` + camera_info, decimated by head_rgbd_cpp) within `depth_plane.max_dt_s` (0.15 s) gives a plane inside the marker polygon (at least `depth_plane.min_valid_px` (30) valid pixels, fit RMS at most `depth_plane.max_residual_mm` (10 mm)), and the solution whose +z is within `depth_plane.max_angle_deg` (20) of the plane normal wins when the other is not. Otherwise the detection is rejected as `ambiguous`. Also rejected: RMS above `pose.max_rms_px` (1.0), module under `pose.min_module_px` (4 px), marker behind the camera, confidence under `pose.min_confidence` (0.3).
 - Placeholder rules: nothing is sent without a decoded valid payload, calibrated camera_info, a successful TF lookup and an unambiguous pose. A bad frame, uncalibrated camera or failed TF produces no command and no report.
-- `/markers/detections` (std_msgs/String JSON): `{"stamp_ns", "markers": [{"key", "payload", "position", "quaternion", "rms_px", "ratio", "confidence", "module_px", "chooser"}]}`, published only for frames with at least one accepted marker. Metrics (`marker_detections_accepted_total`, `marker_rejections_total{reason}`) are on port 19118.
+- `/markers/detections` (std_msgs/String JSON): `{"stamp_ns", "source": "stream", "markers": [{"key", "payload", "position", "quaternion", "rms_px", "ratio", "confidence", "module_px", "chooser"}]}`, published only for frames with at least one accepted marker. Metrics (`marker_detections_accepted_total`, `marker_rejections_total{reason}`) are on port 19118.
 
 ## POIs
 
@@ -105,19 +105,19 @@ The same board is also the gripper board of the head-from-arm calibration (`node
 
 ## Range and fallback
 
-Pose needs about 4 px per module (`pose.min_module_px`); zxing-cpp alone decodes down to about 1.4 px per module on sharp synthetic images. The D435 colour stream is 640x360 with f about 460 px (69 deg HFOV; the live run uses the deployed camera_info fx). Range in metres at 4 px per module, on-axis, d = f x module / 4:
+Pose needs about 4 px per module (`pose.min_module_px`); zxing-cpp alone decodes down to about 1.4 px per module on sharp synthetic images. The head D435 colour stream has f = 457.8 px at 640 px width (factory intrinsics, docs/runbooks/d435-switchover.md). Range in metres at 4 px per module, on-axis:
 
 | Marker (version) | Module | Stream |
 |---|---|---|
-| 60 mm v2 | 2.40 mm | 0.28 |
+| 60 mm v2 | 2.40 mm | 0.27 |
 | 60 mm v3 | 2.07 mm | 0.24 |
 | 100 mm v2 | 4.00 mm | 0.46 |
-| 100 mm v3 | 3.45 mm | 0.40 |
+| 100 mm v3 | 3.45 mm | 0.39 |
 | 150 mm v2 | 6.00 mm | 0.69 |
 | 150 mm v3 | 5.17 mm | 0.59 |
 | 200 mm v3 | 6.90 mm | 0.79 |
 
-So a 100 mm v3 marker decodes to about 0.4 m. Off-axis viewing and blur reduce this; the robot runbook measures the real range and pose error. Use larger or lower-version (shorter payload) markers for anything the robot must see from far.
+So a 100 mm v3 marker decodes to about 0.4 m in the D435 stream. Off-axis viewing and blur reduce this; the robot runbook measures the real range and pose error. Use larger or lower-version (shorter payload) markers for anything the robot must see from far.
 
 Fallback: if the field range is insufficient, use AprilTag `tagStandard41h12` detected with `apriltag_ros` (id-only markers, a separate id-to-meaning table, a larger range per printed size). It replaces only the decode and pose stages; the `upsert_marker` POI contract is unchanged.
 

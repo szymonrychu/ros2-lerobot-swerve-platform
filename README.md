@@ -10,7 +10,7 @@ A ROS2-based robotics platform with leader–follower teleop, RTK GPS, IMU, came
 
 **Browser-based robot dashboard** — real-time sensor visualization, 3D URDF model, GPS map, and navigation — all from any device on the LAN.
 
-- Live tabs: merged 3D map (SLAM map, costmap, GPS tiles, plans, robot URDF, interactive arm), gripper camera, RGBD camera, IMU
+- Live tabs: merged 3D map (SLAM map, costmap, GPS tiles, plans, robot URDF, interactive arm), Arm, Head (D435 colour + depth), Agent, POI
 - FastAPI + React + Three.js, served from the onboard RPi
 - WebSocket bridge at 20 Hz for all ROS2 topics
 
@@ -53,7 +53,7 @@ A ROS2-based robotics platform with leader–follower teleop, RTK GPS, IMU, came
 </td>
 <td width="50%">
 
-**Full sensor suite on a Raspberry Pi 5** — BNO055 IMU, RealSense D435i depth camera, RPLidar A1, dual USB cameras, 8-servo swerve drive, and Nav2 navigation stack — all running natively with uv venvs and systemd.
+**Full sensor suite on a Raspberry Pi 5** — BNO055 IMU, RealSense D435 depth camera on a pan/tilt head, RPLidar A1, 8-servo swerve drive, and Nav2 navigation stack — all running natively with uv venvs and systemd.
 
 </td>
 </tr>
@@ -96,13 +96,12 @@ PlantUML sources are in [`docs/diagrams/`](docs/diagrams/). Regenerate with:
 | Leader–follower teleop | **Working** | 6-DOF arm teleop: leader (Server) → master2master → Kalman filter → follower (Client) |
 | GPS RTK positioning | **Working** | LC29H-BS base (Server) + LC29H-DA rover (Client), RTCM3 over TCP, `NavSatFix` topics, sub-meter accuracy |
 | IMU | **Working** | BNO055 over I2C, `sensor_msgs/Imu` with Nav2 covariance matrices |
-| USB cameras | **Disabled** | UVC camera bridge (present, `enabled: false` while camera unplugged) |
 | Topic scraper API | **Working** | Dynamic ROS2 topic discovery + HTTP JSON API for runtime diagnostics |
 | Haptic controller | **Disabled** | Force-feedback and zero-G hold for leader gripper (code present, `enabled: false`) |
 | Swerve drive | **Working** | 4-wheel swerve: feetech bridge (8 servos) + controller (cmd_vel, FK/IK, odom) |
-| RealSense D435i | **Working** | Depth + color + IMU (unified `/camera/imu`) via ros-jazzy-realsense2-camera |
+| RealSense D435 head camera | **Working** | Colour + depth + depth aligned to colour (640x360 @ 15 fps, no IMU) on the pan/tilt head, `/head/d435/*` via ros-jazzy-realsense2-camera; the only head and arm camera (the head ToF, the head Camera Module 3 and the gripper camera are retired) |
 | RPLidar-A1 | **Working** | 2D lidar `sensor_msgs/LaserScan` on `/scan` via ros-jazzy-rplidar-ros |
-| Web UI dashboard | **Working** | Browser-based robot dashboard: RGBD cam, IMU 3D, servo graphs, local/GPS map, 3D URDF scene, robot status |
+| Web UI dashboard | **Working** | Browser-based robot dashboard: D435 head camera, IMU 3D, servo graphs, local/GPS map, 3D URDF scene, robot status |
 | Nav2 (MVP) | **Working** | 2D nav stack: odom, scan, IMU, goal → cmd_vel; EKF fuses odom+IMU |
 
 ## Node catalog
@@ -126,7 +125,6 @@ PlantUML sources are in [`docs/diagrams/`](docs/diagrams/). Regenerate with:
 | `lerobot_follower` | feetech_servos | `/follower/joint_commands` (sub), `/follower/joint_states` (pub) | SO-101 arm alone on its own USB adapter (servos 1-6, 100 Hz) |
 | `gps_rtk_rover` | gps_rtk | `/client/gps/fix` (pub), RTCM3 from Server :5016 | LC29H-DA HAT (`/dev/ttyAMA0`) |
 | `bno055_imu` | bno055_imu | `/imu/data` (pub, `sensor_msgs/Imu`) | BNO055 (`/dev/i2c-1`) |
-| `gripper_uvc_camera` | uvc_camera | `/camera_0/image_raw/compressed` (pub, `sensor_msgs/CompressedImage`) | USB camera |
 | `base_servos` | feetech_servos | `/swerve_drive/joint_states` (pub), `/swerve_drive/joint_commands` (sub) | 8× ST3215 swerve servos (IDs 32-39) on the second USB adapter, 50 Hz |
 | `swerve_controller` | swerve_controller | `/cmd_vel` (sub), `/odom` (pub), `/swerve_drive/joint_commands` (pub); TF off (EKF owns odom→base_link) | — |
 | `static_tf_publisher` | static_tf_publisher | TF base_link → imu_link, laser_frame | — |
@@ -136,11 +134,15 @@ PlantUML sources are in [`docs/diagrams/`](docs/diagrams/). Regenerate with:
 | `slam_toolbox` | slam_toolbox | `/scan` (sub), `/map` (pub), TF map→odom; posegraph in `/var/lib/ros2/maps` | — |
 | `nav2_bringup` | nav2_bringup | `/goal_pose` (sub), `/plan`, `/optimal_trajectory` (pub), `/cmd_vel` (pub), `/odometry/filtered`, `/map`, `/scan`, `navigate_to_pose` (action) | — |
 | `rplidar_a1` | rplidar_a1 | `/scan` (pub, `sensor_msgs/LaserScan`) | RPLidar A1 (`/dev/ttyUSB0`) |
-| `realsense_d435i` | realsense_d435i | `/camera/*` (color, depth, pointcloud, `/camera/imu`) | RealSense D435i (USB 3.0) |
+| `realsense_d435` | realsense_d435 | `/head/d435/*` (colour, depth, depth aligned to colour, camera_info; 640x360 @ 15 fps, no TF) | RealSense D435 on the pan/tilt head (USB 3.0) |
+| `head_rgbd_cpp` | head_rgbd_cpp | `/head/d435/*` (sub) -> `/head_rgbd/*` (aligned depth + JPEG RGB + coloured cloud) and the edge-masked `/head/d435/depth_filtered/*` | — |
+| `d435_obstacle_cloud` | d435_obstacle_cloud | `/head/d435/depth_filtered/*` (sub) -> `/head/d435/points` (pub); laser_filter -> `/head/d435/points_filtered` | — |
+| `marker_detector` | marker_detector | D435 colour + `/head_rgbd/depth/*` (sub) -> `/markers/detections` (pub); marker pose with `depth_plane`, no zoom stills | — |
+| `head_camera_cpp` | head_camera_cpp | Retired (`present: false`): the head D435 colour replaced the Camera Module 3; the node stays in `nodes/head_camera_cpp` for front-and-back-camera-module, which reuses it on cam0 | — |
 | `test_joint_api` | test_joint_api | REST :18080 → `/filter/input_joint_updates` (pub) | — |
 | `topic_scraper_api` | topic_scraper_api | HTTP :18100 | — |
-| `web_ui` | web_ui | HTTP :8080, WS `/ws` (20 Hz topic broadcast). Tabs: 3D Map (SLAM map, costmap, GPS tiles, plans, goal, robot URDF, interactive arm), gripper camera, RGBD camera, IMU; calls `/arm/home`, `/arm/set_home` | — |
-| `mcp_server` | mcp_server | MCP Streamable HTTP :18200 `/mcp` (bearer token). Tools: robot/arm state, camera images, map summary, `navigate_to_pose` (Nav2 action), `move_relative`, `drive`, `stop`, arm joint/cartesian moves, gripper, arm home. Arm setpoints go to `/filter/autonomy_joint_commands`; serves `/arm/home`, `/arm/set_home`; reads `/camera_0/image_raw/compressed` and `/camera/camera/color/image_raw` | — |
+| `web_ui` | web_ui | HTTP :8080, WS `/ws` (20 Hz topic broadcast). Tabs: 3D Map (SLAM map, costmap, GPS tiles, plans, goal, robot URDF, interactive arm), Arm, Head (D435), Agent, POI; calls `/arm/home`, `/arm/set_home` | — |
+| `mcp_server` | mcp_server | MCP Streamable HTTP :18200 `/mcp` (bearer token). Tools: robot/arm state, camera images, map summary, `navigate_to_pose` (Nav2 action), `move_relative`, `drive`, `stop`, arm joint/cartesian moves, gripper, arm home. Arm setpoints go to `/filter/autonomy_joint_commands`; serves `/arm/home`, `/arm/set_home`; reads the head D435 colour `/head/d435/color/image_raw/compressed` (tool camera `front`; no gripper camera) | — |
 | `haptic_controller` | haptic_controller | Disabled (`mode: off`) | — |
 
 ### Topic flow (leader–follower path)
@@ -198,8 +200,7 @@ claude                                   # start Claude Code in this repo, appro
 - GPS-RTK LC29H(DA) HAT with antenna
 - BNO055 IMU (I2C)
 - RPLidar-A1 (USB)
-- Intel RealSense D435i (USB)
-- 2 × Arducam B0454 5MP OV5648 USB cameras
+- Pan/tilt head (2 × Feetech servos) with an Intel RealSense D435 (USB 3.0)
 
 ### Future
 
@@ -226,10 +227,9 @@ claude                                   # start Claude Code in this repo, appro
 │   └── bridges/
 │       ├── bno055_imu/     BNO055 IMU bridge
 │       ├── feetech_servos/ Feetech servo bridge (leader + follower)
-│       ├── uvc_camera/     UVC camera bridge
 │       ├── gps_rtk/        GPS RTK bridge (base + rover)
 │       ├── rplidar_a1/     RPLidar A1 LaserScan bridge
-│       └── realsense_d435i/ RealSense D435i bridge
+│       └── realsense_d435/ RealSense D435 head camera config (stock realsense2_camera)
 ├── shared/                 Shared Python libraries
 ├── ansible/                Provisioning + deployment (Ansible)
 │   ├── roles/              common, network, hostname, ros2_base, ros2_node_deploy,
@@ -293,7 +293,6 @@ See [ansible/README.md](ansible/README.md) for full details on roles, node confi
 | ros2_master | [nodes/ros2_master/README.md](nodes/ros2_master/README.md) |
 | master2master | [nodes/master2master/README.md](nodes/master2master/README.md) |
 | feetech_servos | [nodes/bridges/feetech_servos/README.md](nodes/bridges/feetech_servos/README.md) |
-| uvc_camera | [nodes/bridges/uvc_camera/README.md](nodes/bridges/uvc_camera/README.md) |
 | gps_rtk | [nodes/bridges/gps_rtk/README.md](nodes/bridges/gps_rtk/README.md) |
 | lerobot_teleop | [nodes/lerobot_teleop/README.md](nodes/lerobot_teleop/README.md) |
 | filter_node | [nodes/filter_node/README.md](nodes/filter_node/README.md) |
@@ -301,7 +300,7 @@ See [ansible/README.md](ansible/README.md) for full details on roles, node confi
 | topic_scraper_api | [nodes/topic_scraper_api/README.md](nodes/topic_scraper_api/README.md) |
 | bno055_imu | [nodes/bridges/bno055_imu/README.md](nodes/bridges/bno055_imu/README.md) |
 | rplidar_a1 | [nodes/bridges/rplidar_a1/README.md](nodes/bridges/rplidar_a1/README.md) |
-| realsense_d435i | [nodes/bridges/realsense_d435i/README.md](nodes/bridges/realsense_d435i/README.md) |
+| realsense_d435 | [nodes/bridges/realsense_d435/README.md](nodes/bridges/realsense_d435/README.md) |
 | haptic_controller | [nodes/haptic_controller/README.md](nodes/haptic_controller/README.md) |
 | swerve_drive_controller | [nodes/swerve_drive_controller/README.md](nodes/swerve_drive_controller/README.md) |
 | static_tf_publisher | [nodes/static_tf_publisher/README.md](nodes/static_tf_publisher/README.md) |
