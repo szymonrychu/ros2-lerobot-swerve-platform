@@ -1,27 +1,23 @@
----
-title: RGBD final suite and runbook
-status: todo
-repo: ros2-lerobot-sverve-platform
-value: "The fusion is proven on the robot: calibrated cameras, measured time offset, depth accuracy at known distances, alignment, CPU, and no placeholder output."
-files: [docs/runbooks/head-rgbd-fusion.md, nodes/head_camera_cpp/config/head_camera_calibration.yaml, nodes/head_rgbd_cpp/config/tof_calibration.yaml, nodes/head_rgbd_cpp/config/head_rgbd_extrinsics.yaml, nodes/web_ui/urdf/head.urdf, ansible/group_vars/client.yml, docs/head-rgbd-fusion-methodology.md]
-verify: "uv run pytest tests/ -q && uv run poe lint && uv run poe lint-nodes && uv run poe test-ansible && uv run poe test-cpp && uv run poe lint-cpp && (cd nodes/bridges/arducam_tof && uv run --frozen pytest tests -q && uv run --frozen poe lint) && (cd nodes/web_ui && uv run --frozen pytest tests -q && uv run --frozen poe lint)"
-depends_on: []
-owns: []
-uses: []
-model: sonnet
-estimate: 90
-actual: ""
-review: ""
-worktree: ""
-branch: ""
-verified_head: ""
-run: ""
-provides: []
----
+# Head RGB-D fusion runbook implementation plan
 
-# RGBD final suite and runbook
+## Agreed rung
 
-## Requirement
+Not agreed yet: a draft migrated from the epic's tasks; the plan-writer revises it after the gate.
+
+## Approach
+
+Migrated from the epic format: one step per task file, in dependency order, each with its status, files, verify, verified head and every body section.
+
+## Chunk 1: migrated tasks (model: sonnet)
+
+### S1: RGBD final suite and runbook
+
+- Status: todo
+- Files: `docs/runbooks/head-rgbd-fusion.md`, `nodes/head_camera_cpp/config/head_camera_calibration.yaml`, `nodes/head_rgbd_cpp/config/tof_calibration.yaml`, `nodes/head_rgbd_cpp/config/head_rgbd_extrinsics.yaml`, `nodes/web_ui/urdf/head.urdf`, `ansible/group_vars/client.yml`, `docs/head-rgbd-fusion-methodology.md`
+- Verify: `uv run pytest tests/ -q && uv run poe lint && uv run poe lint-nodes && uv run poe test-ansible && uv run poe test-cpp && uv run poe lint-cpp && (cd nodes/bridges/arducam_tof && uv run --frozen pytest tests -q && uv run --frozen poe lint) && (cd nodes/web_ui && uv run --frozen pytest tests -q && uv run --frozen poe lint)`
+- Verified head: none
+
+#### Requirement
 
 - Full suite green (the verify command, every line read).
 - `docs/runbooks/head-rgbd-fusion.md` (steps plus a `## Results` section), written and then executed with results filled in (date, numbers, pass/fail per step), logs in `.logs/`, deploys only through `scripts/deploy-nodes.sh` after invoking the ansible-deploy skill:
@@ -36,7 +32,7 @@ provides: []
 - Fill the methodology document's `### Results` table from steps 2-7.
 - The task ends with the runbook committed with real numbers, or with a named blocker (robots offline) per CLAUDE.md (deploy skipped when RPi targets are offline).
 
-## Acceptance conditions
+#### Acceptance conditions
 
 - a1: the whole repository suite and linters pass [evidence: command: uv run pytest tests/ -q && uv run poe lint && uv run poe lint-nodes && uv run poe test-ansible && uv run poe test-cpp && uv run poe lint-cpp]
 - a2: the runbook records calibration RMS values, the measured time offset, depth accuracy at four distances, alignment, valid ratio and CPU [evidence: doc-section: docs/runbooks/head-rgbd-fusion.md#Results]
@@ -45,7 +41,7 @@ provides: []
 - a5: the methodology results table is filled with measured values [evidence: judgement]
 - a6: the deployed node publishes nothing without ToF data or TF [evidence: judgement]
 
-## Files
+#### Files
 
 - `docs/runbooks/head-rgbd-fusion.md`
 - `nodes/head_camera_cpp/config/head_camera_calibration.yaml`
@@ -55,24 +51,36 @@ provides: []
 - `ansible/group_vars/client.yml`
 - `docs/head-rgbd-fusion-methodology.md`
 
-## Interfaces
+#### Interfaces
 
 - `docs/runbooks/head-rgbd-fusion.md` with a `## Results` section.
 
-## Expected outcome
+#### Expected outcome
 
 The epic's goals are verified on the robot with recorded numbers.
 
-## Steps
+#### Steps
 
 - Run the full verify command; fix or report any failure with its output.
 - Write the runbook; execute it step by step with `.logs/` logs; fill `## Results` and the methodology results table.
 - Commit the calibration files, URDF, client.yml values and docs: `docs: head RGB-D fusion runbook and measured calibration`.
 
-## Notes
+#### Notes
 
 - Servo safety: the head pan sweep is the only motion; stay inside the pan/tilt epic's verified pan range and speed caps.
 - Use the ansible-deploy skill before deploying (CLAUDE.md); check no claude_agent session runs before any mcp_server/claude_agent deploy (none planned here).
 - Use the grafana MCP or Grafana Explore for CPU; do not SSH to read top.
 
 - 2026-10-22: moved verbatim from head-rgb-d-fusion-of-camera/rgbd-final-suite-and-runbook (user answer A); the epic head-rgb-d-fusion-of-camera is done. Its old depends_on (inside that epic) is done; this epic is blocked by drivable-ground-tof-filterin instead.
+
+## Files to delete
+
+none recorded in the epic format
+
+## Final verify
+
+none recorded in the epic format
+
+## After merge
+
+none
