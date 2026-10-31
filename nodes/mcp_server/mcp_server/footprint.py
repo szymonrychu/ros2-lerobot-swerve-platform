@@ -11,6 +11,16 @@ shadow of the measured arm pose (convex hull of every arm part point of self_col
 floor, the link capsules with their radius) and, when given, the carried object: a circle of carried_object_radius_m
 around the tool point. The shadow and circle are grown by simplify_m and then simplified by it (never trimmed).
 
+drive: the arm is released at its drive pose (lifted out of the head camera's view while a navigation goal runs;
+drive_ready, bound to drive_pose.DrivePose.at_drive_pose, says so: within tolerance_rad, not lifting or lowering) and
+no lease is held and nothing is carried: the body outline with nav_footprint.drive_arm_shadow (generated next to the
+parked shadow, inside the static outline, without the parked gripper's overhang). The collision_monitor then uses
+StopBoxDrive (the StopBox sectors built from the drive outline) instead of StopBox: StopBoxDrive.enabled true is sent
+first and StopBox.enabled false only once that set was acknowledged; on leaving, StopBox.enabled true first, then
+StopBoxDrive.enabled false; so one of them is always on (a failed set leaves StopBox on). The tick leaves drive mode
+the moment the arm leaves the drive pose (static, or dynamic as above) or a lease is taken (static). An empty
+drive_arm_shadow disables the mode (and the StopBox switching).
+
 conservative: the arm is released but its pose is unknown (no fresh joint states at mcp_server start, or since an
 unverified static footprint): a disc of conservative_reach_m (+ the carried radius) around the arm mount.
 
@@ -78,7 +88,7 @@ LOGGER = logging.getLogger(__name__)
 TOOL_POINT = "tool_point"
 # Capsule parts of self_collision.part_points: their first two rows are the capsule axis ends.
 CAPSULE_PARTS = tuple(name for name, *_ in CAPSULES)
-FootprintKind = Literal["static", "dynamic", "conservative"]
+FootprintKind = Literal["static", "dynamic", "conservative", "drive"]
 PUBLISHED_FOOTPRINT = "published_footprint"
 INFLATION_RADIUS = "inflation_radius"
 COST_SCALING_FACTOR = "cost_scaling_factor"
@@ -87,6 +97,9 @@ PENDING = "pending"
 # Channel of a costmap consumer that is its footprint topic (the others are parameter names).
 FOOTPRINT_CHANNEL = "footprint"
 ParamValue = str | bool | float
+# collision_monitor velocity polygons swapped by the drive footprint (static parameters, toggled by `<name>.enabled`).
+STOP_BOX = "StopBox"
+STOP_BOX_DRIVE = "StopBoxDrive"
 
 
 class FootprintSink(Protocol):
@@ -305,6 +318,14 @@ class NavFootprint:
         outline = body_outline(body.boxes, body.cylinders, settings.circle_segments, settings.close_gap_m)
         self.static = static_outline(outline, settings.parked_arm_shadow)
         self.static_points = to_points(self.static, settings.decimals)
+        # Drive outline: the body with the arm at its drive pose; None without a drive shadow (no drive mode).
+        self.drive_points: list[Point2] | None = (
+            to_points(static_outline(outline, settings.drive_arm_shadow), settings.decimals)
+            if settings.drive_arm_shadow
+            else None
+        )
+        # Whether the released arm is at its drive pose (ros_iface binds drive_pose.DrivePose.at_drive_pose).
+        self.drive_ready: Callable[[], bool] = lambda: False
         self.costmaps = [(topic, costmap_node(topic)) for topic in settings.costmap_footprint_topics]
         # One re-entrant lock across a state change and its sends (a tick never sends a replaced footprint).
         self.lock = threading.RLock()
@@ -390,6 +411,27 @@ class NavFootprint:
         grown = grow_extension(extra, simplify)
         points = to_points(union_outline(self.static, grown), decimals)
         return self.footprint(kind, points, self.arm_stop_points(grown), carried, pose_known)
+
+    def drive_footprint(self) -> Footprint:
+        """The drive outline, ArmStop off (caller checked drive_points).
+
+        Returns:
+            Footprint: Drive footprint.
+        """
+        assert self.drive_points is not None
+        return self.footprint("drive", self.drive_points, None, None, pose_known=True)
+
+    def drive_mode(self, parts: dict[str, np.ndarray] | None, carried: float | None) -> bool:
+        """Whether the released arm is at its drive pose (fresh pose, nothing carried, a drive outline configured).
+
+        Args:
+            parts (dict[str, np.ndarray] | None): Fresh measured arm parts, None when stale.
+            carried (float | None): Carried object radius (m).
+
+        Returns:
+            bool: True to publish the drive footprint.
+        """
+        return self.drive_points is not None and parts is not None and not carried and self.drive_ready()
 
     def arm_stop_points(self, extra: Polygon) -> list[Point2] | None:
         """ArmStop polygon: the part of the extension outside the static outline, grown by stopbox_margin_m (the
@@ -483,6 +525,16 @@ class NavFootprint:
             self.set(self.static_footprint(None, pose_known=False))
             return self.state()
 
+    def publish_drive(self) -> FootprintState:
+        """Publish the drive footprint (the arm released at its drive pose; StopBoxDrive replaces StopBox).
+
+        Returns:
+            FootprintState: The published state.
+        """
+        with self.lock:
+            self.set(self.drive_footprint())
+            return self.state()
+
     def publish_dynamic(self, parts: dict[str, np.ndarray], carried_radius_m: float | None) -> FootprintState:
         """Publish the footprint of a measured released arm pose (and carried object).
 
@@ -511,12 +563,21 @@ class NavFootprint:
             return self.state()
 
     def tick(self) -> None:
-        """Republish tick: follow the released arm, then resend where a consumer needs it."""
+        """Republish tick: follow the released arm (drive mode at the drive pose), then resend where a consumer
+        needs it. A lease taken while in drive mode goes back to static at once."""
         with self.lock:
-            if not self.sink.arm_lease_held():
+            if self.sink.arm_lease_held():
+                if self.current.kind == "drive":
+                    self.set(self.static_footprint(None, pose_known=False))
+                    return
+            else:
                 parts = self.sink.arm_parts()
                 carried = self.current.carried_radius_m
-                if parts is not None:
+                if self.drive_mode(parts, carried):
+                    if self.current.kind != "drive":
+                        self.publish_drive()
+                        return
+                elif parts is not None:
                     new = self.measured_footprint(parts, carried)
                     if self.moved(new):
                         self.set(new)
@@ -545,6 +606,7 @@ class NavFootprint:
                 self.send_laser(fp)
             if node == self.cfg.collision_monitor_node:
                 self.send_arm_stop_enabled(fp)
+                self.send_stop_boxes(fp)
 
     # --- sending ---------------------------------------------------------------------------------------------------
 
@@ -562,6 +624,7 @@ class NavFootprint:
             self.sink.publish_stamped_polygon(self.cfg.arm_stop_topic, self.cfg.frame_id, new.arm_stop)
         self.send_laser(new)
         self.send_arm_stop_enabled(new)
+        self.send_stop_boxes(new)
 
     def resend(self) -> None:
         """Tick resend (caller holds the lock): the footprint to each costmap whose published_footprint differs or
@@ -584,6 +647,7 @@ class NavFootprint:
                 self.send_inflation(node, fp, force=False)
         self.send_laser(fp)
         self.send_arm_stop_enabled(fp)
+        self.send_stop_boxes(fp)
 
     def publish_costmap(self, topic: str, fp: Footprint) -> None:
         """Publish the footprint on one costmap input.
@@ -629,13 +693,34 @@ class NavFootprint:
         name = f"{self.cfg.arm_stop_polygon}.enabled"
         self.send_param(self.cfg.collision_monitor_node, name, fp.arm_stop is not None)
 
-    def send_param(self, node: str, name: str, value: ParamValue) -> None:
+    def send_stop_boxes(self, fp: Footprint) -> None:
+        """Switch the collision_monitor StopBox / StopBoxDrive (only with a drive outline): the one the footprint
+        needs is enabled first, the other disabled only once that was acknowledged (never both off).
+
+        Args:
+            fp (Footprint): Footprint.
+        """
+        if self.drive_points is None:
+            return
+        drive = fp.kind == "drive"
+        first, second = (STOP_BOX_DRIVE, STOP_BOX) if drive else (STOP_BOX, STOP_BOX_DRIVE)
+        node = self.cfg.collision_monitor_node
+
+        def then() -> None:
+            with self.lock:
+                if (self.current.kind == "drive") == drive:  # the mode did not change meanwhile
+                    self.send_param(node, f"{second}.enabled", False)
+
+        self.send_param(node, f"{first}.enabled", True, on_ok=then)
+
+    def send_param(self, node: str, name: str, value: ParamValue, on_ok: Callable[[], None] | None = None) -> None:
         """Set one consumer parameter and record its outcome when reported.
 
         Args:
             node (str): Consumer node.
             name (str): Parameter name.
             value (ParamValue): Value.
+            on_ok (Callable[[], None] | None): Called once the node acknowledged the set.
         """
 
         def report(outcome: str) -> None:
@@ -645,6 +730,8 @@ class NavFootprint:
                 else:
                     self.acked.pop((node, name), None)
             self.record(consumer_name(node), name, outcome)
+            if outcome == OK and on_ok is not None:
+                on_ok()
 
         self.sink.set_node_parameter(node, name, value, report)
 

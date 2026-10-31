@@ -333,6 +333,23 @@ class DrivePose:
                 self.cond.wait(remaining)
             return self.state()
 
+    def at_drive_pose(self) -> bool:
+        """Whether the arm is measured at the drive pose and not on its way (footprint.NavFootprint.drive_ready).
+
+        Returns:
+            bool: True within tolerance_rad of the drive pose on fresh joint states, outside a lift or lowering.
+        """
+        # Lock-free on purpose: the footprint tick asks while holding the footprint lock, and begin_lower publishes the
+        # static footprint while holding this controller's lock (taking it here could deadlock). begin_lower enters
+        # LOWERING before that publish, so a tick either sees LOWERING or runs before the static publish replaces it.
+        phase, joints = self.phase, self.joints
+        if phase in (LIFTING, LOWERING) or joints is None:
+            return False
+        sample = self.arm.fresh_sample()
+        if sample is None:
+            return False
+        return not moved_joints(self.arm.measured(sample), joints, self.settings.tolerance_rad)
+
     def ready(self) -> bool:
         """Whether a waiting goal may go (caller holds the lock).
 
@@ -439,9 +456,9 @@ class DrivePose:
         if why is not None:
             self.set_phase(IDLE, why)
             return
-        self.publish_static()
         self.aborted = False
-        self.set_phase(LOWERING)
+        self.set_phase(LOWERING)  # before the static publish: at_drive_pose turns false first
+        self.publish_static()
         self.submit(self.lower_job)
 
     def lower_job(self) -> None:

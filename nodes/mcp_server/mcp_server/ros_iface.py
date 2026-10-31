@@ -1902,6 +1902,8 @@ class RosRobot:
             publish_static=footprint.publish_static if footprint is not None else lambda: None,
         )
         control.drive_pose = self.drive_pose
+        if footprint is not None:
+            footprint.drive_ready = self.drive_pose.at_drive_pose  # the drive footprint while at the drive pose
         self.control = control
 
     def on_leader_joints(self, msg: JointState) -> None:

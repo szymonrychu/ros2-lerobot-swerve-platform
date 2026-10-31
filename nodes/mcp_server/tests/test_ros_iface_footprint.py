@@ -6,7 +6,8 @@ no response and a request still unanswered at the next tick is cancelled and rep
 for the costmap inflation; `<costmap>/published_footprint` polygons are kept per topic; a parameter service coming
 up (unavailable -> ready edge) calls the consumer-ready callback once; the arm pose accessors; a successful
 /arm/home runs the footprint tick at once (back to static) and a failed one does not; with the real arm and
-NavFootprint a converged home goes from the dynamic to the static footprint (the single home footprint hook).
+NavFootprint a converged home goes from the dynamic to the static footprint (the single home footprint hook);
+bind_control wires the drive pose controller into the footprint (drive mode at the drive pose, static publish).
 """
 
 from collections.abc import Callable
@@ -18,6 +19,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from mcp_server.config import McpServerConfig
+from mcp_server.control import ControlManager
 from mcp_server.footprint import NavFootprint
 
 from .test_footprint import HOME, SIDEWAYS, deployed_config, footprint_robot, move_arm, settings
@@ -223,3 +225,21 @@ def test_converged_home_service_ends_with_the_static_footprint(ros_iface: Module
     robot.arm_backend.follow = True
     response = robot.on_home(MagicMock(), SimpleNamespace(success=None, message=None))
     assert response.success is True and nav.state().kind == "static"
+
+
+def test_bind_control_wires_the_drive_pose_into_the_footprint(ros_iface: ModuleType, tmp_path: Path) -> None:
+    """The footprint tick asks DrivePose.at_drive_pose; the lowering path publishes static through the footprint."""
+    robot = make_robot(ros_iface, tmp_path, [0.0])
+    robot.leader = MagicMock()
+    robot.leader.moving.return_value = False
+    nav = NavFootprint(settings(), robot.cfg.body, robot)
+    robot.bind_control(ControlManager(robot.arm, robot, robot.cfg, footprint=nav))
+    assert nav.drive_ready == robot.drive_pose.at_drive_pose
+    assert robot.drive_pose.publish_static == nav.publish_static
+    move_arm(robot, robot.cfg.arm.drive_pose.joints)
+    nav.start()
+    nav.tick()
+    assert nav.state().kind == "drive"
+    move_arm(robot, HOME)
+    nav.tick()
+    assert nav.state().kind == "static"

@@ -512,3 +512,35 @@ def test_an_unreadable_stored_file_falls_back_to_the_config_with_a_warning(
 
 def test_no_stored_file_uses_the_config_joints(tmp_path: Path) -> None:
     assert Rig(stored_file=tmp_path / "missing.yaml").drive.joints == DRIVE
+
+
+# --- at_drive_pose (the drive footprint, footprint.NavFootprint.drive_ready) -----------------------------------------
+
+
+def test_at_drive_pose_within_the_tolerance_and_not_while_moving() -> None:
+    rig = Rig()
+    assert rig.drive.at_drive_pose() is False, "at home"
+    rig.arm.positions = DRIVE | {"elbow_flex": DRIVE["elbow_flex"] + 0.04}
+    assert rig.drive.at_drive_pose() is True
+    rig.arm.positions = DRIVE | {"elbow_flex": DRIVE["elbow_flex"] + 0.06}
+    assert rig.drive.at_drive_pose() is False
+    rig.arm.positions = dict(DRIVE)
+    rig.arm.fresh = False
+    assert rig.drive.at_drive_pose() is False, "stale joint states"
+
+
+def test_at_drive_pose_is_false_while_lifting_and_lowering() -> None:
+    rig = Rig()
+    rig.tick(True)
+    rig.arm.positions = dict(DRIVE)
+    assert rig.drive.state().state == "lifting" and rig.drive.at_drive_pose() is False
+    rig.worker.run()
+    assert rig.drive.state().state == "lifted" and rig.drive.at_drive_pose() is True
+    rig.tick(False, dt=3.5)
+    assert rig.drive.state().state == "lowering" and rig.drive.at_drive_pose() is False
+    assert rig.statics == ["static"], "static published before the lowering motion"
+
+
+def test_at_drive_pose_without_a_pose_is_false() -> None:
+    rig = Rig(joints=None)
+    assert rig.drive.at_drive_pose() is False
