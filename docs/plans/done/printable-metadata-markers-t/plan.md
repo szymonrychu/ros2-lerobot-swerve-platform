@@ -1,64 +1,42 @@
-# Printable metadata markers that become POIs design
+---
+title: Printable metadata markers that become POIs
+repos: [ros2-lerobot-sverve-platform]
+created: 2026-10-18
+owner: Szymon Richert
+rung: 1
+---
 
-## Summary
+# Printable metadata markers that become POIs
 
-Printed QR markers (format, codec and generator: epic marker-and-calibration-board) become POIs. A new Python node
-`nodes/marker_detector` on the client (own uv venv with OpenCV >= 4.9 and zxing-cpp) decodes markers in the head camera
-stream and in any full-resolution zoom still (automatic zoom requests behind a config switch `auto_zoom`, off by
-default), estimates the 6-DoF pose from the decoded side length (24 refined finder corners, IPPE + LM, ambiguity broken
-by reprojection error or the registered ToF plane), transforms it into `map` through TF and sends one `upsert_marker`
-command to poi_store, which keeps one POI of the new kind `marker` per payload key and refines its pose over sightings.
-mcp_server and the web UI show and use marker POIs.
+## What and why
 
-## Intent and why
+What: Printed QR metadata markers seen by the head camera become POIs with pose and metadata
+How: Detector node (decode, pose, ToF disambiguation, zoom stills, TF), poi_store marker kind and upsert, agent and web UI use
+Why: Fixed places (base, charger, drop-off, buttons, tool station) become reliable, self-describing POIs
 
-Fixed places the robot must find again (its base, the charger, a drop-off container, buttons and switches, a tool
-change station) are today hand-placed POIs that drift from reality. The user wants printed, self-describing squares:
-stick one on the place, and the robot turns it into a correct POI with position, orientation and meaning, with no
-manual mapping step (U2, U3). Markers must be printable on paper and in two colours on the user's Bambu printer with
-AMS (U5), and the same tool should print the RGB-D calibration board the head fusion epic needs (U6).
+Printable square black/white markers (QR or another square fiducial) that carry their own metadata: the POI they stand for (kind, name, optional parameters) and their physical side length. The format, the codec and the generator (PDF and two-colour STL/3MF, plus the ChArUco calibration board) are the separate epic marker-and-calibration-board, which this epic builds on. When the robot's camera reads a marker, its pose (position and orientation, computed from the known size) and metadata become a POI in the POI store automatically. Examples: base, charger, drop-off container, button/switch marker, tool change station.
 
-## Goals
+## Scope ladder
 
-Ids follow the original epic; G1, G2 and G5 moved to marker-and-calibration-board.
+### Rung 1: agreed scope (migrated)
 
-- G3: on the robot, a sighted marker becomes a `marker` POI in `map` with pose, payload fields, last-seen time and
-  confidence; repeated sightings refine it, never duplicate it; nothing is sent without a decoded, valid payload and an
-  unambiguous pose.
-- G4: kinds base, charger, drop-off, button, switch, tool station are known; unknown kinds are accepted (extensible);
-  the agent lists marker POIs (filterable by marker kind) and uses them as approach and navigation targets.
-- G6: READMEs, tests, deployment of the detector, a Pi 5 decode benchmark, and a robot runbook with printed markers at
-  measured poses.
+- 1.1: Detection on the robot: a node (or mcp_server/perception path) that finds markers in the head camera image (full-res zoom capture where needed), decodes metadata, estimates the 6-DoF pose from the known size and camera intrinsics, transforms it into the map frame via TF, and creates/updates the matching POI (kind/category, pose, metadata, last-seen time, confidence); repeated sightings refine, not duplicate; nothing published without real detections.
+- 1.2: The POI kinds include base, charger, drop-off container, button/switch, tool change station (extensible); the agent can list marker POIs and use them as targets.
+- 1.3: READMEs, tests, deployment of the detection part; verified on the robot with printed markers at known poses.
+
+## Agreed scope
+
+Rung 1, migrated from the epic format: the epic's goals were its agreed scope.
 
 ## Non-goals
 
-- The payload format, codec, generator and calibration board (epic marker-and-calibration-board).
-- Printing the markers (the user prints).
-- Coloured or non-square markers; Micro QR, rMQR, AprilTag or ArUco as the primary marker.
-- A POI `category` field (the agent-skills epic adds it later; a marker POI carries its marker kind in `marker.kind`).
-- Broadcasting marker TF frames or a marker topic other than the detection report.
-- Calibrating the head camera (the head RGB-D fusion epic owns calibration).
+- The payload format, codec and generator, and the calibration board output (epic marker-and-calibration-board).
+- Printing the markers (done by the user).
+- Coloured or non-square markers.
 
-## Anti-goals
+## Design
 
-- A POI written from a placeholder: no payload, an ambiguous pose, a missing camera_info, a failed TF lookup.
-- Duplicate POIs for one physical marker, or user edits (name, note, status) overwritten by sightings.
-- Zoom requests spamming the head camera (each costs a 0.5-0.8 s stream gap): automatic requests stay off until the
-  user enables `auto_zoom`.
-- Robot nodes throttled by tight cgroup caps (MEMORY: guarantee headroom).
-
-## Constraints
-
-- CLAUDE.md: established libraries (segno, zxing-cpp, OpenCV, reportlab, trimesh + manifold3d, pydantic), config files
-  over CLI arguments, type hints, docstrings with types, constants at the top, TDD, no placeholder data on topics,
-  Ansible kept in sync through the `ros2_nodes` schema, deploy only through `scripts/deploy-nodes.sh`.
-- Ubuntu 24.04 apt OpenCV is 4.6 (no `QRCodeDetectorAruco`, no `CharucoDetector`): detection and the generator run in
-  uv environments with `opencv-python-headless>=4.9,<5`, which shadows the system package in the
-  `--system-site-packages` node venv.
-- Bambu Lab bed 256x256 mm; FDM module edge >= 1.5 mm (0.4 mm nozzle).
-- The detector runs on the client Pi 5 next to head_camera_cpp, head_rgbd_cpp and poi_store; it needs a calibrated
-  `/head_camera/camera_info` (fusion epic) and head TF (pan/tilt epic).
-- web_ui and mcp_server stay Python (MEMORY).
+Migrated from the epic format; the design sections without a plan.md heading are under Migrated notes.
 
 ## Decisions
 
@@ -155,6 +133,10 @@ in client.yml and is recorded. The runbook places printed markers at tape-measur
 error <= 3 cm and facing error <= 5 deg at <= 1.5 m (localisation included), one POI per marker after repeated
 sightings, a zoom-detected marker at >= 2.5 m, nothing published without camera_info or TF. Serves G6.
 
+## Open questions
+
+none
+
 ## Research
 
 | Lens | Ran or skipped | Adopted | Rejected |
@@ -165,7 +147,7 @@ sightings, a zoom-detected marker at >= 2.5 m, nothing published without camera_
 | research-code-internal | planner read the code instead of a separate reuse-hunter run (scope is one repo, parts named in the brief) | PoiStore op dispatch (nodes/poi_store/poi_store/store.py:PoiStore.apply), Poi sighting fields (nodes/poi_store/poi_store/models.py:Poi), PoiView (nodes/mcp_server/mcp_server/perception_models.py:PoiView), poi_lookup (nodes/mcp_server/mcp_server/approach_tools.py:poi_lookup), ros2_common shared models precedent (shared/ros2_common/photos.py:PhotoSelector) | none |
 | research-practitioner | skipped: the prior-art brief already carries the 3D-printing and print-scaling practice | - | - |
 
-## Research inputs
+### Research inputs
 
 | Source | Entry | Lands in |
 |---|---|---|
@@ -196,7 +178,83 @@ sightings, a zoom-detected marker at >= 2.5 m, nothing published without camera_
 | markers-research.md ideas rejected | AprilTag/ArUco alone; QR + companion AprilTag; recursive AprilTag; Micro QR/rMQR/JAB/CCTag; pyzbar; WeChat primary; OpenSCAD lazy-union | rejected: reasons in Research and D1 |
 | markers-research.md synthesis | Pi 5 QR timing unpublished, must be measured | marker-detector-bench, markers-final-runbook |
 
-## Decision coverage
+## Irreversible operations
+
+None. poi_store files without marker fields load unchanged; no data is deleted.
+
+## Migrated notes
+
+### README.md: Review
+
+Filled when the epic reaches stage `review`: the verdict, the findings acted on, the findings dropped.
+
+Verdict: pass (2026-10-22)
+
+Closed by user decision 2026-10-22 (answer A): every remaining task is done, verified and merged. The one leftover
+live runbook task markers-final-runbook moved, requirement and acceptance conditions verbatim, to the follow-up epic printable-markers-runbook (docs/plans/todo/printable-markers-runbook),
+blocked by drivable-ground-tof-filterin. The runbook moved to printable-markers-runbook.
+
+### design.md: Summary
+
+Printed QR markers (format, codec and generator: epic marker-and-calibration-board) become POIs. A new Python node
+`nodes/marker_detector` on the client (own uv venv with OpenCV >= 4.9 and zxing-cpp) decodes markers in the head camera
+stream and in any full-resolution zoom still (automatic zoom requests behind a config switch `auto_zoom`, off by
+default), estimates the 6-DoF pose from the decoded side length (24 refined finder corners, IPPE + LM, ambiguity broken
+by reprojection error or the registered ToF plane), transforms it into `map` through TF and sends one `upsert_marker`
+command to poi_store, which keeps one POI of the new kind `marker` per payload key and refines its pose over sightings.
+mcp_server and the web UI show and use marker POIs.
+
+### design.md: Intent and why
+
+Fixed places the robot must find again (its base, the charger, a drop-off container, buttons and switches, a tool
+change station) are today hand-placed POIs that drift from reality. The user wants printed, self-describing squares:
+stick one on the place, and the robot turns it into a correct POI with position, orientation and meaning, with no
+manual mapping step (U2, U3). Markers must be printable on paper and in two colours on the user's Bambu printer with
+AMS (U5), and the same tool should print the RGB-D calibration board the head fusion epic needs (U6).
+
+### design.md: Goals
+
+Ids follow the original epic; G1, G2 and G5 moved to marker-and-calibration-board.
+
+- G3: on the robot, a sighted marker becomes a `marker` POI in `map` with pose, payload fields, last-seen time and
+  confidence; repeated sightings refine it, never duplicate it; nothing is sent without a decoded, valid payload and an
+  unambiguous pose.
+- G4: kinds base, charger, drop-off, button, switch, tool station are known; unknown kinds are accepted (extensible);
+  the agent lists marker POIs (filterable by marker kind) and uses them as approach and navigation targets.
+- G6: READMEs, tests, deployment of the detector, a Pi 5 decode benchmark, and a robot runbook with printed markers at
+  measured poses.
+
+### design.md: Non-goals
+
+- The payload format, codec, generator and calibration board (epic marker-and-calibration-board).
+- Printing the markers (the user prints).
+- Coloured or non-square markers; Micro QR, rMQR, AprilTag or ArUco as the primary marker.
+- A POI `category` field (the agent-skills epic adds it later; a marker POI carries its marker kind in `marker.kind`).
+- Broadcasting marker TF frames or a marker topic other than the detection report.
+- Calibrating the head camera (the head RGB-D fusion epic owns calibration).
+
+### design.md: Anti-goals
+
+- A POI written from a placeholder: no payload, an ambiguous pose, a missing camera_info, a failed TF lookup.
+- Duplicate POIs for one physical marker, or user edits (name, note, status) overwritten by sightings.
+- Zoom requests spamming the head camera (each costs a 0.5-0.8 s stream gap): automatic requests stay off until the
+  user enables `auto_zoom`.
+- Robot nodes throttled by tight cgroup caps (MEMORY: guarantee headroom).
+
+### design.md: Constraints
+
+- CLAUDE.md: established libraries (segno, zxing-cpp, OpenCV, reportlab, trimesh + manifold3d, pydantic), config files
+  over CLI arguments, type hints, docstrings with types, constants at the top, TDD, no placeholder data on topics,
+  Ansible kept in sync through the `ros2_nodes` schema, deploy only through `scripts/deploy-nodes.sh`.
+- Ubuntu 24.04 apt OpenCV is 4.6 (no `QRCodeDetectorAruco`, no `CharucoDetector`): detection and the generator run in
+  uv environments with `opencv-python-headless>=4.9,<5`, which shadows the system package in the
+  `--system-site-packages` node venv.
+- Bambu Lab bed 256x256 mm; FDM module edge >= 1.5 mm (0.4 mm nozzle).
+- The detector runs on the client Pi 5 next to head_camera_cpp, head_rgbd_cpp and poi_store; it needs a calibrated
+  `/head_camera/camera_info` (fusion epic) and head TF (pan/tilt epic).
+- web_ui and mcp_server stay Python (MEMORY).
+
+### design.md: Decision coverage
 
 | Decision | Tasks |
 |---|---|
@@ -209,7 +267,7 @@ sightings, a zoom-detected marker at >= 2.5 m, nothing published without camera_
 | D13 Consumers | mcp-marker-pois, web-ui-marker-pois |
 | D14 Deployment, benchmark, runbook | marker-detector-ci-wiring, marker-detector-ansible, marker-detector-bench, markers-user-doc, markers-final-runbook |
 
-## Contracts
+### design.md: Contracts
 
 | Part | Owner | Consumers | Where defined |
 |---|---|---|---|
@@ -224,7 +282,7 @@ sightings, a zoom-detected marker at >= 2.5 m, nothing published without camera_
 | `marker-zoom` | marker-zoom-planner | marker-detector-node | `nodes/marker_detector/marker_detector/zoom.py` |
 | `marker-detector-node-entry` | marker-detector-node | marker-detector-ansible, markers-final-runbook | `nodes/marker_detector/marker_detector/node.py` |
 
-## Review focus
+### design.md: Review focus
 
 - pose.py: corner ordering from zxing-cpp in the symbol's own orientation, the 24 model points, the ambiguity ratio and
   the rejection paths; synthetic accuracy tests must use independent ground truth, not the code under test.
@@ -235,7 +293,7 @@ sightings, a zoom-detected marker at >= 2.5 m, nothing published without camera_
   with accepted detections.
 - Zoom: no automatic request while `auto_zoom` is false; external stills still processed.
 
-## Left to the builder
+### design.md: Left to the builder
 
 - Internal helpers of the generator and detector modules, within the named public functions.
 - Mesh construction method (manifold3d unions or a merged-run extrusion), provided bodies are watertight, disjoint and
@@ -244,7 +302,7 @@ sightings, a zoom-detected marker at >= 2.5 m, nothing published without camera_
   long as accepted and rejected detections (by reason) and zoom requests are counted.
 - The Python node count in tests/test_ci_workflow.py (whatever the tree holds when the task lands).
 
-## Assumptions and unknowns
+### design.md: Assumptions and unknowns
 
 - zxing-cpp returns corners in the symbol's own orientation (top-left first) for rotated symbols: confirmed by
   marker-decode's rotation tests; if not, the finder positions reorder them.
@@ -255,6 +313,11 @@ sightings, a zoom-detected marker at >= 2.5 m, nothing published without camera_
   codec from marker-and-calibration-board at build time; this epic is blocked by both.
 - Whether automatic zoom requests are wanted is the user's call (gate question); planned off by default.
 
-## Irreversible operations in scope
+### approvals.json
 
-None. poi_store files without marker fields load unchanged; no data is deleted.
+- G3: Detection on the robot: find and decode markers in the head camera image (zoom stills where needed), estimate the 6-DoF pose from the known size and intrinsics, transform into map via TF, create/update the matching POI (kind, pose, metadata, last-seen, confidence); repeated sightings refine, not duplicate; nothing published without real detections. [decisions: D3, D8, D9, D10, D11, D12] [tasks: poi-marker-model, poi-marker-upsert, marker-detector-skeleton, marker-decode, marker-pose-ippe, marker-tof-plane, marker-map-pose-poi, marker-zoom-planner, marker-detector-node] [status: approved]
+- G4: POI kinds include base, charger, drop-off container, button/switch and tool change station (extensible); the agent can list marker POIs and use them as targets. [decisions: D11, D13] [tasks: poi-marker-model, mcp-marker-pois, web-ui-marker-pois] [status: approved]
+- G6: READMEs, tests and deployment of the detection part; verified on the robot with printed markers at known poses. [decisions: D14] [tasks: marker-detector-ci-wiring, marker-detector-bench, marker-detector-ansible, markers-user-doc, markers-final-runbook] [status: approved]
+- U2: Metadata in the marker allows automatic POI conversion and states its size (always square). [decisions: D3, D9] [tasks: marker-decode, marker-pose-ippe] [status: approved]
+- U3: A detected marker's orientation, placement and metadata automatically become a POI. [decisions: D8, D9, D11, D12] [tasks: marker-pose-ippe, marker-map-pose-poi, poi-marker-model, poi-marker-upsert, marker-detector-node, markers-final-runbook] [status: approved]
+- U4: Example kinds: base, charger, drop-off container, button/switch marker, tool change station (extensible). [decisions: D11, D13] [tasks: poi-marker-model, mcp-marker-pois, web-ui-marker-pois] [status: approved]
