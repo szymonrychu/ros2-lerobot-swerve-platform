@@ -2,7 +2,8 @@
 
 Accepting records the check in <state_dir>/applied/applied.json and copies no file into applied/: the D435 factory
 intrinsics stay the ones every consumer reads. The records other applies keep in applied.json (the head chain) are
-left as they are. A unit restart is triggered outside this node, which only reads unit state with an unprivileged
+left as they are. Every writer of applied.json (this accept, the head chain applies, the CSI applies) goes through
+update_applied, one lock for the read-modify-write. A unit restart is triggered outside this node, which only reads unit state with an unprivileged
 systemctl show.
 """
 
@@ -10,13 +11,21 @@ import io
 import json
 import logging
 import subprocess
+import threading
 import zipfile
 from collections.abc import Callable, Sequence
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from head_rgbd_calibration.compute import REPORT_FILE
-from head_rgbd_calibration.store import KIND_INTRINSICS, RESULT_FILE, SessionStore, write_json_atomic
+from head_rgbd_calibration.store import (
+    KIND_INTRINSICS,
+    RESULT_FILE,
+    SessionStore,
+    write_bytes_atomic,
+    write_json_atomic,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -33,6 +42,8 @@ SYSTEMCTL_SHOW = ["systemctl", "show", "--timestamp=unix", "-p", "ActiveEnterTim
 SYSTEMCTL_TIMEOUT_S = 5.0
 
 RunFn = Callable[..., subprocess.CompletedProcess]
+# The one lock of every applied.json read-modify-write in the process (update_applied).
+APPLIED_LOCK = threading.Lock()
 
 
 class NotApplicable(ValueError):
@@ -64,14 +75,37 @@ def apply_result(store: SessionStore, sid: str, rid: str, now: datetime) -> dict
     if result.get("passed") is not True:
         raise NotApplicable(f"result {rid} did not pass and cannot be applied")
     info = {"kind": KIND_INTRINSICS, "session": sid, "result": rid, "applied_at": now.isoformat()}
-    with store.lock:
-        target = store.state_dir / APPLIED_DIR
-        target.mkdir(parents=True, exist_ok=True)
-        marker = target / APPLIED_MARKER
-        kept = json.loads(marker.read_text()) if marker.is_file() else {}
-        others = {key: value for key, value in kept.items() if key not in CHECK_RECORD_KEYS}
-        write_json_atomic(marker, {**info, **others})
+
+    def keep_others(kept: dict[str, Any]) -> dict[str, Any]:
+        return {**info, **{key: value for key, value in kept.items() if key not in CHECK_RECORD_KEYS}}
+
+    update_applied(store.state_dir / APPLIED_DIR, keep_others)
     return info
+
+
+def update_applied(
+    target: Path, change: Callable[[dict[str, Any]], dict[str, Any]], files: Sequence[tuple[str, bytes]] = ()
+) -> dict[str, Any]:
+    """Read-modify-write applied/applied.json under APPLIED_LOCK, landing the applied files first.
+
+    Args:
+        target: The applied/ directory (created when missing, after change accepted).
+        change: Maps the current applied.json content ({} when absent) to the new one; it may raise to refuse, then
+            nothing is written.
+        files: (name, bytes) written into target atomically, in order, before applied.json (the apply path unit fires
+            on applied.json and compares the files).
+
+    Returns:
+        dict[str, Any]: The written applied.json content.
+    """
+    with APPLIED_LOCK:
+        marker = target / APPLIED_MARKER
+        updated = change(json.loads(marker.read_text()) if marker.is_file() else {})
+        target.mkdir(parents=True, exist_ok=True)
+        for name, data in files:
+            write_bytes_atomic(target / name, data)
+        write_json_atomic(marker, updated)
+        return updated
 
 
 def has_check_record(info: dict[str, Any]) -> bool:

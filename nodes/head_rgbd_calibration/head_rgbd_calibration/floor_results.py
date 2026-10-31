@@ -26,7 +26,14 @@ from ros2_common.head_rgbd_calibration.urdf_text import (
     rewrite_joint_origin,
 )
 
-from head_rgbd_calibration.apply import APPLIED_DIR, APPLIED_MARKER, NotApplicable, has_check_record, unit_state
+from head_rgbd_calibration.apply import (
+    APPLIED_DIR,
+    APPLIED_MARKER,
+    NotApplicable,
+    has_check_record,
+    unit_state,
+    update_applied,
+)
 from head_rgbd_calibration.config import NodeConfig
 from head_rgbd_calibration.floor_sweep import FLOOR_DIR, OBSERVATIONS_FILE
 from head_rgbd_calibration.store import (
@@ -300,22 +307,16 @@ def apply_head_chain_file(
     Raises:
         NotApplicable: no RGB-D calibration is applied.
     """
-    target = Path(cfg.state_dir) / APPLIED_DIR
-    marker = target / APPLIED_MARKER
-    with LOCK:
-        info = json.loads(marker.read_text()) if marker.is_file() else {}
+
+    def add_record(info: dict[str, Any]) -> dict[str, Any]:
         if not has_check_record(info):
             raise NotApplicable(
                 "no D435 intrinsics check is accepted yet: press Accept check on a passed check in the RGB-D section "
                 "of the Calibrate page, then apply the head chain"
             )
-        tmp = target / f"{TEMP_PREFIX}{HEAD_CHAIN_FILE}"
-        try:
-            tmp.write_bytes(source.read_bytes())
-            os.replace(tmp, target / HEAD_CHAIN_FILE)
-            write_json_atomic(marker, {**info, HEAD_CHAIN_KEY: record})
-        finally:
-            tmp.unlink(missing_ok=True)
+        return {**info, HEAD_CHAIN_KEY: record}
+
+    update_applied(Path(cfg.state_dir) / APPLIED_DIR, add_record, [(HEAD_CHAIN_FILE, source.read_bytes())])
     return {HEAD_CHAIN_KEY: record, "units": [unit_state(u, now.timestamp(), run) for u in cfg.restart_units]}
 
 

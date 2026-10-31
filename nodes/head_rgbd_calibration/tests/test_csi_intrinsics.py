@@ -5,7 +5,9 @@ delivered as CompressedImage-like messages to the capture's subscription callbac
 """
 
 import json
+import os
 import subprocess
+import threading
 from datetime import UTC, datetime, timedelta
 from functools import cache
 from pathlib import Path
@@ -40,6 +42,7 @@ from tests.applied_writes import record_applied_writes
 from tests.pose_factory import BOARD_CFG, detection_at, load_synthetic
 
 CSI_SIZE = (1152, 648)
+RACE_WAIT_S = 0.5  # how long the interleaved writer may run before the first one writes
 CSI_FOCAL = 900.0
 CSI_D = np.array([0.04, -0.08, 0.0, 0.0, 0.0])
 VIEW_COUNT = 8
@@ -453,3 +456,40 @@ def test_routes_too_few_views_is_409_naming_the_count(csi: CsiCalibration, node:
     assert answer.status_code == 409
     assert "got 2 views" in answer.json()["message"]
     assert client.get("/api/csi/back/sessions/csi-bad/results").status_code == 404
+
+
+def test_concurrent_applies_keep_every_record(
+    csi: CsiCalibration, node: FakeNode, cfg: NodeConfig, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A CSI apply that runs while the D435 accept sits between reading and writing applied.json waits for it (one
+    applied.json lock), then a head chain apply lands too: no writer drops another's record."""
+    sid = captured(csi, node, "front", VIEW_COUNT)
+    rid = csi.compute("front", sid)["result"]
+    store = SessionStore(Path(cfg.state_dir), cfg)
+    check = store.create_session(T0)
+    check_rid = "r-20261031-120001"
+    store.result_dir(check, check_rid).mkdir(parents=True)
+    write_json_atomic(store.result_dir(check, check_rid) / RESULT_FILE, {"kind": KIND_INTRINSICS, "passed": True})
+    marker = Path(cfg.state_dir) / APPLIED_DIR / APPLIED_MARKER
+    replace = os.replace
+    racer: list[threading.Thread] = []
+
+    def interleaving(src: Any, dst: Any) -> None:
+        if Path(dst) == marker and not racer:
+            # The D435 accept has read applied.json and is about to write it: run the CSI apply now.
+            racer.append(threading.Thread(target=csi.apply, args=("front", sid, rid, fake_run)))
+            racer[0].start()
+            racer[0].join(RACE_WAIT_S)
+        replace(src, dst)
+
+    monkeypatch.setattr(os, "replace", interleaving)
+    apply_result(store, check, check_rid, T0)
+    racer[0].join()
+    monkeypatch.setattr(os, "replace", replace)
+    source = tmp_path / "head_chain.json"
+    source.write_text("{}")
+    apply_head_chain_file(cfg, source, {"session": "floor-1"}, T0, fake_run)
+    data = json.loads(marker.read_text())
+    assert data["kind"] == KIND_INTRINSICS
+    assert data[APPLIED_KEY]["front"]["result"] == rid
+    assert data["head_chain"] == {"session": "floor-1"}

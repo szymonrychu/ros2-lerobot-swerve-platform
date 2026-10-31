@@ -18,7 +18,7 @@ import pytest
 from ros2_common.head_rgbd_calibration.chain import UrdfChain
 from ros2_common.head_rgbd_calibration.urdf_text import APPLIED_MARKER_FILE, HEAD_CHAIN_FILE, apply_overrides
 
-from head_rgbd_calibration import floor_results
+from head_rgbd_calibration import apply as applied_writer
 from head_rgbd_calibration.apply import NotApplicable
 from head_rgbd_calibration.config import NodeConfig
 from head_rgbd_calibration.head_arm_results import apply_head_arm, compute_head_arm
@@ -92,14 +92,14 @@ def test_the_chain_file_is_in_place_before_the_marker_changes(
     marker.write_text(json.dumps({"session": "calib-1", "result": "r-1", "files": []}))
     before = marker.stat().st_mtime_ns
     chain_when_marker_written: list[str] = []
-    real_write = floor_results.write_json_atomic
+    real_write = applied_writer.write_json_atomic
 
     def spy(path: Path, data: object) -> None:
         if path.name == APPLIED_MARKER_FILE:
             chain_when_marker_written.append(json.loads((path.parent / HEAD_CHAIN_FILE).read_text())["result"])
         real_write(path, data)
 
-    monkeypatch.setattr(floor_results, "write_json_atomic", spy)
+    monkeypatch.setattr(applied_writer, "write_json_atomic", spy)
     apply_head_arm(cfg, store, ready, result["id"], NOW, fake_run)
     assert chain_when_marker_written == [result["id"]]
     assert marker.stat().st_mtime_ns != before

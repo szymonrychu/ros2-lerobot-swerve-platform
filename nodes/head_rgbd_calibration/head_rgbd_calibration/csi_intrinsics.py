@@ -8,8 +8,8 @@ writes applied/<camera>_camera_calibration.yaml (ROS camera_calibration format, 
 and then the `csi_intrinsics.<camera>` record of applied/applied.json, which starts the apply path unit; its script
 try-restarts the camera's unit only when that file changed.
 
-Threads: the image callback runs on the ROS executor thread, the routes on HTTP threads. `lock` guards the run and
-the applied.json read-modify-write; `feed_lock` serialises detection and view writes.
+Threads: the image callback runs on the ROS executor thread, the routes on HTTP threads. `lock` guards the run (the
+applied.json read-modify-write goes through apply.update_applied); `feed_lock` serialises detection and view writes.
 """
 
 import json
@@ -33,7 +33,7 @@ from ros2_common.head_rgbd_calibration.intrinsics import calibrate
 from sensor_msgs.msg import CompressedImage
 
 from head_rgbd_calibration.app import HTTP_CONFLICT, RunFn, error_response
-from head_rgbd_calibration.apply import APPLIED_DIR, APPLIED_MARKER, unit_state
+from head_rgbd_calibration.apply import APPLIED_DIR, APPLIED_MARKER, unit_state, update_applied
 from head_rgbd_calibration.apply import CSI_APPLIED_KEY as APPLIED_KEY
 from head_rgbd_calibration.capture import Busy, rgb_qos
 from head_rgbd_calibration.config import CsiCameraConfig, NodeConfig
@@ -604,13 +604,11 @@ class CsiCalibration:
         now = self.clock()
         record = {"kind": KIND_CSI, "camera": camera, "session": sid, "result": rid, "applied_at": now.isoformat()}
         target = Path(self.cfg.state_dir) / APPLIED_DIR
-        with self.lock:
-            target.mkdir(parents=True, exist_ok=True)
-            write_bytes_atomic(target / applied_file_name(camera), calibration_yaml(result, camera).encode())
-            marker = target / APPLIED_MARKER
-            kept = json.loads(marker.read_text()) if marker.is_file() else {}
-            records = {**(kept.get(APPLIED_KEY) or {}), camera: record}
-            write_json_atomic(marker, {**kept, APPLIED_KEY: records})
+
+        def add_record(kept: dict[str, Any]) -> dict[str, Any]:
+            return {**kept, APPLIED_KEY: {**(kept.get(APPLIED_KEY) or {}), camera: record}}
+
+        update_applied(target, add_record, [(applied_file_name(camera), calibration_yaml(result, camera).encode())])
         self.logger.info(f"{camera} intrinsics {sid}/{rid} applied")
         return {"applied": record, "units": [unit_state(settings.unit, now.timestamp(), run)]}
 
