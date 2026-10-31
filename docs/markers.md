@@ -90,12 +90,11 @@ The same board is also the gripper board of the head-from-arm calibration (`node
 
 `marker_detector` runs on the client next to `poi_store`; defaults are in `nodes/marker_detector/README.md`.
 
-- Stream path: the newest frame of `/head_camera/image_raw/compressed` (1152x648) at most `process_hz` (2) times per second, decoded with zxing-cpp on the grey image (QR only). Without a calibrated `/head_camera/camera_info` nothing is processed.
-- Zoom path: every full-resolution zoom still on `/head_camera/zoom/image` (paired with `/head_camera/zoom/result` by `stamp_ns`, requested by the web UI click-to-zoom, the agent's `get_camera_image` zoom or the node itself) is decoded with intrinsics scaled to the full sensor and shifted by the crop. Automatic zoom requests are off by default (`zoom.auto_zoom: false`) because each costs a 0.5-0.8 s gap in the stream; when enabled, a small (module under `zoom.min_module_px` 6 px) or undecodable QR quad triggers one request, rate limited by `zoom.min_interval_s` (10 s) and a 30 s cooldown per region.
+- Stream path: the newest frame of the D435 colour `/head/d435/color/image_raw/compressed` (640x360) at most `process_hz` (2) times per second, decoded with zxing-cpp on the grey image (QR only). Without `/head/d435/color/camera_info` nothing is processed. There is no zoom stage: the D435 has no full-resolution crop to ask for.
 - Pose pipeline: 24 finder corners (outer 7x7 and inner 3x3 square of three finders) are refined with `cornerSubPix`, `solvePnPGeneric` (IPPE) returns the two planar solutions, each is refined with Levenberg-Marquardt, the pose is transformed through TF (`map <- camera frame` at the image stamp) and sent as one `upsert_marker` command on `/poi/command`.
-- Ambiguity and ToF: the best solution is accepted when the second one's reprojection RMS is at least `pose.ambiguity_ratio` (2.0) times larger. Otherwise, with `tof.enabled` (default true), a registered depth image within `tof.max_dt_s` (0.15 s) gives a plane inside the marker polygon, and the solution whose +z is within `tof.max_angle_deg` (20) of the plane normal wins when the other is not. Otherwise the detection is rejected as `ambiguous`. Also rejected: RMS above `pose.max_rms_px` (1.0), module under `pose.min_module_px` (4 px), marker behind the camera, confidence under `pose.min_confidence` (0.3). ToF is not used for zoom stills.
+- Ambiguity and depth: the best solution is accepted when the second one's reprojection RMS is at least `pose.ambiguity_ratio` (2.0) times larger. Otherwise, with `depth_plane.enabled` (default true), the D435 depth aligned to the colour image (`/head_rgbd/depth/image_raw`) within `depth_plane.max_dt_s` (0.15 s) gives a plane inside the marker polygon (at least `depth_plane.min_valid_px` 30 valid pixels, residual under `depth_plane.max_residual_mm` 10), and the solution whose +z is within `depth_plane.max_angle_deg` (20) of the plane normal wins when the other is not. Otherwise the detection is rejected as `ambiguous`. Also rejected: RMS above `pose.max_rms_px` (1.0), module under `pose.min_module_px` (4 px), marker behind the camera, confidence under `pose.min_confidence` (0.3).
 - Placeholder rules: nothing is sent without a decoded valid payload, calibrated camera_info, a successful TF lookup and an unambiguous pose. A bad frame, uncalibrated camera or failed TF produces no command and no report.
-- `/markers/detections` (std_msgs/String JSON): `{"stamp_ns", "source": "stream"|"zoom", "markers": [{"key", "payload", "position", "quaternion", "rms_px", "ratio", "confidence", "module_px", "chooser"}]}`, published only for frames with at least one accepted marker. Metrics (`marker_detections_accepted_total`, `marker_rejections_total{reason}`, `marker_zoom_requests_total{status}`) are on port 19118.
+- `/markers/detections` (std_msgs/String JSON): `{"stamp_ns", "markers": [{"key", "payload", "position", "quaternion", "rms_px", "ratio", "confidence", "module_px", "chooser"}]}`, published only for frames with at least one accepted marker. Metrics (`marker_detections_accepted_total`, `marker_rejections_total{reason}`) are on port 19118.
 
 ## POIs
 
@@ -106,20 +105,20 @@ The same board is also the gripper board of the head-from-arm calibration (`node
 
 ## Range and fallback
 
-Pose needs about 4 px per module (`pose.min_module_px`); zxing-cpp alone decodes down to about 1.4 px per module on sharp synthetic images. The head camera stream has f = 887 px at 1152 px width; a zoom of Nx multiplies the focal length by N. Range in metres at 4 px per module, on-axis:
+Pose needs about 4 px per module (`pose.min_module_px`); zxing-cpp alone decodes down to about 1.4 px per module on sharp synthetic images. The D435 colour stream is 640x360 with f about 460 px (69 deg HFOV; the live run uses the deployed camera_info fx). Range in metres at 4 px per module, on-axis, d = f x module / 4:
 
-| Marker (version) | Module | Stream | Zoom 2x | Zoom 4x | Zoom 8x |
-|---|---|---|---|---|---|
-| 60 mm v2 | 2.40 mm | 0.53 | 1.06 | 2.13 | 4.26 |
-| 60 mm v3 | 2.07 mm | 0.46 | 0.92 | 1.84 | 3.67 |
-| 100 mm v2 | 4.00 mm | 0.89 | 1.77 | 3.55 | 7.10 |
-| 100 mm v3 | 3.45 mm | 0.76 | 1.53 | 3.06 | 6.12 |
-| 150 mm v2 | 6.00 mm | 1.33 | 2.66 | 5.32 | 10.64 |
-| 150 mm v3 | 5.17 mm | 1.15 | 2.29 | 4.59 | 9.18 |
-| 200 mm v3 | 6.90 mm | 1.53 | 3.06 | 6.12 | 12.23 |
+| Marker (version) | Module | Stream |
+|---|---|---|
+| 60 mm v2 | 2.40 mm | 0.28 |
+| 60 mm v3 | 2.07 mm | 0.24 |
+| 100 mm v2 | 4.00 mm | 0.46 |
+| 100 mm v3 | 3.45 mm | 0.40 |
+| 150 mm v2 | 6.00 mm | 0.69 |
+| 150 mm v3 | 5.17 mm | 0.59 |
+| 200 mm v3 | 6.90 mm | 0.79 |
 
-So a 100 mm v3 marker decodes to about 0.75 m in the stream and about 3 m through a 4x zoom still. Off-axis viewing, blur and autofocus shift reduce this; the robot runbook measures the real range and pose error. Use larger or lower-version (shorter payload) markers for anything the robot must see from far.
+So a 100 mm v3 marker decodes to about 0.4 m. Off-axis viewing and blur reduce this; the robot runbook measures the real range and pose error. Use larger or lower-version (shorter payload) markers for anything the robot must see from far.
 
 Fallback: if the field range is insufficient, use AprilTag `tagStandard41h12` detected with `apriltag_ros` (id-only markers, a separate id-to-meaning table, a larger range per printed size). It replaces only the decode and pose stages; the `upsert_marker` POI contract is unchanged.
 
-Measured field ranges: not yet measured. The robot runbook `docs/runbooks/printable-markers.md` (step 10) fills this section; it is blocked on the head camera calibration (fusion epic) and on the printed markers. The table above is computed, not measured.
+Measured field ranges: not yet measured. The robot runbook `docs/runbooks/printable-markers.md` (step 9) fills this section after the D435 calibration (D435 S59) is done. The table above is computed, not measured.

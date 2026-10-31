@@ -78,3 +78,18 @@ def test_results_rows_match_steps() -> None:
     for number, row in zip(steps, rows, strict=True):
         first_cell = row.split("|")[1].strip()
         assert first_cell.startswith(f"{number} "), (number, first_cell)
+
+
+def test_markers_doc_range_is_d435() -> None:
+    body = section(MARKERS_DOC.read_text(), "Range and fallback")
+    assert "640" in body
+    for word in ("887", "1152", "zoom"):
+        assert word not in body.lower(), word
+    assert "AprilTag" in body
+
+
+def test_markers_doc_detection_is_d435() -> None:
+    body = section(MARKERS_DOC.read_text(), "Detection")
+    assert "/head/d435/color" in body
+    assert "/head_camera/" not in body
+    assert "zoom" not in body.lower()

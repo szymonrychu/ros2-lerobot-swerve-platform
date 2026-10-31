@@ -3697,3 +3697,5 @@ Static checks of `docs/runbooks/printable-markers.md` (and later `docs/markers.m
 | `test_pose_distances_are_in_d435_range` | Pose step: 0.4 / 0.55 / 0.7 m and 30 deg, 3 cm and 5 deg kept, a non-decoding distance is a finding, no 1.5 m. |
 | `test_thresholds_kept` | `100 ms`, `640x360`, `0.3 core` and `20 sightings` present. |
 | `test_results_rows_match_steps` | Results table has one row per numbered step, each starting with its number. |
+| `test_markers_doc_range_is_d435` | `docs/markers.md` "Range and fallback" names 640, has no 887, 1152 or zoom, keeps the AprilTag fallback. |
+| `test_markers_doc_detection_is_d435` | "Detection" names `/head/d435/color`, has no `/head_camera/` and no zoom path. |
