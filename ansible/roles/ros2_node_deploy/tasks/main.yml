@@ -182,6 +182,16 @@
         - not (ros2_apt_batched | default(false) | bool)
       tags: [apt]
 
+    # A node type may purge packages from its workspace on deploy too (nav2_bringup with nav2_mppi_overlay false:
+    # the overlay leaves /opt/ros2-ws, which stays sourced for the arm wait BT plugin).
+    - name: Purge colcon output and stamps of packages the node type no longer builds
+      ansible.builtin.include_tasks:
+        file: colcon_purge.yml
+        apply:
+          become: true
+      when: node_colcon_purge | default([]) | length > 0
+      tags: [build]
+
     - name: Build the source workspace (colcon, pinned or local)
       ansible.builtin.include_tasks: colcon_source_build.yml
       when: (node_colcon_source | default({})) | length > 0

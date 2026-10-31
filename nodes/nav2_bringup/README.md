@@ -319,11 +319,12 @@ the patch, the probe and the overlay source from `client.yml`, keep the `model_d
 `config/nav2_params.yaml`, and the apt `nav2_mppi_controller` reads them natively.
 
 **Rollback.** Set `nav2_mppi_overlay: false` in `ansible/group_vars/client.yml` and deploy
-(`./scripts/deploy-nodes.sh client nav2_bringup`). The nav2_bringup `colcon_source` becomes `{}`, so no build runs, the
-launcher stops sourcing `/opt/ros2-ws` and pluginlib loads the apt `ros-jazzy-nav2-mppi-controller` again (which is
-installed either way). The apt plugin does not declare `model_delay_*`, so those params-file values are ignored. The overlay's build is synchronous and
+(`./scripts/deploy-nodes.sh client nav2_bringup`). The nav2_bringup `colcon_source` then holds only the arm wait BT
+plugin, so the launcher keeps sourcing `/opt/ros2-ws`; its `colcon_purge` lists `nav2_mppi_controller`, which the deploy
+removes from that workspace (source, build, install directory and stamps), and pluginlib loads the apt
+`ros-jazzy-nav2-mppi-controller` again (which is installed either way). The apt plugin does not declare `model_delay_*`, so those params-file values are ignored. The overlay's build is synchronous and
 stops every `ros2-*` unit (claude_agent and mcp_server included) while it runs; do not deploy during an agent session.
-Re-enable with `nav2_mppi_overlay: true`; the stamp then matches (or rebuilds when the apt version moved).
+Re-enable with `nav2_mppi_overlay: true`; the purge removed the stamp, so the overlay builds again.
 
 ### Verifying the MPPI overlay
 

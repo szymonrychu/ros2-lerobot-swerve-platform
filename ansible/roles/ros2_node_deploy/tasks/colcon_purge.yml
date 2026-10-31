@@ -1,6 +1,6 @@
 ---
 # Remove the colcon source, build, install output and build stamps of retired C++ packages.
-# Input: node_colcon_purge, a list of {package, workspace}. Included from the uninstall
+# Input: node_colcon_purge, a list of {package, workspace}. Included from the uninstall and the deploy
 # block of main.yml with privilege escalation applied by the include. Only the named package's paths
 # are touched: never the workspace root, install/setup.bash or another package.
 
