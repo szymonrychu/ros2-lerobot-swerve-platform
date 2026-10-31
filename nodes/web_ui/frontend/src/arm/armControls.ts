@@ -1,7 +1,9 @@
 import type { ServoGroupsState } from '../calibrate/servoApi'
+import type { TabConfig } from '../types'
 
 /** filter_node reports `autonomy` while the mcp_server lease taken by Take control (or the agent) is held. */
 export const HELD_SOURCE = 'autonomy'
+const DEFAULT_SOURCE_TOPIC = '/filter/active_source'
 export const HELD_REASON = 'Arm held by the agent or Take control - Release to drag'
 export const BUSY_REASON = 'Arm action in flight'
 export const WAITING_REASON = 'Waiting for arm joint states'
@@ -28,6 +30,17 @@ export interface ControlState {
   disabled: boolean
   /** Why the control is disabled; empty while it is enabled. */
   reason: string
+}
+
+/**
+ * The command source filter_node reports on the arm tab's active_source_topic.
+ *
+ * @param tab - arm tab config (active_source_topic)
+ * @param topicData - latest payload per topic
+ * @returns source name, undefined before the first message
+ */
+export function activeSourceOf(tab: TabConfig, topicData: Record<string, unknown>): string | undefined {
+  return (topicData[tab.active_source_topic ?? DEFAULT_SOURCE_TOPIC] as { data?: string } | null | undefined)?.data
 }
 
 /**

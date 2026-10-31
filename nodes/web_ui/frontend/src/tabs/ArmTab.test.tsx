@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen } from '@testing-library/react'
 import { ThemeProvider } from '@mui/material/styles'
 import { theme } from '../theme'
 import { ARM_COLORS } from '../map3d/palette'
@@ -24,6 +24,16 @@ function setServo(id: string, kind: 'released' | 'enabled' | 'unknown' | 'none')
 }
 
 
+const viewMock = vi.hoisted(() => ({
+  props: null as null | { dragDisabledReason: string | null; publish: (t: string, m: string, d: unknown) => void; onArmReady: (r: boolean) => void },
+}))
+vi.mock('../arm/ArmView.tsx', () => ({
+  default: (props: NonNullable<typeof viewMock.props>) => {
+    viewMock.props = props
+    return <div data-testid="arm-view">{props.dragDisabledReason}</div>
+  },
+}))
+
 const GRIPPER = '/gripper/image_raw'
 const FRONT = '/head_camera/image_raw/compressed'
 
@@ -44,10 +54,10 @@ function setViewport(width: number): void {
   }) as typeof window.matchMedia
 }
 
-function renderTab(topicData: Record<string, unknown>) {
+function renderTab(topicData: Record<string, unknown>, publish: () => void = vi.fn()) {
   return render(
     <ThemeProvider theme={theme}>
-      <ArmTab tab={TAB} topicData={topicData} publish={vi.fn()} />
+      <ArmTab tab={TAB} topicData={topicData} publish={publish} />
     </ThemeProvider>,
   )
 }
@@ -123,5 +133,49 @@ describe('ArmTab released group', () => {
     for (const name of [...JOGS, 'Home', 'Take control', 'Release']) {
       expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled, name).toBe(false)
     }
+  })
+})
+
+describe('ArmTab drag reason', () => {
+  const SOURCE = { '/filter/active_source': { data: 'filter' } }
+  const reason = (): string | null => viewMock.props?.dragDisabledReason ?? null
+
+  it('waits for joint states until the arm reports ready, then allows dragging', async () => {
+    setViewport(1400)
+    setServo('arm', 'enabled')
+    renderTab(SOURCE)
+    expect(reason()).toBe('Waiting for arm joint states')
+    act(() => viewMock.props?.onArmReady(true))
+    expect(reason()).toBeNull()
+  })
+
+  it('names the lease while the agent or Take control holds the arm', () => {
+    setViewport(1400)
+    setServo('arm', 'enabled')
+    renderTab({ '/filter/active_source': { data: 'autonomy' } })
+    act(() => viewMock.props?.onArmReady(true))
+    expect(reason()).toBe('Arm held by the agent or Take control - Release to drag')
+  })
+
+  it('lists the released joints', () => {
+    setViewport(1400)
+    setServo('arm', 'released')
+    renderTab(SOURCE)
+    act(() => viewMock.props?.onArmReady(true))
+    expect(reason()).toBe('Arm torque is off: a released (Calibrate page)')
+  })
+
+  it('never forwards a drag publish while released, forwards it otherwise', () => {
+    setViewport(1400)
+    const publish = vi.fn()
+    setServo('arm', 'released')
+    const { unmount } = renderTab(SOURCE, publish)
+    viewMock.props?.publish('/cmd', 'sensor_msgs/JointState', {})
+    expect(publish).not.toHaveBeenCalled()
+    unmount()
+    setServo('arm', 'enabled')
+    renderTab(SOURCE, publish)
+    viewMock.props?.publish('/cmd', 'sensor_msgs/JointState', {})
+    expect(publish).toHaveBeenCalledTimes(1)
   })
 })

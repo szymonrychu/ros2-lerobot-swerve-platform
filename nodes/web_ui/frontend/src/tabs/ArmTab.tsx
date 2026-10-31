@@ -1,8 +1,9 @@
 import Box from '@mui/material/Box'
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { ReleasedBannerView, releasedLabel } from '../calibrate/ReleasedBanner'
 import { useServoGroups } from '../calibrate/servoApi'
 import ArmJogPanel from '../arm/ArmJogPanel'
+import { activeSourceOf, armControlState, releasedJoints } from '../arm/armControls'
 import { CameraStream } from '../components/CameraStream'
 import { useLayout } from '../layout/useLayout'
 import { TabConfig } from '../types'
@@ -29,6 +30,15 @@ export default function ArmTab({ tab, topicData, publish }: Props) {
   const layout = useLayout()
   const servo = useServoGroups()
   const released = releasedLabel(servo, 'arm') !== null
+  const [armReady, setArmReady] = useState(false)
+  const drag = armControlState({
+    released,
+    releasedJoints: releasedJoints(servo, 'arm'),
+    busy: false,
+    armReady,
+    activeSource: activeSourceOf(tab, topicData),
+    graspBusy: false,
+  }).drag
   // The draggable arm in the 3D view is a command source too: drop its goals while the arm is limp.
   const guardedPublish: Props['publish'] = (topic, msgType, data) => {
     if (!released) publish(topic, msgType, data)
@@ -52,7 +62,13 @@ export default function ArmTab({ tab, topicData, publish }: Props) {
         </Box>
         <Box data-testid="arm-view-slot" sx={{ ...CELL_SX, minHeight: streamMinHeight }}>
           <Suspense fallback={null}>
-            <ArmView tab={tab} topicData={topicData} publish={guardedPublish} />
+            <ArmView
+              tab={tab}
+              topicData={topicData}
+              publish={guardedPublish}
+              dragDisabledReason={drag.disabled ? drag.reason : null}
+              onArmReady={setArmReady}
+            />
           </Suspense>
         </Box>
       </Box>

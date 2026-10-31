@@ -14,6 +14,7 @@ import { RobotModel } from '../components3d/RobotModel'
 import type { ArmCameraMode, ArmCameraMount } from '../map3d/armCamera'
 import { TOKENS } from '../theme'
 import { TabConfig } from '../types'
+import { WAITING_REASON } from './armControls'
 import { ARM_CAMERA_MODES, applyArmCamera } from './armView.ts'
 
 const MODE_LABELS: Record<ArmCameraMode, string> = {
@@ -44,10 +45,13 @@ interface SceneProps {
   armJoints: JointStates | undefined
   mode: ArmCameraMode | null
   publish: (topic: string, msgType: string, data: unknown) => void
+  /** The arm is draggable: a command topic is configured and no reason blocks dragging. */
+  draggable: boolean
+  onArmReady: (ready: boolean) => void
 }
 
 /** Scene contents: the arm, the camera glue and the orbit controls (inside the Canvas). */
-function ArmScene({ tab, armJoints, mode, publish }: SceneProps) {
+function ArmScene({ tab, armJoints, mode, publish, draggable, onArmReady }: SceneProps) {
   const { invalidate, camera } = useThree()
   const orbitRef = useRef<OrbitControlsImpl | null>(null)
   const robotRef = useRef<URDFRobot | null>(null)
@@ -86,13 +90,14 @@ function ArmScene({ tab, armJoints, mode, publish }: SceneProps) {
       <ambientLight intensity={0.8} />
       <directionalLight position={[2, 4, 3]} intensity={1.2} />
       {tab.arm_urdf &&
-        (tab.arm_command_topic ? (
+        (draggable && tab.arm_command_topic ? (
           <InteractiveArm
             urdfFile={tab.arm_urdf}
             liveJointStates={armJoints}
             commandTopic={tab.arm_command_topic}
             publish={publish}
             orbitRef={orbitRef}
+            onReady={onArmReady}
             onRobotLoaded={onRobotLoaded}
           />
         ) : (
@@ -107,6 +112,10 @@ interface Props {
   tab: TabConfig
   topicData: Record<string, unknown>
   publish: (topic: string, msgType: string, data: unknown) => void
+  /** Why the arm cannot be dragged (shown on the view), or null while it can. */
+  dragDisabledReason: string | null
+  /** Called with true once the draggable arm has its first joint states. */
+  onArmReady: (ready: boolean) => void
 }
 
 /**
@@ -116,8 +125,10 @@ interface Props {
  * @param tab - tab config (arm_urdf, arm_joint_states_topic, arm_command_topic, gripper_camera_mount)
  * @param topicData - latest payload per topic
  * @param publish - ROS publish helper for the draggable arm
+ * @param dragDisabledReason - why dragging is off, or null; the display-only arm is drawn for any reason but waiting
+ * @param onArmReady - readiness of the draggable arm (first joint states received)
  */
-export default function ArmView({ tab, topicData, publish }: Props) {
+export default function ArmView({ tab, topicData, publish, dragDisabledReason, onArmReady }: Props) {
   const [mode, setMode] = useState<ArmCameraMode | null>(DEFAULT_MODE)
   const armJoints = topicData[tab.arm_joint_states_topic ?? ''] as JointStates | undefined
   return (
@@ -128,8 +139,23 @@ export default function ArmView({ tab, topicData, publish }: Props) {
         style={{ background: TOKENS.bgCanvas, touchAction: 'none' }}
         dpr={[1, 2]}
       >
-        <ArmScene tab={tab} armJoints={armJoints} mode={mode} publish={publish} />
+        <ArmScene
+          tab={tab}
+          armJoints={armJoints}
+          mode={mode}
+          publish={publish}
+          draggable={dragDisabledReason === null || dragDisabledReason === WAITING_REASON}
+          onArmReady={onArmReady}
+        />
       </Canvas>
+      {dragDisabledReason !== null && (
+        <Box
+          data-testid="arm-drag-reason"
+          sx={{ position: 'absolute', bottom: 8, left: 8, right: 8, px: 1, py: 0.5, bgcolor: TOKENS.bgPanel, typography: 'caption' }}
+        >
+          {dragDisabledReason}
+        </Box>
+      )}
       <Box sx={{ position: 'absolute', top: 8, left: 8, bgcolor: TOKENS.bgPanel }}>
         <ToolGroup label="arm camera">
           {ARM_CAMERA_MODES.map((m) => (

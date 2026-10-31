@@ -21,9 +21,8 @@ import { useLayout } from '../layout/useLayout'
 import { confirmClick, RESET_CONFIRM_MS } from '../map/mapActions'
 import { TabConfig } from '../types'
 import { ArmAction, ArmResult, JogSpec, postArm } from './armApi'
-import { HELD_SOURCE } from './armControls'
+import { activeSourceOf, HELD_SOURCE } from './armControls'
 
-const DEFAULT_SOURCE_TOPIC = '/filter/active_source'
 const LEASE_ACTIONS = ['take_control', 'release', 'home'] as const
 type LeaseAction = (typeof LEASE_ACTIONS)[number]
 const LEASE_LABELS: Record<LeaseAction, { label: string; confirm: string; hint: string }> = {
@@ -91,7 +90,7 @@ export default function ArmJogPanel({ tab, topicData, released = false }: Props)
   const [armed, setArmed] = useState<{ action: LeaseAction; at: number } | null>(null)
   const [busy, setBusy] = useState(false)
 
-  const source = (topicData[tab.active_source_topic ?? DEFAULT_SOURCE_TOPIC] as { data?: string } | null | undefined)?.data
+  const source = activeSourceOf(tab, topicData)
   const held = source === HELD_SOURCE
 
   useEffect(() => {

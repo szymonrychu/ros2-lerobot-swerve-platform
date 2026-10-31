@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   orbitEnabled: [] as boolean[],
   frameloop: [] as string[],
   armProps: [] as Record<string, unknown>[],
+  modelRenders: [] as number[],
 }))
 
 vi.mock('@react-three/fiber', () => ({
@@ -38,7 +39,12 @@ vi.mock('../components3d/InteractiveArm', () => ({
     return null
   },
 }))
-vi.mock('../components3d/RobotModel', () => ({ RobotModel: () => null }))
+vi.mock('../components3d/RobotModel', () => ({
+  RobotModel: () => {
+    mocks.modelRenders.push(1)
+    return null
+  },
+}))
 
 const TAB = {
   id: 'arm',
@@ -49,10 +55,10 @@ const TAB = {
   arm_joint_states_topic: JOINTS,
 } as TabConfig
 
-function view(topicData: Record<string, unknown>) {
+function view(topicData: Record<string, unknown>, dragDisabledReason: string | null = null, onArmReady = vi.fn()) {
   return (
     <ThemeProvider theme={theme}>
-      <ArmView tab={TAB} topicData={topicData} publish={vi.fn()} />
+      <ArmView tab={TAB} topicData={topicData} publish={vi.fn()} dragDisabledReason={dragDisabledReason} onArmReady={onArmReady} />
     </ThemeProvider>
   )
 }
@@ -64,6 +70,7 @@ beforeEach(() => {
   mocks.orbitEnabled.length = 0
   mocks.frameloop.length = 0
   mocks.armProps.length = 0
+  mocks.modelRenders.length = 0
 })
 afterEach(cleanup)
 
@@ -95,6 +102,29 @@ describe('ArmView', () => {
   it('passes onRobotLoaded to the draggable arm', () => {
     render(view({}))
     expect(typeof last(mocks.armProps).onRobotLoaded).toBe('function')
+  })
+
+  it('renders the interactive arm and no reason when dragging is allowed', () => {
+    render(view({}))
+    expect(mocks.armProps.length).toBeGreaterThan(0)
+    expect(mocks.modelRenders).toEqual([])
+    expect(screen.queryByTestId('arm-drag-reason')).toBeNull()
+  })
+
+  it('renders the display-only arm and shows the reason when dragging is disabled', () => {
+    render(view({}, 'Arm held by the agent or Take control - Release to drag'))
+    expect(mocks.armProps).toEqual([])
+    expect(mocks.modelRenders.length).toBeGreaterThan(0)
+    expect(screen.getByTestId('arm-drag-reason').textContent).toBe('Arm held by the agent or Take control - Release to drag')
+  })
+
+  it('keeps the interactive arm mounted while it waits for joint states, so it can report ready', () => {
+    const onArmReady = vi.fn()
+    render(view({}, 'Waiting for arm joint states', onArmReady))
+    expect(mocks.armProps.length).toBeGreaterThan(0)
+    expect(screen.getByTestId('arm-drag-reason').textContent).toBe('Waiting for arm joint states')
+    ;(last(mocks.armProps).onReady as (ready: boolean) => void)(true)
+    expect(onArmReady).toHaveBeenCalledWith(true)
   })
 })
 
