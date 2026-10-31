@@ -1,6 +1,6 @@
 /**
  * Map tab: one 3D view in the ROS map frame merging the SLAM map, local costmap, GPS tiles, Nav2 plans/goal/
- * footprint and the robot (swerve base + draggable arm). Free orbit by default; "Top view" locks a top-down
+ * footprint and the robot (swerve base + display-only arm). Free orbit by default; "Top view" locks a top-down
  * camera in which goals are set by press + drag. The 3D scene is a separate lazily loaded chunk.
  */
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -28,16 +28,13 @@ import FormatListBulletedIcon from '@mui/icons-material/FormatListBulleted'
 import PhotoLibraryIcon from '@mui/icons-material/PhotoLibrary'
 import VerticalAlignBottomIcon from '@mui/icons-material/VerticalAlignBottom'
 import ThreeDRotationIcon from '@mui/icons-material/ThreeDRotation'
-import HomeIcon from '@mui/icons-material/Home'
 import AddLocationAltIcon from '@mui/icons-material/AddLocationAlt'
 import PolylineIcon from '@mui/icons-material/Polyline'
 import CheckIcon from '@mui/icons-material/Check'
 import CloseIcon from '@mui/icons-material/Close'
-import BookmarkAddIcon from '@mui/icons-material/BookmarkAdd'
-import BackHandIcon from '@mui/icons-material/BackHand'
 import log from '../logging'
 import { Pose2D, Vec2, yawToQuaternion } from '../map/mapMath'
-import { ActionResult, confirmClick, isCleared, postTabAction, RESET_CONFIRM_MS } from '../map/mapActions'
+import { ActionResult, isCleared, postTabAction } from '../map/mapActions'
 import { baseMarkerLabel, basePlacement } from '../gps/basePlacement'
 import { BaseGpsPayload, GPS_BASE_STATUS_KEY, isBaseSample } from '../gps/gpsStatus'
 import { anchorSummary, validAnchor } from '../map3d/geo'
@@ -78,11 +75,7 @@ import type { PendingFocus } from '../poi/poiItems'
 import type { PhotoLayerData } from '../photos/usePhotoLayer'
 import { consumeFocus, whenController } from '../map3d/mapFocus'
 import { PoiEditorPanel, PoiListPanel } from '../poi/PoiPanels'
-import { canFinishArea, isClick } from '../poi/editor'
-import { DEFAULT_ARM_OFFSET, GraspStrategy } from '../grasp/grasp'
-import { GRASP_MENU } from '../grasp/pick'
-import { GraspPanel } from '../grasp/GraspPanel'
-import { useGrasp } from '../grasp/useGrasp'
+import { canFinishArea } from '../poi/editor'
 import { usePoiEditor } from '../poi/usePoiEditor'
 import type { PoiResult } from '../poi/types'
 
@@ -159,8 +152,6 @@ export default function MapNavTab({
   const [draft, setDraft] = useState<GoalDraft | null>(null)
   const [action, setAction] = useState<ActionResult>({ state: 'idle', message: '' })
   const [resetOpen, setResetOpen] = useState(false)
-  const [setHomeArmedAt, setSetHomeArmedAt] = useState<number | null>(null)
-  const [armReady, setArmReady] = useState(false)
   const [layers, setLayers] = useState<LayerState>(() => readLayerState(browserStorage()))
   const [storedTileSource, setStoredTileSource] = useState<string | null>(() => readStoredTileSource(browserStorage()))
   const [tileCaption, setTileCaption] = useState<string | null>(null)
@@ -260,13 +251,6 @@ export default function MapNavTab({
     )
   }, [mapBox])
 
-  // The armed set-home button disarms after the confirm window.
-  useEffect(() => {
-    if (setHomeArmedAt === null) return
-    const timer = setTimeout(() => setSetHomeArmedAt(null), RESET_CONFIRM_MS)
-    return () => clearTimeout(timer)
-  }, [setHomeArmedAt])
-
   // Goal setting only exists in the locked top view.
   useEffect(() => {
     if (!topView) setGoalMode(false)
@@ -342,80 +326,13 @@ export default function MapNavTab({
       onFocusConsumedRef.current?.()
     })
   }, [pendingFocus, poi.pois, photos.photos, selectPhotoOnMap, selectPoi])
-  const armMount = useMemo(() => tab.arm_offset ?? DEFAULT_ARM_OFFSET, [tab.arm_offset])
-  const grasp = useGrasp({ tabId: tab.id, topicData, mount: armMount, notify: setAction })
-  const [graspOpen, setGraspOpen] = useState(false)
-  const graspPicking = grasp.pickMode
-  const setGraspPick = grasp.cancelPick
-  const [graspMenuAnchor, setGraspMenuAnchor] = useState<HTMLElement | null>(null)
-  // On a phone the layers panel would cover the editor: close it when a POI is selected.
-  useEffect(() => {
-    if (narrow && poi.selectedId) setPanelOpen(false)
-  }, [narrow, poi.selectedId])
-  // Goal setting, POI adding and grasp picking all own the one-finger gesture: only one at a time.
-  useEffect(() => {
-    if (poiAdding) {
-      setGoalMode(false)
-      setGraspPick()
-    }
-  }, [poiAdding, setGraspPick])
-  useEffect(() => {
-    if (goalMode) setGraspPick()
-  }, [goalMode, setGraspPick])
-  useEffect(() => {
-    if (graspPicking) {
-      setGoalMode(false)
-      poi.setMode('none')
-    }
-  }, [graspPicking])
-  useEffect(() => {
-    if (!topView) setGraspPick()
-  }, [topView, setGraspPick])
-  // Esc leaves the grasp pick mode without planning.
-  useEffect(() => {
-    if (!graspPicking) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setGraspPick()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [graspPicking, setGraspPick])
-  const chooseGrasp = (strategy: GraspStrategy) => {
-    setGraspMenuAnchor(null)
-    setGraspOpen(true)
-    setTopView(true) // picking needs the top-down view
-    grasp.startPick(strategy)
-  }
-  // The grasp panel shares the screen: on a phone it replaces the layers and POI panels, on wide screens the POI list.
-  useEffect(() => {
-    if (!graspOpen) return
-    if (narrow) setPanelOpen(false)
-    setPoiListOpen(false)
-  }, [graspOpen, narrow])
-  useEffect(() => {
-    if (!graspOpen) setGraspPick()
-  }, [graspOpen, setGraspPick])
-
   const servo = useServoGroups()
   const baseReleased = releasedLabel(servo, 'base') !== null
-  const armReleased = releasedLabel(servo, 'arm') !== null
   const goalButton = goalButtonState({ hasGoalTopic: Boolean(tab.goal_topic), topView, tilt })
   const goalBlocked = tilt.navBlocked || baseReleased
   useEffect(() => {
     if (goalBlocked) setGoalMode(false)
   }, [goalBlocked])
-  // A limp arm takes no grasp: close the grasp flow so nothing can be executed against it.
-  useEffect(() => {
-    if (armReleased) {
-      setGraspOpen(false)
-      setGraspMenuAnchor(null)
-    }
-  }, [armReleased])
-  // The draggable arm in the 3D scene is a command source too.
-  const scenePublish: Props['publish'] = (topic, msgType, data) => {
-    if (!(armReleased && topic === tab.arm_command_topic)) publish(topic, msgType, data)
-  }
-
   const robotPoseRef = useRef(robotPose)
   robotPoseRef.current = robotPose
 
@@ -482,41 +399,6 @@ export default function MapNavTab({
     }
   }, [goalMode, sendGoal])
 
-  // Grasp pick: a click that does not move sets the object at the ground point under it and plans at once.
-  const applyGraspClick = grasp.applyClick
-  useEffect(() => {
-    const el = containerRef.current
-    if (!el || !graspPicking) return
-    let down: Vec2 | null = null
-    const screen = (e: PointerEvent): Vec2 => ({ x: e.clientX, y: e.clientY })
-    const onPanel = (e: PointerEvent) => e.target instanceof Element && e.target.closest('[data-grasp-panel]') !== null
-    const onDown = (e: PointerEvent) => {
-      pointersRef.current.add(e.pointerId)
-      down = pointersRef.current.size === 1 && e.button === 0 && !onPanel(e) ? screen(e) : null
-    }
-    const onUp = (e: PointerEvent) => {
-      pointersRef.current.delete(e.pointerId)
-      const start = down
-      down = null
-      if (!start || onPanel(e) || !isClick(start, screen(e)) || !controllerRef.current) return
-      const at = controllerRef.current.pick(e.clientX, e.clientY)
-      if (at) applyGraspClick(at, robotPoseRef.current)
-    }
-    const onCancel = (e: PointerEvent) => {
-      pointersRef.current.delete(e.pointerId)
-      down = null
-    }
-    el.addEventListener('pointerdown', onDown)
-    window.addEventListener('pointerup', onUp)
-    window.addEventListener('pointercancel', onCancel)
-    return () => {
-      el.removeEventListener('pointerdown', onDown)
-      window.removeEventListener('pointerup', onUp)
-      window.removeEventListener('pointercancel', onCancel)
-      pointersRef.current.clear()
-    }
-  }, [graspPicking, applyGraspClick])
-
   const draftGoal = useMemo(() => (draft ? draftGoalPose(draft, robotPose) : null), [draft, robotPose])
 
   const { status: mapsStatus, refresh: refreshMaps } = useMapStatus(tab.id)
@@ -534,14 +416,7 @@ export default function MapNavTab({
     poi.setMode(poi.mode === mode ? 'none' : mode)
   }
 
-  const onSetHomeClick = () => {
-    const next = confirmClick(setHomeArmedAt, Date.now())
-    setSetHomeArmedAt(next.armedAt)
-    if (next.fire) void runAction('/api/arm/set_home', 'Saving arm home pose...')
-  }
-
   const toggleLayer = (k: LayerKey) => setLayers((s) => ({ ...s, [k]: !s[k] }))
-  const onArmReady = useCallback((ready: boolean) => setArmReady(ready), [])
 
   const centerOnRobot = () => robotPose && controllerRef.current?.centerOn(robotPose)
   const fit = () => {
@@ -553,16 +428,12 @@ export default function MapNavTab({
   }
 
   const busy = action.state === 'busy'
-  const stopIds = stopGroupIds(grasp.executing)
-  const setHomeArmed = setHomeArmedAt !== null
+  const stopIds = stopGroupIds()
   const snackbarOpen = action.state !== 'idle' && action.message !== ''
-  const hasArm = Boolean(tab.arm_urdf)
   const hintItems: string[] = []
   if (goalMode) hintItems.push('Press on the map to set the goal, drag to set its heading')
   if (poi.mode === 'add_point') hintItems.push('Click the map to place a point of interest')
   if (poi.mode === 'add_area') hintItems.push(`Area: ${poi.draft.length} vertices, double-click or Enter finishes`)
-  if (graspPicking) hintItems.push('Click the object on the map')
-  else if (graspOpen && !grasp.hasTarget) hintItems.push('Choose a strategy in the Grasp menu, then click the object')
 
   const poseItem = (
     <StatusItem
@@ -576,7 +447,7 @@ export default function MapNavTab({
   const statusItems = [...hintItems, poseItem, ...(mapText ? [mapText] : [])]
 
   // POI list, POI editor, photo panel and photo list. Phone: a column spanning the map, so the panels' bottom
-  // sheets anchor to its bottom edge (hidden while the layers or grasp sheet is up). Wide: sections of the sidebar.
+  // sheets anchor to its bottom edge (hidden while the layers sheet is up). Wide: sections of the sidebar.
   const poiPanels = hasPoi && (
     <>
       {(narrow || showPoiList) && (
@@ -629,7 +500,7 @@ export default function MapNavTab({
             inset: 0,
             p: 1,
             boxSizing: 'border-box',
-            display: showPanel || graspOpen ? 'none' : 'flex',
+            display: showPanel ? 'none' : 'flex',
             flexDirection: 'column',
             gap: 1,
             zIndex: 1,
@@ -638,11 +509,6 @@ export default function MapNavTab({
           }}
         >
           {poiPanels}
-        </Box>
-      )}
-      {graspOpen && (
-        <Box data-grasp-panel sx={{ display: 'contents' }}>
-          <GraspPanel state={grasp} onClose={() => setGraspOpen(false)} />
         </Box>
       )}
       {!narrow && poiPanels}
@@ -671,15 +537,13 @@ export default function MapNavTab({
         photoStatus={{ shown: layerPhotos.photos.length, total: layerPhotos.total, error: layerPhotos.error }}
         topView={topView}
         goalMode={goalMode}
-        hasArm={Boolean(tab.arm_command_topic)}
-        armReady={armReady}
         map3dStatus={map3dStatus as Map3dStatusPayload | null | undefined}
       />
     </>
   )
   // Wide layouts: the sidebar exists only while a panel is open, so with every panel closed the map is full width.
   const sidebarOpen =
-    showPanel || graspOpen || (hasPoi && (showPoiList || poi.selected !== null || openPhoto !== null || photoListOpen))
+    showPanel || (hasPoi && (showPoiList || poi.selected !== null || openPhoto !== null || photoListOpen))
 
   return (
     <Box sx={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -689,7 +553,6 @@ export default function MapNavTab({
         sx={{ flexShrink: 0, px: { xs: 1, sm: 2 }, py: 1, borderBottom: 1, borderColor: 'divider' }}
       >
         <ReleasedBannerView groupId="base" servo={servo} />
-        <ReleasedBannerView groupId="arm" servo={servo} />
         <Stack
           direction="row"
           useFlexGap
@@ -698,11 +561,6 @@ export default function MapNavTab({
           {stopIds.includes('stop') && (
             <Button variant="contained" color="error" onClick={() => void runAction('/api/nav/stop', 'Stopping...')} sx={STOP_SX}>
               STOP
-            </Button>
-          )}
-          {stopIds.includes('stopGrasp') && (
-            <Button variant="contained" color="error" onClick={grasp.stop} sx={STOP_SX}>
-              STOP GRASP
             </Button>
           )}
           {anyInRow(overflow, ['cameraView', 'layers']) && (
@@ -780,43 +638,6 @@ export default function MapNavTab({
               <ToolButton label="Save map as" icon={<SaveAsIcon />} disabled={busy} onClick={() => setSaveAsOpen(true)} />
               <ToolButton label="Maps" icon={<FolderOpenIcon />} onClick={() => setMapsOpen(true)} />
               <ToolButton label="Reset map" icon={<RestartAltIcon />} disabled={busy} onClick={() => setResetOpen(true)} />
-            </ToolGroup>
-          )}
-          {tab.grasp_command_topic && (
-            <>
-              <ToolButton
-                label="Grasp"
-                icon={<BackHandIcon />}
-                pressed={graspOpen || graspPicking}
-                disabled={armReleased}
-                expanded={graspMenuAnchor !== null}
-                onClick={(e) => setGraspMenuAnchor(e.currentTarget)}
-              />
-              {graspPicking && <ToolButton label="Cancel grasp pick" icon={<CloseIcon />} onClick={() => setGraspPick()} />}
-              <Menu anchorEl={graspMenuAnchor} open={graspMenuAnchor !== null} onClose={() => setGraspMenuAnchor(null)}>
-                {GRASP_MENU.map((m) => (
-                  <MenuItem
-                    key={m.strategy}
-                    disabled={grasp.executing || grasp.planning}
-                    onClick={() => chooseGrasp(m.strategy)}
-                    sx={{ minHeight: TOUCH_TARGET }}
-                  >
-                    {m.label}
-                  </MenuItem>
-                ))}
-              </Menu>
-            </>
-          )}
-          {hasArm && (
-            <ToolGroup label="Arm home">
-              <ToolButton label="Arm home" icon={<HomeIcon />} disabled={busy || armReleased} onClick={() => void runAction('/api/arm/home', 'Moving arm home...')} />
-              <ToolButton
-                label={setHomeArmed ? 'Confirm set home' : 'Set home'}
-                icon={<BookmarkAddIcon />}
-                pressed={setHomeArmed}
-                disabled={busy || armReleased}
-                onClick={onSetHomeClick}
-              />
             </ToolGroup>
           )}
           {overflow.length > 0 && (
@@ -995,7 +816,7 @@ export default function MapNavTab({
             position: 'relative',
             overflow: 'hidden',
             bgcolor: CANVAS_BG,
-            cursor: goalMode || poiAdding || graspPicking ? 'crosshair' : poi.dragging ? 'grabbing' : 'default',
+            cursor: goalMode || poiAdding ? 'crosshair' : poi.dragging ? 'grabbing' : 'default',
             touchAction: 'none',
           }}
           onContextMenu={(e) => e.preventDefault()}
@@ -1015,9 +836,6 @@ export default function MapNavTab({
               armUrdf={tab.arm_urdf}
               headUrdf={tab.head_urdf}
               armOffset={tab.arm_offset}
-              armCommandTopic={tab.arm_command_topic}
-              publish={scenePublish}
-              onArmReady={onArmReady}
               map={map}
               costmap={isCleared(costmapMsg) ? null : costmapMsg}
               obstacleCloud={obstacleCloud}
@@ -1042,14 +860,13 @@ export default function MapNavTab({
               baseLabel={baseLabel}
               layers={layers}
               topView={topView}
-              goalMode={goalMode || poiAdding || graspPicking}
+              goalMode={goalMode || poiAdding}
               pois={poi.pois}
               selectedPoiId={poi.selectedId}
               poiDraft={poi.draft}
               photos={layerPhotos.photos}
               selectedPhotoId={openPhoto?.id ?? null}
-              onSelectPhoto={goalMode || poiAdding || graspPicking ? null : selectPhotoOnMap}
-              graspPreview={graspOpen ? grasp.preview : null}
+              onSelectPhoto={goalMode || poiAdding ? null : selectPhotoOnMap}
               controllerRef={controllerRef}
               mapFrame={mapFrame}
             />

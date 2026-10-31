@@ -61,9 +61,6 @@ export interface LayersPanelProps {
   photoStatus: { shown: number; total: number; error: string | null }
   topView: boolean
   goalMode: boolean
-  /** The tab has an arm command topic. */
-  hasArm: boolean
-  armReady: boolean
   /** Latest /map3d/status JSON; undefined/null before one arrived. */
   map3dStatus?: Map3dStatusPayload | null
 }
@@ -129,12 +126,12 @@ function GroundLegend({ state }: { state: GroundState | null | undefined }) {
 }
 
 /**
- * Gesture and arm help: shown behind the header info button instead of as paragraphs.
+ * Gesture help: shown behind the header info button instead of a paragraph.
  *
- * @param p - topView, goalMode, hasArm and armReady
+ * @param p - topView and goalMode
  * @returns the help lines
  */
-function Help({ topView, goalMode, hasArm, armReady }: Pick<LayersPanelProps, 'topView' | 'goalMode' | 'hasArm' | 'armReady'>) {
+function Help({ topView, goalMode }: Pick<LayersPanelProps, 'topView' | 'goalMode'>) {
   const gesture = topView
     ? goalMode
       ? 'Press to place the goal, drag to set heading. Two fingers / right button pan, wheel or pinch zooms.'
@@ -143,7 +140,6 @@ function Help({ topView, goalMode, hasArm, armReady }: Pick<LayersPanelProps, 't
   return (
     <Box>
       <Box>{gesture}</Box>
-      {hasArm && <Box>{armReady ? 'Drag arm rings/handles to move the arm' : 'Waiting for arm servo positions...'}</Box>}
     </Box>
   )
 }
@@ -156,7 +152,7 @@ function Help({ topView, goalMode, hasArm, armReady }: Pick<LayersPanelProps, 't
  */
 export function LayersPanel(p: LayersPanelProps) {
   const { layers, tileSources, tileSource } = p
-  const help = <Help topView={p.topView} goalMode={p.goalMode} hasArm={p.hasArm} armReady={p.armReady} />
+  const help = <Help topView={p.topView} goalMode={p.goalMode} />
   return (
     <OverlayPanel
       title="Layers"

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ALWAYS_VISIBLE_GROUPS, STOP_GROUPS, TOOLBAR_GROUPS, anyInRow, splitToolbar, stopGroupIds } from './toolbarGroups'
+import { ALWAYS_VISIBLE_GROUPS, STOP_GROUPS, TOOLBAR_GROUPS, anyInRow, splitToolbar } from './toolbarGroups'
 import type { LayoutClass } from '../layout/useLayout'
 import { designViolations, SOURCES } from '../layout/designRules'
 
@@ -18,9 +18,14 @@ describe('splitToolbar', () => {
     expect(ids(visible)).toEqual(ids(TOOLBAR_GROUPS))
   })
 
-  it.each<LayoutClass>(['phone', 'tablet', 'desktop'])('keeps STOP and goal / arm control visible on %s', (layout) => {
+  it('has no grasp or arm home group any more', () => {
+    expect(ids(TOOLBAR_GROUPS)).toEqual(['stop', 'cameraView', 'goal', 'poi', 'layers', 'mapFile'])
+    expect(ALWAYS_VISIBLE_GROUPS).toEqual(['stop', 'goal'])
+  })
+
+  it.each<LayoutClass>(['phone', 'tablet', 'desktop'])('keeps STOP and goal visible on %s', (layout) => {
     const visible = ids(splitToolbar(TOOLBAR_GROUPS, layout).visible)
-    for (const id of ['stop', 'goal', 'grasp', 'armHome']) expect(visible).toContain(id)
+    for (const id of ['stop', 'goal']) expect(visible).toContain(id)
     for (const id of ALWAYS_VISIBLE_GROUPS) expect(visible).toContain(id)
   })
 
@@ -44,25 +49,16 @@ describe('anyInRow', () => {
 })
 
 describe('stop controls', () => {
-  it('STOP and STOP GRASP are high-priority always-visible groups', () => {
-    expect(STOP_GROUPS).toEqual(['stop', 'stopGrasp'])
-    for (const id of STOP_GROUPS) {
-      expect(ALWAYS_VISIBLE_GROUPS).toContain(id)
-      expect(TOOLBAR_GROUPS.find((g) => g.id === id)?.priority).toBe('high')
-    }
+  it('STOP is the one high-priority always-visible stop group', () => {
+    expect(STOP_GROUPS).toEqual(['stop'])
+    expect(ALWAYS_VISIBLE_GROUPS).toContain('stop')
+    expect(TOOLBAR_GROUPS.find((g) => g.id === 'stop')?.priority).toBe('high')
   })
 
-  it.each<LayoutClass>(['phone', 'tablet', 'desktop'])('both stops are in the primary toolbar, never in overflow, on %s', (layout) => {
+  it.each<LayoutClass>(['phone', 'tablet', 'desktop'])('STOP is in the primary toolbar, never in overflow, on %s', (layout) => {
     const { visible, overflow } = splitToolbar(TOOLBAR_GROUPS, layout)
-    for (const id of STOP_GROUPS) {
-      expect(ids(visible)).toContain(id)
-      expect(ids(overflow)).not.toContain(id)
-    }
-  })
-
-  it('STOP always applies, STOP GRASP only while a grasp executes', () => {
-    expect(stopGroupIds(false)).toEqual(['stop'])
-    expect(stopGroupIds(true)).toEqual(['stop', 'stopGrasp'])
+    expect(ids(visible)).toContain('stop')
+    expect(ids(overflow)).not.toContain('stop')
   })
 })
 

@@ -125,32 +125,19 @@ describe('map toolbar stops', () => {
     await waitFor(() => expect(posted('/api/nav/stop?tab=map')).toBe(true))
   })
 
-  it('STOP GRASP shows only while a grasp runs, looks the same, and posts the same grasp stop', async () => {
-    await renderTab()
-    expect(screen.queryByRole('button', { name: 'STOP GRASP' })).toBeNull()
-    cleanup()
-    await renderTab(RUNNING)
-    const stop = screen.getByRole('button', { name: 'STOP GRASP' })
-    expect(stop.className).toContain('MuiButton-containedError')
-    expect(getComputedStyle(stop).fontWeight).toBe('500')
-    fireEvent.click(stop)
-    await waitFor(() => expect(posted('/api/grasp/stop?tab=map')).toBe(true))
-  })
-
-  it('on a phone both stops stay in the row, not in the overflow menu', async () => {
+  it('on a phone STOP stays in the row, not in the overflow menu', async () => {
     viewportWidth = 400
-    await renderTab(RUNNING)
+    await renderTab()
     expect(screen.getByRole('button', { name: 'STOP' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'STOP GRASP' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'More map controls' }))
     const menu = screen.getByRole('menu')
     expect(within(menu).queryByText(/STOP/)).toBeNull()
   })
 
-  it('the stops are the only filled-colour controls', async () => {
+  it('STOP is the only filled-colour control, even with a grasp running on the Arm tab', async () => {
     await renderTab(RUNNING)
     const filled = screen.getAllByRole('button').filter((b) => /MuiButton-contained/.test(b.className))
-    expect(filled.map((b) => b.textContent).sort()).toEqual(['STOP', 'STOP GRASP'])
+    expect(filled.map((b) => b.textContent)).toEqual(['STOP'])
   })
 })
 
@@ -180,16 +167,13 @@ describe('map toolbar controls', () => {
     expect(screen.getByTestId('map-status-line').textContent).toContain('0 vertices')
   })
 
-  it('grasp pick hint is in the status line and the floating alert is gone', async () => {
-    await renderTab()
-    fireEvent.click(screen.getByRole('button', { name: 'Grasp' }))
-    fireEvent.click(screen.getAllByRole('menuitem')[0])
-    expect(screen.getByTestId('map-status-line').textContent).toContain('Click the object on the map')
-    expect(within(screen.getByTestId('map-container')).queryByRole('alert')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel grasp pick' }))
-    expect(screen.getByTestId('map-status-line').textContent).not.toContain('Click the object on the map')
-    expect(screen.getByTestId('map-status-line').textContent).toContain('Robot')
-    expect(screen.getByTestId('map-status-line').textContent).toContain('Choose a strategy in the Grasp menu')
+  it('has no arm controls: Grasp, Arm home, Set home, pick and STOP GRASP moved to the Arm tab', async () => {
+    await renderTab(RUNNING)
+    for (const name of ['Grasp', 'Arm home', 'Set home', 'Confirm set home', 'Cancel grasp pick', 'STOP GRASP']) {
+      expect(screen.queryByRole('button', { name }), name).toBeNull()
+    }
+    expect(screen.getByTestId('map-status-line').textContent).not.toContain('Choose a strategy in the Grasp menu')
+    expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith('/api/grasp'))).toBe(false)
   })
 
   it('map reset asks in a ConfirmDialog and posts only after confirming', async () => {
@@ -204,15 +188,6 @@ describe('map toolbar controls', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reset map' }))
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Reset map' }))
     await waitFor(() => expect(posted('/api/map/reset?tab=map')).toBe(true))
-  })
-
-  it('set home keeps the two-click arm', async () => {
-    await renderTab()
-    fireEvent.click(screen.getByRole('button', { name: 'Set home' }))
-    expect(posted('/api/arm/set_home?tab=map')).toBe(false)
-    expect(screen.queryByRole('dialog')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm set home' }))
-    await waitFor(() => expect(posted('/api/arm/set_home?tab=map')).toBe(true))
   })
 
   it('the phone overflow menu is kept', async () => {
@@ -330,17 +305,11 @@ describe('released groups', () => {
     expect(disabled('Set goal')).toBe(false)
   })
 
-  it('arm released: banner, Arm home, Set home and Grasp disabled', async () => {
-    setServo('arm', 'released')
+  it.each(['released', 'enabled'] as const)('arm %s: no arm banner and no arm controls on the Map tab', async (kind) => {
+    setServo('arm', kind)
     await renderTab()
-    expect(screen.getByText(ARM)).toBeTruthy()
-    for (const name of ['Arm home', 'Set home', 'Grasp']) expect(disabled(name), name).toBe(true)
-  })
-
-  it('arm enabled: no banner, Arm home, Set home and Grasp enabled', async () => {
-    setServo('arm', 'enabled')
-    await renderTab()
+    expect(screen.queryByTestId('released-banner-arm')).toBeNull()
     expect(screen.queryByText(ARM)).toBeNull()
-    for (const name of ['Arm home', 'Set home', 'Grasp']) expect(disabled(name), name).toBe(false)
+    for (const name of ['Arm home', 'Set home', 'Grasp']) expect(screen.queryByRole('button', { name }), name).toBeNull()
   })
 })

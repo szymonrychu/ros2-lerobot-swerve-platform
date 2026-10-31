@@ -31,8 +31,6 @@ function props(over: Partial<LayersPanelProps> = {}): LayersPanelProps {
     photoStatus: { shown: 3, total: 3, error: null },
     topView: false,
     goalMode: false,
-    hasArm: false,
-    armReady: false,
     ...over,
   }
 }
@@ -86,16 +84,15 @@ describe('LayersPanel', () => {
     expect((await screen.findByRole('tooltip')).textContent).toMatch(/Needs a GPS fix/)
   })
 
-  it('keeps the gesture and arm help behind one info button', async () => {
-    wrap(<LayersPanel {...props({ hasArm: true, armReady: false })} />)
+  it('keeps the gesture help behind one info button and has no arm drag line', async () => {
+    wrap(<LayersPanel {...props()} />)
     expect(screen.queryByText(/Orbit: drag to rotate/)).toBeNull()
-    expect(screen.queryByText(/Waiting for arm servo positions/)).toBeNull()
     const header = screen.getByTestId('overlay-panel-header')
     const info = within(header).getByRole('button', { name: 'Map help' })
     fireEvent.mouseOver(info)
     const tip = (await screen.findByRole('tooltip')).textContent ?? ''
     expect(tip).toMatch(/Orbit: drag to rotate/)
-    expect(tip).toMatch(/Waiting for arm servo positions/)
+    expect(tip).not.toMatch(/arm/i)
   })
 
   it('draws swatches from the palette and no robot pose line', () => {

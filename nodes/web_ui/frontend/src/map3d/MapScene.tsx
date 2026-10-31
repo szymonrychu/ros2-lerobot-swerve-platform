@@ -10,7 +10,6 @@ import { OrbitControls } from '@react-three/drei'
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import * as THREE from 'three'
 import { RobotModel } from '../components3d/RobotModel'
-import { InteractiveArm } from '../components3d/InteractiveArm'
 import { Pose2D, Vec2 } from '../map/mapMath'
 import { CANVAS_BG } from '../theme'
 import { advanceBaseJoints, BaseJointValues } from './baseJoints'
@@ -20,9 +19,7 @@ import { GpsAnchor } from './geo'
 import type { GroundState } from './groundLayer'
 import { Bounds, classifyBaseLink, fitDistance } from './groundMath'
 import { LayerState } from './layers'
-import { GraspPreview } from '../grasp/GraspPreview'
 import { DEFAULT_ARM_OFFSET } from '../grasp/grasp'
-import type { GraspPreviewData } from '../grasp/useGrasp'
 import { PhotoLayer } from '../photos/PhotoLayer'
 import type { Photo } from '../photos/api'
 import { PoiLayer } from '../poi/PoiLayer'
@@ -75,9 +72,6 @@ export interface MapSceneProps {
   armUrdf?: string
   headUrdf?: string
   armOffset?: [number, number, number]
-  armCommandTopic?: string
-  publish: (topic: string, msgType: string, data: unknown) => void
-  onArmReady: (ready: boolean) => void
   map: GridImageMsg | null | undefined
   costmap: GridImageMsg | null | undefined
   /** Raw D435 depth cloud and lidar scan payloads (with frame_pose) of the 3D obstacles layer. */
@@ -116,8 +110,6 @@ export interface MapSceneProps {
   selectedPhotoId: string | null
   /** Click handler of a photo wedge; null while another tool owns the pointer. */
   onSelectPhoto: ((id: string) => void) | null
-  /** Grasp panel preview (object box, planned tool path) in base_link, or null. */
-  graspPreview: GraspPreviewData | null
   controllerRef: MutableRefObject<SceneController | null>
 }
 
@@ -255,7 +247,6 @@ const RobotLayer = memo(function RobotLayer({
   armUrdf,
   headUrdf,
   armOffset,
-  armCommandTopic,
   baseJoints,
   armJoints,
   headJoints,
@@ -263,17 +254,12 @@ const RobotLayer = memo(function RobotLayer({
   showWheels,
   showArm,
   showHead,
-  graspPreview,
-  publish,
-  orbitRef,
-  onArmReady,
 }: {
   pose: Pose2D | null
   baseUrdf?: string
   armUrdf?: string
   headUrdf?: string
   armOffset: [number, number, number]
-  armCommandTopic?: string
   baseJoints: JointStates | undefined
   armJoints: JointStates | undefined
   headJoints?: JointStates
@@ -281,13 +267,9 @@ const RobotLayer = memo(function RobotLayer({
   showWheels: boolean
   showArm: boolean
   showHead: boolean
-  graspPreview: GraspPreviewData | null
-  publish: (topic: string, msgType: string, data: unknown) => void
-  orbitRef: MutableRefObject<OrbitControlsImpl | null>
-  onArmReady: (ready: boolean) => void
 }) {
   const { invalidate } = useThree()
-  // Without a map pose the robot is drawn at the map origin (arm control still works without SLAM).
+  // Without a map pose the robot is drawn at the map origin.
   const p = pose ?? { x: 0, y: 0, yaw: 0 }
   const linkVisible = useCallback(
     (link: string) => (classifyBaseLink(link) === 'wheels' ? showWheels : showBody),
@@ -310,23 +292,8 @@ const RobotLayer = memo(function RobotLayer({
           linkVisible={linkVisible}
         />
       )}
-      {armUrdf &&
-        (armCommandTopic ? (
-          <InteractiveArm
-            urdfFile={armUrdf}
-            liveJointStates={armJoints}
-            position={armPos}
-            commandTopic={armCommandTopic}
-            publish={publish}
-            orbitRef={orbitRef}
-            onReady={onArmReady}
-            visible={showArm}
-          />
-        ) : (
-          <RobotModel urdfFile={armUrdf} jointStates={armJoints} position={armPos} visible={showArm} />
-        ))}
+      {armUrdf && <RobotModel urdfFile={armUrdf} jointStates={armJoints} position={armPos} visible={showArm} />}
       {headUrdf && headValues && <RobotModel urdfFile={headUrdf} jointStates={headValues} visible={showHead} />}
-      <GraspPreview data={graspPreview} />
     </group>
   )
 })
@@ -394,7 +361,6 @@ function SceneContents(props: MapSceneProps & { mapFrame?: string }) {
           armUrdf={props.armUrdf}
           headUrdf={props.headUrdf}
           armOffset={armOffset}
-          armCommandTopic={props.armCommandTopic}
           baseJoints={props.baseJoints}
           armJoints={props.armJoints}
           headJoints={props.headJoints}
@@ -402,10 +368,6 @@ function SceneContents(props: MapSceneProps & { mapFrame?: string }) {
           showWheels={layers.robotWheels}
           showArm={layers.robotArm}
           showHead={layers.head}
-          graspPreview={props.graspPreview}
-          publish={props.publish}
-          orbitRef={orbitRef}
-          onArmReady={props.onArmReady}
         />
       </Suspense>
       <OrbitControls ref={orbitRef} makeDefault enableDamping={false} />
