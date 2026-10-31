@@ -1,19 +1,19 @@
 # marker_detector
 
-Detects printed QR metadata markers in the head camera image and turns them into POIs with pose and metadata (design D8). It has its own uv environment (modern `opencv-python-headless` and `zxing-cpp`, which must shadow Ubuntu's OpenCV 4.6 in the `--system-site-packages` venv), a validated config, a ROS-free pipeline and a thin rclpy node.
+Detects printed QR metadata markers in the images of every configured camera (`cameras`: the head D435, the front and the back CSI Camera Module 3) and turns them into POIs with pose and metadata (design D8). It has its own uv environment (modern `opencv-python-headless` and `zxing-cpp`, which must shadow Ubuntu's OpenCV 4.6 in the `--system-site-packages` venv), a validated config, a ROS-free pipeline and a thin rclpy node.
 
 ## Requirements
 
-- A calibrated `/head/d435/color/camera_info` (the D435 colour intrinsics are needed for pose).
-- Head TF from the camera frame (the `camera_info` frame_id) to `map_frame`.
+- A calibrated `camera_info` per camera (intrinsics are needed for pose). The D435 publishes its own; front and back publish one only after the CSI intrinsics calibration on the web_ui Calibrate page. A camera without camera_info is skipped.
+- TF from each camera frame (the `camera_info` frame_id) to `map_frame`. Front and back have TF only once their measured mounts are set; a failed lookup rejects the detection (`tf`).
 - Optional: the D435 depth aligned to the colour image and decimated by head_rgbd_cpp, `/head_rgbd/depth/image_raw` (16UC1 mm, `d435_color_optical_frame`, same stamp as the colour set) with its camera_info, used to settle planar pose ambiguity (`depth_plane.enabled`).
 
 ## Inputs and outputs
 
 | Topic (config key) | Default | Direction |
 |---|---|---|
-| `topics.image` | `/head/d435/color/image_raw/compressed` | in |
-| `topics.camera_info` | `/head/d435/color/camera_info` | in |
+| `cameras[].image` | `/head/d435/color/image_raw/compressed` (camera `head`) | in |
+| `cameras[].camera_info` | `/head/d435/color/camera_info` (camera `head`) | in |
 | `topics.depth` | `/head_rgbd/depth/image_raw` | in |
 | `topics.depth_info` | `/head_rgbd/depth/camera_info` | in |
 | `topics.poi_command` | `/poi/command` | out |
@@ -27,15 +27,16 @@ File: `$MARKER_DETECTOR_CONFIG`, default `/etc/ros2/marker_detector/config.yaml`
 
 | Key | Default | Meaning |
 |---|---|---|
-| `topics.*` | see above | topic names |
-| `process_hz` | 2.0 (0.1..15) | detection rate |
+| `cameras` | one camera `head` (the D435, `depth_plane: true`) | list of `{name, image, camera_info, depth_plane}`, at least one; names unique; at most one camera sets `depth_plane` (its pipeline gets `topics.depth`). The deployed config (`ansible/group_vars/client.yml`) lists `head` (D435), `front` (`/front_camera/image_raw/compressed`, `/front_camera/camera_info`) and `back` (`/back_camera/...`) |
+| `topics.*` | see above | depth, depth_info and output topic names |
+| `process_hz` | 2.0 (0.1..15) | detection rate per camera |
 | `map_frame` | `map` | target TF frame |
 | `tf_timeout_s` | 0.2 | TF lookup timeout |
 | `pose.ambiguity_ratio` | 2.0 (>1) | min IPPE reprojection error ratio to accept a solution |
 | `pose.max_rms_px` | 1.0 | max reprojection RMS |
 | `pose.min_module_px` | 4.0 | min module size for pose |
 | `pose.min_confidence` | 0.3 | min confidence |
-| `depth_plane.enabled` | true | use depth plane disambiguation |
+| `depth_plane.enabled` | true | use depth plane disambiguation (for the `depth_plane` camera) |
 | `depth_plane.max_dt_s` | 0.15 | max depth/image time gap |
 | `depth_plane.max_angle_deg` | 20 | max plane angle difference |
 | `depth_plane.min_valid_px` | 30 | min valid depth pixels |
@@ -49,7 +50,7 @@ There is no zoom stage: the zoom stills came from head_camera_cpp's full-resolut
 
 ## Tests
 
-`uv run --frozen pytest tests/ -q`. `tests/test_config.py` covers config defaults/validation (including the rejected zoom keys), pins that `marker_detector/zoom.py` is no longer tracked, and checks the venv imports OpenCV >= 4.8 and zxing-cpp.
+`uv run --frozen pytest tests/ -q`. `tests/test_config.py` covers config defaults/validation (including the rejected zoom keys and `topics.image`/`topics.camera_info`, and `test_cameras_list_validates`: unique names, at most one depth_plane camera, unknown keys rejected, at least one camera), pins that `marker_detector/zoom.py` is no longer tracked, and checks the venv imports OpenCV >= 4.8 and zxing-cpp.
 
 ## Decode and synthetic scenes
 
@@ -71,11 +72,11 @@ Nothing is sent without a real detection: no camera_info (or an all-zero K) -> n
 
 | Topic | QoS |
 |---|---|
-| image, camera_info, depth, depth_info (in) | best effort, keep last 1 |
+| each camera's image and camera_info, depth, depth_info (in) | best effort, keep last 1 |
 | `/poi/command` (out, String JSON `upsert_marker`) | reliable, keep last 20 |
 | `/markers/detections` (out, String JSON) | reliable, keep last 10 |
 
-`image` and `camera_info` are raw subscriptions (`raw=True`): the callbacks only keep the newest serialized bytes, and the `process_hz` timer deserializes (`rclpy.serialization.deserialize_message`) them, camera_info only when a new one arrived and before the image. A frame is decoded at most once and a tick without a new frame decodes nothing. Depth and depth_info subscriptions are normal. A timer at `process_hz` processes only the newest unprocessed stream frame. TF is looked up at the image stamp, waiting up to `tf_timeout_s`.
+Each camera has its own `MarkerPipeline` (intrinsics, frame_id) and newest-frame slot (`node.py:CameraSlot`). Its `image` and `camera_info` are raw subscriptions (`raw=True`): the callbacks only keep the newest serialized bytes in that camera's slot, and the `process_hz` timer deserializes (`rclpy.serialization.deserialize_message`) them, camera_info only when a new one arrived and before the image. One camera's frames never overwrite another's. A frame is decoded at most once and a tick without a new frame decodes nothing. Depth and depth_info are normal subscriptions, created only when a camera sets `depth_plane` (and `depth_plane.enabled`), and feed only that camera's pipeline. Each timer tick processes the newest unprocessed frame of every camera. TF is looked up at the image stamp, waiting up to `tf_timeout_s`.
 
 ## Report format
 
@@ -83,11 +84,11 @@ Nothing is sent without a real detection: no camera_info (or an all-zero K) -> n
 
 ## Metrics
 
-`marker_frames_processed_total{source}`, `marker_detections_accepted_total`, `marker_rejections_total{reason}` (payload, ambiguous, rms, module_too_small, behind_camera, pnp_failed, low_confidence, tf, image), `marker_process_seconds{source}` histogram (`source` is always `stream`). Served by `ros2_metrics` on `metrics_port`.
+`marker_frames_processed_total{camera}`, `marker_detections_accepted_total{camera}`, `marker_rejections_total{camera,reason}` (payload, ambiguous, rms, module_too_small, behind_camera, pnp_failed, low_confidence, tf, image), `marker_process_seconds{camera}` histogram; `camera` is the `cameras[].name` (`head`, `front`, `back`). Served by `ros2_metrics` on `metrics_port`.
 
 ## Node tests
 
-`tests/test_pipeline.py` covers the pipeline on synthetic scenes (single marker, missing camera_info, TF failure, invalid payload, depth plane disambiguation, confidence gate) and the node wiring with `tests/ros_stubs.py` stubbing rclpy, tf2_ros, sensor_msgs and std_msgs.
+`tests/test_pipeline.py` covers the pipeline on synthetic scenes (single marker, missing camera_info, TF failure, invalid payload, depth plane disambiguation, confidence gate) and the node wiring with `tests/ros_stubs.py` stubbing rclpy, tf2_ros, sensor_msgs and std_msgs. `tests/test_node_raw.py` covers the raw subscriptions per camera (deserialized only in the timer, camera_info only when new, newest frame once) and `test_each_camera_has_its_own_pipeline` (front frames do not overwrite head's slot, metrics labelled by camera, depth subscribed and fed only for the depth_plane camera, a camera without camera_info publishes nothing).
 
 ## Benchmark
 

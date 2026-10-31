@@ -2041,6 +2041,8 @@ Static wiring invariants of the marker_detector node (Ansible node type, entry, 
 |---|---|
 | `test_marker_detector_node_type_defaults` | Native `python3 -m marker_detector`, `nodes/marker_detector`, `src_shared`, memory 128M/512M, weights 500/500/-500, `config_path`, env `MARKER_DETECTOR_CONFIG`. |
 | `test_marker_detector_entry_after_poi_store_with_config` | Present + enabled entry after `poi_store`; config keys are exactly the `MarkerDetectorConfig` fields (no missing, no extra), validate against it, `metrics_port` 19118. |
+| `test_marker_detector_cameras_are_head_front_back` | The client.yml `cameras` list is `head` (D435 colour image and camera_info, `depth_plane: true`), `front` (`/front_camera/image_raw/compressed`, `/front_camera/camera_info`) and `back` (`/back_camera/...`), both without depth_plane. |
+| `test_marker_detector_entry_has_no_zoom` | The entry's config names no zoom key. |
 | `test_metrics_target_for_marker_detector` | `monitoring_agent_node_targets` scrapes `127.0.0.1:19118/metrics`. |
 | `test_playbook_deploys_marker_detector_after_poi_store` | `deploy_nodes_client.yml` deploys it after `poi_store` with tags `marker_detector, apt, python, build, config`. |
 | `test_node_files_exist` | pyproject, uv.lock and README of the node exist. |

@@ -223,9 +223,8 @@ def test_node_module_imports_and_wires_topics():
     cfg = MarkerDetectorConfig.model_validate(
         {
             "process_hz": 4.0,
+            "cameras": [{"name": "head", "image": "/x/image", "camera_info": "/x/info", "depth_plane": True}],
             "topics": {
-                "image": "/x/image",
-                "camera_info": "/x/info",
                 "depth": "/x/depth",
                 "depth_info": "/x/depth_info",
                 "poi_command": "/x/poi",
@@ -234,7 +233,7 @@ def test_node_module_imports_and_wires_topics():
         }
     )
     node = MagicMock()
-    MarkerDetectorRos(cfg, node, MarkerPipeline(cfg))
+    MarkerDetectorRos(cfg, node, MarkerPipeline)
     subscribed = {call.args[1] for call in node.create_subscription.call_args_list}
     assert subscribed == {"/x/image", "/x/info", "/x/depth", "/x/depth_info"}
     publishers = {call.args[1]: call.args[2] for call in node.create_publisher.call_args_list}
@@ -252,9 +251,9 @@ def test_node_skips_depth_subscriptions_when_disabled():
 
     cfg = MarkerDetectorConfig.model_validate({"depth_plane": {"enabled": False}})
     node = MagicMock()
-    MarkerDetectorRos(cfg, node, MarkerPipeline(cfg))
+    MarkerDetectorRos(cfg, node, MarkerPipeline)
     subscribed = [call.args[1] for call in node.create_subscription.call_args_list]
-    assert sorted(subscribed) == sorted([cfg.topics.image, cfg.topics.camera_info])
+    assert sorted(subscribed) == sorted([cfg.cameras[0].image, cfg.cameras[0].camera_info])
 
 
 def depth_info_msg(k: list[float], distortion_model: str = "plumb_bob"):
@@ -285,7 +284,7 @@ def test_node_depth_info_gives_shared_intrinsics_to_the_pipeline():
 
     cfg = MarkerDetectorConfig()
     pipeline = MagicMock()
-    wrapper = MarkerDetectorRos(cfg, MagicMock(), pipeline)
+    wrapper = MarkerDetectorRos(cfg, MagicMock(), lambda _: pipeline)
     depth = np.full((DEPTH_SIZE[1], DEPTH_SIZE[0]), 1000, dtype=np.uint16)
     wrapper.on_depth(depth_msg(depth))
     pipeline.on_depth.assert_not_called()  # no depth camera_info yet
@@ -302,7 +301,7 @@ def test_node_drops_depth_after_an_invalid_depth_info():
     from marker_detector.node import MarkerDetectorRos
 
     pipeline = MagicMock()
-    wrapper = MarkerDetectorRos(MarkerDetectorConfig(), MagicMock(), pipeline)
+    wrapper = MarkerDetectorRos(MarkerDetectorConfig(), MagicMock(), lambda _: pipeline)
     wrapper.on_depth_info(depth_info_msg(list(DEPTH_K.ravel())))
     wrapper.on_depth_info(depth_info_msg([0.0] * 9))
     wrapper.on_depth(depth_msg(np.full((DEPTH_SIZE[1], DEPTH_SIZE[0]), 1000, dtype=np.uint16)))

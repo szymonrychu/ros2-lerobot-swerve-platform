@@ -1103,8 +1103,8 @@ ros2_node_type_defaults:
     env:
       - COSTMAP_ZONES_CONFIG=/etc/ros2/costmap_zones/config.yaml
   marker_detector:
-    # Decodes printed QR metadata markers in the head D435 colour stream, estimates their pose and upserts marker
-    # POIs in poi_store: see nodes/marker_detector/README.md.
+    # Decodes printed QR metadata markers in the head D435, front and back camera streams, estimates their pose and
+    # upserts marker POIs in poi_store: see nodes/marker_detector/README.md.
     deploy_mode: native
     node_launch_command: "python3 -m marker_detector"
     node_src_dir: "nodes/marker_detector"
@@ -3766,15 +3766,28 @@ ros2_nodes:
       executor: events
       # Prometheus /metrics on 127.0.0.1 (scraped by Alloy: monitoring_node_targets).
       metrics_port: 19118
+      # Each camera gets its own pipeline at process_hz. Front and back (CSI Camera Module 3) publish camera_info only
+      # once calibrated on the web_ui Calibrate page; until then they are skipped. Only the head D435 has depth.
+      cameras:
+        - name: head
+          image: /head/d435/color/image_raw/compressed
+          camera_info: /head/d435/color/camera_info
+          depth_plane: true
+        - name: front
+          image: /front_camera/image_raw/compressed
+          camera_info: /front_camera/camera_info
+          depth_plane: false
+        - name: back
+          image: /back_camera/image_raw/compressed
+          camera_info: /back_camera/camera_info
+          depth_plane: false
       topics:
-        # D435 colour, and the D435 depth aligned to it and decimated by head_rgbd_cpp (same stamp as the colour set).
-        image: /head/d435/color/image_raw/compressed
-        camera_info: /head/d435/color/camera_info
+        # D435 depth aligned to the head colour and decimated by head_rgbd_cpp (same stamp as the colour set).
         depth: /head_rgbd/depth/image_raw
         depth_info: /head_rgbd/depth/camera_info
         poi_command: /poi/command
         detections: /markers/detections
-      # Stream frames processed per second (0.1..15).
+      # Frames processed per second per camera (0.1..15).
       process_hz: 2.0
       map_frame: map
       tf_timeout_s: 0.2

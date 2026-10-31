@@ -30,12 +30,50 @@ def test_defaults_from_empty_yaml(tmp_path: Path) -> None:
     assert cfg.metrics_port is None
 
 
-def test_topics_are_the_d435(tmp_path: Path) -> None:
-    topics = load_config(write(tmp_path, "")).topics
-    assert topics.image == "/head/d435/color/image_raw/compressed"
-    assert topics.camera_info == "/head/d435/color/camera_info"
-    assert topics.depth == "/head_rgbd/depth/image_raw"
-    assert topics.depth_info == "/head_rgbd/depth/camera_info"
+def test_default_camera_is_the_d435_head(tmp_path: Path) -> None:
+    cfg = load_config(write(tmp_path, ""))
+    assert [c.model_dump() for c in cfg.cameras] == [
+        {
+            "name": "head",
+            "image": "/head/d435/color/image_raw/compressed",
+            "camera_info": "/head/d435/color/camera_info",
+            "depth_plane": True,
+        }
+    ]
+    assert cfg.topics.depth == "/head_rgbd/depth/image_raw"
+    assert cfg.topics.depth_info == "/head_rgbd/depth/camera_info"
+
+
+@pytest.mark.parametrize("key", ["image", "camera_info"])
+def test_topics_image_and_camera_info_are_rejected(tmp_path: Path, key: str) -> None:
+    with pytest.raises(ValidationError, match=key):
+        load_config(write(tmp_path, f"topics:\n  {key}: /x\n"))
+
+
+def camera(name: str, depth_plane: bool = False) -> str:
+    return (
+        f"  - name: {name}\n    image: /{name}/image_raw/compressed\n    camera_info: /{name}/camera_info\n"
+        f"    depth_plane: {str(depth_plane).lower()}\n"
+    )
+
+
+def test_cameras_list_validates(tmp_path: Path) -> None:
+    cfg = load_config(write(tmp_path, "cameras:\n" + camera("head", True) + camera("front") + camera("back")))
+    assert [(c.name, c.image, c.camera_info, c.depth_plane) for c in cfg.cameras] == [
+        ("head", "/head/image_raw/compressed", "/head/camera_info", True),
+        ("front", "/front/image_raw/compressed", "/front/camera_info", False),
+        ("back", "/back/image_raw/compressed", "/back/camera_info", False),
+    ]
+    with pytest.raises(ValidationError, match="unique"):
+        load_config(write(tmp_path, "cameras:\n" + camera("front") + camera("front")))
+    with pytest.raises(ValidationError, match="depth_plane"):
+        load_config(write(tmp_path, "cameras:\n" + camera("head", True) + camera("front", True)))
+    with pytest.raises(ValidationError, match="bogus"):
+        load_config(write(tmp_path, "cameras:\n" + camera("head") + "    bogus: 1\n"))
+    with pytest.raises(ValidationError, match="cameras"):
+        load_config(write(tmp_path, "cameras: []\n"))
+    with pytest.raises(ValidationError, match="name"):
+        load_config(write(tmp_path, "cameras:\n  - image: /a\n    camera_info: /b\n"))
 
 
 def test_tof_section_rejected(tmp_path: Path) -> None:

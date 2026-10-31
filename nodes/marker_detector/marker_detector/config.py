@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 CONFIG_ENV = "MARKER_DETECTOR_CONFIG"
 DEFAULT_CONFIG_PATH = "/etc/ros2/marker_detector/config.yaml"
@@ -17,9 +17,27 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class CameraSource(StrictModel):
+    """One camera scanned for markers: its compressed image and camera_info topics.
+
+    ``depth_plane`` marks the camera whose aligned depth (``topics.depth``) settles the planar pose ambiguity.
+    """
+
+    name: str = Field(min_length=1)
+    image: str
+    camera_info: str
+    depth_plane: bool = False
+
+
+HEAD_D435 = CameraSource(
+    name="head",
+    image="/head/d435/color/image_raw/compressed",
+    camera_info="/head/d435/color/camera_info",
+    depth_plane=True,
+)
+
+
 class TopicsConfig(StrictModel):
-    image: str = "/head/d435/color/image_raw/compressed"
-    camera_info: str = "/head/d435/color/camera_info"
     depth: str = "/head_rgbd/depth/image_raw"
     depth_info: str = "/head_rgbd/depth/camera_info"
     poi_command: str = "/poi/command"
@@ -44,6 +62,7 @@ class DepthPlaneConfig(StrictModel):
 
 
 class MarkerDetectorConfig(StrictModel):
+    cameras: list[CameraSource] = Field(default_factory=lambda: [HEAD_D435], min_length=1)
     topics: TopicsConfig = TopicsConfig()
     process_hz: float = Field(2.0, ge=0.1, le=15)
     map_frame: str = "map"
@@ -52,6 +71,20 @@ class MarkerDetectorConfig(StrictModel):
     depth_plane: DepthPlaneConfig = DepthPlaneConfig()
     metrics_port: int | None = None
     executor: Literal["events", "single_threaded"] = "single_threaded"
+
+    @model_validator(mode="after")
+    def check_cameras(self) -> "MarkerDetectorConfig":
+        """Reject duplicate camera names and more than one depth_plane camera.
+
+        Returns:
+            The validated config.
+        """
+        names = [camera.name for camera in self.cameras]
+        if len(set(names)) != len(names):
+            raise ValueError(f"cameras: names must be unique, got {names}")
+        if sum(camera.depth_plane for camera in self.cameras) > 1:
+            raise ValueError("cameras: at most one camera may set depth_plane")
+        return self
 
 
 def config_path() -> Path:

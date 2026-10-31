@@ -55,6 +55,31 @@ def test_marker_detector_entry_after_poi_store_with_config() -> None:
     MarkerDetectorConfig(**config)
 
 
+def test_marker_detector_cameras_are_head_front_back() -> None:
+    entry = next(n for n in client_vars()["ros2_nodes"] if n["name"] == "marker_detector")
+    cameras = yaml.safe_load(entry["config"])["cameras"]
+    assert cameras == [
+        {
+            "name": "head",
+            "image": "/head/d435/color/image_raw/compressed",
+            "camera_info": "/head/d435/color/camera_info",
+            "depth_plane": True,
+        },
+        {
+            "name": "front",
+            "image": "/front_camera/image_raw/compressed",
+            "camera_info": "/front_camera/camera_info",
+            "depth_plane": False,
+        },
+        {
+            "name": "back",
+            "image": "/back_camera/image_raw/compressed",
+            "camera_info": "/back_camera/camera_info",
+            "depth_plane": False,
+        },
+    ]
+
+
 def test_marker_detector_entry_has_no_zoom() -> None:
     nodes = client_vars()["ros2_nodes"]
     entry = next(n for n in nodes if n["name"] == "marker_detector")
