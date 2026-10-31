@@ -132,6 +132,8 @@ export interface ArmResult {
   tool_fitted?: boolean;
   /** Tool point in gripper_frame_link (m): the fitted one when `tool_fitted`, else the current one. */
   tool_offset_m?: number[];
+  /** Tool point the fit started from (the arm config's current one), m in gripper_frame_link. */
+  tool_offset_current_m?: number[];
   offsets?: Record<string, ArmOffset>;
   head?: Record<string, ArmHeadParam>;
   limits?: ArmLimit[];
@@ -242,6 +244,7 @@ const ARM_FIT: Record<string, Check> = {
   wrist_roll_fitted: isBool,
   tool_fitted: isBool,
   tool_offset_m: isNumArray,
+  tool_offset_current_m: isNumArray,
   offsets: allOf({ value: isNum, sigma: isNullNum, current: isNum }),
   head: allOf({ value: isNum, sigma: isNullNum, urdf: isNullNum }),
   limits: isArrayOf(

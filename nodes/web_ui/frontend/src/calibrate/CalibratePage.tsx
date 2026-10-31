@@ -43,6 +43,8 @@ interface Props {
 /** Hidden Calibrate page, reached from the hamburger menu at #/calibrate. */
 export function CalibratePage({ onBack }: Props) {
   const [state, setState] = useState<LoadState>({ kind: 'loading' })
+  // The Arm calibration section runs the head-arm sequence: Head from arm leaves the big-joint confirm to it.
+  const [armRun, setArmRun] = useState(false)
 
   useEffect(() => {
     let live = true
@@ -77,8 +79,8 @@ export function CalibratePage({ onBack }: Props) {
           {state.config.imu && <ImuCalibration />}
           {state.config.rgbd && <RgbdCalibration />}
           {state.config.rgbd && <HeadFloorFit />}
-          {state.config.rgbd && <HeadArmCalibration />}
-          {state.config.rgbd && <ArmCalibration />}
+          {state.config.rgbd && <HeadArmCalibration armRun={armRun} />}
+          {state.config.rgbd && <ArmCalibration onRunChange={setArmRun} />}
           {state.config.servos && <ServoNeutral />}
         </>
       )}

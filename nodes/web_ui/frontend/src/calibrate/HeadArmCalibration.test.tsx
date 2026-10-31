@@ -129,6 +129,13 @@ describe('HeadArmCalibration', () => {
     expect(m.allowBigJoints).toHaveBeenLastCalledWith(false)
   })
 
+  it('opens no big-joint confirm of its own during an arm run', async () => {
+    setState(seq({ running: true, phase: 'waiting_big_joints' }))
+    render(<HeadArmCalibration armRun />)
+    await screen.findByText(/Tier/)
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
   it('Park only after its confirm', async () => {
     setState(seq({ phase: 'holding', running: true }))
     m.park.mockResolvedValue(ok(seq({ phase: 'parking' })))

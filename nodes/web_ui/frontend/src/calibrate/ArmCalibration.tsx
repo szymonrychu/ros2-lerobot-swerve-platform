@@ -39,6 +39,7 @@ const PHASE_WAITING_BIG = 'waiting_big_joints'
 const BIG_JOINTS = ['elbow_flex', 'shoulder_lift', 'shoulder_pan']
 
 const signed = (v: number, digits: number) => `${v >= 0 ? '+' : ''}${v.toFixed(digits)}`
+const mm = (m: number[] | undefined) => m?.map((v) => (v * M_TO_MM).toFixed(1)).join(', ')
 const fixed = (v: number | null | undefined, digits: number) => (v === null || v === undefined ? '-' : v.toFixed(digits))
 
 /**
@@ -62,7 +63,8 @@ function headChange(result: ArmResult, key: string, scale: number, digits: numbe
  * @param result - arm result
  */
 function ArmResultCard({ result }: { result: ArmResult }) {
-  const tool = result.tool_offset_m?.map((v) => (v * M_TO_MM).toFixed(1)).join(', ')
+  const tool = mm(result.tool_offset_m)
+  const current = mm(result.tool_offset_current_m)
   const snippet = result.snippet
   return (
     <Box sx={{ mt: 1 }}>
@@ -111,7 +113,7 @@ function ArmResultCard({ result }: { result: ArmResult }) {
       )}
       {tool !== undefined && (
         <Typography variant="body2">
-          {`Tool point ${result.tool_fitted ? `new (mm) ${tool} (fitted)` : `current (mm) ${tool} (kept)`}, held-out error ${fixed(result.holdout_tool_mm, 2)} mm`}
+          {`Tool point ${result.tool_fitted ? `current (mm) ${current ?? '-'}, new (mm) ${tool} (fitted)` : `current (mm) ${tool} (kept)`}, held-out error ${fixed(result.holdout_tool_mm, 2)} mm`}
         </Typography>
       )}
       {result.head && (
@@ -147,8 +149,10 @@ function ArmResultCard({ result }: { result: ArmResult }) {
  * board on the fixed jaw. Needs an applied head chain. Drives the head-arm sequence (base pose, board attached:
  * tiers 0 and 1; shoulder moves only after their confirm), computes the arm fit on the session and applies its head
  * part; the offsets snippet is committed by hand.
+ *
+ * @param onRunChange - told whether a sequence this section started is running
  */
-export function ArmCalibration() {
+export function ArmCalibration({ onRunChange }: { onRunChange?: (running: boolean) => void }) {
   const [sequence, setSequence] = useState<HeadArmSequence | null>(null)
   const [applied, setApplied] = useState<AppliedHeadChain | null>(null)
   const [sessions, setSessions] = useState<HeadArmSession[]>([])
@@ -160,6 +164,8 @@ export function ArmCalibration() {
   const [confirmShoulder, setConfirmShoulder] = useState(false)
   // Start moved the arm to the base pose: Board attached follows once the sequence waits for the board.
   const [attachPending, setAttachPending] = useState(false)
+  // A sequence started here and not yet ended.
+  const [ownRun, setOwnRun] = useState(false)
 
   const reload = useCallback(async () => {
     const [s, l] = await Promise.all([getHeadArmState(), listHeadArmSessions()])
@@ -193,6 +199,13 @@ export function ArmCalibration() {
     } else setError(r.message)
   }, [])
 
+  useEffect(() => {
+    if (ownRun && !running && !attachPending) setOwnRun(false)
+  }, [ownRun, running, attachPending])
+  useEffect(() => {
+    onRunChange?.(ownRun)
+  }, [ownRun, onRunChange])
+
   const phase = sequence?.phase ?? PHASE_IDLE
   useEffect(() => {
     if (!attachPending) return
@@ -225,6 +238,7 @@ export function ArmCalibration() {
     }
     setSequence(r.value)
     setError(null)
+    setOwnRun(true)
     if (r.value.phase === PHASE_WAITING_BOARD) await step(boardAttached)
     else setAttachPending(true)
   }

@@ -188,8 +188,13 @@ export function Confirm(props: {
   )
 }
 
-/** Head from arm section of the Calibrate page: guided arm sequence, fit against the trusted arm, apply. */
-export function HeadArmCalibration() {
+/**
+ * Head from arm section of the Calibrate page: guided arm sequence, fit against the trusted arm, apply.
+ *
+ * @param armRun - the Arm calibration section runs the sequence: this section follows its progress and leaves the
+ *   big-joint confirm to that section
+ */
+export function HeadArmCalibration({ armRun = false }: { armRun?: boolean }) {
   const [sequence, setSequence] = useState<HeadArmSequence | null>(null)
   const [applied, setApplied] = useState<AppliedHeadChain | null>(null)
   const [sessions, setSessions] = useState<HeadArmSession[]>([])
@@ -216,10 +221,10 @@ export function HeadArmCalibration() {
 
   const running = sequence?.running === true
   useEffect(() => {
-    if (!running) return
+    if (!running && !armRun) return
     const id = setInterval(() => void reload(), ARM_POLL_MS)
     return () => clearInterval(id)
-  }, [running, reload])
+  }, [running, armRun, reload])
 
   /** Runs one sequence call and shows its sequence or its error. */
   const step = async (call: () => Promise<FloorApiResult<HeadArmSequence>>) => {
@@ -389,7 +394,7 @@ export function HeadArmCalibration() {
         The arm will move to its park pose, with the board on the gripper or not. Park is refused, naming the rule, when the board would hit the floor, the body or the head.
       </Confirm>
       <Confirm
-        open={phase === PHASE_WAITING_BIG}
+        open={phase === PHASE_WAITING_BIG && !armRun}
         title="Allow elbow and shoulder moves"
         confirmLabel="Allow"
         cancelLabel="Skip"

@@ -36,6 +36,7 @@ const ARM_RESULT = {
   wrist_roll_fitted: false,
   tool_fitted: false,
   tool_offset_m: [0.0, 0.0, -0.0981],
+  tool_offset_current_m: [0.0, 0.0, -0.0981],
   offsets: {
     shoulder_pan: { value: 0.02, sigma: 0.001, current: 0.0182 },
     wrist_roll: { value: 0.0, sigma: null, current: 0.0 },
@@ -167,6 +168,10 @@ describe("headArmApi", () => {
       value: ARM_RESULT,
     });
     const { snippet: _s, ...rest } = ARM_RESULT;
+    stub(200, { ...ARM_RESULT, tool_offset_current_m: ["x"] });
+    const badTool = await getHeadArmResult("s", "r");
+    expect(badTool.ok).toBe(false);
+    if (!badTool.ok) expect(badTool.message).toContain("tool_offset_current_m");
     stub(200, { ...rest, snippet: 3 });
     const bad = await getHeadArmResult("s", "r");
     expect(bad.ok).toBe(false);

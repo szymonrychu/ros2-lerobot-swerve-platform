@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { ArmCalibration } from './ArmCalibration'
+import { CalibratePage } from './CalibratePage'
 import { ARM_POLL_MS } from './HeadArmCalibration'
 import stateFx from '../../../../head_rgbd_calibration/tests/fixtures/api/head_arm_state.json'
 import applyFx from '../../../../head_rgbd_calibration/tests/fixtures/api/floor_apply.json'
@@ -41,6 +42,7 @@ const RESULT: ArmResult = {
   wrist_roll_fitted: false,
   tool_fitted: true,
   tool_offset_m: [0.001, -0.002, -0.0981],
+  tool_offset_current_m: [0.001, -0.0056, -0.0014],
   offsets: {
     shoulder_pan: { value: 2 * DEG, sigma: 0.1 * DEG, current: 1 * DEG },
     wrist_roll: { value: 0, sigma: null, current: 0 },
@@ -186,7 +188,9 @@ describe('ArmCalibration', () => {
     expect(row('shoulder_pan')).toBe('shoulder_pan1.0002.000+1.0000.100')
     expect(row('wrist_roll')).toBe('wrist_roll0.0000.000+0.000-')
     expect(screen.getByText(/wrist_roll fixed/)).toBeTruthy()
-    expect(screen.getByText(/Tool point new \(mm\) 1.0, -2.0, -98.1 \(fitted\), held-out error 1.90 mm/)).toBeTruthy()
+    expect(
+      screen.getByText(/Tool point current \(mm\) 1.0, -5.6, -1.4, new \(mm\) 1.0, -2.0, -98.1 \(fitted\), held-out error 1.90 mm/),
+    ).toBeTruthy()
     expect(screen.getByText(/Head change: x \+1.00 mm, y -0.50 mm, yaw \+0.150 deg/)).toBeTruthy()
     expect(screen.getByText(/shoulder_pan: 0.0349/)).toBeTruthy()
     const download = screen.getByRole('link', { name: 'Download zip' })
@@ -196,11 +200,14 @@ describe('ArmCalibration', () => {
 
   it('a kept tool point says so', async () => {
     setState(seq({}))
-    m.computeArm.mockResolvedValue(ok({ ...RESULT, tool_fitted: false, wrist_roll_fitted: true }))
+    m.computeArm.mockResolvedValue(
+      ok({ ...RESULT, tool_fitted: false, tool_offset_m: [0.001, -0.0056, -0.0014], wrist_roll_fitted: true }),
+    )
     await open()
     await click('Compute')
     await screen.findByText('Passed')
-    expect(screen.getByText(/Tool point current \(mm\) 1.0, -2.0, -98.1 \(kept\)/)).toBeTruthy()
+    expect(screen.getByText(/Tool point current \(mm\) 1.0, -5.6, -1.4 \(kept\)/)).toBeTruthy()
+    expect(screen.queryByText(/new \(mm\)/)).toBeNull()
     expect(screen.getByText(/wrist_roll fitted/)).toBeTruthy()
   })
 
@@ -256,5 +263,50 @@ describe('ArmCalibration', () => {
     await open()
     await screen.findByText('Passed')
     expect(m.getHeadArmResult).toHaveBeenCalledWith(SESSION.id, RESULT.id)
+  })
+
+  it('reports its run so the page shows one big-joint confirm', async () => {
+    const onRunChange = vi.fn()
+    setState(seq({}))
+    m.moveToBase.mockResolvedValue(ok(seq({ running: true, phase: 'waiting_board' })))
+    m.boardAttached.mockResolvedValue(ok(seq({ running: true, phase: 'capturing', tier: 0 })))
+    render(<ArmCalibration onRunChange={onRunChange} />)
+    await act(async () => {})
+    expect(onRunChange).toHaveBeenLastCalledWith(false)
+    await click('Arm calibrate')
+    await click('Start')
+    expect(onRunChange).toHaveBeenLastCalledWith(true)
+  })
+})
+
+describe('Calibrate page during an arm run', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('shows exactly one big-joint confirm', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        url === '/api/calibration/config'
+          ? new Response(JSON.stringify({ rgbd: true }))
+          : new Response(JSON.stringify({ message: 'not here' }), { status: 404 }),
+      ),
+    )
+    setState(seq({}))
+    m.moveToBase.mockResolvedValue(ok(seq({ running: true, phase: 'waiting_board' })))
+    m.boardAttached.mockResolvedValue(ok(seq({ running: true, phase: 'capturing', tier: 0 })))
+    render(<CalibratePage onBack={() => {}} />)
+    await act(async () => {})
+    await click('Arm calibrate')
+    await click('Start')
+    setState(seq({ running: true, phase: 'waiting_big_joints' }))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ARM_POLL_MS * 2)
+    })
+    expect(screen.queryAllByRole('dialog')).toHaveLength(0)
+    await click('Allow shoulder moves')
+    expect(screen.getAllByRole('dialog')).toHaveLength(1)
   })
 })
