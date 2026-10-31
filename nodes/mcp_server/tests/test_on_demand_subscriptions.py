@@ -138,7 +138,7 @@ def test_idle_node_has_no_camera_scan_or_tf_subscription(rig: Rig) -> None:
 
 
 def test_camera_tool_call_subscribes_and_returns_a_real_frame(rig: Rig) -> None:
-    frame = camera_frame(rig, "front", CAMERA_TOPIC)
+    frame = camera_frame(rig, "head", CAMERA_TOPIC)
     assert rig.topics().count(CAMERA_TOPIC) == 1
     assert (frame.width, frame.height) == (64, 48)
     decoded = cv2.imdecode(np.frombuffer(frame.jpeg, np.uint8), cv2.IMREAD_COLOR)
@@ -149,20 +149,20 @@ def test_camera_tool_call_subscribes_and_returns_a_real_frame(rig: Rig) -> None:
 
 def test_gripper_camera_is_unknown(ros_iface: ModuleType, rig: Rig) -> None:
     """The retired gripper camera has no topic: the front (head D435 colour) camera is the only one."""
-    assert rig.robot.camera_topics == {"front": CAMERA_TOPIC}
+    assert rig.robot.camera_topics == {"head": CAMERA_TOPIC}
     with pytest.raises(ros_iface.RobotError, match="unknown camera"):
         rig.robot.camera_image("gripper", 640)
     assert "/camera_0/image_raw/compressed" not in rig.topics()
 
 
 def test_camera_subscription_destroyed_after_idle_linger_and_recreated(rig: Rig) -> None:
-    camera_frame(rig, "front", CAMERA_TOPIC)
+    camera_frame(rig, "head", CAMERA_TOPIC)
     _cb, sub = rig.latest(CAMERA_TOPIC)
     linger = rig.robot.cfg.on_demand.linger_s
     rig.clock[0] += linger - 1.0
     rig.robot.reap_on_demand()
     assert rig.destroyed() == []
-    camera_frame(rig, "front", CAMERA_TOPIC)  # a use restarts the linger
+    camera_frame(rig, "head", CAMERA_TOPIC)  # a use restarts the linger
     rig.clock[0] += linger - 1.0
     rig.robot.reap_on_demand()
     assert rig.destroyed() == []
@@ -171,14 +171,14 @@ def test_camera_subscription_destroyed_after_idle_linger_and_recreated(rig: Rig)
     assert rig.destroyed() == [sub]
     rig.robot.reap_on_demand()
     assert rig.destroyed() == [sub]  # destroyed once
-    camera_frame(rig, "front", CAMERA_TOPIC)
+    camera_frame(rig, "head", CAMERA_TOPIC)
     assert rig.topics().count(CAMERA_TOPIC) == 2
 
 
 def test_camera_call_without_publisher_fails_after_image_timeout(ros_iface: ModuleType, monkeypatch: Any) -> None:
     rig = Rig(ros_iface, monkeypatch, McpServerConfig(timeouts={"image_timeout_s": 0.05}))
     with pytest.raises(ros_iface.RobotError, match="no frame"):
-        rig.robot.camera_image("front", 640)
+        rig.robot.camera_image("head", 640)
     assert CAMERA_TOPIC in rig.topics()
 
 
@@ -322,7 +322,7 @@ def test_motion_critical_topics_subscribed_at_start_and_never_destroyed(
     rig.robot.tf_buffer.lookup_transform.return_value = identity_tf()
     rig.robot.scan_points()
     rig.robot.lookup_pose("map", "base_link")
-    camera_frame(rig, "front", CAMERA_TOPIC)
+    camera_frame(rig, "head", CAMERA_TOPIC)
     for _ in range(5):
         rig.clock[0] += config.on_demand.linger_s
         rig.robot.reap_on_demand()

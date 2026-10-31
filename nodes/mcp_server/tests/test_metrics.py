@@ -68,7 +68,7 @@ def test_tool_calls_and_duration_are_recorded_for_ok_and_failing_calls(server: A
     error = Delta("mcp_tool_calls_total", tool="get_camera_image", outcome="error")
     camera_seconds = Delta("mcp_tool_duration_seconds_count", tool="get_camera_image")
     with pytest.raises(Exception, match="no frame"):
-        call(server, "get_camera_image", {"camera": "front"})
+        call(server, "get_camera_image", {"camera": "head"})
     assert error() == 1 and camera_seconds() == 1
 
 

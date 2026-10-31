@@ -947,7 +947,7 @@ def camera_axis(record: LookupRecord) -> tuple[float, float, float] | None:
     """Camera position and horizontal viewing direction of a lookup in the map frame.
 
     The axis yaw is the base yaw plus the yaw of the camera body x axis (camera_pose_base rpy, fixed-axis xyz). A
-    front-camera record has a camera_pose_base (the head-composed pose at capture, so a panned head faces where it
+    head-camera record has a camera_pose_base (the head-composed pose at capture, so a panned head faces where it
     looked). Only a legacy record without one (taken before the camera sat on the head) falls back to the base pose and
     heading; any other camera without a pose, and a camera looking straight up or down, has no axis.
 
@@ -962,7 +962,7 @@ def camera_axis(record: LookupRecord) -> tuple[float, float, float] | None:
         return None
     cam = record.camera_pose_base
     if cam is None:
-        return (base.x, base.y, base.yaw) if record.camera == "front" else None
+        return (base.x, base.y, base.yaw) if record.camera == "head" else None
     axis = Rotation.from_euler("xyz", cam.rpy).apply(CAMERA_BODY_X)
     if math.hypot(axis[0], axis[1]) < MIN_HORIZONTAL_AXIS:
         return None

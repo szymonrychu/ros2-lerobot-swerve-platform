@@ -402,7 +402,7 @@ def test_look_around_tool_returns_montage_summary_and_topdown(tmp_path: Path) ->
     robot = RotatingRobot(tmp_path)
     server = build_mcp_server(robot, McpServerConfig(), TOKEN)
     take(server, "base")
-    res = call(server, "look_around", {"captures": 4, "camera": "front", "mode": "steps", "return_to_start": True})
+    res = call(server, "look_around", {"captures": 4, "camera": "head", "mode": "steps", "return_to_start": True})
     images = [c for c in res.content if c.type == "image"]
     assert len(images) == 2
     assert images[0].mime_type == "image/jpeg" and images[1].mime_type == "image/png"
@@ -415,7 +415,7 @@ def test_look_around_tool_returns_montage_summary_and_topdown(tmp_path: Path) ->
     moves = [c for c in robot.calls if c[0] == "move_relative"]
     assert len(moves) == 4
     cams = [c[1][0] for c in robot.calls if c[0] == "camera_image"]
-    assert cams == ["front"] * 4
+    assert cams == ["head"] * 4
 
 
 def test_look_around_tool_defaults_to_one_spin_without_returning(tmp_path: Path) -> None:

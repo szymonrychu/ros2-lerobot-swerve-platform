@@ -508,19 +508,19 @@ def record(
 
 
 def test_facing_lookup_front_camera_without_pose_uses_the_base_heading() -> None:
-    hit = facing_lookup((2.0, 0.5), [record("a", "front", 100.0)], 30.0, 6.0, now=160.0)
+    hit = facing_lookup((2.0, 0.5), [record("a", "head", 100.0)], 30.0, 6.0, now=160.0)
     assert hit is not None
-    assert hit["lookup_id"] == "a" and hit["camera"] == "front"
+    assert hit["lookup_id"] == "a" and hit["camera"] == "head"
     assert hit["age_s"] == pytest.approx(60.0)
     assert hit["distance_m"] == pytest.approx(math.hypot(2.0, 0.5), abs=1e-3)
     assert hit["off_axis_deg"] == pytest.approx(math.degrees(math.atan2(0.5, 2.0)), abs=0.1)
 
 
 def test_facing_lookup_angle_and_distance_gates() -> None:
-    recs = [record("a", "front", 100.0, pose=(0.0, 0.0, 0.0))]
+    recs = [record("a", "head", 100.0, pose=(0.0, 0.0, 0.0))]
     assert facing_lookup((0.0, 2.0), recs, 30.0, 6.0, now=160.0) is None  # 90 deg off axis
     assert facing_lookup((7.0, 0.0), recs, 30.0, 6.0, now=160.0) is None  # too far
-    turned = [record("b", "front", 100.0, pose=(0.0, 0.0, math.pi / 2))]
+    turned = [record("b", "head", 100.0, pose=(0.0, 0.0, math.pi / 2))]
     assert facing_lookup((0.0, 2.0), turned, 30.0, 6.0, now=160.0) is not None
 
 
@@ -536,10 +536,10 @@ def test_facing_lookup_gripper_without_pose_skipped_and_with_pose_used() -> None
 
 def test_facing_lookup_newest_wins_and_unposed_records_skipped() -> None:
     recs = [
-        record("old", "front", 100.0),
-        record("new", "front", 200.0),
-        record("nopose", "front", 300.0, pose=None),
-        record("away", "front", 400.0, pose=(0.0, 0.0, math.pi)),
+        record("old", "head", 100.0),
+        record("new", "head", 200.0),
+        record("nopose", "head", 300.0, pose=None),
+        record("away", "head", 400.0, pose=(0.0, 0.0, math.pi)),
     ]
     hit = facing_lookup((2.0, 0.0), recs, 30.0, 6.0, now=250.0)
     assert hit is not None and hit["lookup_id"] == "new" and hit["age_s"] == pytest.approx(50.0)

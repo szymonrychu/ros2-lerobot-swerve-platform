@@ -362,7 +362,7 @@ def test_look_toward_frontier_rotates_with_the_right_sign(
     data = out(res)
     assert data["status"] == "succeeded" and data["rotation_deg"] == pytest.approx(sign * 90.0, abs=3.0)
     assert abs(data["heading_error_deg"]) < 3.0
-    assert data["image_captured"] is True and data["camera"] == "front"
+    assert data["image_captured"] is True and data["camera"] == "head"
     assert [c.type for c in res.content][:2] == ["image", "text"]
 
 
@@ -424,14 +424,14 @@ def test_look_toward_frontier_never_moves_the_arm(server: Any, robot: FrontierRo
     take(server, "base")
     robot.pose = robot.pose.model_copy(update={"yaw": math.pi / 2})
     before = len(robot.arm_backend.commands)
-    data = out(call(server, "look_toward_frontier", {"id": 1, "camera": "front"}))
+    data = out(call(server, "look_toward_frontier", {"id": 1, "camera": "head"}))
     assert len(robot.arm_backend.commands) == before
-    assert data["camera"] == "front"
+    assert data["camera"] == "head"
 
 
 def test_look_toward_frontier_uses_front(server: Any, robot: FrontierRobot) -> None:
     text = tool_schema_text(server, "look_toward_frontier")
-    assert '"enum": ["front"]' in text or '"const": "front"' in text
+    assert '"enum": ["head"]' in text or '"const": "head"' in text
     assert "D435" in text and "gripper" not in text
     assert not hasattr(frontier_tools, "GRIPPER_NOTE")
     take(server, "base")
@@ -440,8 +440,8 @@ def test_look_toward_frontier_uses_front(server: Any, robot: FrontierRobot) -> N
         call(server, "look_toward_frontier", {"id": 1, "camera": "gripper"})
     assert motion_calls(robot) == []
     data = out(call(server, "look_toward_frontier", {"id": 1}))
-    assert data["camera"] == "front" and data["image_captured"] is True
-    assert [c[1][0] for c in robot.calls if c[0] == "camera_image"] == ["front"]
+    assert data["camera"] == "head" and data["image_captured"] is True
+    assert [c[1][0] for c in robot.calls if c[0] == "camera_image"] == ["head"]
     assert not any("gripper" in n for n in data["notes"])
 
 

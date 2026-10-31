@@ -294,7 +294,7 @@ def run_look_around(
         settings (LookAroundSettings): Step timeout, frame size, margins and capture limits.
         footprint (FootprintSettings): Robot outer frame.
         captures (int): Number of stops.
-        camera (Camera): 'front', the D435 colour camera on the pan/tilt head.
+        camera (Camera): 'head', the D435 colour camera on the pan/tilt head.
         yaw_tolerance_deg (float): Largest final heading error still counted as back at the start (nav.goal_yaw_tolerance_deg).
 
     Returns:
@@ -466,7 +466,7 @@ def run_spin_mode(
         settings (LookAroundSettings): Spin speed, rate, timeout margin and frame size.
         plan (LookPlan): Headings.
         required (float): Free radius needed for the rotation (m).
-        camera (Camera): 'front', the D435 colour camera on the pan/tilt head.
+        camera (Camera): 'head', the D435 colour camera on the pan/tilt head.
         start (BasePose): Start pose.
         run (LookAroundRun): Result and frames to fill.
         return_to_start (bool): Turn the full circle back to the start heading.

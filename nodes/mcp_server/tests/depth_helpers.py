@@ -50,9 +50,9 @@ ARM_JOINT_SETS = (
 
 
 def depth_config(**arm: object) -> McpServerConfig:
-    """Config with the deployed front camera (CameraInfo intrinsics, zero mount on d435_color_frame) and the arm mount."""
+    """Config with the deployed head camera (CameraInfo intrinsics, zero mount on d435_color_frame) and the arm mount."""
     data: dict[str, object] = {
-        "cameras": {"front": {"intrinsics": {"camera_info_topic": INFO_TOPIC}, "mount": D435_MOUNT}},
+        "cameras": {"head": {"intrinsics": {"camera_info_topic": INFO_TOPIC}, "mount": D435_MOUNT}},
         "arm": {"base_in_base_link": ARM_BASE, **arm},
     }
     return McpServerConfig.model_validate(data)
@@ -93,7 +93,7 @@ class DepthRobot(CameraRobot):
 
     def __init__(self, tmp_path: Path) -> None:
         super().__init__(tmp_path)
-        self.camera_infos["front"] = INFO
+        self.camera_infos["head"] = INFO
 
     def camera_image(self, camera: str, max_px: int) -> CameraFrame:
         self.calls.append(("camera_image", (camera, max_px)))

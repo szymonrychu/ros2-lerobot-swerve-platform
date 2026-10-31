@@ -24,8 +24,8 @@ DEFAULT_URDF = Path("nodes/web_ui/urdf/so101_arm.urdf")
 DEFAULT_HOME_FILE = Path("/var/lib/ros2/arm/home.yaml")
 DEFAULT_CALIBRATION_STALE_MARKER = Path("/var/lib/ros2/arm/calibration_stale.json")
 DEFAULT_CALIBRATION_DIR = Path("/var/lib/ros2/camera_calibration")
-FRONT_CAMERA_PARENT = "d435_color_frame"  # head URDF link (head.urdf_path) the front (D435 colour) camera hangs on
-FRONT_CAMERA_INFO_TOPIC = "/head/d435/color/camera_info"  # D435 factory colour intrinsics of the front camera
+HEAD_CAMERA_PARENT = "d435_color_frame"  # head URDF link (head.urdf_path) the head (D435 colour) camera hangs on
+HEAD_CAMERA_INFO_TOPIC = "/head/d435/color/camera_info"  # D435 factory colour intrinsics of the head camera
 DEFAULT_OBJECTS_FILE = Path("/var/lib/ros2/objects/objects.json")
 DEFAULT_LOOKUPS_DIR = Path("/var/lib/ros2/poi/lookups")  # camera lookups, next to poi_store's poi.json
 # Offline inverse reachability map (reach_map.py), committed inside the package so it deploys with the git checkout.
@@ -166,7 +166,7 @@ class TopicSettings(StrictModel):
     navigate_action: str = "/navigate_to_pose"
     compute_path_action: str = "/compute_path_to_pose"  # Nav2 planner_server, checks one frontier observation pose
     planner_id: str = "GridBased"  # planner_server plugin id used by compute_path_action
-    head_camera: str = "/head/d435/color/image_raw/compressed"  # head D435 colour (640x360), tool camera `front`
+    head_camera: str = "/head/d435/color/image_raw/compressed"  # head D435 colour (640x360), tool camera `head`
     # D435 depth registered to the colour image (16UC1 mm) and its CameraInfo: subscribed on demand by pixel_to_point.
     head_depth: str = "/head/d435/aligned_depth_to_color/image_raw"
     head_depth_info: str = "/head/d435/aligned_depth_to_color/camera_info"
@@ -762,31 +762,31 @@ class CameraSettings(StrictModel):
 
 
 def d435_colour_camera() -> CameraSettings:
-    """The front camera default: the D435 colour, zero mount on d435_color_frame, intrinsics from its CameraInfo.
+    """The head camera default: the D435 colour, zero mount on d435_color_frame, intrinsics from its CameraInfo.
 
     Returns:
-        CameraSettings: The default front camera (head.urdf supplies the mount pose at the measured head angles).
+        CameraSettings: The default head camera (head.urdf supplies the mount pose at the measured head angles).
     """
     zero = dict.fromkeys(("x", "y", "z", "roll", "pitch", "yaw"), 0.0)
     return CameraSettings(
-        intrinsics=IntrinsicsSettings(camera_info_topic=FRONT_CAMERA_INFO_TOPIC),
-        parent_frame=FRONT_CAMERA_PARENT,
-        mount=MountPose(parent_frame=FRONT_CAMERA_PARENT, **zero),
+        intrinsics=IntrinsicsSettings(camera_info_topic=HEAD_CAMERA_INFO_TOPIC),
+        parent_frame=HEAD_CAMERA_PARENT,
+        mount=MountPose(parent_frame=HEAD_CAMERA_PARENT, **zero),
     )
 
 
 class CamerasSettings(StrictModel):
-    """Camera geometry for the pixel -> ground tools: the front camera, the head D435 colour (calibrated once its
+    """Camera geometry for the pixel -> ground tools: the head camera, the head D435 colour (calibrated once its
     CameraInfo arrives), is the only camera."""
 
     calibration_dir: Path = DEFAULT_CALIBRATION_DIR
-    front: CameraSettings = Field(default_factory=d435_colour_camera)
+    head: CameraSettings = Field(default_factory=d435_colour_camera)
 
     @model_validator(mode="after")
     def resolve_parent_frame(self) -> "CamerasSettings":
-        """Fill in the front camera's parent frame and require its mount to agree with it.
+        """Fill in the head camera's parent frame and require its mount to agree with it.
 
-        The front camera hangs on a head URDF link (default d435_color_frame, checked against head.urdf_path by
+        The head camera hangs on a head URDF link (default d435_color_frame, checked against head.urdf_path by
         McpServerConfig).
 
         Returns:
@@ -795,12 +795,12 @@ class CamerasSettings(StrictModel):
         Raises:
             ValueError: When the mount's parent_frame differs from the camera's parent_frame.
         """
-        cam = self.front
+        cam = self.head
         if cam.parent_frame is None:
-            cam.parent_frame = cam.mount.parent_frame if cam.mount is not None else FRONT_CAMERA_PARENT
+            cam.parent_frame = cam.mount.parent_frame if cam.mount is not None else HEAD_CAMERA_PARENT
         if cam.mount is not None and cam.mount.parent_frame != cam.parent_frame:
             raise ValueError(
-                f"cameras.front: mount.parent_frame {cam.mount.parent_frame!r} differs from parent_frame "
+                f"cameras.head: mount.parent_frame {cam.mount.parent_frame!r} differs from parent_frame "
                 f"{cam.parent_frame!r}"
             )
         return self
@@ -1636,7 +1636,7 @@ class FrontierSettings(StrictModel):
     # A poi list older than this keeps the last keep-out zones (poi_store republishes only on change, so keep it long).
     keepout_poi_stale_s: float = Field(default=600.0, gt=0.0)
     look_timeout_s: float = Field(default=20.0, gt=0.0)  # look_toward_frontier rotation timeout
-    look_camera: Literal["front"] = "front"  # look_toward_frontier default camera (the head D435 colour)
+    look_camera: Literal["head"] = "head"  # look_toward_frontier default camera (the head D435 colour)
 
     @model_validator(mode="after")
     def standoff_window_not_empty(self) -> "FrontierSettings":
@@ -1662,7 +1662,7 @@ class ExplorationSettings(StrictModel):
 
 
 class GraspCheckSettings(StrictModel):
-    """Post-lift visual grasp check: the front camera (head D435 colour) frame, the head aimed at the FK tool point,
+    """Post-lift visual grasp check: the head camera (head D435 colour) frame, the head aimed at the FK tool point,
     cropped to the region between the jaws."""
 
     crop_depth_m: float = Field(default=0.045, ge=0.0, le=0.2)  # how far into the jaws (toward gripper_link) it reaches
@@ -1759,19 +1759,19 @@ class McpServerConfig(StrictModel):
 
     @model_validator(mode="after")
     def front_parent_on_the_head(self) -> "McpServerConfig":
-        """Require the front camera's parent frame to be a link of the head URDF (it moves with the pan/tilt head).
+        """Require the head camera's parent frame to be a link of the head URDF (it moves with the pan/tilt head).
 
         Returns:
             McpServerConfig: This model.
 
         Raises:
-            ValueError: When cameras.front.parent_frame is not a link of head.urdf_path.
+            ValueError: When cameras.head.parent_frame is not a link of head.urdf_path.
         """
         links = HeadKinematics(self.head.urdf_path).links
-        parent = self.cameras.front.parent_frame
+        parent = self.cameras.head.parent_frame
         if parent not in links:
             raise ValueError(
-                f"cameras.front.parent_frame {parent!r} is not a link of the head URDF {self.head.urdf_path} "
+                f"cameras.head.parent_frame {parent!r} is not a link of the head URDF {self.head.urdf_path} "
                 f"(links: {sorted(links)})"
             )
         return self

@@ -218,7 +218,7 @@ def test_target_forms_accept_exactly_one() -> None:
     assert ApproachTarget(xyz={"x": 1.0, "y": 2.0, "z": 0.1}).xyz is not None
     assert ApproachTarget(object_id="cup-1", z_m=0.05).object_id == "cup-1"
     assert ApproachTarget(poi_id="table", z_m=0.7).poi_id == "table"
-    pixel = ApproachTarget(pixel={"camera": "front", "u": 320, "v": 240, "surface_height_m": 0.02})
+    pixel = ApproachTarget(pixel={"camera": "head", "u": 320, "v": 240, "surface_height_m": 0.02})
     assert pixel.pixel is not None and pixel.pixel.surface_height_m == 0.02
     with pytest.raises(ValidationError, match="exactly one"):
         ApproachTarget()
@@ -236,7 +236,7 @@ def test_target_object_and_poi_require_z(fields: dict[str, Any]) -> None:
     "fields",
     [
         {"xyz": {"x": 1.0, "y": 2.0, "z": 0.1}, "z_m": 0.1},
-        {"pixel": {"camera": "front", "u": 1, "v": 2, "surface_height_m": 0.0}, "z_m": 0.1},
+        {"pixel": {"camera": "head", "u": 1, "v": 2, "surface_height_m": 0.0}, "z_m": 0.1},
     ],
 )
 def test_target_z_only_where_the_form_has_no_height(fields: dict[str, Any]) -> None:
@@ -262,9 +262,9 @@ def test_resolve_target_each_form() -> None:
     assert (obj.x, obj.y, obj.z, obj.source) == (1.0, 2.0, 0.05, "object:cup-1")
     poi = resolve(ApproachTarget(poi_id="table", z_m=0.7))
     assert (poi.x, poi.y, poi.z, poi.source) == (3.0, -1.0, 0.7, "poi:table")
-    pix = resolve(ApproachTarget(pixel={"camera": "front", "u": 10, "v": 20, "surface_height_m": 0.03}))
-    assert (pix.x, pix.y, pix.z, pix.source) == (0.5, 0.25, 0.03, "pixel:front")
-    assert pixels == [("front", 10.0, 20.0, 0.03)]
+    pix = resolve(ApproachTarget(pixel={"camera": "head", "u": 10, "v": 20, "surface_height_m": 0.03}))
+    assert (pix.x, pix.y, pix.z, pix.source) == (0.5, 0.25, 0.03, "pixel:head")
+    assert pixels == [("head", 10.0, 20.0, 0.03)]
 
 
 @pytest.mark.parametrize(
@@ -272,7 +272,7 @@ def test_resolve_target_each_form() -> None:
     [
         ApproachTarget(object_id="nope", z_m=0.05),
         ApproachTarget(poi_id="nope", z_m=0.05),
-        ApproachTarget(pixel={"camera": "front", "u": 1, "v": 2, "surface_height_m": 0.0}),
+        ApproachTarget(pixel={"camera": "head", "u": 1, "v": 2, "surface_height_m": 0.0}),
     ],
 )
 def test_resolve_target_unknown_source_refuses(target: ApproachTarget) -> None:

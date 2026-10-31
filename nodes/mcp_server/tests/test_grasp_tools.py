@@ -335,12 +335,12 @@ def test_release_object_tool(server: Any, robot: FakeRobot) -> None:
 
 
 def front_camera(robot: FakeRobot, monkeypatch: pytest.MonkeyPatch) -> list[int]:
-    """Calibrate the front camera from the D435 colour CameraInfo and serve 640x360 frames.
+    """Calibrate the head camera from the D435 colour CameraInfo and serve 640x360 frames.
 
     Returns:
         list[int]: Head commands published before each frame, appended per camera_image call.
     """
-    robot.camera_infos["front"] = D435_INFO
+    robot.camera_infos["head"] = D435_INFO
     head_commands_at_frame: list[int] = []
     ok, jpg = cv2.imencode(".jpg", np.full((D435_SIZE[1], D435_SIZE[0], 3), 90, np.uint8))
     assert ok
@@ -380,7 +380,7 @@ def aim_at_tool_point(robot: FakeRobot) -> dict[str, float]:
 
 
 def test_grasp_image_aims_head_and_crops_front_frame(robot: FakeRobot, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A held close aims the head at the FK tool point, waits for it, then crops the jaws from the front frame."""
+    """A held close aims the head at the FK tool point, waits for it, then crops the jaws from the head frame."""
     head_commands_at_frame = front_camera(robot, monkeypatch)
     robot.arm_backend.positions.update(REACH)  # before take_control, which holds the measured pose
     server = build_mcp_server(robot, McpServerConfig(), TOKEN)
@@ -399,14 +399,14 @@ def test_grasp_image_aims_head_and_crops_front_frame(robot: FakeRobot, monkeypat
     assert len(robot.head_backend.commands) == 1
     assert robot.head_backend.commands[0] == pytest.approx(expected)
     assert head_commands_at_frame == [1]  # the frame was taken after the head aim
-    assert ("camera_image", ("front", max(D435_SIZE))) in robot.calls
+    assert ("camera_image", ("head", max(D435_SIZE))) in robot.calls
     crop = data["grasp_check"]["crop"]
     assert crop["full_frame_reason"] is None and crop["box_px"] is not None, crop
     x0, y0, x1, y1 = crop["box_px"]
     assert 0 <= x0 < D435_INFO.k[2] < x1 <= D435_SIZE[0] and 0 <= y0 < D435_INFO.k[5] < y1 <= D435_SIZE[1]
     image = cv2.imdecode(np.frombuffer(base64.b64decode(only_image(res).data), np.uint8), cv2.IMREAD_COLOR)
     assert image.shape[:2] == (y1 - y0, x1 - x0)
-    assert recorded == ["front"] and data["grasp_check"]["image"] == "pending"
+    assert recorded == ["head"] and data["grasp_check"]["image"] == "pending"
 
 
 def test_grasp_image_at_the_head_limit_crops_a_jaw_still_in_view(
@@ -450,7 +450,7 @@ def test_grasp_image_reports_why_it_did_not_crop(
     aimed: bool,
 ) -> None:
     """No lease for the head, an aim beyond the head limits, a jaw inside the D435 min-Z or a head that does not
-    settle: the full front frame, with the reason, and no box."""
+    settle: the full head frame, with the reason, and no box."""
     front_camera(robot, monkeypatch)
     robot.arm_backend.positions.update(pose)
     if case != "lease":
@@ -460,7 +460,7 @@ def test_grasp_image_reports_why_it_did_not_crop(
     jpeg, width, height, crop = grasp_tools.jaw_crop_jpeg(ctx, "grasp_object")
     assert crop.box_px is None and crop.full_frame_reason is not None and reason in crop.full_frame_reason
     assert (width, height) == D435_SIZE and grasp_tools.jpeg_size(jpeg) == D435_SIZE
-    assert ("camera_image", ("front", max(D435_SIZE))) in robot.calls
+    assert ("camera_image", ("head", max(D435_SIZE))) in robot.calls
     assert len(robot.head_backend.commands) == (1 if aimed else 0)
 
 
@@ -476,7 +476,7 @@ def test_an_empty_band_hold_attaches_the_jaw_crop_and_awaits_confirm_grasp(serve
     data = res.structured_content
     assert data["outcome"] == "unverified", data["reasons"]
     only_image(res)
-    assert ("camera_image", ("front", CONFIG.grasp_check.image_px)) in robot.calls
+    assert ("camera_image", ("head", CONFIG.grasp_check.image_px)) in robot.calls
     check = data["grasp_check"]
     text = " ".join(data["reasons"])
     assert "confirm_grasp" in text and check["grasp_id"] in text and "get_camera_image" not in text
@@ -529,7 +529,7 @@ def test_the_crop_box_is_cropped_recorded_and_reported(
     assert crop == {"lookup_id": "lk-1", "box_px": [2, 1, 12, 9], "full_frame_reason": None}
     assert len(recorded) == 1
     tool, camera, jpeg, width, height, full_frame = recorded[0]
-    assert (tool, camera, (width, height)) == ("grasp_object", "front", (10, 8))
+    assert (tool, camera, (width, height)) == ("grasp_object", "head", (10, 8))
     assert full_frame is False  # a crop: its field of view is not the camera's
     assert base64.b64decode(only_image(res).data) == jpeg
 
@@ -560,7 +560,7 @@ def test_a_camera_failure_gives_not_attached_and_a_warning_but_stays_unverified(
     data = res.structured_content
     assert data["outcome"] == "unverified"
     assert data["grasp_check"]["image"] == "not_attached" and data["grasp_check"]["crop"] is None
-    assert any("front camera image" in w and "no frame" in w for w in data["warnings"])
+    assert any("head camera image" in w and "no frame" in w for w in data["warnings"])
     text = " ".join(data["reasons"])
     assert "confirm_grasp" in text and data["grasp_check"]["grasp_id"] in text
     assert not [c for c in res.content if isinstance(c, ImageContent)]
@@ -831,7 +831,7 @@ def test_queue_path_reason_claims_no_image(tmp_path: Path) -> None:
     result = run_grasp(arm)
     assert result.outcome == "unverified"
     text = " ".join(result.reasons)
-    assert "get_camera_image" in text and "'front'" in text
+    assert "get_camera_image" in text and "'head'" in text
     assert "attached" not in text
 
 
@@ -867,7 +867,7 @@ def test_unverified_hold_relaxes_to_the_default_torque_after_the_timeout(tmp_pat
 
 
 def test_grasp_tool_texts_name_the_head_d435_not_the_gripper_camera(server: Any) -> None:
-    """The jaw image comes from the head D435 ('front'): no tool text sends the agent to a gripper camera, and the
+    """The jaw image comes from the head D435 ('head'): no tool text sends the agent to a gripper camera, and the
     ground estimate is the head D435's, not a ToF's."""
 
     async def run() -> Any:
@@ -878,8 +878,8 @@ def test_grasp_tool_texts_name_the_head_d435_not_the_gripper_camera(server: Any)
         text = (tools[name].description or "") + json.dumps(tools[name].input_schema)
         assert "gripper camera" not in text and "get_camera_image 'gripper'" not in text, name
         assert "ToF" not in text, name
-    assert "front camera image" in (tools["set_gripper"].description or "")
-    assert "get_camera_image 'front'" in (tools["enqueue_motions"].description or "")
+    assert "head camera image" in (tools["set_gripper"].description or "")
+    assert "get_camera_image 'head'" in (tools["enqueue_motions"].description or "")
     assert "head D435 ground estimate" in json.dumps(tools["grasp_object"].input_schema)
     assert "head D435 ground" in (tools["move_arm_cartesian"].description or "")
-    assert "front camera" in (McpServerConfig.model_fields["grasp_check"].annotation.__doc__ or "")
+    assert "head camera" in (McpServerConfig.model_fields["grasp_check"].annotation.__doc__ or "")

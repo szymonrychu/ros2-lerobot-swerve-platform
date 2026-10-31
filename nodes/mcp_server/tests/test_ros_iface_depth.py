@@ -52,17 +52,17 @@ def test_aligned_depth_is_for_the_front_camera_only(ros_iface: ModuleType) -> No
     with pytest.raises(RobotError, match="no aligned depth"):
         robot.aligned_depth("gripper")
     robot.depth_source.read.assert_not_called()
-    assert robot.aligned_depth("front") is robot.depth_source.read.return_value
+    assert robot.aligned_depth("head") is robot.depth_source.read.return_value
 
 
 def test_touch_depth_subscribes_depth_info_and_colour(ros_iface: ModuleType) -> None:
     robot = make_robot(ros_iface)
     robot.depth_sub, robot.depth_info_sub = MagicMock(), MagicMock()
-    robot.camera_subs = {"front": MagicMock()}
+    robot.camera_subs = {"head": MagicMock()}
     robot.touch_depth()
     robot.depth_sub.touch.assert_called_once()
     robot.depth_info_sub.touch.assert_called_once()
-    robot.camera_subs["front"].touch.assert_called_once()
+    robot.camera_subs["head"].touch.assert_called_once()
 
 
 def test_depth_info_reads_the_cached_camera_info(ros_iface: ModuleType) -> None:

@@ -44,7 +44,7 @@ def mcp_config(applied: Path) -> McpServerConfig:
     return McpServerConfig.model_validate(
         {
             "head": {"applied_dir": str(applied)},
-            "cameras": {"front": {"intrinsics": COLOUR_INFO, "mount": D435_MOUNT}},
+            "cameras": {"head": {"intrinsics": COLOUR_INFO, "mount": D435_MOUNT}},
             "arm": {"base_in_base_link": ARM_BASE},
         }
     )
@@ -72,7 +72,7 @@ def test_scene_camera_to_arm_equals_the_calibration_chain(tmp_path: Path, pan: f
     applied = applied_dir(tmp_path)
     cfg = mcp_config(applied)
     head = mcp_head(cfg, pan, tilt)
-    scene = build_scene(camera_setup(cfg, "front"), cfg, head_parent_transform(cfg, head))
+    scene = build_scene(camera_setup(cfg, "head"), cfg, head_parent_transform(cfg, head))
     assert scene.t_arm_ref is not None
     mcp = scene.t_arm_ref @ scene.t_ref_optical
     expected = calibration_t_arm_optical(calibration_chain(applied), CAMERA_FRAME, pan, tilt)

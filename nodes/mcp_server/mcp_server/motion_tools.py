@@ -83,7 +83,7 @@ def register(ctx: ToolContext) -> None:
             "timeout_s?}; wait_s {seconds}; grasp {object, strategy?, params? (params.grip_profile picks the grip), "
             "approach_pitch_deg?, surfaces?} (as grasp_object; surfaces as for the arm motion tools: stair / table / "
             "hole regions with step edges; only outcome grasped succeeds: an 'unverified' grasp - jaw closed into the "
-            "empty band, still holding - fails the step, so look with get_camera_image 'front'). "
+            "empty band, still holding - fails the step, so look with get_camera_image 'head'). "
             "BLENDING: consecutive arm steps run as ONE continuous trajectory through their targets (no stop between "
             "them); a step with settle='final', any non-arm step, a precondition, a different speed_scale or "
             "slow-zone override ends the blend (the arm comes to rest there). The result lists the blend groups. "

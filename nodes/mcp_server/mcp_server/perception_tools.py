@@ -465,8 +465,8 @@ def register(ctx: ToolContext) -> None:
             int, Field(ge=la.min_captures, le=la.max_captures, description="Number of stops (equal steps)")
         ] = la.default_captures,
         camera: Annotated[
-            Camera, Field(description="'front': the D435 colour camera on the pan/tilt head (the only camera)")
-        ] = "front",
+            Camera, Field(description="'head': the D435 colour camera on the pan/tilt head (the only camera)")
+        ] = "head",
         mode: Annotated[
             LookMode | None, Field(description="'spin' (continuous, fast) or 'steps' (Nav2 per heading)")
         ] = None,

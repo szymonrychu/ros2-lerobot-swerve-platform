@@ -130,7 +130,7 @@ NODE_NAME = "mcp_server"
 FEEDS_NODE_NAME = "mcp_server_feeds"
 GROUND_DEFAULT_AGE: Any = object()  # sentinel: use timeouts.ground_state_stale_s
 CAMERA_INFO_KEY = "camera_info_{camera}"  # cache key of a camera's latest CameraInfo
-DEPTH_INFO_KEY = "camera_info_front_depth"  # cache key of the aligned depth stream's latest CameraInfo
+DEPTH_INFO_KEY = "camera_info_head_depth"  # cache key of the aligned depth stream's latest CameraInfo
 # Best effort subscribers match both reliable and best-effort publishers.
 SENSOR_QOS = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST, depth=1)
 # slam_toolbox publishes /map reliable + transient_local (latched).
@@ -764,7 +764,7 @@ class RosRobot:
         self.subscribe(String, t.base_servo_registers, self.on_servo_registers)
         # On-demand camera subscriptions, destroyed only by the reaper timer: per-call subscriptions destroyed from tool
         # threads raced the executor's wait set (rclpy InvalidHandle killed the executor thread, 2026-10-08).
-        self.camera_topics = {"front": t.head_camera}
+        self.camera_topics = {"head": t.head_camera}
         self.camera_frames = {name: FrameCache() for name in self.camera_topics}
         self.camera_subs = {
             name: self.on_demand_subscription(
@@ -773,11 +773,11 @@ class RosRobot:
             )
             for name, topic in self.camera_topics.items()
         }
-        # On-demand CameraInfo of the front camera when its intrinsics come from a camera_info_topic (the D435 factory
+        # On-demand CameraInfo of the head camera when its intrinsics come from a camera_info_topic (the D435 factory
         # calibration); the latest message is kept until the subscription is reaped.
-        front = config.cameras.front.intrinsics
+        head = config.cameras.head.intrinsics
         self.camera_info_topics = (
-            {"front": front.camera_info_topic} if front is not None and front.camera_info_topic is not None else {}
+            {"head": head.camera_info_topic} if head is not None and head.camera_info_topic is not None else {}
         )
         self.camera_info_subs = {
             name: self.on_demand_subscription(
@@ -787,7 +787,7 @@ class RosRobot:
             )
             for name, topic in self.camera_info_topics.items()
         }
-        # On-demand aligned depth of the front camera (pixel_to_point): the Image, its CameraInfo and the colour stream
+        # On-demand aligned depth of the head camera (pixel_to_point): the Image, its CameraInfo and the colour stream
         # it is paired with by header stamp. Reaped like the other camera subscriptions.
         self.depth_frames = FrameCache()
         self.depth_sub = self.on_demand_subscription(
@@ -801,7 +801,7 @@ class RosRobot:
         )
         self.depth_source = DepthSource(
             depth_cache=self.depth_frames,
-            colour_cache=self.camera_frames["front"],
+            colour_cache=self.camera_frames["head"],
             read_info=self.depth_info,
             touch=self.touch_depth,
             ros_age=self.ros_age,
@@ -1910,7 +1910,7 @@ class RosRobot:
         """Wait for the next frame on the camera's on-demand subscription (subscribed by the first call).
 
         Args:
-            camera (str): A camera_topics name ('front' is the head D435 colour camera); CompressedImage topics.
+            camera (str): A camera_topics name ('head' is the head D435 colour camera); CompressedImage topics.
             max_px (int): Longest side.
 
         Returns:
@@ -1983,7 +1983,7 @@ class RosRobot:
         """Subscribe the aligned depth, its CameraInfo and the colour stream (on demand; the reaper destroys them)."""
         self.depth_sub.touch()
         self.depth_info_sub.touch()
-        self.camera_subs["front"].touch()
+        self.camera_subs["head"].touch()
 
     def depth_info(self) -> CameraInfoData | None:
         """Latest CameraInfo of the aligned depth stream.
@@ -1998,7 +1998,7 @@ class RosRobot:
         """Fresh aligned depth frame of the camera, paired with the colour frame of the same frameset.
 
         Args:
-            camera (str): Camera name ('front').
+            camera (str): Camera name ('head').
 
         Returns:
             DepthFrame: Depth with its stamps and CameraInfo.
@@ -2006,7 +2006,7 @@ class RosRobot:
         Raises:
             RobotError: As DepthSource.read, or for a camera without aligned depth.
         """
-        if camera != "front":
+        if camera != "head":
             raise RobotError(f"camera {camera!r} has no aligned depth")
         return self.depth_source.read()
 

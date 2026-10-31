@@ -114,7 +114,7 @@ ImageHeight = Annotated[
         ge=16,
         le=4096,
         description=(
-            "Height (px) of the image the pixel was read from (216 for the 384x216 front picture, 288 for a 384x288 "
+            "Height (px) of the image the pixel was read from (216 for the 384x216 head picture, 288 for a 384x288 "
             "one; each camera's default size is in the tool description)"
         ),
     ),
@@ -399,7 +399,7 @@ def register(ctx: ToolContext) -> None:
             "model and mount onto a horizontal plane: the flat floor by default, or the surface the pixel lies on when "
             "surface_height_m is given (height relative to the robot's floor, positive above, negative below: the top "
             "of a 3 cm box is 0.03, a floor 10 cm lower is -0.10); the result reports surface_height_m and the "
-            "coordinates have z = floor + surface_height_m. 'front' is the D435 colour camera on the pan/tilt head, "
+            "coordinates have z = floor + surface_height_m. 'head' is the D435 colour camera on the pan/tilt head, "
             "posed from the head pan/tilt at image_stamp_s (the stamp_s of the picture you read the pixel from) or, "
             "without it, the CURRENT measured angles (refused while the head moves). Returns ground_base_link "
             "{x,y,z} (m, x forward, y left, floor z = 0), ground_arm {frame 'arm', x, y, z}: the same point in the arm "
@@ -414,7 +414,7 @@ def register(ctx: ToolContext) -> None:
         )
     )
     def pixel_to_ground(
-        camera: Annotated[Camera, Field(description="'front' (the head D435 colour camera)")],
+        camera: Annotated[Camera, Field(description="'head' (the head D435 colour camera)")],
         u: Annotated[float, Field(description="Pixel x (right)")],
         v: Annotated[float, Field(description="Pixel y (down)")],
         surface_height_m: SurfaceHeight = 0.0,
@@ -519,7 +519,7 @@ def register(ctx: ToolContext) -> None:
         )
     )
     def pixel_to_point(
-        camera: Annotated[Camera, Field(description="'front' (the head D435 colour camera)")],
+        camera: Annotated[Camera, Field(description="'head' (the head D435 colour camera)")],
         u: Annotated[float, Field(description="Pixel x (right)")],
         v: Annotated[float, Field(description="Pixel y (down)")],
         window_px: WindowPx = None,
@@ -622,7 +622,7 @@ def register(ctx: ToolContext) -> None:
         ),
     )
     def get_annotated_camera_image(
-        camera: Annotated[Camera, Field(description="'front' (the head D435 colour camera)")],
+        camera: Annotated[Camera, Field(description="'head' (the head D435 colour camera)")],
         overlays: Annotated[
             list[Overlay], Field(description="Overlays to draw: grid, reach, gripper, planned_gripper, lidar")
         ] = Field(default_factory=lambda: ["grid"]),
@@ -722,7 +722,7 @@ def register(ctx: ToolContext) -> None:
         ),
     )
     def mark_candidate_points(
-        camera: Annotated[Camera, Field(description="'front' (the head D435 colour camera)")],
+        camera: Annotated[Camera, Field(description="'head' (the head D435 colour camera)")],
         region: Annotated[Region | None, Field(description="Pixel rectangle; the whole image when omitted")] = None,
         spacing_px: Annotated[
             int, Field(ge=8, le=320, description="Grid spacing in pixels of the calibrated image")
@@ -828,7 +828,7 @@ def register(ctx: ToolContext) -> None:
         description=(
             "Store one calibration sample (read-only for the robot; writes a JSON file): the pixel (u, v) of a marker "
             "whose floor position you measured, with that ground point in base_link (floor z = 0) and the parent-link "
-            "pose at this moment (the current head pan/tilt: the front camera's parent is a head link, so keep the "
+            "pose at this moment (the current head pan/tilt: the head camera's parent is a head link, so keep the "
             "head still or capture views at several head poses). Returns the sample count. Use several well spread "
             "markers, then call solve_camera_calibration. Works before the camera is calibrated. The pixel is in the "
             "calibrated image size (the intrinsics' width x height) unless image_width / image_height give the size "
@@ -837,7 +837,7 @@ def register(ctx: ToolContext) -> None:
         )
     )
     def capture_calibration_sample(
-        camera: Annotated[Camera, Field(description="'front' (the head D435 colour camera)")],
+        camera: Annotated[Camera, Field(description="'head' (the head D435 colour camera)")],
         u: Annotated[float, Field(description="Marker pixel x in the image")],
         v: Annotated[float, Field(description="Marker pixel y in the image")],
         ground_x: Annotated[float, Field(description="Marker x (m) in base_link")],
@@ -875,7 +875,7 @@ def register(ctx: ToolContext) -> None:
         )
     )
     def solve_camera_calibration(
-        camera: Annotated[Camera, Field(description="'front' (the head D435 colour camera)")],
+        camera: Annotated[Camera, Field(description="'head' (the head D435 colour camera)")],
         initial: Annotated[
             MountGuess | None, Field(description="Starting mount; defaults to the configured one")
         ] = None,
@@ -923,7 +923,7 @@ def register(ctx: ToolContext) -> None:
         )
     )
     def clear_calibration_samples(
-        camera: Annotated[Camera, Field(description="'front' (the head D435 colour camera)")],
+        camera: Annotated[Camera, Field(description="'head' (the head D435 colour camera)")],
     ) -> CallToolResult:
         """Delete calibration samples; the tool description is passed to the decorator."""
         with camera_errors():

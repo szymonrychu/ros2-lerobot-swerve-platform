@@ -16,9 +16,9 @@ D435_COLOUR_TOPIC = "/head/d435/color/image_raw/compressed"
 D435_COLOUR_INFO_TOPIC = "/head/d435/color/camera_info"
 D435_COLOUR_FRAME = "d435_color_frame"
 D435_COLOUR_OPTICAL_FRAME = "d435_color_optical_frame"
-# The front camera takes the D435 factory colour intrinsics from its CameraInfo (no calibration file, no rescale).
-D435_FRONT_INTRINSICS = {"camera_info_topic": D435_COLOUR_INFO_TOPIC}
-# The front (D435 colour) camera mount is the identity on d435_color_frame: head.urdf (with the applied head chain,
+# The head camera takes the D435 factory colour intrinsics from its CameraInfo (no calibration file, no rescale).
+D435_HEAD_INTRINSICS = {"camera_info_topic": D435_COLOUR_INFO_TOPIC}
+# The head (D435 colour) camera mount is the identity on d435_color_frame: head.urdf (with the applied head chain,
 # through HeadKinematics) is the real mount.
 D435_COLOUR_MOUNT = {
     "parent_frame": D435_COLOUR_FRAME,
@@ -60,20 +60,20 @@ def test_setup_tasks_create_the_calibration_directory_owned_by_the_node_user() -
     assert calib["owner"] == "{{ ansible_user }}" and calib["group"] == "{{ ansible_user }}"
 
 
-def test_cameras_config_front_on_the_d435() -> None:
+def test_cameras_config_head_on_the_d435() -> None:
     cameras = mcp_config()["cameras"]
     assert cameras["calibration_dir"] == CALIBRATION_DIR
-    assert set(cameras) == {"calibration_dir", "front"}  # the gripper camera is retired
-    # The front camera is the D435 colour stream: on d435_color_frame with a zero mount and its CameraInfo intrinsics.
-    assert cameras["front"] == {
+    assert set(cameras) == {"calibration_dir", "head"}  # the gripper camera is retired
+    # The head camera is the D435 colour stream: on d435_color_frame with a zero mount and its CameraInfo intrinsics.
+    assert cameras["head"] == {
         "parent_frame": D435_COLOUR_FRAME,
-        "intrinsics": D435_FRONT_INTRINSICS,
+        "intrinsics": D435_HEAD_INTRINSICS,
         "mount": D435_COLOUR_MOUNT,
     }
 
 
-def test_front_camera_is_the_d435_colour() -> None:
-    """The front camera reads the live D435 colour stream, hangs on the head.urdf colour frame whose optical child is
+def test_head_camera_is_the_d435_colour() -> None:
+    """The head camera reads the live D435 colour stream, hangs on the head.urdf colour frame whose optical child is
     the frame the stream is stamped in, and takes its intrinsics from the colour CameraInfo of the same frame."""
     cfg = mcp_config()
     live = yaml.safe_load(D435_TOPICS.read_text())["topics"]
@@ -81,8 +81,8 @@ def test_front_camera_is_the_d435_colour() -> None:
     assert topic == D435_COLOUR_TOPIC
     assert live[topic]["type"] == "sensor_msgs/msg/CompressedImage"
     assert live[topic]["frame_id"] == D435_COLOUR_OPTICAL_FRAME
-    front = cfg["cameras"]["front"]
-    assert front["parent_frame"] == front["mount"]["parent_frame"] == D435_COLOUR_FRAME
+    head = cfg["cameras"]["head"]
+    assert head["parent_frame"] == head["mount"]["parent_frame"] == D435_COLOUR_FRAME
     robot = ET.parse(REPO_ROOT / cfg["head"]["urdf_path"]).getroot()
     assert D435_COLOUR_FRAME in {link.attrib["name"] for link in robot.iter("link")}
     children = [
@@ -91,20 +91,20 @@ def test_front_camera_is_the_d435_colour() -> None:
         if joint.find("parent").attrib["link"] == D435_COLOUR_FRAME
     ]
     assert children == [D435_COLOUR_OPTICAL_FRAME]
-    assert front["intrinsics"] == D435_FRONT_INTRINSICS
-    info = live[front["intrinsics"]["camera_info_topic"]]
+    assert head["intrinsics"] == D435_HEAD_INTRINSICS
+    info = live[head["intrinsics"]["camera_info_topic"]]
     assert info["type"] == "sensor_msgs/msg/CameraInfo"
     assert info["frame_id"] == live[topic]["frame_id"]
 
 
-def test_front_parent_frame_is_a_head_urdf_link_and_the_mount_is_the_zero_offset_on_it() -> None:
+def test_head_parent_frame_is_a_head_urdf_link_and_the_mount_is_the_zero_offset_on_it() -> None:
     cfg = mcp_config()
     assert cfg["head"]["urdf_path"] == HEAD_URDF
     robot = ET.parse(REPO_ROOT / cfg["head"]["urdf_path"]).getroot()
-    front = cfg["cameras"]["front"]
-    assert front["parent_frame"] in {link.attrib["name"] for link in robot.iter("link")}
-    assert front["parent_frame"] == front["mount"]["parent_frame"] == D435_COLOUR_FRAME
-    mount = front["mount"]
+    head = cfg["cameras"]["head"]
+    assert head["parent_frame"] in {link.attrib["name"] for link in robot.iter("link")}
+    assert head["parent_frame"] == head["mount"]["parent_frame"] == D435_COLOUR_FRAME
+    mount = head["mount"]
     assert [mount[k] for k in ("x", "y", "z", "roll", "pitch", "yaw")] == [0.0] * 6
 
 

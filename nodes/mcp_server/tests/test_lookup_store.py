@@ -26,7 +26,7 @@ from mcp_server.lookup_store import (
 JPEG = b"\xff\xd8\xff\xe0" + b"x" * 96  # 100 bytes
 # A line in the exact pre-E11 index format (no photo keys).
 LEGACY_LINE = (
-    '{"id": "0123456789abcdef0123456789abcdef", "ts": 1760000000.5, "tool": "get_camera_image", "camera": "front", '
+    '{"id": "0123456789abcdef0123456789abcdef", "ts": 1760000000.5, "tool": "get_camera_image", "camera": "head", '
     '"width": 640, "height": 480, "file": "0123456789abcdef0123456789abcdef.jpg", "bytes": 100, '
     '"base_pose_map": {"x": 1.0, "y": 2.0, "yaw": 0.5}, "arm_joints": null, "camera_pose_base": null, '
     '"mcp_session": "sess-1", "note": "", "poi_ids": []}'
@@ -49,7 +49,7 @@ class IndexWriter:
             "id": rec_id,
             "ts": self.ts,
             "tool": "get_camera_image",
-            "camera": "front",
+            "camera": "head",
             "width": 20,
             "height": 10,
             "file": f"{rec_id}.jpg",
@@ -208,7 +208,7 @@ def test_corrupt_line_warns_once_across_reads(
 def populated(writer: IndexWriter, store: LookupStore) -> tuple[LookupStore, dict[str, LookupRecord]]:
     recs = {
         "kitchen": writer.add(
-            camera="front",
+            camera="head",
             base_pose_map={"x": 0.0, "y": 0.0, "yaw": 0.0},
             mcp_session="s1",
             note="Red CUP near the sink",
@@ -221,10 +221,10 @@ def populated(writer: IndexWriter, store: LookupStore) -> tuple[LookupStore, dic
             base_pose_map={"x": 5.0, "y": 0.0, "yaw": 0.0},
             mcp_session="s1",
         ),
-        "nopose": writer.add(step_s=100.0, camera="front", mcp_session="s2"),
+        "nopose": writer.add(step_s=100.0, camera="head", mcp_session="s2"),
         "shelf": writer.add(
             step_s=100.0,
-            camera="front",
+            camera="head",
             base_pose_map={"x": 0.5, "y": 0.5, "yaw": 1.0},
             note="books",
             poi_ids=["poi-shelf", "poi-sink"],
@@ -256,7 +256,7 @@ def test_query_limit_is_capped_at_20() -> None:
     [
         ({}, ["shelf", "nopose", "hall", "kitchen"]),
         ({"camera": "gripper"}, ["hall"]),
-        ({"camera": "front"}, ["shelf", "nopose", "kitchen"]),
+        ({"camera": "head"}, ["shelf", "nopose", "kitchen"]),
         ({"mcp_session": "s1"}, ["hall", "kitchen"]),
         ({"poi_id": "poi-sink"}, ["shelf", "kitchen"]),
         ({"poi_id": "poi-shelf"}, ["shelf"]),
@@ -265,7 +265,7 @@ def test_query_limit_is_capped_at_20() -> None:
         ({"near": {"x": 0.0, "y": 0.0, "radius_m": 1.0}}, ["shelf", "kitchen"]),  # records without a pose never match
         ({"near": {"x": 5.2, "y": 0.0, "radius_m": 0.5}}, ["hall"]),
         ({"near": {"x": 20.0, "y": 0.0, "radius_m": 1.0}}, []),
-        ({"camera": "front", "near": {"x": 0.0, "y": 0.0, "radius_m": 1.0}, "text": "books"}, ["shelf"]),
+        ({"camera": "head", "near": {"x": 0.0, "y": 0.0, "radius_m": 1.0}, "text": "books"}, ["shelf"]),
     ],
 )
 def test_query_filter_matrix(

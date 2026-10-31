@@ -588,7 +588,7 @@ def run_look_toward_frontier(ctx: ToolContext, frontier_id: int, camera: Camera)
     Args:
         ctx (ToolContext): Shared registration context.
         frontier_id (int): Frontier id.
-        camera (Camera): 'front', the head D435 colour camera (the arm never moves).
+        camera (Camera): 'head', the head D435 colour camera (the arm never moves).
 
     Returns:
         CallToolResult: [image, JSON LookTowardFrontierResult] (no image when the rotation failed).
@@ -918,7 +918,7 @@ def register(ctx: ToolContext) -> None:
     def look_toward_frontier(
         id: Annotated[int, Field(description="Frontier id")],  # noqa: A002
         camera: Annotated[
-            Camera | None, Field(description="'front': the D435 colour camera on the pan/tilt head (the only camera)")
+            Camera | None, Field(description="'head': the D435 colour camera on the pan/tilt head (the only camera)")
         ] = None,
     ) -> CallToolResult:
         """Face a frontier and capture; the description is passed to the decorator."""

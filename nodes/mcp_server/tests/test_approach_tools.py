@@ -29,7 +29,7 @@ from .test_tools import TOKEN, FakeRobot, call, take, tool_schema_text
 SMALL_SQUARE = [(0.04, 0.04), (-0.04, 0.04), (-0.04, -0.04), (0.04, -0.04)]
 GRID_RES = 0.05
 GRID_SIZE_M = 12.0
-# A target the synthetic front camera sees from the robot's pose (1, 2, 0.5): 0.74 m ahead of it.
+# A target the synthetic head camera sees from the robot's pose (1, 2, 0.5): 0.74 m ahead of it.
 VISIBLE_TARGET = {"x": 1.0 + 0.74 * math.cos(0.5), "y": 2.0 + 0.74 * math.sin(0.5), "z": 0.02}
 FAR_TARGET = {"x": 2.5, "y": 2.0, "z": 0.05}
 REACH_OK = {
@@ -271,16 +271,16 @@ def test_pixel_target_goes_through_the_calibrated_camera(tmp_path: Path, monkeyp
     res = call(
         rig.server,
         "suggest_approach_pose",
-        {"camera": "front", "u": WIDTH / 2, "v": HEIGHT / 2, "surface_height_m": 0.02, "max_results": 1},
+        {"camera": "head", "u": WIDTH / 2, "v": HEIGHT / 2, "surface_height_m": 0.02, "max_results": 1},
     ).structured_content
-    assert res["target"]["source"] == "pixel:front" and res["target"]["z"] == pytest.approx(0.02)
-    # the synthetic front camera sees the floor 0.74 m ahead at the image centre (robot pose 1, 2, 0.5)
+    assert res["target"]["source"] == "pixel:head" and res["target"]["z"] == pytest.approx(0.02)
+    # the synthetic head camera sees the floor 0.74 m ahead at the image centre (robot pose 1, 2, 0.5)
     assert (res["target"]["x"], res["target"]["y"]) == pytest.approx(
         (VISIBLE_TARGET["x"], VISIBLE_TARGET["y"]), abs=0.02
     )
     with pytest.raises(ToolError, match="not calibrated"):
         call(
-            Rig(tmp_path, monkeypatch, lease=False).server, "suggest_approach_pose", {"camera": "front", "u": 1, "v": 1}
+            Rig(tmp_path, monkeypatch, lease=False).server, "suggest_approach_pose", {"camera": "head", "u": 1, "v": 1}
         )
 
 
@@ -380,13 +380,13 @@ def test_dry_run_servoed_reports_the_goal_and_one_tracker_step_without_publishin
 ) -> None:
     rig = Rig(tmp_path, monkeypatch, config=calibrated(), textured=True)
     res = rig.approach(**VISIBLE_TARGET, dry_run=True)
-    assert res["mode"] == "servoed" and "front" in res["mode_reason"]
+    assert res["mode"] == "servoed" and "head" in res["mode_reason"]
     goal = res["would_send"]["dock_goal"]
     assert goal["dock_type"] == "grasp_servoed" and goal["navigate_to_staging_pose"] is True
     assert goal["dock_pose"]["x"] == pytest.approx(res["plan"]["pose"]["x"])
     assert res["would_send"]["action"] == "/grasp/dock_robot"
     tracker = res["tracker"]
-    assert tracker["camera"] == "front" and tracker["seeded"] is True
+    assert tracker["camera"] == "head" and tracker["seeded"] is True
     assert tracker["detection"]["pose"]["x"] == pytest.approx(res["plan"]["pose"]["x"], abs=0.02)
     assert tracker["detection"]["pose"]["yaw"] == pytest.approx(res["plan"]["pose"]["yaw"])
     assert not rig.moved()  # no goal, no detection published, no motion
@@ -412,7 +412,7 @@ def test_mode_is_navigate_when_the_camera_does_not_see_the_target(
     rig = Rig(tmp_path, monkeypatch, config=calibrated())
     monkeypatch.setattr(approach_tools, "visible", lambda scene, point, margin: False)
     res = rig.approach(**VISIBLE_TARGET, dry_run=True)
-    assert res["mode"] == "navigate" and "front" in res["mode_reason"] and "staging" in res["mode_reason"]
+    assert res["mode"] == "navigate" and "head" in res["mode_reason"] and "staging" in res["mode_reason"]
 
 
 def test_mode_is_servoed_only_when_visible_from_both_poses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -443,23 +443,23 @@ def test_prefer_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_uncalibrated_front_camera_is_named_in_the_reason(rig: Rig) -> None:
     res = rig.approach(dry_run=True)
-    assert res["mode"] == "navigate" and res["mode_reason"] == "front: not calibrated"
+    assert res["mode"] == "navigate" and res["mode_reason"] == "head: not calibrated"
 
 
 def test_approach_offers_only_front(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     rig = Rig(tmp_path, monkeypatch, config=calibrated(), textured=True)
-    assert approach_tools.CAMERAS is camera_scene.CAMERAS == ("front",)
+    assert approach_tools.CAMERAS is camera_scene.CAMERAS == ("head",)
     for name in approach_tools.TOOL_NAMES:
         text = tool_schema_text(rig.server, name)
-        assert '"enum": ["front"]' in text or '"const": "front"' in text
+        assert '"enum": ["head"]' in text or '"const": "head"' in text
         assert "gripper camera" not in text and "'gripper'" not in text
         with pytest.raises(ToolError):
             call(rig.server, name, {"camera": "gripper", "u": 1, "v": 1, "dry_run": True})
     assert not rig.moved()
     res = rig.approach(**VISIBLE_TARGET, dry_run=True)
-    assert res["mode"] == "servoed" and res["mode_reason"].startswith("front camera")
-    assert res["tracker"]["camera"] == "front"
-    assert {c[1][0] for c in rig.robot.calls if c[0] == "camera_image"} == {"front"}
+    assert res["mode"] == "servoed" and res["mode_reason"].startswith("head camera")
+    assert res["tracker"]["camera"] == "head"
+    assert {c[1][0] for c in rig.robot.calls if c[0] == "camera_image"} == {"head"}
 
 
 # --- approach_for_grasp: running -------------------------------------------------------------------------------
@@ -588,7 +588,7 @@ def test_lost_target_inside_min_z_stops_with_reason(tmp_path: Path, monkeypatch:
     rig = Rig(tmp_path, monkeypatch, config=calibrated(), textured=True)
     yaw = rig.robot.pose.yaw
     # base_link with the target 0.78 m behind it: about 0.10 m of depth along the tilted-down optical axis of the
-    # synthetic front camera (0.8 m high, pitched 1 rad down, 0.25 m ahead of base_link), inside the D435 min-Z.
+    # synthetic head camera (0.8 m high, pitched 1 rad down, 0.25 m ahead of base_link), inside the D435 min-Z.
     overshot = BasePose(
         frame="map", x=VISIBLE_TARGET["x"] + 0.78 * math.cos(yaw), y=VISIBLE_TARGET["y"] + 0.78 * math.sin(yaw), yaw=yaw
     )

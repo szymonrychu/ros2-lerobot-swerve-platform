@@ -3,7 +3,7 @@ plan_grasp / grasp_object / release_object, and GraspService, the JSON request h
 /grasp/result topics the web UI uses (contract in the README, "Grasp macros").
 
 Held closes of the agent tools (grasp_object, set_gripper) are not trusted on the sensors alone: attach_jaw_crop aims the
-head D435 at the FK tool point, takes a fresh front frame after the motion, crops it to the jaws and leaves the hold
+head D435 at the FK tool point, takes a fresh head frame after the motion, crops it to the jaws and leaves the hold
 'unverified' until the agent looks at it and calls confirm_grasp, which fuses its verdict with the sensor band
 (grasp_check.fuse). Only the head moves for the image; the arm keeps its hold."""
 
@@ -53,7 +53,7 @@ FUSE_NOTE = (
     "empty: jaw in the empty band without load; ambiguous: anything else) and confirm_grasp fuses your answer with "
     "it: band object + yes = grasped; band empty + no = missed (nothing held: call release_object); every other "
     "combination, also unsure and every ambiguous band, stays unverified (look again from another wrist roll or "
-    "get_camera_image 'front', or release_object and retry). The image alone never proves a grasp, and only fused "
+    "get_camera_image 'head', or release_object and retry). The image alone never proves a grasp, and only fused "
     "'grasped' counts as success."
 )
 
@@ -75,8 +75,8 @@ SURFACES_DESC = (
 )
 StrategyChoice = Literal["auto", "scoop", "angled", "top_down"]
 # What an 'unverified' reason tells the agent to do on the paths that attach no image (queued grasp, web UI).
-LOOK_CALL = "call get_camera_image 'front' and look at it"
-GRASP_CAMERA = "front"  # the head D435 colour camera, aimed at the FK tool point for the jaw crop
+LOOK_CALL = "call get_camera_image 'head' and look at it"
+GRASP_CAMERA = "head"  # the head D435 colour camera, aimed at the FK tool point for the jaw crop
 JAW_AT_LIMIT = "jaw outside view at the head limit"  # the clamped aim did not bring the jaw into a croppable view
 GraspOutcome = Literal["planned", "infeasible", "grasped", "unverified", "missed", "aborted", "released"]
 
@@ -118,7 +118,7 @@ class GraspResult(BaseModel):
         "unverified (holding but not confirmed: the jaw closed into the empty band, kept closed with the profile "
         "squeeze, lifted and retreated, and the object may be soft and squashed or absent; a grasp_object result also "
         "stays unverified after a verified contact until confirm_grasp: look at the attached jaw crop (otherwise "
-        "call get_camera_image 'front') and call confirm_grasp(grasp_id, ...), release_object and retry when "
+        "call get_camera_image 'head') and call confirm_grasp(grasp_id, ...), release_object and retry when "
         "nothing is held), missed (a contact that failed verification or a "
         "blocked close: opened and retreated), aborted (stopped and held; see reasons), released"
     )
@@ -164,7 +164,7 @@ class GraspResult(BaseModel):
         description="Grasp verification of the close: {grasp_id (confirm_grasp takes it), band (sensor verdict: "
         "object / empty / ambiguous), evidence (baseline load, which contact ended the close, load and current "
         "deltas, jaw gap), image (pending: a jaw crop is attached and confirm_grasp is awaited; not_attached: the "
-        "camera failed, call get_camera_image 'front'; not_requested: web UI / queue grasps, band-only; then the "
+        "camera failed, call get_camera_image 'head'; not_requested: web UI / queue grasps, band-only; then the "
         "confirm_grasp verdict), crop {lookup_id, box_px, full_frame_reason}, fused (null until confirm_grasp)}; "
         "null when no close ran",
     )
@@ -958,7 +958,7 @@ def awaiting_confirm(check: GraspCheck) -> str:
     where = (
         "look at the attached jaw crop"
         if check.image == "pending"
-        else "no image could be attached: call get_camera_image 'front' and look at it"
+        else "no image could be attached: call get_camera_image 'head' and look at it"
     )
     return (
         f"awaiting confirm_grasp(grasp_id={check.grasp_id!r}): is the object between the fingers? {where}, then "
@@ -980,7 +980,7 @@ def jpeg_size(jpeg: bytes) -> tuple[int, int]:
     """
     img = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
     if img is None:
-        raise ValueError("the front camera frame is not a decodable image")
+        raise ValueError("the head camera frame is not a decodable image")
     return img.shape[1], img.shape[0]
 
 
@@ -1034,11 +1034,11 @@ def aim_head_at_tool_point(ctx: ToolContext, tool: str, joints: dict[str, float]
 
 
 def jaw_crop_jpeg(ctx: ToolContext, tool: str) -> tuple[bytes, int, int, CropInfo]:
-    """A fresh front camera frame, the head aimed at the tool point, cropped to the region between the jaws.
+    """A fresh head camera frame, the head aimed at the tool point, cropped to the region between the jaws.
 
     The head is aimed first (aim_head_at_tool_point, clamped to the head limits when the tool point lies beyond them);
     the frame is newer than the motion and the aim that just ended
-    (camera_image waits for the next frame). The box is projected through the front camera scene at the measured head
+    (camera_image waits for the next frame). The box is projected through the head camera scene at the measured head
     angles in the calibrated image size and scaled to the frame's size. When the head could not aim, the camera is
     uncalibrated or the jaw cannot be cropped (outside the image, inside the D435 min-Z, too small), the image is the
     full frame and the crop info carries the reason.
@@ -1123,7 +1123,7 @@ def attach_jaw_crop(
         updates = {"image": "pending", "crop": crop.model_copy(update={"lookup_id": lookup_id})}
     except (RobotError, ValueError) as exc:
         warning = (
-            f"no front camera image attached: {exc}; call get_camera_image 'front', look at it and call confirm_grasp"
+            f"no head camera image attached: {exc}; call get_camera_image 'head', look at it and call confirm_grasp"
         )
         updates = {"image": "not_attached", "crop": None}
     try:
@@ -1175,7 +1175,7 @@ def verdict_next(fused: FusedOutcome, band: Band, image: ImageVerdict, relaxed: 
         )
     return (
         f"unverified: band {band} with image {image} does not confirm a grasp: look again (another wrist roll, "
-        "get_camera_image 'front') and call confirm_grasp again, or release_object and retry"
+        "get_camera_image 'head') and call confirm_grasp again, or release_object and retry"
     )
 
 
@@ -1335,7 +1335,7 @@ def register(ctx: ToolContext) -> None:
             "Outcome: every close that holds something (a verified contact, or a jaw that closed into the empty band, "
             "within gripper_empty_stall_rad of closed, where the load cannot tell a soft, squashed object from empty "
             "jaws) stays closed with the profile squeeze, lifts and retreats and comes back 'unverified': the result "
-            "carries a fresh front camera image (the head D435 aimed at the tool point first, at the nearest pose "
+            "carries a fresh head camera image (the head D435 aimed at the tool point first, at the nearest pose "
             "inside the head limits when it lies beyond them; only the head moves) "
             f"cropped to the jaws (max {grasp_check.image_px} px; the full frame with grasp_check.crop.full_frame_reason "
             "when the head cannot aim (no lease, not settled), the camera is uncalibrated or the jaw lies outside the "
@@ -1362,7 +1362,7 @@ def register(ctx: ToolContext) -> None:
         ] = None,
     ) -> Annotated[CallToolResult, GraspResult]:
         """Grasp an object; the tool description is passed to the decorator. A held close is 'unverified' and carries
-        a jaw crop of a fresh front camera frame (head aimed at the tool point) until the agent calls confirm_grasp."""
+        a jaw crop of a fresh head camera frame (head aimed at the tool point) until the agent calls confirm_grasp."""
         ctx.battery_gate("grasp_object")
         baseline = robot.stop_count()
 

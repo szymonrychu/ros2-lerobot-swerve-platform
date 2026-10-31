@@ -24,7 +24,7 @@ from .camera_helpers import HEIGHT, WIDTH, camera_config, jpeg_blank
 
 def front_scene():
     cfg = camera_config()
-    return build_scene(camera_setup(cfg, "front"), cfg, np.eye(4))
+    return build_scene(camera_setup(cfg, "head"), cfg, np.eye(4))
 
 
 def test_project_points_matches_geometry_projection() -> None:
@@ -142,6 +142,6 @@ def test_draw_candidates_numbers_the_points() -> None:
 
 
 def test_default_config_has_no_cameras_to_draw() -> None:
-    """The front (D435 colour) camera, the only one, needs its CameraInfo first."""
+    """The head (D435 colour) camera, the only one, needs its CameraInfo first."""
     with pytest.raises(CameraNotCalibratedError):
-        camera_setup(McpServerConfig(), "front")
+        camera_setup(McpServerConfig(), "head")

@@ -4,7 +4,7 @@ suggest_approach_pose is read-only (no lease, battery and tilt independent): the
 (reach_map.py) gives candidate base poses, approach.py scores them on the global costmap with the current NavFootprint,
 the best are verified with point_reach (the grasp planner's IK and body check) and path-planned (ComputePathToPose,
 planning only). approach_for_grasp drives to the best candidate: servoed on the grasp docking server (DockRobot with the
-detection loop feeding it real detections from front camera frames) when the calibrated front camera (the head D435
+detection loop feeding it real detections from head camera frames) when the calibrated head camera (the head D435
 colour) sees the target from the staging and the dock pose, else as a precise Nav2 goal. When the D435 loses the target
 during the servoed dock (inside its min-Z or out of the colour FOV) the dock is cancelled and the approach ends with
 status target_lost and the reason; no stored or guessed pixel stands in for the lost target. The base motion lock, monitor.base_motion and the BASE_INTERRUPTS watch live in
@@ -113,7 +113,7 @@ class ApproachResult(BaseModel):
 
     status: ApproachStatus = Field(
         description="planned (dry_run), succeeded, arrived_out_of_reach (arrived, but the target is not reachable from "
-        "the measured pose), target_lost (servoed: the front camera lost the target, the dock was cancelled), failed, "
+        "the measured pose), target_lost (servoed: the head camera lost the target, the dock was cancelled), failed, "
         "rejected, interrupted, canceled or timeout"
     )
     dry_run: bool = False
@@ -140,7 +140,7 @@ class ApproachResult(BaseModel):
     )
     target_lost: str | None = Field(
         default=None,
-        description="Servoed only: why the front D435 camera lost the target during the dock (inside the D435 min-Z, "
+        description="Servoed only: why the head D435 camera lost the target during the dock (inside the D435 min-Z, "
         "out of the colour FOV); the dock was cancelled then",
     )
     duration_s: float = 0.0
@@ -214,7 +214,7 @@ def build_target(
         object_id (str | None): Remembered object id.
         poi_id (str | None): POI id.
         z_m (float | None): Height for object_id / poi_id (m).
-        camera (Camera | None): Camera of a pixel target ('front').
+        camera (Camera | None): Camera of a pixel target ('head').
         u (float | None): Pixel x.
         v (float | None): Pixel y.
         surface_height_m (float | None): Surface height of a pixel target (m).
@@ -286,7 +286,7 @@ def poi_z_lookup(robot: RobotApi, kinds: tuple[str, ...]) -> Callable[[str], flo
 
 
 def camera_scene(robot: RobotApi, config: McpServerConfig, camera: Camera) -> tuple[Scene, CameraSetup]:
-    """Scene of the calibrated front camera at the current measured head pose.
+    """Scene of the calibrated head camera at the current measured head pose.
 
     The scene uses the head angles measured now; the view checks built on it assume the head keeps that pose while the
     base moves to the staging and dock poses.
@@ -294,7 +294,7 @@ def camera_scene(robot: RobotApi, config: McpServerConfig, camera: Camera) -> tu
     Args:
         robot (RobotApi): Robot (measured head joints).
         config (McpServerConfig): Node configuration.
-        camera (Camera): 'front' (the head D435 colour).
+        camera (Camera): 'head' (the head D435 colour).
 
     Returns:
         tuple[Scene, CameraSetup]: The scene and the camera's setup.
@@ -394,7 +394,7 @@ def register(ctx: ToolContext) -> None:
         objects = poi_lookup(robot, (OBJECT_KIND,))
 
         def pixel_xy(camera: str, u: float, v: float, surface_height_m: float) -> tuple[float, float] | None:
-            scene, _ = camera_scene(robot, config, "front")  # the tool schemas admit only 'front' (Camera)
+            scene, _ = camera_scene(robot, config, "head")  # the tool schemas admit only 'head' (Camera)
             if not (0.0 <= u < scene.intr.width and 0.0 <= v < scene.intr.height):
                 raise ValueError(f"pixel ({u:g}, {v:g}) is outside the image ({scene.intr.width}x{scene.intr.height})")
             ground = scene.ground_point(u, v, surface_height_m)
@@ -469,7 +469,7 @@ def register(ctx: ToolContext) -> None:
         ] = None,
         z_m: Annotated[float | None, Field(description="Grasp height above the floor for object_id / poi_id")] = None,
         camera: Annotated[
-            Camera | None, Field(description="'front': the D435 colour camera on the head (pixel target)")
+            Camera | None, Field(description="'head': the D435 colour camera on the head (pixel target)")
         ] = None,
         u: Annotated[float | None, Field(description="Pixel x of the calibrated image (pixel target)")] = None,
         v: Annotated[float | None, Field(description="Pixel y of the calibrated image (pixel target)")] = None,
@@ -619,9 +619,9 @@ def register(ctx: ToolContext) -> None:
             "Drive the base to the best approach pose for a grasp (needs the base lease; Nav2 plans around "
             "obstacles; blocks until done). Runs suggest_approach_pose internally (or re-validates the candidate "
             "`pose` you pass; a pose that is no longer valid is refused), then picks the mode: 'servoed' ONLY when the "
-            "calibrated front camera (the head D435 colour, at the current head pan/tilt) sees the target from both "
+            "calibrated head camera (the head D435 colour, at the current head pan/tilt) sees the target from both "
             "the staging and the dock pose: the grasp docking server (DockRobot, dock_type grasp_servoed) navigates to "
-            "the staging pose and then servos onto detections of the target that a tracker publishes from front camera "
+            "the staging pose and then servos onto detections of the target that a tracker publishes from head camera "
             "frames; otherwise 'navigate' (a precise Nav2 goal), the reason is in mode_reason. When the D435 loses the "
             f"target during the servoed dock (inside its {D435_MIN_Z_M:g} m min-Z or out of the colour FOV) the dock "
             "is cancelled and the status is 'target_lost' with the reason in target_lost: nothing is published for a "
@@ -645,7 +645,7 @@ def register(ctx: ToolContext) -> None:
         ] = None,
         z_m: Annotated[float | None, Field(description="Grasp height above the floor for object_id / poi_id")] = None,
         camera: Annotated[
-            Camera | None, Field(description="'front': the D435 colour camera on the head (pixel target)")
+            Camera | None, Field(description="'head': the D435 colour camera on the head (pixel target)")
         ] = None,
         u: Annotated[float | None, Field(description="Pixel x of the calibrated image (pixel target)")] = None,
         v: Annotated[float | None, Field(description="Pixel y of the calibrated image (pixel target)")] = None,

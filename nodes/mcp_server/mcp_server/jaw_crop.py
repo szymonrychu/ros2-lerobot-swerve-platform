@@ -1,7 +1,7 @@
-"""Jaw crop: the region between the jaws in the head D435 colour (front) image, from the arm model and the front
+"""Jaw crop: the region between the jaws in the head D435 colour image, from the arm model and the head
 camera scene.
 
-The front camera hangs on the pan/tilt head: its pose comes from the head chain at the measured head angles
+The head camera hangs on the pan/tilt head: its pose comes from the head chain at the measured head angles
 (camera_scene.build_scene), and the jaw points convert into it from the arm base frame through arm.base_in_base_link.
 Pure geometry and image cropping, no camera I/O: the caller supplies the scene and the JPEG bytes.
 """
@@ -19,12 +19,12 @@ from .floor_guard import GRIPPER_LINK, TOOL_FRAME_LINK, JawModel
 from .ik import ArmKinematics
 
 JPEG_QUALITY = 85
-NO_ARM_MOUNT = "arm.base_in_base_link is not configured: the jaws cannot be placed in the front camera"
-OUTSIDE_IMAGE = "the jaw is outside the front camera image"
+NO_ARM_MOUNT = "arm.base_in_base_link is not configured: the jaws cannot be placed in the head camera"
+OUTSIDE_IMAGE = "the jaw is outside the head camera image"
 
 
 class JawCropError(ValueError):
-    """The jaw region cannot be cropped from the front image; the message is the reason (the full frame is used)."""
+    """The jaw region cannot be cropped from the head image; the message is the reason (the full frame is used)."""
 
 
 def jaw_points(
@@ -52,7 +52,7 @@ def jaw_points(
 def tool_point_in_base(
     kin: ArmKinematics, jaw: JawModel, joints: dict[str, float], offset: ArmBaseOffset
 ) -> np.ndarray:
-    """FK tool point in base_link (the point the head aims the front camera at for the grasp image).
+    """FK tool point in base_link (the point the head aims the head camera at for the grasp image).
 
     Args:
         kin (ArmKinematics): Arm kinematics on the URDF.
@@ -70,14 +70,14 @@ def tool_point_in_base(
 def jaw_crop(
     scene: Scene, kin: ArmKinematics, jaw: JawModel, joints: dict[str, float], s: GraspCheckSettings
 ) -> tuple[int, int, int, int]:
-    """Pixel box of the region between the jaws in the front camera image of the scene.
+    """Pixel box of the region between the jaws in the head camera image of the scene.
 
     Projects the jaw points plus the same points moved s.crop_depth_m into the jaws (toward gripper_link) through the
     scene (head chain pose at the measured head angles), takes their bounding box, adds s.crop_margin_px on every side
     and clamps it to the image.
 
     Args:
-        scene (Scene): Front camera scene (base_link reference, intrinsics at the calibrated image size).
+        scene (Scene): Head camera scene (base_link reference, intrinsics at the calibrated image size).
         kin (ArmKinematics): Arm kinematics on the URDF.
         jaw (JawModel): Moving jaw geometry.
         joints (dict[str, float]): Measured joint name -> rad (including the gripper angle).
@@ -103,7 +103,7 @@ def jaw_crop(
     nearest = float(depth.min())
     if nearest < D435_MIN_Z_M:
         raise JawCropError(
-            f"the jaw is {max(nearest, 0.0):.3f} m deep from the front camera, inside the D435 min-Z "
+            f"the jaw is {max(nearest, 0.0):.3f} m deep from the head camera, inside the D435 min-Z "
             f"({D435_MIN_Z_M:g} m)"
         )
     bounded = np.all(np.isfinite(uv), axis=1) & np.all(np.abs(uv) < MAX_PROJECTED_PX, axis=1)

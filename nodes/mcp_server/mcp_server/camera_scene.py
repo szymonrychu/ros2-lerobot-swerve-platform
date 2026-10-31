@@ -1,10 +1,10 @@
 """Camera scene geometry for the pixel -> ground tools: calibrated setup, reference frame, ground reports.
 
-The one camera is ``front``, the D435 colour camera on the pan/tilt head. It works in ``base_link`` (x forward, y
+The one camera is ``head``, the D435 colour camera on the pan/tilt head. It works in ``base_link`` (x forward, y
 left, z up, z = 0 is the floor); arm-frame points (the measured or a planned tool point) convert into it when
 ``arm.base_in_base_link`` is configured.
 
-The camera moves with the head: its parent (``cameras.front.parent_frame``, default ``d435_color_frame``) is a link
+The camera moves with the head: its parent (``cameras.head.parent_frame``, default ``d435_color_frame``) is a link
 of the head URDF, posed in base_link from the measured ``head_pan`` / ``head_tilt`` angles
 (``HeadKinematics.link_pose``).
 """
@@ -29,8 +29,8 @@ from .config import ArmBaseOffset, HeadSettings, IntrinsicsSettings, McpServerCo
 from .head_kinematics import HeadKinematics
 from .models import BasePose
 
-Camera = Literal["front"]
-CAMERAS: tuple[Camera, ...] = ("front",)
+Camera = Literal["head"]
+CAMERAS: tuple[Camera, ...] = ("head",)
 
 NOT_CALIBRATED = (
     "camera {camera} not calibrated: set intrinsics and mount in mcp_server config (see README calibration)"
@@ -41,7 +41,7 @@ GROUND_METHOD = (
 )
 # Calibrated image size shown in tool descriptions while a camera has no readable intrinsics (the D435 colour stream
 # before its first CameraInfo).
-NOMINAL_IMAGE_SIZE: dict[Camera, tuple[int, int]] = {"front": (640, 360)}
+NOMINAL_IMAGE_SIZE: dict[Camera, tuple[int, int]] = {"head": (640, 360)}
 ASPECT_TOLERANCE = 0.005  # relative aspect-ratio difference within which a calibration scales to the image size
 logger = logging.getLogger(__name__)
 # (path, mtime_ns) -> parsed file; an apply rewrites the file, so the next camera call sees the new mtime.
@@ -143,7 +143,7 @@ def pixel_scale(
 ) -> float | None:
     """Factor from the pixels of a (smaller or larger) image of the same camera to the calibrated image size.
 
-    get_camera_image returns a small picture by default (384x288 for a 4:3 camera, 384x216 for the 16:9 front camera)
+    get_camera_image returns a small picture by default (384x288 for a 4:3 camera, 384x216 for the 16:9 head camera)
     while the camera tools work in the calibrated size: a pixel picked on the small image must be multiplied by this
     factor.
 
@@ -364,7 +364,7 @@ def camera_setup(
 
     Args:
         cfg (McpServerConfig): Node configuration.
-        camera (Camera): Camera name ('front').
+        camera (Camera): Camera name ('head').
         need_mount (bool): Require the mount pose (False for capture and the solver, which determine it).
         source (CameraInfoSource | None): The robot, asked for the camera's latest CameraInfo when its intrinsics
             come from a camera_info_topic; None when no CameraInfo is available (such a camera is not calibrated).
@@ -403,14 +403,14 @@ def offset_matrix(offset: ArmBaseOffset) -> np.ndarray:
 
 
 def head_parent_transform(cfg: McpServerConfig, head: MeasuredHead | None) -> np.ndarray:
-    """T_base_link_parent of the front (head) camera at the measured head angles.
+    """T_base_link_parent of the head camera at the measured head angles.
 
     Args:
-        cfg (McpServerConfig): Node configuration (cameras.front.parent_frame, head settings).
+        cfg (McpServerConfig): Node configuration (cameras.head.parent_frame, head settings).
         head (MeasuredHead | None): Pan/tilt head with its kinematics and measured /head/joint_states.
 
     Returns:
-        np.ndarray: 4x4 pose of cameras.front.parent_frame in base_link.
+        np.ndarray: 4x4 pose of cameras.head.parent_frame in base_link.
 
     Raises:
         ValueError: When there is no head or its joint states are missing or stale (never an identity fallback).
@@ -418,7 +418,7 @@ def head_parent_transform(cfg: McpServerConfig, head: MeasuredHead | None) -> np
     angles = None if head is None else head.measured()
     if head is None or angles is None:
         raise ValueError(
-            f"the front camera pose needs fresh head joint states ({cfg.head.state_topic}): the head camera moves "
+            f"the head camera pose needs fresh head joint states ({cfg.head.state_topic}): the head camera moves "
             "with the pan/tilt head and its joint states are missing or stale"
         )
     pan, tilt = (angles[name] for name in head.settings.joint_names)
@@ -426,18 +426,18 @@ def head_parent_transform(cfg: McpServerConfig, head: MeasuredHead | None) -> np
 
 
 def head_parent_transform_at(cfg: McpServerConfig, head: MeasuredHead, pan: float, tilt: float) -> np.ndarray:
-    """T_base_link_parent of the front (head) camera at given head angles (the pose at an image stamp).
+    """T_base_link_parent of the head camera at given head angles (the pose at an image stamp).
 
     Args:
-        cfg (McpServerConfig): Node configuration (cameras.front.parent_frame).
+        cfg (McpServerConfig): Node configuration (cameras.head.parent_frame).
         head (MeasuredHead): Pan/tilt head with its kinematics (the applied chain).
         pan (float): head_pan (rad, + left).
         tilt (float): head_tilt (rad, + down).
 
     Returns:
-        np.ndarray: 4x4 pose of cameras.front.parent_frame in base_link.
+        np.ndarray: 4x4 pose of cameras.head.parent_frame in base_link.
     """
-    return head.kinematics.link_pose(pan, tilt, str(cfg.cameras.front.parent_frame))
+    return head.kinematics.link_pose(pan, tilt, str(cfg.cameras.head.parent_frame))
 
 
 @dataclass(frozen=True)

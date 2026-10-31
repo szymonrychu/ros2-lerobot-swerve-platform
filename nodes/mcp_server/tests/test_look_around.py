@@ -167,11 +167,11 @@ def test_montage_tiles_every_frame_and_marks_missing_ones() -> None:
 
 def test_run_completes_a_full_turn_returning_to_start_heading() -> None:
     robot = ScriptRobot()
-    run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="front")
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="head")
     moves = [c for c in robot.calls if c[0] == "move"]
     assert [m[3] for m in moves] == [round(math.pi / 2, 6)] * 4  # three between stops + the closing step
     assert all(m[1] == 0 and m[2] == 0 for m in moves)
-    assert [c for c in robot.calls if c[0] == "camera"] == [("camera", "front", SETTINGS.frame_max_px)] * 4
+    assert [c for c in robot.calls if c[0] == "camera"] == [("camera", "head", SETTINGS.frame_max_px)] * 4
     res = run.result
     assert res.status == "completed" and res.interrupted_by is None and res.returned_to_start
     assert len(run.frames) == 4 and all(jpeg_bytes for _, jpeg_bytes in run.frames)
@@ -186,14 +186,14 @@ def test_run_completes_a_full_turn_returning_to_start_heading() -> None:
 def test_run_refuses_without_moving_when_obstacle_too_close() -> None:
     robot = ScriptRobot(obstacles=[sectors(2.0, left=0.3)])
     with pytest.raises(RobotError, match="rotation"):
-        run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="front")
+        run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="head")
     assert not any(c[0] in ("move", "camera") for c in robot.calls)
 
 
 def test_run_refuses_without_lidar() -> None:
     robot = ScriptRobot(obstacles=[None])
     with pytest.raises(RobotError, match="lidar"):
-        run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="front")
+        run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="head")
     assert not any(c[0] == "move" for c in robot.calls)
 
 
@@ -201,12 +201,12 @@ def test_run_without_pose_is_an_error() -> None:
     robot = ScriptRobot()
     robot.pose = None  # type: ignore[assignment]
     with pytest.raises(RobotError, match="pose"):
-        run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="front")
+        run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="head")
 
 
 def test_interrupted_step_ends_early_and_reports_the_event() -> None:
     robot = ScriptRobot(statuses=["succeeded", "interrupted"])
-    run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="front")
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="head")
     res = run.result
     assert res.status == "interrupted" and res.interrupted_by == "collision_stop"
     assert not res.returned_to_start
@@ -217,7 +217,7 @@ def test_interrupted_step_ends_early_and_reports_the_event() -> None:
 
 def test_failed_step_stops_the_sequence() -> None:
     robot = ScriptRobot(statuses=["aborted"])
-    run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="front")
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="head")
     assert run.result.status == "failed" and len(run.frames) == 1
     assert len([c for c in robot.calls if c[0] == "move"]) == 1
 
@@ -225,14 +225,14 @@ def test_failed_step_stops_the_sequence() -> None:
 def test_stop_between_steps_aborts_before_the_next_rotation() -> None:
     robot = ScriptRobot()
     robot.stop_after_moves = 1  # stop() lands while the first rotation finishes
-    run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="front")
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="head")
     assert run.result.status == "stopped"
     assert len([c for c in robot.calls if c[0] == "move"]) == 1
 
 
 def test_obstacle_appearing_mid_scan_aborts_before_rotating() -> None:
     robot = ScriptRobot(obstacles=[sectors(2.0), sectors(2.0), sectors(0.3)])
-    run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="front")
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="head")
     assert run.result.status == "aborted_obstacle"
     assert len([c for c in robot.calls if c[0] == "move"]) == 1
 
@@ -240,7 +240,7 @@ def test_obstacle_appearing_mid_scan_aborts_before_rotating() -> None:
 def test_camera_failure_is_recorded_not_fabricated() -> None:
     robot = ScriptRobot()
     robot.camera_fail_at = {1}
-    run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="front")
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="head")
     assert run.result.status == "completed"
     assert run.frames[1][1] is None
     assert any("no frame" in n for n in run.result.notes)
@@ -258,7 +258,7 @@ def test_critical_event_during_capture_stops_before_the_next_rotation(
 ) -> None:
     robot = ScriptRobot()
     robot.event_after_cameras = (cameras_before_event, "bump")
-    run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="front")
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="head")
     res = run.result
     assert res.status == "interrupted" and res.interrupted_by == "bump"
     assert len([c for c in robot.calls if c[0] == "move"]) == expected_moves  # no rotation, no return rotation
@@ -273,7 +273,7 @@ def test_critical_event_during_capture_stops_before_the_next_rotation(
 def test_robot_error_in_a_step_returns_failed_with_the_frames_and_tries_to_return_to_start() -> None:
     robot = ScriptRobot()
     robot.move_errors = {2: RobotError("robot pose (map->base_link) unavailable; cannot plan a relative move")}
-    run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="front")  # must not raise
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="head")  # must not raise
     res = run.result
     assert res.status == "failed" and "pose" in res.message and "step 2" in res.message
     assert len(run.frames) == 2
@@ -286,7 +286,7 @@ def test_robot_error_in_a_step_returns_failed_with_the_frames_and_tries_to_retur
 def test_robot_error_because_another_motion_runs_attempts_no_return_rotation() -> None:
     robot = ScriptRobot()
     robot.move_errors = {2: BaseMotionBusyError("another base motion is running; call stop first")}
-    run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="front")
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="head")
     res = run.result
     assert res.status == "failed" and "another base motion" in res.message
     assert len([c for c in robot.calls if c[0] == "move"]) == 2  # nothing sent while someone else drives
@@ -296,7 +296,7 @@ def test_robot_error_because_another_motion_runs_attempts_no_return_rotation() -
 def test_failed_return_attempt_is_reported_not_raised() -> None:
     robot = ScriptRobot()
     robot.move_errors = {2: RobotError("pose stale"), 3: RobotError("still stale")}
-    run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="front")
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="head")
     assert run.result.status == "failed" and not run.result.returned_to_start
     assert any("return to start failed" in n and "still stale" in n for n in run.result.notes)
 
@@ -304,7 +304,7 @@ def test_failed_return_attempt_is_reported_not_raised() -> None:
 def test_robot_error_on_the_first_step_leaves_the_robot_where_it_is() -> None:
     robot = ScriptRobot()
     robot.move_errors = {1: RobotError("pose stale")}
-    run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="front")
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="head")
     assert run.result.status == "failed" and len(run.frames) == 1
     assert len([c for c in robot.calls if c[0] == "move"]) == 1  # already at the start heading: no return step
 
@@ -315,7 +315,7 @@ def test_robot_error_on_the_first_step_leaves_the_robot_where_it_is() -> None:
 def test_returned_to_start_requires_the_final_heading_within_the_yaw_tolerance() -> None:
     robot = ScriptRobot()
     robot.yaw_error_rad = math.radians(1.5)  # every step stops 1.5 deg long: 6 deg off after four steps
-    run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="front")
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="head")
     res = run.result
     assert res.status == "completed" and not res.returned_to_start
     assert res.achieved["heading_error_deg"] == pytest.approx(6.0)
@@ -325,10 +325,10 @@ def test_returned_to_start_requires_the_final_heading_within_the_yaw_tolerance()
 def test_returned_to_start_within_tolerance_and_tolerance_is_configurable() -> None:
     robot = ScriptRobot()
     robot.yaw_error_rad = math.radians(0.4)  # 1.6 deg in total
-    assert run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="front").result.returned_to_start
+    assert run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="head").result.returned_to_start
     robot = ScriptRobot()
     robot.yaw_error_rad = math.radians(0.4)
-    strict = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="front", yaw_tolerance_deg=1.0)
+    strict = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="head", yaw_tolerance_deg=1.0)
     assert not strict.result.returned_to_start
 
 
@@ -340,7 +340,7 @@ def test_returned_to_start_is_false_when_the_final_pose_is_unknown() -> None:
         return poses.pop(0) if poses else None
 
     robot.robot_pose = pose_then_none  # type: ignore[method-assign]
-    run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="front")
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="head")
     assert run.result.status == "completed" and not run.result.returned_to_start
     assert run.result.achieved["heading_error_deg"] is None
 
@@ -350,7 +350,7 @@ def test_returned_to_start_is_false_when_the_final_pose_is_unknown() -> None:
 
 def test_every_rotation_step_requests_the_precise_goal_tolerance() -> None:
     robot = ScriptRobot()
-    run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="front")
+    run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="head")
     assert robot.precise_flags and all(robot.precise_flags)
 
 
@@ -358,7 +358,7 @@ def test_corrective_return_rotation_requests_the_precise_goal_tolerance() -> Non
     robot = ScriptRobot()
     robot.move_errors[2] = RobotError("tf lost")  # second step cannot start, so the corrective rotation runs
     robot.yaw_error_rad = math.radians(10.0)
-    run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="front")
+    run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="head")
     assert len(robot.precise_flags) >= 3 and all(robot.precise_flags)
 
 
@@ -392,9 +392,9 @@ class SpinScriptRobot(ScriptRobot):
 
 def test_spin_mode_captures_the_same_montage_as_steps_mode() -> None:
     steps_robot = ScriptRobot()
-    by_steps = run_look_around(steps_robot, SETTINGS, FOOTPRINT, 4, "front", mode="steps", return_to_start=False)
+    by_steps = run_look_around(steps_robot, SETTINGS, FOOTPRINT, 4, "head", mode="steps", return_to_start=False)
     spin_robot = SpinScriptRobot()
-    by_spin = run_look_around(spin_robot, SETTINGS, FOOTPRINT, 4, "front", mode="spin", return_to_start=False)
+    by_spin = run_look_around(spin_robot, SETTINGS, FOOTPRINT, 4, "head", mode="spin", return_to_start=False)
     assert [label for label, _ in by_spin.frames] == [label for label, _ in by_steps.frames]
     assert all(data is not None for _, data in by_spin.frames)
     assert [(h.index, h.heading_deg, h.label) for h in by_spin.result.headings] == [
@@ -412,14 +412,14 @@ def test_spin_mode_captures_the_same_montage_as_steps_mode() -> None:
 
 def test_steps_mode_without_return_skips_the_closing_rotation() -> None:
     robot = ScriptRobot()
-    run = run_look_around(robot, SETTINGS, FOOTPRINT, 4, "front", mode="steps", return_to_start=False)
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, 4, "head", mode="steps", return_to_start=False)
     assert sum(1 for c in robot.calls if c[0] == "move") == 3
     assert run.result.expected["rotation_deg"] == 270 and not run.result.returned_to_start
 
 
 def test_spin_mode_returns_to_start_only_when_asked() -> None:
     robot = SpinScriptRobot()
-    run = run_look_around(robot, SETTINGS, FOOTPRINT, 4, "front", mode="spin", return_to_start=True)
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, 4, "head", mode="spin", return_to_start=True)
     assert robot.spins[0][1] == pytest.approx(2 * math.pi)
     assert run.result.returned_to_start and run.result.status == "completed"
     assert run.result.expected["rotation_deg"] == 360
@@ -435,7 +435,7 @@ def test_spin_mode_corrects_a_final_heading_error_when_returning() -> None:
         return out
 
     robot.spin = coast  # type: ignore[method-assign]
-    run = run_look_around(robot, SETTINGS, FOOTPRINT, 4, "front", mode="spin", return_to_start=True)
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, 4, "head", mode="spin", return_to_start=True)
     moves = [c for c in robot.calls if c[0] == "move"]
     assert len(moves) == 1 and moves[0][3] == pytest.approx(-0.2, abs=1e-6)
     assert run.result.returned_to_start
@@ -443,20 +443,20 @@ def test_spin_mode_corrects_a_final_heading_error_when_returning() -> None:
 
 def test_spin_mode_obstacle_at_a_mark_ends_the_spin() -> None:
     robot = SpinScriptRobot(obstacles=[sectors(), sectors(), sectors(front=0.1)])
-    run = run_look_around(robot, SETTINGS, FOOTPRINT, 4, "front", mode="spin")
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, 4, "head", mode="spin")
     assert run.result.status == "aborted_obstacle"
     assert len(run.frames) == 2
 
 
 def test_spin_mode_interrupted_by_a_critical_event() -> None:
     robot = SpinScriptRobot(spin_status="interrupted")
-    run = run_look_around(robot, SETTINGS, FOOTPRINT, 4, "front", mode="spin", return_to_start=True)
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, 4, "head", mode="spin", return_to_start=True)
     assert run.result.status == "interrupted" and run.result.interrupted_by == "bump"
     assert not run.result.returned_to_start
     assert not any(c[0] == "move" for c in robot.calls)  # never a corrective rotation after a critical event
 
 
-# --- camera: the D435 front camera only -------------------------------------------------------------------------
+# --- camera: the D435 head camera only -------------------------------------------------------------------------
 
 
 def test_look_around_uses_the_front_camera(tmp_path: Path) -> None:
@@ -469,10 +469,10 @@ def test_look_around_uses_the_front_camera(tmp_path: Path) -> None:
 
     tool = next(t for t in anyio.run(run) if t.name == "look_around")
     prop = tool.input_schema["properties"]["camera"]
-    assert prop.get("enum", [prop.get("const")]) == ["front"] and prop["default"] == "front"
+    assert prop.get("enum", [prop.get("const")]) == ["head"] and prop["default"] == "head"
     assert "gripper" not in prop["description"] and "D435" in prop["description"]
     take(server, "base")
     with pytest.raises(ToolError):
         call(server, "look_around", {"captures": 4, "camera": "gripper"})
     call(server, "look_around", {"captures": 4, "mode": "steps"})
-    assert [c[1][0] for c in robot.calls if c[0] == "camera_image"] == ["front"] * 4
+    assert [c[1][0] for c in robot.calls if c[0] == "camera_image"] == ["head"] * 4

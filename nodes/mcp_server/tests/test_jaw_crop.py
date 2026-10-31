@@ -1,5 +1,5 @@
 """Jaw crop: the region between the jaws in the head D435 colour (front) image, projected from the arm model through
-the front camera scene at the head pan/tilt that aims the camera at the FK tool point (design D8)."""
+the head camera scene at the head pan/tilt that aims the camera at the FK tool point (design D8)."""
 
 import dataclasses
 import math
@@ -62,8 +62,8 @@ def aim(cfg: McpServerConfig, head: HeadKinematics, kin: ArmKinematics, jaw: Jaw
 
 
 def front_scene(cfg: McpServerConfig, pan: float, tilt: float) -> Scene:
-    """Front camera scene (default D435 colour setup, CameraInfo intrinsics) at measured head angles."""
-    setup = camera_setup(cfg, "front", source=InfoSource())
+    """Head camera scene (default D435 colour setup, CameraInfo intrinsics) at measured head angles."""
+    setup = camera_setup(cfg, "head", source=InfoSource())
     return build_scene(setup, cfg, head_parent_transform(cfg, fresh_head(cfg, pan, tilt)))
 
 
@@ -116,7 +116,7 @@ def test_tool_point_in_base_goes_through_the_arm_mount(cfg: McpServerConfig, kin
 def test_jaw_crop_from_the_front_camera(
     cfg: McpServerConfig, head: HeadKinematics, kin: ArmKinematics, jaw: JawModel, scene: Scene
 ) -> None:
-    """The box comes from the front camera scene at the aimed head pose: it holds the tool point (at the image centre,
+    """The box comes from the head camera scene at the aimed head pose: it holds the tool point (at the image centre,
     the head aims there) and both jaw tips as projected through the head URDF optical frame."""
     angles = aim(cfg, head, kin, jaw)
     box = run(scene, kin, jaw, settings(crop_margin_px=0, crop_depth_m=0.0, crop_min_px=1))
@@ -159,7 +159,7 @@ def test_box_is_clamped_to_the_frame(kin: ArmKinematics, jaw: JawModel, scene: S
 def test_jaw_outside_the_image_is_refused(cfg: McpServerConfig, kin: ArmKinematics, jaw: JawModel) -> None:
     """The head looking away (pan 90 deg left, or behind the camera at pan 180 deg) does not see the jaws."""
     for pan in (math.pi / 2, math.pi):
-        with pytest.raises(JawCropError, match="outside the front camera image"):
+        with pytest.raises(JawCropError, match="outside the head camera image"):
             run(front_scene(cfg, pan, 0.0), kin, jaw, settings(crop_min_px=1))
 
 

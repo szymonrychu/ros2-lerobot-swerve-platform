@@ -1,4 +1,4 @@
-"""Lookups and approach checks follow the measured head pose: the front camera is on the pan/tilt head (design D11)."""
+"""Lookups and approach checks follow the measured head pose: the head camera is on the pan/tilt head (design D11)."""
 
 import math
 from pathlib import Path
@@ -22,7 +22,7 @@ BASE_YAW = 0.3
 
 
 def head_config() -> McpServerConfig:
-    return McpServerConfig.model_validate({"cameras": {"front": {"intrinsics": HFOV, "mount": HEAD_MOUNT}}})
+    return McpServerConfig.model_validate({"cameras": {"head": {"intrinsics": HFOV, "mount": HEAD_MOUNT}}})
 
 
 def recorder_at(tmp_path: Path, pan_deg: float) -> tuple[LookupRecorder, FakeRobot]:
@@ -40,12 +40,12 @@ def view_yaw(pose: dict[str, list[float]]) -> float:
 
 def test_front_lookup_records_the_head_composed_camera_pose(tmp_path: Path) -> None:
     rec, _ = recorder_at(tmp_path, 45.0)
-    pose = rec.camera_pose_base("front")
+    pose = rec.camera_pose_base("head")
     assert pose is not None
     assert view_yaw(pose) == pytest.approx(math.radians(45.0), abs=1e-2)
     assert pose["xyz"][2] > 0.2  # on the head, well above the base_link origin (not the bare mount)
     record = LookupRecord(
-        id="a", ts=1.0, tool="t", camera="front", width=1, height=1, file="a.jpg", bytes=1,
+        id="a", ts=1.0, tool="t", camera="head", width=1, height=1, file="a.jpg", bytes=1,
         base_pose_map=PlanarPose(x=0.0, y=0.0, yaw=BASE_YAW), camera_pose_base=CameraPose.model_validate(pose),
     )  # fmt: skip
     axis = camera_axis(record)
@@ -55,16 +55,16 @@ def test_front_lookup_records_the_head_composed_camera_pose(tmp_path: Path) -> N
 def test_stale_head_joints_record_no_camera_pose(tmp_path: Path) -> None:
     rec, robot = recorder_at(tmp_path, 45.0)
     robot.head_backend.no_samples = True
-    assert rec.camera_pose_base("front") is None
+    assert rec.camera_pose_base("head") is None
     robot.head_backend.no_samples = False
     robot.head_backend.stale_after = 0.0
     robot.head_backend.t = 500.0
-    assert rec.camera_pose_base("front") is None
+    assert rec.camera_pose_base("head") is None
 
 
 def test_frontier_facing_uses_the_recorded_head_pose_not_the_base_heading() -> None:
     record = LookupRecord(
-        id="a", ts=1.0, tool="t", camera="front", width=1, height=1, file="a.jpg", bytes=1,
+        id="a", ts=1.0, tool="t", camera="head", width=1, height=1, file="a.jpg", bytes=1,
         base_pose_map=PlanarPose(x=0.0, y=0.0, yaw=0.0),
         camera_pose_base=CameraPose(xyz=[0.1, 0.0, 0.4], rpy=[0.0, 0.0, math.pi / 2]),
     )  # fmt: skip

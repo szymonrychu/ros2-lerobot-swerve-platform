@@ -14,7 +14,7 @@ WIDTH = 640
 HEIGHT = 480
 HFOV_DEG = 90.0
 FRONT_PITCH = 1.0  # rad, looking down
-FRONT_MOUNT = {
+HEAD_MOUNT = {
     "parent_frame": "base_link",
     "x": 0.25,
     "y": 0.0,
@@ -27,8 +27,8 @@ HFOV = {"hfov_deg": HFOV_DEG, "width": WIDTH, "height": HEIGHT}
 
 
 def camera_config(front: bool = True, arm_offset: bool = False, **extra: object) -> McpServerConfig:
-    """Config with hfov-based intrinsics and the known FRONT_MOUNT for the front camera (none when front is False)."""
-    cameras: dict[str, object] = {"front": {"intrinsics": HFOV, "mount": FRONT_MOUNT}} if front else {}
+    """Config with hfov-based intrinsics and the known HEAD_MOUNT for the head camera (none when front is False)."""
+    cameras: dict[str, object] = {"head": {"intrinsics": HFOV, "mount": HEAD_MOUNT}} if front else {}
     data: dict[str, object] = {"cameras": cameras, **extra}
     # These tests use their own synthetic arm mount (16.5 cm high), or none at all.
     data["arm"] = {"arm_base_height_m": 0.165, "base_in_base_link": None}
@@ -38,7 +38,7 @@ def camera_config(front: bool = True, arm_offset: bool = False, **extra: object)
 
 
 def fresh_head(cfg: McpServerConfig, pan: float = 0.0, tilt: float = 0.0) -> HeadController:
-    """Head controller whose fresh /head/joint_states report (pan, tilt) rad (the front camera scene needs it)."""
+    """Head controller whose fresh /head/joint_states report (pan, tilt) rad (the head camera scene needs it)."""
     backend = FakeHeadBackend({"head_pan": pan, "head_tilt": tilt})
     return HeadController(backend, AppliedHeadKinematics(cfg.head.urdf_path, None), cfg.head)
 
@@ -62,11 +62,11 @@ def sync_head_history(head: HeadController, around_s: float, span_s: float = 0.5
 
 
 def front_mount() -> MountPose:
-    return MountPose(**FRONT_MOUNT)
+    return MountPose(**HEAD_MOUNT)
 
 
 def front_ground_of_center() -> tuple[float, float]:
-    """Floor point seen at the image centre of the synthetic front camera (analytic)."""
+    """Floor point seen at the image centre of the synthetic head camera (analytic)."""
     return 0.25 + 0.8 / math.tan(FRONT_PITCH), 0.0
 
 

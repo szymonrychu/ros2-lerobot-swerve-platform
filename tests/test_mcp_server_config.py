@@ -541,7 +541,7 @@ def test_mcp_server_has_no_gripper_camera() -> None:
     """The gripper camera is retired (user decision 4): no topic, no camera settings, no intrinsics file."""
     cfg = node_config("mcp_server")
     assert "gripper_camera" not in cfg["topics"]
-    assert set(cfg["cameras"]) == {"calibration_dir", "front"}
+    assert set(cfg["cameras"]) == {"calibration_dir", "head"}
     assert "gripper_camera" not in node_entry("mcp_server")["config"]
     assert not (NODE_DIR / "calibration" / "gripper_camera.yaml").exists()
 
@@ -817,7 +817,7 @@ def test_claude_agent_nav_tolerances_match_mcp_server() -> None:
 
 
 def test_mcp_server_head_camera_is_the_head_camera_stream() -> None:
-    """mcp_server's `front` camera reads the head D435 colour JPEG stream (CompressedImage)."""
+    """mcp_server's `head` camera reads the head D435 colour JPEG stream (CompressedImage)."""
     topics = node_config("mcp_server").get("topics", {})
     assert topics["head_camera"] == "/head/d435/color/image_raw/compressed"
     assert "front_camera" not in topics

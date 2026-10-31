@@ -16,48 +16,48 @@ MOUNT = {"parent_frame": "gripper_link", "x": 0.0, "y": 0.0, "z": 0.05, "roll": 
 
 def test_default_front_is_the_d435_colour_and_the_only_camera() -> None:
     cams = McpServerConfig().cameras
-    assert set(type(cams).model_fields) == {"calibration_dir", "front"}  # the gripper camera is retired
-    # The front camera is the head D435 colour: factory CameraInfo intrinsics, zero mount on d435_color_frame.
-    assert cams.front.parent_frame == "d435_color_frame"
-    assert cams.front.intrinsics == IntrinsicsSettings(camera_info_topic="/head/d435/color/camera_info")
-    assert cams.front.mount is not None and cams.front.mount.parent_frame == "d435_color_frame"
-    assert [getattr(cams.front.mount, k) for k in ("x", "y", "z", "roll", "pitch", "yaw")] == [0.0] * 6
+    assert set(type(cams).model_fields) == {"calibration_dir", "head"}  # the gripper camera is retired
+    # The head camera is the head D435 colour: factory CameraInfo intrinsics, zero mount on d435_color_frame.
+    assert cams.head.parent_frame == "d435_color_frame"
+    assert cams.head.intrinsics == IntrinsicsSettings(camera_info_topic="/head/d435/color/camera_info")
+    assert cams.head.mount is not None and cams.head.mount.parent_frame == "d435_color_frame"
+    assert [getattr(cams.head.mount, k) for k in ("x", "y", "z", "roll", "pitch", "yaw")] == [0.0] * 6
     assert str(cams.calibration_dir) == "/var/lib/ros2/camera_calibration"
 
 
 def test_hfov_intrinsics_need_width_and_height() -> None:
     cfg = McpServerConfig.model_validate(
-        {"cameras": {"front": {"intrinsics": {"hfov_deg": 66.0, "width": 640, "height": 480}}}}
+        {"cameras": {"head": {"intrinsics": {"hfov_deg": 66.0, "width": 640, "height": 480}}}}
     )
-    assert cfg.cameras.front.intrinsics is not None and cfg.cameras.front.intrinsics.hfov_deg == 66.0
+    assert cfg.cameras.head.intrinsics is not None and cfg.cameras.head.intrinsics.hfov_deg == 66.0
     with pytest.raises(ValidationError):
-        McpServerConfig.model_validate({"cameras": {"front": {"intrinsics": {"hfov_deg": 66.0}}}})
+        McpServerConfig.model_validate({"cameras": {"head": {"intrinsics": {"hfov_deg": 66.0}}}})
 
 
 def test_intrinsics_calibration_file_excludes_hfov() -> None:
-    McpServerConfig.model_validate({"cameras": {"front": {"intrinsics": {"calibration_file": "/etc/cam.yaml"}}}})
+    McpServerConfig.model_validate({"cameras": {"head": {"intrinsics": {"calibration_file": "/etc/cam.yaml"}}}})
     with pytest.raises(ValidationError):
         McpServerConfig.model_validate(
             {
                 "cameras": {
-                    "front": {"intrinsics": {"calibration_file": "/x.yaml", "hfov_deg": 60.0, "width": 1, "height": 1}}
+                    "head": {"intrinsics": {"calibration_file": "/x.yaml", "hfov_deg": 60.0, "width": 1, "height": 1}}
                 }
             }
         )
     with pytest.raises(ValidationError):
-        McpServerConfig.model_validate({"cameras": {"front": {"intrinsics": {}}}})
+        McpServerConfig.model_validate({"cameras": {"head": {"intrinsics": {}}}})
 
 
 def test_camera_info_topic_is_an_exclusive_source() -> None:
     topic = "/head/d435/color/camera_info"
 
     def intrinsics(**fields: object) -> McpServerConfig:
-        return McpServerConfig.model_validate({"cameras": {"front": {"intrinsics": fields}}})
+        return McpServerConfig.model_validate({"cameras": {"head": {"intrinsics": fields}}})
 
-    alone = intrinsics(camera_info_topic=topic).cameras.front.intrinsics
+    alone = intrinsics(camera_info_topic=topic).cameras.head.intrinsics
     assert alone is not None and alone.camera_info_topic == topic
     assert alone.calibration_file is None and alone.hfov_deg is None
-    scaled = intrinsics(camera_info_topic=topic, image_width=1280, image_height=720).cameras.front.intrinsics
+    scaled = intrinsics(camera_info_topic=topic, image_width=1280, image_height=720).cameras.head.intrinsics
     assert scaled is not None and (scaled.image_width, scaled.image_height) == (1280, 720)
     for other in (
         {"calibration_file": "/x.yaml"},
@@ -73,20 +73,18 @@ def test_camera_info_topic_is_an_exclusive_source() -> None:
 
 def test_mount_parent_frame_is_adopted_and_must_match() -> None:
     head_mount = {**MOUNT, "parent_frame": "head_link"}
-    cfg = McpServerConfig.model_validate({"cameras": {"front": {"mount": head_mount}}})
-    assert cfg.cameras.front.parent_frame == "head_link"
-    assert cfg.cameras.front.mount is not None and cfg.cameras.front.mount.z == 0.05
+    cfg = McpServerConfig.model_validate({"cameras": {"head": {"mount": head_mount}}})
+    assert cfg.cameras.head.parent_frame == "head_link"
+    assert cfg.cameras.head.mount is not None and cfg.cameras.head.mount.z == 0.05
     with pytest.raises(ValidationError, match="differs from parent_frame"):
-        McpServerConfig.model_validate(
-            {"cameras": {"front": {"parent_frame": "d435_color_frame", "mount": head_mount}}}
-        )
+        McpServerConfig.model_validate({"cameras": {"head": {"parent_frame": "d435_color_frame", "mount": head_mount}}})
 
 
 def test_front_view_camera_must_be_mounted_on_a_head_urdf_link() -> None:
     with pytest.raises(ValidationError, match="head URDF"):
-        McpServerConfig.model_validate({"cameras": {"front": {"mount": MOUNT}}})
-    ok = McpServerConfig.model_validate({"cameras": {"front": {"mount": {**MOUNT, "parent_frame": "head_link"}}}})
-    assert ok.cameras.front.mount is not None and ok.cameras.front.parent_frame == "head_link"
+        McpServerConfig.model_validate({"cameras": {"head": {"mount": MOUNT}}})
+    ok = McpServerConfig.model_validate({"cameras": {"head": {"mount": {**MOUNT, "parent_frame": "head_link"}}}})
+    assert ok.cameras.head.mount is not None and ok.cameras.head.parent_frame == "head_link"
 
 
 def test_unknown_camera_keys_rejected() -> None:
@@ -126,7 +124,7 @@ def front_cfg(path: Path, size: tuple[int, int]) -> McpServerConfig:
     return McpServerConfig.model_validate(
         {
             "cameras": {
-                "front": {
+                "head": {
                     "parent_frame": "d435_color_frame",
                     "intrinsics": {"calibration_file": str(path), "image_width": size[0], "image_height": size[1]},
                     "mount": {
@@ -157,15 +155,15 @@ def write_calib(path: Path, data: dict) -> Path:
 
 def test_client_yml_front_block_validates_with_a_head_urdf_parent() -> None:
     cfg = McpServerConfig.model_validate(client_node_config("mcp_server"))
-    front = cfg.cameras.front
+    front = cfg.cameras.head
     assert front.parent_frame == "d435_color_frame" and front.mount is not None
     assert HeadKinematics(cfg.head.urdf_path).link_pose(0.0, 0.0, front.parent_frame) is not None
     assert front.intrinsics is not None and front.intrinsics.camera_info_topic is not None
 
 
 def test_client_yml_front_intrinsics_are_the_live_d435_colour_camera_info() -> None:
-    """The front intrinsics come from the live D435 colour CameraInfo at its own size (no rescale to another stream)."""
-    intr = McpServerConfig.model_validate(client_node_config("mcp_server")).cameras.front.intrinsics
+    """The head intrinsics come from the live D435 colour CameraInfo at its own size (no rescale to another stream)."""
+    intr = McpServerConfig.model_validate(client_node_config("mcp_server")).cameras.head.intrinsics
     live = yaml.safe_load(D435_TOPICS.read_text())["topics"]
     assert intr is not None and intr.camera_info_topic == "/head/d435/color/camera_info"
     assert live[intr.camera_info_topic]["type"] == "sensor_msgs/msg/CameraInfo"
@@ -174,7 +172,7 @@ def test_client_yml_front_intrinsics_are_the_live_d435_colour_camera_info() -> N
 
 def test_front_intrinsics_scaled_to_stream_size(tmp_path: Path) -> None:
     path = write_calib(tmp_path / "c.yaml", CALIB_576)
-    intr = camera_setup(front_cfg(path, STREAM_SIZE), "front").intrinsics
+    intr = camera_setup(front_cfg(path, STREAM_SIZE), "head").intrinsics
     assert (intr.width, intr.height) == STREAM_SIZE
     assert (intr.fx, intr.cx, intr.fy, intr.cy) == (800.0, 580.0, 820.0, 320.0)
     assert intr.distortion == [0.1, -0.2, 0.0, 0.0, 0.05]
@@ -182,7 +180,7 @@ def test_front_intrinsics_scaled_to_stream_size(tmp_path: Path) -> None:
 
 def test_same_size_keeps_the_calibration(tmp_path: Path) -> None:
     path = write_calib(tmp_path / "c.yaml", CALIB_576)
-    intr = camera_setup(front_cfg(path, (576, 324)), "front").intrinsics
+    intr = camera_setup(front_cfg(path, (576, 324)), "head").intrinsics
     assert (intr.fx, intr.cx, intr.fy, intr.cy) == (400.0, 290.0, 410.0, 160.0)
 
 
@@ -192,9 +190,9 @@ def test_different_aspect_ratio_is_uncalibrated_and_warns_with_both_sizes(
     path = write_calib(tmp_path / "c.yaml", CALIB_576)
     cfg = front_cfg(path, (640, 480))
     with caplog.at_level(logging.WARNING), pytest.raises(CameraNotCalibratedError):
-        camera_setup(cfg, "front")
+        camera_setup(cfg, "head")
     with pytest.raises(CameraNotCalibratedError):
-        camera_setup(cfg, "front")
+        camera_setup(cfg, "head")
     warnings = [r.getMessage() for r in caplog.records if "aspect" in r.getMessage()]
     assert len(warnings) == 1 and "576x324" in warnings[0] and "640x480" in warnings[0]
 
@@ -206,7 +204,7 @@ def test_missing_file_is_uncalibrated_warns_once_and_never_crashes_at_startup(
     with caplog.at_level(logging.WARNING):
         for _ in range(2):
             with pytest.raises(CameraNotCalibratedError):
-                camera_setup(cfg, "front")
+                camera_setup(cfg, "head")
     assert len([r for r in caplog.records if "missing" in r.getMessage()]) == 1
 
 
@@ -214,9 +212,9 @@ def test_an_apply_is_picked_up_without_a_restart(tmp_path: Path) -> None:
     path = tmp_path / "c.yaml"
     cfg = front_cfg(path, (576, 324))
     with pytest.raises(CameraNotCalibratedError):
-        camera_setup(cfg, "front")
+        camera_setup(cfg, "head")
     write_calib(path, CALIB_576)
-    assert camera_setup(cfg, "front").intrinsics.fx == 400.0
+    assert camera_setup(cfg, "head").intrinsics.fx == 400.0
     changed = {
         **CALIB_576,
         "camera_matrix": {**CALIB_576["camera_matrix"], "data": [500.0, 0, 290, 0, 410, 160, 0, 0, 1]},
@@ -225,13 +223,13 @@ def test_an_apply_is_picked_up_without_a_restart(tmp_path: Path) -> None:
     import os
 
     os.utime(path, ns=(path.stat().st_atime_ns, path.stat().st_mtime_ns + 10_000_000))
-    assert camera_setup(cfg, "front").intrinsics.fx == 500.0
+    assert camera_setup(cfg, "head").intrinsics.fx == 500.0
 
 
 def test_front_intrinsics_missing_or_mismatched_uncalibrated(tmp_path: Path) -> None:
     missing = front_cfg(tmp_path / "absent.yaml", STREAM_SIZE)
     with pytest.raises(CameraNotCalibratedError):
-        camera_setup(missing, "front")
+        camera_setup(missing, "head")
     path = write_calib(tmp_path / "c.yaml", CALIB_576)
     with pytest.raises(CameraNotCalibratedError):
-        camera_setup(front_cfg(path, (640, 480)), "front")
+        camera_setup(front_cfg(path, (640, 480)), "head")

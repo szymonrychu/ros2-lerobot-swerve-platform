@@ -240,19 +240,19 @@ def test_get_robot_state_is_structured(server: Any) -> None:
 
 
 def test_get_camera_image_returns_jpeg_and_stamp(server: Any, robot: FakeRobot) -> None:
-    res = call(server, "get_camera_image", {"camera": "front", "max_px": 512})
+    res = call(server, "get_camera_image", {"camera": "head", "max_px": 512})
     kinds = [c.type for c in res.content]
     assert "image" in kinds and "text" in kinds
     img = next(c for c in res.content if c.type == "image")
     assert img.mime_type == "image/jpeg"
     text = next(c for c in res.content if c.type == "text").text
     assert "123.5" in text
-    assert robot.calls[-1] == ("camera_image", ("front", 512))
+    assert robot.calls[-1] == ("camera_image", ("head", 512))
 
 
 def test_get_camera_image_validates_arguments(server: Any) -> None:
     with pytest.raises(ToolError):
-        call(server, "get_camera_image", {"camera": "front", "max_px": 2048})
+        call(server, "get_camera_image", {"camera": "head", "max_px": 2048})
     with pytest.raises(ToolError):
         call(server, "get_camera_image", {"camera": "thermal"})
 
@@ -260,7 +260,7 @@ def test_get_camera_image_validates_arguments(server: Any) -> None:
 def test_camera_failure_is_a_tool_error(server: Any, robot: FakeRobot) -> None:
     robot.camera_error = "no frame within 2.0 s"
     with pytest.raises(ToolError, match="no frame"):
-        call(server, "get_camera_image", {"camera": "front"})
+        call(server, "get_camera_image", {"camera": "head"})
 
 
 def test_map_summary_with_png(server: Any) -> None:
@@ -455,10 +455,10 @@ def test_camera_tool_offers_the_head_front_camera_not_realsense_or_stereo(server
 
     tool = next(t for t in anyio.run(run) if t.name == "get_camera_image")
     schema = json.dumps(tool.input_schema)
-    assert "front" in schema and "realsense" not in schema.lower()
+    assert "head" in schema and "realsense" not in schema.lower()
     text = (tool.description or "") + schema
     assert "head" in text and "overhead" not in text and "gripper-to-object" in text
-    assert "640x480" not in text, "no hardcoded front camera size (the front camera streams its own size)"
+    assert "640x480" not in text, "no hardcoded head camera size (the head camera streams its own size)"
     assert "stereo" not in text.lower() and "/stereo" not in text
     with pytest.raises(ToolError):
         call(server, "get_camera_image", {"camera": "realsense"})
@@ -471,7 +471,7 @@ def test_get_camera_image_offers_only_front(server: Any, robot: FakeRobot) -> No
     assert tools.Camera is camera_scene.Camera  # one Camera definition, no copy in tools
     tool = next(t for t in anyio.run(run) if t.name == "get_camera_image")
     prop = tool.input_schema["properties"]["camera"]
-    assert prop.get("enum", [prop.get("const")]) == ["front"]
+    assert prop.get("enum", [prop.get("const")]) == ["head"]
     description = tool.description or ""
     assert "D435" in description and "640x360" in description
     assert "'gripper'" not in description + json.dumps(tool.input_schema)
@@ -491,7 +491,7 @@ def test_get_camera_image_has_no_zoom(server: Any, robot: FakeRobot) -> None:
     assert "zoom" not in tool.input_schema["properties"]
     assert "zoom" not in ((tool.description or "") + json.dumps(tool.input_schema)).lower()
     with pytest.raises(ToolError):
-        call(server, "get_camera_image", {"camera": "front", "zoom": {"u": 0.5, "v": 0.5, "factor": 2}})
+        call(server, "get_camera_image", {"camera": "head", "zoom": {"u": 0.5, "v": 0.5, "factor": 2}})
     assert robot.calls == []
 
 
@@ -707,10 +707,10 @@ def test_arm_motion_tools_take_surfaces(server: Any, robot: FakeRobot) -> None:
 
 
 def test_get_camera_image_defaults_to_384_px_and_larger_can_be_requested(server: Any, robot: FakeRobot) -> None:
-    call(server, "get_camera_image", {"camera": "front"})
-    assert robot.calls[-1] == ("camera_image", ("front", 384))
-    call(server, "get_camera_image", {"camera": "front", "max_px": 768})
-    assert robot.calls[-1] == ("camera_image", ("front", 768))
+    call(server, "get_camera_image", {"camera": "head"})
+    assert robot.calls[-1] == ("camera_image", ("head", 384))
+    call(server, "get_camera_image", {"camera": "head", "max_px": 768})
+    assert robot.calls[-1] == ("camera_image", ("head", 768))
     assert McpServerConfig().limits.default_camera_px == 384
     assert "384" in tool_descriptions(server)["get_camera_image"]
 
@@ -789,7 +789,7 @@ def test_arm_moves_log_trajectory_and_settle_seconds_separately(server: Any, cap
 def test_failing_call_is_logged_with_ok_false(server: Any, robot: FakeRobot, caplog: pytest.LogCaptureFixture) -> None:
     robot.camera_error = "no frame"
     with caplog.at_level("INFO", logger="mcp_server.timing"), pytest.raises(ToolError):
-        call(server, "get_camera_image", {"camera": "front"})
+        call(server, "get_camera_image", {"camera": "head"})
     rec = json.loads(
         next(r.getMessage() for r in caplog.records if r.name == "mcp_server.timing").split("tool_call ", 1)[1]
     )
@@ -863,7 +863,7 @@ def test_set_gripper_close_attaches_the_jaw_crop_and_awaits_confirm_grasp(server
     assert "confirm_grasp" in data["message"] and check["grasp_id"] in data["message"]
     record = robot.arm.carry.get()
     assert record.grasp_kind == "unverified" and record.image == "pending" and record.grasp_id == check["grasp_id"]
-    assert ("camera_image", ("front", McpServerConfig().grasp_check.image_px)) in robot.calls
+    assert ("camera_image", ("head", McpServerConfig().grasp_check.image_px)) in robot.calls
     confirmed = call(
         server,
         "confirm_grasp",

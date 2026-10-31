@@ -1,4 +1,4 @@
-"""The front (D435 colour) camera scene follows the measured pan/tilt head pose (design D8, D11)."""
+"""The head (D435 colour) camera scene follows the measured pan/tilt head pose (design D8, D11)."""
 
 import json
 import math
@@ -24,7 +24,7 @@ from .test_tools import call
 
 D435_COLOUR_FRAME = "d435_color_frame"
 D435_COLOUR_INFO_TOPIC = "/head/d435/color/camera_info"
-# The deployed front camera mount: zero on d435_color_frame, so head.urdf (d435_joint + the factory colour extrinsic)
+# The deployed head camera mount: zero on d435_color_frame, so head.urdf (d435_joint + the factory colour extrinsic)
 # is the mount.
 D435_MOUNT = {"parent_frame": D435_COLOUR_FRAME, "x": 0.0, "y": 0.0, "z": 0.0, "roll": 0.0, "pitch": 0.0, "yaw": 0.0}
 # A rotation-free camera 2 cm in front of the tilt axis on head_link, for the analytic pan/tilt geometry tests (the
@@ -39,21 +39,21 @@ HEAD_POSES_DEG = ((0.0, 0.0), (-40.0, 20.0), (35.0, -25.0), (10.0, 45.0))
 
 
 class InfoSource:
-    """CameraInfo source answering the D435 colour CameraInfo for the front camera."""
+    """CameraInfo source answering the D435 colour CameraInfo for the head camera."""
 
     def camera_info(self, camera: str) -> CameraInfoData | None:
-        return D435_INFO if camera == "front" else None
+        return D435_INFO if camera == "head" else None
 
 
 def head_config(**front: object) -> McpServerConfig:
-    """Config whose front camera sits on d435_color_frame with the zero mount and hfov intrinsics."""
+    """Config whose head camera sits on d435_color_frame with the zero mount and hfov intrinsics."""
     cam: dict[str, object] = {"intrinsics": HFOV, "mount": D435_MOUNT, **front}
-    return McpServerConfig.model_validate({"cameras": {"front": cam}})
+    return McpServerConfig.model_validate({"cameras": {"head": cam}})
 
 
 def ideal_head_config() -> McpServerConfig:
-    """Config whose front camera is the rotation-free IDEAL_HEAD_MOUNT on head_link with hfov intrinsics."""
-    return McpServerConfig.model_validate({"cameras": {"front": {"intrinsics": HFOV, "mount": IDEAL_HEAD_MOUNT}}})
+    """Config whose head camera is the rotation-free IDEAL_HEAD_MOUNT on head_link with hfov intrinsics."""
+    return McpServerConfig.model_validate({"cameras": {"head": {"intrinsics": HFOV, "mount": IDEAL_HEAD_MOUNT}}})
 
 
 def head_at(cfg: McpServerConfig, pan_deg: float, tilt_deg: float) -> tuple[HeadController, FakeHeadBackend]:
@@ -64,7 +64,7 @@ def head_at(cfg: McpServerConfig, pan_deg: float, tilt_deg: float) -> tuple[Head
 
 
 def front_scene(cfg: McpServerConfig, head: HeadController) -> Scene:
-    return build_scene(camera_setup(cfg, "front"), cfg, head_parent_transform(cfg, head))
+    return build_scene(camera_setup(cfg, "head"), cfg, head_parent_transform(cfg, head))
 
 
 def test_front_scene_at_pan_0_tilt_0_equals_the_urdf_camera_pose() -> None:
@@ -76,10 +76,10 @@ def test_front_scene_at_pan_0_tilt_0_equals_the_urdf_camera_pose() -> None:
 
 
 def test_front_pose_follows_the_head_through_the_d435_frame() -> None:
-    """The deployed front camera (client.yml: zero mount on d435_color_frame, CameraInfo intrinsics) is posed at the
+    """The deployed head camera (client.yml: zero mount on d435_color_frame, CameraInfo intrinsics) is posed at the
     URDF d435_color_optical_frame for every measured head pose, so it moves with the pan/tilt head."""
     cfg = deployed_config()
-    setup = camera_setup(cfg, "front", source=InfoSource())
+    setup = camera_setup(cfg, "head", source=InfoSource())
     assert (setup.intrinsics.width, setup.intrinsics.height) == (D435_INFO.width, D435_INFO.height)
     assert setup.intrinsics.fx == D435_INFO.k[0] and not setup.approximate
     urdf = HeadKinematics(cfg.head.urdf_path)
@@ -142,18 +142,18 @@ def test_no_head_raises_instead_of_an_identity_pose() -> None:
 
 
 def test_front_parent_defaults_to_the_d435_colour_frame() -> None:
-    assert McpServerConfig().cameras.front.parent_frame == D435_COLOUR_FRAME
+    assert McpServerConfig().cameras.head.parent_frame == D435_COLOUR_FRAME
     # Only intrinsics given: the parent is still the D435 colour frame.
-    assert McpServerConfig.model_validate({"cameras": {"front": {"intrinsics": HFOV}}}).cameras.front.parent_frame == (
+    assert McpServerConfig.model_validate({"cameras": {"head": {"intrinsics": HFOV}}}).cameras.head.parent_frame == (
         D435_COLOUR_FRAME
     )
 
 
 def test_config_rejects_a_front_parent_that_is_not_a_head_urdf_link() -> None:
     with pytest.raises(ValidationError, match="head URDF"):
-        McpServerConfig.model_validate({"cameras": {"front": {"parent_frame": "gripper_link"}}})
+        McpServerConfig.model_validate({"cameras": {"head": {"parent_frame": "gripper_link"}}})
     with pytest.raises(ValidationError, match="head URDF"):
-        McpServerConfig.model_validate({"cameras": {"front": {"mount": {**D435_MOUNT, "parent_frame": "camera"}}}})
+        McpServerConfig.model_validate({"cameras": {"head": {"mount": {**D435_MOUNT, "parent_frame": "camera"}}}})
 
 
 def test_config_rejects_a_mount_that_disagrees_with_the_front_parent() -> None:
@@ -164,7 +164,7 @@ def test_config_rejects_a_mount_that_disagrees_with_the_front_parent() -> None:
 def test_pixel_to_ground_uses_the_measured_head_pan(tmp_path: Path) -> None:
     server, robot, _ = make(tmp_path, head_config())
     robot.head_backend.positions.update({"head_pan": math.radians(30.0), "head_tilt": math.radians(30.0)})
-    data = call(server, "pixel_to_ground", {"camera": "front", "u": WIDTH / 2, "v": HEIGHT / 2}).structured_content
+    data = call(server, "pixel_to_ground", {"camera": "head", "u": WIDTH / 2, "v": HEIGHT / 2}).structured_content
     bearing_from_pan_axis = math.degrees(
         math.atan2(data["ground_base_link"]["y"] - 0.10, data["ground_base_link"]["x"] - TILT_AXIS_X)
     )
@@ -175,7 +175,7 @@ def test_pixel_to_ground_refuses_stale_head_joints(tmp_path: Path) -> None:
     server, robot, _ = make(tmp_path, head_config())
     robot.head_backend.stale_after = robot.head_backend.t - 10.0
     with pytest.raises(ToolError, match="head joint states"):
-        call(server, "pixel_to_ground", {"camera": "front", "u": WIDTH / 2, "v": HEIGHT / 2})
+        call(server, "pixel_to_ground", {"camera": "head", "u": WIDTH / 2, "v": HEIGHT / 2})
 
 
 def test_calibration_sample_stores_the_head_parent_pose(tmp_path: Path) -> None:
@@ -185,9 +185,9 @@ def test_calibration_sample_stores_the_head_parent_pose(tmp_path: Path) -> None:
     call(
         server,
         "capture_calibration_sample",
-        {"camera": "front", "u": 320.0, "v": 300.0, "ground_x": 0.8, "ground_y": 0.0, "ground_z": 0.0},
+        {"camera": "head", "u": 320.0, "v": 300.0, "ground_x": 0.8, "ground_y": 0.0, "ground_z": 0.0},
     )
-    data = json.loads((cfg.cameras.calibration_dir / "front.json").read_text())
+    data = json.loads((cfg.cameras.calibration_dir / "head.json").read_text())
     assert data["parent_frame"] == D435_COLOUR_FRAME
     expected = HeadKinematics(cfg.head.urdf_path).link_pose(math.radians(15.0), math.radians(25.0), D435_COLOUR_FRAME)
     assert np.allclose(np.array(data["samples"][0]["t_frame_parent"]), expected)
@@ -205,14 +205,14 @@ def test_deployed_head_section_equals_the_code_defaults() -> None:
 
 def test_deployed_front_camera_equals_the_code_default() -> None:
     deployed = deployed_config()
-    assert deployed.cameras.front == McpServerConfig().cameras.front
+    assert deployed.cameras.head == McpServerConfig().cameras.head
     assert (
         deployed.topics.head_camera == McpServerConfig().topics.head_camera == "/head/d435/color/image_raw/compressed"
     )
 
 
 def test_deployed_front_camera_is_the_d435_colour_with_camera_info_intrinsics() -> None:
-    front = deployed_config().cameras.front
+    front = deployed_config().cameras.head
     assert front.parent_frame == D435_COLOUR_FRAME and front.mount is not None
     assert front.mount.parent_frame == D435_COLOUR_FRAME
     assert np.allclose(front.mount.to_matrix(), np.eye(4))
@@ -222,7 +222,7 @@ def test_deployed_front_camera_is_the_d435_colour_with_camera_info_intrinsics() 
 
 
 def test_front_pose_follows_the_applied_d435_joint(tmp_path: Path) -> None:
-    """An applied head chain that lifts d435_joint lifts the front camera, read without a restart."""
+    """An applied head chain that lifts d435_joint lifts the head camera, read without a restart."""
     cfg = head_config()
     provider = AppliedHeadKinematics(cfg.head.urdf_path, tmp_path)
     backend = FakeHeadBackend({"head_pan": 0.0, "head_tilt": 0.0})

@@ -1,6 +1,6 @@
 """Target tracker: visibility precheck, dock pose, template matching on a synthetic textured floor, detection loop.
 
-Frames are rendered through the calibrated synthetic front camera (camera_helpers.py): every pixel's ray is cut with
+Frames are rendered through the calibrated synthetic head camera (camera_helpers.py): every pixel's ray is cut with
 the floor plane and samples a seeded random texture laid out in the map frame, so the true map position of every
 texture patch is known.
 """
@@ -48,7 +48,7 @@ STAMP_NS = 1_700_000_000_123_456_789
 @pytest.fixture(scope="module")
 def scene() -> Scene:
     cfg = camera_config()
-    return build_scene(camera_setup(cfg, "front"), cfg, np.eye(4))
+    return build_scene(camera_setup(cfg, "head"), cfg, np.eye(4))
 
 
 def make_texture(seed: int) -> np.ndarray:

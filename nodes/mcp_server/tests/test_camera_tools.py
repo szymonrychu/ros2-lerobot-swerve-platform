@@ -20,7 +20,7 @@ from mcp_server.models import BasePose, CameraFrame, RobotState, ScanPoints
 from mcp_server.tools import build_mcp_server
 
 from .camera_helpers import (
-    FRONT_MOUNT,
+    HEAD_MOUNT,
     HEIGHT,
     WIDTH,
     camera_config,
@@ -105,7 +105,7 @@ def decode_image(res: Any) -> np.ndarray:
 
 
 def front_pixel(ground: tuple[float, float, float]) -> tuple[float, float]:
-    t = optical_from_mount(MountPose(**FRONT_MOUNT).to_matrix())
+    t = optical_from_mount(MountPose(**HEAD_MOUNT).to_matrix())
     u, v, _ = project_raw(INTR, t, np.array(ground))
     return u, v
 
@@ -136,7 +136,7 @@ def test_gripper_camera_is_rejected(tmp_path: Path) -> None:
     tools = {t.name: t for t in anyio.run(server.list_tools)}
     for name in CAMERA_TOOLS:
         prop = tools[name].input_schema["properties"]["camera"]
-        assert schema_values(prop) == ["front"], name
+        assert schema_values(prop) == ["head"], name
         assert "gripper" not in prop.get("description", ""), name
         assert "gripper camera" not in (tools[name].description or ""), name
         with pytest.raises(ToolError):
@@ -157,33 +157,33 @@ def test_tools_are_registered_with_descriptions(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("name", "args"),
     [
-        ("pixel_to_ground", {"camera": "front", "u": 100.0, "v": 100.0}),
-        ("get_annotated_camera_image", {"camera": "front"}),
-        ("mark_candidate_points", {"camera": "front"}),
+        ("pixel_to_ground", {"camera": "head", "u": 100.0, "v": 100.0}),
+        ("get_annotated_camera_image", {"camera": "head"}),
+        ("mark_candidate_points", {"camera": "head"}),
     ],
 )
 def test_uncalibrated_camera_tools_report_the_documented_error(tmp_path: Path, name: str, args: dict) -> None:
     server, _, _ = make(tmp_path, McpServerConfig())
     with pytest.raises(ToolError) as exc:
         call(server, name, args)
-    assert NOT_CALIBRATED.format("front") in str(exc.value)
+    assert NOT_CALIBRATED.format("head") in str(exc.value)
 
 
 def test_intrinsics_without_mount_is_still_not_calibrated(tmp_path: Path) -> None:
     cfg = McpServerConfig.model_validate(
-        {"cameras": {"front": {"intrinsics": {"hfov_deg": 66.0, "width": 640, "height": 480}}}}
+        {"cameras": {"head": {"intrinsics": {"hfov_deg": 66.0, "width": 640, "height": 480}}}}
     )
     server, _, _ = make(tmp_path, cfg)
     with pytest.raises(ToolError, match="not calibrated"):
-        call(server, "pixel_to_ground", {"camera": "front", "u": 1.0, "v": 1.0})
+        call(server, "pixel_to_ground", {"camera": "head", "u": 1.0, "v": 1.0})
 
 
 def test_pixel_to_ground_front(tmp_path: Path) -> None:
     server, _, _ = make(tmp_path)
-    res = call(server, "pixel_to_ground", {"camera": "front", "u": WIDTH / 2, "v": HEIGHT / 2})
+    res = call(server, "pixel_to_ground", {"camera": "head", "u": WIDTH / 2, "v": HEIGHT / 2})
     data = res.structured_content
     ex, _ = front_ground_of_center()
-    assert data["camera"] == "front"
+    assert data["camera"] == "head"
     assert data["ground_base_link"]["x"] == pytest.approx(ex, abs=1e-3)
     assert data["ground_base_link"]["z"] == 0.0
     assert data["ground_map"]["y"] == pytest.approx(2.0 + ex, abs=1e-3)
@@ -194,14 +194,14 @@ def test_pixel_to_ground_front(tmp_path: Path) -> None:
 def test_pixel_to_ground_without_map_pose_omits_ground_map(tmp_path: Path) -> None:
     server, robot, _ = make(tmp_path)
     robot.pose_missing = True
-    data = call(server, "pixel_to_ground", {"camera": "front", "u": 320.0, "v": 240.0}).structured_content
+    data = call(server, "pixel_to_ground", {"camera": "head", "u": 320.0, "v": 240.0}).structured_content
     assert "ground_map" not in data and "ground_base_link" in data
 
 
 def test_pixel_to_ground_front_does_not_need_arm_joints(tmp_path: Path) -> None:
     server, robot, _ = make(tmp_path, camera_config(arm_offset=True))
-    robot.arm_backend.no_samples = True  # the front camera hangs on the head, not on the arm
-    data = call(server, "pixel_to_ground", {"camera": "front", "u": WIDTH / 2, "v": HEIGHT / 2}).structured_content
+    robot.arm_backend.no_samples = True  # the head camera hangs on the head, not on the arm
+    data = call(server, "pixel_to_ground", {"camera": "head", "u": WIDTH / 2, "v": HEIGHT / 2}).structured_content
     ex, _ = front_ground_of_center()
     assert data["ground_base_link"]["x"] == pytest.approx(ex, abs=1e-3)
     assert "ground_arm_base" not in data
@@ -210,24 +210,24 @@ def test_pixel_to_ground_front_does_not_need_arm_joints(tmp_path: Path) -> None:
 
 def test_pixel_to_ground_rejects_sky_and_off_image(tmp_path: Path) -> None:
     cfg = camera_config()
-    cfg.cameras.front.mount.pitch = 0.1
+    cfg.cameras.head.mount.pitch = 0.1
     server, _, _ = make(tmp_path, cfg)
     with pytest.raises(ToolError, match="floor"):
-        call(server, "pixel_to_ground", {"camera": "front", "u": 320.0, "v": 5.0})
+        call(server, "pixel_to_ground", {"camera": "head", "u": 320.0, "v": 5.0})
     with pytest.raises(ToolError, match="outside the image"):
-        call(server, "pixel_to_ground", {"camera": "front", "u": 9999.0, "v": 5.0})
+        call(server, "pixel_to_ground", {"camera": "head", "u": 9999.0, "v": 5.0})
 
 
 def test_annotated_image_default_grid(tmp_path: Path) -> None:
     server, robot, _ = make(tmp_path)
-    res = call(server, "get_annotated_camera_image", {"camera": "front"})
+    res = call(server, "get_annotated_camera_image", {"camera": "head"})
     img = decode_image(res)
     assert img.shape == (HEIGHT, WIDTH, 3)
     assert (np.abs(img.astype(int) - 90) > 20).any()
     meta = text_json(res)
-    assert meta["camera"] == "front" and meta["overlays"] == ["grid"] and meta["frame"] == "base_link"
+    assert meta["camera"] == "head" and meta["overlays"] == ["grid"] and meta["frame"] == "base_link"
     assert meta["grid_step_m"] == 0.1 and meta["approximate_intrinsics"] is True
-    assert ("camera_image", ("front", 640)) in robot.calls
+    assert ("camera_image", ("head", 640)) in robot.calls
 
 
 def test_annotated_image_all_overlays_front(tmp_path: Path) -> None:
@@ -236,7 +236,7 @@ def test_annotated_image_all_overlays_front(tmp_path: Path) -> None:
         server,
         "get_annotated_camera_image",
         {
-            "camera": "front",
+            "camera": "head",
             "overlays": ["grid", "reach", "gripper", "planned_gripper", "lidar"],
             "planned_gripper": {"x": 0.2, "y": 0.0, "z": 0.0},
             "grid_step_m": 0.25,
@@ -256,7 +256,7 @@ def test_annotated_image_notes_unavailable_overlays(tmp_path: Path) -> None:
         server,
         "get_annotated_camera_image",
         {
-            "camera": "front",
+            "camera": "head",
             "overlays": ["reach", "gripper", "planned_gripper", "lidar"],
             "planned_gripper": {"x": 0.2, "y": 0.0, "z": 0.0},
         },
@@ -269,35 +269,35 @@ def test_annotated_image_notes_unavailable_overlays(tmp_path: Path) -> None:
 def test_planned_gripper_overlay_requires_the_point(tmp_path: Path) -> None:
     server, _, _ = make(tmp_path)
     with pytest.raises(ToolError, match="planned_gripper"):
-        call(server, "get_annotated_camera_image", {"camera": "front", "overlays": ["planned_gripper"]})
+        call(server, "get_annotated_camera_image", {"camera": "head", "overlays": ["planned_gripper"]})
 
 
 def test_annotated_image_rejects_unknown_overlay_and_bad_step(tmp_path: Path) -> None:
     server, _, _ = make(tmp_path)
     with pytest.raises(ToolError):
-        call(server, "get_annotated_camera_image", {"camera": "front", "overlays": ["sparkles"]})
+        call(server, "get_annotated_camera_image", {"camera": "head", "overlays": ["sparkles"]})
     with pytest.raises(ToolError):
-        call(server, "get_annotated_camera_image", {"camera": "front", "grid_step_m": 0.001})
+        call(server, "get_annotated_camera_image", {"camera": "head", "grid_step_m": 0.001})
 
 
 def test_annotated_front_image_draws_the_tool_point_in_base_link(tmp_path: Path) -> None:
     server, robot, _ = make(tmp_path, camera_config(arm_offset=True))
     robot.arm_backend.positions.update({"shoulder_lift": 1.0, "elbow_flex": 0.9, "wrist_flex": 1.0})
-    res = call(server, "get_annotated_camera_image", {"camera": "front", "overlays": ["grid", "reach", "gripper"]})
+    res = call(server, "get_annotated_camera_image", {"camera": "head", "overlays": ["grid", "reach", "gripper"]})
     meta = text_json(res)
     assert meta["frame"] == "base_link"
     assert "tool_point" in meta
     robot.arm_backend.no_samples = True
-    stale = text_json(call(server, "get_annotated_camera_image", {"camera": "front", "overlays": ["gripper"]}))
+    stale = text_json(call(server, "get_annotated_camera_image", {"camera": "head", "overlays": ["gripper"]}))
     assert "tool_point" not in stale and any("no fresh arm joint states" in n for n in stale["notes"])
 
 
 def test_mark_candidate_points_returns_image_and_table(tmp_path: Path) -> None:
     server, _, _ = make(tmp_path)
-    res = call(server, "mark_candidate_points", {"camera": "front", "spacing_px": 80, "max_points": 30})
+    res = call(server, "mark_candidate_points", {"camera": "head", "spacing_px": 80, "max_points": 30})
     table = text_json(res)
     decode_image(res)
-    assert table["set_id"] and table["camera"] == "front"
+    assert table["set_id"] and table["camera"] == "head"
     pts = table["points"]
     assert 0 < len(pts) <= 30
     assert [p["n"] for p in pts] == list(range(1, len(pts) + 1))
@@ -309,9 +309,9 @@ def test_mark_candidate_points_returns_image_and_table(tmp_path: Path) -> None:
 
 def test_mark_candidate_points_skips_sky_pixels(tmp_path: Path) -> None:
     cfg = camera_config()
-    cfg.cameras.front.mount.pitch = 0.3  # horizon inside the image: the top rows see sky
+    cfg.cameras.head.mount.pitch = 0.3  # horizon inside the image: the top rows see sky
     server, _, _ = make(tmp_path, cfg)
-    table = text_json(call(server, "mark_candidate_points", {"camera": "front", "spacing_px": 40, "max_points": 200}))
+    table = text_json(call(server, "mark_candidate_points", {"camera": "head", "spacing_px": 40, "max_points": 200}))
     assert table["points"] and min(p["v"] for p in table["points"]) > 100
     assert table["skipped_no_ground"] > 0
 
@@ -322,31 +322,31 @@ def test_mark_candidate_points_region(tmp_path: Path) -> None:
         call(
             server,
             "mark_candidate_points",
-            {"camera": "front", "region": {"u0": 100, "v0": 200, "u1": 300, "v1": 300}, "spacing_px": 50},
+            {"camera": "head", "region": {"u0": 100, "v0": 200, "u1": 300, "v1": 300}, "spacing_px": 50},
         )
     )
     assert all(100 <= p["u"] <= 300 and 200 <= p["v"] <= 300 for p in table["points"])
     with pytest.raises(ToolError, match="region"):
-        call(server, "mark_candidate_points", {"camera": "front", "region": {"u0": 300, "v0": 0, "u1": 100, "v1": 50}})
+        call(server, "mark_candidate_points", {"camera": "head", "region": {"u0": 300, "v0": 0, "u1": 100, "v1": 50}})
 
 
 def test_ground_map_is_null_without_map_pose(tmp_path: Path) -> None:
     server, robot, _ = make(tmp_path)
     robot.pose_missing = True
-    table = text_json(call(server, "mark_candidate_points", {"camera": "front", "spacing_px": 120}))
+    table = text_json(call(server, "mark_candidate_points", {"camera": "head", "spacing_px": 120}))
     assert all(p["ground_map"] is None for p in table["points"])
 
 
 def test_resolve_candidate_returns_stored_values_with_age_and_motion_flags(tmp_path: Path) -> None:
     server, robot, _ = make(tmp_path)
-    table = text_json(call(server, "mark_candidate_points", {"camera": "front", "spacing_px": 120}))
+    table = text_json(call(server, "mark_candidate_points", {"camera": "head", "spacing_px": 120}))
     stored = table["points"][1]
     res = call(server, "resolve_candidate", {"set_id": table["set_id"], "n": 2})
     data = res.structured_content
-    assert data["point"] == stored and data["camera"] == "front"
+    assert data["point"] == stored and data["camera"] == "head"
     assert data["age_s"] >= 0.0
     assert data["robot_moved_since"] is False and data["head_moved_since"] is False
-    assert "arm_moved_since" not in data  # the front camera hangs on the head, not on the arm
+    assert "arm_moved_since" not in data  # the head camera hangs on the head, not on the arm
     robot.pose = BasePose(frame="map", x=1.5, y=2.0, yaw=math.pi / 2, age_s=0.05)
     robot.head_backend.positions["head_tilt"] += 0.1
     moved = call(server, "resolve_candidate", {"set_id": table["set_id"], "n": 2}).structured_content
@@ -357,8 +357,8 @@ def test_resolve_candidate_returns_stored_values_with_age_and_motion_flags(tmp_p
 
 def test_resolve_candidate_ignores_arm_motion_and_small_head_jitter(tmp_path: Path) -> None:
     server, robot, _ = make(tmp_path)
-    set_id = text_json(call(server, "mark_candidate_points", {"camera": "front", "spacing_px": 160}))["set_id"]
-    robot.arm_backend.positions["elbow_flex"] = 0.5  # the arm does not carry the front camera
+    set_id = text_json(call(server, "mark_candidate_points", {"camera": "head", "spacing_px": 160}))["set_id"]
+    robot.arm_backend.positions["elbow_flex"] = 0.5  # the arm does not carry the head camera
     robot.head_backend.positions["head_pan"] += 0.01  # within the head motion tolerance
     data = call(server, "resolve_candidate", {"set_id": set_id, "n": 1}).structured_content
     assert data["head_moved_since"] is False and "moved" not in data["note"]
@@ -366,7 +366,7 @@ def test_resolve_candidate_ignores_arm_motion_and_small_head_jitter(tmp_path: Pa
 
 def test_resolve_candidate_head_check_incomplete_without_fresh_head_joints(tmp_path: Path) -> None:
     server, robot, _ = make(tmp_path)
-    set_id = text_json(call(server, "mark_candidate_points", {"camera": "front", "spacing_px": 160}))["set_id"]
+    set_id = text_json(call(server, "mark_candidate_points", {"camera": "head", "spacing_px": 160}))["set_id"]
     robot.head_backend.no_samples = True
     data = call(server, "resolve_candidate", {"set_id": set_id, "n": 1}).structured_content
     assert data["head_moved_since"] is None
@@ -375,7 +375,7 @@ def test_resolve_candidate_head_check_incomplete_without_fresh_head_joints(tmp_p
 
 def test_resolve_candidate_errors(tmp_path: Path) -> None:
     server, _, _ = make(tmp_path)
-    table = text_json(call(server, "mark_candidate_points", {"camera": "front", "spacing_px": 160}))
+    table = text_json(call(server, "mark_candidate_points", {"camera": "head", "spacing_px": 160}))
     with pytest.raises(ToolError, match="unknown candidate set"):
         call(server, "resolve_candidate", {"set_id": "nope", "n": 1})
     with pytest.raises(ToolError, match="no point 99"):
@@ -385,7 +385,7 @@ def test_resolve_candidate_errors(tmp_path: Path) -> None:
 def test_only_the_last_ten_candidate_sets_are_kept(tmp_path: Path) -> None:
     server, _, _ = make(tmp_path)
     ids = [
-        text_json(call(server, "mark_candidate_points", {"camera": "front", "spacing_px": 200}))["set_id"]
+        text_json(call(server, "mark_candidate_points", {"camera": "head", "spacing_px": 200}))["set_id"]
         for _ in range(11)
     ]
     assert len(set(ids)) == 11
@@ -401,7 +401,7 @@ def capture_all(server: Any, grounds: list[tuple[float, float, float]]) -> Any:
         res = call(
             server,
             "capture_calibration_sample",
-            {"camera": "front", "u": u, "v": v, "ground_x": g[0], "ground_y": g[1], "ground_z": g[2]},
+            {"camera": "head", "u": u, "v": v, "ground_x": g[0], "ground_y": g[1], "ground_z": g[2]},
         )
     return res
 
@@ -413,7 +413,7 @@ def test_capture_counts_samples_and_writes_file(tmp_path: Path) -> None:
     server, _, cfg = make(tmp_path, McpServerConfig())  # capture works before the camera is calibrated
     res = capture_all(server, GROUNDS[:2])
     assert res.structured_content["samples"] == 2
-    data = json.loads((cfg.cameras.calibration_dir / "front.json").read_text())
+    data = json.loads((cfg.cameras.calibration_dir / "head.json").read_text())
     assert len(data["samples"]) == 2 and data["parent_frame"] == "d435_color_frame"
 
 
@@ -423,40 +423,40 @@ def test_capture_front_stores_the_head_parent_pose_without_arm_joints(tmp_path: 
     call(
         server,
         "capture_calibration_sample",
-        {"camera": "front", "u": 100.0, "v": 200.0, "ground_x": 1.0, "ground_y": 0.0},
+        {"camera": "head", "u": 100.0, "v": 200.0, "ground_x": 1.0, "ground_y": 0.0},
     )
-    data = json.loads((cfg.cameras.calibration_dir / "front.json").read_text())
+    data = json.loads((cfg.cameras.calibration_dir / "head.json").read_text())
     sample = data["samples"][0]
     expected = head_parent_transform(cfg, robot.head)
     np.testing.assert_allclose(np.array(sample["t_frame_parent"]), expected, atol=1e-9)
     assert set(sample) == {"t_frame_parent", "pixel", "ground", "captured_at"}  # no arm joints: not on the arm
-    robot.arm_backend.no_samples = True  # stale arm joint states do not matter to the front camera
+    robot.arm_backend.no_samples = True  # stale arm joint states do not matter to the head camera
     call(
         server,
         "capture_calibration_sample",
-        {"camera": "front", "u": 1.0, "v": 1.0, "ground_x": 0.9, "ground_y": 0.0},
+        {"camera": "head", "u": 1.0, "v": 1.0, "ground_x": 0.9, "ground_y": 0.0},
     )
 
 
 def test_solve_returns_yaml_and_rms_and_never_edits_config(tmp_path: Path) -> None:
     cfg = camera_config()
-    cfg.cameras.front.mount = None  # solving works from an initial guess, not only the configured mount
+    cfg.cameras.head.mount = None  # solving works from an initial guess, not only the configured mount
     server, _, cfg = make(tmp_path, cfg)
     capture_all(server, GROUNDS)
     guess = {"x": 0.2, "y": 0.0, "z": 0.7, "roll": 0.0, "pitch": 0.8, "yaw": 0.0}
-    res = call(server, "solve_camera_calibration", {"camera": "front", "initial": guess})
+    res = call(server, "solve_camera_calibration", {"camera": "head", "initial": guess})
     data = res.structured_content
     assert data["rms_px"] < 0.1 and data["samples"] == 6
-    mount = yaml.safe_load(data["yaml"])["cameras"]["front"]["mount"]
+    mount = yaml.safe_load(data["yaml"])["cameras"]["head"]["mount"]
     assert mount["z"] == pytest.approx(0.8, abs=1e-3) and mount["pitch"] == pytest.approx(1.0, abs=1e-3)
     assert "approximate intrinsics" in data["note"]
-    assert cfg.cameras.front.mount is None
+    assert cfg.cameras.head.mount is None
 
 
 def test_solve_defaults_to_the_configured_mount_as_initial(tmp_path: Path) -> None:
     server, _, _ = make(tmp_path, camera_config())
     capture_all(server, GROUNDS)
-    data = call(server, "solve_camera_calibration", {"camera": "front"}).structured_content
+    data = call(server, "solve_camera_calibration", {"camera": "head"}).structured_content
     assert data["rms_px"] < 0.1
 
 
@@ -464,28 +464,28 @@ def test_solve_errors(tmp_path: Path) -> None:
     server, _, _ = make(tmp_path, McpServerConfig())
     capture_all(server, GROUNDS[:2])
     with pytest.raises(ToolError, match="not calibrated"):  # intrinsics missing
-        call(server, "solve_camera_calibration", {"camera": "front"})
+        call(server, "solve_camera_calibration", {"camera": "head"})
     cfg = McpServerConfig.model_validate(
-        {"cameras": {"front": {"intrinsics": {"hfov_deg": 90.0, "width": 640, "height": 480}}}}
+        {"cameras": {"head": {"intrinsics": {"hfov_deg": 90.0, "width": 640, "height": 480}}}}
     )
     server2, _, _ = make(tmp_path, cfg)
     with pytest.raises(ToolError, match="initial"):  # no mount to start from
-        call(server2, "solve_camera_calibration", {"camera": "front"})
+        call(server2, "solve_camera_calibration", {"camera": "head"})
     with pytest.raises(ToolError, match="at least 3"):
         call(
             server2,
             "solve_camera_calibration",
-            {"camera": "front", "initial": {"x": 0.2, "y": 0.0, "z": 0.7, "roll": 0.0, "pitch": 0.8, "yaw": 0.0}},
+            {"camera": "head", "initial": {"x": 0.2, "y": 0.0, "z": 0.7, "roll": 0.0, "pitch": 0.8, "yaw": 0.0}},
         )
 
 
 def test_clear_calibration_samples(tmp_path: Path) -> None:
     server, _, cfg = make(tmp_path)
     capture_all(server, GROUNDS[:3])
-    res = call(server, "clear_calibration_samples", {"camera": "front"})
+    res = call(server, "clear_calibration_samples", {"camera": "head"})
     assert res.structured_content["removed"] == 3
-    assert not (cfg.cameras.calibration_dir / "front.json").exists()
-    assert call(server, "clear_calibration_samples", {"camera": "front"}).structured_content["removed"] == 0
+    assert not (cfg.cameras.calibration_dir / "head.json").exists()
+    assert call(server, "clear_calibration_samples", {"camera": "head"}).structured_content["removed"] == 0
 
 
 def test_camera_argument_is_validated(tmp_path: Path) -> None:
@@ -497,9 +497,9 @@ def test_camera_argument_is_validated(tmp_path: Path) -> None:
 def test_pixel_to_ground_surface_height_hits_the_raised_plane(tmp_path: Path) -> None:
     server, _, _ = make(tmp_path)
     u, v = front_pixel((0.9, 0.1, 0.03))
-    flat = call(server, "pixel_to_ground", {"camera": "front", "u": u, "v": v}).structured_content
+    flat = call(server, "pixel_to_ground", {"camera": "head", "u": u, "v": v}).structured_content
     raised = call(
-        server, "pixel_to_ground", {"camera": "front", "u": u, "v": v, "surface_height_m": 0.03}
+        server, "pixel_to_ground", {"camera": "head", "u": u, "v": v, "surface_height_m": 0.03}
     ).structured_content
     assert flat["surface_height_m"] == 0.0 and flat["ground_base_link"]["z"] == 0.0
     assert raised["surface_height_m"] == 0.03
@@ -510,13 +510,13 @@ def test_pixel_to_ground_surface_height_hits_the_raised_plane(tmp_path: Path) ->
 def test_pixel_to_ground_surface_height_is_validated(tmp_path: Path) -> None:
     server, _, _ = make(tmp_path)
     with pytest.raises(ToolError):
-        call(server, "pixel_to_ground", {"camera": "front", "u": 320.0, "v": 240.0, "surface_height_m": 5.0})
+        call(server, "pixel_to_ground", {"camera": "head", "u": 320.0, "v": 240.0, "surface_height_m": 5.0})
 
 
 def test_mark_candidate_points_surface_height_is_stored_and_resolved(tmp_path: Path) -> None:
     server, _, _ = make(tmp_path)
     table = text_json(
-        call(server, "mark_candidate_points", {"camera": "front", "spacing_px": 120, "surface_height_m": 0.04})
+        call(server, "mark_candidate_points", {"camera": "head", "spacing_px": 120, "surface_height_m": 0.04})
     )
     assert table["surface_height_m"] == 0.04
     for p in table["points"]:
@@ -525,7 +525,7 @@ def test_mark_candidate_points_surface_height_is_stored_and_resolved(tmp_path: P
         assert back == pytest.approx((p["u"], p["v"]), abs=0.5)
     resolved = call(server, "resolve_candidate", {"set_id": table["set_id"], "n": 1}).structured_content
     assert resolved["point"] == table["points"][0] and resolved["surface_height_m"] == 0.04
-    flat = text_json(call(server, "mark_candidate_points", {"camera": "front", "spacing_px": 120}))
+    flat = text_json(call(server, "mark_candidate_points", {"camera": "head", "spacing_px": 120}))
     assert flat["surface_height_m"] == 0.0
 
 
@@ -537,12 +537,12 @@ SMALL = SMALL_W / WIDTH  # 0.6
 
 def test_pixel_to_ground_scales_a_pixel_from_a_smaller_image(tmp_path: Path) -> None:
     server, _, _ = make(tmp_path)
-    full = call(server, "pixel_to_ground", {"camera": "front", "u": WIDTH / 2 + 40, "v": HEIGHT / 2 + 30})
+    full = call(server, "pixel_to_ground", {"camera": "head", "u": WIDTH / 2 + 40, "v": HEIGHT / 2 + 30})
     small = call(
         server,
         "pixel_to_ground",
         {
-            "camera": "front",
+            "camera": "head",
             "u": (WIDTH / 2 + 40) * SMALL,
             "v": (HEIGHT / 2 + 30) * SMALL,
             "image_width": SMALL_W,
@@ -567,12 +567,12 @@ def test_pixel_to_ground_scales_a_pixel_from_a_smaller_image(tmp_path: Path) -> 
 def test_pixel_image_size_must_be_complete_and_keep_the_aspect(tmp_path: Path) -> None:
     server, _, _ = make(tmp_path)
     with pytest.raises(ToolError, match="image_width and image_height"):
-        call(server, "pixel_to_ground", {"camera": "front", "u": 10.0, "v": 10.0, "image_width": SMALL_W})
+        call(server, "pixel_to_ground", {"camera": "head", "u": 10.0, "v": 10.0, "image_width": SMALL_W})
     with pytest.raises(ToolError, match="aspect"):
         call(
             server,
             "pixel_to_ground",
-            {"camera": "front", "u": 10.0, "v": 10.0, "image_width": 384, "image_height": 384},
+            {"camera": "head", "u": 10.0, "v": 10.0, "image_width": 384, "image_height": 384},
         )
 
 
@@ -583,7 +583,7 @@ def test_mark_candidate_points_scales_a_region_from_a_smaller_image(tmp_path: Pa
         call(
             server,
             "mark_candidate_points",
-            {"camera": "front", "region": region, "spacing_px": 50, "image_width": SMALL_W, "image_height": SMALL_H},
+            {"camera": "head", "region": region, "spacing_px": 50, "image_width": SMALL_W, "image_height": SMALL_H},
         )
     )
     assert table["points"] and all(100 <= p["u"] <= 300 and 200 <= p["v"] <= 300 for p in table["points"])
@@ -592,7 +592,7 @@ def test_mark_candidate_points_scales_a_region_from_a_smaller_image(tmp_path: Pa
 
 def test_resolve_candidate_states_the_pixel_image_size(tmp_path: Path) -> None:
     server, _, _ = make(tmp_path)
-    table = text_json(call(server, "mark_candidate_points", {"camera": "front"}))
+    table = text_json(call(server, "mark_candidate_points", {"camera": "head"}))
     data = call(server, "resolve_candidate", {"set_id": table["set_id"], "n": 1}).structured_content
     assert data["image"] == {"width": WIDTH, "height": HEIGHT}
 
@@ -603,7 +603,7 @@ def test_capture_calibration_sample_scales_a_pixel_from_a_smaller_image(tmp_path
         server,
         "capture_calibration_sample",
         {
-            "camera": "front",
+            "camera": "head",
             "u": 100 * SMALL,
             "v": 200 * SMALL,
             "ground_x": 1.0,
@@ -612,7 +612,7 @@ def test_capture_calibration_sample_scales_a_pixel_from_a_smaller_image(tmp_path
             "image_height": SMALL_H,
         },
     )
-    data = json.loads((cfg.cameras.calibration_dir / "front.json").read_text())
+    data = json.loads((cfg.cameras.calibration_dir / "head.json").read_text())
     assert data["samples"][0]["pixel"] == pytest.approx([100.0, 200.0])
 
 
@@ -620,11 +620,11 @@ def test_get_camera_image_states_its_size_and_the_scale_to_the_calibrated_size(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     server, robot, _ = make(tmp_path)
-    frame = robot.camera_image("front", 384)
+    frame = robot.camera_image("head", 384)
     monkeypatch.setattr(
         robot, "camera_image", lambda camera, max_px: frame.model_copy(update={"width": SMALL_W, "height": SMALL_H})
     )
-    meta = text_json(call(server, "get_camera_image", {"camera": "front"}))
+    meta = text_json(call(server, "get_camera_image", {"camera": "head"}))
     assert (meta["width"], meta["height"]) == (SMALL_W, SMALL_H)
     assert meta["calibrated_image"] == {"width": WIDTH, "height": HEIGHT}
     assert meta["scale_to_calibrated"] == pytest.approx(1 / SMALL)

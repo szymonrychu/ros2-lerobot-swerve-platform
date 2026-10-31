@@ -1,4 +1,4 @@
-"""Front camera target tracker of the servoed grasp approach: visibility precheck and template-matching detections.
+"""Head camera target tracker of the servoed grasp approach: visibility precheck and template-matching detections.
 
 Pure module: frames, scenes (camera_scene.Scene), base poses and the surface height are passed in, nothing is read
 from ROS here. The tracker turns each camera frame into at most one real detection of the grasp target:
@@ -14,7 +14,7 @@ from ROS here. The tracker turns each camera frame into at most one real detecti
 No accepted match means no Detection: nothing is published for that frame, and a stored position is never
 re-stamped as a fresh detection (CLAUDE.md, no placeholder data).
 
-The frames come from the head D435 colour camera (camera_scene 'front'). Once seeded, a target whose predicted position
+The frames come from the head D435 colour camera (camera_scene 'head'). Once seeded, a target whose predicted position
 lies inside the D435 min-Z (D435_MIN_Z_M of depth along the optical axis) or outside the colour image is lost: the
 tracker latches the reason in ``lost`` and returns no detection from then on, and the DetectionLoop reports it once
 (``on_lost``) and ends, so the approach stops with that reason instead of servoing on a guessed pixel.

@@ -4,7 +4,7 @@ current ingestion (JointSample.currents from /follower/joint_currents).
 Covers: band_verdict rules (object / empty / ambiguous) with the load-delta vote, the hold_effort_min fallback on
 |holding_load| for a profile without contact_load_delta, current voting (None = no vote), unmeasured (None or NaN)
 loads never giving object, unknown in_empty_band; the full 3x3 fuse table; GripEvidence / CropInfo / GraspCheck
-round-trips (a front camera jaw crop, or the full front frame with the reason the head aim or the crop failed);
+round-trips (a head camera jaw crop, or the full head frame with the reason the head aim or the crop failed);
 ros_iface subscribes topics.follower_joint_currents and fills JointSample.currents only from a joint_currents message
 received within timeouts.follower_stale_s of the joint sample (non-finite values dropped);
 FakeArmBackend supplies currents.

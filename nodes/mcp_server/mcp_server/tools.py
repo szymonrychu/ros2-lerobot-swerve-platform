@@ -870,7 +870,7 @@ def register_core_tools(ctx: ToolContext) -> None:
         structured_output=False,
         description=(
             "Take one fresh photo from a robot camera and return it as a JPEG image plus its capture timestamp. "
-            "'front' is the only camera: the colour stream of the RealSense D435 on the pan/tilt head (640x360, "
+            "'head' is the only camera: the colour stream of the RealSense D435 on the pan/tilt head (640x360, "
             "16:9, default picture 384x216): the view of the surroundings and for judging gripper-to-object "
             "position (aim the head at the object with head_look_at). The default size "
             f"is {config.limits.default_camera_px} px on the longest side (cheap, fine for aiming checks): pass a "
@@ -886,7 +886,7 @@ def register_core_tools(ctx: ToolContext) -> None:
         camera: Annotated[
             Camera,
             Field(
-                description="'front': the D435 colour camera on the pan/tilt head (640x360, 16:9, default picture "
+                description="'head': the D435 colour camera on the pan/tilt head (640x360, 16:9, default picture "
                 "384x216)"
             ),
         ],
@@ -1264,7 +1264,7 @@ def register_core_tools(ctx: ToolContext) -> None:
         relaxed to about 0 load with the jaw short of closed is stepped once further toward closed, never beyond
         the squeeze cap from the contact or past closed). Any other close outcome, every open and release_control
         restore the default torque limit. A close that grasps (status 'grasped') is not trusted on the sensors alone:
-        the result carries a fresh front camera image (the head D435 aimed at the tool point; only the head moves)
+        the result carries a fresh head camera image (the head D435 aimed at the tool point; only the head moves)
         cropped to the jaws (grasp_check.crop) and the hold stays
         unverified until confirm_grasp(grasp_check.grasp_id, yes|no|unsure, evidence) fuses your look with the sensor
         band (grasp_check.band): band object + yes = grasped; band empty + no = missed (call release_object); anything

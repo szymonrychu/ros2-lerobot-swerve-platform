@@ -48,7 +48,7 @@ MOTION_ARGS: dict[str, dict[str, Any]] = {
 }
 ALLOWED_ARGS: dict[str, dict[str, Any]] = {
     "get_robot_state": {},
-    "get_camera_image": {"camera": "front"},
+    "get_camera_image": {"camera": "head"},
     "get_map_summary": {},
     "stop": {},
     "get_arm_state": {},
@@ -57,15 +57,15 @@ ALLOWED_ARGS: dict[str, dict[str, Any]] = {
     "get_control_state": {},
     "get_body_state": {},
     "get_arm_reach": {},
-    "pixel_to_ground": {"camera": "front", "u": 100.0, "v": 100.0},
-    "pixel_to_point": {"camera": "front", "u": 100.0, "v": 100.0},
+    "pixel_to_ground": {"camera": "head", "u": 100.0, "v": 100.0},
+    "pixel_to_point": {"camera": "head", "u": 100.0, "v": 100.0},
     "camera_point_to_arm": {"frame": "d435_color_optical_frame", "x": 0.0, "y": 0.0, "z": 0.4},
-    "get_annotated_camera_image": {"camera": "front"},
-    "mark_candidate_points": {"camera": "front"},
+    "get_annotated_camera_image": {"camera": "head"},
+    "mark_candidate_points": {"camera": "head"},
     "resolve_candidate": {"set_id": "c1", "n": 1},
-    "capture_calibration_sample": {"camera": "front", "u": 100.0, "v": 100.0, "ground_x": 1.0, "ground_y": 0.0},
-    "solve_camera_calibration": {"camera": "front"},
-    "clear_calibration_samples": {"camera": "front"},
+    "capture_calibration_sample": {"camera": "head", "u": 100.0, "v": 100.0, "ground_x": 1.0, "ground_y": 0.0},
+    "solve_camera_calibration": {"camera": "head"},
+    "clear_calibration_samples": {"camera": "head"},
     "get_topdown_view": {},
     "remember_object": {"label": "cup", "x": 1.0, "y": 1.0},
     "list_objects": {},
@@ -157,7 +157,7 @@ def test_stop_and_read_only_tools_work_in_cutoff(tmp_path: Path, name: str) -> N
     if name == "forget_object":
         args["id"] = call(server, "remember_object", ALLOWED_ARGS["remember_object"]).structured_content["id"]
     if name in ("get_lookup_image", "annotate_lookup"):  # a real lookup, recorded by a camera call in cut-off
-        taken = call(server, "get_camera_image", {"camera": "front"})
+        taken = call(server, "get_camera_image", {"camera": "head"})
         args["lookup_id"] = json.loads(next(c.text for c in taken.content if c.type == "text"))["lookup_id"]
     try:
         call(server, name, args)

@@ -58,7 +58,7 @@ def make(
 
 
 def pixel_call(server: Any, u: float, v: float, **extra: Any) -> dict[str, Any]:
-    return call(server, "pixel_to_point", {"camera": "front", "u": u, "v": v, **extra}).structured_content
+    return call(server, "pixel_to_point", {"camera": "head", "u": u, "v": v, **extra}).structured_content
 
 
 def arm_xyz(block: dict[str, Any]) -> np.ndarray:
@@ -85,7 +85,7 @@ def test_reports_every_frame_the_depth_and_the_calibration(tmp_path: Path) -> No
     u, v, z = project_arm_point(applied, p_arm, PAN, TILT)
     robot.depth_frame = depth_frame(object_depth(u, v, z))
     data = pixel_call(server, u, v)
-    assert data["camera"] == "front" and data["pixel"] == {"u": u, "v": v}
+    assert data["camera"] == "head" and data["pixel"] == {"u": u, "v": v}
     assert data["camera_optical"]["frame"] == CAMERA_FRAME
     assert data["base_link"]["frame"] == "base_link" and data["arm"]["frame"] == "arm"
     assert data["camera_optical"]["z"] == pytest.approx(z, abs=0.001)
@@ -104,7 +104,7 @@ def test_reports_every_frame_the_depth_and_the_calibration(tmp_path: Path) -> No
     assert data["head_pose_at_capture"]["pan_deg"] == pytest.approx(math.degrees(PAN), abs=1e-3)
     assert data["head_pose_at_capture"]["tilt_deg"] == pytest.approx(math.degrees(TILT), abs=1e-3)
     assert data["head_pose_at_capture"]["stamp_s"] == STAMP and data["head_moving"] is False
-    assert robot.depth_calls == ["front"]
+    assert robot.depth_calls == ["head"]
 
 
 def test_calibration_block_names_the_residual_and_the_gate(tmp_path: Path) -> None:
@@ -391,7 +391,7 @@ def test_camera_point_to_arm_without_a_head_history_is_refused(tmp_path: Path) -
 
 def test_pixel_to_ground_reports_the_arm_frame_and_the_head_pose(tmp_path: Path) -> None:
     server, robot, _, _ = make(tmp_path)
-    data = call(server, "pixel_to_ground", {"camera": "front", "u": 320.0, "v": 300.0}).structured_content
+    data = call(server, "pixel_to_ground", {"camera": "head", "u": 320.0, "v": 300.0}).structured_content
     base = arm_xyz(data["ground_base_link"])
     expect_arm = (_arm_in_base() @ np.append(base, 1.0))[:3]
     assert arm_xyz(data["ground_arm"]) == pytest.approx(expect_arm, abs=2e-3)
@@ -404,9 +404,9 @@ def test_pixel_to_ground_with_the_picture_stamp_uses_the_head_pose_at_that_stamp
     server, robot, cfg, applied = make(tmp_path)
     # The picture was taken at STAMP with pan 0.2; the head has turned since: the live pose is pan -0.6.
     robot.head_backend.positions.update({"head_pan": -0.6, "head_tilt": TILT})
-    stale = call(server, "pixel_to_ground", {"camera": "front", "u": 320.0, "v": 300.0}).structured_content
+    stale = call(server, "pixel_to_ground", {"camera": "head", "u": 320.0, "v": 300.0}).structured_content
     exact = call(
-        server, "pixel_to_ground", {"camera": "front", "u": 320.0, "v": 300.0, "image_stamp_s": STAMP}
+        server, "pixel_to_ground", {"camera": "head", "u": 320.0, "v": 300.0, "image_stamp_s": STAMP}
     ).structured_content
     base_exact = arm_xyz(exact["ground_base_link"])
     chain = calibration_chain(applied)
@@ -424,7 +424,7 @@ def test_pixel_to_ground_with_the_picture_stamp_uses_the_head_pose_at_that_stamp
 def test_pixel_to_ground_refuses_a_picture_stamp_outside_the_head_history(tmp_path: Path) -> None:
     server, _, _, _ = make(tmp_path)
     with pytest.raises(ToolError, match="older than the oldest"):
-        call(server, "pixel_to_ground", {"camera": "front", "u": 320.0, "v": 300.0, "image_stamp_s": 1.0})
+        call(server, "pixel_to_ground", {"camera": "head", "u": 320.0, "v": 300.0, "image_stamp_s": 1.0})
 
 
 def test_pixel_to_ground_refuses_while_the_head_moves(tmp_path: Path) -> None:
@@ -434,13 +434,13 @@ def test_pixel_to_ground_refuses_while_the_head_moves(tmp_path: Path) -> None:
         t = STAMP - 1.0 + i / HEAD_RATE_HZ
         robot.head.history.add(t, {"head_pan": 0.5 * (t - STAMP), "head_tilt": TILT})
     with pytest.raises(ToolError, match="head is moving"):
-        call(server, "pixel_to_ground", {"camera": "front", "u": 320.0, "v": 300.0})
+        call(server, "pixel_to_ground", {"camera": "head", "u": 320.0, "v": 300.0})
 
 
 def test_mark_candidate_points_places_the_dots_with_the_head_pose_at_the_frame_stamp(tmp_path: Path) -> None:
     server, robot, _, _ = make(tmp_path)
     robot.head_backend.positions.update({"head_pan": -0.6, "head_tilt": TILT})  # live pose differs from the frame's
-    res = call(server, "mark_candidate_points", {"camera": "front", "spacing_px": 80, "max_points": 200})
+    res = call(server, "mark_candidate_points", {"camera": "head", "spacing_px": 80, "max_points": 200})
     table = next(json.loads(c.text) for c in res.content if c.type == "text" and "set_id" in c.text)
     placed = [p for p in table["points"] if p["ground_base_link"] is not None]
     assert placed
@@ -448,10 +448,10 @@ def test_mark_candidate_points_places_the_dots_with_the_head_pose_at_the_frame_s
         expect = call(
             server,
             "pixel_to_ground",
-            {"camera": "front", "u": point["u"], "v": point["v"], "image_stamp_s": STAMP},
+            {"camera": "head", "u": point["u"], "v": point["v"], "image_stamp_s": STAMP},
         ).structured_content
         assert arm_xyz(point["ground_base_link"]) == pytest.approx(arm_xyz(expect["ground_base_link"]), abs=0.002)
-    live = call(server, "pixel_to_ground", {"camera": "front", "u": placed[0]["u"], "v": placed[0]["v"]})
+    live = call(server, "pixel_to_ground", {"camera": "head", "u": placed[0]["u"], "v": placed[0]["v"]})
     assert arm_xyz(live.structured_content["ground_base_link"])[:2] != pytest.approx(
         arm_xyz(placed[0]["ground_base_link"])[:2], abs=0.05
     )  # the live pose (pan -0.6) would have put the dot elsewhere

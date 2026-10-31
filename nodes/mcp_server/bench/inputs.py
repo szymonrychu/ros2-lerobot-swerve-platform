@@ -34,7 +34,7 @@ from mcp_server.reach_map import checker_from_config
 from mcp_server.reference.ik_reach import robot_inputs
 from mcp_server.sag import GravityModel, SagCompensator, compensate
 from mcp_server.self_collision import SelfCollisionChecker, joint_line
-from tests.camera_helpers import FRONT_MOUNT, HFOV, fresh_head
+from tests.camera_helpers import HEAD_MOUNT, HFOV, fresh_head
 
 Call = Callable[[], Any]
 
@@ -50,7 +50,7 @@ GRIPPER_VIEW = {
     "wrist_roll": 0.0,
     "gripper": 0.4,
 }
-# An arm pose with the jaws half open in view of the bench front camera, cropped at full size (measured space, rad).
+# An arm pose with the jaws half open in view of the bench head camera, cropped at full size (measured space, rad).
 JAW_VIEW = GRIPPER_VIEW | {"shoulder_lift": -0.9, "elbow_flex": 0.6}
 RNG_SEED = 20261013
 SCAN_BEAMS = 1440
@@ -112,8 +112,8 @@ def config() -> McpServerConfig:
     node = next(n for n in group_vars["ros2_nodes"] if n["name"] == "mcp_server")
     data = yaml.safe_load(node["config"]) if isinstance(node["config"], str) else node["config"]
     data["arm"]["urdf_path"] = str(REPO_ROOT / data["arm"]["urdf_path"])
-    # The front camera is not calibrated on the robot: use the tests' synthetic hfov camera and mount.
-    data["cameras"]["front"] = {"parent_frame": "base_link", "intrinsics": HFOV, "mount": FRONT_MOUNT}
+    # The head camera is not calibrated on the robot: use the tests' synthetic hfov camera and mount.
+    data["cameras"]["head"] = {"parent_frame": "base_link", "intrinsics": HFOV, "mount": HEAD_MOUNT}
     return McpServerConfig.model_validate(data)
 
 
@@ -173,7 +173,7 @@ def scene(camera: camera_scene.Camera) -> camera_scene.Scene:
     """Camera scene of the deployed config at the zero head pose.
 
     Args:
-        camera (camera_scene.Camera): Camera name ('front').
+        camera (camera_scene.Camera): Camera name ('head').
 
     Returns:
         camera_scene.Scene: The scene.
@@ -346,13 +346,13 @@ def band_verdict_call() -> Call:
 
 
 def jaw_crop_call() -> Call:
-    """jaw_crop of the front camera scene at JAW_VIEW.
+    """jaw_crop of the head camera scene at JAW_VIEW.
 
     Returns:
         Call: One crop box computation.
     """
     cfg = config()
-    sc = scene("front")
+    sc = scene("head")
 
     def call() -> Any:
         return jaw_crop(sc, kinematics(), jaw(), JAW_VIEW, cfg.grasp_check)
@@ -370,7 +370,7 @@ def camera_overlay_pixels() -> list[tuple[float, float]]:
 
 
 def build_scene_call() -> Call:
-    """build_scene of the front camera (setup is resolved each time, as the tools do).
+    """build_scene of the head camera (setup is resolved each time, as the tools do).
 
     Returns:
         Call: One scene build.
@@ -379,7 +379,7 @@ def build_scene_call() -> Call:
     head = fresh_head(cfg)
 
     def call() -> Any:
-        setup = camera_scene.camera_setup(cfg, "front")
+        setup = camera_scene.camera_setup(cfg, "head")
         return camera_scene.build_scene(setup, cfg, camera_scene.head_parent_transform(cfg, head))
 
     return call
@@ -391,7 +391,7 @@ def candidate_store_call() -> Call:
     Returns:
         Call: One candidate set.
     """
-    sc = scene("front")
+    sc = scene("head")
     store = CandidateStore()
     snapshot = RobotSnapshot(pose=(0.0, 0.0, 0.0), head={"head_pan": 0.0, "head_tilt": 0.0})
 
@@ -401,18 +401,18 @@ def candidate_store_call() -> Call:
             ground = sc.ground_point(u, v)
             if ground is not None:
                 points.append({"n": n, "u": u, "v": v, "x": float(ground[0]), "y": float(ground[1])})
-        store.add("front", snapshot, points)
+        store.add("head", snapshot, points)
 
     return call
 
 
 def pixel_to_ground_call() -> Call:
-    """pixel_to_ground of a 400 pixel grid with the front camera.
+    """pixel_to_ground of a 400 pixel grid with the head camera.
 
     Returns:
         Call: 400 ray casts.
     """
-    sc = scene("front")
+    sc = scene("head")
     pixels = camera_overlay_pixels()
 
     def call() -> None:
@@ -431,7 +431,7 @@ def grid_call(draw: bool) -> Call:
     Returns:
         Call: One overlay.
     """
-    sc = scene("front")
+    sc = scene("head")
     img = np.full((IMAGE_H, IMAGE_W, 3), 90, np.uint8)
 
     def call() -> None:
@@ -462,7 +462,7 @@ def lidar_overlay_call() -> Call:
     Returns:
         Call: One draw.
     """
-    sc = scene("front")
+    sc = scene("head")
     pts = lidar_points()
     img = np.full((IMAGE_H, IMAGE_W, 3), 90, np.uint8)
 
@@ -478,7 +478,7 @@ def project_points_call() -> Call:
     Returns:
         Call: One projection.
     """
-    sc = scene("front")
+    sc = scene("head")
     pts = lidar_points()
 
     def call() -> None:
@@ -493,7 +493,7 @@ def circle_runs_call() -> Call:
     Returns:
         Call: One circle.
     """
-    sc = scene("front")
+    sc = scene("head")
 
     def call() -> None:
         camera_overlay.circle_runs(sc, (0.5, 0.0), 1.0)
@@ -585,7 +585,7 @@ GOLDEN_SMALL_MAP_SIDE = 100
 DISTORTED_POINTS = 240
 GOLDEN_MAP_ORIGIN_M = -5.0
 # Plumb-bob and rational (8 coefficient) distortion for the lidar goldens, on top of the deployed (distortion-free)
-# front camera.
+# head camera.
 PLUMB_BOB = [-0.28, 0.09, 0.0012, -0.0009, -0.012]
 RATIONAL = [-0.28, 0.09, 0.0012, -0.0009, -0.012, 0.03, -0.01, 0.002]
 
@@ -655,7 +655,7 @@ def render_map_crop_cases() -> list[dict[str, Any]]:
 
 
 def draw_lidar_cases() -> list[dict[str, Any]]:
-    """draw_lidar inputs: the bench scan in the deployed front scene, the front camera with plumb-bob and rational
+    """draw_lidar inputs: the bench scan in the deployed head scene, the head camera with plumb-bob and rational
     distortion, a scan with invalid rows, an unknown base_link pose and an empty scan.
 
     Returns:
@@ -670,10 +670,10 @@ def draw_lidar_cases() -> list[dict[str, Any]]:
     odd[4] = [0.3, 0.0, -2.0, 0.3]  # far below the image
     cases = []
     for camera, points, distortion in (
-        ("front", pts, None),
-        ("front", pts[:DISTORTED_POINTS], PLUMB_BOB),
-        ("front", pts[:DISTORTED_POINTS], RATIONAL),
-        ("front", odd, None),
+        ("head", pts, None),
+        ("head", pts[:DISTORTED_POINTS], PLUMB_BOB),
+        ("head", pts[:DISTORTED_POINTS], RATIONAL),
+        ("head", odd, None),
     ):
         sc = scene(camera)
         intrinsics = sc.intr.model_dump()

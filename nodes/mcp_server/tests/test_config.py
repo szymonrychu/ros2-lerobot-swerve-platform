@@ -68,7 +68,7 @@ def test_gripper_calibration_file_is_gone() -> None:
 
 
 def test_retired_camera_topic_key_is_rejected() -> None:
-    """The retired front camera topic key is no longer accepted (extra keys are forbidden)."""
+    """The retired head camera topic key is no longer accepted (extra keys are forbidden)."""
     with pytest.raises(ValidationError):
         McpServerConfig.model_validate({"topics": {"front_camera": "/retired/image_raw/compressed"}})
 
@@ -466,7 +466,7 @@ def test_frontier_settings_defaults_match_the_design_table() -> None:
     assert (f.standoff_min_m, f.standoff_max_m, f.los_candidates) == (0.4, 1.2, 5)
     assert (f.match_radius_m, f.epoch_reset_known_fraction, f.retired_keep, f.max_listed) == (0.6, 0.5, 50, 15)
     assert (f.poi_radius_m, f.facing_half_angle_deg, f.facing_max_distance_m) == (2.0, 30.0, 6.0)
-    assert (f.compute_path_timeout_s, f.look_timeout_s, f.look_camera) == (5.0, 20.0, "front")
+    assert (f.compute_path_timeout_s, f.look_timeout_s, f.look_camera) == (5.0, 20.0, "head")
 
 
 def test_compute_path_topics_default_to_the_nav2_planner_server() -> None:
@@ -500,11 +500,11 @@ def test_frontier_settings_accept_a_valid_override() -> None:
                 "standoff_min_m": 0.5,
                 "standoff_max_m": 2.0,
                 "geodesic_downsample": 3,
-                "look_camera": "front",
+                "look_camera": "head",
             }
         }
     ).frontiers
-    assert (f.standoff_min_m, f.standoff_max_m, f.geodesic_downsample, f.look_camera) == (0.5, 2.0, 3, "front")
+    assert (f.standoff_min_m, f.standoff_max_m, f.geodesic_downsample, f.look_camera) == (0.5, 2.0, 3, "head")
 
 
 def test_follower_joint_currents_topic_default() -> None:

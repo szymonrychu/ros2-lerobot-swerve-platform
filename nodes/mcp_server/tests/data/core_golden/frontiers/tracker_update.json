@@ -14115,7 +14115,7 @@
      "facing_max_distance_m": 6.0,
      "compute_path_timeout_s": 5.0,
      "look_timeout_s": 20.0,
-     "look_camera": "front"
+     "look_camera": "head"
     },
     "footprint_width_m": 0.2
    },
@@ -77381,7 +77381,7 @@
      "facing_max_distance_m": 6.0,
      "compute_path_timeout_s": 5.0,
      "look_timeout_s": 20.0,
-     "look_camera": "front"
+     "look_camera": "head"
     },
     "footprint_width_m": 0.2
    },

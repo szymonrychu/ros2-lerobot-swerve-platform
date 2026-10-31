@@ -2808,8 +2808,8 @@ ros2_nodes:
         margin_m: 0.09 # clearance from the body: 0.03 pose-check margin + 0.05 nominal-mount allowance + 0.01 sag
         min_height_m: 0.06 # lowest board point above the floor: 0.05 + 0.01 sag
       topics:
-        # Head camera (tool camera `front`): the D435 colour on the pan/tilt head (realsense_d435), 640x360 at 15 fps,
-        # 16:9. The key name stays: tests/test_head_camera_live_refs.py forbids `front_camera` names.
+        # Head camera (tool camera `head`): the D435 colour on the pan/tilt head (realsense_d435), 640x360 at 15 fps,
+        # 16:9.
         head_camera: /head/d435/color/image_raw/compressed
         # D435 depth registered to the colour image (16UC1 mm) and its CameraInfo: pixel_to_point reads them on demand
         # and pairs the frame with the colour frame of the same frameset by header stamp.
@@ -2968,7 +2968,7 @@ ros2_nodes:
       timeouts:
         image_timeout_s: 5.0
         servo_torque_stale_s: 3.0
-      # Pan/tilt head (head tools, front camera pose): explicit values equal to the defaults. Joint names, topics and the
+      # Pan/tilt head (head tools, head camera pose): explicit values equal to the defaults. Joint names, topics and the
       # home pose match the base_servos head group (startup_position_rad) and nodes/web_ui/urdf/head.urdf.
       head:
         urdf_path: nodes/web_ui/urdf/head.urdf
@@ -3014,13 +3014,13 @@ ros2_nodes:
       # (parent_frame x y z roll pitch yaw, body frame x fwd / y left / z up), relative to a link of head.urdf.
       cameras:
         calibration_dir: /var/lib/ros2/camera_calibration
-        # Front = the D435 colour camera on the pan/tilt head (topics.head_camera, 640x360): its pose follows the
+        # Head = the D435 colour camera on the pan/tilt head (topics.head_camera, 640x360): its pose follows the
         # measured head angles (/head/joint_states). The camera hangs on d435_color_frame with a zero mount, so head.urdf
         # (d435_joint, the applied head_chain.json override reloaded by HeadKinematics, plus the factory colour
         # extrinsic d435_color_joint) IS the mount and an Apply on the Calibrate page reaches the tools without a
         # restart. Intrinsics are the D435 factory colour intrinsics from the latest /head/d435/color/camera_info
         # (640x360, the stream size). No CameraInfo yet: the camera tools answer 'not calibrated'.
-        front:
+        head:
           parent_frame: d435_color_frame
           intrinsics:
             camera_info_topic: /head/d435/color/camera_info
@@ -3260,7 +3260,7 @@ ros2_nodes:
         compute_path_timeout_s: 5.0 # plan_frontier_visit Nav2 path check timeout
         keepout_poi_stale_s: 600.0 # an older poi list keeps the last keep-out zones (poi_store republishes only on change)
         look_timeout_s: 20.0 # look_toward_frontier rotation timeout
-        look_camera: front # look_toward_frontier default camera (front or gripper)
+        look_camera: head # look_toward_frontier default camera (head, the D435 colour)
       # Survey coverage and the battery stop limit of get_exploration_status / mark_survey_spot (nodes/mcp_server/README.md,
       # "Exploration status"); every key at its ExplorationSettings default.
       exploration:

@@ -118,7 +118,7 @@ class LookupRecorder:
         return None if joints is None else {name: round(value, ROUND_DIGITS) for name, value in joints.items()}
 
     def camera_pose_base(self, camera: str) -> dict[str, list[float]] | None:
-        """Camera body pose in base_link when the camera has a mount (the front camera sits on the pan/tilt head and
+        """Camera body pose in base_link when the camera has a mount (the head camera sits on the pan/tilt head and
         needs fresh head joint states: stale ones give None, never a base_link guess; another camera gives None).
 
         Args:
@@ -352,7 +352,7 @@ def register(ctx: ToolContext) -> None:
         camera: Annotated[
             str | None,
             Field(
-                description="Camera name the photo was saved with: new photos are 'front' (the D435 colour camera); "
+                description="Camera name the photo was saved with: new photos are 'head' (the D435 colour camera); "
                 "older ones may be 'gripper' (the retired gripper camera)"
             ),
         ] = None,

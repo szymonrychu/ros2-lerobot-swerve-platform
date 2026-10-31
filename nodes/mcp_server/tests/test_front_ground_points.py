@@ -1,4 +1,4 @@
-"""The front (D435 colour) camera gives floor points through the applied intrinsics and the head chain (design D8)."""
+"""The head (D435 colour) camera gives floor points through the applied intrinsics and the head chain (design D8)."""
 
 import asyncio
 import math
@@ -18,7 +18,7 @@ from mcp_server.head_kinematics import HeadKinematics
 from .test_camera_tools import make, text_json
 from .test_tools import call
 
-STREAM = (1152, 648)  # front stream size under test (16:9)
+STREAM = (1152, 648)  # head stream size under test (16:9)
 CALIBRATED = (576, 324)  # calibration image size, half the stream
 DEFAULT_PICTURE = (384, 216)  # get_camera_image default: 384 px on the longest side, 16:9
 PAN_DEG, TILT_DEG = 20.0, 30.0
@@ -41,11 +41,11 @@ def fresh_caches() -> None:
 
 
 def front_config(calib: Path) -> McpServerConfig:
-    """Config whose front camera hangs on the D435 colour frame with an applied-style calibration file."""
+    """Config whose head camera hangs on the D435 colour frame with an applied-style calibration file."""
     return McpServerConfig.model_validate(
         {
             "cameras": {
-                "front": {
+                "head": {
                     "parent_frame": FRONT_FRAME,
                     "intrinsics": {"calibration_file": str(calib), "image_width": STREAM[0], "image_height": STREAM[1]},
                     "mount": ZERO_MOUNT,
@@ -86,7 +86,7 @@ def stream_pixel(cfg: McpServerConfig) -> tuple[float, float]:
 def test_front_pixel_to_ground_uses_applied_intrinsics(front: tuple[Any, Any, McpServerConfig]) -> None:
     server, _, cfg = front
     u, v = stream_pixel(cfg)
-    data = call(server, "pixel_to_ground", {"camera": "front", "u": u, "v": v}).structured_content
+    data = call(server, "pixel_to_ground", {"camera": "head", "u": u, "v": v}).structured_content
     assert data["ground_base_link"]["x"] == pytest.approx(FLOOR_POINT[0], abs=0.01)
     assert data["ground_base_link"]["y"] == pytest.approx(FLOOR_POINT[1], abs=0.01)
     assert data["ground_base_link"]["z"] == 0.0
@@ -98,13 +98,13 @@ def test_front_default_picture_size_accepted(front: tuple[Any, Any, McpServerCon
     server, _, cfg = front
     assert default_picture_size(*STREAM, cfg.limits.default_camera_px) == DEFAULT_PICTURE
     u, v = stream_pixel(cfg)
-    full = call(server, "pixel_to_ground", {"camera": "front", "u": u, "v": v}).structured_content
+    full = call(server, "pixel_to_ground", {"camera": "head", "u": u, "v": v}).structured_content
     scale = STREAM[0] / DEFAULT_PICTURE[0]
     small = call(
         server,
         "pixel_to_ground",
         {
-            "camera": "front",
+            "camera": "head",
             "u": u / scale,
             "v": v / scale,
             "image_width": DEFAULT_PICTURE[0],
@@ -122,7 +122,7 @@ def test_front_wrong_aspect_names_default_size(front: tuple[Any, Any, McpServerC
         call(
             server,
             "pixel_to_ground",
-            {"camera": "front", "u": 100.0, "v": 100.0, "image_width": 384, "image_height": 288},
+            {"camera": "head", "u": 100.0, "v": 100.0, "image_width": 384, "image_height": 288},
         )
 
 
@@ -140,13 +140,13 @@ def call_list(server: Any) -> list[Any]:
 
 def test_mark_candidate_points_front(front: tuple[Any, Any, McpServerConfig]) -> None:
     server, _, cfg = front
-    res = call(server, "mark_candidate_points", {"camera": "front", "spacing_px": 80, "max_points": 200})
+    res = call(server, "mark_candidate_points", {"camera": "head", "spacing_px": 80, "max_points": 200})
     table = text_json(res)
     assert table["approximate_intrinsics"] is False
     assert table["image"] == {"width": STREAM[0], "height": STREAM[1]}
     assert table["points"], "the tilted head sees the floor"
     for point in table["points"][:5]:
-        direct = call(server, "pixel_to_ground", {"camera": "front", "u": point["u"], "v": point["v"]})
+        direct = call(server, "pixel_to_ground", {"camera": "head", "u": point["u"], "v": point["v"]})
         for axis in ("x", "y"):
             assert point["ground_base_link"][axis] == pytest.approx(
                 direct.structured_content["ground_base_link"][axis], abs=2e-3
@@ -159,5 +159,5 @@ def test_uncalibrated_front_stays_not_calibrated(tmp_path: Path) -> None:
         ("pixel_to_ground", {"u": 100.0, "v": 100.0}),
         ("mark_candidate_points", {}),
     ):
-        with pytest.raises(ToolError, match="front not calibrated"):
-            call(server, tool, {"camera": "front", **args})
+        with pytest.raises(ToolError, match="head not calibrated"):
+            call(server, tool, {"camera": "head", **args})

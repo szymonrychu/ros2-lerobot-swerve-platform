@@ -24,12 +24,12 @@ def pixel_of(ground: tuple[float, float, float], mount: MountPose = TRUE) -> tup
 
 def test_add_creates_file_and_counts(tmp_path) -> None:
     store = SampleStore(tmp_path / "calib")
-    n = store.add("front", "base_link", np.eye(4), (320.0, 240.0), (1.0, 0.0, 0.0))
+    n = store.add("head", "base_link", np.eye(4), (320.0, 240.0), (1.0, 0.0, 0.0))
     assert n == 1
-    n = store.add("front", "base_link", np.eye(4), (300.0, 250.0), (1.1, 0.1, 0.0))
+    n = store.add("head", "base_link", np.eye(4), (300.0, 250.0), (1.1, 0.1, 0.0))
     assert n == 2
-    data = json.loads((tmp_path / "calib" / "front.json").read_text())
-    assert data["camera"] == "front" and data["parent_frame"] == "base_link"
+    data = json.loads((tmp_path / "calib" / "head.json").read_text())
+    assert data["camera"] == "head" and data["parent_frame"] == "base_link"
     assert len(data["samples"]) == 2
     s = data["samples"][0]
     assert s["pixel"] == [320.0, 240.0] and s["ground"] == [1.0, 0.0, 0.0]
@@ -37,8 +37,8 @@ def test_add_creates_file_and_counts(tmp_path) -> None:
 
 
 def test_load_returns_solver_tuples_and_survives_new_store(tmp_path) -> None:
-    SampleStore(tmp_path).add("front", "d435_color_frame", np.eye(4), (1.0, 2.0), (0.9, 0.2, 0.03))
-    parent, samples = SampleStore(tmp_path).load("front")
+    SampleStore(tmp_path).add("head", "d435_color_frame", np.eye(4), (1.0, 2.0), (0.9, 0.2, 0.03))
+    parent, samples = SampleStore(tmp_path).load("head")
     assert parent == "d435_color_frame"
     t, pix, ground = samples[0]
     assert np.allclose(t, np.eye(4)) and pix == (1.0, 2.0) and ground == (0.9, 0.2, 0.03)
@@ -46,49 +46,49 @@ def test_load_returns_solver_tuples_and_survives_new_store(tmp_path) -> None:
 
 def test_load_empty_and_clear(tmp_path) -> None:
     store = SampleStore(tmp_path)
-    assert store.load("front") == (None, [])
-    store.add("front", "base_link", np.eye(4), (1.0, 1.0), (1.0, 0.0, 0.0))
-    assert store.clear("front") == 1
-    assert store.clear("front") == 0
-    assert store.load("front") == (None, [])
+    assert store.load("head") == (None, [])
+    store.add("head", "base_link", np.eye(4), (1.0, 1.0), (1.0, 0.0, 0.0))
+    assert store.clear("head") == 1
+    assert store.clear("head") == 0
+    assert store.load("head") == (None, [])
 
 
 def test_cameras_are_stored_separately(tmp_path) -> None:
     store = SampleStore(tmp_path)
-    store.add("front", "base_link", np.eye(4), (1.0, 1.0), (1.0, 0.0, 0.0))
-    assert store.count("gripper") == 0 and store.count("front") == 1
+    store.add("head", "base_link", np.eye(4), (1.0, 1.0), (1.0, 0.0, 0.0))
+    assert store.count("gripper") == 0 and store.count("head") == 1
 
 
 def test_parent_frame_change_is_refused(tmp_path) -> None:
     store = SampleStore(tmp_path)
-    store.add("front", "d435_color_frame", np.eye(4), (1.0, 1.0), (0.9, 0.0, 0.0))
+    store.add("head", "d435_color_frame", np.eye(4), (1.0, 1.0), (0.9, 0.0, 0.0))
     with pytest.raises(CalibrationError, match="clear"):
-        store.add("front", "head_link", np.eye(4), (1.0, 1.0), (0.9, 0.0, 0.0))
+        store.add("head", "head_link", np.eye(4), (1.0, 1.0), (0.9, 0.0, 0.0))
 
 
 def test_non_finite_values_are_refused(tmp_path) -> None:
     with pytest.raises(CalibrationError, match="finite"):
-        SampleStore(tmp_path).add("front", "base_link", np.eye(4), (math.nan, 1.0), (1.0, 0.0, 0.0))
+        SampleStore(tmp_path).add("head", "base_link", np.eye(4), (math.nan, 1.0), (1.0, 0.0, 0.0))
 
 
 def test_unwritable_directory_is_a_calibration_error(tmp_path) -> None:
     blocker = tmp_path / "file"
     blocker.write_text("x")
     with pytest.raises(CalibrationError, match="cannot"):
-        SampleStore(blocker / "sub").add("front", "base_link", np.eye(4), (1.0, 1.0), (1.0, 0.0, 0.0))
+        SampleStore(blocker / "sub").add("head", "base_link", np.eye(4), (1.0, 1.0), (1.0, 0.0, 0.0))
 
 
 def test_corrupt_file_is_a_calibration_error(tmp_path) -> None:
-    (tmp_path / "front.json").write_text("{not json")
+    (tmp_path / "head.json").write_text("{not json")
     with pytest.raises(CalibrationError, match="corrupt"):
-        SampleStore(tmp_path).load("front")
+        SampleStore(tmp_path).load("head")
 
 
 def test_solver_recovers_the_known_mount(tmp_path) -> None:
     store = SampleStore(tmp_path)
     for g in GROUND:
-        store.add("front", "base_link", np.eye(4), pixel_of(g), g)
-    parent, samples = store.load("front")
+        store.add("head", "base_link", np.eye(4), pixel_of(g), g)
+    parent, samples = store.load("head")
     guess = TRUE.model_copy(update={"x": 0.2, "z": 0.7, "pitch": 0.8, "yaw": 0.0})
     mount, rms = solve_samples(samples, INTR, guess)
     assert rms < 0.05
@@ -103,16 +103,16 @@ def test_solver_needs_three_samples() -> None:
 
 
 def test_mount_yaml_pastes_under_cameras_with_rounded_floats() -> None:
-    text = mount_yaml("front", TRUE.model_copy(update={"x": 0.123456789012}))
+    text = mount_yaml("head", TRUE.model_copy(update={"x": 0.123456789012}))
     data = yaml.safe_load(text)
-    mount = data["cameras"]["front"]["mount"]
+    mount = data["cameras"]["head"]["mount"]
     assert mount["parent_frame"] == "base_link" and mount["x"] == 0.123457
     assert set(mount) == {"parent_frame", "x", "y", "z", "roll", "pitch", "yaw"}
 
 
 def test_samples_store_no_arm_joints(tmp_path) -> None:
-    # The front camera hangs on the head: its samples carry the head link pose, never measured arm joints.
+    # The head camera hangs on the head: its samples carry the head link pose, never measured arm joints.
     assert "joints" not in inspect.signature(SampleStore.add).parameters
     store = SampleStore(tmp_path)
-    store.add("front", "d435_color_frame", np.eye(4), (1.0, 2.0), (1.0, 0.0, 0.0))
-    assert set(store.read("front")["samples"][0]) == {"t_frame_parent", "pixel", "ground", "captured_at"}
+    store.add("head", "d435_color_frame", np.eye(4), (1.0, 2.0), (1.0, 0.0, 0.0))
+    assert set(store.read("head")["samples"][0]) == {"t_frame_parent", "pixel", "ground", "captured_at"}
