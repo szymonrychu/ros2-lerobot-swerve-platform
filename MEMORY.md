@@ -218,7 +218,7 @@
 - **D7**: RTAB-Map's odometry is slam_toolbox's `map -> base_link` (`odom_frame_id: map`), no own loop closure or scan links and no TF publishing, so its 3D map stays aligned to slam_toolbox's `/map`.
 - **D8**: server caps are `rtabmap_mapping` 200% CPU / 900M and `map3d_manager` 20% / 128M, with no feature extraction and a 400-node working memory so the leader arm and the monitoring stack are never starved.
 - **D13**: the lidar reaches the 3D map through slam_toolbox's `/map` walls (shown as lidar-derived structure, `source: lidar_2d` for the agent), not through RTAB-Map's fusion of scan and depth points.
-- Pointers: `nodes/rtabmap_mapping/README.md`, `nodes/map3d_uplink/README.md`, `nodes/map3d_manager_cpp/README.md`, design `docs/plans/in-progress/rtab-map-rgb-d-3d-mapping-on/design.md`.
+- Pointers: `nodes/rtabmap_mapping/README.md`, `nodes/map3d_uplink/README.md`, `nodes/map3d_manager_cpp/README.md`, design `docs/plans/done/rtab-map-rgb-d-3d-mapping-on/plan.md`.
 
 ## Head ToF 3D obstacles (2026-10-19)
 
