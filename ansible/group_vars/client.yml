@@ -1449,36 +1449,17 @@ ros2_nodes:
   - name: overview_camera
     node_type: overview_camera
     present: false
-  # Retired (D9): the Camera Module 3 is the head camera served by head_camera_cpp (/head_camera/*).
+  # Retired (D9): the Camera Module 3 moved to head_camera_cpp, itself retired by the D435 switchover.
   # present: false uninstalls the unit, launcher and config on the next deploy and purges camera_ros.
   - name: pi_cameras
     node_type: pi_cameras
     present: false
-  # Head RGB camera of the pan/tilt head: Camera Module 3 on CSI cam0 (the Arducam ToF is on cam1). Publishes
-  # /head_camera/* in head_camera_optical_frame; no TF is published. This node is the single camera owner
-  # (pi_cameras is retired).
+  # Head Camera Module 3 (CSI cam0): the head D435 colour stream replaces it and no enabled node reads /head_camera/*.
+  # Retired (D435 switchover): present: false uninstalls the unit, venv and config on the next deploy. The node
+  # type and nodes/head_camera_cpp stay for front-and-back-camera-module, which reuses them on cam0.
   - name: head_camera_cpp
     node_type: head_camera_cpp
-    present: true
-    enabled: true
-    config: |
-      camera_id: /base/axi/pcie@120000/rp1/i2c@88000/imx708@1a
-      jpeg_quality: 70
-      # 15 fps: encoding ~30 ms per frame at nice 10 saturated the client and subscribers got 8.5 of ~19 fps. Code default 33333.
-      frame_duration_us: 66666
-      metrics_port: 19116
-      # Written by Apply on the Calibrate page, seeded from the committed file when absent; a missing file: no camera_info.
-      camera_info_file: /var/lib/ros2/head_rgbd_calibration/applied/head_camera_calibration.yaml
-      # af_mode stays continuous (default); the lens is locked at lens_position only while the mapping stream has a
-      # subscriber (head_rgbd_cpp, RTAB-Map), so the calibrated intrinsics hold. lens_position in dioptres (1.0 = 1 m).
-      lens_position: 1.0
-      mapping:
-        enabled: true
-        lock_focus: true
-        rate_hz: 2.0
-        width: 576
-        height: 324
-        jpeg_quality: 80
+    present: false
   # Head RGB-D adapter: the D435 aligned depth + raw colour (/head/d435/*) -> /head_rgbd/* (depth and JPEG RGB with
   # camera_infos, coloured cloud), paired sets at output.rate_hz; the full-FOV depth ->
   # /head/d435/depth_filtered/image_raw + camera_info (edge-masked, every frame, read by d435_obstacle_cloud).
@@ -3772,7 +3753,6 @@ monitoring_agent_node_targets:
   - {node: costmap_zones, address: "127.0.0.1:19111", path: /metrics}
   - {node: marker_detector, address: "127.0.0.1:19118", path: /metrics}
   - {node: laser_filter, address: "127.0.0.1:19120", path: /metrics}
-  - {node: head_camera_cpp, address: "127.0.0.1:19116", path: /metrics}
   - {node: head_rgbd_cpp, address: "127.0.0.1:19117", path: /metrics}
   - {node: ground_estimator_cpp, address: "127.0.0.1:19119", path: /metrics}
   - {node: base_servos, address: "127.0.0.1:19115", path: /metrics}

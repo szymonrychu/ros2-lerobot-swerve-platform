@@ -224,9 +224,9 @@ def test_rgbd_and_ground_nodes_are_enabled() -> None:
     ground estimator and their D435 inputs run and are scraped; gripper_uvc_camera and arducam_tof are retired
     (present: false), so the enabled memory_low sum stays within the cap (D14); neither is scraped."""
     nodes = {n["name"]: n for n in client_vars()["ros2_nodes"]}
-    for name in ("head_rgbd_cpp", "ground_estimator_cpp", "realsense_d435", "d435_obstacle_cloud", "head_camera_cpp"):
+    for name in ("head_rgbd_cpp", "ground_estimator_cpp", "realsense_d435", "d435_obstacle_cloud"):
         assert nodes[name]["present"] is True and nodes[name]["enabled"] is True, name
-    assert nodes["gripper_uvc_camera"]["present"] is False
+    assert nodes["gripper_uvc_camera"]["present"] is False and nodes["head_camera_cpp"]["present"] is False
     assert nodes["arducam_tof"]["present"] is False
     targets = {t["node"] for t in client_vars()["monitoring_agent_node_targets"]}
     assert {"head_rgbd_cpp", "ground_estimator_cpp"} <= targets

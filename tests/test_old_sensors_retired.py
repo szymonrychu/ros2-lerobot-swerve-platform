@@ -7,6 +7,10 @@ metrics port, and no enabled node's config, env or launch command and no nav2 pa
 The gripper USB camera (gripper_uvc_camera) is retired the same way: the head D435 sees the jaws, so its entry is
 present: false, Alloy does not scrape it, the master2master relay of its stream is gone and no tracked config names
 /camera_0.
+
+The head Camera Module 3 (head_camera_cpp) is retired as well: present: false without config, unscraped, and no enabled
+node's config, env or launch command names a /head_camera/ topic. Its node type and nodes/head_camera_cpp stay for
+front-and-back-camera-module (plan Q8).
 """
 
 import subprocess
@@ -24,6 +28,9 @@ GRIPPER_NODE = "gripper_uvc_camera"
 GRIPPER_NODE_TYPE = "uvc_camera"
 GRIPPER_METRICS_PORT = 19105
 GRIPPER_TOPIC_PREFIX = "/camera_0"
+HEAD_CAMERA_NODE = "head_camera_cpp"
+HEAD_CAMERA_METRICS_PORT = 19116
+HEAD_CAMERA_TOPIC_PREFIX = "/head_camera/"
 RETIREMENT_COMMENT = "Retired (D435 switchover): present: false uninstalls the unit, venv and config on the next deploy"
 
 
@@ -141,3 +148,20 @@ def test_gripper_camera_is_retired() -> None:
         if path.is_file() and GRIPPER_TOPIC_PREFIX in path.read_text(errors="ignore")
     ]
     assert hits == []
+
+
+def test_head_camera_is_retired() -> None:
+    """head_camera_cpp is present: false without config, unscraped, and no enabled consumer reads /head_camera/."""
+    variables = load_client()
+    entry = next(n for n in variables["ros2_nodes"] if n["name"] == HEAD_CAMERA_NODE)
+    assert entry == {"name": HEAD_CAMERA_NODE, "node_type": HEAD_CAMERA_NODE, "present": False}
+    comment = retirement_comment(HEAD_CAMERA_NODE)
+    assert RETIREMENT_COMMENT in comment and "front-and-back-camera-module" in comment
+    assert HEAD_CAMERA_NODE in variables["ros2_node_type_defaults"]
+
+    targets = variables["monitoring_agent_node_targets"]
+    assert HEAD_CAMERA_NODE not in {t["node"] for t in targets}
+    assert not any(t["address"].endswith(f":{HEAD_CAMERA_METRICS_PORT}") for t in targets)
+
+    readers = {name for name, text in running_node_texts(variables).items() if HEAD_CAMERA_TOPIC_PREFIX in text}
+    assert not readers

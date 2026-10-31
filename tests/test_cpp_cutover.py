@@ -81,10 +81,9 @@ def test_background_tier_holds_only_throttles_and_previews() -> None:
         )
         == BACKGROUND_TIER
     ]
-    # The retired Pi camera nodes (D7, D9) are gone: the throttle relays and head_camera_cpp are left. head_rgbd_cpp
-    # left for the normal tier when it became the obstacle cloud's depth source (2026-10-29).
+    # The retired Pi camera nodes (D7, D9) and head_camera_cpp (D435 switchover) are gone: the throttle relays are
+    # left. head_rgbd_cpp left for the normal tier when it became the obstacle cloud's depth source (2026-10-29).
     assert sorted(running) == [
-        "head_camera_cpp",
         "head_rgbd_calibration",
         "joint_state_throttle_follower",
         "joint_state_throttle_swerve",

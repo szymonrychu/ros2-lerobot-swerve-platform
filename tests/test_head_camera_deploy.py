@@ -1,4 +1,7 @@
-"""Static invariants of the head camera deploy: the head_camera_cpp node type and entry in client.yml.
+"""Static invariants of the head camera deploy: the head_camera_cpp node type in client.yml.
+
+The ros2_nodes entry is retired (present: false, tests/test_old_sensors_retired.py); the node type and
+nodes/head_camera_cpp stay for front-and-back-camera-module (plan Q8).
 
 head_camera_cpp (the Camera Module 3 on CSI cam0) builds against the same pinned libcamera as pi_cameras: the libcamera
 source dict is identical, so the build stamp matches and nothing rebuilds. The patch is a byte-identical copy that
@@ -6,7 +9,6 @@ outlives the retirement of pi_cameras.
 """
 
 import hashlib
-import re
 from pathlib import Path
 
 import yaml
@@ -16,11 +18,7 @@ CLIENT_PLAYBOOK = REPO_ROOT / "ansible" / "playbooks" / "deploy_nodes_client.yml
 CLIENT_VARS = REPO_ROOT / "ansible" / "group_vars" / "client.yml"
 NODE_DIR = REPO_ROOT / "nodes" / "head_camera_cpp"
 PATCH = NODE_DIR / "patches" / "libcamera-0001-add-package-xml.patch"
-CONFIG_CPP = NODE_DIR / "src" / "core" / "config.cpp"
 WORKSPACE = "/opt/ros2-ws"
-CAM0_ID = "/base/axi/pcie@120000/rp1/i2c@88000/imx708@1a"
-METRICS_PORT = 19116
-APPLIED_CAMERA_INFO = "/var/lib/ros2/head_rgbd_calibration/applied/head_camera_calibration.yaml"
 # sha1 of nodes/pi_cameras/patches/libcamera-0001-add-package-xml.patch: the patch contents are part of the build stamp.
 PATCH_SHA1 = "422bd0e3b23dbbbdbd09435ab90cac84ded67166"
 # The libcamera colcon source of pi_cameras as recorded: any difference changes the build stamp and rebuilds libcamera.
@@ -100,27 +98,6 @@ def node_type() -> dict:
     return client_vars()["ros2_node_type_defaults"]["head_camera_cpp"]
 
 
-def node_entry() -> dict:
-    """Return the head_camera_cpp ros2_nodes entry.
-
-    Returns:
-        dict: The entry.
-    """
-    return next(n for n in client_vars()["ros2_nodes"] if n["name"] == "head_camera_cpp")
-
-
-def node_config_keys() -> set[str]:
-    """Return the top-level config keys the node accepts (its forbid_unknown list).
-
-    Returns:
-        set[str]: Config key names.
-    """
-    text = CONFIG_CPP.read_text()
-    block = re.search(r"forbid_unknown\(\s*node,\s*\{(.*?)\},\s*errors\)", text, re.S)
-    assert block, "the top-level forbid_unknown list of config.cpp moved"
-    return set(re.findall(r'"([a-z_0-9]+)"', block.group(1)))
-
-
 def test_node_type_fields() -> None:
     entry = node_type()
     assert entry["deploy_mode"] == "native"
@@ -167,33 +144,6 @@ def test_config_path_and_env() -> None:
     entry = node_type()
     assert entry["config_path"] == "/etc/ros2/head_camera_cpp"
     assert entry["env"] == ["HEAD_CAMERA_CONFIG=/etc/ros2/head_camera_cpp/config.yaml"]
-
-
-def test_entry_is_live_after_pi_cameras_with_valid_config() -> None:
-    nodes = [n["name"] for n in client_vars()["ros2_nodes"]]
-    assert nodes.index("head_camera_cpp") == nodes.index("pi_cameras") + 1
-    entry = node_entry()
-    assert entry["node_type"] == "head_camera_cpp"
-    assert entry["present"] is True and entry["enabled"] is True
-    config = yaml.safe_load(entry["config"])
-    assert set(config) <= node_config_keys()
-    # lens_position and mapping (focus lock, 2 Hz stream) are pinned in test_head_rgbd_deploy.py.
-    assert {k: config[k] for k in ("camera_id", "camera_info_file", "jpeg_quality", "metrics_port")} == {
-        "camera_id": CAM0_ID,
-        "camera_info_file": APPLIED_CAMERA_INFO,
-        "jpeg_quality": 70,
-        "metrics_port": METRICS_PORT,
-    }
-
-
-def test_camera_info_file_is_the_applied_file() -> None:
-    config = yaml.safe_load(node_entry()["config"])
-    assert config["camera_info_file"] == APPLIED_CAMERA_INFO
-
-
-def test_monitoring_target_is_present() -> None:
-    targets = client_vars()["monitoring_agent_node_targets"]
-    assert {"node": "head_camera_cpp", "address": f"127.0.0.1:{METRICS_PORT}", "path": "/metrics"} in targets
 
 
 def test_client_playbook_deploys_head_camera_cpp_right_after_pi_cameras() -> None:

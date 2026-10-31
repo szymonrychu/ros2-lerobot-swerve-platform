@@ -32,8 +32,6 @@ CONFIG_METRICS_PORTS = {
     "base_servos": 19115,
     # Side-by-side C++ ports: the Python node's port (the same config block); only one of a pair is ever enabled.
     "map_guard_cpp": 19110,
-    # Standalone C++ node (no Python counterpart): the head Camera Module 3.
-    "head_camera_cpp": 19116,
     # Standalone C++ node: the head RGB-D fusion.
     "head_rgbd_cpp": 19117,
     # Standalone C++ node: the ground estimator.

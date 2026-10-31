@@ -1828,8 +1828,7 @@ Client CPU load trims (load about 13 on 4 cores made the EKF miss its rate and t
 | `test_mcp_server_bump_window_still_spans_80_ms` | mcp_server `monitor.bump_min_samples` (default 2 = 80 ms) is at most 3 samples. |
 | `test_mcp_server_imu_baseline_keeps_its_time_constant` | `monitor.imu_baseline_alpha` x 25 Hz = 1 / 1 s (0.04), the time constant tuned at 50 Hz. |
 | `test_filter_node_idle_feedback_is_throttled` | filter_node config reads `/follower/joint_states/throttled` as `follower_feedback_idle_topic` (full-rate feedback only while a source commands). |
-| `test_head_camera_runs_at_15_fps` | `head_camera_cpp` config has `frame_duration_us: 66666` (15 fps; encode load halved, subscribers stop dropping frames). |
-| `test_head_camera_mapping_rate_fits_15_fps` | `mapping.rate_hz` and marker_detector `process_hz` are both <= 15. |
+| `test_marker_detector_rate_fits_15_fps` | marker_detector `process_hz` is <= 15 (the head D435 colour stream rate). |
 | `test_high_rate_python_nodes_use_events_executor` | `swerve_controller`, `marker_detector`, `filter_node`, `lerobot_follower` and `base_servos` configs in client.yml, and the repo `laser_filter` config, have `executor: events` (rollback `single_threaded`). |
 | `test_mcp_server_and_web_ui_keep_their_executor` | `mcp_server` and `web_ui` configs have no `executor` key. |
 
@@ -2327,7 +2326,7 @@ Repo-wide guard that the pan/tilt head is live: no placeholder wording and no fr
 
 ### `test_head_camera_deploy.py`
 
-Static invariants of the head camera deploy (`head_camera_cpp` in `ansible/group_vars/client.yml`): the libcamera source is the pinned dict of `pi_cameras` (same build stamp, nothing rebuilds), the patch is a byte-identical copy.
+Static invariants of the head camera deploy (the `head_camera_cpp` node type in `ansible/group_vars/client.yml`; the `ros2_nodes` entry is retired, pinned in `test_old_sensors_retired.py`, and the type and source stay for front-and-back-camera-module): the libcamera source is the pinned dict of `pi_cameras` (same build stamp, nothing rebuilds), the patch is a byte-identical copy.
 
 | Test | What it pins |
 |---|---|
@@ -2338,8 +2337,6 @@ Static invariants of the head camera deploy (`head_camera_cpp` in `ansible/group
 | `test_no_apt_camera_stack_and_all_build_packages` | No `ros-jazzy-libcamera` / `ros-jazzy-camera-ros`; libcamera build packages and the package.xml dependencies are installed. |
 | `test_background_tier` | `memory_low` 128M, `memory_max` 384M, weights 100, `oom_score_adjust` 0, `nice` 10. |
 | `test_config_path_and_env` | `/etc/ros2/head_camera_cpp` and `HEAD_CAMERA_CONFIG`. |
-| `test_entry_is_live_after_pi_cameras_with_valid_config` | The entry follows `pi_cameras`, is present and enabled, and its config keys are known to the node (`camera_id` of cam0, `jpeg_quality: 70`, `metrics_port: 19116`). |
-| `test_monitoring_target_is_present` | `monitoring_agent_node_targets` scrapes `127.0.0.1:19116/metrics`. |
 | `test_docs_describe_head_camera_cpp` | `nodes/head_camera_cpp/README.md` has `## Zoom interface` and `## Configuration`; the node README, `nodes/README.md`, `ansible/README.md`, the ansible-deploy SKILL and `MEMORY.md` name `head_camera_cpp`; `nodes/README.md` and the SKILL mark `pi_cameras` retired. |
 | `test_client_playbook_deploys_head_camera_cpp_right_after_pi_cameras` | `deploy_nodes_client.yml` has a `Deploy head_camera_cpp` step directly after `Deploy pi_cameras` (resolve_and_deploy, apply tag and `_deploy_node_name` `head_camera_cpp`, tags incl. apt/python/build/config). |
 
@@ -2442,7 +2439,7 @@ Static invariants of the head RGB-D adapter deploy (`head_rgbd_cpp` in `ansible/
 | `test_inputs_are_the_d435_aligned_pair` | The deployed config and the defaults read `/head/d435/aligned_depth_to_color/image_raw`, `/head/d435/color/image_raw` and `/head/d435/color/camera_info` at `output.rate_hz` 2.0; `realsense_d435` launches as `head`/`d435` with `align_depth.enable: true`. |
 | `test_output_rate_matches_the_mapping_budget` | `output.rate_hz` equals the `expected_rate_hz` of all four `/head_rgbd/*` uplink streams of `nodes/rtabmap_mapping/config/map3d_topics.yaml`. |
 | `test_client_playbook_step_order` | `Deploy head_rgbd_cpp` after the head_camera_cpp and arducam_tof steps, tags `[head_rgbd_cpp, apt, python, build, config]`. |
-| `test_rgbd_and_ground_nodes_are_enabled` | User 2026-10-28: `head_rgbd_cpp`, `ground_estimator_cpp`, `realsense_d435`, `d435_obstacle_cloud` and `head_camera_cpp` are present and enabled and the two are scraped; `gripper_uvc_camera` and `arducam_tof` are retired (`present: false`, memory_low room, D14), and neither is scraped. |
+| `test_rgbd_and_ground_nodes_are_enabled` | User 2026-10-28: `head_rgbd_cpp`, `ground_estimator_cpp`, `realsense_d435`, `d435_obstacle_cloud` are present and enabled and the two are scraped; `gripper_uvc_camera`, `head_camera_cpp` and `arducam_tof` are retired (`present: false`, memory_low room, D14), and neither is scraped. |
 
 ### `test_pi_camera_boot_config.py`
 
@@ -2582,7 +2579,7 @@ Node metrics wiring in `ansible/group_vars/client.yml` against the port contract
 
 | Test | Description |
 |------|-------------|
-| `test_config_metrics_port` | (lerobot_follower, filter_node, bno055_imu, gps_rtk_rover, swerve_controller, rf2o_odom_relay, poi_store, map_manager, map_guard, costmap_zones, the side-by-side C++ port map_guard_cpp 19110, and the standalone C++ nodes head_camera_cpp 19116 and head_rgbd_cpp 19117) `metrics_port` from 19101 up (the retired arducam_tof no longer holds 19112); base_servos 19115; marker_detector 19118 (added by the marker epic, which also lists `marker_detector` among the `src_shared` node types of `test_node_types_using_ros2_metrics_declare_src_shared`). |
+| `test_config_metrics_port` | (lerobot_follower, filter_node, bno055_imu, gps_rtk_rover, swerve_controller, rf2o_odom_relay, poi_store, map_manager, map_guard, costmap_zones, the side-by-side C++ port map_guard_cpp 19110, and the standalone C++ node head_rgbd_cpp 19117) `metrics_port` from 19101 up (the retired arducam_tof no longer holds 19112); base_servos 19115; marker_detector 19118 (added by the marker epic, which also lists `marker_detector` among the `src_shared` node types of `test_node_types_using_ros2_metrics_declare_src_shared`). |
 | `test_env_metrics_port` | gripper_uvc_camera `METRICS_PORT=19105`, rplidar_a1 `METRICS_PORT=19106`. |
 | `test_http_nodes_keep_their_port` | web_ui 8080, test_joint_api 18080, topic_scraper_api 18100, mcp_server 18200, claude_agent 18300, without a `metrics_port` key. |
 | `test_rplidar_imports_ros2_metrics_without_a_venv` | rplidar_a1 (no venv): `python3-prometheus-client` apt package, `shared/ros2_metrics` in `src_extra_paths`, `PYTHONPATH` starting with `<ros2_repo_dest>/shared/ros2_metrics`. |
@@ -2590,7 +2587,7 @@ Node metrics wiring in `ansible/group_vars/client.yml` against the port contract
 | `test_server_group_vars_untouched` | No metrics port in `group_vars/server.yml`; the server's and the agent defaults' node target lists are empty. |
 | `test_a_port_is_shared_only_by_a_python_and_cpp_pair` | Two contract nodes share a port only as `<name>`/`<name>_cpp` (at least one such pair exists). |
 | `test_a_python_and_cpp_pair_is_never_both_enabled` | Of every `<name>`/`<name>_cpp` pair in `ros2_nodes` (map_guard at least) at most one is present and enabled: both would bind the same port and publish the same topics. |
-| `test_every_enabled_contract_node_has_a_matching_scrape_target` | Each enabled contract node (count derived from the port contract minus disabled nodes) has a target `127.0.0.1:<configured port>` with path `/metrics`, and no other targets exist. Disabled nodes other than topic_scraper_api and gripper_uvc_camera (user 2026-10-28) are only members of a Python/C++ pair; the retired arducam_tof has no contract port. |
+| `test_every_enabled_contract_node_has_a_matching_scrape_target` | Each enabled contract node (count derived from the port contract minus disabled nodes) has a target `127.0.0.1:<configured port>` with path `/metrics`, and no other targets exist. Disabled nodes other than topic_scraper_api are only members of a Python/C++ pair; the retired gripper_uvc_camera, head_camera_cpp and arducam_tof have no contract port. |
 
 ### `monitoring_helpers.py`
 
@@ -2794,7 +2791,7 @@ Static invariants of the cut-over to the C++ nodes (`ansible/group_vars/client.y
 | `test_python_node_stays_present_and_disabled_for_rollback` | `map_guard` stays `present: true`, `enabled: false` (rollback). |
 | `test_cpp_config_block_equals_the_python_block` | The parsed `_cpp` config equals the Python node's and keeps its metrics port (19110). |
 | `test_map_guard_cpp_keeps_dry_run` | The map_guard_cpp config still has `dry_run: true`. |
-| `test_background_tier_holds_only_throttles_and_previews` | Among running nodes the background tier (100/100/0) holds exactly `head_camera_cpp`, `head_rgbd_calibration`, the two joint-state throttle nodes and `map3d_uplink`. |
+| `test_background_tier_holds_only_throttles_and_previews` | Among running nodes the background tier (100/100/0) holds exactly `head_rgbd_calibration`, the two joint-state throttle nodes and `map3d_uplink` (`head_camera_cpp` is retired). |
 | `test_only_the_running_node_of_each_pair_is_scraped` | `monitoring_agent_node_targets` lists the `_cpp` names and not the disabled Python ones. |
 | `test_readme_documents_cutover_and_rollback` | `ansible/README.md` has a "Cut-over and rollback" section naming both nodes, `enabled: false` and `scripts/deploy-nodes.sh`. |
 
@@ -3336,6 +3333,7 @@ Retirement pins for the old head sensors of the D435 switchover (design D11: ret
 |---|---|
 | `test_arducam_tof_is_retired` | The `arducam_tof` entry is exactly `name`, `node_type` and `present: false` (no `config`) under the comment "Retired (D435 switchover): present: false uninstalls the unit, venv and config on the next deploy"; no `monitoring_agent_node_targets` entry names it or port 19112; no present and enabled node's config, node or type env or type launch command, and no nav2 parameter, names a `/tof/` topic. |
 | `test_gripper_camera_is_retired` | The `gripper_uvc_camera` entry is exactly `name`, `node_type: uvc_camera` and `present: false` (no env) under the same retirement comment; no `monitoring_agent_node_targets` entry names it or port 19105; neither client.yml (the master2master relay included), a tracked file under a node's `config/` nor a role template names `/camera_0`. |
+| `test_head_camera_is_retired` | The `head_camera_cpp` entry is exactly `name`, `node_type` and `present: false` (no `config`) under the retirement comment, which names front-and-back-camera-module as the reuser; the node type stays; no `monitoring_agent_node_targets` entry names it or port 19116; no present and enabled node's config, env or launch command names a `/head_camera/` topic. |
 
 ### `test_head_rgbd_calibration_deploy.py`
 
@@ -3414,7 +3412,7 @@ The client `map3d_uplink` node type (`nodes/map3d_uplink`, D2): the single stati
 | `test_launch_file_defines_one_container_named_map3d_uplink` | One container named `map3d_uplink`, nothing else. |
 | `test_node_type_env_apt_tier_and_paths` | `group_vars/client.yml`: `ROS_STATIC_PEERS`, apt packages, background tier with `memory_low` / `memory_max`, source paths including the contract. |
 | `test_ros2_nodes_entry_present_and_enabled` | The `ros2_nodes` entry is present and enabled. |
-| `test_head_camera_mapping_stream_and_rgbd_node_present` | The head camera mapping stream (2 Hz, 576x324) and `head_rgbd_cpp` it depends on are configured, `head_rgbd_cpp` present and enabled. |
+| `test_rgbd_node_present_and_head_camera_retired` | `head_rgbd_cpp` (the D435 RGB-D pair map3d_uplink relays) is present and enabled; `head_camera_cpp` and its mapping stream are retired (`present: false`). |
 | `test_playbook_step_after_head_camera_cpp` | The client playbook deploys `map3d_uplink` after `head_camera_cpp`. |
 | `test_readme_documents_purpose_lazy_and_measuring` | The node README explains the single static-peer process, lazy behaviour and how to measure bandwidth. |
 

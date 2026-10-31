@@ -171,11 +171,10 @@ def test_ros2_nodes_entry_present_and_enabled() -> None:
     assert entry["node_type"] == NODE and entry["present"] is True and entry["enabled"] is True
 
 
-def test_head_camera_mapping_stream_and_rgbd_node_present() -> None:
+def test_rgbd_node_present_and_head_camera_retired() -> None:
+    """map3d_uplink relays the D435 RGB-D pair of head_rgbd_cpp; the Camera Module 3 mapping stream is retired."""
     nodes = {n["name"]: n for n in client_vars()["ros2_nodes"]}
-    camera = yaml.safe_load(nodes["head_camera_cpp"]["config"])
-    assert camera["mapping"]["enabled"] is True and camera["mapping"]["lock_focus"] is True
-    assert camera.get("af_mode", "continuous") == "continuous"
+    assert nodes["head_camera_cpp"]["present"] is False
     assert nodes["head_rgbd_cpp"]["present"] is True and nodes["head_rgbd_cpp"]["enabled"] is True
 
 
