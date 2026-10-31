@@ -49,41 +49,61 @@ e6cf7a4a (S28) against S0 below. Findings on bdcd4f86 are fixed in the plan bran
 - Verify: `uv run --frozen pytest tests/test_d435_topics.py tests/test_realsense_d435_deploy.py -q && uv run poe lint`;
   expect `passed`, no failures.
 
-### S41: Arm offsets compute and apply
+### S41: Arm offsets compute and apply (on head_arm sessions)
 
-- Files: `nodes/head_rgbd_calibration/head_rgbd_calibration/compute.py`,
-  `nodes/head_rgbd_calibration/head_rgbd_calibration/apply.py`, `nodes/head_rgbd_calibration/head_rgbd_calibration/jobs.py`,
-  `nodes/head_rgbd_calibration/tests/test_compute_arm.py` (new), `nodes/head_rgbd_calibration/tests/test_apply.py`,
-  `nodes/head_rgbd_calibration/tests/test_jobs.py`, `nodes/head_rgbd_calibration/README.md`
+Amended 2026-10-31 after the chunk 1 implementer's probe of the plan tree (plan.md D17): there is no `arm` session
+kind, head-arm compute runs in process (head_arm_results.compute_head_arm, not the ComputeJob child), applied.json's
+top-level `kind` is the intrinsics check record, and the offsets live at `cfg.fit.joint_offsets_rad`.
+
+- Files: `nodes/head_rgbd_calibration/head_rgbd_calibration/arm_results.py` (new),
+  `nodes/head_rgbd_calibration/head_rgbd_calibration/head_arm_api.py`,
+  `nodes/head_rgbd_calibration/head_rgbd_calibration/apply.py`, `nodes/head_rgbd_calibration/tests/test_compute_arm.py`
+  (new), `nodes/head_rgbd_calibration/tests/test_head_arm_api.py`, `nodes/head_rgbd_calibration/tests/test_apply.py`,
+  `nodes/head_rgbd_calibration/README.md`
 - Covers: 1.6
-- Test first: `tests/test_compute_arm.py` (synthetic floor + plate sessions) with
+- Test first: `tests/test_compute_arm.py` (synthetic floor session + head_arm session with plate views):
   `test_arm_result_files_and_snippet`, `test_arm_compute_needs_head_calibration`, `test_floor_session_arg_wins`,
-  `test_failed_limits_write_only_report_and_result`, `test_tool_not_fitted_without_tool_in_board_m`;
-  `tests/test_apply.py::test_arm_apply_writes_chain_not_snippet`; `tests/test_jobs.py::test_child_gets_floor_session`.
-  Run them; expect failures.
+  `test_failed_limits_write_only_report_and_result`, `test_tool_not_fitted_without_tool_in_board_m`,
+  `test_missing_plate_mount_is_an_error`, `test_arm_apply_writes_chain_not_snippet` (head_chain record
+  `source: "arm"`, top-level `kind` unchanged); `tests/test_head_arm_api.py`: `test_compute_arm_route` (floor_session
+  in the body reaches the compute; 409 while the sequence runs; 400 on a non-head_arm session),
+  `test_apply_dispatches_on_result_kind`; `tests/test_apply.py::test_download_zip_has_the_snippet`. Run; expect
+  failures.
 - Change:
-  - `jobs.py`: `ComputeJob.start(sid, floor_session: str | None = None)` passes `--floor-session <sid>` to the child;
-    `compute.py main` accepts it.
-  - `compute.py`, kind `arm`: floor session = `--floor-session`, else `applied.json` `head_session`; neither ->
-    `result.json` `passed: false`, `error: "apply a head calibration first"`. Floor views from the floor session, plate
-    views from the arm session, intrinsics = the factory D435 colour CameraInfo recorded with the stills. Calls
-    `fit_head_arm(..., current_offsets=cfg.arm_sequence.joint_offsets_rad)` (reuse
-    `shared/ros2_common/head_rgbd_calibration/arm_offsets_fit.py`). `plate_mount` null (or `wrist_roll_offset_rad` null
-    when `rpy` is null) -> `passed: false` with an error naming the missing key, no fit. `tool_in_board_m` stays a
-    required key with no default (config.py:156, Q7): null -> the tool point is not fitted, the current
-    `tool_offset_m` is kept and the report says so (`TOOL_NOT_FITTED` note).
-  - Result files: `head_chain.json` (every head joint incl. d435_joint), `head.urdf`, `joint_offsets_snippet.yaml`
-    (`offsets_snippet_yaml`, with `tool_offset_m` when fitted), `report.md`, `result.json` `{id, session, kind: "arm",
-    floor_session, created, passed, failed_limits, rms_px, holdout_rms_px, holdout_tool_mm, wrist_roll_fitted,
-    tool_fitted, tool_offset_m, offsets: {joint: {value, sigma, current}}, head: {name: {value, sigma, urdf}}, limits}`.
-    Failed limits -> only `report.md` and `result.json`.
-  - `apply.py`, kind `arm`: applies `head_chain.json` only; the snippet never goes to `applied/` (offsets are committed
-    by hand after review). `applied.json` gets `kind: "arm"` and `head_session` = the floor session. `download_zip`
-    adds `joint_offsets_snippet.yaml`.
-  - README: the arm compute/apply section.
+  - Session: the arm fit runs on an existing `head_arm` session (its stills already carry the board views with all
+    seven joints, `store.load_arm_board_views`); no new session kind. The fit is chosen per compute request, and the
+    result records `kind: "arm"` (head-from-arm results keep theirs).
+  - `arm_results.py` `compute_arm(cfg, store, sid, now, floor_session: str | None) -> dict`: floor session =
+    `floor_session`, else the floor reference of the applied head chain (`floor_results.current_floor_ref(cfg)`);
+    neither -> `passed: false`, `error: "apply a head calibration first"`. Floor views from
+    `floor_results.read_observations` of that floor session, plate views from `store.load_arm_board_views(sid)`,
+    intrinsics the factory D435 colour CameraInfo recorded with the stills (as `head_arm_results.session_intrinsics`).
+    Calls `arm_offsets_fit.fit_head_arm(..., head_urdf=floor_results.base_urdf(cfg), cfg=cfg.fit,
+    current_offsets=cfg.fit.joint_offsets_rad)`. `cfg.fit.plate_mount` null, or `wrist_roll_offset_rad` null while
+    `plate_mount.rpy` is null -> `passed: false` with an error naming the missing key, no fit.
+    `plate_mount.tool_in_board_m` stays required with no default (Q7): null -> tool point not fitted, current
+    `tool_offset_m` kept, the report says so (`TOOL_NOT_FITTED_NOTE`).
+  - Result dir (the session's results/<rid>): `head_chain.json` (every head joint incl. d435_joint), `head.urdf`,
+    `joint_offsets_snippet.yaml` (`offsets_snippet_yaml`, with `tool_offset_m` when fitted), `report.md`
+    (`arm_report_markdown`), `result.json` `{id, session, kind: "arm", floor_session, created, passed, failed_limits,
+    rms_px, holdout_rms_px, holdout_tool_mm, wrist_roll_fitted, tool_fitted, tool_offset_m, offsets: {joint: {value,
+    sigma, current}}, head: {name: {value, sigma, urdf}}, limits, snippet}` (`snippet` is the snippet text, for the UI's Copy). Failed limits -> only report.md and result.json.
+  - `apply_arm(cfg, store, sid, rid, now, run)`: a passed `kind: "arm"` result applies its `head_chain.json` through
+    `floor_results.apply_head_chain_file` with the `head_chain` record `{session, result, applied_at, source: "arm",
+    floor: {session, result} of the floor session used}`; applied.json's top-level `kind` (the intrinsics check) is
+    untouched. The snippet never goes to `applied/` (offsets are committed by hand after review). Not passed ->
+    NotApplicable (409).
+  - `head_arm_api.py`: `POST /head-arm/sessions/{sid}/compute-arm` with body `{floor_session: str | null}` (same
+    busy/kind refusals as `/compute`); `POST /head-arm/sessions/{sid}/results/{rid}/apply` dispatches on the result's
+    `kind` (`arm` -> `apply_arm`, else `apply_head_arm`). `GET .../results/{rid}` serves both.
+  - `apply.py` `DOWNLOAD_FILES` gains `joint_offsets_snippet.yaml`, so `/api/sessions/{sid}/results/{rid}/download`
+    zips it for arm results.
+  - The arm sequence routes already exist (`/head-arm/sequence/base`, `/board-attached`, `/big-joints` with confirm,
+    `/stop`); none is added.
+  - README: the arm compute/apply section and routes.
   - Commit `feat(head_rgbd_calibration): arm offsets compute and apply`.
-- Verify: `cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_compute_arm.py tests/test_apply.py
-  tests/test_jobs.py -q && uv run poe lint`; expect all passed.
+- Verify: `cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_compute_arm.py tests/test_head_arm_api.py
+  tests/test_apply.py tests/test_head_arm_results.py -q && uv run poe lint`; expect all passed.
 
 ### S50: Retire the ToF fits in calibration
 
@@ -208,19 +228,25 @@ e6cf7a4a (S28) against S0 below. Findings on bdcd4f86 are fixed in the plan bran
   `nodes/web_ui/frontend/src/calibrate/ArmCalibration.test.tsx` (new), `nodes/web_ui/frontend/src/calibrate/CalibratePage.tsx`,
   `nodes/web_ui/frontend/src/calibrate/CalibratePage.test.tsx`, `nodes/web_ui/frontend/src/calibrate/HeadFloorFit.tsx`,
   `nodes/web_ui/frontend/src/calibrate/HeadFloorFit.test.tsx`, `nodes/web_ui/frontend/src/calibrate/HeadArmCalibration.tsx`,
-  `nodes/web_ui/frontend/src/calibrate/HeadArmCalibration.test.tsx`
+  `nodes/web_ui/frontend/src/calibrate/HeadArmCalibration.test.tsx`,
+  `nodes/web_ui/frontend/src/calibrate/headArmApi.ts`, `nodes/web_ui/frontend/src/calibrate/headArmApi.test.ts`
 - Covers: 1.6, 1.8
 - Test first: ArmCalibration.test.tsx: "disabled without an applied head chain", "start runs wrist and elbow tiers"
-  (Start sends `allowBigJoints: false`, no dialog), "allow big joints only after the shoulder confirm", "copy writes the
+  (Start calls moveToBase and boardAttached, no dialog, no allowBigJoints), "allow big joints only after the shoulder
+  confirm", headArmApi.test.ts "computeArm posts the floor session", "copy writes the
   snippet", "apply disabled on a failed result", "stop calls the route". CalibratePage.test.tsx "has no deferred arm
   line". HeadFloorFit/HeadArmCalibration tests: D435 wording, the sequencer skip reasons ("inside D435 min-Z", "outside
   colour FOV"), and the d435_joint camera_* rows in PARAM_ROWS (design D32b). Run; expect failures.
 - Change: `HeadFloorFit.tsx` says the floor plane comes from the D435 depth (no "ToF"). `HeadArmCalibration.tsx` says the
   D435 watches the board on the fixed jaw, shows the skip reasons and the camera_* rows. New `ArmCalibration.tsx`:
-  "Arm calibrate" disabled with "apply a head calibration first" until the applied kind is `head_chain` or `arm`; step
-  1 text (board off the floor, clipped to the fixed jaw, area clear, slow wrist and elbow poses) and Start ->
-  `startArmSequence({allowBigJoints: false})`; step 2 "Allow shoulder moves" opens a confirm naming shoulder_lift and
-  shoulder_pan, and only that Confirm calls `startArmSequence({sessionId, allowBigJoints: true})`; Stop visible while
+  "Arm calibrate" disabled with "apply a head calibration first" until `getHeadArmState().applied` (the applied
+  head chain) is non-null; step 1 text (board off the floor, clipped to the fixed jaw, area clear, slow wrist and elbow
+  poses) and Start drives the existing head-arm sequence (`moveToBase(true)`, then `boardAttached()`: tiers 0 and 1,
+  no dialog); step 2 "Allow shoulder moves" opens a confirm naming shoulder_lift and shoulder_pan, and only that
+  Confirm calls `allowBigJoints(true)` (no other path sends it); compute on the session through new
+  `computeArm(sid, floorSession?)` (`POST /head-arm/sessions/{sid}/compute-arm`, S41), result through
+  `getHeadArmResult`, apply through `applyHeadArm` (dispatched by result kind in S41), download through the existing
+  results download route; `headArmApi.ts` gains `computeArm` and an `ArmResult` type, tested in headArmApi.test.ts; Stop visible while
   running; progress (tier, step/total, captured, skipped with reasons, status); step 3 Compute -> result card (offsets
   table current/new/change deg/sigma, tool point current/new/held-out mm/fitted or kept, head x/y/yaw change, wrist_roll
   fitted or fixed, pass/fail and failed limits, snippet in monospace with Copy via `navigator.clipboard.writeText` and
@@ -228,8 +254,8 @@ e6cf7a4a (S28) against S0 below. Findings on bdcd4f86 are fixed in the plan bran
   `CalibratePage.tsx` renders ArmCalibration after the head sections when `config.rgbd` and drops the "Arm calibration
   - deferred" line. Commit `feat(web_ui): Calibrate page arm section and D435 head sections`.
 - Verify: `cd nodes/web_ui/frontend && npx vitest run src/calibrate/ArmCalibration.test.tsx
-  src/calibrate/CalibratePage.test.tsx src/calibrate/HeadFloorFit.test.tsx src/calibrate/HeadArmCalibration.test.tsx &&
-  npx tsc --noEmit && npm run lint && npm run build`; expect all passed and a build.
+  src/calibrate/CalibratePage.test.tsx src/calibrate/HeadFloorFit.test.tsx src/calibrate/HeadArmCalibration.test.tsx
+  src/calibrate/headArmApi.test.ts && npx tsc --noEmit && npm run lint && npm run build`; expect all passed and a build.
 
 ## Chunk 3: agent skills and retirements (model: opus)
 

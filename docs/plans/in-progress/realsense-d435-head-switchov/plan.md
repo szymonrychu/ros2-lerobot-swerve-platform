@@ -390,6 +390,22 @@ Plan inputs from the briefs, each placed:
   motion). Safeguard: the result passes the held-out limits and the snippet is reviewed in the commit; the old values are
   in git.
 
+### D17: arm offsets on head_arm sessions, applied as a head_chain record (2026-10-31, chunk 1 probe)
+
+Decision: the arm offsets fit (S41) runs on an existing `head_arm` session (its stills already carry the board views
+with all seven joints); no `arm` session kind. The fit is chosen per request by a new `POST
+/head-arm/sessions/{sid}/compute-arm` (body `floor_session`), and its result.json records `kind: "arm"`. The floor
+session falls back to the floor reference of the applied head chain (`floor_results.current_floor_ref`). Apply goes
+through `floor_results.apply_head_chain_file` with the `head_chain` record `source: "arm"`, leaving applied.json's
+top-level `kind` (the intrinsics check) alone; the offsets snippet is never applied. Current offsets are
+`cfg.fit.joint_offsets_rad` (there is no `arm_sequence.joint_offsets_rad`). The S52 Arm section drives the existing
+head-arm sequence routes (base, board-attached, big-joints confirm, stop) and the new compute-arm route.
+Alternatives: a new `arm` session kind (duplicates the head-arm capture and sequencer); choosing the fit by session kind
+alone (would turn every head_arm compute into the arm fit and break the head-from-arm calibration); a separate applied
+entry (a second writer of the applied chain).
+Why: one capture path, one applied-chain writer, and the routes S52 needs are specified inside S41. (my call, preferring
+the implementer's recommendation; refined because head_arm sessions already feed the head-from-arm fit)
+
 ### D32b: d435_joint partly free in the head-from-arm fit (my call, 2026-10-28)
 
 Decision: the fit frees d435_joint x, z, roll, yaw; y is unobservable from board views and pitch folds into tilt_zero (synthetic correlation 0.9995), so both stay at the URDF/CAD values. Source: calibration-library-d435-fra implementer identifiability run.
