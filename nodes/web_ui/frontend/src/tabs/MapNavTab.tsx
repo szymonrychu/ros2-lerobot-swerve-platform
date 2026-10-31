@@ -44,7 +44,8 @@ import { goalButtonState } from '../map/goalControl'
 import { anyInRow, splitToolbar, stopGroupIds, TOOLBAR_GROUPS } from '../map/toolbarGroups'
 import { StatusItem } from '../components/StatusItem'
 import { LayersPanel } from '../map/LayersPanel'
-import { MapStatusLine, mapStatusText } from '../map/MapStatusLine'
+import { drivePoseText, MapStatusLine, mapStatusText } from '../map/MapStatusLine'
+import { drivePoseOf } from '../arm/armControls'
 import { MapsDialog, SaveMapAsDialog } from '../map/MapsDialog'
 import { useMapStatus } from '../map/mapsApi'
 import { ToolButton, ToolGroup } from '../components/ToolButton'
@@ -440,7 +441,10 @@ export default function MapNavTab({
     />
   )
   const mapText = mapStatusText(mapsStatus)
-  const statusItems = [...hintItems, poseItem, ...(mapText ? [mapText] : [])]
+  // The arm lift while driving, read-only here: its controls live on the Arm tab.
+  const drivePose = drivePoseText(drivePoseOf(tab, topicData))
+  const drivePoseItem = drivePose ? [<StatusItem key="drive-pose" label="Drive pose" value={drivePose} />] : []
+  const statusItems = [...hintItems, poseItem, ...drivePoseItem, ...(mapText ? [mapText] : [])]
 
   // POI list, POI editor, photo panel and photo list. Phone: a column spanning the map, so the panels' bottom
   // sheets anchor to its bottom edge (hidden while the layers sheet is up). Wide: sections of the sidebar.

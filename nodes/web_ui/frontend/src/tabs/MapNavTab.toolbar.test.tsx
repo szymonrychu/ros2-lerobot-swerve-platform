@@ -212,6 +212,23 @@ describe('map toolbar controls', () => {
   })
 })
 
+describe('map drive pose state', () => {
+  const STATE = { '/arm/drive_pose/state': { state: 'skipped: torque off', reason: 'torque off', enabled: true, stamp_ns: 1 } }
+
+  it('shows the drive pose state read-only in the status line, with no drive pose control', async () => {
+    await renderTab(STATE)
+    const line = screen.getByTestId('map-status-line')
+    expect(line.textContent).toContain('Drive pose')
+    expect(line.textContent).toContain('skipped: torque off')
+    for (const name of [/drive pose/i, /Set drive pose/]) expect(screen.queryByRole('button', { name })).toBeNull()
+  })
+
+  it('shows no drive pose item before the first state', async () => {
+    await renderTab()
+    expect(screen.getByTestId('map-status-line').textContent).not.toContain('Drive pose')
+  })
+})
+
 describe('named maps toolbar', () => {
   it('shows no map status before the first status arrives', async () => {
     await renderTab()

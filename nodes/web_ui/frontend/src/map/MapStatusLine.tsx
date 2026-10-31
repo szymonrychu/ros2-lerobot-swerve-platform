@@ -2,7 +2,7 @@ import { Children } from 'react'
 import type { ReactNode } from 'react'
 import Box from '@mui/material/Box'
 import { PANEL_BG, TOKENS } from '../theme'
-import type { MapStatus } from '../types'
+import type { DrivePoseState, MapStatus } from '../types'
 
 /** Message map_manager gives when a moved robot could not be relocalised and the map was dropped. */
 const DISCARDED_MESSAGE = 'map discarded'
@@ -26,6 +26,17 @@ export function mapStatusText(status: MapStatus | undefined): string | null {
   }
   if (state === 'loading') return name ? `Loading ${name}` : 'Loading map'
   return name ? `Map ${name}` : null
+}
+
+/**
+ * The read-only text for the mcp_server drive pose state (lifted, lifting, "skipped: <reason>", ...).
+ *
+ * @param state - latest drive pose state, undefined before the first one arrives.
+ * @returns the state, with the reason the arm was left alone when the state does not carry it; null without a state.
+ */
+export function drivePoseText(state: DrivePoseState | undefined): string | null {
+  if (!state) return null
+  return state.reason && !state.state.includes(state.reason) ? `${state.state} - ${state.reason}` : state.state
 }
 
 interface Props {

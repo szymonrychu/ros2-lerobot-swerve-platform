@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import { ThemeProvider } from '@mui/material/styles'
-import { MapStatusLine, mapStatusText } from './MapStatusLine'
+import { drivePoseText, MapStatusLine, mapStatusText } from './MapStatusLine'
 import type { MapStatus } from '../types'
 import { StatusItem } from '../components/StatusItem'
 import { designViolations, SOURCES } from '../layout/designRules'
@@ -90,5 +90,22 @@ describe('mapStatusText', () => {
     expect(mapStatusText(withLoc('loading'))).toBe('Loading lab')
     expect(mapStatusText(withLoc('unknown'))).toBe('Map lab')
     expect(mapStatusText(withLoc('unknown', '', null))).toBeNull()
+  })
+})
+
+describe('drivePoseText', () => {
+  const at = (state: string, reason = '', enabled = true) => ({ state, reason, enabled, stamp_ns: 1 })
+
+  it('shows nothing before a drive pose state arrives', () => {
+    expect(drivePoseText(undefined)).toBeNull()
+  })
+
+  it('shows the controller state as is', () => {
+    for (const state of ['idle', 'lifting', 'lifted', 'lowering', 'disabled']) expect(drivePoseText(at(state))).toBe(state)
+    expect(drivePoseText(at('skipped: torque off', 'torque off'))).toBe('skipped: torque off')
+  })
+
+  it('adds the reason the arm was left alone when the state does not carry it', () => {
+    expect(drivePoseText(at('idle', 'arm moved off the drive pose'))).toBe('idle - arm moved off the drive pose')
   })
 })
