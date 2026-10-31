@@ -694,12 +694,15 @@ def test_nav2_mppi_omni_with_swerve_limits() -> None:
     assert follow["primary_controller"] == "nav2_mppi_controller::MPPIController"
     assert follow["motion_model"] == "Omni"
     assert follow["vx_max"] == pytest.approx(0.25)
-    assert follow["vx_min"] == pytest.approx(-0.25)
+    # No reverse: travel stays within +-90 deg of robot x, the head pan reach (head-aims-along-path plan).
+    assert follow["vx_min"] == pytest.approx(0.0)
     assert follow["vy_max"] == pytest.approx(0.25)
     assert follow["wz_max"] == pytest.approx(0.5)
     # visualize enables the nav_msgs/Path on /optimal_trajectory (the local plan for the web UI).
     assert follow["visualize"] is True
     assert ctrl["min_y_velocity_threshold"] < 0.25
+    # The other half of "only travel the head can see": the global planner never plans reverse either.
+    assert ros_params(nav2(), "planner_server")["GridBased"]["allow_reverse_expansion"] is False
 
 
 def test_nav2_planner_is_footprint_aware_smac_lattice() -> None:
@@ -865,7 +868,7 @@ def test_slam_map_resolution_cost_is_bounded() -> None:
 def test_nav2_velocity_smoother_matches_swerve() -> None:
     vs = ros_params(nav2(), "velocity_smoother")
     assert vs["max_velocity"] == pytest.approx([0.25, 0.25, 0.5])
-    assert vs["min_velocity"] == pytest.approx([-0.25, -0.25, -0.5])
+    assert vs["min_velocity"] == pytest.approx([0.0, -0.25, -0.5])
     assert vs["odom_topic"] == "/odometry/filtered"
 
 
