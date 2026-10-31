@@ -57,6 +57,7 @@ def main() -> None:
         map_reset_services=config.map_reset_services(),
         navigate_actions=config.navigate_actions(),
         trigger_services=config.trigger_services(),
+        set_bool_services=config.set_bool_services(),
         gps_anchor=config.gps_anchor_estimator(),
         battery_guard=battery_guard,
         poi_command_topic=config.poi_command_topic(),

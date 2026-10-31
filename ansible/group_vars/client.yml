@@ -2799,6 +2799,8 @@ ros2_nodes:
           # Home / Set home buttons: std_srvs/Trigger services served by mcp_server.
           arm_home_service: /arm/home
           arm_set_home_service: /arm/set_home
+          # mcp_server drive pose state (latched JSON), shown read-only in the map status line.
+          drive_pose_state_topic: /arm/drive_pose/state
           # Points of interest from poi_store (list is latched; edits go through POST /api/poi).
           poi_list_topic: /poi/list
           poi_command_topic: /poi/command
@@ -2857,6 +2859,10 @@ ros2_nodes:
           # Where the draggable arm publishes (filter_node web_ui input).
           arm_command_topic: /filter/web_ui_joint_commands
           arm_offset: [0.0592, -0.05, 0.100]
+          # Set drive pose (std_srvs/Trigger), drive pose toggle (std_srvs/SetBool) and its latched JSON state (mcp_server).
+          arm_set_drive_pose_service: /arm/set_drive_pose
+          arm_drive_pose_enable_service: /arm/drive_pose/enable
+          drive_pose_state_topic: /arm/drive_pose/state
         # Head tab: the RealSense D435 on the pan/tilt head (realsense_d435, live topics pinned in
         # nodes/bridges/realsense_d435/config/topics.yaml): colour plus a greyscale preview of its 16UC1 mm depth.
         - id: head

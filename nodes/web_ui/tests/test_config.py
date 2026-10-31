@@ -377,7 +377,13 @@ def test_arm_tab_topics_subscribed_and_services_listed() -> None:
         assert topic in topics
     assert not [t for t in topics if t.startswith("/camera_0/")]
     assert not [t for t in topics if t.startswith("/overview_camera/") or t.startswith("/front" + "_camera/")]
-    assert cfg.trigger_services() == ["/arm/home", "/arm/release_control", "/arm/set_home", "/arm/take_control"]
+    assert cfg.trigger_services() == [
+        "/arm/home",
+        "/arm/release_control",
+        "/arm/set_drive_pose",
+        "/arm/set_home",
+        "/arm/take_control",
+    ]
 
 
 def test_default_yaml_arm_tab_replaces_gripper_cam_tab() -> None:
@@ -638,3 +644,63 @@ def test_ground_recorder_defaults_and_ranges() -> None:
     assert GroundRecorderConfig(max_duration_s=60, max_files=20, tf_timeout_s=0).max_files == 20
     with pytest.raises(ValidationError):
         AppConfig.model_validate({"ground_recorder": {"bogus": 1}})
+
+
+DRIVE_POSE_KEYS = {
+    "arm_set_drive_pose_service": "/arm/set_drive_pose",
+    "arm_drive_pose_enable_service": "/arm/drive_pose/enable",
+    "drive_pose_state_topic": "/arm/drive_pose/state",
+}
+
+
+def test_arm_tab_drive_pose_defaults() -> None:
+    """An arm tab gets the drive pose Trigger, SetBool and state topic; a map_nav tab only the state topic."""
+    arm = TabConfig(id="arm", type="arm", label="Arm")
+    for key, value in DRIVE_POSE_KEYS.items():
+        assert getattr(arm, key) == value
+    nav = TabConfig(id="map", type="map_nav", label="Map")
+    assert nav.drive_pose_state_topic == "/arm/drive_pose/state"
+    assert nav.arm_set_drive_pose_service is None and nav.arm_drive_pose_enable_service is None
+    cam = TabConfig(id="c", type="camera", label="C", topic="/x")
+    assert all(getattr(cam, key) is None for key in DRIVE_POSE_KEYS)
+
+
+@pytest.mark.parametrize("key", sorted(DRIVE_POSE_KEYS))
+def test_arm_tab_drive_pose_keys_reject_empty(key: str) -> None:
+    with pytest.raises(ValidationError):
+        TabConfig(id="arm", type="arm", label="Arm", **{key: " "})
+
+
+def test_map_nav_drive_pose_state_topic_rejects_empty() -> None:
+    with pytest.raises(ValidationError):
+        TabConfig(id="map", type="map_nav", label="Map", drive_pose_state_topic="")
+
+
+def test_drive_pose_services_and_state_role() -> None:
+    cfg = AppConfig(
+        tabs=[TabConfig(id="map", type="map_nav", label="Map"), TabConfig(id="arm", type="arm", label="Arm")]
+    )
+    assert "/arm/set_drive_pose" in cfg.trigger_services()
+    assert cfg.set_bool_services() == ["/arm/drive_pose/enable"]
+    assert cfg.topic_roles()["/arm/drive_pose/state"] == "drive_pose_state"
+    assert "/arm/drive_pose/state" in cfg.all_subscribed_topics()
+    map_only = AppConfig(tabs=[TabConfig(id="map", type="map_nav", label="Map")])
+    assert map_only.topic_roles()["/arm/drive_pose/state"] == "drive_pose_state"
+    assert map_only.set_bool_services() == []
+
+
+def raw_tabs(config: dict) -> dict[str, dict]:
+    return {tab["id"]: tab for tab in config["tabs"]}
+
+
+def test_default_yaml_and_client_yml_name_the_drive_pose_keys() -> None:
+    """Both shipped configs set the drive pose keys explicitly on the arm tab and the state topic on the map tab."""
+    default = yaml.safe_load((Path(__file__).resolve().parents[1] / "config" / "default.yaml").read_text())
+    nodes = yaml.safe_load(CLIENT_YML.read_text())["ros2_nodes"]
+    client = yaml.safe_load(next(n for n in nodes if n["name"] == "web_ui")["config"])
+    for config in (default, client):
+        tabs = raw_tabs(config)
+        assert {key: tabs["arm"].get(key) for key in DRIVE_POSE_KEYS} == DRIVE_POSE_KEYS
+        nav = next(tab for tab in tabs.values() if tab["type"] == "map_nav")
+        assert nav.get("drive_pose_state_topic") == "/arm/drive_pose/state"
+    client_web_ui_config()

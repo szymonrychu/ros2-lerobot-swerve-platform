@@ -1124,7 +1124,22 @@ def build_app(
         log.warning("command_rejected_servo_released", action=action, message=message)
         return action_response(action, False, message, HTTP_CONFLICT)
 
-    async def call_arm_trigger(action: str, tab: str, service_attr: str, quiet: bool = True) -> JSONResponse:
+    async def call_arm_service(
+        action: str, tab: str, service_attr: str, quiet: bool = True, set_bool: bool | None = None
+    ) -> JSONResponse:
+        """Call an arm std_srvs/Trigger (or, with set_bool, std_srvs/SetBool) service of a map_nav or arm tab.
+
+        Args:
+            action (str): Action name for the response and the log.
+            tab (str): Tab id from ?tab=.
+            service_attr (str): TabConfig attribute naming the service.
+            quiet (bool): Also refuse (409) while the arm servo group is released.
+            set_bool (bool | None): SetBool request data; None calls a Trigger.
+
+        Returns:
+            JSONResponse: {"ok", "message"} with the service answer, or the refusal (503 cut-off, 409 released,
+                404 no such tab or service, 503 no bridge or service, 504 timeout).
+        """
         if (blocked := battery_block(action)) is not None:
             return blocked
         if quiet and (blocked := arm_released_block(action)) is not None:
@@ -1135,9 +1150,10 @@ def build_app(
             return action_response(action, False, f"no map_nav or arm tab {tab!r}", 404)
         if bridge_node is None:
             return action_response(action, False, "ROS bridge unavailable", 503)
-        response, error = await call_ros_service(
-            action, bridge_node.trigger_async(service), service, tab_cfg.arm_service_timeout_s
+        future = (
+            bridge_node.trigger_async(service) if set_bool is None else bridge_node.set_bool_async(service, set_bool)
         )
+        response, error = await call_ros_service(action, future, service, tab_cfg.arm_service_timeout_s)
         if error is not None:
             return error
         ok = bool(getattr(response, "success", False))
@@ -1208,19 +1224,29 @@ def build_app(
 
     @app.post("/api/arm/home")
     async def arm_home(tab: str) -> JSONResponse:
-        return await call_arm_trigger("arm_home", tab, "arm_home_service")
+        return await call_arm_service("arm_home", tab, "arm_home_service")
 
     @app.post("/api/arm/set_home")
     async def arm_set_home(tab: str) -> JSONResponse:
-        return await call_arm_trigger("arm_set_home", tab, "arm_set_home_service", quiet=False)
+        return await call_arm_service("arm_set_home", tab, "arm_set_home_service", quiet=False)
+
+    @app.post("/api/arm/set_drive_pose")
+    async def arm_set_drive_pose(tab: str) -> JSONResponse:
+        return await call_arm_service("arm_set_drive_pose", tab, "arm_set_drive_pose_service", quiet=False)
+
+    @app.post("/api/arm/drive_pose/enable")
+    async def arm_drive_pose_enable(tab: str, enabled: bool) -> JSONResponse:
+        return await call_arm_service(
+            "arm_drive_pose_enable", tab, "arm_drive_pose_enable_service", quiet=False, set_bool=enabled
+        )
 
     @app.post("/api/arm/take_control")
     async def arm_take_control(tab: str) -> JSONResponse:
-        return await call_arm_trigger("arm_take_control", tab, "arm_take_control_service")
+        return await call_arm_service("arm_take_control", tab, "arm_take_control_service")
 
     @app.post("/api/arm/release")
     async def arm_release(tab: str) -> JSONResponse:
-        return await call_arm_trigger("arm_release", tab, "arm_release_control_service", quiet=False)
+        return await call_arm_service("arm_release", tab, "arm_release_control_service", quiet=False)
 
     @app.post("/api/arm/jog")
     async def arm_jog(tab: str, request: Request) -> JSONResponse:

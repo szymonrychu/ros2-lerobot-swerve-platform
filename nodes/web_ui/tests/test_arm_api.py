@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from web_ui.bridge import GRASP_MOTION_ACTIONS, ROLE_SPECS, String
+from web_ui.bridge import GRASP_MOTION_ACTIONS, MAP_SUB_QOS, ROLE_SPECS, String, serialize_json_object
 from web_ui.config import AppConfig, TabConfig
 
 JOG = {"kind": "cartesian", "direction": "up", "step": 0.01}
@@ -37,6 +37,7 @@ class FakeBridge:
         self.no_service = no_service
         self.payloads: list[dict[str, Any]] = []
         self.services: list[str] = []
+        self.set_bools: list[tuple[str, bool]] = []
 
     def grasp_request_async(self, payload: dict[str, Any]) -> tuple[str, Future] | None:
         self.payloads.append(payload)
@@ -49,6 +50,14 @@ class FakeBridge:
 
     def trigger_async(self, service: str) -> Future | None:
         self.services.append(service)
+        if self.no_service:
+            return None
+        future: Future = Future()
+        future.set_result(self.trigger)
+        return future
+
+    def set_bool_async(self, service: str, data: bool) -> Future | None:
+        self.set_bools.append((service, data))
         if self.no_service:
             return None
         future: Future = Future()
@@ -168,3 +177,107 @@ def test_home_accepts_arm_and_map_nav_tabs(tmp_path: Path) -> None:
     assert client.post("/api/arm/home?tab=map").status_code == 200
     assert client.post("/api/arm/home?tab=cam").status_code == 404
     assert bridge.services == ["/arm/home", "/arm/home"]
+
+
+def ready_client(ready: bool = True) -> MagicMock:
+    client = MagicMock()
+    client.service_is_ready.return_value = ready
+    return client
+
+
+def test_drive_pose_state_role_is_latched_json_for_arm_and_map_tabs() -> None:
+    msg_cls, qos, serializer = ROLE_SPECS["drive_pose_state"]
+    assert msg_cls is String and qos is MAP_SUB_QOS and serializer is serialize_json_object
+    roles = AppConfig(
+        tabs=[TabConfig(id="map", type="map_nav", label="Map"), TabConfig(id="arm", type="arm", label="Arm")]
+    ).topic_roles()
+    assert roles["/arm/drive_pose/state"] == "drive_pose_state"
+
+
+def test_set_drive_pose_calls_trigger_and_shows_the_service_message(tmp_path: Path) -> None:
+    bridge = FakeBridge(trigger=SimpleNamespace(success=True, message="drive pose stored"))
+    resp = make_client(tmp_path, bridge).post("/api/arm/set_drive_pose?tab=arm")
+    assert resp.status_code == 200 and resp.json() == {"ok": True, "message": "drive pose stored"}
+    assert bridge.services == ["/arm/set_drive_pose"]
+
+
+def test_set_drive_pose_failure_is_500_with_the_service_message(tmp_path: Path) -> None:
+    bridge = FakeBridge(trigger=SimpleNamespace(success=False, message="pose fails the body check"))
+    resp = make_client(tmp_path, bridge).post("/api/arm/set_drive_pose?tab=arm")
+    assert resp.status_code == 500 and resp.json()["message"] == "pose fails the body check"
+
+
+@pytest.mark.parametrize("enabled", [True, False])
+def test_drive_pose_enable_calls_set_bool(tmp_path: Path, enabled: bool) -> None:
+    bridge = FakeBridge(trigger=SimpleNamespace(success=True, message=f"drive pose {'on' if enabled else 'off'}"))
+    resp = make_client(tmp_path, bridge).post(f"/api/arm/drive_pose/enable?tab=arm&enabled={str(enabled).lower()}")
+    assert resp.status_code == 200 and resp.json()["ok"] is True
+    assert resp.json()["message"] == f"drive pose {'on' if enabled else 'off'}"
+    assert bridge.set_bools == [("/arm/drive_pose/enable", enabled)]
+
+
+def test_drive_pose_enable_failure_is_500_and_needs_enabled(tmp_path: Path) -> None:
+    bridge = FakeBridge(trigger=SimpleNamespace(success=False, message="no drive pose configured"))
+    client = make_client(tmp_path, bridge)
+    resp = client.post("/api/arm/drive_pose/enable?tab=arm&enabled=true")
+    assert resp.status_code == 500 and resp.json()["message"] == "no drive pose configured"
+    assert client.post("/api/arm/drive_pose/enable?tab=arm").status_code == 422
+    assert bridge.set_bools == [("/arm/drive_pose/enable", True)]
+
+
+DRIVE_POSE_ROUTES = ["/api/arm/set_drive_pose?tab={tab}", "/api/arm/drive_pose/enable?tab={tab}&enabled=true"]
+
+
+@pytest.mark.parametrize("route", DRIVE_POSE_ROUTES)
+@pytest.mark.parametrize("tab", ["nope", "map", "cam"])
+def test_drive_pose_routes_404_outside_an_arm_tab(tmp_path: Path, route: str, tab: str) -> None:
+    bridge = FakeBridge()
+    assert make_client(tmp_path, bridge).post(route.format(tab=tab)).status_code == 404
+    assert bridge.services == [] and bridge.set_bools == []
+
+
+@pytest.mark.parametrize("route", DRIVE_POSE_ROUTES)
+def test_drive_pose_routes_503_without_bridge_service_and_in_cutoff(tmp_path: Path, route: str) -> None:
+    path = route.format(tab="arm")
+    assert make_client(tmp_path, None).post(path).status_code == 503
+    assert make_client(tmp_path, FakeBridge(no_service=True)).post(path).status_code == 503
+    bridge = FakeBridge()
+    resp = make_client(tmp_path, bridge, cutoff_guard()).post(path)
+    assert resp.status_code == 503 and "battery" in resp.json()["message"]
+    assert bridge.services == [] and bridge.set_bools == []
+
+
+def test_bridge_set_bool_async_calls_service_with_data() -> None:
+    from web_ui.bridge import BridgeNode, SetBool
+
+    client = ready_client()
+    node = BridgeNode.__new__(BridgeNode)
+    node._set_bool_clients = {"/arm/drive_pose/enable": client}
+    assert node.set_bool_async("/arm/drive_pose/enable", True) is client.call_async.return_value
+    request = client.call_async.call_args[0][0]
+    assert isinstance(request, SetBool.Request) and request.data is True
+
+
+def test_bridge_set_bool_async_unknown_or_unready_returns_none() -> None:
+    from web_ui.bridge import BridgeNode
+
+    node = BridgeNode.__new__(BridgeNode)
+    node._set_bool_clients = {"/arm/drive_pose/enable": ready_client(False)}
+    assert node.set_bool_async("/arm/drive_pose/enable", False) is None
+    assert node.set_bool_async("/unknown", False) is None
+
+
+def test_bridge_init_creates_set_bool_clients() -> None:
+    from web_ui.bridge import BridgeNode, SetBool
+
+    clients: list[tuple[Any, str]] = []
+    with (
+        patch("web_ui.bridge.Node.__init__", return_value=None),
+        patch.object(BridgeNode, "create_subscription", create=True),
+        patch.object(BridgeNode, "create_timer", create=True),
+        patch.object(BridgeNode, "create_publisher", create=True),
+        patch.object(BridgeNode, "get_logger", create=True),
+        patch.object(BridgeNode, "create_client", create=True, side_effect=lambda c, s: clients.append((c, s))),
+    ):
+        BridgeNode(topics=[], allowed_publish_topics=set(), set_bool_services=["/arm/drive_pose/enable"])
+    assert (SetBool, "/arm/drive_pose/enable") in clients

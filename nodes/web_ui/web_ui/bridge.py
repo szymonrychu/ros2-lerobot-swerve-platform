@@ -51,13 +51,14 @@ from sensor_msgs.msg import (
 )
 from slam_toolbox.srv import Reset, SerializePoseGraph
 from std_msgs.msg import Empty, String
-from std_srvs.srv import Trigger
+from std_srvs.srv import SetBool, Trigger
 from tf2_ros import Buffer, ExtrapolationException, TransformException, TransformListener
 
 from .cloud_serializer import DEFAULT_MAX_POINTS, DEFAULT_VOXEL_M, serialize_ground_cloud, serialize_map3d_cloud
 from .config import (
     ACTIVE_SOURCE_ROLE,
     BATTERY_ROLE,
+    DRIVE_POSE_STATE_ROLE,
     GPS_STATUS_ROLE,
     GRASP_RESULT_ROLE,
     GROUND_CLOUD_ROLE,
@@ -326,6 +327,8 @@ ROLE_SPECS: dict[str, tuple[type, Any, Serializer]] = {
     "poi_photos": (String, MAP_SUB_QOS, serialize_poi_photos),
     # filter_node's command source in control (leader | autonomy | none ...), shown on the Arm tab.
     ACTIVE_SOURCE_ROLE: (String, DEFAULT_SUB_QOS_DEPTH, serialize_active_source),
+    # mcp_server latches the drive pose state (reliable + transient_local): a (re)connecting UI gets the current one.
+    DRIVE_POSE_STATE_ROLE: (String, MAP_SUB_QOS, serialize_json_object),
 }
 
 
@@ -444,6 +447,7 @@ class BridgeNode(Node):
         map_reset_services: list[str] | None = None,
         navigate_actions: list[str] | None = None,
         trigger_services: list[str] | None = None,
+        set_bool_services: list[str] | None = None,
         gps_anchor: GpsAnchorEstimator | None = None,
         battery_guard: BatteryGuard | None = None,
         poi_command_topic: str | None = None,
@@ -482,6 +486,7 @@ class BridgeNode(Node):
             map_reset_services (list[str] | None): slam_toolbox Reset services to create clients for.
             navigate_actions (list[str] | None): NavigateToPose actions whose cancel services get clients.
             trigger_services (list[str] | None): std_srvs/Trigger services (arm home / set home) to create clients for.
+            set_bool_services (list[str] | None): std_srvs/SetBool services (drive pose enable) to create clients for.
             gps_anchor (GpsAnchorEstimator | None): Estimator fed with "gps" role fixes, or None to disable the anchor.
             battery_guard (BatteryGuard | None): Guard fed with "battery" role readings, or None when battery
                 features are off.
@@ -540,6 +545,7 @@ class BridgeNode(Node):
         self._reset_map_clients: dict[str, Any] = {}
         self._cancel_goal_clients: dict[str, Any] = {}
         self._trigger_clients: dict[str, Any] = {}
+        self._set_bool_clients: dict[str, Any] = {}
         self._gps_anchor = gps_anchor
         self._battery_guard = battery_guard
         self._compass = gps_compass
@@ -623,6 +629,8 @@ class BridgeNode(Node):
         self.create_service_clients(map_reset_services or [], navigate_actions or [])
         for service in trigger_services or []:
             self._trigger_clients[service] = self.create_client(Trigger, service)
+        for service in set_bool_services or []:
+            self._set_bool_clients[service] = self.create_client(SetBool, service)
 
         log.info(
             "ros2_node_ready", node_name="web_ui_bridge", always_on=len(self._always_on), on_demand=len(self._demand)
@@ -1884,6 +1892,24 @@ class BridgeNode(Node):
             return None
         log.info("trigger_requested", service=service)
         return self.call_service(client, Trigger.Request())
+
+    def set_bool_async(self, service: str, data: bool) -> Any:
+        """Call a std_srvs/SetBool service (drive pose enable).
+
+        Args:
+            service (str): SetBool service name.
+            data (bool): Value sent as the request data.
+
+        Returns:
+            Any: rclpy Future resolving to SetBool.Response, or None if the service is unknown or unavailable.
+        """
+        client = self._set_bool_clients.get(service)
+        if client is None or not client.service_is_ready():
+            return None
+        log.info("set_bool_requested", service=service, data=data)
+        request = SetBool.Request()
+        request.data = data
+        return self.call_service(client, request)
 
     def clear(self, topic: str) -> None:
         """Drop the cached envelope of topic and any pending broadcast of it.

@@ -105,6 +105,15 @@ def _install_ros2_stubs() -> None:
             """std_srvs/srv/Trigger request (no fields)."""
 
         std_srv_mod.Trigger = types.SimpleNamespace(Request=_StubTriggerRequest)  # type: ignore[attr-defined]
+    if not hasattr(std_srv_mod, "SetBool"):
+
+        class _StubSetBoolRequest:
+            """std_srvs/srv/SetBool request; data is None until the bridge sets it."""
+
+            def __init__(self) -> None:
+                self.data: bool | None = None
+
+        std_srv_mod.SetBool = types.SimpleNamespace(Request=_StubSetBoolRequest)  # type: ignore[attr-defined]
 
     std_msgs_mod = sys.modules["std_msgs.msg"]
     if not hasattr(std_msgs_mod, "String"):
