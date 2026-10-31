@@ -2428,16 +2428,16 @@ Static invariants of the head RGB-D adapter deploy (`head_rgbd_cpp` in `ansible/
 
 ### `test_pi_camera_boot_config.py`
 
-Static checks of `ansible/playbooks/tasks/pi_camera_boot_config.yml` (IMX708 on CSI cam0 kept for front-and-back-camera-module, the retired Arducam ToF overlay on cam1 removed).
+Static checks of `ansible/playbooks/tasks/pi_camera_boot_config.yml` (IMX708 on CSI cam0 for `front_camera`, IMX708 on cam1 for `back_camera` only when `client_back_camera_fitted`, the retired Arducam ToF overlay on cam1 removed).
 
 | Test | What it pins |
 |---|---|
 | `test_retired_imx219_overlays_are_removed` | `dtoverlay=imx219,cam0` and `dtoverlay=imx219,cam1` are removed with `state: absent`. |
-| `test_tof_overlay_is_removed_and_cam0_kept` | `dtoverlay=arducam-pivariety,cam1` is removed with `state: absent`; exactly `camera_auto_detect=0` and `dtoverlay=imx708,cam0` are written. |
-| `test_every_line_task_is_aarch64_only_and_registers_its_result` | Five `lineinfile` tasks, each aarch64-only, tagged `boot`, with its own registered result. |
+| `test_tof_overlay_is_removed_and_cam0_kept` | `dtoverlay=arducam-pivariety,cam1` is removed with `state: absent`; exactly `camera_auto_detect=0`, `dtoverlay=imx708,cam0` and `dtoverlay=imx708,cam1` are written. |
+| `test_every_line_task_is_aarch64_only_and_registers_its_result` | Six `lineinfile` tasks, each aarch64-only (the cam1 overlay also needs `client_back_camera_fitted | bool`), tagged `boot`, with its own registered result. |
 | `test_client_reboots_only_when_a_line_changed` | The last task reboots (timeout 120) when any registered result changed. |
-| `test_client_playbook_includes_the_boot_config_under_the_camera_node_tags` | `pre_tasks` includes the file with tags `boot`, `pi_cameras`, `arducam_tof`, `head_camera_cpp`, `front_camera` (also on `apply`), so the uninstall deploy of a retired camera node also cleans the boot config and the front_camera deploy writes the cam0 overlay. |
-| `test_ansible_readme_describes_the_boot_config` | `ansible/README.md` names the file, the two written lines and the removed ToF overlay. |
+| `test_client_playbook_includes_the_boot_config_under_the_camera_node_tags` | `pre_tasks` includes the file with tags `boot`, `pi_cameras`, `arducam_tof`, `head_camera_cpp`, `front_camera`, `back_camera` (also on `apply`), so the uninstall deploy of a retired camera node also cleans the boot config and the front_camera / back_camera deploys write their overlays. |
+| `test_ansible_readme_describes_the_boot_config` | `ansible/README.md` names the file, the three written lines and the removed ToF overlay. |
 | `test_tests_readme_lists_every_test_of_this_file` | Every test of this file is listed here. |
 
 ### `test_pi_cameras_retired.py`
