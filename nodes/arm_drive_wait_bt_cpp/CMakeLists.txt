@@ -51,10 +51,16 @@ if(BUILD_TESTING)
   endforeach()
 
   # The plugin in a BT factory (registerFromPlugin of the built library), ticked against a test publisher.
+  # The repo NavigateToPose tree (nodes/nav2_bringup, copied next to this package by scripts/cpp-node-test.sh) is
+  # loaded with the nav2 built-in plugins and compared with the stock nav2_bt_navigator tree.
+  find_package(nav2_behavior_tree REQUIRED)
+  find_package(ament_index_cpp REQUIRED)
   ament_add_gtest(test_bt_node test/test_bt_node.cpp TIMEOUT 300)
-  ament_target_dependencies(test_bt_node rclcpp std_msgs behaviortree_cpp)
+  ament_target_dependencies(test_bt_node rclcpp std_msgs behaviortree_cpp nav2_behavior_tree ament_index_cpp)
   add_dependencies(test_bt_node arm_drive_wait_bt_node)
-  target_compile_definitions(test_bt_node PRIVATE ARM_DRIVE_WAIT_BT_LIBRARY="$<TARGET_FILE:arm_drive_wait_bt_node>")
+  target_compile_definitions(test_bt_node PRIVATE
+    ARM_DRIVE_WAIT_BT_LIBRARY="$<TARGET_FILE:arm_drive_wait_bt_node>"
+    ARM_WAIT_BT_XML="${CMAKE_CURRENT_SOURCE_DIR}/../nav2_bringup/behavior_trees/navigate_to_pose_arm_wait.xml")
 endif()
 
 ament_package()

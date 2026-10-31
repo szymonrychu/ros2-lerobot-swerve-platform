@@ -50,7 +50,7 @@ params (notably collision_monitor and docking_server) fails to configure and abo
 
 | Server | Configuration |
 |---|---|
-| bt_navigator | `global_frame: map`, `robot_base_frame: base_link`, `odom_topic: /odometry/filtered`. |
+| bt_navigator | `global_frame: map`, `robot_base_frame: base_link`, `odom_topic: /odometry/filtered`; NavigateToPose runs the repo tree `behavior_trees/navigate_to_pose_arm_wait.xml` and `plugin_lib_names: [arm_drive_wait_bt_node]` adds the arm wait plugin. See [Arm drive pose wait](#arm-drive-pose-wait). |
 | controller_server | MPPI, `motion_model: Omni`, `vx` 0..0.25 (no reverse, head-aim plan: travel stays within the head pan reach; BackUp recovery still drives backwards, lidar-only), `vy_max` 0.25 (symmetric in Jazzy), `wz_max` 0.5 rad/s, 10 Hz, `model_dt` 0.1, 30 steps, 1000 samples; holonomic critics (PathAngleCritic mode 1, TwirlingCritic, no PreferForwardCritic). |
 | planner_server | `GridBased` = Smac state lattice (`nav2_smac_planner::SmacPlannerLattice`), omni primitives at 2.5 cm, footprint-aware; `allow_unknown: true` (plans into unexplored space while mapping), tolerance 0.5 m, `max_planning_time` 2 s. See [Global planner](#global-planner-smac-lattice). |
 | global_costmap | `map` frame, 2.5 cm cells (= the SLAM map); static layer on `/map` (`map_subscribe_transient_local: true`), obstacle layer from `/scan_filtered` (footprint clearing off), inflation 0.325 m / `cost_scaling_factor` 24.3 (see [Penalty zone](#penalty-zone-inflation); mcp_server sets both at runtime for its footprint), no footprint padding, `initial_transform_timeout` 300 s (a deploy restarts nav2 before the gradual ramp brings up odom). |
@@ -347,7 +347,26 @@ Re-enable with `nav2_mppi_overlay: true`; the stamp then matches (or rebuilds wh
 
 ## Goal tolerance
 
-Goals finish within 1 cm and 2 deg (`xy_goal_tolerance` 0.01, `yaw_goal_tolerance` 0.035, stateful). This needs three things together: the BT `navigate_w_recovery_and_replanning_only_if_path_becomes_invalid.xml` (mid-route replanning only on an invalid path, so the latch holds), `PoseProgressChecker` (rotation counts as progress; radius 0.05 m, angle 0.3 rad, 20 s allowance), and the shim settings above. Short sideways goals (a few cm) rotate 90 deg toward the path first (front leading) and then turn back to the goal heading.
+Goals finish within 1 cm and 2 deg (`xy_goal_tolerance` 0.01, `yaw_goal_tolerance` 0.035, stateful). This needs three things together: the BT `navigate_w_recovery_and_replanning_only_if_path_becomes_invalid.xml` (behind the arm wait in the repo copy, see below; mid-route replanning only on an invalid path, so the latch holds), `PoseProgressChecker` (rotation counts as progress; radius 0.05 m, angle 0.3 rad, 20 s allowance), and the shim settings above. Short sideways goals (a few cm) rotate 90 deg toward the path first (front leading) and then turn back to the goal heading.
+
+## Arm drive pose wait
+
+`config/nav2_params.yaml` points `default_nav_to_pose_bt_xml` at
+`/opt/ros2-lerobot-swerve-platform/nodes/nav2_bringup/behavior_trees/navigate_to_pose_arm_wait.xml` (the robot checkout,
+like the Smac `lattice_filepath`). That tree is the stock Jazzy (nav2_bt_navigator 1.3.13)
+`navigate_w_recovery_and_replanning_only_if_path_becomes_invalid.xml`, unchanged, as the second child of a root
+`Sequence` whose first child is `WaitForArmDriveReady` (`topic` `/arm/drive_pose/state`, `timeout_s` 8.0, from
+[nodes/arm_drive_wait_bt_cpp](../arm_drive_wait_bt_cpp/README.md)). Each NavigateToPose goal, from the web UI
+`/goal_pose` as well as from mcp_server, first waits until mcp_server reports the arm lifted to its drive pose (out of the
+head camera's view), the lift skipped or the drive pose disabled; replans and recoveries run inside `NavigateRecovery`
+and never wait again. Fallback: a skipped lift or the 8 s timeout drives on with today's view; the wait never fails a
+goal. `navigate_through_poses` keeps the stock tree.
+
+`plugin_lib_names: ["arm_drive_wait_bt_node"]`: Jazzy's bt_navigator loads its built-in BT plugins and appends this
+list, so only the repo plugin is named. ansible builds `libarm_drive_wait_bt_node.so` into `/opt/ros2-ws` with
+nav2_bringup (`arm_drive_wait_bt_source`, ansible/README.md). `./scripts/cpp-node-test.sh arm_drive_wait_bt_cpp` loads
+this XML with the nav2 built-in plugins and checks it against the stock tree; `tests/test_nav_stack_config.py` pins the
+params and the tree shape.
 
 ## Keepout and speed zones
 

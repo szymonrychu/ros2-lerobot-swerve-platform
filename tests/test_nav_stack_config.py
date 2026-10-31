@@ -11,6 +11,7 @@ import json
 import math
 import re
 import tomllib
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
@@ -67,6 +68,11 @@ LOCAL_PLAN_TOPIC = "/optimal_trajectory"
 MAP_RESOLUTION = 0.025
 ALL_VARS = ANSIBLE_DIR / "group_vars" / "all.yml"
 LATTICE_DIR = REPO_ROOT / "nodes" / "nav2_bringup" / "config" / "lattice"
+# NavigateToPose BT: the stock replan-only-if-invalid tree behind one WaitForArmDriveReady (arm_drive_wait_bt_cpp).
+ARM_WAIT_BT = REPO_ROOT / "nodes" / "nav2_bringup" / "behavior_trees" / "navigate_to_pose_arm_wait.xml"
+ARM_WAIT_NODE = "WaitForArmDriveReady"
+ARM_WAIT_PLUGIN = "arm_drive_wait_bt_node"
+DRIVE_POSE_STATE_TOPIC = "/arm/drive_pose/state"
 # robot_localization 15-element config order.
 EKF_INDEX = {
     "x": 0,
@@ -1274,10 +1280,62 @@ def test_nav2_goal_tolerance_tight_enough_for_swerve() -> None:
     assert checker["stateful"] is True
 
 
+def arm_wait_tree() -> ET.Element:
+    """The MainTree BehaviorTree element of the repo NavigateToPose BT.
+
+    Returns:
+        ET.Element: The BehaviorTree element.
+    """
+    root = ET.parse(ARM_WAIT_BT).getroot()
+    assert root.get("BTCPP_format") == "4" and root.get("main_tree_to_execute") == "MainTree"
+    trees = root.findall("BehaviorTree")
+    assert [t.get("ID") for t in trees] == ["MainTree"]
+    return trees[0]
+
+
 def test_nav2_replans_only_when_path_invalid() -> None:
-    """Periodic replanning resets the goal checker latch; replan only if the path becomes invalid."""
-    bt = ros_params(nav2(), "bt_navigator")["default_nav_to_pose_bt_xml"]
-    assert bt.endswith("/navigate_w_recovery_and_replanning_only_if_path_becomes_invalid.xml")
+    """Periodic replanning resets the goal checker latch; the repo tree keeps the stock "replanning only if path
+    becomes invalid" planning branch: ComputePathToPose runs only when the goal was updated or the path is invalid."""
+    fallback = arm_wait_tree().find(".//Fallback[@name='FallbackComputePathToPose']")
+    assert fallback is not None
+    check, compute = list(fallback)
+    assert check.tag == "ReactiveSequence" and check.get("name") == "CheckIfNewPathNeeded"
+    assert [c.tag for c in check] == ["Inverter", "IsPathValid"]
+    assert [c.tag for c in check.find("Inverter")] == ["GlobalUpdatedGoal"]
+    assert compute.tag == "ComputePathToPose"
+
+
+def test_nav2_to_pose_bt_is_the_repo_arm_wait_tree() -> None:
+    """bt_navigator runs the repo copy of the stock tree at the path the robot checkout puts it (the lattice_filepath
+    precedent); navigate_through_poses keeps the stock tree."""
+    bt = ros_params(nav2(), "bt_navigator")
+    repo_dest = yaml.safe_load(ALL_VARS.read_text())["ros2_repo_dest"]
+    path = bt["default_nav_to_pose_bt_xml"]
+    assert path == repo_dest + "/nodes/nav2_bringup/behavior_trees/navigate_to_pose_arm_wait.xml"
+    assert REPO_ROOT / path.removeprefix(repo_dest + "/") == ARM_WAIT_BT
+    assert ARM_WAIT_BT.is_file()
+    assert "default_nav_through_poses_bt_xml" not in bt
+
+
+def test_nav2_bt_plugins_add_the_arm_drive_wait_node() -> None:
+    """Jazzy bt_navigator appends plugin_lib_names to its built-in plugin list, so only the repo plugin is named."""
+    assert ros_params(nav2(), "bt_navigator")["plugin_lib_names"] == [ARM_WAIT_PLUGIN]
+
+
+def test_nav2_arm_wait_runs_once_per_goal_before_the_stock_recovery() -> None:
+    """One WaitForArmDriveReady, first child of the root Sequence, before the stock NavigateRecovery RecoveryNode: it
+    runs once per goal and never on replans or recoveries; it reads the mcp_server drive pose state topic."""
+    tree = arm_wait_tree()
+    (sequence,) = list(tree)
+    assert sequence.tag == "Sequence"
+    wait, recovery = list(sequence)
+    assert wait.tag == ARM_WAIT_NODE
+    assert wait.get("topic") == DRIVE_POSE_STATE_TOPIC
+    assert float(wait.get("timeout_s", "nan")) == pytest.approx(8.0)
+    assert list(wait) == []
+    assert recovery.tag == "RecoveryNode" and recovery.get("name") == "NavigateRecovery"
+    assert len(tree.findall(f".//{ARM_WAIT_NODE}")) == 1
+    assert recovery.find(f".//{ARM_WAIT_NODE}") is None
 
 
 def test_nav2_progress_checker_counts_rotation() -> None:

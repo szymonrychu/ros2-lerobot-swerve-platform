@@ -1,0 +1,50 @@
+<!--
+  navigate_w_recovery_and_replanning_only_if_path_becomes_invalid.xml of nav2_bt_navigator 1.3.13 (Jazzy), unchanged,
+  behind one WaitForArmDriveReady (nodes/arm_drive_wait_bt_cpp): every NavigateToPose goal first waits up to
+  timeout_s for mcp_server's arm drive pose (/arm/drive_pose/state lifted, skipped or disabled). The wait sits
+  outside NavigateRecovery, so replans and recoveries never wait again; it never fails the goal, so a skipped lift or
+  the timeout drives on with today's view. bt_navigator loads it from plugin_lib_names (arm_drive_wait_bt_node).
+-->
+<root BTCPP_format="4" main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <Sequence>
+      <WaitForArmDriveReady topic="/arm/drive_pose/state" timeout_s="8.0"/>
+      <RecoveryNode number_of_retries="6" name="NavigateRecovery">
+        <PipelineSequence>
+          <ControllerSelector selected_controller="{selected_controller}" default_controller="FollowPath" topic_name="controller_selector"/>
+          <PlannerSelector selected_planner="{selected_planner}" default_planner="GridBased" topic_name="planner_selector"/>
+          <RateController hz="1.0" name="RateControllerComputePathToPose">
+            <RecoveryNode number_of_retries="1" name="RecoveryComputePathToPose">
+              <Fallback name="FallbackComputePathToPose">
+                <ReactiveSequence name="CheckIfNewPathNeeded">
+                  <Inverter>
+                    <GlobalUpdatedGoal/>
+                  </Inverter>
+                  <IsPathValid path="{path}"/>
+                </ReactiveSequence>
+                <ComputePathToPose goal="{goal}" path="{path}" planner_id="{selected_planner}" error_code_id="{compute_path_error_code}"/>
+              </Fallback>
+              <ClearEntireCostmap name="ClearGlobalCostmap-Context" service_name="global_costmap/clear_entirely_global_costmap"/>
+            </RecoveryNode>
+          </RateController>
+          <RecoveryNode number_of_retries="1" name="RecoveryFollowPath">
+            <FollowPath path="{path}" controller_id="{selected_controller}" error_code_id="{follow_path_error_code}"/>
+            <ClearEntireCostmap name="ClearLocalCostmap-Context" service_name="local_costmap/clear_entirely_local_costmap"/>
+          </RecoveryNode>
+        </PipelineSequence>
+        <ReactiveFallback name="FallbackRecoveries">
+          <GoalUpdated/>
+          <RoundRobin name="RecoveryActions">
+            <Sequence name="ClearingActions">
+              <ClearEntireCostmap name="ClearLocalCostmap-Subtree" service_name="local_costmap/clear_entirely_local_costmap"/>
+              <ClearEntireCostmap name="ClearGlobalCostmap-Subtree" service_name="global_costmap/clear_entirely_global_costmap"/>
+            </Sequence>
+            <Spin name="SpinRecovery" spin_dist="1.57"/>
+            <Wait name="WaitRecovery" wait_duration="5.0"/>
+            <BackUp name="BackUpRecovery" backup_dist="0.30" backup_speed="0.15"/>
+          </RoundRobin>
+        </ReactiveFallback>
+      </RecoveryNode>
+    </Sequence>
+  </BehaviorTree>
+</root>
