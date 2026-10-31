@@ -21,7 +21,7 @@ Follow these steps in order. The arm is fragile and the object is unknown: use t
 
 1. `plan_grasp` with the object (position, width, strategy auto) and read the plan: strategy, tool point, warnings. Change it if it looks extreme.
 2. `grasp_object` with the same arguments. A held close is unverified until you confirm it.
-3. `confirm_grasp` with the grasp id, a verdict (yes, no or unsure) from a head camera image of the jaws (aim the head at them with `head_look_at`) and the evidence you saw in the jaw crop. Only continue on a confirmed grasp.
+3. `confirm_grasp` with the grasp id, a verdict (yes, no or unsure) from a head camera image of the jaws and the evidence you saw in the jaw crop. Only continue on a confirmed grasp.
 4. Failed or unsure: do not repeat the same call; follow the recover-from-failure skill.
 
 ## 3. Carrying rules
