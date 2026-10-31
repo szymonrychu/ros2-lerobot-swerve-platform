@@ -1191,17 +1191,17 @@ Consumers:
 
 | Consumer | Input | Value |
 |---|---|---|
-| Nav2 local / global costmap | `geometry_msgs/Polygon` on `/local_costmap/footprint`, `/global_costmap/footprint` (`Costmap2DROS` subscribes its relative `footprint` topic) | the footprint (`footprint_padding` is 0) |
-| Nav2 local / global costmap inflation | parameters `inflation_layer.inflation_radius` and `inflation_layer.cost_scaling_factor` of `/local_costmap/local_costmap`, `/global_costmap/global_costmap` (dynamic InflationLayer parameters) | the footprint's circumscribed radius rounded up to a cell, and the steepest factor up to `max_cost_scaling_factor` (25) with cost >= 1 there (`k <= ln(252) / (circumscribed - inscribed)`), so MPPI / Smac keep their circumscribed-radius shortcut; sent only when changed (or the costmap restarted) |
-| laser_filter (`nodes/laser_filter`) | parameter `polygon` of `/laser_filter` through its `set_parameters` service | footprint + `laser_filter_margin_m` (1 cm), so the lidar does not see the robot's own arm or carried object |
-| collision_monitor | `PolygonStamped` (transient local) on `/collision_monitor/arm_stop_polygon` + parameter `ArmStop.enabled` | dynamic / conservative: the part of the arm extension outside the static outline (the whole extension when that part falls apart, e.g. the arm also spans a notch) grown by `stopbox_margin_m` (2 cm), enabled; static: `ArmStop.enabled` false |
+| Nav2 local / global costmap | `geometry_msgs/Polygon` on `/local_costmap/footprint`, `/global_costmap/footprint` (`Costmap2DROS` subscribes its relative `footprint` topic) | the footprint shrunk by `footprint_tolerance_m` (2 cm; `footprint_padding` is 0) |
+| Nav2 local / global costmap inflation | parameters `inflation_layer.inflation_radius` and `inflation_layer.cost_scaling_factor` of `/local_costmap/local_costmap`, `/global_costmap/global_costmap` (dynamic InflationLayer parameters) | the (shrunk) footprint's circumscribed radius rounded up to a cell, and the steepest factor up to `max_cost_scaling_factor` (25) with cost >= 1 there (`k <= ln(252) / (circumscribed - inscribed)`), so MPPI / Smac keep their circumscribed-radius shortcut; sent only when changed (or the costmap restarted) |
+| laser_filter (`nodes/laser_filter`) | parameter `polygon` of `/laser_filter` through its `set_parameters` service | the unshrunk outline + `laser_filter_margin_m` (1 cm), so the lidar does not see the robot's own arm or carried object |
+| collision_monitor | `PolygonStamped` (transient local) on `/collision_monitor/arm_stop_polygon` + parameter `ArmStop.enabled` | dynamic / conservative: the part of the arm extension outside the static outline (the whole extension when that part falls apart, e.g. the arm also spans a notch) grown by `stopbox_margin_m` (2 cm; from the unshrunk outline), enabled; static: `ArmStop.enabled` false |
 
 The StopBox velocity sub-polygons are static parameters (Jazzy collision_monitor reads them once at configure, and
 `velocity_polygon` has no footprint topic), so they keep covering the static footprint and the separate `ArmStop`
 polygon covers the released arm. ArmStop uses `action_type: approach` (simulates the commanded motion for
 `time_before_collision`, 1 s): it slows down toward an obstacle next to the arm but lets the robot back away from it.
 
-The geometry numbers (`circle_segments`, `close_gap_m`, `laser_filter_margin_m`, `stopbox_margin_m`, `simplify_m`,
+The geometry numbers (`circle_segments`, `close_gap_m`, `laser_filter_margin_m`, `stopbox_margin_m`, `footprint_tolerance_m`, `simplify_m`,
 `decimals`, `costmap_resolution`, `max_cost_scaling_factor`, `parked_arm_shadow`) are generated into the
 `nav_footprint:` block of `client.yml` by `scripts/gen_nav_footprint.py` from `scripts/gen_nav_footprint.yaml`
 (`parked_arm_joints` is the stored home pose; the script computes its shadow with `python -m mcp_server.footprint` in
@@ -2914,6 +2914,7 @@ nav_footprint:            # optional; published navigation footprint (see Naviga
   close_gap_m: 0.01
   laser_filter_margin_m: 0.01
   stopbox_margin_m: 0.02
+  footprint_tolerance_m: 0.02  # costmap footprint = outline minus this; laser polygon and ArmStop keep the outline
   simplify_m: 0.005
   decimals: 4
   costmap_resolution: 0.025

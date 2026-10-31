@@ -618,9 +618,12 @@ def main(argv: list[str]) -> int:
         if new != old:
             path.write_text(new)
         print(f"{'updated' if new != old else 'unchanged'}: {path}")
-    print(f"body: {gen.body_source}; footprint {len(gen.footprint)} vertices")
     print(
-        f"inscribed {inscribed_radius(gen.footprint):.4f} m, circumscribed {circumscribed_radius(gen.footprint):.4f} m"
+        f"body: {gen.body_source}; outline {len(gen.footprint)} vertices, costmap footprint {len(gen.costmap_footprint)}"
+    )
+    print(
+        f"costmap footprint: inscribed {inscribed_radius(gen.costmap_footprint):.4f} m, "
+        f"circumscribed {circumscribed_radius(gen.costmap_footprint):.4f} m"
         f" -> inflation_radius {gen.inflation_radius} m, cost_scaling_factor {gen.cost_scaling_factor}"
     )
     return 0
