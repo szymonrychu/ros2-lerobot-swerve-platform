@@ -3699,6 +3699,7 @@ Static checks of `docs/runbooks/printable-markers.md` and `docs/markers.md`: the
 | `test_results_rows_match_steps` | Results table has one row per numbered step, each starting with its number. |
 | `test_markers_doc_range_is_d435` | `docs/markers.md` "Range and fallback" names 640, has no 887, 1152 or zoom, keeps the AprilTag fallback. |
 | `test_markers_doc_detection_is_d435` | "Detection" names `/head/d435/color`, has no `/head_camera/` and no zoom path. |
+
 ### `test_map3d_runbook.py`
 
 Static pins for `docs/runbooks/map3d-mapping.md` (3D mapping runbook re-based on the D435). Reads docs only.
