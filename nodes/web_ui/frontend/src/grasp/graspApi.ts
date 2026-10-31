@@ -23,7 +23,7 @@ async function send(url: string, init: RequestInit, fetchImpl: typeof fetch): Pr
  * plan resolves with the plan answer (the backend waits for it); execute and release resolve with the accepted reply
  * (or an immediate rejection), their progress and result stream on /web_ui/grasp_result.
  *
- * @param tabId - map_nav tab id
+ * @param tabId - arm (or map_nav) tab id
  * @param request - contract request
  * @param fetchImpl - fetch implementation (tests)
  */

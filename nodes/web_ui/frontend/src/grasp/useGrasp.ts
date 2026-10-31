@@ -1,5 +1,5 @@
 /**
- * Grasp state of the map tab: the dropdown pick mode (a map click sets the object and plans at once), the form, the
+ * Grasp state of the Arm tab: the dropdown pick mode (a click on the arm view floor sets the object and plans at once), the form, the
  * last plan (and whether it still matches the inputs), the execute confirmation, the two-click release, stop, and the
  * execute/release state streamed on /web_ui/grasp_result.
  *
@@ -62,13 +62,13 @@ export interface GraspPanelState {
   stream: GraspStream | null
   lastAnswer: GraspAnswer | null
   releaseArmed: boolean
-  /** Armed by a dropdown item: the next map click sets the object. */
+  /** Armed by a dropdown item: the next floor click in the arm view sets the object. */
   pickMode: boolean
   /** Strategy armed in pick mode. */
   pickStrategy: GraspStrategy | null
   startPick: (strategy: GraspStrategy) => void
   cancelPick: () => void
-  /** The pick click: a ground point in the map frame and the robot pose in the map (null when unknown). */
+  /** The pick click: a ground point and the pose that converts it to base_link (the identity pose for a base_link point). */
   applyClick: (point: Vec2, pose: Pose2D | null) => void
   /** An object was clicked, so the plan can be redone for changed settings. */
   hasTarget: boolean

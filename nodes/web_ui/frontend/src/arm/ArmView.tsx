@@ -11,11 +11,19 @@ import type { URDFRobot } from 'urdf-loader'
 import { ToolButton, ToolGroup } from '../components/ToolButton'
 import { InteractiveArm } from '../components3d/InteractiveArm'
 import { RobotModel } from '../components3d/RobotModel'
+import { GraspPreview } from '../grasp/GraspPreview'
+import { DEFAULT_ARM_OFFSET } from '../grasp/grasp'
+import type { GraspPreviewData } from '../grasp/useGrasp'
+import type { Vec2 } from '../map/mapMath'
+import { isClick } from '../poi/editor'
+import { rosToThree } from '../map3d/coords'
+import { SCENE_COLORS } from '../map3d/palette'
 import type { ArmCameraMode, ArmCameraMount } from '../map3d/armCamera'
 import { TOKENS } from '../theme'
 import { TabConfig } from '../types'
 import { WAITING_REASON } from './armControls'
 import { ARM_CAMERA_MODES, applyArmCamera } from './armView.ts'
+import { armViewGroundY, pickArmViewGround } from './armViewPick'
 
 const MODE_LABELS: Record<ArmCameraMode, string> = {
   'side-left': 'Side L',
@@ -34,10 +42,55 @@ const DEFAULT_MOUNT: ArmCameraMount = { xyz: [0, 0, 0], rpy: [0, 0, 0] }
 const CAMERA_FOV = 50
 const FREE_CAMERA_POSITION: [number, number, number] = [0.5, 0.4, 0.5]
 const FREE_CAMERA_TARGET: [number, number, number] = [0, 0.15, 0]
+const FLOOR_GRID_SIZE_M = 2
+const FLOOR_GRID_DIVISIONS = 20
+const PICK_CURSOR = 'crosshair'
 
 interface JointStates {
   name?: string[]
   position?: number[]
+}
+
+interface PickLayerProps {
+  armOffset: readonly [number, number, number]
+  onPick: (point: Vec2) => void
+}
+
+/**
+ * Grasp pick inside the Canvas: a left click that does not move picks the base_link floor point under it; a press
+ * that moves is an orbit and picks nothing.
+ */
+function PickLayer({ armOffset, onPick }: PickLayerProps) {
+  const { gl, camera } = useThree()
+  useEffect(() => {
+    const el = gl.domElement
+    let down: Vec2 | null = null
+    const screen = (e: PointerEvent | MouseEvent): Vec2 => ({ x: e.clientX, y: e.clientY })
+    const onDown = (e: Event) => {
+      const ev = e as PointerEvent
+      down = ev.button === 0 ? screen(ev) : null
+    }
+    const onUp = (e: Event) => {
+      const ev = e as PointerEvent
+      const start = down
+      down = null
+      if (!start || !isClick(start, screen(ev))) return
+      const rect = el.getBoundingClientRect()
+      camera.updateMatrixWorld()
+      const at = pickArmViewGround(camera, ev.clientX - rect.left, ev.clientY - rect.top, rect.width, rect.height, armOffset)
+      if (at) onPick(at)
+    }
+    const cursor = el.style.cursor
+    el.style.cursor = PICK_CURSOR
+    el.addEventListener('pointerdown', onDown)
+    window.addEventListener('pointerup', onUp)
+    return () => {
+      el.style.cursor = cursor
+      el.removeEventListener('pointerdown', onDown)
+      window.removeEventListener('pointerup', onUp)
+    }
+  }, [gl, camera, armOffset, onPick])
+  return null
 }
 
 interface SceneProps {
@@ -48,14 +101,19 @@ interface SceneProps {
   /** The arm is draggable: a command topic is configured and no reason blocks dragging. */
   draggable: boolean
   onArmReady: (ready: boolean) => void
+  pickMode: boolean
+  onPick: (point: Vec2) => void
+  graspPreview: GraspPreviewData | null
 }
 
-/** Scene contents: the arm, the camera glue and the orbit controls (inside the Canvas). */
-function ArmScene({ tab, armJoints, mode, publish, draggable, onArmReady }: SceneProps) {
+/** Scene contents: the arm, the floor, the grasp preview, the camera glue and the orbit controls (inside the Canvas). */
+function ArmScene({ tab, armJoints, mode, publish, draggable, onArmReady, pickMode, onPick, graspPreview }: SceneProps) {
   const { invalidate, camera } = useThree()
   const orbitRef = useRef<OrbitControlsImpl | null>(null)
   const robotRef = useRef<URDFRobot | null>(null)
   const mount = tab.gripper_camera_mount ?? DEFAULT_MOUNT
+  const armOffset = tab.arm_offset ?? DEFAULT_ARM_OFFSET
+  const baseLinkOrigin = rosToThree({ x: -armOffset[0], y: -armOffset[1], z: -armOffset[2] })
 
   const onRobotLoaded = useCallback(
     (robot: URDFRobot | null) => {
@@ -90,7 +148,7 @@ function ArmScene({ tab, armJoints, mode, publish, draggable, onArmReady }: Scen
       <ambientLight intensity={0.8} />
       <directionalLight position={[2, 4, 3]} intensity={1.2} />
       {tab.arm_urdf &&
-        (draggable && tab.arm_command_topic ? (
+        (draggable && !pickMode && tab.arm_command_topic ? (
           <InteractiveArm
             urdfFile={tab.arm_urdf}
             liveJointStates={armJoints}
@@ -103,6 +161,11 @@ function ArmScene({ tab, armJoints, mode, publish, draggable, onArmReady }: Scen
         ) : (
           <RobotModel urdfFile={tab.arm_urdf} jointStates={armJoints} onRobotLoaded={onRobotLoaded} />
         ))}
+      <gridHelper args={[FLOOR_GRID_SIZE_M, FLOOR_GRID_DIVISIONS, SCENE_COLORS.gridCentre, SCENE_COLORS.gridLine]} position={[baseLinkOrigin[0], armViewGroundY(armOffset), baseLinkOrigin[2]]} />
+      <group position={baseLinkOrigin}>
+        <GraspPreview data={graspPreview} />
+      </group>
+      {pickMode && <PickLayer armOffset={armOffset} onPick={onPick} />}
       <OrbitControls ref={orbitRef} enabled={mode === null} enableDamping={false} />
     </>
   )
@@ -116,6 +179,12 @@ interface Props {
   dragDisabledReason: string | null
   /** Called with true once the draggable arm has its first joint states. */
   onArmReady: (ready: boolean) => void
+  /** A left click on the floor picks the grasp object; the arm is display-only meanwhile. */
+  pickMode: boolean
+  /** Called with the picked floor point in base_link. */
+  onPick: (point: Vec2) => void
+  /** Grasp object box and planned tool path (base_link), or null. */
+  graspPreview: GraspPreviewData | null
 }
 
 /**
@@ -127,8 +196,11 @@ interface Props {
  * @param publish - ROS publish helper for the draggable arm
  * @param dragDisabledReason - why dragging is off, or null; the display-only arm is drawn for any reason but waiting
  * @param onArmReady - readiness of the draggable arm (first joint states received)
+ * @param pickMode - a floor click picks the grasp object
+ * @param onPick - receives the picked base_link floor point
+ * @param graspPreview - grasp preview drawn in base_link coordinates, or null
  */
-export default function ArmView({ tab, topicData, publish, dragDisabledReason, onArmReady }: Props) {
+export default function ArmView({ tab, topicData, publish, dragDisabledReason, onArmReady, pickMode, onPick, graspPreview }: Props) {
   const [mode, setMode] = useState<ArmCameraMode | null>(DEFAULT_MODE)
   const armJoints = topicData[tab.arm_joint_states_topic ?? ''] as JointStates | undefined
   return (
@@ -146,6 +218,9 @@ export default function ArmView({ tab, topicData, publish, dragDisabledReason, o
           publish={publish}
           draggable={dragDisabledReason === null || dragDisabledReason === WAITING_REASON}
           onArmReady={onArmReady}
+          pickMode={pickMode}
+          onPick={onPick}
+          graspPreview={graspPreview}
         />
       </Canvas>
       {dragDisabledReason !== null && (

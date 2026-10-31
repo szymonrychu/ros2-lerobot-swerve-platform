@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, render, screen, within } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { ThemeProvider } from '@mui/material/styles'
 import { theme } from '../theme'
 import { ARM_COLORS } from '../map3d/palette'
@@ -25,7 +25,14 @@ function setServo(id: string, kind: 'released' | 'enabled' | 'unknown' | 'none')
 
 
 const viewMock = vi.hoisted(() => ({
-  props: null as null | { dragDisabledReason: string | null; publish: (t: string, m: string, d: unknown) => void; onArmReady: (r: boolean) => void },
+  props: null as null | {
+    dragDisabledReason: string | null
+    publish: (t: string, m: string, d: unknown) => void
+    onArmReady: (r: boolean) => void
+    pickMode: boolean
+    onPick: (p: { x: number; y: number }) => void
+    graspPreview: unknown
+  },
 }))
 vi.mock('../arm/ArmView.tsx', () => ({
   default: (props: NonNullable<typeof viewMock.props>) => {
@@ -43,6 +50,7 @@ const TAB = {
   label: 'Arm',
   gripper_camera_topic: GRIPPER,
   head_camera_topic: FRONT,
+  grasp_command_topic: '/grasp/command',
 } as TabConfig
 
 function setViewport(width: number): void {
@@ -196,5 +204,95 @@ describe('ArmTab drag reason', () => {
     renderTab(SOURCE, publish)
     viewMock.props?.publish('/cmd', 'sensor_msgs/JointState', {})
     expect(publish).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('ArmTab grasp', () => {
+  const fetchMock = vi.fn()
+  const STREAM = '/web_ui/grasp_result'
+
+  beforeEach(() => {
+    fetchMock.mockReset()
+    fetchMock.mockResolvedValue({ status: 200, json: async () => ({ ok: true, request_id: 'r', action: 'plan', result: { outcome: 'planned', reasons: [], plan: { strategy: 'scoop', feasible: true, waypoints: [] } } }) })
+    vi.stubGlobal('fetch', fetchMock)
+    setViewport(1400)
+    setServo('arm', 'enabled')
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  const chooseFirstStrategy = () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Grasp' }))
+    fireEvent.click(screen.getAllByRole('menuitem')[0])
+  }
+
+  it('choosing a strategy opens the grasp panel and arms the pick in the arm view', () => {
+    renderTab({})
+    expect(screen.queryByLabelText('Grasp panel')).toBeNull()
+    chooseFirstStrategy()
+    expect(screen.getByLabelText('Grasp panel')).toBeTruthy()
+    expect(viewMock.props?.pickMode).toBe(true)
+    expect(screen.getByTestId('arm-grasp-hint').textContent).toBe('Click the object in the arm view')
+  })
+
+  it('a pick plans at the base_link point and posts to /api/grasp for the arm tab', async () => {
+    renderTab({})
+    chooseFirstStrategy()
+    act(() => viewMock.props?.onPick({ x: 0.3, y: 0.1 }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/grasp?tab=arm')
+    const body = JSON.parse(init.body)
+    expect(body.action).toBe('plan')
+    expect(body.object.frame).toBe('base_link')
+    expect(body.object.x).toBeCloseTo(0.3)
+    expect(body.object.y).toBeCloseTo(0.1)
+    expect(viewMock.props?.pickMode).toBe(false)
+  })
+
+  it('Esc leaves the pick mode', () => {
+    renderTab({})
+    chooseFirstStrategy()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(viewMock.props?.pickMode).toBe(false)
+  })
+
+  it('a released arm closes the grasp flow', () => {
+    const view = renderTab({})
+    chooseFirstStrategy()
+    expect(screen.getByLabelText('Grasp panel')).toBeTruthy()
+    setServo('arm', 'released')
+    view.rerender(
+      <ThemeProvider theme={theme}>
+        <ArmTab tab={TAB} topicData={{}} publish={vi.fn()} />
+      </ThemeProvider>,
+    )
+    expect(screen.queryByLabelText('Grasp panel')).toBeNull()
+    expect(viewMock.props?.pickMode).toBe(false)
+  })
+
+  it('STOP GRASP shows only while a grasp executes and posts the stop for the arm tab', async () => {
+    const view = renderTab({})
+    expect(screen.queryByRole('button', { name: 'STOP GRASP' })).toBeNull()
+    view.unmount()
+    renderTab({ [STREAM]: { request_id: 'r', action: 'execute', state: 'running' } })
+    fireEvent.click(screen.getByRole('button', { name: 'STOP GRASP' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/grasp/stop?tab=arm', { method: 'POST' }))
+  })
+
+  it('the grasp button is disabled with the in-flight reason while a grasp executes', () => {
+    renderTab({ [STREAM]: { request_id: 'r', action: 'execute', state: 'running' } })
+    expect((screen.getByRole('button', { name: 'Grasp' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByTestId('arm-actions-reason').textContent).toBe('Arm action in flight')
+  })
+
+  it('has no Grasp button when the tab has no grasp topic', () => {
+    render(
+      <ThemeProvider theme={theme}>
+        <ArmTab tab={{ ...TAB, grasp_command_topic: undefined }} topicData={{}} publish={vi.fn()} />
+      </ThemeProvider>,
+    )
+    expect(screen.queryByRole('button', { name: 'Grasp' })).toBeNull()
   })
 })
