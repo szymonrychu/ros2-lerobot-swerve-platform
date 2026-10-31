@@ -53,6 +53,13 @@ describe('postTabAction', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/arm/home?tab=a%20b', { method: 'POST' })
   })
 
+  it('appends further query parameters after the tab id', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ status: 200, json: async () => ({ ok: true, message: 'on' }) })
+    vi.stubGlobal('fetch', fetchMock)
+    await postTabAction('/api/arm/drive_pose/enable', 'arm', { enabled: 'true' })
+    expect(fetchMock).toHaveBeenCalledWith('/api/arm/drive_pose/enable?tab=arm&enabled=true', { method: 'POST' })
+  })
+
   it('turns a network failure into an error result', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('down')))
     expect(await postTabAction('/api/arm/home', 'arm')).toEqual({ state: 'error', message: 'Request failed: Error: down' })

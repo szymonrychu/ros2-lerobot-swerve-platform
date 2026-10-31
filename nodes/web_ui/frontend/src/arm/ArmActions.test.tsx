@@ -23,9 +23,11 @@ interface HostProps {
   grasp?: GraspPanelState
   onOpenChange?: (open: boolean) => void
   open?: boolean
+  /** Live `enabled` of the drive pose state; null before the first state. */
+  drivePose?: boolean | null
 }
 
-function Host({ released = false, joints = [] as string[], grasp, onOpenChange = vi.fn(), open = false }: HostProps) {
+function Host({ released = false, joints = [] as string[], grasp, onOpenChange = vi.fn(), open = false, drivePose = false }: HostProps) {
   const [action, setAction] = useState<ActionResult>({ state: 'idle', message: '' })
   const controls = armControlState({
     released,
@@ -34,10 +36,11 @@ function Host({ released = false, joints = [] as string[], grasp, onOpenChange =
     armReady: true,
     activeSource: undefined,
     graspBusy: grasp ? grasp.executing || grasp.planning : false,
+    drivePoseKnown: drivePose !== null,
   })
   return (
     <ThemeProvider theme={theme}>
-      <ArmActions tabId="arm" controls={controls} action={action} onAction={setAction} grasp={grasp ?? null} graspOpen={open} onGraspOpenChange={onOpenChange} />
+      <ArmActions tabId="arm" controls={controls} action={action} onAction={setAction} grasp={grasp ?? null} graspOpen={open} onGraspOpenChange={onOpenChange} drivePoseEnabled={drivePose ?? undefined} />
     </ThemeProvider>
   )
 }
@@ -177,5 +180,76 @@ describe('ArmActions grasp', () => {
     render(<Host grasp={grasp} />)
     fireEvent.click(button('STOP GRASP'))
     expect(grasp.stop).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('ArmActions drive pose', () => {
+  it('Set drive pose sits next to Set home, then the drive pose toggle', () => {
+    render(<Host />)
+    const names = screen.getAllByRole('button').map((b) => b.getAttribute('aria-label'))
+    expect(names.slice(0, 4)).toEqual(['Arm home', 'Set home', 'Set drive pose', 'Drive pose lift'])
+    expect(button('Set drive pose').disabled).toBe(false)
+  })
+
+  it('Set drive pose needs two clicks inside the confirm window and shows the service message', async () => {
+    fetchMock.mockResolvedValue({ status: 200, json: async () => ({ ok: true, message: 'drive pose stored' }) })
+    render(<Host />)
+    fireEvent.click(button('Set drive pose'))
+    expect(fetchMock).not.toHaveBeenCalled()
+    await act(async () => fireEvent.click(button('Confirm set drive pose')))
+    expect(posts()).toEqual(['POST /api/arm/set_drive_pose?tab=arm'])
+    expect((await screen.findByRole('status')).textContent).toContain('drive pose stored')
+  })
+
+  it('Set drive pose disarms after the confirm window', () => {
+    vi.useFakeTimers()
+    render(<Host />)
+    fireEvent.click(button('Set drive pose'))
+    act(() => vi.advanceTimersByTime(5000))
+    fireEvent.click(button('Set drive pose'))
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('a refused set drive pose shows the service message as an error', async () => {
+    fetchMock.mockResolvedValue({ status: 500, json: async () => ({ ok: false, message: 'drive pose check failed: head' }) })
+    render(<Host />)
+    fireEvent.click(button('Set drive pose'))
+    await act(async () => fireEvent.click(button('Confirm set drive pose')))
+    expect((await screen.findByRole('alert')).textContent).toContain('drive pose check failed: head')
+  })
+
+  it.each([
+    [true, 'false'],
+    [false, 'true'],
+  ])('the toggle shows enabled=%s and posts the opposite', async (enabled, next) => {
+    render(<Host drivePose={enabled} />)
+    expect(button('Drive pose lift').getAttribute('aria-pressed')).toBe(String(enabled))
+    await act(async () => fireEvent.click(button('Drive pose lift')))
+    expect(posts()).toEqual([`POST /api/arm/drive_pose/enable?tab=arm&enabled=${next}`])
+  })
+
+  it('the toggle is disabled with a visible reason before the first drive pose state', () => {
+    render(<Host drivePose={null} />)
+    expect(button('Drive pose lift').disabled).toBe(true)
+    expect(screen.getByTestId('arm-actions-reason').textContent).toBe('Waiting for the drive pose state')
+  })
+
+  it('both are disabled with the in-flight reason while a call is running', async () => {
+    let resolve: (v: unknown) => void = () => undefined
+    fetchMock.mockReturnValue(new Promise((r) => (resolve = r)))
+    render(<Host />)
+    fireEvent.click(button('Arm home'))
+    expect(button('Set drive pose').disabled).toBe(true)
+    expect(button('Drive pose lift').disabled).toBe(true)
+    expect(screen.getByTestId('arm-actions-reason').textContent).toBe('Arm action in flight')
+    await act(async () => resolve({ status: 200, json: async () => ({ ok: true, message: 'done' }) }))
+    expect(button('Drive pose lift').disabled).toBe(false)
+  })
+
+  it('both are disabled with the released reason while the arm torque is off', () => {
+    render(<Host released joints={['shoulder_lift']} drivePose={null} />)
+    expect(button('Set drive pose').disabled).toBe(true)
+    expect(button('Drive pose lift').disabled).toBe(true)
+    expect(screen.getByTestId('arm-actions-reason').textContent).toBe('Arm torque is off: shoulder_lift released (Calibrate page)')
   })
 })

@@ -5,7 +5,7 @@ import { useServoGroups } from '../calibrate/servoApi'
 import ArmJogPanel from '../arm/ArmJogPanel'
 import ArmActions from '../arm/ArmActions'
 import { BASE_LINK_POSE } from '../arm/armViewPick'
-import { activeSourceOf, armControlState, releasedJoints } from '../arm/armControls'
+import { activeSourceOf, armControlState, drivePoseOf, releasedJoints } from '../arm/armControls'
 import { CameraStream } from '../components/CameraStream'
 import { DEFAULT_ARM_OFFSET } from '../grasp/grasp'
 import { GraspPanel } from '../grasp/GraspPanel'
@@ -26,10 +26,11 @@ interface Props {
 const CELL_SX = { flex: '1 1 0', minWidth: 0, minHeight: 0, overflow: 'hidden', position: 'relative' } as const
 
 /**
- * Arm tab: the head D435 colour stream, the draggable 3D arm, Arm home / Set home / Grasp and the jog panel.
+ * Arm tab: the head D435 colour stream, the draggable 3D arm, Arm home / Set home / Set drive pose / the drive pose
+ * lift toggle / Grasp and the jog panel.
  * Phone stacks everything vertically; tablet and desktop put the stream side by side with the 3D view.
  *
- * @param tab - tab config (head_camera_topic, arm_offset, grasp_command_topic)
+ * @param tab - tab config (head_camera_topic, arm_offset, grasp_command_topic, drive_pose_state_topic)
  * @param topicData - latest payload per topic
  * @param publish - ROS publish helper
  */
@@ -56,6 +57,7 @@ export default function ArmTab({ tab, topicData, publish }: Props) {
   }, [released, cancelPick])
   // The picked point is already in base_link: the identity pose keeps it unchanged.
   const onPick = useCallback((point: Vec2) => applyClick(point, BASE_LINK_POSE), [applyClick])
+  const drivePose = drivePoseOf(tab, topicData)
   const controls = armControlState({
     released,
     releasedJoints: releasedList,
@@ -63,6 +65,7 @@ export default function ArmTab({ tab, topicData, publish }: Props) {
     armReady,
     activeSource: activeSourceOf(tab, topicData),
     graspBusy: grasp.executing || grasp.planning,
+    drivePoseKnown: drivePose !== undefined,
   })
   const drag = controls.drag
   // The draggable arm in the 3D view is a command source too: drop its goals while the arm is limp.
@@ -107,6 +110,7 @@ export default function ArmTab({ tab, topicData, publish }: Props) {
           grasp={tab.grasp_command_topic ? grasp : null}
           graspOpen={graspOpen}
           onGraspOpenChange={setGraspOpen}
+          drivePoseEnabled={drivePose?.enabled}
         />
       </Box>
       {graspOpen && <GraspPanel state={grasp} onClose={() => setGraspOpen(false)} />}

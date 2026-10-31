@@ -85,6 +85,9 @@ export interface TabConfig {
   arm_set_home_service?: string // default /arm/set_home
   arm_take_control_service?: string // default /arm/take_control
   arm_release_control_service?: string // default /arm/release_control
+  arm_set_drive_pose_service?: string // arm tab, default /arm/set_drive_pose (std_srvs/Trigger behind Set drive pose)
+  arm_drive_pose_enable_service?: string // arm tab, default /arm/drive_pose/enable (std_srvs/SetBool behind the toggle)
+  drive_pose_state_topic?: string // arm, map_nav: default /arm/drive_pose/state (latched DrivePoseState JSON)
   agent_url?: string // agent_chat tab: claude_agent API base URL proxied by the backend (default http://127.0.0.1:18300)
 }
 
@@ -165,4 +168,16 @@ export interface Map3dResultPayload {
   ok?: boolean
   error?: string
   [key: string]: unknown
+}
+
+/** mcp_server drive pose controller state (/arm/drive_pose/state, latched JSON). */
+export interface DrivePoseState {
+  /** idle | lifting | lifted | lowering | disabled | "skipped: <reason>" */
+  state: string
+  /** Why the arm was skipped or left alone; empty otherwise. */
+  reason: string
+  /** New lifts are allowed. */
+  enabled: boolean
+  /** Wall clock (ns since the epoch) of the last change. */
+  stamp_ns: number
 }

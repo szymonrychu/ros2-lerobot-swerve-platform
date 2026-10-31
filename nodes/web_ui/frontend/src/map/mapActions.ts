@@ -57,11 +57,15 @@ export function parseActionResult(status: number, body: unknown): ActionResult {
  *
  * @param path route path without the query string
  * @param tabId id of the tab the route acts for
+ * @param params further query parameters, appended after tab
  * @returns the parsed result
  */
-export async function postTabAction(path: string, tabId: string): Promise<ActionResult> {
+export async function postTabAction(path: string, tabId: string, params: Record<string, string> = {}): Promise<ActionResult> {
   try {
-    const resp = await fetch(`${path}?tab=${encodeURIComponent(tabId)}`, { method: 'POST' })
+    const query = Object.entries({ tab: tabId, ...params })
+      .map(([key, value]) => `${key}=${encodeURIComponent(value)}`)
+      .join('&')
+    const resp = await fetch(`${path}?${query}`, { method: 'POST' })
     return parseActionResult(resp.status, await resp.json())
   } catch (err) {
     return { state: 'error', message: `Request failed: ${String(err)}` }
