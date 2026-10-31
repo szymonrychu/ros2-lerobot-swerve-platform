@@ -68,9 +68,12 @@ def test_gripper_calibration_file_is_gone() -> None:
 
 
 def test_retired_camera_topic_key_is_rejected() -> None:
-    """The retired head camera topic key is no longer accepted (extra keys are forbidden)."""
+    """The retired gripper camera topic key is not accepted (extra keys are forbidden); front_camera and back_camera
+    are the live CSI camera topics again."""
     with pytest.raises(ValidationError):
-        McpServerConfig.model_validate({"topics": {"front_camera": "/retired/image_raw/compressed"}})
+        McpServerConfig.model_validate({"topics": {"gripper_camera": "/retired/image_raw/compressed"}})
+    topics = McpServerConfig.model_validate({"topics": {"front_camera": "/f", "back_camera": "/b"}}).topics
+    assert (topics.front_camera, topics.back_camera) == ("/f", "/b")
 
 
 def test_default_limits_are_conservative() -> None:

@@ -516,7 +516,8 @@ def test_old_gripper_lookups_are_still_listed(server: Any, store_dir: Path) -> N
     tool = next(t for t in anyio.run(run) if t.name == "list_lookups")
     camera = tool.input_schema["properties"]["camera"]
     assert "enum" not in json.dumps(camera)  # any stored name filters, the retired ones too
-    assert "new photos are 'head'" in camera["description"] and "'gripper'" in camera["description"]
+    for name in ("'head'", "'front'", "'back'", "'gripper'"):
+        assert name in camera["description"], name
 
 
 def test_annotate_lookup_refuses_a_non_photo_id(server: Any, robot: FakeRobot) -> None:
