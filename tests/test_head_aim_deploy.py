@@ -216,3 +216,23 @@ def test_topics_match_their_producers() -> None:
     assert config["cmd_vel_topic"] == "/" + nav2["collision_monitor"]["ros__parameters"]["cmd_vel_in_topic"]
     assert config["plan_topic"] == "/transformed_global_plan"
     assert config["goal_status_topic"] == "/navigate_to_pose/_action/status"
+
+
+def test_node_readme_names_every_config_key_and_the_source_tag() -> None:
+    readme = (NODE_DIR / "README.md").read_text()
+    for key in yaml.safe_load(DEFAULTS.read_text()):
+        assert f"`{key}`" in readme, key
+    assert f"`{SOURCE_TAG}`" in readme
+    assert "HEAD_AIM_CONFIG" in readme
+    assert "./scripts/deploy-nodes.sh client head_aim_cpp" in readme
+
+
+def test_other_docs_name_the_node() -> None:
+    for path in (
+        REPO_ROOT / "nodes" / "README.md",
+        REPO_ROOT / "ansible" / "README.md",
+        REPO_ROOT / ".claude" / "skills" / "ansible-deploy" / "SKILL.md",
+        REPO_ROOT / "tests" / "README.md",
+    ):
+        assert NAME in path.read_text(), path.name
+    assert "kept: navigating" in (REPO_ROOT / "nodes" / "mcp_server" / "README.md").read_text()

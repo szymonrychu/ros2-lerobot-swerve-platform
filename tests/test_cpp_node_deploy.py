@@ -531,11 +531,12 @@ def test_client_playbook_deploys_the_cpp_node_after_its_python_counterpart(cpp_t
 
 def test_docs_describe_the_local_source_build_and_the_cpp_nodes() -> None:
     ansible_readme = ANSIBLE_README.read_text()
-    for phrase in ("colcon_source.local", "stop_for_build.yml", "map_guard_cpp"):
+    for phrase in ("colcon_source.local", "stop_for_build.yml", "map_guard_cpp", "head_aim_cpp"):
         assert phrase in ansible_readme, phrase
     for path in (NODES_README, DEPLOY_SKILL):
         text = path.read_text()
         assert "map_guard_cpp" in text, path.name
+        assert "head_aim_cpp" in text, path.name
 
 
 @pytest.mark.parametrize("cpp_type", SERVER_CPP_TYPES)

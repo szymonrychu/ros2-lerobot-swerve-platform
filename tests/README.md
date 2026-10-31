@@ -718,7 +718,7 @@ The pan/tilt head servo group in `ansible/group_vars/client.yml`: an `extra_grou
 | `test_head_startup_positions_are_inside_the_limits` | Home pose is inside the URDF limits and the command steps. |
 | `test_head_pan_and_tilt_servos_are_mounted_reversed` | Both `head_pan` (found 2026-10-21: +30 deg turned right) and `head_tilt` (found 2026-10-20) are `inverted: true`; tilt steps 1536..2389 (the -30..+45 deg range of the reprinted mount, + is down) and the 0.5236 rad home maps to step 1707. |
 | `test_head_pan_steps_are_symmetric_around_centre` | Pan min + max steps = 2 * 2048, so inverting only flips the sign. |
-| `test_autonomy_and_web_ui_may_command_the_head_directly` | `autonomy` and `web_ui` are in `direct_command_sources`. |
+| `test_autonomy_and_web_ui_may_command_the_head_directly` | `autonomy`, `web_ui` and `head_aim` (the head_aim_cpp auto-aim node) are in `direct_command_sources`. |
 
 ### Per-node tests (feetech_servos)
 
@@ -1920,13 +1920,13 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_nav2_has_every_server_section` | `nav2_params.yaml` has a section for every server started by Jazzy `navigation_launch.py`. |
 | `test_nav2_frames` | bt_navigator, costmaps, collision_monitor, behavior_server, docking_server and route_server frames/topics. |
 | `test_nav2_costmap_layers_and_footprint` | Both costmaps: footprint equals the H outline from `scripts/gen_nav_footprint.py`, obstacle layer on `/scan_filtered`, inflation; global static layer on `/map` (transient local). |
-| `test_nav2_mppi_omni_with_swerve_limits` | MPPI Omni, vx +-0.25, vy 0.25, wz 0.5, `visualize: true` (local plan on `/optimal_trajectory`). |
+| `test_nav2_mppi_omni_with_swerve_limits` | MPPI Omni, vx 0..0.25 (`vx_min` 0.0: no reverse, travel stays within the head pan reach; BackUp recovery still reverses), vy 0.25, wz 0.5, `visualize: true` (local plan on `/optimal_trajectory`); the planner keeps `allow_reverse_expansion` false (head-aims-along-path S1). |
 | `test_nav2_planner_is_footprint_aware_smac_lattice` | `GridBased` (only planner, name kept for the BT and web UI) is `nav2_smac_planner::SmacPlannerLattice` with `allow_unknown: true`, tolerance 0.5 m, `max_planning_time` <= 2 s, no reverse expansion, moderate `cost_penalty` (1-3), analytic expansion <= 3 m. |
 | `test_nav2_lattice_primitives_are_omni_at_the_costmap_resolution` | `lattice_filepath` lies under `ros2_repo_dest` and points at the committed `nodes/nav2_bringup/config/lattice/output.json`; its metadata equals `config.json` (omni, 0.5 m turning radius), trajectory count matches, and `grid_resolution` equals both costmap resolutions. |
 | `test_nav2_costmaps_match_the_slam_map_resolution` | Both costmaps use the slam_toolbox `resolution`, 0.025 m. |
 | `test_nav2_obstacle_layer_keeps_obstacles_in_the_notches` | Both costmaps: obstacle layer `footprint_clearing_enabled: false` (its column fill treats the H as convex and would erase obstacles in the notches). |
 | `test_slam_map_resolution_cost_is_bounded` | slam_toolbox correlation and loop search windows are whole numbers of their own cells, the correlation grid is no coarser than the map, and `map_update_interval` is 10 s (the 2.5 cm raster has 4x the cells). |
-| `test_nav2_velocity_smoother_matches_swerve` | Smoother limits `[0.25, 0.25, 0.5]`, odom `/odometry/filtered`. |
+| `test_nav2_velocity_smoother_matches_swerve` | Smoother `max_velocity` `[0.25, 0.25, 0.5]`, `min_velocity` `[0.0, -0.25, -0.5]` (no reverse in x), odom `/odometry/filtered`. |
 | `test_nav2_collision_monitor_uses_scan` | Valid polygon(s) (static ones 4+ points, every sub-polygon of StopBox and CliffStop 4+ points, the dynamic ArmStop a `polygon_sub_topic`) and an enabled `/scan_filtered` scan observation source (U5: kept next to the ToF sources). |
 | `test_nav2_collision_monitor_stopbox_enabled_on_filtered_scan` | collision_monitor stays in the `cmd_vel_smoothed -> cmd_vel` chain with its core keys; `StopBox` (holonomic stop `velocity_polygon`, min 4 points) is enabled on the footprint-filtered scan. |
 | `test_stopbox_covers_every_velocity` | Every command (directions in 5 deg steps, speeds 0 to 0.25 m/s, yaw rates -0.5 to 0.5) selects a StopBox sub-polygon, as Nav2 keeps the previous one for an uncovered velocity. |
@@ -2392,6 +2392,40 @@ Keeps `nodes/ground_estimator_cpp/README.md` in sync with the node. Parses `STAT
 Static invariants of the `ground_estimator_cpp` deploy: node type keys, apt list, normal tier values, env, colcon source order, `ros2_nodes` entry (present and enabled, equal to the shipped yaml plus `metrics_port` 19119), metrics scrape target `127.0.0.1:19119` (`test_metrics_target_is_present`) and playbook step order. `test_deployed_config_reads_the_d435` (design D7): the enabled entry reads `/head/d435/points_filtered`, `/head_rgbd/points`, the `/head_rgbd/depth/*` and RGB guidance topics and `guidance.depth_info_topic` `/head/d435/depth/camera_info`, has `no_return.margin_px` and no ToF key names or `/tof/` topics, the 1.5x scaled frame windows (temporal 12/6, hysteresis 8/5/2, no_return 6/5), and its header comment names the D435. Consistency (design D3): topics equal the laser_filter, bno055_imu and head_rgbd_cpp outputs; the IMU level reference and slope limits equal tilt_guard; `wheel_radius_m` equals swerve_controller and the max step is one third of the wheel diameter; `max_slope_deg` is at most the smaller tilt_guard error limit (`test_limits_match_tilt_guard_and_swerve`). `test_robustness_keys_present` pins the robustness settings in the client config: `temporal.max_spread_m` 0.025, the `hysteresis` section (8/5/2), `traversability.lethal_min_points` 2, `edges.slope_bin_m` 0.10 and `edges.slope_min_cells` 3. `test_config_keys_equal_the_shipped_yaml_keys` also covers the `guidance` block; `test_topics_match_their_producers` maps the cloud to the laser_filter output of the d435_obstacle_cloud cloud and the four guidance topics to head_rgbd_cpp (depth image and info, RGB) and realsense_d435 (`depth/camera_info`, the `filtered_depth.info_topic` of head_rgbd_cpp, whose `output_info_topic` the obstacle cloud reads); `test_guidance_block_is_in_the_client_config` pins the client block to the shipped yaml.
 
 Added for T2 (2026-10-30): `test_guidance_max_age_covers_the_head_rgbd_set_rate` (`guidance.max_age_s >= 2.5 / head_rgbd output.rate_hz`, defaults and deployed), `test_step_limit_is_forty_millimetres_with_the_floor_band_below_it` (0.04 m up and down, `fit.distance_m <= floor_band_m < step`, no "temporary" marker), `test_motion_gate_is_configured_above_the_servo_quantisation` (gate on, limit above two servo ticks over the window and below 10 deg/s); `test_limits_match_tilt_guard_and_swerve` now pins the 0.04 m step.
+
+### `test_head_aim_deploy.py`
+
+Static invariants of the `head_aim_cpp` deploy (head-aims-along-path plan, S8/S9). Reads `client.yml`, the client playbook, `nodes/head_aim_cpp/config/head_aim.yaml`, `nav2_params.yaml` and the READMEs.
+
+| Test | What it covers |
+|---|---|
+| `test_node_type_keys` | Native, `ros2 run head_aim_cpp head_aim_node`, `node_src_dir ""`, `src_paths []`, no `ROS_STATIC_PEERS`. |
+| `test_apt_packages` | The apt list covers the build tools and the package.xml ROS keys. |
+| `test_normal_tier_values` | cpu/io weight 500, oom -500, `memory_low` 32M, `memory_max` 96M. |
+| `test_config_path_and_env` | `/etc/ros2/head_aim_cpp` and `HEAD_AIM_CONFIG`. |
+| `test_colcon_sources_order_and_build` | Local `ros2_common_cpp` then `nodes/head_aim_cpp` in `/opt/ros2-ws`, Release, `BUILD_TESTING=OFF`, jobs 2, stamp packages inside the apt list. |
+| `test_ros2_nodes_entry` | Present and enabled, commented config equal to the shipped yaml, after `ground_estimator_cpp`. |
+| `test_client_playbook_step_order` | `Deploy head_aim_cpp` right after `Deploy ground_estimator_cpp`, include file, apply tags and step tags. |
+| `test_source_tag_is_a_direct_command_source_of_the_head_bridge` | `source_tag` `head_aim` is in the `base_servos` `direct_command_sources`, once. |
+| `test_yield_sources_are_exactly_the_other_direct_sources` | `yield_sources` equal the direct sources without the node's own tag. |
+| `test_footprint_box_equals_the_nav2_footprint_bounding_box` | The footprint box equals the bounding box of the Nav2 local costmap footprint within 0.5 mm. |
+| `test_limits_and_home_equal_the_head_servo_config` | Pan/tilt ranges equal the head servo step limits (converted, inverted joints flipped) and the home equals `startup_position_rad`. |
+| `test_topics_match_their_producers` | `camera_info_topic` is the d435_obstacle_cloud depth camera_info remap, `/head/joint_commands`, `/cmd_vel_smoothed` is the collision_monitor input, the plan and goal status topics. |
+| `test_node_readme_names_every_config_key_and_the_source_tag` | The node README names every config key, `head_aim`, `HEAD_AIM_CONFIG` and the deploy command. |
+| `test_other_docs_name_the_node` | nodes/README, ansible/README, the ansible-deploy skill and this file name `head_aim_cpp`; the mcp_server README documents `kept: navigating`. |
+
+Changed with it: `test_head_servo_config.py` (`head_aim` in the required sources), `test_unit_cgroups.py` (`head_aim_cpp` in the normal tier), `test_cpp_node_deploy.py` (`head_aim_cpp` in `STANDALONE_CPP_TYPES`; the docs test also requires `head_aim_cpp` in the three docs).
+
+### head_aim_cpp gtests (`nodes/head_aim_cpp/test`)
+
+Run with `./scripts/cpp-node-test.sh head_aim_cpp`.
+
+- `core/test_config.cpp` (`Config.*`): the shipped yaml loads without errors, an empty document gives the defaults, an unknown key (including the dropped `head_state_topic`), a negative `yield_s`, pan/tilt ranges that are not increasing or leave the servo limits, an inverted footprint, a home outside the ranges, the node's own tag among the yield sources, and the scalar ranges each give one error naming the key.
+- `core/test_aim.cpp` (`TravelDirection.*`, `LeadingEdge.*`, `Aim.*`, `LookPoint.*`, `VerticalFov.*`): forward path picks the front edge, left slide the left edge, a diagonal the corner support; pan for a forward path with the head offset; left slide near +90 deg; a path behind clamps and flags; a path turning after 0.3 m looks beyond the turn; in-place rotation aims at the post-turn path; tilt puts the frustum bottom past the leading edge and clamps when the edge is too close; short path falls back to cmd_vel; no path and no speed gives nothing.
+- `core/test_gate.cpp` (`GoalStatus.*`, `AimGate.*`): no goal no command; the first target at once; a 5 deg pan change is held, a 12 deg change waits for the interval, a 6 deg tilt change is commanded; yield windows start and extend by `web_ui` and `autonomy`, the node's own tag does not yield; goal end sends exactly one home command, none while yielding; a missing target gives nothing; a new goal starts fresh.
+- `test_node.cpp` (`HeadAimNodeTest.*`): an executing goal and a forward path publish one `head_aim` command with the geometry values; no head transform, no camera_info or no goal publish nothing; a `web_ui` command suppresses publishing; goal success sends one home command; a path in `odom` is transformed with the robot yawed.
+
+Changed for S7: `nodes/mcp_server/tests/test_head_lease.py` gains `test_release_while_navigating_keeps_the_head`, `test_release_with_navigation_idle_homes_the_head` and `test_keep_position_wins_over_navigating` (release_head returns `kept: navigating` while `nav_active()` is true and does not home).
 
 ### `test_head_rgbd_deploy.py`
 
