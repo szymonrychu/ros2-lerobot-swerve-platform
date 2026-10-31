@@ -33,6 +33,16 @@ Why: D435 permanently replaces the ToF+RGB head and the gripper camera; ground e
 
 Rung 1, migrated from the epic format: the epic's goals were its agreed scope.
 
+Gate 2026-10-31, user answer verbatim: "Go". Relayed as accepting every recommendation: Q5 yes (drop 323aa361; main's
+head_rgbd_cpp edge mask is the S53 filter), Q6 yes (discard the dirty head_rgbd_cpp test_node.cpp), Q7 yes (S41 ships
+with tool_in_board_m required, no default), Q8 yes (front-and-back-camera-module goes ahead at rung 4: keep
+nodes/head_camera_cpp and the cam0 imx708 overlay, drop S78 and that part of S75; S73 still sets present:false). Also
+e132927b is dropped as redundant.
+
+Remaining code to build: S41 S50 S52 S57 S66 S67 S68 S69 S70 S71 S73 S74 S75 (without the cam0 part) S77 S80 S81 S82
+S83, plus the review of bdcd4f86 (S65) and e6cf7a4a (S28). Live with the user after merge: S49 S58 S59 S60 S64 S72 S76
+S79 and S84 (deploy).
+
 ## Remaining
 
 Probed 2026-10-31 on main ef8c93ac and branch realsense-d435-head-switchov (98 behind main, 3 ahead, 1 dirty file).
@@ -282,14 +292,14 @@ an rclpy participant. Live tasks cite its output as evidence. (my call)
 
 ## Open questions
 
-- Q1: Zoom (head_camera_cpp full-resolution crop) has no D435 equivalent: retire it with head_camera_cpp in mcp_server (get_camera_image zoom), web_ui click-to-zoom and marker_detector, rather than emulate it as a digital crop of the 640x360 D435 frame? [recommended: yes, retire it everywhere; mcp-zoom-retired, web-ui-zoom-route-retired and marker-detector-zoom-retired assume this]
-- Q2: Tool point: fit tool_offset_m in the plate solve as the fitted board pose composed with the clip's CAD board-to-jaw-tip offset (new config plate_mount.tool_in_board_m), so the 2026-10-10 tool point is re-done from the same D435 views? [recommended: yes; accepted only if the held-out tool error is under 5 mm, else the 2026-10-10 value stays and the report says so]
-- Q3: The superseded ToF tasks in drivable-ground-tof-filterin, tof-3d-obstacle-detection-fo, rgb-d-ground-estimation-and and tof-depth-fix-and-ground-noi are this epic's blockers (ticket.py file-overlap rule) and cannot be marked wontfix: may the orchestrator amend each superseded task (ticket.py amend) to a note pointing at the task here that replaces it and close those epics, after the independent tasks listed in design D15 finish? [recommended: yes]
-- Q4: If the D435 firmware reads below 5.17.3.10 at bring-up, flash it with rs-fw-update (unit stopped, flash backup with -b first) without a further stop? [recommended: yes; it is listed as an irreversible operation]
-- Q5: Drop 323aa361 (driver spatial and temporal filters) and keep main's head_rgbd_cpp edge mask as the S53 filter, with S53's floor-kept and edge-removed numbers measured on the S49 recordings? [recommended: yes; the temporal filter smears depth while the head pans, and the edge mask already removes flying pixels]
-- Q6: Discard the uncommitted head_rgbd_cpp test_node.cpp change (written against the replaced sync)? [recommended: yes]
-- Q7: The S41 tool point needs the clip's board-to-jaw-tip offset (plate_mount.tool_in_board_m), which only the user has: S41 ships with the key required and no default, and the tool point is fitted once the user gives the value? [recommended: yes]
-- Q8: If front-and-back-camera-module gets a rung at this gate, keep nodes/head_camera_cpp and the cam0 imx708 overlay (drop S78 and that part of S75; S73 still sets present:false) so that plan reuses them instead of restoring from history? [recommended: yes]
+- Q1: Zoom (head_camera_cpp full-resolution crop) has no D435 equivalent: retire it with head_camera_cpp in mcp_server (get_camera_image zoom), web_ui click-to-zoom and marker_detector, rather than emulate it as a digital crop of the 640x360 D435 frame? [answer: yes, retired everywhere (acted on before 2026-10-31)]
+- Q2: Tool point: fit tool_offset_m in the plate solve as the fitted board pose composed with the clip's CAD board-to-jaw-tip offset (new config plate_mount.tool_in_board_m), so the 2026-10-10 tool point is re-done from the same D435 views? [answer: yes; accepted only if the held-out tool error is under 5 mm, else the 2026-10-10 value stays]
+- Q3: The superseded ToF tasks in drivable-ground-tof-filterin, tof-3d-obstacle-detection-fo, rgb-d-ground-estimation-and and tof-depth-fix-and-ground-noi are this epic's blockers (ticket.py file-overlap rule) and cannot be marked wontfix: may the orchestrator amend each superseded task (ticket.py amend) to a note pointing at the task here that replaces it and close those epics, after the independent tasks listed in design D15 finish? [answer: yes (acted on before 2026-10-31)]
+- Q4: If the D435 firmware reads below 5.17.3.10 at bring-up, flash it with rs-fw-update (unit stopped, flash backup with -b first) without a further stop? [answer: yes (firmware read 5.17.3.10, no flash needed)]
+- Q5: Drop 323aa361 (driver spatial and temporal filters) and keep main's head_rgbd_cpp edge mask as the S53 filter, with S53's floor-kept and edge-removed numbers measured on the S49 recordings? [answer: yes, 323aa361 dropped; main's head_rgbd_cpp edge mask is the S53 filter]
+- Q6: Discard the uncommitted head_rgbd_cpp test_node.cpp change (written against the replaced sync)? [answer: yes, discarded]
+- Q7: The S41 tool point needs the clip's board-to-jaw-tip offset (plate_mount.tool_in_board_m), which only the user has: S41 ships with the key required and no default, and the tool point is fitted once the user gives the value? [answer: yes, tool_in_board_m required with no default]
+- Q8: If front-and-back-camera-module gets a rung at this gate, keep nodes/head_camera_cpp and the cam0 imx708 overlay (drop S78 and that part of S75; S73 still sets present:false) so that plan reuses them instead of restoring from history? [answer: yes; keep nodes/head_camera_cpp and the cam0 imx708 overlay, S78 dropped, S73 still sets present:false]
 
 ## Research
 
