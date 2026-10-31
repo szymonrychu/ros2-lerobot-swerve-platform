@@ -1167,6 +1167,7 @@ the robot; `ros_iface.RosRobot` is its `FootprintSink` (publishers, parameter cl
 | Kind | When | Footprint |
 |---|---|---|
 | static | autonomy holds the arm (`take_control(subsystem='arm')`: the arm may move from then on), a parked release, a converged `/arm/home` (its success runs the footprint tick at once, which sees the parked arm), or the measured released arm lies inside the static outline | the H body outline (`footprint_geometry.body_outline` over `body:`) united with the ground shadow of the arm parked at its stored home (`nav_footprint.parked_arm_shadow`), identical to the generated `nav2_params.yaml` footprint |
+| drive | the arm is released at the drive pose (see [Drive pose](#drive-pose)) | the H body outline united with the generated `drive_arm_shadow`; `StopBoxDrive` replaces `StopBox` |
 | dynamic | the arm is released out of the static outline (`release_control(subsystem='arm', keep_position=true)`, a failed park, a human moving the released arm, an mcp_server start with the arm out) | union of the static outline, the ground shadow of the measured arm pose and, with `carried_object_radius_m`, a circle of that radius around the tool point |
 | conservative | the arm is released but its pose is unknown: mcp_server start without fresh joint states, or no fresh joint states since an unverified static footprint (a non-homed release, e.g. `keep_position`, without them publishes it at once with the carried circle) | the static outline united with a disc of `conservative_reach_m` (0.5 m; the farthest arm part is ~0.445 m from the mount) plus the carried radius around the arm mount |
 
@@ -1210,6 +1211,51 @@ The geometry numbers (`circle_segments`, `close_gap_m`, `laser_filter_margin_m`,
 this uv environment). The outline / circle / offset / inflation code (`footprint_geometry.py`) is the one the
 generator imports: the static footprint and inflation mcp_server publishes equal the static Nav2 / laser_filter
 configs (a test checks it). Without the block nothing is published.
+
+## Drive pose
+
+`drive_pose.py` (`DrivePose`, no ROS) lifts the arm from home to a drive pose out of the head D435's view while a
+NavigateToPose goal is active and lowers it afterwards, so the head can pan right with an unobstructed view. It ships
+`arm.drive_pose.enabled: false` (`client.yml`); the web UI ARM tab toggles it at runtime.
+
+| State (`/arm/drive_pose/state`) | Meaning |
+|---|---|
+| `idle` | arm home (or left where it is), no lift in progress |
+| `lifting` | the lift runs: `ArmController.acquire`, `home_motion(drive pose)` at `speed_scale`, then a release that keeps the position (the web UI and the agent can still take the arm) |
+| `lifted` | the arm holds the drive pose |
+| `lowering` | `lower_delay_s` (3 s) without an active goal: the static footprint is published, then `ArmController.home(keep_prior_control=False)` |
+| `disabled` | `enabled` false |
+| `skipped: <reason>` | a precondition failed or the motion did not converge; the arm stays where it is, navigation is never blocked; cleared (state `idle`) when the goal ends |
+
+Preconditions of a lift: enabled, a drive pose, arm torque on, fresh joint states, the arm at its stored home, no agent
+or web UI lease, not carrying an object, the leader arm not moving, battery above cut-off. A lease taken mid-drive or the
+arm moved beyond `tolerance_rad` (0.05) cancels the lowering (state `idle`, reason logged once). Chained goals inside
+`lower_delay_s` keep the arm up; success, abort and cancel lower alike; a goal during `lowering` lifts again afterwards.
+The `stop` tool aborts a running drive-pose motion (state `skipped: stopped`).
+
+| Interface | Detail |
+|---|---|
+| `/arm/drive_pose/state` | `std_msgs/String` JSON `{state, reason, enabled, stamp_ns}`, reliable + transient_local, published on every change and at 1 Hz, nothing before the controller has a state. The same fields are `arm.drive_pose` in `get_control_state`. |
+| `/arm/set_drive_pose` | `std_srvs/Trigger`: stores the measured pose to `stored_file` (default `drive_pose.yaml` next to `arm.home_file`, atomic) only when `check_drive_pose` finds no violation from the stored home, else `success=false` naming the failed checks. The stored pose wins over config `joints` and survives a restart; an unreadable file falls back to config with a warning. |
+| `/arm/drive_pose/enable` | `std_srvs/SetBool`: toggles `enabled` at runtime (not persisted); disabling while `lifted` still lowers at goal end and blocks new lifts. Both services are refused with no fresh joint states. |
+
+`RosRobot.navigate` calls `DrivePose.request_lift(lift_timeout_s)` (15 s) before it sends its goal and sends it after
+`lifted`, `skipped` or the timeout alike; with the controller disabled it does not wait. Goals from the web UI wait in
+the Nav2 BT instead ([nav2_bringup](../nav2_bringup/README.md#arm-drive-pose-wait)).
+
+The pose is checked by `drive_pose_check.check_drive_pose` (body and head envelope, floor height, no stretched elbow,
+unchanged wrist roll and gripper, the shadow inside the static outline, no link in the D435 frustum for pan 0..-90 deg
+at tilt 30 deg down, every `home_routes` leg from home). `python -m mcp_server.drive_pose_check search <client.yml>
+<home json>` grids shoulder_lift, elbow_flex and wrist_flex and ranks passing candidates by gravity torque on
+shoulder_lift; the configured `drive_pose.joints` in `client.yml` come from that search.
+
+**Footprint mode `drive`** (see [Navigation footprint](#navigation-footprint)): with no lease held and the measured arm
+within `tolerance_rad` of the drive pose, the tick publishes the drive outline (body + `drive_arm_shadow` generated by
+`scripts/gen_nav_footprint.py`) to the costmaps, the laser_filter and the inflation, and switches the collision_monitor
+from `StopBox` to `StopBoxDrive` (the same sectors built from the drive outline): `StopBoxDrive.enabled` true is sent
+before `StopBox.enabled` false on entering, the reverse on leaving, and a failed set keeps `StopBox` on (never both
+off). The mode ends the moment the arm leaves the tolerance or a lease is taken; the lowering publishes the static
+footprint before the arm moves. An empty `drive_arm_shadow` disables the mode.
 
 ## Arm calibration after a re-zero
 

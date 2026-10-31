@@ -1993,6 +1993,41 @@ in the mcp_server uv environment, cached per client.yml content) and the check t
 | `test_cliffstop_selects_by_command_direction` | Every 5 deg at 0.1 m/s, first-match selection picks `forward` within +-90 deg (sideways included) and `back` beyond. |
 | `test_nav2_cliffstop_polygon_is_wired_and_listed` | `CliffStop` block in nav2_params (holonomic velocity_polygon, approach, 1.2 s, enabled, `depth_cliff`, >= 4 points per sub-polygon) exists and is listed in `polygons`. |
 | `test_main_writes_the_files_and_is_idempotent` | With bigger wheels in a temp config (and no client.yml, whose region is then skipped), `main` rewrites copies of both files (footprint now contains the bigger wheel), a second run changes nothing, and sections outside the generated regions are untouched. |
+| `test_drive_pose_is_read_from_the_client_vars_mcp_server_arm` | The generator reads the drive pose from the client.yml mcp_server `arm.drive_pose.joints`. |
+| `test_drive_pose_needs_the_mcp_server_arm_config` | Without the mcp_server arm config the drive shadow is empty. |
+| `test_drive_arm_shadow_lands_in_the_mcp_nav_footprint_region` | `drive_arm_shadow` is written into the `mcp_nav_footprint` region of client.yml. |
+| `test_drive_outline_is_the_body_and_the_drive_shadow` | The drive outline is the body outline united with the drive shadow. |
+| `test_drive_outline_lies_inside_the_static_one_with_the_front_edge_behind` | The drive outline is inside the static outline (within the drive tolerance) and its front edge is behind the static one. |
+| `test_stopbox_drive_is_the_stopbox_of_the_drive_outline` | `StopBoxDrive` has the StopBox sectors built from the drive outline. |
+| `test_nav2_stopbox_drive_is_wired_disabled_and_listed` | `StopBoxDrive` in nav2_params.yaml is `enabled: false`, has the StopBox `sources_names`, 4+ points per sub-polygon and is listed in `polygons`. |
+| `test_head_aim_box_region_is_the_static_outline_bounding_box` | The `head_aim_box` region holds the bounding box of the static outline. |
+| `test_head_aim_equals_the_generator_output` | `head_aim.yaml` and the client.yml entry equal the generator's head_aim_box region. |
+| `test_rerunning_the_generator_is_a_no_op` | A second generator run changes no file. |
+
+### Arm drive pose (arm-lift-while-driving)
+
+New or changed tests of the drive pose feature. Root tests are in the tables above (`test_nav_footprint.py`,
+`test_head_aim_deploy.py`, `test_nav2_mppi_overlay.py`, `test_nav_stack_config.py`); `test_nav_depth_collision.py` now
+lists `StopBoxDrive` among the collision_monitor polygons with the `scan` and `depth_obstacles` sources. Per-node files
+(run in the node directory, `uv run --frozen pytest tests/ -q`, `npm test`, or `./scripts/cpp-node-test.sh <package>`):
+
+| File | What it covers |
+|---|---|
+| `nodes/mcp_server/tests/test_config.py` | `ArmSettings.drive_pose` defaults, rejected values (joints, `speed_scale`, `lower_delay_s`, unknown keys), and the deployed client.yml block (disabled, every joint named). |
+| `nodes/mcp_server/tests/test_drive_pose_check.py` | The drive pose check on synthetic poses: `body`, `floor`, `stretched`, `roll`, `footprint` and `view` failures, every `home_routes` leg in both directions, the D435 frustum and floor-region geometry, the search ranking. |
+| `nodes/mcp_server/tests/test_drive_pose_config.py` | The client.yml `drive_pose.joints` pass every check from the parked home. |
+| `nodes/mcp_server/tests/test_drive_pose.py` | The controller with fake arm, control, clock and worker: lift on the goal edge, every skip reason, lowering after `lower_delay_s`, chained goals, lease or moved arm means no lower, non-converged motions, `request_lift`, abort, runtime enable, `store_pose` / `load_pose`, `at_drive_pose`. |
+| `nodes/mcp_server/tests/test_ros_iface_drive_pose.py` | The 5 Hz tick, the latched state topic (on change and at 1 Hz, nothing before the controller), `/arm/set_drive_pose`, `/arm/drive_pose/enable`, and `navigate` requesting the lift before it sends its goal (never refusing). |
+| `nodes/mcp_server/tests/test_control.py` | `get_control_state` reports `arm.drive_pose`, the `stop` tool aborts a drive-pose motion, the control manager's drive pose gates. |
+| `nodes/mcp_server/tests/test_footprint.py`, `test_ros_iface_footprint.py` | The drive footprint mode: generated drive shadow, drive outline, costmap / laser / inflation publish, StopBoxDrive and StopBox switching order, failed set keeps StopBox, lease and tolerance exits, empty shadow, mode `drive`, controller wiring. |
+| `nodes/mcp_server/tests/test_guard_rules.py` | Guard rule expectations updated for the changed control state. |
+| `nodes/web_ui/tests/test_arm_api.py`, `test_config.py`, `test_map_nav.py` | The two drive pose endpoints (service call, message, 404 / 500 / 503), the state role for ARM and MAP tabs, the SetBool bridge client, the config keys and their defaults. |
+| `nodes/web_ui/frontend/src/arm/ArmActions.test.tsx`, `armControls.test.ts`, `src/tabs/ArmTab.test.tsx` | Set drive pose (two clicks), the lift toggle with the live `enabled`, the disabled reasons. |
+| `nodes/web_ui/frontend/src/map/MapStatusLine.test.tsx`, `mapActions.test.ts`, `src/tabs/MapNavTab.toolbar.test.tsx` | The read-only drive pose state in the MAP status line (no button). |
+| `nodes/arm_drive_wait_bt_cpp/test/core/test_readiness.cpp` | State JSON parsing, which states wait, the 2.5 s freshness boundary, no state or a stale one never waits, the timeout. |
+| `nodes/arm_drive_wait_bt_cpp/test/test_bt_node.cpp` | The BT node against a test publisher (RUNNING while lifting, lowering or enabled idle, SUCCESS otherwise and on timeout, never FAILURE) and the `navigate_to_pose_arm_wait.xml` load check with the nav2 plugins. |
+| `nodes/head_aim_cpp/test/core/test_aim.cpp`, `test_config.cpp` | The regenerated footprint box values. |
+| `nodes/claude_agent/tests/test_prompt.py` | `test_prompt_explains_the_arm_drive_pose_during_navigation`: the prompt says the arm lifts by itself while a navigation goal runs, lowers after it, and that `get_control_state` `arm.drive_pose` says why. |
 
 ### test_poi_store_config.py
 
@@ -2392,7 +2427,7 @@ Static invariants of the `head_aim_cpp` deploy (head-aims-along-path plan, S8/S9
 | `test_client_playbook_step_order` | `Deploy head_aim_cpp` right after `Deploy ground_estimator_cpp`, include file, apply tags and step tags. |
 | `test_source_tag_is_a_direct_command_source_of_the_head_bridge` | `source_tag` `head_aim` is in the `base_servos` `direct_command_sources`, once. |
 | `test_yield_sources_are_exactly_the_other_direct_sources` | `yield_sources` equal the direct sources without the node's own tag. |
-| `test_footprint_box_equals_the_generated_real_outline_bounding_box` | The footprint box equals the bounding box of the unshrunk outline `scripts/gen_nav_footprint.py` generates (real body edge, not the tolerance-shrunk costmap footprint) within 0.5 mm. |
+| `test_footprint_box_equals_the_generated_real_outline_bounding_box` | The `footprint_*` keys of `head_aim.yaml` and of the client.yml entry sit in the generated `head_aim_box` region and equal, exactly, the bounding box of the unshrunk outline `scripts/gen_nav_footprint.py` generates (real body edge, not the tolerance-shrunk costmap footprint); the former hand-pinned 0.5 mm tolerance is gone. |
 | `test_footprint_box_is_larger_than_the_shrunk_costmap_footprint` | The box reaches past the Nav2 costmap footprint in x max and y max. |
 | `test_limits_and_home_equal_the_head_servo_config` | Pan/tilt ranges equal the head servo step limits (converted, inverted joints flipped) and the home equals `startup_position_rad`. |
 | `test_topics_match_their_producers` | `camera_info_topic` is the d435_obstacle_cloud depth camera_info remap, `/head/joint_commands`, `/cmd_vel_smoothed` is the collision_monitor input, the plan and goal status topics. |
@@ -2736,7 +2771,12 @@ Static checks of the Nav2 MPPI overlay (patched `nav2_mppi_controller` built int
 | `test_overlay_source_is_pinned_to_the_apt_tag_with_the_patch` | `nav2_mppi_overlay` is true and `nav2_mppi_overlay_source` is exactly the navigation2 repo, the full 1.3.13 SHA, package, `/opt/ros2-ws`, the E9 patch under `ros2_repo_dest`, Release + `BUILD_TESTING=OFF`, `stamp_apt_packages` and `jobs: 2`. |
 | `test_overlay_patch_exists_and_only_touches_the_mppi_package` | The patch file exists and every file it touches is under `nav2_mppi_controller/`. |
 | `test_probe_pin_equals_the_client_commit` | `PIN` in `scripts/probe-mppi-overlay-docker.sh` equals the overlay commit in `client.yml`. |
-| `test_nav2_colcon_source_is_gated_on_the_rollback_flag` | The nav2_bringup `colcon_source` is `overlay_source if nav2_mppi_overlay \| bool else {}`. |
+| `test_nav2_colcon_source_builds_the_plugin_whatever_the_rollback_flag` | The nav2_bringup `colcon_source` is a list: the arm wait plugin source always, first (the launcher sources its workspace `/opt/ros2-ws`), the MPPI overlay only with `nav2_mppi_overlay` (replaces the old single-source gate test, no longer accurate). |
+| `test_arm_drive_wait_bt_source_is_the_local_plugin_package` | `arm_drive_wait_bt_source` is the local `nodes/arm_drive_wait_bt_cpp`, `/opt/ros2-ws`, Release, `BUILD_TESTING` off, jobs 2. |
+| `test_nav2_apt_packages_cover_the_plugin_package_xml` | nav2_bringup `apt_packages` include `ros-jazzy-nav2-behavior-tree` and `ros-jazzy-behaviortree-cpp`. |
+| `test_nav2_rollback_purges_the_overlay` | With the flag false, nav2_bringup `colcon_purge` lists `nav2_mppi_controller` in `/opt/ros2-ws`. |
+| `test_role_runs_colcon_purge_on_the_deploy_path_before_the_build` | The ros2_node_deploy role runs `colcon_purge.yml` on deploy (not only uninstall), before the build. |
+| `test_ansible_readme_describes_the_plugin_build_and_the_rollback_purge` | ansible/README.md documents the plugin build and the rollback purge. |
 | `test_nav2_apt_packages_carry_the_overlay_build_dependencies` | nav2_bringup `apt_packages` include the toolchain, colcon, xtensor/xsimd/benchmark/openmp dev packages, the ament/nav2 deps and the apt MPPI. |
 | `test_apt_version_feeds_the_stamp_key_only_for_a_non_empty_list` | `dpkg-query -W -f='${Version}'` (never changed, runs in check mode) loops over `stamp_apt_packages`; its output joins the stamp key only under a `length > 0` condition and the original key formula is intact (rf2o/libcamera/camera_ros keys unchanged). |
 | `test_build_jobs_default_to_ros2_build_jobs` | The build `MAKEFLAGS` is `-j{{ colcon_src.jobs \| default(ros2_build_jobs) }}`. |

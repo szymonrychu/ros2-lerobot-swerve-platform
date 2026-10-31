@@ -921,3 +921,11 @@ def test_prompt_has_no_retired_camera() -> None:
         assert retired not in lower, retired
     assert re.search(r"\btof\b", lower) is None
     assert "realsense d435" in lower and "640x360" in lower
+
+
+def test_prompt_explains_the_arm_drive_pose_during_navigation() -> None:
+    text = " ".join(build_system_prompt(ClaudeAgentConfig()).split())
+    lower = text.lower()
+    assert "lifts by itself" in lower and "navigation goal" in lower and "lowers" in lower
+    assert "arm.drive_pose" in text and "get_control_state" in text
+    assert "skipped" in lower

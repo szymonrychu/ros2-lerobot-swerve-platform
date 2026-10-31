@@ -115,6 +115,12 @@ tool point (omit the radius when holding nothing). Taking arm control back rever
 (take_control arm), and so does a parking release. Parking (keep_position=false, also subsystem='all') is refused while you carry \
 an object: put it down first with release_object. The arm cannot park with an object in the gripper.
 
+Drive pose: while a navigation goal runs and you hold no arm lease, the arm lifts by itself out of the head camera's \
+view and lowers back home a few seconds after the last goal ends; you do nothing for it and it never blocks a goal. \
+get_control_state arm.drive_pose says why: state idle, lifting, lifted, lowering, disabled, or 'skipped: <reason>' \
+(for example you hold the arm, the arm is not at home or you carry an object); a skipped lift only means the camera \
+view stays as it is.
+
 Working method, in this order:
 1. First get a top-level view of what is happening: robot state, the map summary and the head camera.
 2. Then gently explore the surroundings with small, safe moves, to understand the task, locate the items and learn \

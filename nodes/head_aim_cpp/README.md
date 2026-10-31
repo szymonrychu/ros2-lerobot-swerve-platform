@@ -76,10 +76,10 @@ Every key of `config/head_aim.yaml` (unknown keys exit 78):
 | `source_tag` | `head_aim` | header.frame_id of every command, must be in the head bridge's direct_command_sources |
 | `yield_sources` | `[web_ui, autonomy]` | header.frame_id values of head commands that pause auto-aim for yield_s |
 | `yield_s` | `10.0` | seconds auto-aim stays silent after a command from a yield source, >= 0 |
-| `footprint_min_x` | `-0.215` | footprint bounding box in base_link (contains the wheel envelopes), metres, rear edge |
+| `footprint_min_x` | `-0.215` | footprint bounding box in base_link (contains the wheel envelopes and the parked arm), metres, rear edge; the four `footprint_*` values sit in a generated `head_aim_box` region (`scripts/gen_nav_footprint.py`, the bounding box of the static outline): do not edit them by hand |
 | `footprint_max_x` | `0.3225` | front edge, metres, > footprint_min_x |
-| `footprint_min_y` | `-0.196` | right edge, metres |
-| `footprint_max_y` | `0.196` | left edge, metres, > footprint_min_y |
+| `footprint_min_y` | `-0.1958` | right edge, metres |
+| `footprint_max_y` | `0.1958` | left edge, metres, > footprint_min_y |
 | `lookahead_m` | `0.4` | how far beyond the leading footprint edge the look point lies along the path, metres, > 0 |
 | `floor_margin_m` | `0.05` | how far past the leading edge the bottom of the camera frustum lands on the floor, metres, >= 0 |
 | `pan_min_rad` | `-1.5708` | lowest pan command (right), rad, >= -1.5708 (servo limit) |
