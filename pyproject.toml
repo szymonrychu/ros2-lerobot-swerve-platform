@@ -86,7 +86,6 @@ lint-nodes = { shell = """
   set -e
   (cd nodes/master2master && uv run --frozen poe lint)
   (cd nodes/leader_bridge && uv run --frozen poe lint)
-  (cd nodes/bridges/uvc_camera && uv run --frozen poe lint)
   (cd nodes/bridges/feetech_servos && uv run --frozen poe lint)
   (cd nodes/bridges/gps_rtk && uv run --frozen poe lint)
   (cd nodes/bridges/bno055_imu && uv run --frozen poe lint)

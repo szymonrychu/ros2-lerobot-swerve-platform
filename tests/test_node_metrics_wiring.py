@@ -69,7 +69,6 @@ SHARED_NODE_TYPES = [
     "rf2o_odom_relay",
     "bno055_imu",
     "gps_rtk",
-    "uvc_camera",
     "map_manager",
     "poi_store",
     "marker_detector",

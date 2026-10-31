@@ -189,3 +189,8 @@ def test_head_camera_is_retired() -> None:
 def test_arducam_tof_source_is_gone() -> None:
     """The retired arducam_tof bridge is deleted; its node type stays only for the uninstall deploy."""
     assert_bridge_source_is_gone(TOF_NODE)
+
+
+def test_uvc_camera_source_is_gone() -> None:
+    """The uvc_camera bridge (only the retired gripper camera ran it) is deleted; its node type stays as the stub."""
+    assert_bridge_source_is_gone(GRIPPER_NODE_TYPE)

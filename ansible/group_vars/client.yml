@@ -118,22 +118,12 @@ ros2_node_type_defaults:
     config_path: /etc/ros2/feetech_servos
     env:
       - FEETECH_SERVOS_CONFIG=/etc/ros2/feetech_servos/config.yaml
+  # Retired (D435 switchover): the gripper camera was its only instance and nodes/bridges/uvc_camera is deleted.
+  # present: false makes a deploy of gripper_uvc_camera run only the uninstall path of
+  # roles/ros2_node_deploy/tasks/main.yml (deploy_mode and a launch command, nothing else).
   uvc_camera:
     deploy_mode: native
     node_launch_command: "python3 -m uvc_camera"
-    node_src_dir: "nodes/bridges/uvc_camera"
-    pythonpath_parent: true
-    # libjpeg-turbo for PyTurboJPEG: lossless JPEG rotation of the camera's MJPEG frames.
-    apt_packages:
-      - libturbojpeg
-    # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
-    src_shared: true
-    # Working set MiB p50/24 h peak 66.7/68.2 (Mimir, 2026-10-11): MemoryLow ~ p50, MemoryMax >= 2x peak.
-    memory_low: "72M"
-    memory_max: "256M"
-    cpu_weight: 500
-    io_weight: 500
-    oom_score_adjust: -500
   # Retired (D435 switchover): the head D435 replaces the Arducam ToF and nodes/bridges/arducam_tof is deleted.
   # present: false makes a deploy of this name run only the uninstall path of roles/ros2_node_deploy/tasks/main.yml
   # (deploy_mode and a launch command, nothing else).

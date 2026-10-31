@@ -52,7 +52,6 @@ jobs:
           - bridges/bno055_imu
           - bridges/feetech_servos
           - bridges/gps_rtk
-          - bridges/uvc_camera
           - claude_agent
           - costmap_zones
           - filter_node
