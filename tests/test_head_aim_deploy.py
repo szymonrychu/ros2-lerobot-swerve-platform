@@ -11,6 +11,9 @@ from pathlib import Path
 
 import yaml
 
+from scripts.gen_nav_footprint import DEFAULT_CONFIG as DEFAULT_GEN_CONFIG
+from scripts.gen_nav_footprint import generate, load_settings
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CLIENT_PLAYBOOK = REPO_ROOT / "ansible" / "playbooks" / "deploy_nodes_client.yml"
 CLIENT_VARS = REPO_ROOT / "ansible" / "group_vars" / "client.yml"
@@ -182,14 +185,22 @@ def test_yield_sources_are_exactly_the_other_direct_sources() -> None:
     assert set(config["yield_sources"]) == set(sources) - {config["source_tag"]}
 
 
-def test_footprint_box_equals_the_nav2_footprint_bounding_box() -> None:
-    params = yaml.safe_load(NAV2_PARAMS.read_text())
-    footprint = yaml.safe_load(params["local_costmap"]["local_costmap"]["ros__parameters"]["footprint"])
-    xs, ys = [p[0] for p in footprint], [p[1] for p in footprint]
+def test_footprint_box_equals_the_generated_real_outline_bounding_box() -> None:
+    """head_aim aims past the real body edge: the unshrunk generator outline, not the tolerance-shrunk costmap one."""
+    outline = generate(load_settings(DEFAULT_GEN_CONFIG), REPO_ROOT).footprint
+    xs, ys = [p[0] for p in outline], [p[1] for p in outline]
     config = entry_config(NAME)
     box = (config["footprint_min_x"], config["footprint_max_x"], config["footprint_min_y"], config["footprint_max_y"])
     expected = (min(xs), max(xs), min(ys), max(ys))
     assert all(math.isclose(a, b, abs_tol=FOOTPRINT_TOLERANCE_M) for a, b in zip(box, expected, strict=True))
+
+
+def test_footprint_box_is_larger_than_the_shrunk_costmap_footprint() -> None:
+    params = yaml.safe_load(NAV2_PARAMS.read_text())
+    costmap = yaml.safe_load(params["local_costmap"]["local_costmap"]["ros__parameters"]["footprint"])
+    config = entry_config(NAME)
+    assert config["footprint_max_x"] > max(p[0] for p in costmap)
+    assert config["footprint_max_y"] > max(p[1] for p in costmap)
 
 
 def test_limits_and_home_equal_the_head_servo_config() -> None:

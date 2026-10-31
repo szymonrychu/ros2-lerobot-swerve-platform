@@ -2408,7 +2408,8 @@ Static invariants of the `head_aim_cpp` deploy (head-aims-along-path plan, S8/S9
 | `test_client_playbook_step_order` | `Deploy head_aim_cpp` right after `Deploy ground_estimator_cpp`, include file, apply tags and step tags. |
 | `test_source_tag_is_a_direct_command_source_of_the_head_bridge` | `source_tag` `head_aim` is in the `base_servos` `direct_command_sources`, once. |
 | `test_yield_sources_are_exactly_the_other_direct_sources` | `yield_sources` equal the direct sources without the node's own tag. |
-| `test_footprint_box_equals_the_nav2_footprint_bounding_box` | The footprint box equals the bounding box of the Nav2 local costmap footprint within 0.5 mm. |
+| `test_footprint_box_equals_the_generated_real_outline_bounding_box` | The footprint box equals the bounding box of the unshrunk outline `scripts/gen_nav_footprint.py` generates (real body edge, not the tolerance-shrunk costmap footprint) within 0.5 mm. |
+| `test_footprint_box_is_larger_than_the_shrunk_costmap_footprint` | The box reaches past the Nav2 costmap footprint in x max and y max. |
 | `test_limits_and_home_equal_the_head_servo_config` | Pan/tilt ranges equal the head servo step limits (converted, inverted joints flipped) and the home equals `startup_position_rad`. |
 | `test_topics_match_their_producers` | `camera_info_topic` is the d435_obstacle_cloud depth camera_info remap, `/head/joint_commands`, `/cmd_vel_smoothed` is the collision_monitor input, the plan and goal status topics. |
 | `test_node_readme_names_every_config_key_and_the_source_tag` | The node README names every config key, `head_aim`, `HEAD_AIM_CONFIG` and the deploy command. |

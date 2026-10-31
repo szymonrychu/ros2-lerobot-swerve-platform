@@ -98,7 +98,8 @@ Every key of `config/head_aim.yaml` (unknown keys exit 78):
 
 The head bridge only forwards commands whose `header.frame_id` is in its `direct_command_sources`, so `head_aim` is
 listed there (`ansible/group_vars/client.yml`, `base_servos`). `tests/test_head_aim_deploy.py` pins the footprint box
-equal to the bounding box of the Nav2 footprint, the pan/tilt ranges and home equal to the head servo config, the
+equal to the bounding box of the real body outline that `scripts/gen_nav_footprint.py` generates (the unshrunk
+outline: the Nav2 costmap footprint is 2 cm smaller, `footprint_tolerance_m`, and must stay smaller), the pan/tilt ranges and home equal to the head servo config, the
 yield sources equal to the other direct sources and the topics equal to their producers.
 
 ## Build, test, deploy
