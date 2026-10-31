@@ -820,8 +820,14 @@ def test_mcp_server_head_camera_is_the_head_camera_stream() -> None:
     """mcp_server's `head` camera reads the head D435 colour JPEG stream (CompressedImage)."""
     topics = node_config("mcp_server").get("topics", {})
     assert topics["head_camera"] == "/head/d435/color/image_raw/compressed"
-    assert "front_camera" not in topics
     assert "realsense_camera" not in topics
+
+
+def test_mcp_server_topics_name_the_csi_cameras() -> None:
+    """get_camera_image 'front' and 'back' read the body-fixed CSI Camera Module 3 compressed streams."""
+    topics = node_config("mcp_server")["topics"]
+    assert topics["front_camera"] == "/front_camera/image_raw/compressed"
+    assert topics["back_camera"] == "/back_camera/image_raw/compressed"
 
 
 def test_mcp_server_states_no_hardcoded_front_camera_size() -> None:
@@ -842,13 +848,11 @@ def test_mcp_server_get_camera_image_docs_name_the_front_d435_colour() -> None:
     for name, text in texts.items():
         assert "IMX219" not in text, name
         assert "480x360" not in text, name
-        assert "front_camera" not in text, name
-        assert "/front_camera" not in text, name
     readme_lines = texts[str(mcp_dir / "README.md")].splitlines()
     row = next(line for line in readme_lines if line.startswith("| `get_camera_image("))
     assert "D435" in row and "640x360" in row and "384x216" in row
     assert "head_camera" in row and "/head/d435/color/image_raw/compressed" in row
-    assert "Camera Module 3" not in row
+    assert "topics.front_camera" in row and "topics.back_camera" in row and "1152x648" in row
     assert "front`: 640x480" not in row and "640x480 at 10 fps" not in row and "overhead" not in row
     assert "640x480" not in row
     assert "defaults to 384x288" not in texts[str(mcp_dir / "README.md")]

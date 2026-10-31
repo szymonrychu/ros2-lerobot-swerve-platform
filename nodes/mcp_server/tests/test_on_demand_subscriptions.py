@@ -1,7 +1,7 @@
 """ros_iface.RosRobot on-demand camera, scan and /tf subscriptions without ROS (conftest ros_iface fixture mocks rclpy).
 
 Covers: an idle node has no camera, scan or /tf subscription (only /tf_static); a camera tool call subscribes the
-front (head D435 colour) camera, the only one (the retired gripper camera is unknown), and returns a real JPEG frame delivered by a fake publisher; the subscription is destroyed after
+head (D435 colour), front or back (CSI) camera it names (the retired gripper camera is unknown), and returns a real JPEG frame delivered by a fake publisher; the subscription is destroyed after
 on_demand.linger_s without use, kept while used, and created again on the next call; scan_points subscribes the scan,
 waits at most timeouts.state_stale_s for a first message and drops its cached sample when reaped; a TF lookup subscribes
 /tf, and reaping clears the TF buffer and re-inserts the static transforms; the motion-critical topics
@@ -29,11 +29,13 @@ from mcp_server.monitor import RobotMonitor
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 CLIENT_VARS = REPO_ROOT / "ansible" / "group_vars" / "client.yml"
-CAMERA_TOPIC = "/head/d435/color/image_raw/compressed"  # the only camera: front, the head D435 colour
+CAMERA_TOPIC = "/head/d435/color/image_raw/compressed"  # camera head, the head D435 colour
+FRONT_TOPIC = "/front_camera/image_raw/compressed"  # camera front, the body-fixed CSI Camera Module 3 on cam0
+BACK_TOPIC = "/back_camera/image_raw/compressed"  # camera back, the body-fixed CSI Camera Module 3 on cam1
 SCAN_TOPIC = "/scan_filtered"
 TF_TOPIC = "/tf"
 TF_STATIC_TOPIC = "/tf_static"
-ON_DEMAND_TOPICS = (CAMERA_TOPIC, SCAN_TOPIC, TF_TOPIC)
+ON_DEMAND_TOPICS = (CAMERA_TOPIC, FRONT_TOPIC, BACK_TOPIC, SCAN_TOPIC, TF_TOPIC)
 BATTERY = {"topic": "/battery/state"}
 PUBLISH_WAIT_S = 2.0
 
@@ -148,11 +150,25 @@ def test_camera_tool_call_subscribes_and_returns_a_real_frame(rig: Rig) -> None:
 
 
 def test_gripper_camera_is_unknown(ros_iface: ModuleType, rig: Rig) -> None:
-    """The retired gripper camera has no topic: the front (head D435 colour) camera is the only one."""
-    assert rig.robot.camera_topics == {"head": CAMERA_TOPIC}
+    """The retired gripper camera has no topic: the cameras are head (D435 colour), front and back (CSI)."""
+    assert rig.robot.camera_topics == {"head": CAMERA_TOPIC, "front": FRONT_TOPIC, "back": BACK_TOPIC}
     with pytest.raises(ros_iface.RobotError, match="unknown camera"):
         rig.robot.camera_image("gripper", 640)
     assert "/camera_0/image_raw/compressed" not in rig.topics()
+
+
+@pytest.mark.parametrize(("camera", "topic"), [("front", FRONT_TOPIC), ("back", BACK_TOPIC)])
+def test_front_and_back_subscribe_on_demand(rig: Rig, camera: str, topic: str) -> None:
+    """A front or back call subscribes only its own topic, returns its frame and is reaped after the linger."""
+    assert topic not in rig.topics()
+    frame = camera_frame(rig, camera, topic)
+    assert rig.topics().count(topic) == 1
+    assert CAMERA_TOPIC not in rig.topics()
+    assert (frame.camera, frame.topic, frame.width, frame.height) == (camera, topic, 64, 48)
+    _cb, sub = rig.latest(topic)
+    rig.clock[0] += rig.robot.cfg.on_demand.linger_s + 0.5
+    rig.robot.reap_on_demand()
+    assert rig.destroyed() == [sub]
 
 
 def test_camera_subscription_destroyed_after_idle_linger_and_recreated(rig: Rig) -> None:
@@ -323,6 +339,8 @@ def test_motion_critical_topics_subscribed_at_start_and_never_destroyed(
     rig.robot.scan_points()
     rig.robot.lookup_pose("map", "base_link")
     camera_frame(rig, "head", CAMERA_TOPIC)
+    camera_frame(rig, "front", FRONT_TOPIC)
+    camera_frame(rig, "back", BACK_TOPIC)
     for _ in range(5):
         rig.clock[0] += config.on_demand.linger_s
         rig.robot.reap_on_demand()

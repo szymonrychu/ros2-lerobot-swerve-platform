@@ -3,7 +3,7 @@
 import json
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 import anyio
 import cv2
@@ -12,7 +12,7 @@ import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 from starlette.testclient import TestClient
 
-from mcp_server import camera_scene, tools
+from mcp_server import tools
 from mcp_server.arm import ArmController
 from mcp_server.base_motion import DriveOutcome, SpinOutcome
 from mcp_server.config import REPO_ROOT, McpServerConfig
@@ -103,7 +103,10 @@ class FakeRobot(PerceptionFakeMixin):
             raise RobotError(self.camera_error)
         ok, jpg = cv2.imencode(".jpg", np.zeros((10, 20, 3), np.uint8))
         assert ok
-        return CameraFrame(camera=camera, topic="/x", jpeg=jpg.tobytes(), width=20, height=10, stamp_s=123.5, age_s=0.1)
+        topic = f"/{camera}_camera/image_raw/compressed"
+        return CameraFrame(
+            camera=camera, topic=topic, jpeg=jpg.tobytes(), width=20, height=10, stamp_s=123.5, age_s=0.1
+        )
 
     def map_summary(self, include_png: bool, radius_m: float, png_max_px: int) -> tuple[MapSummary, bytes | None]:
         self.calls.append(("map_summary", (include_png, radius_m, png_max_px)))
@@ -464,20 +467,54 @@ def test_camera_tool_offers_the_head_front_camera_not_realsense_or_stereo(server
         call(server, "get_camera_image", {"camera": "realsense"})
 
 
-def test_get_camera_image_offers_only_front(server: Any, robot: FakeRobot) -> None:
+def test_get_camera_image_offers_head_front_and_back(server: Any, robot: FakeRobot) -> None:
     async def run() -> Any:
         return await server.list_tools()
 
-    assert tools.Camera is camera_scene.Camera  # one Camera definition, no copy in tools
+    assert get_args(tools.ImageCamera) == ("head", "front", "back")
     tool = next(t for t in anyio.run(run) if t.name == "get_camera_image")
     prop = tool.input_schema["properties"]["camera"]
-    assert prop.get("enum", [prop.get("const")]) == ["head"]
+    assert prop["enum"] == ["head", "front", "back"]
     description = tool.description or ""
     assert "D435" in description and "640x360" in description
+    assert "Camera Module 3" in description and "1152x648" in description
     assert "'gripper'" not in description + json.dumps(tool.input_schema)
-    assert "Camera Module 3" not in description and "USB camera" not in json.dumps(tool.input_schema)
     with pytest.raises(ToolError):
         call(server, "get_camera_image", {"camera": "gripper"})
+    assert robot.calls == []
+
+
+@pytest.mark.parametrize("camera", ["front", "back"])
+def test_get_camera_image_accepts_front_and_back(server: Any, robot: FakeRobot, camera: str) -> None:
+    """The body-fixed CSI cameras return their own frame; the metadata carries no calibrated scale, only the note that
+    the pixel tools take 'head'."""
+    res = call(server, "get_camera_image", {"camera": camera})
+    assert robot.calls[-1] == ("camera_image", (camera, 384))
+    assert next(c for c in res.content if c.type == "image").mime_type == "image/jpeg"
+    meta = json.loads(next(c for c in res.content if c.type == "text").text)
+    assert meta["camera"] == camera and meta["topic"] == f"/{camera}_camera/image_raw/compressed"
+    assert "calibrated_image" not in meta and "scale_to_calibrated" not in meta
+    assert "only 'head'" in meta["pixel_note"]
+
+
+def test_geometry_tools_reject_front(server: Any, robot: FakeRobot) -> None:
+    """Every tool but get_camera_image that takes a camera admits only 'head' (the D435 geometry)."""
+
+    async def run() -> Any:
+        return await server.list_tools()
+
+    offered = {
+        t.name: t.input_schema["properties"]["camera"]
+        for t in anyio.run(run)
+        if "camera" in t.input_schema["properties"] and t.name != "get_camera_image"
+    }
+    typed = {name: prop for name, prop in offered.items() if "enum" in prop or "const" in prop}
+    assert {"pixel_to_ground", "get_annotated_camera_image", "look_around"} <= set(typed)
+    for name, prop in typed.items():
+        assert prop.get("enum", [prop.get("const")]) == ["head"], name
+    for camera in ("front", "back"):
+        with pytest.raises(ToolError):
+            call(server, "pixel_to_ground", {"camera": camera, "u": 10.0, "v": 10.0})
     assert robot.calls == []
 
 

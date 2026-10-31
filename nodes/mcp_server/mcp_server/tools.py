@@ -41,7 +41,7 @@ from . import (
 from .arm import MAX_OBJECT_WIDTH_M, ArmError
 from .base_motion import STRAIGHT_MOVE_MAX_M, DriveError, DriveOutcome
 from .calibration_board import BoardPark
-from .camera_scene import Camera, camera_setup, pixel_scale
+from .camera_scene import CAMERAS, camera_setup, pixel_scale
 from .config import (
     HARD_MAX_DRIVE_S,
     HARD_MAX_IMAGE_PX,
@@ -96,6 +96,13 @@ TOKEN_CLIENT_ID = "robot-mcp-client"
 ADMIN_CLEAR_AGENT_POIS_PATH = "/admin/clear_agent_pois"
 ADMIN_PARK_BOARD_PATH = "/admin/park_calibration_board"
 CLEAR_STATUSES = TypeAdapter(list[Literal["open", "done", "cancelled"]])
+# get_camera_image cameras: the head D435 colour (the only camera of the pixel tools) and the two body-fixed CSI
+# Camera Module 3s, front (cam0) and back (cam1).
+ImageCamera = Literal["head", "front", "back"]
+HEAD_ONLY_NOTE = (
+    "the {camera} camera has no calibrated geometry: the pixel tools (pixel_to_ground, get_annotated_camera_image, "
+    "mark_candidate_points, ...) take only 'head'"
+)
 METRICS_PATH = "/metrics"
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "::ffff:127.0.0.1"})
 ADMIN_POI_CREATOR = "agent"
@@ -370,8 +377,11 @@ def camera_image_scale(
         height (int): Picture height (px).
 
     Returns:
-        dict[str, Any]: {calibrated_image {width, height} | None, scale_to_calibrated | None, pixel_note}.
+        dict[str, Any]: {calibrated_image {width, height} | None, scale_to_calibrated | None, pixel_note}; only
+            pixel_note for a camera the pixel tools do not take (front, back).
     """
+    if camera not in CAMERAS:
+        return {"pixel_note": HEAD_ONLY_NOTE.format(camera=camera)}
     try:
         intr = camera_setup(config, camera, need_mount=False, source=robot).intrinsics
     except ValueError:
@@ -870,12 +880,14 @@ def register_core_tools(ctx: ToolContext) -> None:
         structured_output=False,
         description=(
             "Take one fresh photo from a robot camera and return it as a JPEG image plus its capture timestamp. "
-            "'head' is the only camera: the colour stream of the RealSense D435 on the pan/tilt head (640x360, "
-            "16:9, default picture 384x216): the view of the surroundings and for judging gripper-to-object "
-            "position (aim the head at the object with head_look_at). The default size "
+            "'head': the colour stream of the RealSense D435 on the pan/tilt head (640x360, 16:9, default picture "
+            "384x216): the view of the surroundings and for judging gripper-to-object position (aim the head at the "
+            "object with head_look_at). 'front' and 'back': the Camera Module 3s fixed to the body, looking ahead "
+            "and behind the robot (1152x648, 16:9, default picture 384x216); they do not move with the head and the "
+            "pixel tools take only 'head'. The default size "
             f"is {config.limits.default_camera_px} px on the longest side (cheap, fine for aiming checks): pass a "
             "larger max_px only when you must read fine detail, images are what fills the context. The metadata "
-            "states the picture's width x height, the calibrated_image size the camera tools use and "
+            "states the picture's width x height and, for 'head', the calibrated_image size the camera tools use and "
             "scale_to_calibrated: a pixel read from this picture must go to pixel_to_ground (and the other "
             "pixel-taking tools) WITH image_width / image_height, or be read from get_annotated_camera_image instead. "
             "Fails (instead of returning an old picture) when no frame arrives within the timeout or the newest frame "
@@ -884,10 +896,10 @@ def register_core_tools(ctx: ToolContext) -> None:
     )
     def get_camera_image(
         camera: Annotated[
-            Camera,
+            ImageCamera,
             Field(
                 description="'head': the D435 colour camera on the pan/tilt head (640x360, 16:9, default picture "
-                "384x216)"
+                "384x216); 'front' / 'back': the body-fixed CSI Camera Module 3s ahead / behind (1152x648)"
             ),
         ],
         max_px: Annotated[

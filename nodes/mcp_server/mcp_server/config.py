@@ -167,6 +167,10 @@ class TopicSettings(StrictModel):
     compute_path_action: str = "/compute_path_to_pose"  # Nav2 planner_server, checks one frontier observation pose
     planner_id: str = "GridBased"  # planner_server plugin id used by compute_path_action
     head_camera: str = "/head/d435/color/image_raw/compressed"  # head D435 colour (640x360), tool camera `head`
+    # Body-fixed CSI Camera Module 3s (head_camera_cpp instances, 1152x648): get_camera_image `front` / `back` only,
+    # subscribed on demand like head_camera.
+    front_camera: str = "/front_camera/image_raw/compressed"
+    back_camera: str = "/back_camera/image_raw/compressed"
     # D435 depth registered to the colour image (16UC1 mm) and its CameraInfo: subscribed on demand by pixel_to_point.
     head_depth: str = "/head/d435/aligned_depth_to_color/image_raw"
     head_depth_info: str = "/head/d435/aligned_depth_to_color/camera_info"

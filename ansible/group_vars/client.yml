@@ -2811,6 +2811,10 @@ ros2_nodes:
         # Head camera (tool camera `head`): the D435 colour on the pan/tilt head (realsense_d435), 640x360 at 15 fps,
         # 16:9.
         head_camera: /head/d435/color/image_raw/compressed
+        # Body-fixed CSI Camera Module 3s (front_camera on cam0, back_camera on cam1, 1152x648 at 15 fps): only
+        # get_camera_image takes `front` / `back`; the pixel tools take `head`.
+        front_camera: /front_camera/image_raw/compressed
+        back_camera: /back_camera/image_raw/compressed
         # D435 depth registered to the colour image (16UC1 mm) and its CameraInfo: pixel_to_point reads them on demand
         # and pairs the frame with the colour frame of the same frameset by header stamp.
         head_depth: /head/d435/aligned_depth_to_color/image_raw

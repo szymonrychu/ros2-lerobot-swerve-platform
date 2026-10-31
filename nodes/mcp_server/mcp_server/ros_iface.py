@@ -764,7 +764,7 @@ class RosRobot:
         self.subscribe(String, t.base_servo_registers, self.on_servo_registers)
         # On-demand camera subscriptions, destroyed only by the reaper timer: per-call subscriptions destroyed from tool
         # threads raced the executor's wait set (rclpy InvalidHandle killed the executor thread, 2026-10-08).
-        self.camera_topics = {"head": t.head_camera}
+        self.camera_topics = {"head": t.head_camera, "front": t.front_camera, "back": t.back_camera}
         self.camera_frames = {name: FrameCache() for name in self.camera_topics}
         self.camera_subs = {
             name: self.on_demand_subscription(
@@ -1910,7 +1910,8 @@ class RosRobot:
         """Wait for the next frame on the camera's on-demand subscription (subscribed by the first call).
 
         Args:
-            camera (str): A camera_topics name ('head' is the head D435 colour camera); CompressedImage topics.
+            camera (str): A camera_topics name ('head' the head D435 colour, 'front' / 'back' the body-fixed CSI
+                cameras); CompressedImage topics.
             max_px (int): Longest side.
 
         Returns:

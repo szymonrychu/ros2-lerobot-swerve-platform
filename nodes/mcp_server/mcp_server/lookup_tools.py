@@ -352,8 +352,8 @@ def register(ctx: ToolContext) -> None:
         camera: Annotated[
             str | None,
             Field(
-                description="Camera name the photo was saved with: new photos are 'head' (the D435 colour camera); "
-                "older ones may be 'gripper' (the retired gripper camera)"
+                description="Camera name the photo was saved with: 'head' (the D435 colour camera), 'front' or "
+                "'back' (the body-fixed CSI cameras); older ones may be 'gripper' (the retired gripper camera)"
             ),
         ] = None,
         mcp_session: Annotated[str | None, Field(description="Only lookups taken in this MCP session")] = None,
