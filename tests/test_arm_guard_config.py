@@ -63,3 +63,27 @@ def test_filter_node_node_type_ships_the_urdf_and_the_kernels() -> None:
     node_type = client_vars()["ros2_node_type_defaults"]["filter_node"]
     assert node_type["src_shared"] is True
     assert set(node_type["src_extra_paths"]) == {"nodes/mcp_server/mcp_core_cpp", "nodes/web_ui/urdf"}
+
+
+GRIPPER_RANGE_KEYS = ("source_min_steps", "source_max_steps", "command_min_steps", "command_max_steps")
+
+
+def test_follower_gripper_command_range_is_configured_in_full() -> None:
+    """The follower bridge uses a configured command range only with both ends: 1900..3377 (the servo's own angle
+    limits, read by its startup register dump), so the guard can read the same values."""
+    joints = client_node("lerobot_follower")["joint_names"]
+    gripper = next(j for j in joints if j["name"] == "gripper")
+    assert (gripper["command_min_steps"], gripper["command_max_steps"]) == (1900, 3377)
+
+
+def test_filter_node_leader_gripper_equals_the_follower_bridge_mapping() -> None:
+    """The guard converts a leader gripper command with exactly the follower bridge's range mapping."""
+    joints = client_node("lerobot_follower")["joint_names"]
+    bridge = next(j for j in joints if j["name"] == "gripper")
+    guard = client_node("filter_node")["self_collision_guard"]["leader_gripper"]
+    assert guard.get("joint", "gripper") == bridge["name"]
+    assert {k: guard[k] for k in GRIPPER_RANGE_KEYS} == {k: bridge[k] for k in GRIPPER_RANGE_KEYS}
+    assert guard.get("source_inverted", False) == bridge.get("source_inverted", False)
+    assert guard.get("inverted", False) == bridge.get("inverted", False)
+    direct = client_node("lerobot_follower")["direct_command_sources"]
+    assert "leader" not in direct and {"web_ui", "autonomy"} <= set(direct)

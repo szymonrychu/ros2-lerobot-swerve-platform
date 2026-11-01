@@ -257,3 +257,36 @@ def test_bad_self_collision_guard_values_raise(tmp_path: Path, bad: str) -> None
     path.write_text(bad)
     with pytest.raises(ValidationError):
         load_config(path)
+
+
+def test_leader_gripper_block_parses_and_defaults_off(tmp_path: Path) -> None:
+    """leader_gripper carries the bridge's gripper range mapping; without it leader commands are checked as sent."""
+    path = tmp_path / "c.yaml"
+    path.write_text("self_collision_guard:\n  arm: {}\n")
+    assert load_config(path).self_collision_guard.leader_gripper is None
+    path.write_text(
+        "self_collision_guard:\n  arm: {}\n  leader_gripper:\n    source_min_steps: 2045\n    source_max_steps: 3289\n"
+        "    command_min_steps: 1900\n    command_max_steps: 3377\n"
+    )
+    gripper = load_config(path).self_collision_guard.leader_gripper
+    assert (gripper.joint, gripper.source_min_steps, gripper.source_max_steps) == ("gripper", 2045, 3289)
+    assert (gripper.command_min_steps, gripper.command_max_steps) == (1900, 3377)
+    assert not gripper.source_inverted and not gripper.inverted
+
+
+@pytest.mark.parametrize(
+    "ranges",
+    [
+        "source_min_steps: 3289\n    source_max_steps: 2045\n    command_min_steps: 1900\n    command_max_steps: 3377",
+        "source_min_steps: 2045\n    source_max_steps: 3289\n    command_min_steps: 3377\n    command_max_steps: 3377",
+        "source_min_steps: 2045\n    source_max_steps: 4096\n    command_min_steps: 1900\n    command_max_steps: 3377",
+        "source_min_steps: 2045\n    source_max_steps: 3289\n    command_min_steps: 1900",
+    ],
+    ids=["source_reversed", "command_empty", "out_of_range", "command_max_missing"],
+)
+def test_bad_leader_gripper_ranges_raise(tmp_path: Path, ranges: str) -> None:
+    """Both ranges are required, within 0..4095 and min below max."""
+    path = tmp_path / "c.yaml"
+    path.write_text(f"self_collision_guard:\n  arm: {{}}\n  leader_gripper:\n    {ranges}\n")
+    with pytest.raises(ValidationError):
+        load_config(path)

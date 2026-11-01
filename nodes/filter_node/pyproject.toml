@@ -10,6 +10,7 @@ dependencies = [
     "ros2-metrics",
     "pydantic==2.13.5",
     "arm-collision",
+    "feetech-mapping",
 ]
 
 [dependency-groups]
@@ -28,6 +29,8 @@ build-backend = "hatchling.build"
 ros2-metrics = { path = "../../shared/ros2_metrics", editable = true }
 # rclpy-free arm collision model (body, kinematics, checker) shared with mcp_server: the self-collision guard.
 arm-collision = { path = "../../shared/arm_collision", editable = true }
+# The bridge's leader -> follower range mapping: the guard checks a leader gripper command in follower radians.
+feetech-mapping = { path = "../../shared/feetech_mapping", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["filter_node"]

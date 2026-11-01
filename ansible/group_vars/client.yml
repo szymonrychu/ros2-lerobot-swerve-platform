@@ -1337,6 +1337,14 @@ ros2_nodes:
           joint_limit_overrides_rad:
             shoulder_lift: [-1.745, 1.9]
           base_in_base_link: {x: 0.0592, y: -0.05, z: 0.100, yaw: 0.0}
+        # Leader commands carry the gripper in leader radians; lerobot_follower maps them onto the follower range.
+        # Equal to its gripper joint entry (tests/test_arm_guard_config.py): the check sees the follower gripper.
+        leader_gripper:
+          joint: gripper
+          source_min_steps: 2045
+          source_max_steps: 3289
+          command_min_steps: 1900
+          command_max_steps: 3377
   - name: test_joint_api
     node_type: test_joint_api
     present: true
@@ -2050,7 +2058,11 @@ ros2_nodes:
           id: 6
           source_min_steps: 2045
           source_max_steps: 3289
+          # The command range is used only with both ends (else the servo's min/max_angle_limit are read at start):
+          # these are those limits (startup register dump of servo 6, 2026-11-01), so the behaviour is unchanged and
+          # filter_node's guard reads the same mapping (self_collision_guard.leader_gripper, tests/test_arm_guard_config.py).
           command_min_steps: 1900
+          command_max_steps: 3377
   # Swerve base servos (IDs 32-39) on their own bus: the original adapter, served as /swerve_drive/* by a second
   # feetech_servos instance.
   - name: base_servos

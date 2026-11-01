@@ -7,8 +7,10 @@ from typing import Any
 import pytest
 from arm_collision.head import HeadPose
 from arm_collision.self_collision import ESCAPE_TOLERANCE_M
+from feetech_mapping.command_mapping import RADIANS_PER_STEP, map_position_to_steps, steps_to_radians
 
-from filter_node.guard import UNKNOWN_POSE, ArmGuard
+from filter_node.config import LeaderGripperSettings
+from filter_node.guard import UNKNOWN_POSE, ArmGuard, follower_to_leader, leader_to_follower
 
 from .arm_fixture import (
     CHECKER,
@@ -219,3 +221,93 @@ def test_the_head_pose_poses_the_body() -> None:
     guard = ArmGuard(checker, MAX_STEP_RAD, enabled=True, head_source=lambda: head)
     guard.admit(SOURCE, ARM_NAMES, ordered(DRIVE_POSE))
     assert checker.heads == [head]
+
+
+# The deployed follower gripper mapping (client.yml lerobot_follower joint gripper): leader source range and the
+# follower command range (the servo's min/max_angle_limit).
+LEADER_GRIPPER = LeaderGripperSettings(
+    source_min_steps=2045, source_max_steps=3289, command_min_steps=1900, command_max_steps=3377
+)
+# FakeChecker below: a gripper below this (follower rad) breaks the margin.
+GRIPPER_FLOOR_RAD = -0.1
+
+
+class GripperFloorChecker(FakeChecker):
+    """Reports the first sample whose gripper is below GRIPPER_FLOOR_RAD as the violation."""
+
+    def path(self, samples: list[dict[str, float]], allow_escape: bool = True) -> Any:
+        self.paths.append((samples, allow_escape))
+        bad = next((i for i, s in enumerate(samples) if s["gripper"] < GRIPPER_FLOOR_RAD), None)
+        return SimpleNamespace(
+            violation=bad, violation_part="moving_jaw_tip", violation_obstacle="crossbar", violation_clearance=-0.01
+        )
+
+
+def bridge_follower_rad(leader_rad: float) -> float:
+    """Where the bridge puts a leader gripper command, in follower radians (its own mapping).
+
+    Args:
+        leader_rad (float): Leader gripper position (rad).
+
+    Returns:
+        float: Follower gripper position (rad), as /follower/joint_states reports it.
+    """
+    return steps_to_radians(map_position_to_steps(leader_rad, 2045, 3289, 1900, 3377))
+
+
+def test_a_leader_gripper_command_is_judged_in_follower_units() -> None:
+    """Leader gripper 0.0 rad is safe read raw but the bridge sends it to about -0.22 follower rad: refused."""
+    assert bridge_follower_rad(0.0) < GRIPPER_FLOOR_RAD
+    checker = GripperFloorChecker()
+    guard = ArmGuard(checker, MAX_STEP_RAD, enabled=True, leader_gripper=LEADER_GRIPPER)
+    request = {**DRIVE_POSE, "gripper": 0.0}
+    result = guard.admit("leader", ARM_NAMES, ordered(request))
+    assert result.blocked
+    assert checker.paths[-1][0][-1]["gripper"] == pytest.approx(bridge_follower_rad(0.0))
+
+
+def test_a_direct_gripper_command_is_judged_as_sent() -> None:
+    """Web UI and autonomy positions already are follower radians: the same 0.0 rad is checked as 0.0 and goes out."""
+    checker = GripperFloorChecker()
+    guard = ArmGuard(checker, MAX_STEP_RAD, enabled=True, leader_gripper=LEADER_GRIPPER)
+    request = {**DRIVE_POSE, "gripper": 0.0}
+    for source in ("web_ui", "autonomy"):
+        result = guard.admit(source, ARM_NAMES, ordered(request))
+        assert not result.blocked and result.positions == ordered(request)
+        assert checker.paths[-1][0][-1]["gripper"] == 0.0
+
+
+def test_a_clean_leader_command_goes_out_in_leader_units() -> None:
+    """A clear leader command is published unchanged (leader units: the bridge maps it)."""
+    checker = GripperFloorChecker()
+    guard = ArmGuard(checker, MAX_STEP_RAD, enabled=True, leader_gripper=LEADER_GRIPPER)
+    request = {**DRIVE_POSE, "gripper": 1.0}
+    result = guard.admit("leader", ARM_NAMES, ordered(request))
+    assert result.positions == ordered(request)
+    assert checker.paths[-1][0][-1]["gripper"] == pytest.approx(bridge_follower_rad(1.0))
+
+
+def test_a_clamped_leader_gripper_goes_out_in_leader_units() -> None:
+    """The clamp of a leader command is converted back: the bridge maps the published gripper onto the safe sample."""
+    checker = GripperFloorChecker()
+    guard = ArmGuard(checker, MAX_STEP_RAD, enabled=True, leader_gripper=LEADER_GRIPPER)
+    guard.seed(ARM_NAMES, ordered({**DRIVE_POSE, "gripper": 0.5}))
+    result = guard.admit("leader", ARM_NAMES, ordered({**DRIVE_POSE, "gripper": 0.0}))
+    assert result.blocked and result.positions is not None
+    samples = checker.paths[-1][0]
+    first_bad = next(i for i, s in enumerate(samples) if s["gripper"] < GRIPPER_FLOOR_RAD)
+    safe = samples[first_bad - 1]["gripper"]
+    published = result.positions[ARM_NAMES.index("gripper")]
+    # One servo step of rounding: the bridge maps the published leader value back onto the safe follower sample.
+    assert bridge_follower_rad(published) == pytest.approx(safe, abs=2 * RADIANS_PER_STEP)
+    assert bridge_follower_rad(published) >= GRIPPER_FLOOR_RAD
+
+
+@pytest.mark.parametrize("leader_rad", [-0.5, 0.0, 0.3, 1.0, 1.9, 2.5])
+def test_follower_to_leader_inverts_the_bridge_mapping(leader_rad: float) -> None:
+    """follower_to_leader lands on a leader value the bridge maps back to the same follower position (to one step)."""
+    follower = bridge_follower_rad(leader_rad)
+    assert bridge_follower_rad(follower_to_leader(follower, LEADER_GRIPPER)) == pytest.approx(
+        follower, abs=RADIANS_PER_STEP
+    )
+    assert leader_to_follower(leader_rad, LEADER_GRIPPER) == pytest.approx(follower)

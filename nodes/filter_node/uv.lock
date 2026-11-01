@@ -50,11 +50,17 @@ wheels = [
 ]
 
 [[package]]
+name = "feetech-mapping"
+version = "0.1.0"
+source = { editable = "../../shared/feetech_mapping" }
+
+[[package]]
 name = "filter-node"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "arm-collision" },
+    { name = "feetech-mapping" },
     { name = "numpy" },
     { name = "pydantic" },
     { name = "pyyaml" },
@@ -72,6 +78,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "arm-collision", editable = "../../shared/arm_collision" },
+    { name = "feetech-mapping", editable = "../../shared/feetech_mapping" },
     { name = "numpy", specifier = ">=1.26.0" },
     { name = "pydantic", specifier = "==2.13.5" },
     { name = "pyyaml", specifier = ">=6.0" },

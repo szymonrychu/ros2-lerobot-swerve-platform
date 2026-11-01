@@ -4,8 +4,10 @@ The guard keeps the arm's last known pose: the last command it published, replac
 (seed), whichever came last. A request is the straight joint-space segment from that pose to the requested one, sampled
 at most max_step_rad per joint and checked by the shared SelfCollisionChecker (arm_collision) with the head posed where
 /head/joint_states puts it (the full head envelope without a fresh head state). A start already inside the hard margin
-may move out but not deeper (allow_escape). With no violation the request is published as is; otherwise the furthest
-safe sample before the first violating one, or nothing when that sample is the start (the arm holds).
+may move out but not deeper (allow_escape). A leader command's gripper is in leader radians: the follower bridge maps
+it onto the follower range (leader_gripper), so it is checked mapped and a clamp goes out mapped back. With no
+violation the request is published as is; otherwise the furthest safe sample before the first violating one, or
+nothing when that sample is the start (the arm holds).
 """
 
 import math
@@ -16,6 +18,10 @@ from typing import Any, Protocol
 
 from arm_collision.head import HeadPose
 from arm_collision.ik import ARM_CHAIN_JOINTS
+from feetech_mapping.command_mapping import RADIANS_PER_STEP, STEP_CENTER, map_position_to_steps, steps_to_radians
+
+from .arbitration import SOURCE_LEADER
+from .config import LeaderGripperSettings
 
 # Obstacle label of a refusal whose arm pose is unknown (a partial request before any command or feedback).
 UNKNOWN_POSE = "unknown_pose"
@@ -57,6 +63,47 @@ class GuardResult:
     error: str = ""
 
 
+def leader_to_follower(leader_rad: float, mapping: LeaderGripperSettings) -> float:
+    """Follower radians the bridge drives a leader gripper command to (its own map_position_to_steps).
+
+    Args:
+        leader_rad (float): Leader gripper position (rad).
+        mapping (LeaderGripperSettings): The bridge's gripper range mapping.
+
+    Returns:
+        float: Follower gripper position (rad, as /follower/joint_states reports it).
+    """
+    steps = map_position_to_steps(
+        leader_rad,
+        mapping.source_min_steps,
+        mapping.source_max_steps,
+        mapping.command_min_steps,
+        mapping.command_max_steps,
+        source_inverted=mapping.source_inverted,
+    )
+    return steps_to_radians(steps, mapping.inverted)
+
+
+def follower_to_leader(follower_rad: float, mapping: LeaderGripperSettings) -> float:
+    """Leader radians the bridge maps onto a follower gripper position (the inverse of leader_to_follower, clamped to
+    the follower command range).
+
+    Args:
+        follower_rad (float): Follower gripper position (rad).
+        mapping (LeaderGripperSettings): The bridge's gripper range mapping.
+
+    Returns:
+        float: Leader gripper position (rad).
+    """
+    steps = (-follower_rad if mapping.inverted else follower_rad) / RADIANS_PER_STEP + STEP_CENTER
+    span = mapping.command_max_steps - mapping.command_min_steps
+    progress = min(1.0, max(0.0, (steps - mapping.command_min_steps) / span))
+    if mapping.source_inverted:
+        progress = 1.0 - progress
+    leader_steps = mapping.source_min_steps + progress * (mapping.source_max_steps - mapping.source_min_steps)
+    return (leader_steps - STEP_CENTER) * RADIANS_PER_STEP
+
+
 def segment(start: dict[str, float], end: dict[str, float], max_step_rad: float) -> list[dict[str, float]]:
     """Joint-space samples from start to end (both included), at most max_step_rad apart on every joint.
 
@@ -85,6 +132,7 @@ class ArmGuard:
         max_step_rad: float,
         enabled: bool,
         head_source: Callable[[], HeadPose | None] | None = None,
+        leader_gripper: LeaderGripperSettings | None = None,
     ) -> None:
         """Bind the guard to a body checker.
 
@@ -94,11 +142,14 @@ class ArmGuard:
             enabled (bool): False publishes every request unchecked.
             head_source (Callable[[], HeadPose | None] | None): Head pose of a fresh /head/joint_states sample, None
                 when missing or stale (the full head envelope); None = never a head pose.
+            leader_gripper (LeaderGripperSettings | None): The follower bridge's gripper range mapping of leader
+                commands; None checks leader commands as sent.
         """
         self.checker = checker
         self.max_step_rad = max_step_rad
         self.enabled = enabled
         self.head_source = head_source or (lambda: None)
+        self.leader_gripper = leader_gripper
         self.pose: dict[str, float] = {}  # the arm's last known pose: last published command or follower feedback
         self.errors = 0
 
@@ -115,19 +166,22 @@ class ArmGuard:
         """Check a request from the arm's last known pose and say what to publish.
 
         Args:
-            source (str): Command source (leader, web_ui, autonomy), for the caller's log and metrics.
+            source (str): Command source (leader, web_ui, autonomy): a leader gripper is mapped (leader_gripper).
             names (Sequence[str]): Requested joint names.
             positions (Sequence[float]): Requested positions (rad, measured space), aligned with names.
 
         Returns:
             GuardResult: The request, its clamp or None to publish, with the violation and the check time.
         """
-        del source  # the verdict does not depend on the source; the caller labels its log and metrics with it
         request = {n: float(p) for n, p in zip(names, positions, strict=False)}
         if not self.enabled:
             return GuardResult(list(request.values()))
         began = time.perf_counter()
-        end = {**self.pose, **request}
+        gripper = self.leader_gripper if source == SOURCE_LEADER else None
+        checked = dict(request)  # the request in follower radians (as the bridge will drive it)
+        if gripper is not None and gripper.joint in checked:
+            checked[gripper.joint] = leader_to_follower(checked[gripper.joint], gripper)
+        end = {**self.pose, **checked}
         if any(j not in end for j in ARM_CHAIN_JOINTS):
             return GuardResult(None, blocked=True, obstacle=UNKNOWN_POSE, check_seconds=time.perf_counter() - began)
         has_start = all(j in self.pose for j in end)
@@ -142,10 +196,14 @@ class ArmGuard:
             self.pose = end
             return GuardResult(list(request.values()), check_seconds=elapsed)
         clamp = samples[report.violation - 1] if report.violation > 1 else None
+        published = None
         if clamp is not None:
             self.pose = clamp
+            published = dict(clamp)
+            if gripper is not None and gripper.joint in request:
+                published[gripper.joint] = follower_to_leader(clamp[gripper.joint], gripper)
         return GuardResult(
-            [clamp[n] for n in request] if clamp is not None else None,
+            [published[n] for n in request] if published is not None else None,
             blocked=True,
             link=report.violation_part,
             obstacle=report.violation_obstacle,

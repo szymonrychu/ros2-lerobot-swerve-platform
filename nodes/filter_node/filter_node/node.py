@@ -114,7 +114,7 @@ def build_arm_guard(settings: GuardSettings, head_source: Callable[[], HeadPose 
         soft_margin_m=max(settings.hard_margin_m, BodyCheckSettings().soft_margin_m),
     )
     checker = SelfCollisionChecker.from_settings(kin, load_robot_body(), check, arm, jaw)
-    return ArmGuard(checker, settings.max_step_rad, settings.enabled, head_source)
+    return ArmGuard(checker, settings.max_step_rad, settings.enabled, head_source, settings.leader_gripper)
 
 
 def run_filter_node(config: FilterConfig) -> None:

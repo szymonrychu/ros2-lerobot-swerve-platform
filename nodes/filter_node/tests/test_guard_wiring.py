@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 import pytest
 from arm_collision.head import HeadPose
 
-from filter_node.config import FilterConfig, GuardSettings
+from filter_node.config import FilterConfig, GuardSettings, LeaderGripperSettings
 from filter_node.guard import ArmGuard
 
 from .arm_fixture import ARM, CHECKER, DRIVE_POSE, HARD_MARGIN_M, PARKED_HOME, WHEEL_FR_PRESSED
@@ -269,3 +269,13 @@ def test_the_head_state_poses_the_head_while_fresh(harness: Harness) -> None:
     ]
     harness.run()
     assert seen == [HeadPose(pan=0.2, tilt=0.5), None]
+
+
+def test_build_arm_guard_maps_leader_grippers_with_the_configured_mapping() -> None:
+    """The guard built from the config converts leader grippers with its leader_gripper block."""
+    mapping = LeaderGripperSettings(
+        source_min_steps=2045, source_max_steps=3289, command_min_steps=1900, command_max_steps=3377
+    )
+    module = importlib.import_module("filter_node.node")
+    guard = module.build_arm_guard(GuardSettings(arm=ARM, leader_gripper=mapping), lambda: None)
+    assert guard.leader_gripper == mapping

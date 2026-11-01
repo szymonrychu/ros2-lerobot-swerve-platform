@@ -8,7 +8,7 @@ from typing import Any
 import yaml
 from arm_collision.self_collision import JOINT_LINE_STEP_RAD
 from arm_collision.settings import ArmModelSettings, BodyCheckSettings, StrictModel
-from pydantic import Field
+from pydantic import Field, model_validator
 
 DEFAULT_CONFIG_PATH = Path("/etc/ros2/filter_node/config.yaml")
 ENV_CONFIG_PATH_KEY = "FILTER_NODE_CONFIG"
@@ -26,6 +26,45 @@ DEFAULT_HEAD_STATE_MAX_AGE_S = 0.5
 MAX_GUARD_STEP_RAD = 0.5
 # Upper bound of a hard margin (m), as BodyCheckSettings.hard_margin_m bounds it.
 MAX_HARD_MARGIN_M = 0.2
+# Feetech raw step range (STS3215: 4096 steps per turn).
+SERVO_STEPS_MAX = 4095
+
+
+class LeaderGripperSettings(StrictModel):
+    """The follower bridge's leader -> follower range mapping of the gripper (lerobot_follower joint_names entry):
+    leader commands reach the bridge in leader radians and are mapped onto the follower command range, so the guard
+    checks them where the bridge will put them (feetech_mapping.command_mapping.map_position_to_steps).
+
+    Attributes:
+        joint: Gripper joint name.
+        source_min_steps: Leader range minimum (raw steps).
+        source_max_steps: Leader range maximum (raw steps).
+        source_inverted: Invert the leader progress before mapping.
+        command_min_steps: Follower command range minimum (raw steps; the servo's min_angle_limit).
+        command_max_steps: Follower command range maximum (raw steps; the servo's max_angle_limit).
+        inverted: Follower joint direction opposite to the servo's (as /follower/joint_states reports it).
+    """
+
+    joint: str = "gripper"
+    source_min_steps: int = Field(ge=0, le=SERVO_STEPS_MAX)
+    source_max_steps: int = Field(ge=0, le=SERVO_STEPS_MAX)
+    source_inverted: bool = False
+    command_min_steps: int = Field(ge=0, le=SERVO_STEPS_MAX)
+    command_max_steps: int = Field(ge=0, le=SERVO_STEPS_MAX)
+    inverted: bool = False
+
+    @model_validator(mode="after")
+    def ranges_ascending(self) -> "LeaderGripperSettings":
+        """Require min below max in both ranges.
+
+        Returns:
+            LeaderGripperSettings: The validated settings.
+        """
+        if not self.source_min_steps < self.source_max_steps:
+            raise ValueError("leader_gripper.source_min_steps must be below source_max_steps")
+        if not self.command_min_steps < self.command_max_steps:
+            raise ValueError("leader_gripper.command_min_steps must be below command_max_steps")
+        return self
 
 
 class GuardSettings(StrictModel):
@@ -39,6 +78,8 @@ class GuardSettings(StrictModel):
         head_state_topic: Head pan/tilt (sensor_msgs/JointState): the D435 head is posed where it is.
         head_state_max_age_s: Older head states are stale: the full head envelope is checked instead.
         arm: Arm URDF, mount and calibration (the shared ArmModelSettings, equal to mcp_server's arm values).
+        leader_gripper: The follower bridge's gripper range mapping, applied to leader commands before the check;
+            None checks leader commands as sent.
     """
 
     enabled: bool = True
@@ -51,6 +92,7 @@ class GuardSettings(StrictModel):
     head_state_topic: str = Field(default=DEFAULT_HEAD_STATE_TOPIC, pattern=r"^/[A-Za-z0-9_/]+$")
     head_state_max_age_s: float = Field(default=DEFAULT_HEAD_STATE_MAX_AGE_S, gt=0.0)
     arm: ArmModelSettings
+    leader_gripper: LeaderGripperSettings | None = None
 
 
 @dataclass
