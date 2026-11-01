@@ -9,10 +9,10 @@ EXPECTED_BOXES = [
     ("head_arm", (0.12, 0.10, 0.30), (0.08, 0.024, 0.024)),
 ]
 EXPECTED_CYLINDERS = [
-    ("wheel_fl", 0.1525, 0.1333, 0.0625, 0.0, 0.17),
-    ("wheel_fr", 0.1525, -0.1333, 0.0625, 0.0, 0.17),
-    ("wheel_rl", -0.1525, 0.1333, 0.0625, 0.0, 0.17),
-    ("wheel_rr", -0.1525, -0.1333, 0.0625, 0.0, 0.17),
+    ("wheel_fl", 0.1525, 0.1333, 0.0625, 0.0, 0.15),
+    ("wheel_fr", 0.1525, -0.1333, 0.0625, 0.0, 0.15),
+    ("wheel_rl", -0.1525, 0.1333, 0.0625, 0.0, 0.15),
+    ("wheel_rr", -0.1525, -0.1333, 0.0625, 0.0, 0.15),
     ("lidar", 0.150, 0.040, 0.037, 0.10, 0.21),
     ("head_post", 0.09, 0.10, 0.012, 0.0, 0.30),
     ("head", 0.15, 0.10, 0.075, 0.287, 0.396),
@@ -20,7 +20,7 @@ EXPECTED_CYLINDERS = [
 
 
 def test_load_robot_body_returns_the_deployed_boxes_and_cylinders() -> None:
-    """load_robot_body() returns the deployed body (client.yml 2026-11-01) with the wheels 5 cm higher and the head, in
+    """load_robot_body() returns the deployed body (client.yml 2026-11-01) with the wheels 3 cm above the tyres and the head, in
     order."""
     body = load_robot_body()
     assert isinstance(body, BodySettings)

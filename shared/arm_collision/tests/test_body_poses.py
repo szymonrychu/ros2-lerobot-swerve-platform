@@ -42,7 +42,7 @@ CHECK = BodyCheckSettings()
 CHECKER = SelfCollisionChecker.from_settings(KIN, load_robot_body(), CHECK, ARM, JAW)
 MOUNT = ARM.base_in_base_link
 SEED = {"shoulder_pan": 0.0, "shoulder_lift": 0.0, "elbow_flex": 1.2, "wrist_flex": 0.3, "wrist_roll": 0.0}
-# Top of the physical wheel (60 mm radius on a 60 mm axle height): the wheel obstacle reaches 5 cm above it.
+# Top of the physical wheel (60 mm radius on a 60 mm axle height): the wheel obstacle reaches 3 cm above it.
 WHEEL_TOP_Z_M = 0.12
 WHEEL_FR_XY = (0.1525, -0.1333)
 HEAD_POST_XY = (0.09, 0.10)
@@ -112,13 +112,29 @@ def solve_base_link(x: float, y: float, z: float, pitch: float) -> dict[str, flo
     return joints
 
 
-def test_gripper_4_cm_above_the_wheel_top_is_rejected() -> None:
-    """Gripper pointing down over wheel_fr, its lowest point 4 cm above the wheel top: inside the 5 cm wheel margin."""
-    joints = solve_base_link(*WHEEL_FR_XY, WHEEL_TOP_Z_M + 0.04, math.pi / 2)
+def gripper_above_wheel_fr(height_m: float) -> dict[str, float]:
+    """Gripper pointing down over wheel_fr, its lowest point height_m above the wheel top (FK-checked to 5 mm).
+
+    Args:
+        height_m (float): Height of the gripper's lowest point above the wheel top (m).
+
+    Returns:
+        dict[str, float]: Joint configuration.
+    """
+    joints = solve_base_link(*WHEEL_FR_XY, WHEEL_TOP_Z_M + height_m, math.pi / 2)
     lowest = min(float(points[..., 2].min()) for points in CHECKER.part_points(joints).values())
-    assert lowest == pytest.approx(WHEEL_TOP_Z_M + 0.04, abs=0.005)  # FK check: the gripper ends 4 cm above the wheel
-    check = CHECKER.pose(joints)
-    assert check.per_obstacle["wheel_fr"][0] < CHECK.hard_margin_m
+    assert lowest == pytest.approx(WHEEL_TOP_Z_M + height_m, abs=0.005)
+    return joints
+
+
+def test_gripper_2_cm_above_the_wheel_top_is_rejected() -> None:
+    """Gripper pointing down over wheel_fr, its lowest point 2 cm above the wheel top: inside the 3 cm wheel envelope."""
+    assert CHECKER.pose(gripper_above_wheel_fr(0.02)).per_obstacle["wheel_fr"][0] < CHECK.hard_margin_m
+
+
+def test_gripper_4_cm_above_the_wheel_top_clears_the_wheel() -> None:
+    """Gripper 4 cm above the wheel top: 1 cm over the 3 cm wheel envelope, clear of the 5 mm keep-away."""
+    assert CHECKER.pose(gripper_above_wheel_fr(0.04)).per_obstacle["wheel_fr"][0] > CHECK.hard_margin_m
 
 
 def test_touching_the_head_post_at_z_0_2_is_rejected() -> None:
