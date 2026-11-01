@@ -2001,6 +2001,8 @@ ros2_nodes:
       metrics_port: 19101
       # ROS node name and metrics `node` label of this instance (base_servos is the second bridge on this host).
       node_name: lerobot_follower
+      # Arm motion goes through filter_node's self-collision guard: set_register may not write goal_position/goal_speed/goal_time.
+      set_register_motion_blocked: true
       # The arm (IDs 1-6) alone on its own adapter; the swerve base runs in base_servos on the other adapter.
       device: /dev/serial/by-id/usb-1a86_USB_Single_Serial_5AE6081020-if00
       namespace: follower

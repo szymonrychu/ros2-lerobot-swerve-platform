@@ -167,6 +167,8 @@ class BridgeConfig:
         metrics_port: Prometheus /metrics port on 127.0.0.1; None (default) disables the exporter.
         node_name: ROS node name and metrics node label of this instance (distinct per bridge on one host);
             None (default) keeps feetech_servos_bridge / lerobot_follower.
+        set_register_motion_blocked: If True, set_register refuses goal_position, goal_speed and goal_time for every
+            joint, so the self-collision guard in filter_node cannot be bypassed (the follower arm bridge).
         goal_refresh_interval_s: An unchanged goal_position target is rewritten when its last sync write is this
             old (a broadcast has no reply, so a lost packet or a servo reset is otherwise never corrected); 0 = off.
         read_failure_limit: Consecutive failed state reads before a servo is left out of the sync read.
@@ -201,6 +203,7 @@ class BridgeConfig:
     direct_command_sources: list[str] = field(default_factory=list)
     metrics_port: int | None = None
     node_name: str | None = None
+    set_register_motion_blocked: bool = False
     goal_refresh_interval_s: float = DEFAULT_GOAL_REFRESH_INTERVAL_S
     read_failure_limit: int = DEFAULT_READ_FAILURE_LIMIT
     read_retry_interval_s: float = DEFAULT_READ_RETRY_INTERVAL_S
@@ -648,6 +651,7 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         direct_command_sources=direct_command_sources,
         metrics_port=int(raw_metrics_port) if raw_metrics_port is not None else None,
         node_name=node_name,
+        set_register_motion_blocked=bool(data.get("set_register_motion_blocked", False)),
         goal_refresh_interval_s=goal_refresh_interval_s,
         read_failure_limit=read_failure_limit,
         read_retry_interval_s=read_retry_interval_s,
