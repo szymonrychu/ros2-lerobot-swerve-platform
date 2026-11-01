@@ -277,7 +277,7 @@ arm_sequence:
   # FK pose check before every arm command (shared core arm_pose_check); its body is the packaged robot body
   # (shared/arm_collision/arm_collision/robot_body.yaml, loaded by the BodyConfig defaults).
   pose_check:
-    margin_m: 0.03 # clearance of the arm links (and the board, plus provisional_margin_m) from body and head, m
+    margin_m: 0.005 # clearance of the arm links (and the board, plus provisional_margin_m) from body and head, m
     min_tool_height_m: 0.1 # tool point above the floor, m
     min_board_height_m: 0.05 # every board outline point above the floor, m
     link_radius_m: 0.025 # radius of the upper arm, forearm and wrist capsules, m

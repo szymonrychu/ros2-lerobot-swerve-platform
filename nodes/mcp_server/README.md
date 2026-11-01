@@ -1113,7 +1113,7 @@ head_rgbd_calibration service group only); the shared MCP token that claude_agen
 answers 503 while the token file is missing or short. `release_control` has no board argument and keeps refusing every
 carried object. The body is `{"mount": {"xyz": [x, y, z], "rpy": [r, p, y]}}` and nothing else: the board outline,
 clearances and floor height are mcp_server's own `calibration_board:` config (board squares, `outline_margin_m`,
-`lattice_points`, `margin_m` 0.09, `min_height_m` 0.06, the configured `mount_*`), pinned equal to head_rgbd_calibration's
+`lattice_points`, `margin_m` 0.065, `min_height_m` 0.06, the configured `mount_*`), pinned equal to head_rgbd_calibration's
 by `tests/test_board_park_config.py`; a mount further than `mount_tolerance_m` (30 mm) or `mount_tolerance_deg` (10 deg)
 from the configured one answers 400. `ControlManager.park_calibration_board` then ignores the `holding load` reason alone
 (a held grasp or a `carried_object_radius_m` record still refuses, naming only those reasons), requires the arm lease,

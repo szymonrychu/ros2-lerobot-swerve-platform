@@ -31,7 +31,8 @@ def make(tmp_path: Path, body_check: bool = False) -> tuple[ArmController, FakeA
 
     Args:
         tmp_path (Path): Test directory (home file).
-        body_check (bool): Keep the robot body check (its soft margin slows the PAN move from the zero pose).
+        body_check (bool): Keep the robot body check with a configured 3 cm slow band (it slows the PAN move from the
+            zero pose; the deployed 5 mm keep-away has no slow band).
 
     Returns:
         tuple[ArmController, FakeArmBackend]: Controller and backend.
@@ -40,6 +41,7 @@ def make(tmp_path: Path, body_check: bool = False) -> tuple[ArmController, FakeA
     cfg = CONFIG.model_copy(deep=True)
     cfg.arm.home_file = tmp_path / "arm" / "home.yaml"
     cfg.body_check.enabled = body_check
+    cfg.body_check.soft_margin_m = 0.03
     return ArmController(be, KIN, load_joint_limits(cfg.arm.urdf_path), cfg), be
 
 

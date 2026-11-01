@@ -107,8 +107,8 @@ class CalibrationBoardSettings(StrictModel):
     mount_rpy_rad: tuple[float, float, float] = (3.141593, 0.0, 0.185886)  # fixed-axis xyz rotation
     mount_tolerance_m: float = Field(default=0.03, gt=0)
     mount_tolerance_deg: float = Field(default=10.0, gt=0)
-    # Clearance of the board from every body obstacle: 0.03 margin + 0.05 hand-measured-mount allowance + 0.01 sag.
-    margin_m: float = Field(default=0.09, ge=0, le=0.3)
+    # Clearance of the board from every body obstacle: 0.005 margin + 0.05 hand-measured-mount allowance + 0.01 sag.
+    margin_m: float = Field(default=0.065, ge=0, le=0.3)
     min_height_m: float = Field(default=0.06, ge=0, le=0.5)  # lowest board point above the floor, sag included
 
 

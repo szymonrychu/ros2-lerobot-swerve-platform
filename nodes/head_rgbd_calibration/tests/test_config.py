@@ -279,8 +279,8 @@ def test_arm_sequence_defaults() -> None:
 
 def test_arm_sequence_board_margin() -> None:
     seq = NodeConfig().arm_sequence
-    assert seq.board_margin_m(nominal_mount=True) == pytest.approx(0.03 + 0.05)
-    assert seq.board_margin_m(nominal_mount=False) == pytest.approx(0.03)
+    assert seq.board_margin_m(nominal_mount=True) == pytest.approx(0.005 + 0.05)
+    assert seq.board_margin_m(nominal_mount=False) == pytest.approx(0.005)
 
 
 @pytest.mark.parametrize("speed", [0.0, -0.1, 0.31])

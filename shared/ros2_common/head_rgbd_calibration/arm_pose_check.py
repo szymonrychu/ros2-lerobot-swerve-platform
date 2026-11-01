@@ -136,7 +136,7 @@ class PoseCheckConfig(StrictModel):
     """
 
     body: BodyConfig = Field(default_factory=BodyConfig)
-    margin_m: float = Field(default=0.03, ge=0)
+    margin_m: float = Field(default=0.005, ge=0)  # the 5 mm keep-away of every body part
     min_tool_height_m: float = Field(default=0.10, ge=0)
     min_board_height_m: float = Field(default=0.05, ge=0)
     link_radius_m: float = Field(default=0.025, ge=0)

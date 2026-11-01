@@ -185,7 +185,7 @@ def variants() -> dict[str, tuple[SelfCollisionChecker, ReachMapSettings]]:
         "tool": (SelfCollisionChecker(tool_kin, CHECKER.body, CONFIG.body_check, CHECKER.mount, tool_jaw), settings),
         "hard_margin": (
             SelfCollisionChecker(
-                kin, CHECKER.body, CONFIG.body_check.model_copy(update={"hard_margin_m": 0.005}), CHECKER.mount, jaw
+                kin, CHECKER.body, CONFIG.body_check.model_copy(update={"hard_margin_m": 0.004}), CHECKER.mount, jaw
             ),
             settings,
         ),

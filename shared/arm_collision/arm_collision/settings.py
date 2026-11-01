@@ -138,13 +138,14 @@ class BodyCheckSettings(StrictModel):
 
     A sample whose link clearance to an obstacle is below soft_margin_m runs at slow_speed_scale (the floor guard's
     scale applies too; the slower wins); below hard_margin_m (or penetrating) the whole motion is rejected before it
-    starts. get_arm_reach's envelope grid: shoulder_pan headings every reach_heading_step_deg, tool heights 0 ..
+    starts. Both default to one 5 mm keep-away for every body part (user decision 2026-11-01): no slow band, only an
+    escape from inside the margin runs slowed. get_arm_reach's envelope grid: shoulder_pan headings every reach_heading_step_deg, tool heights 0 ..
     reach_height_max_m every reach_height_step_m (base_link z).
     """
 
     enabled: bool = True
-    soft_margin_m: float = Field(default=0.03, gt=0.0, le=0.2)
-    hard_margin_m: float = Field(default=0.002, ge=0.0, le=0.2)
+    soft_margin_m: float = Field(default=0.005, gt=0.0, le=0.2)
+    hard_margin_m: float = Field(default=0.005, ge=0.0, le=0.2)
     slow_speed_scale: float = Field(default=0.3, gt=0.0, le=1.0)
     reach_heading_step_deg: float = Field(default=15.0, ge=5.0, le=90.0)
     reach_height_max_m: float = Field(default=0.35, gt=0.0, le=1.0)
@@ -156,15 +157,15 @@ class BodyCheckSettings(StrictModel):
     reach_cache_file: Path | None = None
 
     @model_validator(mode="after")
-    def hard_below_soft(self) -> "BodyCheckSettings":
-        """Require hard_margin_m below soft_margin_m (the slow band lies between them).
+    def hard_at_most_soft(self) -> "BodyCheckSettings":
+        """Require hard_margin_m at most soft_margin_m (a slow band, if any, lies between them).
 
         Returns:
             BodyCheckSettings: The validated settings.
         """
-        if not self.hard_margin_m < self.soft_margin_m:
+        if self.hard_margin_m > self.soft_margin_m:
             raise ValueError(
-                f"body_check.hard_margin_m ({self.hard_margin_m}) must be below soft_margin_m ({self.soft_margin_m})"
+                f"body_check.hard_margin_m ({self.hard_margin_m}) must be at most soft_margin_m ({self.soft_margin_m})"
             )
         return self
 

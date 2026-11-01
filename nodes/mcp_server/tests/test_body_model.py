@@ -158,14 +158,17 @@ def test_obstacle_names_unique() -> None:
         BodySettings(boxes=[box], cylinders=[cyl])
 
 
-def test_hard_margin_below_soft_margin() -> None:
+def test_hard_margin_at_most_soft_margin() -> None:
+    """One 5 mm keep-away for every body part: hard and soft margins default equal (no slow band); hard may equal soft,
+    never exceed it."""
     with pytest.raises(ValidationError):
-        BodyCheckSettings(soft_margin_m=0.02, hard_margin_m=0.02)
+        BodyCheckSettings(soft_margin_m=0.02, hard_margin_m=0.021)
+    assert BodyCheckSettings(soft_margin_m=0.02, hard_margin_m=0.02).hard_margin_m == 0.02
     settings = BodyCheckSettings()
     assert (settings.enabled, settings.soft_margin_m, settings.hard_margin_m, settings.slow_speed_scale) == (
         True,
-        0.03,
-        0.002,
+        0.005,
+        0.005,
         0.3,
     )
 

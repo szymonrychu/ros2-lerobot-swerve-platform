@@ -19,7 +19,7 @@ from arm_collision.self_collision import SelfCollisionChecker, joint_line
 from mcp_server.config import REPO_ROOT, BodyCheckSettings, McpServerConfig
 from mcp_server.floor_guard import JawModel
 
-CONFIG_HARD_MARGIN_M = 0.002
+CONFIG_HARD_MARGIN_M = 0.005
 MJCF = REPO_ROOT / "sim/grasp_sim/assets/so101/so101.xml"
 # MJCF body -> URDF link (the frames coincide: same origins and axes for the same raw joint angles).
 BODY_LINKS = {"upper_arm": "upper_arm_link", "lower_arm": "lower_arm_link", "wrist": "wrist_link"}
@@ -49,7 +49,7 @@ UPPER_ARM_IN_DOME = {
     "wrist_flex": 0.0,
     "wrist_roll": 0.0,
 }
-# The upper arm box 23 mm from the dome edge (inside the soft margin by its distance, but contact-only): no slowdown.
+# The upper arm box 13 mm from the dome edge (inside a 3 cm slow band by its distance, but contact-only): no slowdown.
 UPPER_ARM_NEAR_DOME = {
     "shoulder_pan": -0.4,
     "shoulder_lift": -0.6,
@@ -173,16 +173,20 @@ def test_home_stays_clear_of_the_hard_margin_with_the_upper_arm_boxes() -> None:
 
 
 def test_the_upper_arm_boxes_never_slow_a_motion() -> None:
-    """With the upper arm box 23 mm from the dome edge there is no slowdown from it (contact only); the hard check
-    still sees it (the effective clearance is the box distance plus the hard margin). The head is measured at home
-    (as on the robot): its full pan/tilt envelope would slow this raised arm by itself."""
+    """With the upper arm box 13 mm from the dome edge, inside a configured 3 cm slow band (the deployed keep-away
+    has none), there is no slowdown from it (contact only); the hard check still sees it (the effective clearance is
+    the box distance plus the hard margin). The head is measured at home (as on the robot): its full pan/tilt envelope
+    would slow this raised arm by itself."""
     near = UPPER_ARM_NEAR_DOME
-    checker = CHECKER.posed(HEAD_HOME)
+    slow_band = CONFIG.body_check.model_copy(update={"soft_margin_m": 0.03})
+    checker = SelfCollisionChecker.from_settings(
+        KIN, CONFIG.body, slow_band, CONFIG.arm, JawModel(KIN, CONFIG.arm.jaw_open_axis, CONFIG.arm.gripper_closed_rad)
+    ).posed(HEAD_HOME)
     report = checker.path(joint_line(near, near | {"elbow_flex": 0.3}, 0.05))
     assert not report.rejected
     assert report.scales == [1.0] * len(report.scales)
     assert checker.pose(near).part == "upper arm"
-    assert CONFIG.body_check.hard_margin_m < checker.pose(near).min_clearance < CONFIG.body_check.soft_margin_m
+    assert slow_band.hard_margin_m < checker.pose(near).min_clearance < slow_band.soft_margin_m
 
 
 def test_box_point_spacing_cannot_hide_a_hard_margin_violation() -> None:

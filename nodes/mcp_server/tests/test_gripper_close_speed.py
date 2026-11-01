@@ -174,10 +174,11 @@ def jaw_swing(cfg: McpServerConfig) -> list[dict[str, float]]:
 
 def test_body_soft_band_of_a_gripper_motion_ignores_stationary_links() -> None:
     cfg = deployed_config()
-    checker = body_checker(cfg)
+    # A configured 3 cm slow band (the deployed 5 mm keep-away has none): the upper arm sits inside it at the lidar.
+    checker = body_checker(cfg, cfg.body_check.model_copy(update={"soft_margin_m": 0.03}))
     samples = jaw_swing(cfg)
     plain = checker.path(samples)
-    assert min(plain.scales) < 1.0  # the upper arm sits inside the soft margin of the lidar
+    assert min(plain.scales) < 1.0  # the upper arm sits inside the slow band of the lidar
     report = checker.path(samples, moving_parts=GRIPPER_MOVING_PARTS)
     assert set(report.scales) == {1.0}
     assert report.summary() is None

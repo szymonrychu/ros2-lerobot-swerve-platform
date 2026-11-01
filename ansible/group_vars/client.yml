@@ -1906,7 +1906,7 @@ ros2_nodes:
         # FK pose check before every arm command (shared core arm_pose_check); its body is the packaged robot body
         # (shared/arm_collision/arm_collision/robot_body.yaml, loaded by the BodyConfig defaults).
         pose_check:
-          margin_m: 0.03 # clearance of the arm links (and the board, plus provisional_margin_m) from body and head, m
+          margin_m: 0.005 # clearance of the arm links (and the board, plus provisional_margin_m) from body and head, m
           min_tool_height_m: 0.1 # tool point above the floor, m
           min_board_height_m: 0.05 # every board outline point above the floor, m
           link_radius_m: 0.025 # radius of the upper arm, forearm and wrist capsules, m
@@ -2931,7 +2931,7 @@ ros2_nodes:
         mount_rpy_rad: [3.141593, 0.0, 0.185886] # fixed-axis xyz rotation
         mount_tolerance_m: 0.03
         mount_tolerance_deg: 10.0
-        margin_m: 0.09 # clearance from the body: 0.03 pose-check margin + 0.05 nominal-mount allowance + 0.01 sag
+        margin_m: 0.065 # clearance from the body: 0.005 pose-check margin + 0.05 nominal-mount allowance + 0.01 sag
         min_height_m: 0.06 # lowest board point above the floor: 0.05 + 0.01 sag
       topics:
         # Head camera (tool camera `head`): the D435 colour on the pan/tilt head (realsense_d435), 640x360 at 15 fps,
@@ -3449,14 +3449,16 @@ ros2_nodes:
           pitch_deg: 1.3
       # Robot body the arm must not hit: not configured here, the one definition is
       # shared/arm_collision/arm_collision/robot_body.yaml (mcp_server refuses a body: key).
-      # Arm self-collision soft boundary over every executed arm trajectory sample: link clearance to a body obstacle
-      # below soft_margin_m runs at slow_speed_scale (the slower of this and the floor guard wins); below hard_margin_m
-      # (or penetrating) the motion is rejected before it starts. enabled: false switches the check off. The reach_*
-      # values set get_arm_reach's envelope grid (shoulder_pan headings x tool heights in base_link).
+      # Arm self-collision boundary over every executed arm trajectory sample: link clearance to a body obstacle below
+      # hard_margin_m (or penetrating) rejects the motion before it starts; below soft_margin_m it runs at
+      # slow_speed_scale (the slower of this and the floor guard wins). One 5 mm keep-away for every body part (user
+      # decision 2026-11-01): soft equals hard, no slow band; only an escape from inside the margin runs slowed.
+      # enabled: false switches the check off. The reach_* values set get_arm_reach's envelope grid (shoulder_pan
+      # headings x tool heights in base_link).
       body_check:
         enabled: true
-        soft_margin_m: 0.03
-        hard_margin_m: 0.002
+        soft_margin_m: 0.005
+        hard_margin_m: 0.005
         slow_speed_scale: 0.3
         reach_heading_step_deg: 15
         reach_height_max_m: 0.35

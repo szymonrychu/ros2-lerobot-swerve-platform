@@ -33,6 +33,7 @@ from .test_self_collision import (
     JAW,
     KIN,
     LIDAR,
+    SLOW_BAND,
     beside_lidar,
     clear_pose,
     hover_over_lidar,
@@ -50,11 +51,24 @@ def metric(name: str, obstacle: str | None = None) -> float:
     return REGISTRY.get_sample_value(name, labels) or 0.0
 
 
-def make(tmp_path: Path, start: dict[str, float], enabled: bool = True) -> tuple[ArmController, FakeArmBackend]:
+def make(
+    tmp_path: Path, start: dict[str, float], enabled: bool = True, body_check: BodyCheckSettings | None = None
+) -> tuple[ArmController, FakeArmBackend]:
+    """Controller on a fake follower at start, the head measured at home.
+
+    Args:
+        tmp_path (Path): Test directory (home file).
+        start (dict[str, float]): Measured arm joints.
+        enabled (bool): Body check on (with the deployed settings when body_check is None).
+        body_check (BodyCheckSettings | None): Body check settings instead of the deployed ones (a slow band).
+
+    Returns:
+        tuple[ArmController, FakeArmBackend]: Controller and backend.
+    """
     be = FakeArmBackend(start | {"gripper": 0.0})
     cfg = CONFIG.model_copy(deep=True)
     cfg.arm.home_file = tmp_path / "home.yaml"
-    cfg.body_check = BodyCheckSettings(enabled=enabled)
+    cfg.body_check = body_check if body_check is not None else BodyCheckSettings(enabled=enabled)
     # The head measured at home, as on the robot: the checks pose the head there.
     return ArmController(be, KIN, load_joint_limits(cfg.arm.urdf_path), cfg, head_source=lambda: HEAD_HOME), be
 
@@ -83,15 +97,16 @@ def test_move_joints_into_the_lidar_is_refused_before_anything_moves(tmp_path: P
 
 
 def test_move_near_the_lidar_is_slowed_and_reported(tmp_path: Path) -> None:
-    arm, be = make(tmp_path, above_lidar())
+    """With a configured slow band (the deployed keep-away has none) the lowering beside the dome runs slowed."""
+    arm, be = make(tmp_path, above_lidar(), body_check=SLOW_BAND)
     goal = hover_over_lidar()
     slow_before = metric("mcp_self_collision_slowdowns_total", "lidar")
     result = arm.move_joints(goal)
     assert result.status == "converged"
     report = result.self_collision
     assert report is not None and report["obstacle"] == "lidar"
-    assert report["speed_scale"] == CONFIG.body_check.slow_speed_scale
-    assert CONFIG.body_check.hard_margin_m < report["min_clearance_m"] < CONFIG.body_check.soft_margin_m
+    assert report["speed_scale"] == SLOW_BAND.slow_speed_scale
+    assert SLOW_BAND.hard_margin_m < report["min_clearance_m"] < SLOW_BAND.soft_margin_m
     assert metric("mcp_self_collision_slowdowns_total", "lidar") == slow_before + 1
     assert metric("mcp_self_collision_min_clearance_m") == pytest.approx(report["min_clearance_m"], abs=1e-4)
     slowed_ticks = len(be.commands)
@@ -101,7 +116,7 @@ def test_move_near_the_lidar_is_slowed_and_reported(tmp_path: Path) -> None:
 
 
 def test_floor_and_body_reports_both_appear(tmp_path: Path) -> None:
-    arm, _ = make(tmp_path, above_lidar())
+    arm, _ = make(tmp_path, above_lidar(), body_check=SLOW_BAND)
     result = arm.move_joints(hover_over_lidar(), floor=FloorOverride(surface_z_m=0.5))
     assert result.slow_zone is not None and result.self_collision is not None
 
@@ -303,7 +318,7 @@ def test_get_arm_reach_describes_body_mount_margins_and_envelope(server: Any) ->
     ) == 11
     assert data["arm_mount"]["base_in_base_link"] == {"x": 0.0592, "y": -0.05, "z": 0.1, "yaw": 0.0}
     assert len(data["arm_mount"]["pan_axis_base_link"]) == 3
-    assert data["margins"] == {"enabled": True, "soft_margin_m": 0.03, "hard_margin_m": 0.002, "slow_speed_scale": 0.3}
+    assert data["margins"] == {"enabled": True, "soft_margin_m": 0.005, "hard_margin_m": 0.005, "slow_speed_scale": 0.3}
     env = data["envelope"]
     assert env["status"] == "ready"
     assert env["grid"]["heading_step_deg"] == 15.0
