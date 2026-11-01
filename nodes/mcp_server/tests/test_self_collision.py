@@ -11,13 +11,8 @@ from typing import Any
 import numpy as np
 import pytest
 import yaml
-
-from mcp_server import arm_reach
-from mcp_server.arm_reach import ReachEnvelope
-from mcp_server.config import REPO_ROOT, BodyCheckSettings, McpServerConfig
-from mcp_server.floor_guard import JawModel, arm_to_base_link, base_link_to_arm
-from mcp_server.ik import ArmKinematics
-from mcp_server.self_collision import (
+from arm_collision.ik import ArmKinematics
+from arm_collision.self_collision import (
     CHECKED_PARTS,
     SampleGeometry,
     SelfCollisionChecker,
@@ -25,10 +20,15 @@ from mcp_server.self_collision import (
     joint_line,
 )
 
+from mcp_server import arm_reach
+from mcp_server.arm_reach import ReachEnvelope
+from mcp_server.config import REPO_ROOT, BodyCheckSettings, McpServerConfig
+from mcp_server.floor_guard import JawModel, arm_to_base_link, base_link_to_arm
+
 CONFIG = McpServerConfig()
 KIN = ArmKinematics(CONFIG.arm.urdf_path, margin=CONFIG.limits.arm_limit_margin_rad)
 JAW = JawModel(KIN, CONFIG.arm.jaw_open_axis, CONFIG.arm.gripper_closed_rad)
-CHECKER = SelfCollisionChecker.from_config(KIN, CONFIG, JAW)
+CHECKER = SelfCollisionChecker.from_settings(KIN, CONFIG.body, CONFIG.body_check, CONFIG.arm, JAW)
 MOUNT = CONFIG.arm.base_in_base_link
 SEED = {"shoulder_pan": 0.0, "shoulder_lift": 0.0, "elbow_flex": 1.2, "wrist_flex": 0.3, "wrist_roll": 0.0}
 # Home pose of the 2026-10-10 calibration (docs/calibration/2026-10-10/session/scripts/fullfit.py, tip 243 mm up).
@@ -141,8 +141,8 @@ def touch_check(touch: str) -> tuple[Any, McpServerConfig]:
         (cfg.arm.tool_offset_m.x, cfg.arm.tool_offset_m.y, cfg.arm.tool_offset_m.z),
         cfg.arm.joint_limit_overrides_rad,
     )
-    checker = SelfCollisionChecker.from_config(
-        kin, cfg, JawModel(kin, cfg.arm.jaw_open_axis, cfg.arm.gripper_closed_rad)
+    checker = SelfCollisionChecker.from_settings(
+        kin, cfg.body, cfg.body_check, cfg.arm, JawModel(kin, cfg.arm.jaw_open_axis, cfg.arm.gripper_closed_rad)
     )
     entry = next(t for t in TOUCHES if t["name"] == touch)
     joints = entry["last_free"]["joints"] if "last_free" in entry else entry["hover"]["joints"]
@@ -283,7 +283,7 @@ def test_going_deeper_from_a_colliding_start_is_rejected() -> None:
 
 def test_disabled_check_passes_everything() -> None:
     cfg = CONFIG.model_copy(update={"body_check": BodyCheckSettings(enabled=False)})
-    checker = SelfCollisionChecker.from_config(KIN, cfg, JAW)
+    checker = SelfCollisionChecker.from_settings(KIN, cfg.body, cfg.body_check, cfg.arm, JAW)
     report = checker.path(joint_line(clear_pose(), lidar_pose(), 0.02))
     assert not report.rejected
     assert set(report.scales) == {1.0}

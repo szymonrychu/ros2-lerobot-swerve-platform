@@ -17,6 +17,7 @@ from typing import Any, Literal, Protocol
 
 import numpy as np
 import yaml
+from arm_collision.settings import ArmBaseOffset
 from ros2_common.camera_geometry import (
     CameraIntrinsics,
     MountPose,
@@ -25,7 +26,7 @@ from ros2_common.camera_geometry import (
 )
 from ros2_common.camera_geometry import pixel_to_ground as geometry_pixel_to_ground
 
-from .config import ArmBaseOffset, HeadSettings, IntrinsicsSettings, McpServerConfig
+from .config import HeadSettings, IntrinsicsSettings, McpServerConfig
 from .head_kinematics import HeadKinematics
 from .models import BasePose
 

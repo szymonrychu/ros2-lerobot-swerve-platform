@@ -9,11 +9,11 @@ from typing import Any
 
 import numpy as np
 import pytest
+from arm_collision.ik import ArmKinematics, UnreachableError, load_joint_limits
 
 from mcp_server.arm import ArmController, ArmError, SelfCollisionError
 from mcp_server.config import JogSettings, McpServerConfig
 from mcp_server.grasp_tools import GraspService
-from mcp_server.ik import ArmKinematics, UnreachableError, load_joint_limits
 from mcp_server.jog import Jogger, JogSpec, gripper_axes
 
 from .fakes import FakeArmBackend

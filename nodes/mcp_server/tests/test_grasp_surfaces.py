@@ -12,11 +12,11 @@ from types import ModuleType
 
 import numpy as np
 import pytest
+from arm_collision.ik import ArmKinematics
 
 from mcp_server.config import BodyCheckSettings
 from mcp_server.floor_guard import FloorGuard, FloorOverride, JawModel, SurfaceModel
 from mcp_server.grasp import GraspPlan, GraspPlanner, ObjectSpec, grasp_params
-from mcp_server.ik import ArmKinematics
 from mcp_server.surfaces import HalfPlaneEdge, SurfaceRegion
 
 SCRIPT = Path(__file__).resolve().parents[3] / "sim" / "grasp_sim" / "scripts" / "plan_matrix.py"

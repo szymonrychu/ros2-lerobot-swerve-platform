@@ -10,14 +10,14 @@ from typing import Any
 
 import numpy as np
 import pytest
+from arm_collision.ik import ArmKinematics, load_joint_limits
+from arm_collision.self_collision import GRIPPER_MOVING_PARTS, SelfCollisionChecker
 
 from mcp_server.arm import ArmController
 from mcp_server.config import BodyCheckSettings, McpServerConfig
 from mcp_server.floor_guard import GRIPPER_ONLY_SLOW_MARGIN_M, FloorGuard, FloorOverride, JawModel
-from mcp_server.ik import ArmKinematics, load_joint_limits
 from mcp_server.models import ArmMotionResult
 from mcp_server.motion_queue import arm_result_data
-from mcp_server.self_collision import GRIPPER_MOVING_PARTS, SelfCollisionChecker
 from mcp_server.trajectory import plan_trajectory
 
 from .fakes import FakeArmBackend
@@ -163,7 +163,9 @@ def body_checker(cfg: McpServerConfig, settings: BodyCheckSettings | None = None
     )
     if settings is not None:
         cfg = cfg.model_copy(update={"body_check": settings})
-    return SelfCollisionChecker.from_config(kin, cfg, JawModel(kin, cfg.arm.jaw_open_axis, cfg.arm.gripper_closed_rad))
+    return SelfCollisionChecker.from_settings(
+        kin, cfg.body, cfg.body_check, cfg.arm, JawModel(kin, cfg.arm.jaw_open_axis, cfg.arm.gripper_closed_rad)
+    )
 
 
 def jaw_swing(cfg: McpServerConfig) -> list[dict[str, float]]:

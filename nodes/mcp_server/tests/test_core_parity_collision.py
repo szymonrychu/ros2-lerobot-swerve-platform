@@ -16,16 +16,16 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from arm_collision.body_model import BodyModel
+from arm_collision.self_collision import NORMAL_SCALE, SelfCollisionChecker
 
 import bench.inputs
 import mcp_core_cpp
 from mcp_server.arm_reach import ReachEnvelope
-from mcp_server.body_model import BodyModel
 from mcp_server.config import McpServerConfig
 from mcp_server.reach_map import checker_from_config
 from mcp_server.reference import DEFAULT_TOLERANCE_KEY, Tolerance
 from mcp_server.reference import collision as reference
-from mcp_server.self_collision import NORMAL_SCALE, SelfCollisionChecker
 from tests import core_parity
 from tests.regenerate_core_golden import bench_cases, build_golden
 
@@ -71,7 +71,7 @@ started.wait(10.0)
 CALL_AFTER_RELEASE = """
 from mcp_server.config import McpServerConfig
 from mcp_server.reach_map import checker_from_config
-from mcp_server.self_collision import release_kernels
+from arm_collision.self_collision import release_kernels
 checker = checker_from_config(McpServerConfig())
 release_kernels()
 try:

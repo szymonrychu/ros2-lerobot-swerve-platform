@@ -27,10 +27,11 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from mcp_server.config import ArmBaseOffset, McpServerConfig
+from arm_collision.ik import ArmKinematics
+from arm_collision.settings import ArmBaseOffset
+from mcp_server.config import McpServerConfig
 from mcp_server.floor_guard import FloorGuard, FloorOverride, JawModel, SurfaceModel
 from mcp_server.grasp import GraspParams, GraspPlan, GraspPlanner, ObjectSpec, grasp_params
-from mcp_server.ik import ArmKinematics
 from mcp_server.surfaces import HalfPlaneEdge, SurfaceRegion
 
 REPO_ROOT = Path(__file__).resolve().parents[3]

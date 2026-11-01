@@ -21,6 +21,7 @@ from typing import Annotated, Any, Literal
 
 import cv2
 import numpy as np
+from arm_collision.self_collision import SelfCollisionChecker
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -55,7 +56,6 @@ from .config import HARD_MAX_IMAGE_PX, McpServerConfig
 from .models import BasePose, NavigationResult, RobotError
 from .object_memory import OBJECT_KIND
 from .reach_map import ReachMap, ReachMapMissing, ReachMapStale, pan_geometry
-from .self_collision import SelfCollisionChecker
 from .target_tracker import D435_MIN_Z_M, Detection, DetectionLoop, TargetTracker, TrackerInput, visible
 from .tool_context import RobotApi, ToolContext
 

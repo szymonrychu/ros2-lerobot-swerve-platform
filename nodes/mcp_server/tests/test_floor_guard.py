@@ -6,8 +6,11 @@ import math
 
 import numpy as np
 import pytest
+from arm_collision.ik import ArmKinematics
+from arm_collision.jaw import rotate
+from arm_collision.settings import ArmBaseOffset
 
-from mcp_server.config import ArmBaseOffset, FloorGuardSettings, McpServerConfig
+from mcp_server.config import FloorGuardSettings, McpServerConfig
 from mcp_server.floor_guard import (
     FloorGuard,
     FloorOverride,
@@ -20,11 +23,9 @@ from mcp_server.floor_guard import (
     effective_surface_z,
     monitor_tilt_sample,
     retime,
-    rotate,
     step_scales,
     tilt_from_quaternion,
 )
-from mcp_server.ik import ArmKinematics
 from mcp_server.surfaces import HalfPlaneEdge, SurfaceRegion
 
 CONFIG = McpServerConfig()

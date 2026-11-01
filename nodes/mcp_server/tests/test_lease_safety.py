@@ -5,11 +5,11 @@ import threading
 from pathlib import Path
 
 import pytest
+from arm_collision.ik import ArmKinematics, load_joint_limits
 
 from mcp_server.arm import ORPHAN_LEASE_WINDOW_S, ArmController
 from mcp_server.base_motion import run_stop
 from mcp_server.config import McpServerConfig
-from mcp_server.ik import ArmKinematics, load_joint_limits
 
 from .fakes import FakeArmBackend
 

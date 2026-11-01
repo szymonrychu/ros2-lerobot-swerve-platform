@@ -9,14 +9,16 @@ from pathlib import Path
 import numpy as np
 import pytest
 import yaml
+from arm_collision.body_model import BodyModel
+from arm_collision.ik import ArmKinematics, CartesianPose
+from arm_collision.self_collision import SampleGeometry, SelfCollisionChecker, link_model_description
+from arm_collision.settings import ArmBaseOffset
 from pydantic import ValidationError
 
 from mcp_server import arm_reach, reach_map
 from mcp_server.arm_reach import ENVELOPE_BATCH_SAMPLES, POINT_PITCHES_DEG, ReachEnvelope, joint_range, point_reach
-from mcp_server.body_model import BodyModel
-from mcp_server.config import ArmBaseOffset, BodyCheckSettings, McpServerConfig, ReachMapSettings
+from mcp_server.config import BodyCheckSettings, McpServerConfig, ReachMapSettings
 from mcp_server.floor_guard import JawModel, arm_to_base_link
-from mcp_server.ik import ArmKinematics, CartesianPose
 from mcp_server.reach_map import (
     REACH_MAP_VERSION,
     ReachMap,
@@ -29,7 +31,6 @@ from mcp_server.reach_map import (
     reach_map_key,
 )
 from mcp_server.reference import ik_reach as reference
-from mcp_server.self_collision import SampleGeometry, SelfCollisionChecker, link_model_description
 
 CONFIG = McpServerConfig()
 CHECKER = checker_from_config(CONFIG)
@@ -153,8 +154,12 @@ def test_reach_inputs_cover_body_links_mount_limits_offsets_margin() -> None:
 
 def with_limits(overrides: dict[str, tuple[float, float]]) -> SelfCollisionChecker:
     kin = ArmKinematics(CONFIG.arm.urdf_path, margin=CONFIG.limits.arm_limit_margin_rad, limit_overrides=overrides)
-    return SelfCollisionChecker.from_config(
-        kin, CONFIG, JawModel(kin, CONFIG.arm.jaw_open_axis, CONFIG.arm.gripper_closed_rad)
+    return SelfCollisionChecker.from_settings(
+        kin,
+        CONFIG.body,
+        CONFIG.body_check,
+        CONFIG.arm,
+        JawModel(kin, CONFIG.arm.jaw_open_axis, CONFIG.arm.gripper_closed_rad),
     )
 
 
@@ -232,7 +237,7 @@ def test_pan_axis_is_vertical() -> None:
 def test_build_refuses_a_tilted_pan_axis(monkeypatch: pytest.MonkeyPatch) -> None:
     kin = ArmKinematics(CONFIG.arm.urdf_path, margin=CONFIG.limits.arm_limit_margin_rad)
     jaw = JawModel(kin, CONFIG.arm.jaw_open_axis, CONFIG.arm.gripper_closed_rad)
-    checker = SelfCollisionChecker.from_config(kin, CONFIG, jaw)
+    checker = SelfCollisionChecker.from_settings(kin, CONFIG.body, CONFIG.body_check, CONFIG.arm, jaw)
     original = kin.forward
 
     def tilted(joints: dict[str, float], extra_offset: tuple[float, float, float] | None = None) -> CartesianPose:
@@ -248,8 +253,12 @@ def test_build_refuses_a_tilted_pan_axis(monkeypatch: pytest.MonkeyPatch) -> Non
 
 def test_build_refuses_a_tilted_mount_axis(monkeypatch: pytest.MonkeyPatch) -> None:
     kin = ArmKinematics(CONFIG.arm.urdf_path, margin=CONFIG.limits.arm_limit_margin_rad)
-    checker = SelfCollisionChecker.from_config(
-        kin, CONFIG, JawModel(kin, CONFIG.arm.jaw_open_axis, CONFIG.arm.gripper_closed_rad)
+    checker = SelfCollisionChecker.from_settings(
+        kin,
+        CONFIG.body,
+        CONFIG.body_check,
+        CONFIG.arm,
+        JawModel(kin, CONFIG.arm.jaw_open_axis, CONFIG.arm.gripper_closed_rad),
     )
     tilt = 0.01
     monkeypatch.setattr(

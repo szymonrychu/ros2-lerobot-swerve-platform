@@ -5,6 +5,7 @@ import math
 
 import numpy as np
 import pytest
+from arm_collision.ik import ArmKinematics
 
 from mcp_server.config import BodyCheckSettings, GraspSettings, ImuLevelReference, McpServerConfig
 from mcp_server.floor_guard import FloorGuard, JawModel, SurfaceModel, Tilt, TiltSample, arm_to_base_link
@@ -17,7 +18,6 @@ from mcp_server.grasp import (
     grasp_params,
     roll_guard_violations,
 )
-from mcp_server.ik import ArmKinematics
 
 CONFIG = McpServerConfig.model_validate({"arm": {"joint_limit_overrides_rad": {"shoulder_lift": [-1.745, 1.9]}}})
 KIN = ArmKinematics(

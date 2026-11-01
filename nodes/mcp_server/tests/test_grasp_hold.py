@@ -10,12 +10,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from arm_collision.ik import ArmKinematics, grasp_offset, load_joint_limits
 
 from mcp_server.arm import ArmController
 from mcp_server.config import McpServerConfig, SagCompensationSettings
 from mcp_server.grasp import GraspPlan, ObjectSpec, grasp_params
 from mcp_server.grasp_tools import GraspExecutor, GraspResult
-from mcp_server.ik import ArmKinematics, grasp_offset, load_joint_limits
 from mcp_server.sag import GravityModel, SagCompensator
 
 from .fakes import FakeArmBackend

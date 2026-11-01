@@ -10,9 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import ikpy.chain
-import numpy as np
-
 import mcp_core_cpp
+import numpy as np
 
 BASE_LINK = "base_link"
 ARM_CHAIN_JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll")

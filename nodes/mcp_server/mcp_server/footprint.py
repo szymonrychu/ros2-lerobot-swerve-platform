@@ -58,11 +58,13 @@ from typing import Literal, Protocol
 
 import numpy as np
 import yaml
+from arm_collision.arm_geometry import LINK_CAPSULE_RADIUS_M
+from arm_collision.ik import ArmKinematics
+from arm_collision.self_collision import CAPSULES, SelfCollisionChecker
 from shapely import get_coordinates
 from shapely.geometry import MultiPoint, Point, Polygon
 from shapely.ops import unary_union
 
-from .arm_geometry import LINK_CAPSULE_RADIUS_M
 from .config import BodySettings, McpServerConfig, NavFootprintSettings
 from .floor_guard import JawModel
 from .footprint_geometry import (
@@ -80,9 +82,7 @@ from .footprint_geometry import (
     to_points,
     union_outline,
 )
-from .ik import ArmKinematics
 from .models import FootprintState
-from .self_collision import CAPSULES, SelfCollisionChecker
 
 LOGGER = logging.getLogger(__name__)
 TOOL_POINT = "tool_point"
@@ -298,7 +298,7 @@ def parked_arm_shadow(
         limit_overrides=config.arm.joint_limit_overrides_rad,
     )
     jaw = JawModel(kin, config.arm.jaw_open_axis, config.arm.gripper_closed_rad)
-    parts = SelfCollisionChecker.from_config(kin, config, jaw).part_points(joints)
+    parts = SelfCollisionChecker.from_settings(kin, config.body, config.body_check, config.arm, jaw).part_points(joints)
     return to_points(grow_extension(arm_shadow(parts, circle_segments), simplify_m), decimals)
 
 

@@ -23,11 +23,11 @@ from types import ModuleType
 from typing import Any
 
 import pytest
+from arm_collision.ik import ArmKinematics
 
 from mcp_server import grasp
 from mcp_server.floor_guard import FloorGuard, JawModel, SurfaceModel
 from mcp_server.grasp import GraspPlan, GraspPlanner, ObjectSpec, grasp_params
-from mcp_server.ik import ArmKinematics
 
 SCRIPT = Path(__file__).resolve().parents[3] / "sim" / "grasp_sim" / "scripts" / "plan_matrix.py"
 GOLDEN = Path(__file__).parent / "data" / "grasp_golden.json"

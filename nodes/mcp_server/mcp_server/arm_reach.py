@@ -31,15 +31,21 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from arm_collision.arm_geometry import LINK_ORIGINS
+from arm_collision.body_model import BoxObstacle, CylinderObstacle
+from arm_collision.ik import ARM_CHAIN_JOINTS
+from arm_collision.self_collision import (
+    CAPSULES,
+    CHECKED_PARTS,
+    LINK_BLOCKS,
+    SelfCollisionChecker,
+    link_model_description,
+)
 
 import mcp_core_cpp
 
-from .arm_geometry import LINK_ORIGINS
-from .body_model import BoxObstacle, CylinderObstacle
 from .config import BodyCheckSettings
 from .floor_guard import GRIPPER_LINK, TOOL_FRAME_LINK, arm_to_base_link, base_link_to_arm
-from .ik import ARM_CHAIN_JOINTS
-from .self_collision import CAPSULES, CHECKED_PARTS, LINK_BLOCKS, SelfCollisionChecker, link_model_description
 
 SHOULDER_PAN = "shoulder_pan"
 # How long interpreter exit waits for a running envelope computation to stop (it stops at its next batch).

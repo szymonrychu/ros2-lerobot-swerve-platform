@@ -4,11 +4,11 @@ import re
 from pathlib import Path
 
 import pytest
+from arm_collision.ik import ArmKinematics, load_joint_limits
 
 from mcp_server.arm import ArmController, tracking_limit
 from mcp_server.config import McpServerConfig
 from mcp_server.home_store import save_home
-from mcp_server.ik import ArmKinematics, load_joint_limits
 
 from .fakes import JOINTS, DelayedFollower, FakeArmBackend
 

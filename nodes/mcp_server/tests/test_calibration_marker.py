@@ -5,12 +5,12 @@ import re
 from pathlib import Path
 
 import pytest
+from arm_collision.ik import ArmKinematics, load_joint_limits
 
 from mcp_server.arm import ArmController, ArmError
 from mcp_server.calibration_marker import STALE_ITEMS, clear_stale, load_marker
 from mcp_server.config import McpServerConfig
 from mcp_server.home_store import save_home
-from mcp_server.ik import ArmKinematics, load_joint_limits
 
 from .fakes import FakeArmBackend
 

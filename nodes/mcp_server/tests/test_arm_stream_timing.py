@@ -4,10 +4,10 @@ import random
 from pathlib import Path
 
 import pytest
+from arm_collision.ik import ArmKinematics, load_joint_limits
 
 from mcp_server.arm import ArmController, JointSample, setpoint_band
 from mcp_server.config import McpServerConfig
-from mcp_server.ik import ArmKinematics, load_joint_limits
 from mcp_server.trajectory import plan_sample, plan_trajectory, quintic
 
 from .fakes import FakeArmBackend

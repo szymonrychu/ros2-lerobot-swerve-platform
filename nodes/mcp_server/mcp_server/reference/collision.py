@@ -13,11 +13,8 @@ from collections.abc import Mapping
 from typing import Any
 
 import numpy as np
-
-import bench.inputs
-from mcp_server.body_model import Obstacle, capsule_signed_distance
-from mcp_server.reference import ReferenceKernel, Tolerance
-from mcp_server.self_collision import (
+from arm_collision.body_model import Obstacle, capsule_signed_distance
+from arm_collision.self_collision import (
     CAPSULES,
     CHECKED_PARTS,
     ESCAPE_TOLERANCE_M,
@@ -33,6 +30,9 @@ from mcp_server.self_collision import (
     obstacle_hint,
     rigid,
 )
+
+import bench.inputs
+from mcp_server.reference import ReferenceKernel, Tolerance
 
 # Clearances are float sums of the same terms in another order (C++ vs numpy): 1 nm is far below any margin (mm).
 CLEARANCE_TOLERANCE = Tolerance(atol=1e-9)

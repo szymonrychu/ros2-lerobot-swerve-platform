@@ -5,12 +5,12 @@ import math
 from pathlib import Path
 
 import pytest
+from arm_collision.ik import ArmKinematics, load_joint_limits
 
 from mcp_server.arm import ArmController
 from mcp_server.config import McpServerConfig
 from mcp_server.grasp_check import band_verdict
 from mcp_server.grip import resolve_grip_profile
-from mcp_server.ik import ArmKinematics, load_joint_limits
 from mcp_server.models import ArmMotionResult
 
 from .fakes import FakeArmBackend

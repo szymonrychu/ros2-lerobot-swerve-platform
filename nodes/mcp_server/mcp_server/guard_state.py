@@ -10,6 +10,7 @@ import math
 from collections.abc import Callable
 from typing import Any
 
+from arm_collision.ik import ARM_CHAIN_JOINTS
 from ros2_common.battery import BatteryGuard
 
 from .arm import ArmController, JointSample, finite_effort
@@ -18,7 +19,6 @@ from .control import ControlManager
 from .footprint import NavFootprint
 from .grasp_check import finite
 from .guard_rules import FieldContext
-from .ik import ARM_CHAIN_JOINTS
 from .monitor import RobotMonitor
 from .tool_context import RobotApi
 

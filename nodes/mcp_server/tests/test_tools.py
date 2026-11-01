@@ -9,6 +9,7 @@ import anyio
 import cv2
 import numpy as np
 import pytest
+from arm_collision.ik import ArmKinematics, load_joint_limits
 from mcp.server.mcpserver.exceptions import ToolError
 from starlette.testclient import TestClient
 
@@ -17,7 +18,6 @@ from mcp_server.arm import ArmController
 from mcp_server.base_motion import DriveOutcome, SpinOutcome
 from mcp_server.config import REPO_ROOT, McpServerConfig
 from mcp_server.head import AppliedHeadKinematics, HeadController
-from mcp_server.ik import ArmKinematics, load_joint_limits
 from mcp_server.models import (
     BasePose,
     CameraFrame,

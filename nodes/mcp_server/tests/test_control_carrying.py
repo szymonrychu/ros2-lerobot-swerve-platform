@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from arm_collision.ik import ArmKinematics, load_joint_limits
 from mcp.server.mcpserver.exceptions import ToolError
 
 from mcp_server import arm as arm_module
@@ -20,7 +21,6 @@ from mcp_server.config import McpServerConfig
 from mcp_server.control import NavGoalRegistry
 from mcp_server.grasp import ObjectSpec, grasp_params
 from mcp_server.grasp_tools import GraspExecutor, GraspService
-from mcp_server.ik import ArmKinematics, load_joint_limits
 from mcp_server.tools import build_mcp_server
 
 from .test_control import FakeClock, manager, store_home_then_move_away

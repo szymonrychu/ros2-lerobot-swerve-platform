@@ -7,10 +7,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 import yaml
+from arm_collision.body_model import BodyModel, BoxObstacle, CylinderObstacle, capsule_signed_distance
+from arm_collision.settings import BodyBox, BodyCylinder
 from pydantic import ValidationError
 
-from mcp_server.body_model import BodyModel, BoxObstacle, CylinderObstacle, capsule_signed_distance
-from mcp_server.config import REPO_ROOT, BodyBox, BodyCheckSettings, BodyCylinder, BodySettings, McpServerConfig
+from mcp_server.config import REPO_ROOT, BodyCheckSettings, BodySettings, McpServerConfig
 
 UNIT_BOX = BoxObstacle("box", np.array([0.0, 0.0, 0.0]), np.array([1.0, 1.0, 1.0]))
 UNIT_CYL = CylinderObstacle("cyl", (0.0, 0.0), 1.0, 0.0, 1.0)

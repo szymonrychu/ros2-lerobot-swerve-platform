@@ -5,12 +5,12 @@ import logging
 from pathlib import Path
 
 import pytest
+from arm_collision.ik import ArmKinematics, load_joint_limits
 from pydantic import ValidationError
 
 from mcp_server.arm import ArmController
 from mcp_server.config import McpServerConfig, SagCompensationSettings
 from mcp_server.home_store import save_home
-from mcp_server.ik import ArmKinematics, load_joint_limits
 from mcp_server.sag import APPROACH_LIFTING, APPROACH_LOWERING, GravityModel, SagCompensator
 
 from .fakes import FakeArmBackend

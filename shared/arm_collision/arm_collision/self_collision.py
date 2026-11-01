@@ -50,10 +50,9 @@ from .arm_geometry import (
     box_surface_points,
 )
 from .body_model import BodyModel, BoxObstacle, CylinderObstacle, Obstacle
-from .config import ArmBaseOffset, BodyCheckSettings, McpServerConfig
-from .floor_guard import GRIPPER_LINK, JawModel, yaw_matrix
 from .ik import ArmKinematics
-from .jaw_crop import jaw_points
+from .jaw import GRIPPER_LINK, JawModel, jaw_points, yaw_matrix
+from .settings import ArmBaseOffset, ArmModelSettings, BodyCheckSettings, BodySettings
 
 CAPSULES = (UPPER_ARM_CAPSULE, FOREARM_CAPSULE, WRIST_CAPSULE)
 CHECKED_PARTS = (*(c[0] for c in CAPSULES), GRIPPER_BODY, *JAW_POINTS)
@@ -534,21 +533,29 @@ class SelfCollisionChecker:
         self.distance_counts: Counter[str] = Counter()
 
     @classmethod
-    def from_config(cls, kin: ArmKinematics, config: McpServerConfig, jaw: JawModel) -> "SelfCollisionChecker":
-        """Checker from the node config (body, body_check, arm mount; no mount = straight above base_link at the mount
+    def from_settings(
+        cls,
+        kin: ArmKinematics,
+        body: BodySettings,
+        check: BodyCheckSettings,
+        arm: ArmModelSettings,
+        jaw: JawModel,
+    ) -> "SelfCollisionChecker":
+        """Checker from the settings (body, body check, arm mount; no mount = straight above base_link at the mount
         height, as the floor guard assumes).
 
         Args:
             kin (ArmKinematics): Kinematics.
-            config (McpServerConfig): Node configuration.
+            body (BodySettings): Body obstacles.
+            check (BodyCheckSettings): Margins, slow scale, enabled.
+            arm (ArmModelSettings): Arm mount, mount height and gripper joint.
             jaw (JawModel): Jaw model.
 
         Returns:
             SelfCollisionChecker: The checker.
         """
-        mount = config.arm.base_in_base_link or ArmBaseOffset(z=config.arm.arm_base_height_m)
-        body = BodyModel.from_settings(config.body)
-        return cls(kin, body, config.body_check, mount, jaw, config.arm.gripper_joint)
+        mount = arm.base_in_base_link or ArmBaseOffset(z=arm.arm_base_height_m)
+        return cls(kin, BodyModel.from_settings(body), check, mount, jaw, arm.gripper_joint)
 
     def to_base_link(self, points: np.ndarray) -> np.ndarray:
         """Arm-frame points (..., 3) -> base_link (element by element, see rigid).

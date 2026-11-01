@@ -24,11 +24,11 @@ from collections.abc import Callable
 from typing import Any, Literal, Protocol
 
 import numpy as np
+from arm_collision.ik import ArmKinematics, UnreachableError
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .arm import ROLL_JOINT, SOURCE_NONE, ArmController, ArmError
 from .config import JogSettings
-from .ik import ArmKinematics, UnreachableError
 from .models import ArmMotionResult
 
 LOGGER = logging.getLogger("mcp_server.jog")

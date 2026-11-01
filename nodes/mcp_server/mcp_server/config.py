@@ -6,7 +6,8 @@ from pathlib import Path
 from typing import Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, PositiveFloat, field_validator, model_validator
+from arm_collision.settings import ARM_JOINTS, ArmModelSettings, BodyCheckSettings, BodySettings, StrictModel
+from pydantic import Field, PositiveFloat, field_validator, model_validator
 from ros2_common.battery import BatteryConfig
 from ros2_common.camera_geometry import MountPose
 from ros2_common.maps import COMMAND_TOPIC, RESULT_TOPIC, STATUS_TOPIC
@@ -20,7 +21,6 @@ TOKEN_ENV = "MCP_SERVER_TOKEN"
 DEFAULT_CONFIG_PATH = Path("/etc/ros2/mcp_server/config.yaml")
 # mcp_server/config.py -> nodes/mcp_server/mcp_server -> repo root is three levels above the package.
 REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_URDF = Path("nodes/web_ui/urdf/so101_arm.urdf")
 DEFAULT_HOME_FILE = Path("/var/lib/ros2/arm/home.yaml")
 DRIVE_POSE_FILE_NAME = "drive_pose.yaml"  # stored drive pose, next to the home file
 DEFAULT_CALIBRATION_STALE_MARKER = Path("/var/lib/ros2/arm/calibration_stale.json")
@@ -32,7 +32,6 @@ DEFAULT_LOOKUPS_DIR = Path("/var/lib/ros2/poi/lookups")  # camera lookups, next 
 # Offline inverse reachability map (reach_map.py), committed inside the package so it deploys with the git checkout.
 DEFAULT_REACH_MAP_FILE = Path(__file__).resolve().parent / "data" / "reach_map.npz"
 MIN_TOKEN_LENGTH = 24
-ARM_JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper")
 # Hard caps no config may exceed (match the Nav2 velocity smoother and the swerve controller).
 HARD_MAX_LINEAR_MPS = 0.25
 HARD_MAX_ANGULAR_RPS = 0.5
@@ -43,35 +42,6 @@ HARD_MAX_IMAGE_PX = 1024
 HARD_MAX_GRIP_TORQUE_LIMIT = 1000
 HARD_MIN_GRIP_TORQUE_LIMIT = 50
 HARD_MAX_GRIP_SQUEEZE_RAD = 0.2
-# Arm mount (URDF base_link origin) in base_link (m), measured on the robot 2026-10-10: shoulder_pan axis 98 mm forward and
-# 50 mm right of the centre between the wheels, URDF origin 38.8 mm behind and 62.4 mm below it; height from tip
-# touch-downs on the floor. The mount height is also the floor height under the arm (floor_z_m = -ARM_BASE_HEIGHT_M).
-ARM_BASE_HEIGHT_M = 0.100
-ARM_MOUNT_X_M = 0.0592
-ARM_MOUNT_Y_M = -0.05  # 5 cm to the right of the base_link centre line
-MOUNT_HEIGHT_TOLERANCE_M = 1e-6
-# Robot body (base_link, x forward, y left, z up from the floor; m): the H seen from above. Measured 2026-10-10: lidar
-# dome diameter 74 mm (radius 37 mm) centred at (0.150, 0.040) with its top face 210 mm above the floor, wheels and the
-# side bars joining front and rear wheels 35 mm wide, side bar top face ~180 mm. Still assumed: wheel line from the
-# swerve geometry (half_length_m / half_width_m, wheel radius 0.06), side bar bottom 120 mm, crossbar extent and height,
-# lidar column bottom 100 mm. Correct them in client.yml (nodes/mcp_server/README.md, "Body collision").
-WHEEL_X_M = 0.1525
-WHEEL_Y_M = 0.1333
-WHEEL_RADIUS_M = 0.06
-WHEEL_WIDTH_M = 0.035
-# The wheel steers about a vertical axis through its centre: it sweeps the circle of its top-view half-diagonal.
-WHEEL_ENVELOPE_RADIUS_M = round(math.hypot(WHEEL_RADIUS_M, WHEEL_WIDTH_M / 2), 4)  # 0.0625
-WHEEL_TOP_Z_M = 0.12
-FRAME_HALF_LENGTH_M = 0.2125
-FRAME_WIDTH_M = 0.035
-FRAME_TOP_Z_M = 0.18
-CROSSBAR_X_M = (-0.15, 0.10)
-# The crossbar joins the side bars: it spans to their inner faces.
-CROSSBAR_HALF_WIDTH_M = round(WHEEL_Y_M - FRAME_WIDTH_M / 2, 4)  # 0.1158
-CROSSBAR_Z_M = (0.06, 0.10)
-LIDAR_XY_M = (0.150, 0.040)
-LIDAR_RADIUS_M = 0.037
-LIDAR_Z_M = (0.10, 0.21)
 # Largest configurable sag compensation per joint (rad): compensation only ever adds commanded travel up to this.
 HARD_MAX_SAG_RAD = 0.2
 # Grasp strategies the planner registers (grasp.STRATEGIES); "auto" tries grasp.auto_order.
@@ -84,12 +54,6 @@ class MissingTokenError(RuntimeError):
 
 # final: wait for convergence after the streamed trajectory; trajectory_end: return when the trajectory finished.
 SettlePolicy = Literal["final", "trajectory_end"]
-
-
-class StrictModel(BaseModel):
-    """Base model rejecting unknown keys so config typos fail loudly."""
-
-    model_config = ConfigDict(extra="forbid")
 
 
 class ServerSettings(StrictModel):
@@ -402,40 +366,6 @@ class NavSettings(StrictModel):
         return self
 
 
-class ArmBaseOffset(StrictModel):
-    """Pose of the arm base frame (URDF base_link, z = 0 on the mount plane) in the robot base_link frame.
-
-    Attributes:
-        x: Arm base x in base_link (m).
-        y: Arm base y in base_link (m).
-        z: Arm base height above the floor (base_link z = 0 is the floor); normally arm_base_height_m.
-        yaw: Rotation of the arm base about z (rad).
-    """
-
-    x: float = 0.0
-    y: float = 0.0
-    z: float = 0.0
-    yaw: float = 0.0
-
-
-class JointOffsets(StrictModel):
-    """Zero offsets (rad) of the five kinematic arm joints: urdf_angle = measured_angle + offset (gripper excluded)."""
-
-    shoulder_pan: float = 0.0
-    shoulder_lift: float = 0.0
-    elbow_flex: float = 0.0
-    wrist_flex: float = 0.0
-    wrist_roll: float = 0.0
-
-
-class ToolOffset(StrictModel):
-    """Offset (m) of the tool centre point from the URDF tool frame gripper_frame_link, in that frame's axes."""
-
-    x: float = 0.0
-    y: float = 0.0
-    z: float = 0.0
-
-
 class SagCompensationSettings(StrictModel):
     """Gravity sag compensation (mcp_server.sag): commanded joint target = target - predicted deflection.
 
@@ -511,43 +441,18 @@ class DrivePoseSettings(StrictModel):
         return v
 
 
-class ArmSettings(StrictModel):
-    """Arm model, home pose storage and gripper mapping."""
+class ArmSettings(ArmModelSettings):
+    """Arm model (ArmModelSettings: URDF, mount, calibration, jaw), home pose storage and gripper mapping."""
 
-    urdf_path: Path = Field(default=DEFAULT_URDF, validate_default=True)
     home_file: Path = DEFAULT_HOME_FILE
     # Stale marker the follower bridge writes after a runtime neutral save (arm re-zero); while it lists "home",
     # arm_home is refused. null disables the check.
     calibration_stale_marker: Path | None = DEFAULT_CALIBRATION_STALE_MARKER
     joint_names: tuple[str, ...] = ARM_JOINTS
-    gripper_joint: str = "gripper"
-    # Follower-vs-URDF zero offsets: urdf_angle = measured_angle (/follower/joint_states) + offset. Used by all
-    # kinematics (tool pose, link frames, IK and URDF-space limit clamping); joint targets and reported positions
-    # stay in measured space. Solve them from the stored calibration samples (README, "Joint zero offsets").
-    joint_offsets_rad: JointOffsets = Field(default_factory=JointOffsets)
-    # Where the jaws actually close, relative to gripper_frame_link and expressed in its frame (measured on the robot).
-    # tool_pose, move_arm_cartesian and the camera tool overlays all refer to this point.
-    tool_offset_m: ToolOffset = Field(default_factory=ToolOffset)
-    # Direction (in gripper_frame_link, normalised on load) in which the moving jaw opens away from the fixed jaw. With
-    # move_arm_cartesian(object_width_m=w) the tool point is placed w/2 against this direction from the object centre.
-    jaw_open_axis: tuple[float, float, float] = (-1.0, 0.0, 0.0)
-    # Replacement (lower, upper) limits in URDF space (rad) of named joints (chain joints or gripper): IK bounds,
-    # within-limits checks and target clamping all use them instead of the URDF values. Empty = URDF limits.
-    joint_limit_overrides_rad: dict[str, tuple[float, float]] = Field(default_factory=dict)
-    # Follower gripper joint positions (as in /follower/joint_states; the leader-only source range mapping in the
-    # follower bridge does not apply to autonomy commands). Measured closed: -0.172 rad (URDF lower limit -0.1745);
-    # -0.165 is just above it and inside the gripper limit margin (limits.arm_limit_margin_overrides, 0.005).
+    # Follower gripper open position (as in /follower/joint_states; the leader-only source range mapping in the
+    # follower bridge does not apply to autonomy commands).
     gripper_open_rad: float = 1.5
-    gripper_closed_rad: float = -0.165
     autonomy_source_name: str = "autonomy"
-    # Height of the arm mount plane (the URDF base_link origin) above the floor (0.100 m, corrected 2026-10-10 from a
-    # tip-on-floor check; earlier 0.104 from tip touch-downs, 0.165 and 0.15 m before).
-    arm_base_height_m: float = Field(default=ARM_BASE_HEIGHT_M, gt=0.0, le=1.0)
-    # Arm base frame pose in the robot base_link (measured 2026-10-10): 5.92 cm forward, 5 cm right, z equal to
-    # arm_base_height_m. null disables every arm <-> base_link conversion (camera results, grasp base_link input).
-    base_in_base_link: ArmBaseOffset | None = Field(
-        default_factory=lambda: ArmBaseOffset(x=ARM_MOUNT_X_M, y=ARM_MOUNT_Y_M, z=ARM_BASE_HEIGHT_M, yaw=0.0)
-    )
     # Horizontal reach on the floor around the shoulder pan axis, drawn as the reach annulus on annotated images.
     reach_outer_m: float = Field(default=0.25, gt=0.0, le=1.0)
     reach_inner_m: float = Field(default=0.05, ge=0.0)
@@ -568,20 +473,6 @@ class ArmSettings(StrictModel):
         return self
 
     @model_validator(mode="after")
-    def mount_height_consistent(self) -> "ArmSettings":
-        """Require the mount z to equal arm_base_height_m (both are the arm base height above the robot plane).
-
-        Returns:
-            ArmSettings: The validated settings.
-        """
-        mount = self.base_in_base_link
-        if mount is not None and abs(mount.z - self.arm_base_height_m) > MOUNT_HEIGHT_TOLERANCE_M:
-            raise ValueError(
-                f"arm.base_in_base_link.z ({mount.z}) must equal arm.arm_base_height_m ({self.arm_base_height_m})"
-            )
-        return self
-
-    @model_validator(mode="after")
     def reach_ordered(self) -> "ArmSettings":
         """Require the inner reach radius below the outer one.
 
@@ -592,42 +483,6 @@ class ArmSettings(StrictModel):
             raise ValueError("arm.reach_inner_m must be below arm.reach_outer_m")
         return self
 
-    @field_validator("jaw_open_axis")
-    @classmethod
-    def normalise_jaw_axis(cls, v: tuple[float, float, float]) -> tuple[float, float, float]:
-        """Normalise the jaw opening direction to a unit vector.
-
-        Args:
-            v (tuple[float, float, float]): Configured direction.
-
-        Returns:
-            tuple[float, float, float]: Unit direction.
-        """
-        norm = math.sqrt(sum(c * c for c in v))
-        if norm < 1e-9:
-            raise ValueError("arm.jaw_open_axis must not be the zero vector")
-        return (v[0] / norm, v[1] / norm, v[2] / norm)
-
-    @field_validator("joint_limit_overrides_rad")
-    @classmethod
-    def check_limit_overrides(cls, v: dict[str, tuple[float, float]]) -> dict[str, tuple[float, float]]:
-        """Require known joint names and lower < upper.
-
-        Args:
-            v (dict[str, tuple[float, float]]): Joint name -> (lower, upper) rad.
-
-        Returns:
-            dict[str, tuple[float, float]]: The validated overrides.
-        """
-        for name, (lo, hi) in v.items():
-            if name not in ARM_JOINTS:
-                raise ValueError(
-                    f"arm.joint_limit_overrides_rad: unknown joint {name!r}; use one of {list(ARM_JOINTS)}"
-                )
-            if not lo < hi:
-                raise ValueError(f"arm.joint_limit_overrides_rad[{name}]: lower {lo} must be below upper {hi}")
-        return v
-
     @property
     def floor_z_m(self) -> float:
         """Floor height (m) in the arm base_link frame: z = 0 is the mount plane, so the floor is below it.
@@ -636,19 +491,6 @@ class ArmSettings(StrictModel):
             float: Negative z of the floor.
         """
         return -self.arm_base_height_m
-
-    @field_validator("urdf_path")
-    @classmethod
-    def resolve_urdf(cls, v: Path) -> Path:
-        """Resolve a relative URDF path against the repository root.
-
-        Args:
-            v (Path): Configured URDF path.
-
-        Returns:
-            Path: Absolute URDF path.
-        """
-        return v if v.is_absolute() else REPO_ROOT / v
 
 
 class HeadSettings(StrictModel):
@@ -1174,157 +1016,6 @@ class FloorGuardSettings(StrictModel):
     imu_max_age_s: float = Field(default=1.0, gt=0.0)
     ground_max_age_s: float = Field(default=1.0, gt=0.0)
     imu_level_reference: ImuLevelReference = ImuLevelReference()
-
-
-class BodyBox(StrictModel):
-    """Axis-aligned box obstacle of the robot body in base_link.
-
-    Attributes:
-        name: Obstacle name reported in rejections, slowdowns and metrics (e.g. frame_left, crossbar).
-        center: Box centre (x, y, z) in base_link (m).
-        size: Full edge lengths along base_link x, y, z (m, > 0).
-    """
-
-    name: str = Field(min_length=1)
-    center: tuple[float, float, float]
-    size: tuple[PositiveFloat, PositiveFloat, PositiveFloat]
-
-
-class BodyCylinder(StrictModel):
-    """Vertical cylinder obstacle of the robot body in base_link (a steering wheel envelope, the lidar column).
-
-    Attributes:
-        name: Obstacle name (e.g. wheel_fl, lidar).
-        x: Axis x in base_link (m).
-        y: Axis y in base_link (m).
-        radius: Radius (m, > 0).
-        z_min: Bottom (m, base_link z).
-        z_max: Top (m), above z_min.
-    """
-
-    name: str = Field(min_length=1)
-    x: float
-    y: float
-    radius: PositiveFloat
-    z_min: float
-    z_max: float
-
-    @model_validator(mode="after")
-    def positive_height(self) -> "BodyCylinder":
-        """Require z_max above z_min.
-
-        Returns:
-            BodyCylinder: The validated obstacle.
-        """
-        if not self.z_max > self.z_min:
-            raise ValueError(f"body cylinder {self.name}: z_max ({self.z_max}) must be above z_min ({self.z_min})")
-        return self
-
-
-def default_body_boxes() -> list[BodyBox]:
-    """The H strokes (side frames above the wheels) and the H bar (crossbar carrying the arm and the lidar).
-
-    Returns:
-        list[BodyBox]: frame_left, frame_right, crossbar.
-    """
-    frame_z = (WHEEL_TOP_Z_M + FRAME_TOP_Z_M) / 2.0
-    frame_size = (2.0 * FRAME_HALF_LENGTH_M, FRAME_WIDTH_M, FRAME_TOP_Z_M - WHEEL_TOP_Z_M)
-    return [
-        BodyBox(name="frame_left", center=(0.0, WHEEL_Y_M, frame_z), size=frame_size),
-        BodyBox(name="frame_right", center=(0.0, -WHEEL_Y_M, frame_z), size=frame_size),
-        BodyBox(
-            name="crossbar",
-            center=(sum(CROSSBAR_X_M) / 2.0, 0.0, sum(CROSSBAR_Z_M) / 2.0),
-            size=(
-                CROSSBAR_X_M[1] - CROSSBAR_X_M[0],
-                2.0 * CROSSBAR_HALF_WIDTH_M,
-                CROSSBAR_Z_M[1] - CROSSBAR_Z_M[0],
-            ),
-        ),
-    ]
-
-
-def default_body_cylinders() -> list[BodyCylinder]:
-    """The four wheel steering envelopes and the lidar column (crossbar top to the dome top).
-
-    Returns:
-        list[BodyCylinder]: wheel_fl, wheel_fr, wheel_rl, wheel_rr, lidar.
-    """
-    wheels = [
-        BodyCylinder(
-            name=f"wheel_{name}",
-            x=sx * WHEEL_X_M,
-            y=sy * WHEEL_Y_M,
-            radius=WHEEL_ENVELOPE_RADIUS_M,
-            z_min=0.0,
-            z_max=WHEEL_TOP_Z_M,
-        )
-        for name, sx, sy in (("fl", 1.0, 1.0), ("fr", 1.0, -1.0), ("rl", -1.0, 1.0), ("rr", -1.0, -1.0))
-    ]
-    lidar = BodyCylinder(
-        name="lidar", x=LIDAR_XY_M[0], y=LIDAR_XY_M[1], radius=LIDAR_RADIUS_M, z_min=LIDAR_Z_M[0], z_max=LIDAR_Z_M[1]
-    )
-    return [*wheels, lidar]
-
-
-class BodySettings(StrictModel):
-    """Robot body obstacles the arm must not hit (body_model, self_collision), all in base_link.
-
-    The arm base and its shoulder link stand on the crossbar and only turn in place about the pan axis: they are not
-    modelled, so they are never checked against the crossbar (or anything else).
-    """
-
-    boxes: list[BodyBox] = Field(default_factory=default_body_boxes)
-    cylinders: list[BodyCylinder] = Field(default_factory=default_body_cylinders)
-
-    @model_validator(mode="after")
-    def unique_names(self) -> "BodySettings":
-        """Require unique obstacle names (they label rejections and metrics).
-
-        Returns:
-            BodySettings: The validated settings.
-        """
-        names = [o.name for o in [*self.boxes, *self.cylinders]]
-        duplicates = sorted({n for n in names if names.count(n) > 1})
-        if duplicates:
-            raise ValueError(f"body obstacle names must be unique, duplicated: {duplicates}")
-        return self
-
-
-class BodyCheckSettings(StrictModel):
-    """Arm self-collision soft boundary (self_collision): every executed arm trajectory sample is checked against the body.
-
-    A sample whose link clearance to an obstacle is below soft_margin_m runs at slow_speed_scale (the floor guard's
-    scale applies too; the slower wins); below hard_margin_m (or penetrating) the whole motion is rejected before it
-    starts. get_arm_reach's envelope grid: shoulder_pan headings every reach_heading_step_deg, tool heights 0 ..
-    reach_height_max_m every reach_height_step_m (base_link z).
-    """
-
-    enabled: bool = True
-    soft_margin_m: float = Field(default=0.03, gt=0.0, le=0.2)
-    hard_margin_m: float = Field(default=0.002, ge=0.0, le=0.2)
-    slow_speed_scale: float = Field(default=0.3, gt=0.0, le=1.0)
-    reach_heading_step_deg: float = Field(default=15.0, ge=5.0, le=90.0)
-    reach_height_max_m: float = Field(default=0.35, gt=0.0, le=1.0)
-    reach_height_step_m: float = Field(default=0.05, ge=0.01, le=0.5)
-    reach_wait_s: float = Field(default=10.0, gt=0.0, le=60.0)  # get_arm_reach waits this long for the envelope
-    reach_max_points: int = Field(default=20, ge=1, le=50)
-    # Envelope cache on disk, keyed by every input (body, mount, joint limits, grid, margins): a restart reuses it
-    # instead of recomputing (95 s on the busy RPi5 under the unit's CPU quota). None keeps it in memory only.
-    reach_cache_file: Path | None = None
-
-    @model_validator(mode="after")
-    def hard_below_soft(self) -> "BodyCheckSettings":
-        """Require hard_margin_m below soft_margin_m (the slow band lies between them).
-
-        Returns:
-            BodyCheckSettings: The validated settings.
-        """
-        if not self.hard_margin_m < self.soft_margin_m:
-            raise ValueError(
-                f"body_check.hard_margin_m ({self.hard_margin_m}) must be below soft_margin_m ({self.soft_margin_m})"
-            )
-        return self
 
 
 class ReachMapSettings(StrictModel):

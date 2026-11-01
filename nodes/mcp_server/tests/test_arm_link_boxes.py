@@ -11,12 +11,12 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 import pytest
+from arm_collision.arm_geometry import BOX_POINT_SPACING_M, LINK_COLLISION_BOXES, box_surface_points
+from arm_collision.ik import ArmKinematics
+from arm_collision.self_collision import SelfCollisionChecker, joint_line
 
-from mcp_server.arm_geometry import BOX_POINT_SPACING_M, LINK_COLLISION_BOXES, box_surface_points
 from mcp_server.config import REPO_ROOT, BodyCheckSettings, McpServerConfig
 from mcp_server.floor_guard import JawModel
-from mcp_server.ik import ArmKinematics
-from mcp_server.self_collision import SelfCollisionChecker, joint_line
 
 CONFIG_HARD_MARGIN_M = 0.002
 MJCF = REPO_ROOT / "sim/grasp_sim/assets/so101/so101.xml"
@@ -28,8 +28,12 @@ CONTACT_ONLY = {"upper_arm_link": True, "lower_arm_link": False, "wrist_link": F
 ALLOWANCE_M = {link: CONFIG_HARD_MARGIN_M if only else 0.0 for link, only in CONTACT_ONLY.items()}
 CONFIG = McpServerConfig()
 KIN = ArmKinematics(CONFIG.arm.urdf_path, margin=CONFIG.limits.arm_limit_margin_rad)
-CHECKER = SelfCollisionChecker.from_config(
-    KIN, CONFIG, JawModel(KIN, CONFIG.arm.jaw_open_axis, CONFIG.arm.gripper_closed_rad)
+CHECKER = SelfCollisionChecker.from_settings(
+    KIN,
+    CONFIG.body,
+    CONFIG.body_check,
+    CONFIG.arm,
+    JawModel(KIN, CONFIG.arm.jaw_open_axis, CONFIG.arm.gripper_closed_rad),
 )
 SURFACE_STEPS = 6  # samples per box edge (corners included)
 POSES = 300

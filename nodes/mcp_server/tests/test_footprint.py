@@ -14,6 +14,7 @@ from typing import Any
 import numpy as np
 import pytest
 import yaml
+from arm_collision.ik import ArmKinematics, load_joint_limits
 from mcp.server.mcpserver.exceptions import ToolError
 from shapely.geometry import Point, Polygon
 
@@ -40,7 +41,6 @@ from mcp_server.footprint_geometry import (
     to_points,
     union_outline,
 )
-from mcp_server.ik import ArmKinematics, load_joint_limits
 from mcp_server.tools import build_mcp_server
 
 from .test_tools import TOKEN, FakeRobot, call

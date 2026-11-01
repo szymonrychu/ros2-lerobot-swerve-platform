@@ -49,6 +49,10 @@ from pathlib import Path
 
 import numpy as np
 import yaml
+from arm_collision.arm_geometry import LINK_CAPSULE_RADIUS_M, UPPER_ARM_CAPSULE, WRIST_CAPSULE
+from arm_collision.ik import ArmKinematics
+from arm_collision.self_collision import ESCAPE_TOLERANCE_M, SelfCollisionChecker, joint_line
+from arm_collision.settings import BodyCylinder
 from ros2_common.head_rgbd_calibration.arm_pose_check import (
     BodyConfig,
     BoxObstacle,
@@ -58,15 +62,12 @@ from ros2_common.head_rgbd_calibration.arm_pose_check import (
 )
 
 from .arm import home_routes
-from .arm_geometry import LINK_CAPSULE_RADIUS_M, UPPER_ARM_CAPSULE, WRIST_CAPSULE
-from .config import REPO_ROOT, BodyCylinder, BodySettings, McpServerConfig
+from .config import REPO_ROOT, BodySettings, McpServerConfig
 from .floor_guard import JawModel
 from .footprint import arm_shadow
 from .footprint_geometry import body_outline, static_outline
 from .head_kinematics import DEPTH_FRAME, HeadKinematics
-from .ik import ArmKinematics
 from .sag import GravityModel
-from .self_collision import ESCAPE_TOLERANCE_M, SelfCollisionChecker, joint_line
 
 LOGGER = logging.getLogger(__name__)
 CHECKS = ("body", "floor", "stretched", "roll", "footprint", "view")
@@ -256,12 +257,12 @@ class DrivePoseChecker:
         self.kin = arm_kinematics(config)
         jaw = JawModel(self.kin, config.arm.jaw_open_axis, config.arm.gripper_closed_rad)
         # The router sees the body plan_home sees; the clearance checker adds the head envelope.
-        self.router = SelfCollisionChecker.from_config(self.kin, config, jaw)
+        self.router = SelfCollisionChecker.from_settings(self.kin, config.body, config.body_check, config.arm, jaw)
         head = head_envelope(Path(config.head.urdf_path).read_text(), self.limits)
         with_head = BodySettings(
             boxes=config.body.boxes, cylinders=[*config.body.cylinders, BodyCylinder(**head.model_dump())]
         )
-        self.clearance = SelfCollisionChecker.from_config(self.kin, config.model_copy(update={"body": with_head}), jaw)
+        self.clearance = SelfCollisionChecker.from_settings(self.kin, with_head, config.body_check, config.arm, jaw)
         self.obstacles = [o.name for o in self.clearance.body.obstacles]
         outline = body_outline(
             config.body.boxes, config.body.cylinders, footprint.circle_segments, footprint.close_gap_m

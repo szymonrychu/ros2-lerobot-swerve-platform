@@ -17,10 +17,21 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Literal, Protocol
 
+from arm_collision.ik import ArmKinematics, UnreachableError, grasp_offset
+from arm_collision.self_collision import (
+    GRIPPER_MOVING_PARTS,
+    BodyReport,
+    SelfCollisionChecker,
+    combine_scales,
+    joint_line,
+    rigid,
+)
+from arm_collision.settings import ArmBaseOffset
+
 from .calibration_board import BoardPark
 from .calibration_marker import CalibrationMarker, clear_stale, load_marker
 from .carry import CarryRecord, CarryStore, GraspKind, carry_path
-from .config import ArmBaseOffset, LimitSettings, McpServerConfig
+from .config import LimitSettings, McpServerConfig
 from .floor_guard import (
     GRIPPER_LINK,
     FloorGuard,
@@ -46,7 +57,6 @@ from .grasp_check import (
 )
 from .grip import GripChoice, ResolvedGrip, resolve_grip_profile
 from .home_store import HomeStoreError, load_home, save_home
-from .ik import ArmKinematics, UnreachableError, grasp_offset
 from .metrics import (
     FLOOR_GUARD_SLOWDOWNS,
     GRIP_PROFILE_USES,
@@ -68,7 +78,6 @@ from .models import (
 )
 from .monitor import ARM_INTERRUPTS, MotionWatch, RobotMonitor
 from .sag import SETTLE_LOG_MARKER, GravityModel, SagCompensator, compensate
-from .self_collision import GRIPPER_MOVING_PARTS, BodyReport, SelfCollisionChecker, combine_scales, joint_line, rigid
 from .staleness import Stamped, is_fresh
 from .trajectory import (
     JointLimits,
@@ -575,7 +584,9 @@ class ArmController:
         mount = config.arm.base_in_base_link or ArmBaseOffset(z=config.arm.arm_base_height_m)
         self.jaw = JawModel(kinematics, config.arm.jaw_open_axis, config.arm.gripper_closed_rad)
         self.floor_guard = FloorGuard(kinematics, config.floor_guard, mount, self.jaw, self.gripper)
-        self.body_check = SelfCollisionChecker.from_config(kinematics, config, self.jaw)
+        self.body_check = SelfCollisionChecker.from_settings(
+            kinematics, config.body, config.body_check, config.arm, self.jaw
+        )
         self.tilt_source = tilt_source or (lambda: None)
         self.ground_source = ground_source or (lambda: None)
         # Guard rule arm phase (tools.register_tools wires GuardEngine.check_arm): called with (start, full target

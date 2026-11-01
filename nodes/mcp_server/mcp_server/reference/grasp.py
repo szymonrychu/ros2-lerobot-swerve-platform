@@ -16,9 +16,9 @@ from typing import Any
 import ikpy.chain
 import ikpy.link
 import numpy as np
+from arm_collision.ik import KINEMATICS, ArmKinematics, UnreachableError
 
 from mcp_server.grasp import IkBudget, is_stall_pose
-from mcp_server.ik import KINEMATICS, ArmKinematics, UnreachableError
 from mcp_server.reference import ReferenceKernel, Tolerance
 
 SAMPLES_ATOL_RAD = 1e-9  # joint samples: the C++ TRF follows scipy's steps, only float rounding differs

@@ -22,17 +22,18 @@ from dataclasses import dataclass, replace
 from typing import Any, Literal
 
 import numpy as np
+from arm_collision import ik
+from arm_collision.arm_geometry import FOREARM_CAPSULE, GRIPPER_BODY, GRIPPER_BODY_POINTS, JAW_POINTS, WRIST_CAPSULE
+from arm_collision.ik import ArmKinematics, UnreachableError, grasp_offset
+from arm_collision.jaw import rotate
+from arm_collision.self_collision import SelfCollisionChecker, joint_line
 from ikpy.utils import geometry as ik_geometry
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 import mcp_core_cpp
 
-from . import ik
-from .arm_geometry import FOREARM_CAPSULE, GRIPPER_BODY, GRIPPER_BODY_POINTS, JAW_POINTS, WRIST_CAPSULE
 from .config import GraspSettings, GripProfileOverride, LimitSettings, McpServerConfig
-from .floor_guard import FloorGuard, JawModel, SurfaceModel, arm_to_base_link, base_link_to_arm, rotate
-from .ik import ArmKinematics, UnreachableError, grasp_offset
-from .self_collision import SelfCollisionChecker, joint_line
+from .floor_guard import FloorGuard, JawModel, SurfaceModel, arm_to_base_link, base_link_to_arm
 from .surfaces import Clearance, SurfaceRegion
 
 GraspParams = GraspSettings  # per-call grasp parameters: the configured defaults with overrides applied
@@ -793,7 +794,7 @@ class GraspPlanner:
         self.cfg = config
         self.guard = guard
         self.jaw = jaw
-        self.body = body or SelfCollisionChecker.from_config(kin, config, jaw)
+        self.body = body or SelfCollisionChecker.from_settings(kin, config.body, config.body_check, config.arm, jaw)
 
     def body_problem(self, label: str, samples: list[dict[str, float]], escape: bool = False) -> str | None:
         """Robot body check of plan samples: a sample within body_check.hard_margin_m makes the candidate infeasible.

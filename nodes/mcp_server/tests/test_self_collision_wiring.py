@@ -9,11 +9,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from arm_collision import self_collision
+from arm_collision.ik import load_joint_limits
+from arm_collision.self_collision import SelfCollisionChecker, joint_line
 from mcp.server.mcpserver.exceptions import ToolError
 from prometheus_client import REGISTRY
 from pydantic import TypeAdapter
 
-from mcp_server import self_collision
 from mcp_server.arm import ArmController, SelfCollisionError
 from mcp_server.arm_reach import ReachEnvelope
 from mcp_server.config import BodyCheckSettings, McpServerConfig
@@ -21,9 +23,7 @@ from mcp_server.floor_guard import FloorOverride
 from mcp_server.grasp import GraspPlanner, ObjectSpec, grasp_params
 from mcp_server.grasp_tools import GraspExecutor
 from mcp_server.home_store import save_home
-from mcp_server.ik import load_joint_limits
 from mcp_server.motion_queue import MotionQueue, MotionStep, QueuedStep, QueueError
-from mcp_server.self_collision import SelfCollisionChecker, joint_line
 from mcp_server.tools import build_mcp_server
 
 from .fakes import FakeArmBackend
@@ -149,7 +149,7 @@ def test_home_from_the_home_pose_neighbourhood_is_direct(tmp_path: Path) -> None
 
 
 def valid_starts() -> list[dict[str, float]]:
-    checker = SelfCollisionChecker.from_config(KIN, CONFIG, JAW)
+    checker = SelfCollisionChecker.from_settings(KIN, CONFIG.body, CONFIG.body_check, CONFIG.arm, JAW)
     starts = []
     for x, y, z, p in itertools.product(
         [0.0, 0.1, 0.2, 0.25, 0.3], [-0.3, -0.2, -0.1, 0.1, 0.2, 0.3], [0.0, 0.05, 0.12, 0.2], [0.0, 0.8, 1.57]

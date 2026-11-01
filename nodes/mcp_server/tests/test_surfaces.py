@@ -5,9 +5,9 @@ import math
 
 import numpy as np
 import pytest
+from arm_collision.settings import ArmBaseOffset
 from pydantic import ValidationError
 
-from mcp_server.config import ArmBaseOffset
 from mcp_server.surfaces import HalfPlaneEdge, SurfaceRegion, Terrain
 
 MOUNT = ArmBaseOffset(x=0.06, y=-0.05, z=0.10, yaw=0.0)

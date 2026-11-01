@@ -17,6 +17,7 @@ from typing import Annotated, Any, Literal, Protocol
 
 import cv2
 import numpy as np
+from arm_collision.jaw import tool_point_in_base
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import CallToolResult, ContentBlock, ImageContent, TextContent
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -31,7 +32,7 @@ from .grasp_check import Band, CropInfo, FusedOutcome, GraspCheck, GripEvidence,
 from .grip import ResolvedGrip, resolve_grip_profile
 from .head import CalibrationInfo, HeadError
 from .head_kinematics import PAN_JOINT, TILT_JOINT, HeadAimError
-from .jaw_crop import JawCropError, crop_jpeg, jaw_crop, tool_point_in_base
+from .jaw_crop import JawCropError, crop_jpeg, jaw_crop
 from .jog import Jogger, JogSpec
 from .lookup_tools import record_lookup
 from .metrics import GRASP_ATTEMPTS, GRASP_PLANS, GRASP_RESULT_BY_OUTCOME, GRASP_VERDICTS
