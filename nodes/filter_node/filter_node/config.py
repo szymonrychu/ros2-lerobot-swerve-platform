@@ -6,6 +6,9 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from arm_collision.self_collision import JOINT_LINE_STEP_RAD
+from arm_collision.settings import ArmModelSettings, BodyCheckSettings, StrictModel
+from pydantic import Field
 
 DEFAULT_CONFIG_PATH = Path("/etc/ros2/filter_node/config.yaml")
 ENV_CONFIG_PATH_KEY = "FILTER_NODE_CONFIG"
@@ -16,6 +19,38 @@ DEFAULT_FOLLOWER_TORQUE_STATE_TOPIC = "/follower/torque_state"
 EXECUTOR_KINDS = ("events", "single_threaded")
 DEFAULT_EXECUTOR = "single_threaded"
 DEFAULT_IDLE_FALLBACK_S = 2.0
+DEFAULT_HEAD_STATE_TOPIC = "/head/joint_states"
+# A head joint state older than this is stale: the guard checks against the full head envelope (mcp_server's
+# head.state_max_age_s).
+DEFAULT_HEAD_STATE_MAX_AGE_S = 0.5
+MAX_GUARD_STEP_RAD = 0.5
+# Upper bound of a hard margin (m), as BodyCheckSettings.hard_margin_m bounds it.
+MAX_HARD_MARGIN_M = 0.2
+
+
+class GuardSettings(StrictModel):
+    """Arm self-collision guard (filter_node.guard): every follower command is checked against the robot body.
+
+    Attributes:
+        enabled: False publishes every command unchecked (rollback).
+        max_step_rad: Largest per-joint step between the checked samples of a command segment (rad).
+        hard_margin_m: Keep-away from every body part (m); the semantics and default of mcp_server's
+            body_check.hard_margin_m (BodyCheckSettings).
+        head_state_topic: Head pan/tilt (sensor_msgs/JointState): the D435 head is posed where it is.
+        head_state_max_age_s: Older head states are stale: the full head envelope is checked instead.
+        arm: Arm URDF, mount and calibration (the shared ArmModelSettings, equal to mcp_server's arm values).
+    """
+
+    enabled: bool = True
+    max_step_rad: float = Field(default=JOINT_LINE_STEP_RAD, gt=0.0, le=MAX_GUARD_STEP_RAD)
+    hard_margin_m: float = Field(
+        default=BodyCheckSettings.model_fields["hard_margin_m"].default,
+        ge=0.0,
+        le=MAX_HARD_MARGIN_M,
+    )
+    head_state_topic: str = Field(default=DEFAULT_HEAD_STATE_TOPIC, pattern=r"^/[A-Za-z0-9_/]+$")
+    head_state_max_age_s: float = Field(default=DEFAULT_HEAD_STATE_MAX_AGE_S, gt=0.0)
+    arm: ArmModelSettings
 
 
 @dataclass
@@ -59,6 +94,7 @@ class FilterConfig:
         executor: rclpy executor spinning the node: "events" (rclpy.experimental.EventsExecutor, lower CPU) or
             "single_threaded" (default, rollback).
         metrics_port: Prometheus /metrics port on 127.0.0.1; None disables the exporter.
+        self_collision_guard: Arm self-collision guard settings; None (no block) disables the guard.
     """
 
     input_topic: str
@@ -80,6 +116,7 @@ class FilterConfig:
     follower_torque_state_topic: str = DEFAULT_FOLLOWER_TORQUE_STATE_TOPIC
     metrics_port: int | None = None
     executor: str = DEFAULT_EXECUTOR
+    self_collision_guard: GuardSettings | None = None
 
 
 def read_topic(data: dict[str, Any], key: str, default: str) -> str:
@@ -156,6 +193,7 @@ def load_config(path: Path | None = None) -> FilterConfig | None:
     executor = str(data.get("executor", DEFAULT_EXECUTOR)).strip().lower()
     if executor not in EXECUTOR_KINDS:
         raise ValueError(f"executor must be one of {EXECUTOR_KINDS}, got {executor!r}")
+    raw_guard = data.get("self_collision_guard")
     return FilterConfig(
         input_topic=input_topic,
         output_topic=output_topic,
@@ -178,6 +216,7 @@ def load_config(path: Path | None = None) -> FilterConfig | None:
         ),
         metrics_port=int(raw_metrics_port) if raw_metrics_port is not None else None,
         executor=executor,
+        self_collision_guard=GuardSettings.model_validate(raw_guard) if raw_guard is not None else None,
     )
 
 
