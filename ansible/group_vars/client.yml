@@ -3045,16 +3045,16 @@ ros2_nodes:
         # from home to these measured-space joints, out of the D435 view, and returns home lower_delay_s after the last
         # goal ended. On by default (toggled at runtime on the web UI ARM tab). joints: picked 2026-11-01 by
         # `python -m mcp_server.drive_pose_check search` (0.1 rad grid over shoulder_lift, elbow_flex, wrist_flex; the
-        # rest as the parked home) against the packaged body (wheels to z 0.17, head post, head envelope): upper arm
-        # laid back, forearm folded over the crossbar. Rank 1 of 446 passing poses: search score 0.206 m2 of hidden
-        # floor (least of every pose passing the body, floor, footprint and route checks); gravity torque on
-        # shoulder_lift -0.74 N m. The 2026-10-31 pose (elbow_flex -1.483) came 2.8 cm from wheel_rr on the lift.
+        # rest as the parked home) against the packaged body (wheels to z 0.15, head post, head envelope) at the 5 mm
+        # keep-away: upper arm laid back, forearm folded over the crossbar. Rank 1 of 449 passing poses: search score
+        # 0.203 m2 of hidden floor (least of every pose passing the body, floor, footprint and route checks); gravity
+        # torque on shoulder_lift -0.75 N m (the 2026-10-31 pose again).
         drive_pose:
           enabled: true
           joints:
             shoulder_pan: -0.003
             shoulder_lift: -1.711
-            elbow_flex: -1.283
+            elbow_flex: -1.483
             wrist_flex: 1.543
             wrist_roll: -1.637
             gripper: 0.1
@@ -3248,11 +3248,10 @@ ros2_nodes:
         drive_arm_shadow:
           - [0.1531, -0.0732]
           - [0.1417, -0.0141]
-          - [-0.1009, -0.0019]
-          - [-0.1363, -0.0054]
-          - [-0.1424, -0.0134]
-          - [-0.1474, -0.0699]
-          - [-0.1279, -0.0897]
+          - [-0.1168, -0.0017]
+          - [-0.1561, -0.0135]
+          - [-0.1449, -0.0808]
+          - [-0.124, -0.0898]
           - [0.134, -0.0934]
         # <<< gen_nav_footprint: mcp_nav_footprint
       topdown:

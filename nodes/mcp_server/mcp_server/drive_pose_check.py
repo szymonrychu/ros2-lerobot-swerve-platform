@@ -27,7 +27,7 @@ and the pose itself to:
   the parked home's. Home hides 1.60 m2 over pans 0..-90 and 1.12 m2 over -50..-90; the pinned drive pose 0.165 m2
   over -50..-90 (nothing at 0..-40). A shoulder_pan swing would reach 0.088 m2 (not searched: D4 keeps the pan).
 
-Margins and heights are the shared arm_pose_check defaults (PoseCheckConfig: margin_m 0.03, min_tool_height_m 0.10,
+Margins and heights are the shared arm_pose_check defaults (PoseCheckConfig: margin_m 0.005, min_tool_height_m 0.10,
 stretched_shoulder_lift_max_rad 1.85). The D435 depth field of view is the datasheet
 87 x 58 deg of the 640x360 depth profile (nodes/bridges/realsense_d435/config/realsense_d435.yaml).
 
