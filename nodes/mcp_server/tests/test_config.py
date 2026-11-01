@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from arm_collision.settings import load_robot_body
 from pydantic import ValidationError
 
 from mcp_server.config import (
@@ -724,3 +725,16 @@ def test_deployed_config_has_an_enabled_drive_pose_naming_every_joint() -> None:
     drive = McpServerConfig.model_validate(yaml.safe_load(entry["config"])).arm.drive_pose
     assert drive.enabled is True
     assert drive.joints is not None and set(drive.joints) == set(DRIVE_JOINTS)
+
+
+def test_body_defaults_to_the_packaged_robot_body() -> None:
+    """A config without body: gets arm_collision's robot_body.yaml (the single body definition)."""
+    assert McpServerConfig().body == load_robot_body()
+
+
+def test_body_in_the_node_config_is_refused(tmp_path: Path) -> None:
+    """body: in the node config is refused: the body lives only in arm_collision/robot_body.yaml."""
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.safe_dump({"body": load_robot_body().model_dump(mode="json")}))
+    with pytest.raises(ValidationError, match="body"):
+        load_config(path)

@@ -20,6 +20,7 @@ dependencies = [
     { name = "mcp-core-cpp" },
     { name = "numpy" },
     { name = "pydantic" },
+    { name = "pyyaml" },
 ]
 
 [package.dev-dependencies]
@@ -36,6 +37,7 @@ requires-dist = [
     { name = "mcp-core-cpp", directory = "../../nodes/mcp_server/mcp_core_cpp" },
     { name = "numpy", specifier = "==2.4.3" },
     { name = "pydantic", specifier = "==2.13.5" },
+    { name = "pyyaml", specifier = "==6.0.3" },
 ]
 
 [package.metadata.requires-dev]

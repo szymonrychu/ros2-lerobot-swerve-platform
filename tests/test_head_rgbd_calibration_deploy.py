@@ -14,6 +14,8 @@ CLIENT_VARS = REPO_ROOT / "ansible" / "group_vars" / "client.yml"
 SETUP_TASKS = REPO_ROOT / "ansible" / "playbooks" / "tasks" / "head_rgbd_calibration_setup.yml"
 TEMPLATES = REPO_ROOT / "ansible" / "playbooks" / "templates"
 DEFAULTS = REPO_ROOT / "nodes" / "head_rgbd_calibration" / "config" / "head_rgbd_calibration.yaml"
+# The robot body mcp_server checks against (the single definition in the shared arm_collision package).
+ROBOT_BODY_YAML = REPO_ROOT / "shared" / "arm_collision" / "arm_collision" / "robot_body.yaml"
 PORT_LINE = re.compile(r"^\s*(?:http_port|port|metrics_port):\s*(\d+)\s*(?:#.*)?$", re.MULTILINE)
 STATE_DIR = "/var/lib/ros2/head_rgbd_calibration"
 HTTP_PORT = 18110
@@ -272,7 +274,7 @@ def test_fit_base_in_base_link_equals_mcp_server_arm() -> None:
 
 def test_pose_check_body_equals_mcp_server_body() -> None:
     body = calib_config()["arm_sequence"]["pose_check"]["body"]
-    mcp_body = mcp_config()["body"]
+    mcp_body = yaml.safe_load(ROBOT_BODY_YAML.read_text())
     assert body["boxes"] == mcp_body["boxes"]
     assert body["cylinders"] == mcp_body["cylinders"]
 

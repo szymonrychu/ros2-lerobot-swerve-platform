@@ -4,11 +4,14 @@ check margins, shared by every node that places the arm against the robot body (
 import math
 from pathlib import Path
 
+import yaml
 from pydantic import BaseModel, ConfigDict, Field, PositiveFloat, field_validator, model_validator
 
 # settings.py -> shared/arm_collision/arm_collision -> repo root is three levels above the package.
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_URDF = Path("nodes/web_ui/urdf/so101_arm.urdf")
+# The one body definition (load_robot_body), packaged next to this module.
+ROBOT_BODY_FILE = Path(__file__).resolve().with_name("robot_body.yaml")
 ARM_JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper")
 # Arm mount (URDF base_link origin) in base_link (m), measured on the robot 2026-10-10: shoulder_pan axis 98 mm forward and
 # 50 mm right of the centre between the wheels, URDF origin 38.8 mm behind and 62.4 mm below it; height from tip
@@ -17,28 +20,6 @@ ARM_BASE_HEIGHT_M = 0.100
 ARM_MOUNT_X_M = 0.0592
 ARM_MOUNT_Y_M = -0.05  # 5 cm to the right of the base_link centre line
 MOUNT_HEIGHT_TOLERANCE_M = 1e-6
-# Robot body (base_link, x forward, y left, z up from the floor; m): the H seen from above. Measured 2026-10-10: lidar
-# dome diameter 74 mm (radius 37 mm) centred at (0.150, 0.040) with its top face 210 mm above the floor, wheels and the
-# side bars joining front and rear wheels 35 mm wide, side bar top face ~180 mm. Still assumed: wheel line from the
-# swerve geometry (half_length_m / half_width_m, wheel radius 0.06), side bar bottom 120 mm, crossbar extent and height,
-# lidar column bottom 100 mm. Correct them in client.yml (nodes/mcp_server/README.md, "Body collision").
-WHEEL_X_M = 0.1525
-WHEEL_Y_M = 0.1333
-WHEEL_RADIUS_M = 0.06
-WHEEL_WIDTH_M = 0.035
-# The wheel steers about a vertical axis through its centre: it sweeps the circle of its top-view half-diagonal.
-WHEEL_ENVELOPE_RADIUS_M = round(math.hypot(WHEEL_RADIUS_M, WHEEL_WIDTH_M / 2), 4)  # 0.0625
-WHEEL_TOP_Z_M = 0.12
-FRAME_HALF_LENGTH_M = 0.2125
-FRAME_WIDTH_M = 0.035
-FRAME_TOP_Z_M = 0.18
-CROSSBAR_X_M = (-0.15, 0.10)
-# The crossbar joins the side bars: it spans to their inner faces.
-CROSSBAR_HALF_WIDTH_M = round(WHEEL_Y_M - FRAME_WIDTH_M / 2, 4)  # 0.1158
-CROSSBAR_Z_M = (0.06, 0.10)
-LIDAR_XY_M = (0.150, 0.040)
-LIDAR_RADIUS_M = 0.037
-LIDAR_Z_M = (0.10, 0.21)
 
 
 class StrictModel(BaseModel):
@@ -126,52 +107,6 @@ class BodyCylinder(StrictModel):
         return self
 
 
-def default_body_boxes() -> list[BodyBox]:
-    """The H strokes (side frames above the wheels) and the H bar (crossbar carrying the arm and the lidar).
-
-    Returns:
-        list[BodyBox]: frame_left, frame_right, crossbar.
-    """
-    frame_z = (WHEEL_TOP_Z_M + FRAME_TOP_Z_M) / 2.0
-    frame_size = (2.0 * FRAME_HALF_LENGTH_M, FRAME_WIDTH_M, FRAME_TOP_Z_M - WHEEL_TOP_Z_M)
-    return [
-        BodyBox(name="frame_left", center=(0.0, WHEEL_Y_M, frame_z), size=frame_size),
-        BodyBox(name="frame_right", center=(0.0, -WHEEL_Y_M, frame_z), size=frame_size),
-        BodyBox(
-            name="crossbar",
-            center=(sum(CROSSBAR_X_M) / 2.0, 0.0, sum(CROSSBAR_Z_M) / 2.0),
-            size=(
-                CROSSBAR_X_M[1] - CROSSBAR_X_M[0],
-                2.0 * CROSSBAR_HALF_WIDTH_M,
-                CROSSBAR_Z_M[1] - CROSSBAR_Z_M[0],
-            ),
-        ),
-    ]
-
-
-def default_body_cylinders() -> list[BodyCylinder]:
-    """The four wheel steering envelopes and the lidar column (crossbar top to the dome top).
-
-    Returns:
-        list[BodyCylinder]: wheel_fl, wheel_fr, wheel_rl, wheel_rr, lidar.
-    """
-    wheels = [
-        BodyCylinder(
-            name=f"wheel_{name}",
-            x=sx * WHEEL_X_M,
-            y=sy * WHEEL_Y_M,
-            radius=WHEEL_ENVELOPE_RADIUS_M,
-            z_min=0.0,
-            z_max=WHEEL_TOP_Z_M,
-        )
-        for name, sx, sy in (("fl", 1.0, 1.0), ("fr", 1.0, -1.0), ("rl", -1.0, 1.0), ("rr", -1.0, -1.0))
-    ]
-    lidar = BodyCylinder(
-        name="lidar", x=LIDAR_XY_M[0], y=LIDAR_XY_M[1], radius=LIDAR_RADIUS_M, z_min=LIDAR_Z_M[0], z_max=LIDAR_Z_M[1]
-    )
-    return [*wheels, lidar]
-
-
 class BodySettings(StrictModel):
     """Robot body obstacles the arm must not hit (body_model, self_collision), all in base_link.
 
@@ -179,8 +114,8 @@ class BodySettings(StrictModel):
     modelled, so they are never checked against the crossbar (or anything else).
     """
 
-    boxes: list[BodyBox] = Field(default_factory=default_body_boxes)
-    cylinders: list[BodyCylinder] = Field(default_factory=default_body_cylinders)
+    boxes: list[BodyBox]
+    cylinders: list[BodyCylinder]
 
     @model_validator(mode="after")
     def unique_names(self) -> "BodySettings":
@@ -328,3 +263,12 @@ class ArmModelSettings(StrictModel):
             Path: Absolute URDF path.
         """
         return v if v.is_absolute() else REPO_ROOT / v
+
+
+def load_robot_body() -> BodySettings:
+    """The robot body obstacles of the packaged robot_body.yaml (the single body definition of every node).
+
+    Returns:
+        BodySettings: Validated boxes and cylinders (a fresh model per call).
+    """
+    return BodySettings.model_validate(yaml.safe_load(ROBOT_BODY_FILE.read_text()))

@@ -3,10 +3,17 @@
 import math
 import os
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import yaml
-from arm_collision.settings import ARM_JOINTS, ArmModelSettings, BodyCheckSettings, BodySettings, StrictModel
+from arm_collision.settings import (
+    ARM_JOINTS,
+    ArmModelSettings,
+    BodyCheckSettings,
+    BodySettings,
+    StrictModel,
+    load_robot_body,
+)
 from pydantic import Field, PositiveFloat, field_validator, model_validator
 from ros2_common.battery import BatteryConfig
 from ros2_common.camera_geometry import MountPose
@@ -1501,7 +1508,8 @@ class McpServerConfig(StrictModel):
     jog: JogSettings = JogSettings()
     lookups: LookupSettings = Field(default_factory=LookupSettings)
     floor_guard: FloorGuardSettings = FloorGuardSettings()
-    body: BodySettings = BodySettings()
+    # Not configurable here: the robot body is arm_collision's packaged robot_body.yaml (one definition for every node).
+    body: BodySettings = Field(default_factory=load_robot_body)
     body_check: BodyCheckSettings = BodyCheckSettings()
     reach_map: ReachMapSettings = ReachMapSettings()
     approach: ApproachSettings = ApproachSettings()
@@ -1513,6 +1521,26 @@ class McpServerConfig(StrictModel):
     exploration: ExplorationSettings = ExplorationSettings()
     grasp_check: GraspCheckSettings = GraspCheckSettings()
     map3d: Map3dSettings = Map3dSettings()
+
+    @model_validator(mode="before")
+    @classmethod
+    def body_not_configurable(cls, data: Any) -> Any:
+        """Refuse body: in the node config (the body is the single packaged robot_body.yaml of arm_collision).
+
+        Args:
+            data (Any): Raw config input.
+
+        Returns:
+            Any: The unchanged input.
+
+        Raises:
+            ValueError: When the input carries a body key.
+        """
+        if isinstance(data, dict) and "body" in data:
+            raise ValueError(
+                "body is not configurable: the robot body is shared/arm_collision/arm_collision/robot_body.yaml"
+            )
+        return data
 
     @model_validator(mode="after")
     def front_parent_on_the_head(self) -> "McpServerConfig":
