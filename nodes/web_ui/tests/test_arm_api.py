@@ -281,3 +281,8 @@ def test_bridge_init_creates_set_bool_clients() -> None:
     ):
         BridgeNode(topics=[], allowed_publish_topics=set(), set_bool_services=["/arm/drive_pose/enable"])
     assert (SetBool, "/arm/drive_pose/enable") in clients
+
+
+def test_guard_state_role_is_latched_json() -> None:
+    msg_cls, qos, serializer = ROLE_SPECS["guard_state"]
+    assert msg_cls is String and qos is MAP_SUB_QOS and serializer is serialize_json_object

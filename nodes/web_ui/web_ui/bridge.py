@@ -63,6 +63,7 @@ from .config import (
     GRASP_RESULT_ROLE,
     GROUND_CLOUD_ROLE,
     GROUND_STATE_ROLE,
+    GUARD_STATE_ROLE,
     HEAD_DEPTH_ROLE,
     HEAD_RGB_ROLE,
     HEAD_RGBD_DEPTH_ROLE,
@@ -329,6 +330,8 @@ ROLE_SPECS: dict[str, tuple[type, Any, Serializer]] = {
     ACTIVE_SOURCE_ROLE: (String, DEFAULT_SUB_QOS_DEPTH, serialize_active_source),
     # mcp_server latches the drive pose state (reliable + transient_local): a (re)connecting UI gets the current one.
     DRIVE_POSE_STATE_ROLE: (String, MAP_SUB_QOS, serialize_json_object),
+    # filter_node latches the self-collision guard state (reliable + transient_local) like the drive pose state.
+    GUARD_STATE_ROLE: (String, MAP_SUB_QOS, serialize_json_object),
 }
 
 

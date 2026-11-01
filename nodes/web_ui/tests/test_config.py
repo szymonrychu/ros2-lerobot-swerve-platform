@@ -704,3 +704,23 @@ def test_default_yaml_and_client_yml_name_the_drive_pose_keys() -> None:
         nav = next(tab for tab in tabs.values() if tab["type"] == "map_nav")
         assert nav.get("drive_pose_state_topic") == "/arm/drive_pose/state"
     client_web_ui_config()
+
+
+def test_arm_tab_guard_state_topic_maps_to_the_guard_state_role() -> None:
+    """The arm tab reads filter_node's guard state; other tabs do not; empty is rejected."""
+    arm = TabConfig(id="arm", type="arm", label="Arm")
+    assert arm.guard_state_topic == "/filter/guard_state"
+    assert TabConfig(id="map", type="map_nav", label="Map").guard_state_topic is None
+    with pytest.raises(ValidationError):
+        TabConfig(id="arm", type="arm", label="Arm", guard_state_topic=" ")
+    cfg = AppConfig(tabs=[arm])
+    assert cfg.topic_roles()["/filter/guard_state"] == "guard_state"
+    assert "/filter/guard_state" in cfg.all_subscribed_topics()
+
+
+def test_default_yaml_and_client_yml_name_the_guard_state_topic() -> None:
+    default = yaml.safe_load((Path(__file__).resolve().parents[1] / "config" / "default.yaml").read_text())
+    nodes = yaml.safe_load(CLIENT_YML.read_text())["ros2_nodes"]
+    client = yaml.safe_load(next(n for n in nodes if n["name"] == "web_ui")["config"])
+    for config in (default, client):
+        assert raw_tabs(config)["arm"].get("guard_state_topic") == "/filter/guard_state"
