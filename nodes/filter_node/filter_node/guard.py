@@ -30,6 +30,8 @@ UNKNOWN_POSE = "unknown_pose"
 GUARD_STATE_PERIOD_S = 1.0
 # A blocked guard state with no new blocked command for this long (s) reports clear again.
 GUARD_STATE_HOLD_S = 2.0
+# Error text of a request with a NaN or infinite position (refused like a failed check).
+NON_FINITE_ERROR = "non-finite position in the request"
 
 
 class BodyCheck(Protocol):
@@ -182,18 +184,20 @@ class ArmGuard:
         if not self.enabled:
             return GuardResult(list(request.values()))
         began = time.perf_counter()
-        gripper = self.leader_gripper if source == SOURCE_LEADER else None
-        checked = dict(request)  # the request in follower radians (as the bridge will drive it)
-        if gripper is not None and gripper.joint in checked:
-            checked[gripper.joint] = leader_to_follower(checked[gripper.joint], gripper)
-        end = {**self.pose, **checked}
-        if any(j not in end for j in ARM_CHAIN_JOINTS):
-            return GuardResult(None, blocked=True, obstacle=UNKNOWN_POSE, check_seconds=time.perf_counter() - began)
-        has_start = all(j in self.pose for j in end)
-        samples = segment({n: self.pose[n] for n in end}, end, self.max_step_rad) if has_start else [end]
         try:
+            if not all(math.isfinite(p) for p in request.values()):
+                raise ValueError(NON_FINITE_ERROR)
+            gripper = self.leader_gripper if source == SOURCE_LEADER else None
+            checked = dict(request)  # the request in follower radians (as the bridge will drive it)
+            if gripper is not None and gripper.joint in checked:
+                checked[gripper.joint] = leader_to_follower(checked[gripper.joint], gripper)
+            end = {**self.pose, **checked}
+            if any(j not in end for j in ARM_CHAIN_JOINTS):
+                return GuardResult(None, blocked=True, obstacle=UNKNOWN_POSE, check_seconds=time.perf_counter() - began)
+            has_start = all(j in self.pose for j in end)
+            samples = segment({n: self.pose[n] for n in end}, end, self.max_step_rad) if has_start else [end]
             report = self.checker.posed(self.head_source()).path(samples, allow_escape=has_start)
-        except Exception as exc:  # fail closed: any checker failure publishes nothing
+        except Exception as exc:  # fail closed: any failure of the check publishes nothing
             self.errors += 1
             return GuardResult(None, check_seconds=time.perf_counter() - began, error=f"{type(exc).__name__}: {exc}")
         elapsed = time.perf_counter() - began

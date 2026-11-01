@@ -311,3 +311,27 @@ def test_follower_to_leader_inverts_the_bridge_mapping(leader_rad: float) -> Non
         follower, abs=RADIANS_PER_STEP
     )
     assert leader_to_follower(leader_rad, LEADER_GRIPPER) == pytest.approx(follower)
+
+
+@pytest.mark.parametrize("source", ["leader", "web_ui", "autonomy"])
+@pytest.mark.parametrize("bad", [math.nan, math.inf, -math.inf])
+@pytest.mark.parametrize("joint", ARM_NAMES)
+def test_a_non_finite_position_is_refused_without_raising(source: str, bad: float, joint: str) -> None:
+    """NaN or inf in any joint (the gripper included) refuses the command (fail closed), counted as an error."""
+    checker = FakeChecker()
+    guard = ArmGuard(
+        checker,
+        MAX_STEP_RAD,
+        enabled=True,
+        leader_gripper=LeaderGripperSettings(
+            source_min_steps=2045, source_max_steps=3289, command_min_steps=1900, command_max_steps=3377
+        ),
+    )
+    guard.seed(ARM_NAMES, ordered(PARKED_HOME))
+    request = {**DRIVE_POSE, joint: bad}
+    result = guard.admit(source, ARM_NAMES, ordered(request))
+    assert result.positions is None and not result.blocked
+    assert result.error
+    assert guard.errors == 1
+    assert checker.paths == []
+    assert guard.pose == {**PARKED_HOME}

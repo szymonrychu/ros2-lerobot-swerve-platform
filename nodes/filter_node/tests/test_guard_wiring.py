@@ -3,6 +3,7 @@ and the filtered leader output), seeded by the follower feedback and posing the 
 
 import importlib
 import json
+import math
 from collections.abc import Callable
 from types import ModuleType, SimpleNamespace
 from typing import Any
@@ -300,3 +301,17 @@ def test_build_arm_guard_maps_leader_grippers_with_the_configured_mapping() -> N
     module = importlib.import_module("filter_node.node")
     guard = module.build_arm_guard(GuardSettings(arm=ARM, leader_gripper=mapping), lambda: None)
     assert guard.leader_gripper == mapping
+
+
+@pytest.mark.parametrize("bad", [math.nan, math.inf])
+def test_a_non_finite_command_publishes_nothing_and_the_node_keeps_publishing(harness: Harness, bad: float) -> None:
+    """NaN or inf from web_ui is refused without raising out of the publish path; the next good command goes out."""
+    poisoned = {**DRIVE_POSE, "elbow_flex": bad}
+    harness.steps = [
+        harness.at(0.1, FEEDBACK, joint_msg(PARKED_HOME)),
+        harness.at(0.2, WEB_UI, joint_msg(poisoned)),
+        harness.at(0.3, WEB_UI, joint_msg(PARKED_HOME)),
+        harness.at(0.4),
+    ]
+    harness.run()
+    assert [source for source, _ in harness.published] == ["web_ui"]
