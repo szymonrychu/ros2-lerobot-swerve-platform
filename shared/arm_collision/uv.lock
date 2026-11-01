@@ -82,7 +82,7 @@ wheels = [
 
 [[package]]
 name = "mcp-core-cpp"
-version = "0.4.0"
+version = "0.3.0"
 source = { directory = "../../nodes/mcp_server/mcp_core_cpp" }
 
 [[package]]

@@ -71,14 +71,11 @@ class BodyBox(StrictModel):
         name: Obstacle name reported in rejections, slowdowns and metrics (e.g. frame_left, crossbar).
         center: Box centre (x, y, z) in base_link (m).
         size: Full edge lengths along base_link x, y, z (m, > 0).
-        margin_m: Own clearance margin of this obstacle (m, >= 0) in place of the checks' margin (body_check
-            soft_margin_m, the pose check margin_m); None = the check's margin. The hard margin always applies.
     """
 
     name: str = Field(min_length=1)
     center: tuple[float, float, float]
     size: tuple[PositiveFloat, PositiveFloat, PositiveFloat]
-    margin_m: float | None = Field(default=None, ge=0.0)
 
 
 class BodyCylinder(StrictModel):
@@ -91,8 +88,6 @@ class BodyCylinder(StrictModel):
         radius: Radius (m, > 0).
         z_min: Bottom (m, base_link z).
         z_max: Top (m), above z_min.
-        margin_m: Own clearance margin (m, >= 0) in place of the checks' margin (body_check soft_margin_m, the pose
-            check margin_m); None = the check's margin. The hard margin always applies.
     """
 
     name: str = Field(min_length=1)
@@ -101,7 +96,6 @@ class BodyCylinder(StrictModel):
     radius: PositiveFloat
     z_min: float
     z_max: float
-    margin_m: float | None = Field(default=None, ge=0.0)
 
     @model_validator(mode="after")
     def positive_height(self) -> "BodyCylinder":

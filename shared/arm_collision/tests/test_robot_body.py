@@ -8,15 +8,14 @@ EXPECTED_BOXES = [
     ("crossbar", (-0.025, 0.0, 0.08), (0.25, 0.2316, 0.04)),
     ("head_arm", (0.12, 0.10, 0.30), (0.08, 0.024, 0.024)),
 ]
-# The wheels carry their own zero margin (margin_m): the 5 cm above the tyres is their clearance margin.
 EXPECTED_CYLINDERS = [
-    ("wheel_fl", 0.1525, 0.1333, 0.0625, 0.0, 0.17, 0.0),
-    ("wheel_fr", 0.1525, -0.1333, 0.0625, 0.0, 0.17, 0.0),
-    ("wheel_rl", -0.1525, 0.1333, 0.0625, 0.0, 0.17, 0.0),
-    ("wheel_rr", -0.1525, -0.1333, 0.0625, 0.0, 0.17, 0.0),
-    ("lidar", 0.150, 0.040, 0.037, 0.10, 0.21, None),
-    ("head_post", 0.09, 0.10, 0.012, 0.0, 0.30, None),
-    ("head", 0.15, 0.10, 0.075, 0.287, 0.396, None),
+    ("wheel_fl", 0.1525, 0.1333, 0.0625, 0.0, 0.17),
+    ("wheel_fr", 0.1525, -0.1333, 0.0625, 0.0, 0.17),
+    ("wheel_rl", -0.1525, 0.1333, 0.0625, 0.0, 0.17),
+    ("wheel_rr", -0.1525, -0.1333, 0.0625, 0.0, 0.17),
+    ("lidar", 0.150, 0.040, 0.037, 0.10, 0.21),
+    ("head_post", 0.09, 0.10, 0.012, 0.0, 0.30),
+    ("head", 0.15, 0.10, 0.075, 0.287, 0.396),
 ]
 
 
@@ -26,7 +25,7 @@ def test_load_robot_body_returns_the_deployed_boxes_and_cylinders() -> None:
     body = load_robot_body()
     assert isinstance(body, BodySettings)
     assert [(b.name, b.center, b.size) for b in body.boxes] == EXPECTED_BOXES
-    assert [(c.name, c.x, c.y, c.radius, c.z_min, c.z_max, c.margin_m) for c in body.cylinders] == EXPECTED_CYLINDERS
+    assert [(c.name, c.x, c.y, c.radius, c.z_min, c.z_max) for c in body.cylinders] == EXPECTED_CYLINDERS
 
 
 def test_footprint_body_is_the_floor_level_body_without_the_head() -> None:

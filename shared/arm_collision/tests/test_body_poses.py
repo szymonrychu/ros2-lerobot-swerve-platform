@@ -11,7 +11,7 @@ import pytest
 from arm_collision.head import HeadPose
 from arm_collision.ik import ArmKinematics
 from arm_collision.jaw import JawModel, yaw_matrix
-from arm_collision.self_collision import SelfCollisionChecker, joint_line
+from arm_collision.self_collision import SelfCollisionChecker
 from arm_collision.settings import REPO_ROOT, ArmModelSettings, BodyCheckSettings, load_robot_body
 
 # mcp_server arm calibration of ansible/group_vars/client.yml (arm: block) and its limits.arm_limit_margin_rad default.
@@ -154,31 +154,3 @@ def test_the_posed_checker_is_reused_for_the_same_head_pose() -> None:
     first = CHECKER.posed(HeadPose(pan=0.1, tilt=0.2))
     assert CHECKER.posed(HeadPose(pan=0.1, tilt=0.2)) is first
     assert CHECKER.posed(HeadPose(pan=0.1, tilt=0.3)) is not first
-
-
-def test_wheels_carry_their_own_zero_margin() -> None:
-    """The 5 cm the wheel obstacles reach above the tyres is their clearance margin: the soft band adds nothing on top
-    (margin_m 0), every other obstacle keeps body_check.soft_margin_m."""
-    margins = dict(zip((o.name for o in CHECKER.body.obstacles), CHECKER.soft_margins.tolist(), strict=True))
-    assert {name: margins[name] for name in ("wheel_fl", "wheel_fr", "wheel_rl", "wheel_rr")} == dict.fromkeys(
-        ("wheel_fl", "wheel_fr", "wheel_rl", "wheel_rr"), 0.0
-    )
-    assert all(v == CHECK.soft_margin_m for name, v in margins.items() if not name.startswith("wheel"))
-
-
-def test_the_parked_home_is_not_slowed_by_the_wheel_band() -> None:
-    """The upper arm root stays 2.7 cm from wheel_fr at every shoulder_lift near pan 0: with the wheels' zero margin a
-    motion leaving the parked home runs at full speed."""
-    check = CHECKER.pose(PARKED_HOME)
-    assert check.soft["wheel_fr"] < CHECK.soft_margin_m  # inside the default band, outside the wheel's own
-    assert not check.slowed
-    raised = PARKED_HOME | {"shoulder_lift": -1.1}  # further on the forearm nears the lidar dome
-    report = CHECKER.path(joint_line(PARKED_HOME, raised))
-    assert not report.rejected
-    assert report.scales == [1.0] * len(report.scales)
-
-
-def test_the_hard_margin_still_holds_at_the_wheels() -> None:
-    """Gripper 4 cm above the wheel top (inside the 5 cm wheel band): rejected by the hard margin, wheels or not."""
-    joints = solve_base_link(*WHEEL_FR_XY, WHEEL_TOP_Z_M + 0.04, math.pi / 2)
-    assert CHECKER.pose(joints).per_obstacle["wheel_fr"][0] < CHECK.hard_margin_m

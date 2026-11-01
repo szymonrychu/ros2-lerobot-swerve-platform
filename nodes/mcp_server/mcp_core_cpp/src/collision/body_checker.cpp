@@ -34,7 +34,7 @@ Vec3 at(const double *data, size_t index) { return Vec3{data[index * 3], data[in
 
 BodyChecker::BodyChecker(std::vector<Obstacle> obstacles, std::vector<double> capsule_radii,
                          std::vector<PointGroup> groups, Rigid mount, int parts, int jaws, int links,
-                         double prune_slack, double escape_tolerance, std::vector<double> soft_offsets)
+                         double prune_slack, double escape_tolerance)
     : obstacles_(std::move(obstacles)),
       radii_(std::move(capsule_radii)),
       groups_(std::move(groups)),
@@ -44,11 +44,7 @@ BodyChecker::BodyChecker(std::vector<Obstacle> obstacles, std::vector<double> ca
       links_(links),
       prune_slack_(prune_slack),
       escape_tolerance_(escape_tolerance),
-      soft_offsets_(std::move(soft_offsets)),
       total_blocks_(0) {
-  if (soft_offsets_.size() != obstacles_.size()) {
-    throw std::invalid_argument("soft_offsets needs one value per obstacle");
-  }
   const int capsules = capsule_count();
   if (capsules + jaws_ >= parts_) {
     throw std::invalid_argument("parts must hold the capsules, a point part and the jaws");
@@ -159,13 +155,10 @@ void BodyChecker::bounded(const SampleView &sample, double hard_margin, const do
   std::vector<double> clear(m * parts_, INF);
   std::vector<double> cap_lo(m * capsules);
   std::vector<double> block_lo(m * total_blocks_);
-  // soft_up: upper bound of the smallest offset soft clearance (clearance + soft_offsets_[k]); raw_up the same without
-  // the offsets (a bound of the smallest hard clearance).
-  double soft_up = INF, raw_up = INF, hard_up = INF;
+  double soft_up = INF, hard_up = INF;
   // Pass 1: bounds (and the jaw points, single points evaluated exactly).
   for (size_t k = 0; k < m; ++k) {
     const Obstacle &o = obstacles_[k];
-    const double offset = soft_offsets_[k];
     for (int p = 0; p < capsules; ++p) {
       const Vec3 a = at(sample.capsules, 2 * p), b = at(sample.capsules, 2 * p + 1);
       const double d0 = b[0] - a[0], d1 = b[1] - a[1], d2 = b[2] - a[2];
@@ -173,9 +166,7 @@ void BodyChecker::bounded(const SampleView &sample, double hard_margin, const do
       const double half = std::sqrt((s0 + s1) + s2) / 2.0;
       const Vec3 mid{(a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0, (a[2] + b[2]) / 2.0};
       cap_lo[k * capsules + p] = (o.signed_distance(mid) - half) - radii_[p];
-      const double end = std::min(o.signed_distance(a), o.signed_distance(b)) - radii_[p];
-      raw_up = std::min(raw_up, end);
-      soft_up = std::min(soft_up, end + offset);
+      soft_up = std::min(soft_up, std::min(o.signed_distance(a), o.signed_distance(b)) - radii_[p]);
     }
     size_t block = 0;
     for (const PointGroup &g : groups_) {
@@ -188,23 +179,21 @@ void BodyChecker::bounded(const SampleView &sample, double hard_margin, const do
       if (g.contact_only) {
         hard_up = std::min(hard_up, upper + hard_margin);
       } else {
-        raw_up = std::min(raw_up, upper);
-        soft_up = std::min(soft_up, upper + offset);
+        soft_up = std::min(soft_up, upper);
       }
     }
     for (int p = parts_ - jaws_; p < parts_; ++p) {
       clear[k * parts_ + p] = o.signed_distance(jaw(sample, p));
-      raw_up = std::min(raw_up, clear[k * parts_ + p]);
-      soft_up = std::min(soft_up, clear[k * parts_ + p] + offset);
+      soft_up = std::min(soft_up, clear[k * parts_ + p]);
       counts.points += 1;
     }
   }
-  hard_up = std::min(hard_up, raw_up);
+  hard_up = std::min(hard_up, soft_up);
   const double soft_t = soft ? soft_up + prune_slack_ : -INF;
   std::vector<double> hard_t(m), need(m);
   for (size_t k = 0; k < m; ++k) {
     hard_t[k] = (hard_limit != nullptr ? hard_limit[k] : hard_up) + prune_slack_;
-    need[k] = std::max(soft_t - soft_offsets_[k], hard_t[k]);
+    need[k] = std::max(soft_t, hard_t[k]);
   }
   // Pass 2: exact distances of what can matter.
   for (size_t k = 0; k < m; ++k) {
@@ -298,11 +287,9 @@ PathResult BodyChecker::path(const std::vector<SampleView> &samples, double hard
   result.clearances.resize(n);
   result.obstacles.resize(n);
   result.parts.resize(n);
-  std::vector<double> offset_soft(m);
   for (size_t i = 0; i < n; ++i) {
-    for (size_t k = 0; k < m; ++k) offset_soft[k] = c.soft[i * m + k] + soft_offsets_[k];
-    const int64_t worst = row_min(offset_soft.data(), static_cast<int>(m)).second;
-    result.clearances[i] = c.soft[i * m + worst];
+    const auto [value, worst] = row_min(&c.soft[i * m], static_cast<int>(m));
+    result.clearances[i] = value;
     result.obstacles[i] = worst;
     result.parts[i] = c.soft_parts[i * m + worst];
   }

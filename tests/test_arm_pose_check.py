@@ -425,16 +425,3 @@ def test_thicker_board_has_less_clearance_than_a_thin_one() -> None:
     thick.board.thickness_mm = 40.0
     clear = lambda f: float(checker(f).obstacles.distances(checker(f).board_points(ZERO)).min())  # noqa: E731
     assert clear(thick) < clear(thin)
-
-
-def test_an_obstacle_margin_replaces_margin_m_for_that_obstacle() -> None:
-    """The wheels carry margin_m 0 (robot_body.yaml): the upper arm 22 mm from wheel_fr at the zero pose passes; the
-    same body without the wheel's own margin holds it to margin_m (30 mm)."""
-    assert all(c.margin_m == 0.0 for c in BodyConfig().cylinders if c.name.startswith("wheel"))
-    assert checker().check_pose(ZERO, 0.3, rolling=False) == []
-    plain = BodyConfig(
-        boxes=BodyConfig().boxes,
-        cylinders=[c.model_copy(update={"margin_m": None}) for c in BodyConfig().cylinders],
-    )
-    entries = checker(cfg=PoseCheckConfig(body=plain)).check_pose(ZERO, 0.3, rolling=False)
-    assert any(e.startswith("link_clearance: upper arm to wheel_fr") for e in entries), entries

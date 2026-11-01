@@ -73,9 +73,8 @@ BodyChecker make_checker(const InArray &obstacles, const InArray &capsule_radii,
                          const std::vector<int64_t> &counts, const std::vector<InArray> &points,
                          const std::vector<InArray> &centres, const std::vector<InArray> &radii,
                          const InArray &mount_rotation, const InArray &mount_offset, int part_count, int jaw_count,
-                         int link_count, double prune_slack, double escape_tolerance, const InArray &soft_offsets) {
+                         int link_count, double prune_slack, double escape_tolerance) {
   require_shape(capsule_radii, {-1}, "capsule_radii");
-  require_shape(soft_offsets, {-1}, "soft_offsets");
   require_shape(mount_rotation, {3, 3}, "mount_rotation");
   require_shape(mount_offset, {3}, "mount_offset");
   const size_t g = parts.size();
@@ -107,8 +106,7 @@ BodyChecker make_checker(const InArray &obstacles, const InArray &capsule_radii,
   try {
     return BodyChecker(obstacles_of(obstacles), std::move(radius), std::move(groups),
                        collision::make_rigid(mount_rotation.data(), mount_offset.data()), part_count, jaw_count,
-                       link_count, prune_slack, escape_tolerance,
-                       std::vector<double>(soft_offsets.data(), soft_offsets.data() + soft_offsets.shape(0)));
+                       link_count, prune_slack, escape_tolerance);
   } catch (const std::invalid_argument &e) {
     throw nb::value_error(e.what());
   }
@@ -237,11 +235,9 @@ void register_collision(nb::module_ &m) {
       .def(nb::new_(&make_checker), "obstacles"_a, "capsule_radii"_a, "group_parts"_a, "group_links"_a,
            "group_contact_only"_a, "group_counts"_a, "group_points"_a, "group_centres"_a, "group_radii"_a,
            "mount_rotation"_a, "mount_offset"_a, "part_count"_a, "jaw_count"_a, "link_count"_a, "prune_slack"_a,
-           "escape_tolerance"_a, "soft_offsets"_a,
+           "escape_tolerance"_a,
            "Bind the body (obstacle table rows: kind 0 box lo xyz hi xyz / kind 1 cylinder x y radius z_min z_max 0), "
-           "the capsule radii, the point groups (LINK_BLOCKS), the arm mount and the per-obstacle soft offsets "
-           "(default soft margin minus the obstacle's own: path() picks the sample's obstacle furthest inside its "
-           "margin).")
+           "the capsule radii, the point groups (LINK_BLOCKS) and the arm mount.")
       .def_prop_ro("obstacle_count", &BodyChecker::obstacle_count)
       .def("full", &full, "capsules"_a, "jaws"_a, "rotations"_a, "translations"_a, "hard_margin"_a,
            "clearance_matrix of stacked sample geometry: (values, parts, soft, soft_parts, points, capsules).")

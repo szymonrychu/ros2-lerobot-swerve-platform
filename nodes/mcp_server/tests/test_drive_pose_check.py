@@ -214,11 +214,3 @@ def test_search_ranks_passing_candidates_by_occluded_floor_then_torque(
     assert [c.joints["wrist_flex"] for c in ranked] == [0.5, 0.5]
     assert [(c.joints["shoulder_lift"], c.occluded_floor_m2) for c in ranked] == [(0.0, 0.1), (-1.35, 0.2)]
     assert all(c.joints["wrist_roll"] == HOME["wrist_roll"] and c.joints["gripper"] == HOME["gripper"] for c in ranked)
-
-
-def test_the_wheels_hold_their_own_zero_margin(checker: DrivePoseChecker) -> None:
-    """The body check holds the wheels to their own margin_m 0 (robot_body.yaml: the 5 cm above the tyres is the
-    margin), every other obstacle to the pose check margin_m."""
-    margins = dict(zip(checker.obstacles, checker.margins.tolist(), strict=True))
-    assert all(margins[name] == 0.0 for name in ("wheel_fl", "wheel_fr", "wheel_rl", "wheel_rr"))
-    assert all(v == checker.limits.margin_m for name, v in margins.items() if not name.startswith("wheel"))

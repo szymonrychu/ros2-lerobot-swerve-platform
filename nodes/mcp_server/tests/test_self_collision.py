@@ -94,7 +94,7 @@ def test_clear_pose_has_full_clearance() -> None:
     """Outside the slow band; the hard check's clearance is lower (the upper arm box passes 1.5 cm over the dome top
     edge, contact-only: it counts its distance plus the hard margin) but clear of the hard margin."""
     check = CHECKER.pose(clear_pose())
-    assert not check.slowed  # outside every obstacle's own soft band (the wheels' is 0)
+    assert check.min_soft_clearance > CONFIG.body_check.soft_margin_m
     assert check.min_clearance > CONFIG.body_check.hard_margin_m
     assert set(check.per_obstacle) == {o.name for o in CHECKER.body.obstacles}
 
@@ -243,7 +243,7 @@ def test_path_near_the_lidar_is_slowed_not_rejected() -> None:
 
 def test_clear_path_is_neither_slowed_nor_rejected() -> None:
     goal = solve_base_link(0.30, -0.05, 0.25, 0.6)  # 10 cm above the clear pose
-    assert not CHECKER.pose(goal).slowed
+    assert CHECKER.pose(goal).min_soft_clearance > CONFIG.body_check.soft_margin_m
     report = CHECKER.path(joint_line(clear_pose(), goal, 0.02))
     assert not report.rejected
     assert report.summary() is None
