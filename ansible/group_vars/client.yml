@@ -167,11 +167,16 @@ ros2_node_type_defaults:
     deploy_mode: native
     node_launch_command: "python3 -m filter_node"
     node_src_dir: "nodes/filter_node"
-    # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
+    # Depends on shared/ros2_metrics and shared/arm_collision (editable path dependencies): shared/ changes restart and
+    # re-sync it.
     src_shared: true
-    # Working set MiB p50/24 h peak 47.6/48.2 (Mimir, 2026-10-11): MemoryLow ~ p50, MemoryMax >= 2x peak.
+    # The self-collision guard: arm_collision path-depends on the C++ kernels (built into this venv) and loads the arm
+    # URDF from the web_ui package directory.
+    src_extra_paths: [nodes/mcp_server/mcp_core_cpp, nodes/web_ui/urdf]
+    # Working set MiB p50/24 h peak 47.6/48.2 (Mimir, 2026-10-11) before the guard; 256M until the guard (ikpy, scipy,
+    # the C++ kernels) is measured, then MemoryMax >= 2x peak.
     memory_low: "48M"
-    memory_max: "128M"
+    memory_max: "256M"
     cpu_weight: 1000
     io_weight: 1000
     oom_score_adjust: -900
@@ -1307,6 +1312,31 @@ ros2_nodes:
         prediction_lead_s: 0.045
         velocity_decay_per_s: 4.5
         max_prediction_time_s: 0.14
+      # Arm self-collision guard: every /follower/joint_commands command (leader, web UI, autonomy) is checked against
+      # the robot body (shared/arm_collision robot_body.yaml) and clamped to the last safe point short of it.
+      # Rollback: `enabled: false`, then deploy-nodes.sh client filter_node.
+      self_collision_guard:
+        enabled: true
+        max_step_rad: 0.02
+        # Keep-away from every body part (m): equal to mcp_server body_check.hard_margin_m (tests/test_arm_guard_config.py).
+        hard_margin_m: 0.005
+        # The D435 head is posed from a fresh pan/tilt; older than head_state_max_age_s = the full head envelope.
+        head_state_topic: /head/joint_states
+        head_state_max_age_s: 0.5
+        # Arm calibration: equal to mcp_server's arm block (tests/test_arm_guard_config.py pins it).
+        arm:
+          urdf_path: nodes/web_ui/urdf/so101_arm.urdf
+          arm_base_height_m: 0.100
+          joint_offsets_rad:
+            shoulder_pan: 0.0182
+            shoulder_lift: -0.0345
+            elbow_flex: -0.1070
+            wrist_flex: 0.0988
+            wrist_roll: -0.0710
+          tool_offset_m: {x: 0.0010, y: -0.0056, z: -0.0014}
+          joint_limit_overrides_rad:
+            shoulder_lift: [-1.745, 1.9]
+          base_in_base_link: {x: 0.0592, y: -0.05, z: 0.100, yaw: 0.0}
   - name: test_joint_api
     node_type: test_joint_api
     present: true
