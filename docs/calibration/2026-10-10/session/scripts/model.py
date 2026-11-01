@@ -7,7 +7,7 @@ import yaml
 from ros2_common.camera_geometry import optical_from_mount
 from scipy.spatial.transform import Rotation
 
-from mcp_server.ik import ARM_CHAIN_JOINTS, ArmKinematics
+from arm_collision.ik import ARM_CHAIN_JOINTS, ArmKinematics
 
 REPO = Path("/Users/szymonri/Documents/ros2-lerobot-sverve-platform")
 D = Path(

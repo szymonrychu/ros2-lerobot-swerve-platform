@@ -1,4 +1,4 @@
-// ArmKinematics forward kinematics and IK in C++ (see kinematics.hpp); every step mirrors mcp_server/ik.py.
+// ArmKinematics forward kinematics and IK in C++ (see kinematics.hpp); every step mirrors arm_collision/ik.py.
 #if defined(__clang__)
 // No fused multiply-add: the sums round like numpy's (GCC in ISO C++ mode does not contract either).
 #pragma STDC FP_CONTRACT OFF

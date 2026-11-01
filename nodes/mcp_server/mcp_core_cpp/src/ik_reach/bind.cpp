@@ -199,7 +199,7 @@ nb::dict reach_map_build(const ik_reach::ArmModel &arm, const ik_reach::BodyMode
 }  // namespace
 
 void register_ik_reach(nb::module_ &m) {
-  nb::class_<ik_reach::ArmModel>(m, "ArmModel", "Forward kinematics and IK of mcp_server.ik.ArmKinematics")
+  nb::class_<ik_reach::ArmModel>(m, "ArmModel", "Forward kinematics and IK of arm_collision.ik.ArmKinematics")
       .def(nb::new_(&make_arm), "link_fixed"_a, "link_axis"_a, "link_moves"_a, "joint_link"_a, "lower"_a, "upper"_a,
            "margin"_a, "offsets"_a, "tool_offset"_a, "max_reach_m"_a, "pan_axis_xy"_a,
            "Chain links (row-major 4x4 matrix at angle 0, axis, revolute) and the ArmKinematics parameters.")

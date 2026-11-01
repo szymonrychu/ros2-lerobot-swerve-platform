@@ -50,7 +50,7 @@ to `kin.solve_count` for its `IkBudget`.
 
 **Release at exit.** A planner's kinematics can outlive interpreter shutdown (a module-global planner, or one on the
 stack of a daemon thread that was never stopped), and nanobind would then report its `ArmModel` as leaked.
-`mcp_server.ik.release_core_models` (registered with `atexit`) drops the model of every live `ArmKinematics`; a
+`arm_collision.ik.release_core_models` (registered with `atexit`) drops the model of every live `ArmKinematics`; a
 `core_model()` call after it raises `RuntimeError` instead of building a model nobody frees.
 
 The original Python bodies live in `mcp_server/reference/grasp.py` (`solve_line_reference`, run on an ikpy chain
