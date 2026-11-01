@@ -1,8 +1,10 @@
-"""Prometheus metrics of the filter node: input ages, active command source, switches and loop overruns."""
+"""Prometheus metrics of the filter node: input ages, active command source, switches, loop overruns and the arm
+self-collision guard (check time, refusals)."""
 
-from prometheus_client import REGISTRY, CollectorRegistry, Counter, Gauge
+from prometheus_client import REGISTRY, CollectorRegistry, Counter, Gauge, Histogram
 
 from .arbitration import SOURCE_AUTONOMY, SOURCE_LEADER, SOURCE_NONE, SOURCE_RELEASED, SOURCE_WEB_UI
+from .guard import GuardResult
 
 # Sources that send input to the node (and so have an input age).
 INPUT_SOURCES = (SOURCE_LEADER, SOURCE_WEB_UI, SOURCE_AUTONOMY)
@@ -10,6 +12,10 @@ INPUT_SOURCES = (SOURCE_LEADER, SOURCE_WEB_UI, SOURCE_AUTONOMY)
 ACTIVE_SOURCES = (*INPUT_SOURCES, SOURCE_NONE, SOURCE_RELEASED)
 # A loop iteration starting later than this many periods after the previous one counts as an overrun.
 OVERRUN_PERIOD_FACTOR = 1.5
+# Guard check time buckets (s): the budget is p99 <= 2 ms at 100 Hz on the Pi 5.
+GUARD_CHECK_BUCKETS = (0.0005, 0.001, 0.002, 0.003, 0.005, 0.01, 0.02, 0.05, 0.1)
+# Refusal obstacle label of a check that raised (nothing published).
+CHECK_ERROR = "check_error"
 
 
 class FilterMetrics:
@@ -33,6 +39,18 @@ class FilterMetrics:
         self.switches = Counter("filter_source_switches_total", "Active command source changes", registry=registry)
         self.overruns = Counter(
             "filter_loop_overruns_total", "Control loop iterations that started late", registry=registry
+        )
+        self.guard_check = Histogram(
+            "filter_guard_check_seconds",
+            "Wall time of one self-collision guard check",
+            buckets=GUARD_CHECK_BUCKETS,
+            registry=registry,
+        )
+        self.guard_refusals = Counter(
+            "filter_guard_refusals_total",
+            "Commands the self-collision guard clamped or refused",
+            ["source", "obstacle"],
+            registry=registry,
         )
         self.last_input: dict[str, float] = {}
         self.last_active: str | None = None
@@ -74,3 +92,16 @@ class FilterMetrics:
         if self.last_loop_start is not None and now - self.last_loop_start > OVERRUN_PERIOD_FACTOR * period_s:
             self.overruns.inc()
         self.last_loop_start = now
+
+    def record_guard(self, source: str, result: GuardResult) -> None:
+        """Observe a guard check and count it when it clamped or refused the command.
+
+        Args:
+            source (str): Command source (leader, web_ui, autonomy).
+            result (GuardResult): The guard's verdict.
+        """
+        self.guard_check.observe(result.check_seconds)
+        if result.error:
+            self.guard_refusals.labels(source=source, obstacle=CHECK_ERROR).inc()
+        elif result.blocked:
+            self.guard_refusals.labels(source=source, obstacle=result.obstacle).inc()

@@ -2,9 +2,11 @@
 
 from pathlib import Path
 
+import pytest
 from prometheus_client import CollectorRegistry
 
 from filter_node.config import load_config
+from filter_node.guard import GuardResult
 from filter_node.metrics import FilterMetrics
 
 
@@ -65,3 +67,21 @@ def test_loop_overrun_counted_when_iteration_late() -> None:
     assert reg.get_sample_value("filter_loop_overruns_total") == 0.0
     m.observe_loop(100.05, period)  # 40 ms late for a 10 ms period
     assert reg.get_sample_value("filter_loop_overruns_total") == 1.0
+
+
+def test_guard_metrics_exist_and_move() -> None:
+    """filter_guard_check_seconds observes every check; filter_guard_refusals_total counts refusals by source and
+    obstacle (a failed check as check_error)."""
+    m, reg = make_metrics()
+    assert reg.get_sample_value("filter_guard_check_seconds_count") == 0.0
+    m.record_guard("web_ui", GuardResult([0.1], check_seconds=0.001))
+    m.record_guard(
+        "leader", GuardResult([0.1], blocked=True, link="gripper body", obstacle="wheel_fr", check_seconds=0.003)
+    )
+    m.record_guard("leader", GuardResult(None, blocked=True, obstacle="wheel_fr", check_seconds=0.002))
+    m.record_guard("autonomy", GuardResult(None, check_seconds=0.001, error="RuntimeError: kernel gone"))
+    assert reg.get_sample_value("filter_guard_check_seconds_count") == 4.0
+    assert reg.get_sample_value("filter_guard_check_seconds_sum") == pytest.approx(0.007)
+    assert reg.get_sample_value("filter_guard_refusals_total", {"source": "leader", "obstacle": "wheel_fr"}) == 2.0
+    assert reg.get_sample_value("filter_guard_refusals_total", {"source": "autonomy", "obstacle": "check_error"}) == 1.0
+    assert reg.get_sample_value("filter_guard_refusals_total", {"source": "web_ui", "obstacle": "wheel_fr"}) is None
