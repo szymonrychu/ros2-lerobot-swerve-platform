@@ -9,6 +9,7 @@ dependencies = [
     "st3215>=0.4.0",
     "numpy>=1.26.0",
     "ros2-metrics",
+    "feetech-mapping",
 ]
 
 [dependency-groups]
@@ -24,6 +25,8 @@ package = false
 
 [tool.uv.sources]
 ros2-metrics = { path = "../../../shared/ros2_metrics", editable = true }
+# Step/radian conversions and the leader -> follower range mapping, shared with filter_node's self-collision guard.
+feetech-mapping = { path = "../../../shared/feetech_mapping", editable = true }
 
 [tool.ruff]
 line-length = 120

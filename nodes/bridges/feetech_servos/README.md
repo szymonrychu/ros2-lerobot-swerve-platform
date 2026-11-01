@@ -79,7 +79,7 @@ All of these are accepted on any group's `joint_commands`, matched by joint name
 
 - **Separate messages** (what `swerve_drive_controller` publishes today): a steer-only `JointState` (names + `position`) and a drive-only one (names + `velocity`, rad/s). Arm commands are position-only (`velocity` empty).
 - **Combined message:** one `JointState` naming all joints, with `position[i] = NaN` for velocity-mode joints and `velocity[i] = NaN` for position-mode joints.
-- **NaN / inf entries are ignored** and never written to a servo (no goal_position / goal_speed write, and a NaN velocity does not feed the wheel watchdog). `command_mapping` additionally refuses non-finite values with `ValueError`; before this check a NaN velocity clamped to full speed.
+- **NaN / inf entries are ignored** and never written to a servo (no goal_position / goal_speed write, and a NaN velocity does not feed the wheel watchdog). `feetech_mapping.command_mapping` (shared/feetech_mapping) additionally refuses non-finite values with `ValueError`; before this check a NaN velocity clamped to full speed.
 
 ### Control loop, callback draining and the wheel watchdog
 

@@ -8,8 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
-
-from .command_mapping import STEP_CENTER, STEPS_PER_RADIAN
+from feetech_mapping.command_mapping import STEP_CENTER, STEPS_PER_RADIAN
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_CONFIG_PATH = Path("/etc/ros2/feetech_servos/config.yaml")

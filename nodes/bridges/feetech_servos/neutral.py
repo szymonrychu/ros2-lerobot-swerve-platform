@@ -27,7 +27,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .command_mapping import STEP_CENTER
+from feetech_mapping.command_mapping import STEP_CENTER
+
 from .config import JointEntry, JointGroup
 from .registers import get_register_entry_by_name, read_register, write_register
 from .torque_control import PRESENT_REGISTER, TORQUE_OFF, TORQUE_REGISTER, TorqueControl, read_present_position
