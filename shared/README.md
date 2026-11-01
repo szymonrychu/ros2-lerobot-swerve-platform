@@ -8,6 +8,11 @@ See [CLAUDE.md](../CLAUDE.md): use Python 3 type hints and extend unit tests as 
 A second, separate package lives in [ros2_metrics/](ros2_metrics/README.md): `ros2-metrics`, the Prometheus
 exporter helper of our nodes (only `prometheus-client`).
 
+Two more separate packages: [arm_collision/](arm_collision/README.md), `arm-collision`, the rclpy-free arm
+self-collision code and the one robot body definition (`robot_body.yaml`) used by mcp_server and filter_node's guard; and
+[feetech_mapping/](feetech_mapping/README.md), `feetech-mapping`, the Feetech step/radian and leader -> follower range
+mapping used by the servo bridge and the guard.
+
 The C++ nodes share [ros2_common_cpp/](ros2_common_cpp/), an ament_cmake package with config validation, metrics and the depth edge mask;
 see [ros2_common_cpp (C++)](#ros2_common_cpp-c) below.
 

@@ -1387,28 +1387,40 @@ Planner (only with surfaces; without them plans are unchanged, the golden plans 
 
 ## Body collision
 
-The arm can hit its own robot. Seen from above the robot is an H, and those are the only parts the arm can reach
-(`body_model.py`, `self_collision.py`, pure geometry, base_link: x forward, y left, z up from the floor):
+The arm can hit its own robot. The check code is the shared `arm_collision` package
+([shared/arm_collision](../../shared/arm_collision/README.md): `body_model.py`, `self_collision.py`, pure geometry,
+base_link: x forward, y left, z up from the floor) and the body is its single definition,
+`shared/arm_collision/arm_collision/robot_body.yaml` (loaded as the `body` default; there is no `body:` block in
+`client.yml` any more). filter_node runs the same check on every follower command
+([Self-collision guard](../filter_node/README.md#self-collision-guard)), so a motion mcp_server accepts is also
+accepted there, and the other way round. Seen from above the robot is an H, plus the head:
 
 | Obstacle | Model | Default (m) |
 |---|---|---|
-| `wheel_fl`, `wheel_fr`, `wheel_rl`, `wheel_rr` | vertical cylinder around the steer axis (the wheels steer, so the whole steering circle counts: the half-diagonal of the 120 x 35 mm wheel) | axes (+-0.1525, +-0.1333), radius 0.0625, z 0 .. 0.12 |
+| `wheel_fl`, `wheel_fr`, `wheel_rl`, `wheel_rr` | vertical cylinder around the steer axis (the wheels steer, so the whole steering circle counts: the half-diagonal of the 120 x 35 mm wheel) | axes (+-0.1525, +-0.1333), radius 0.0625, z 0 .. 0.15 (3 cm above the 0.12 tyre top) |
 | `frame_left`, `frame_right` | box along x over both wheels of a side (the H strokes joining front and rear wheel, carrying the steering servos) | x -0.2125 .. 0.2125, y centred +-0.1333, width 0.035, z 0.12 .. 0.18 |
 | `crossbar` | box between the strokes up to their inner faces (the H bar, carries the arm base and the lidar) | x -0.15 .. 0.10, y -0.1158 .. 0.1158, z 0.06 .. 0.10 |
 | `lidar` | vertical cylinder from the crossbar top to the RPLidar A1 dome top | axis (0.150, 0.040), radius 0.037, z 0.10 .. 0.21 |
+| `head_post`, `head_arm` | the head post (radius 0.012, z 0 .. 0.30) and its horizontal arm at z 0.30 to the pan base; fixed | post at (0.09, 0.10) |
+| `head` | head envelope about the pan axis: pan base, pan and head links and the D435 at every pan/tilt inside the URDF limits | axis (0.15, 0.10), radius 0.075, z 0.287 .. 0.396 |
+
+The head is posed from `/head/joint_states` (`head.state_max_age_s`, 0.5 s): arm motions and grasp plans check the
+head where it is, and a missing or older head state checks the full `head` envelope. One keep-away applies to every
+part: `body_check.hard_margin_m` and `soft_margin_m` default to 0.005 m. The Nav2 footprint leaves the head out
+(`footprint_body`).
 
 Measured (2026-10-10, by the user): the lidar dome diameter 74 mm (radius 37 mm), centred 0.150 m ahead of and 0.040 m left of base_link, and its top face 210 mm above the floor; the wheels
 35 mm wide (with the 0.06 m wheel radius their steering circle is 0.0625); the side bars joining front and rear wheels
 35 mm wide, their top face about 180 mm above the floor. Still ASSUMED: the steer axes (`swerve_controller`
 half_length_m / half_width_m), the wheel radius and top (0.12), the side bar bottom (0.12) and length, the crossbar
 extent and height, the lidar column bottom (0.10); the dome centre is measured and is independent of the `laser_frame` TF (0.158, 0.06), which is the calibrated scan origin. The numbers live in
-`ansible/group_vars/client.yml` (`body:` in the mcp_server config, pydantic `BodySettings`: positive sizes, cylinder
-z_max above z_min, unique names); `scripts/gen_nav_footprint.py` derives the Nav2 footprint from the same block.
+`robot_body.yaml` (pydantic `BodySettings`: positive sizes, cylinder z_max above z_min, unique names);
+`mcp_server.footprint` derives the Nav2 footprint from the same body (`footprint_body`, head left out).
 
 The dome first entered the model with radius 74 mm (that was its diameter) at the `laser_frame` position, which put it
 22 mm into touch-down t4 that the arm reached on the robot. With the measured centre and radius 37 mm t2 and the other
 touch-downs are clear; t4 stands 0.3 mm from the dome with the 2.5 mm box points (the 1 cm points had shown 8.3 mm: their
-spacing hid 8 mm), under the 2 mm hard margin, so the check refuses it. This is accepted: the real robot reached t4
+spacing hid 8 mm), under the hard margin (then 2 mm, now 5 mm), so the check refuses it. This is accepted: the real robot reached t4
 without contact, so the model (dome position measured to about a millimetre, the simplified sim upper arm box, about
 6 mm FK tip error) is a few mm conservative there, and refusing is the safe side.
 `test_touch_t4_is_refused_by_the_lidar` pins the refusal; every other touch keeps the strict clearance check. The
@@ -1449,17 +1461,17 @@ Semantics (`body_check:`, `BodyCheckSettings`; hard_margin_m must be below soft_
   first): `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home` and the `/arm/home` service, the motion
   queue's blended arm groups, every grasp macro step (`grasp_object`, `release_object`, the web UI `/grasp/command`).
   `look_around` and the base tools do not move arm joints.
-- A sample with a clearance below `soft_margin_m` (default 0.03) runs at `slow_speed_scale` (0.3); the floor slow
+- A sample with a clearance below `soft_margin_m` (default 0.005, equal to the hard margin, so no slow band by default) runs at `slow_speed_scale` (0.3); the floor slow
   zone's scale applies too and the slower one wins per sample. The result reports `self_collision` {obstacle, link,
   min_clearance_m, speed_scale, slowed_samples, ...} next to `slow_zone` (slow-band clearances: without the
   contact-only upper arm boxes).
 - Gripper-only motions: only the parts that move (`self_collision.GRIPPER_MOVING_PARTS`, the moving jaw tip) count
   for the soft band; a stationary link's clearance cannot change during the motion, so it never slows it, and
   `self_collision` then reports the moving jaw. The hard reject below still covers every part.
-- A sample below `hard_margin_m` (0.002) or inside an obstacle rejects the whole motion before anything is published:
+- A sample below `hard_margin_m` (0.005) or inside an obstacle rejects the whole motion before anything is published:
   the tool fails (`ok` false) with "refused (self-collision): the <link> would come <clearance> m from the robot body
   obstacle <obstacle> ... Hint: ...". A start that already is inside the hard margin may move out (no clearance may
-  drop more than 2 mm below its start value).
+  drop more than the hard margin below its start value).
 - Motion queue: arm groups are checked at enqueue (from the current commanded pose plus the pending targets, as the
   blend will run) and again when they start (the pose can differ): a refused group ends with status `self_collision`,
   ok false and `data.self_collision` {obstacle, link, clearance_m, hard_margin_m, sample, hint}.
@@ -1519,13 +1531,13 @@ the first call. Per
 shoulder_pan heading every `reach_heading_step_deg` (15) across the pan limits and tool height 0 .. `reach_height_max_m`
 (0.35) every `reach_height_step_m` (0.05) in base_link, the min / max horizontal tool distance from the pan axis over a
 13 x 13 x 7 grid of shoulder_lift x elbow_flex x wrist_flex (wrist_roll 0, gripper closed) whose body clearance is at
-least the hard margin (2 mm). It is a sampled approximation (about 1 cm at full reach).
+least the hard margin (5 mm). It is a sampled approximation (about 1 cm at full reach).
 
-Sample spacing and the margin (accepted limitation): the 2 mm margin is exact between box points (spacing / sqrt(2) <=
+Sample spacing and the margin (accepted limitation): the 5 mm margin is exact between box points (spacing / sqrt(2) <=
 2 mm) but not between trajectory samples. A link point moves up to 17.4 mm between two trajectory samples (25 Hz, 1 rad/s
 cap) and up to 8.7 mm between two `joint_line` samples (0.02 rad: planner free moves, home routes). That cannot
 cross any obstacle (the thinnest, a side frame, is 35 mm) and a dip along a straight chord past a round surface is below
-1 mm, but a path skimming a sharp obstacle edge between two samples can come closer than 2 mm undetected.
+1 mm, but a path skimming a sharp obstacle edge between two samples can come closer than 5 mm undetected.
 
 ## Reach map
 
@@ -2669,7 +2681,7 @@ sit beside them. Flip a rule to `enforce` only after about a week of `mcp_guard_
 | `guard_state.py` | no | guard rule field source over cached robot state (`GuardState`) and the watch metric sampler (`WatchSampler`) |
 | `guard_rules.py` | no | guard rules: schema (`GuardRuleSettings`), field registry, Kleene evaluation (`GuardEngine`), rejection text and `GUARD_REFUSAL_PATTERN` |
 | `trajectory.py` | no | quintic interpolation, limit clamping, tracking error, `blend_trajectory` (velocity-continuous spline through via points) |
-| `ik.py` | no | URDF limits, ikpy FK/IK with verification |
+| `ik.py` | no | moved to `shared/arm_collision` (`arm_collision.ik`): URDF limits, ikpy FK/IK with verification; likewise `arm_geometry.py`, `body_model.py`, `self_collision.py` |
 | `arm.py` | no | `ArmController`: lease, streaming, aborts, gripper, home, `move_path`, `move_blend`, `solve_cartesian`, slow-zone time scaling |
 | `sag.py` | no | gravity sag model: URDF gravity torques, deflection k * tau per approach mode, limit-band compensation, gain fit, leave-one-out validation, `arm_settle` record parsing |
 | `floor_guard.py` | no | arm mount conversions, effective surface (robot plane, IMU level plane, surface regions, overrides), jaw model, per-sample slow zone, `retime` |
