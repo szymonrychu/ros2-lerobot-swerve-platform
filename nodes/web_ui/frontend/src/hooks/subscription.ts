@@ -21,6 +21,7 @@ export function tabTopics(t: TabConfig): string[] {
     t.local_costmap_topic, t.base_joint_states_topic, t.arm_joint_states_topic, t.head_joint_states_topic,
     ...(t.type === 'map_nav' ? [t.goal_topic] : []),
     t.poi_list_topic, t.poi_photos_topic, t.grasp_result_topic, t.active_source_topic, t.drive_pose_state_topic,
+    t.guard_state_topic,
   ].filter((x): x is string => Boolean(x))
 }
 

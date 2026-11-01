@@ -88,6 +88,7 @@ export interface TabConfig {
   arm_set_drive_pose_service?: string // arm tab, default /arm/set_drive_pose (std_srvs/Trigger behind Set drive pose)
   arm_drive_pose_enable_service?: string // arm tab, default /arm/drive_pose/enable (std_srvs/SetBool behind the toggle)
   drive_pose_state_topic?: string // arm, map_nav: default /arm/drive_pose/state (latched DrivePoseState JSON)
+  guard_state_topic?: string // arm tab, default /filter/guard_state (latched GuardState JSON)
   agent_url?: string // agent_chat tab: claude_agent API base URL proxied by the backend (default http://127.0.0.1:18300)
 }
 
@@ -168,6 +169,20 @@ export interface Map3dResultPayload {
   ok?: boolean
   error?: string
   [key: string]: unknown
+}
+
+/** filter_node self-collision guard state (/filter/guard_state, latched JSON). */
+export interface GuardState {
+  /** The last arm command was clamped or refused by the guard. */
+  blocked: boolean
+  /** Command source of the blocked command (leader | web_ui | autonomy); empty while clear. */
+  source: string
+  /** Arm part that breaks the keep-away; empty while clear. */
+  link: string
+  /** Body obstacle it breaks it against (wheel_fr, crossbar, ...); empty while clear. */
+  obstacle: string
+  /** Clearance of the violating sample in metres; null while clear. */
+  clearance_m: number | null
 }
 
 /** mcp_server drive pose controller state (/arm/drive_pose/state, latched JSON). */
