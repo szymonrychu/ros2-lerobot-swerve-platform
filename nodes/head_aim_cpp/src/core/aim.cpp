@@ -100,6 +100,13 @@ Aim aim(
   return result;
 }
 
+bool goal_near_robot(const Point2 & goal, const FootprintBox & box, double margin_m, bool was_near)
+{
+  const double dx = std::max({box.min_x - goal.x, 0.0, goal.x - box.max_x});
+  const double dy = std::max({box.min_y - goal.y, 0.0, goal.y - box.max_y});
+  return std::hypot(dx, dy) <= margin_m + (was_near ? NEAR_GOAL_HYSTERESIS_M : 0.0);
+}
+
 double vertical_fov(double height, double fy) { return 2.0 * std::atan(height / (2.0 * fy)); }
 
 }  // namespace head_aim_cpp

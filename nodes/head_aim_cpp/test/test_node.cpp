@@ -316,6 +316,34 @@ TEST_F(HeadAimNodeTest, GoalSucceededSendsOneHomeCommand)
   EXPECT_NEAR(probe_->commands[1].position[1], 0.5236, TOL);
 }
 
+TEST_F(HeadAimNodeTest, GoalUnderTheRobotHomesTheHeadInsteadOfAiming)
+{
+  start(fast_config());
+  probe_->publish_tf(0.0, true);
+  probe_->publish_status(EXECUTING);
+  const std::vector<Point2> short_path = {
+    {0.0, 0.0}, {0.1, 0.0}, {0.2, 0.0}};  // the goal (last pose) is under the robot
+  run(milliseconds(5000), BASE, short_path, true, [this] { return !probe_->commands.empty(); });
+  ASSERT_EQ(probe_->commands.size(), 1u);
+  run(milliseconds(1000), BASE, short_path, true);
+  ASSERT_EQ(probe_->commands.size(), 1u);
+  EXPECT_NEAR(probe_->commands[0].position[0], 0.0, TOL);
+  EXPECT_NEAR(probe_->commands[0].position[1], 0.5236, TOL);
+}
+
+TEST_F(HeadAimNodeTest, GoalElevenCentimetresOutsideTheOutlineIsAimed)
+{
+  start(fast_config());
+  probe_->publish_tf(0.0, true);
+  probe_->publish_status(EXECUTING);
+  const std::vector<Point2> path = {{0.0, 0.0}, {0.3225 + 0.11, 0.0}};
+  run(milliseconds(5000), BASE, path, true, [this] { return !probe_->commands.empty(); });
+  ASSERT_EQ(probe_->commands.size(), 1u);
+  const auto expected = expected_aim(path, cfg_);
+  EXPECT_NEAR(probe_->commands[0].position[0], expected.pan, TOL);
+  EXPECT_NEAR(probe_->commands[0].position[1], expected.tilt, TOL);
+}
+
 TEST_F(HeadAimNodeTest, PathInOdomIsTransformedIntoBaseLink)
 {
   // The robot is yawed +90 deg in odom at (1, 2); a path along odom bearing 135 deg lies at bearing 45 deg in

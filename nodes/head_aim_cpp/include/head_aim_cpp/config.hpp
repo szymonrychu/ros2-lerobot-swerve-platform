@@ -47,23 +47,24 @@ struct Config
   std::string head_frame = "head_link";
   std::string source_tag = "head_aim";
   std::vector<std::string> yield_sources = {"web_ui", "autonomy"};
-  double yield_s = 10.0;               // >= 0
-  FootprintBox footprint;              // min < max on both axes
-  double lookahead_m = 0.4;            // > 0
-  double floor_margin_m = 0.05;        // >= 0
-  double pan_min_rad = -1.5708;        // servo range, < pan_max_rad
-  double pan_max_rad = 1.5708;         // servo range
-  double tilt_min_rad = -0.5236;       // servo range, < tilt_max_rad
-  double tilt_max_rad = 0.7854;        // servo range
-  double home_pan_rad = 0.0;           // within the pan range
-  double home_tilt_rad = 0.5236;       // within the tilt range
-  double reaim_pan_deg = 10.0;         // >= 0
-  double reaim_tilt_deg = 5.0;         // >= 0
-  double min_reaim_interval_s = 1.0;   // >= 0
-  double rate_hz = 5.0;                // 0 < v <= 50
-  double tf_timeout_s = 0.1;           // 0..0.5
-  double input_timeout_s = 1.0;        // > 0
-  double min_travel_speed_mps = 0.02;  // > 0
+  double yield_s = 10.0;                  // >= 0
+  FootprintBox footprint;                 // min < max on both axes
+  double lookahead_m = 0.4;               // > 0
+  double floor_margin_m = 0.05;           // >= 0
+  double home_near_goal_margin_m = 0.10;  // >= 0
+  double pan_min_rad = -1.5708;           // servo range, < pan_max_rad
+  double pan_max_rad = 1.5708;            // servo range
+  double tilt_min_rad = -0.5236;          // servo range, < tilt_max_rad
+  double tilt_max_rad = 0.7854;           // servo range
+  double home_pan_rad = 0.0;              // within the pan range
+  double home_tilt_rad = 0.5236;          // within the tilt range
+  double reaim_pan_deg = 10.0;            // >= 0
+  double reaim_tilt_deg = 5.0;            // >= 0
+  double min_reaim_interval_s = 1.0;      // >= 0
+  double rate_hz = 5.0;                   // 0 < v <= 50
+  double tf_timeout_s = 0.1;              // 0..0.5
+  double input_timeout_s = 1.0;           // > 0
+  double min_travel_speed_mps = 0.02;     // > 0
 };
 
 // Every error of a YAML mapping as "<key>: <problem>" lines; empty when valid.

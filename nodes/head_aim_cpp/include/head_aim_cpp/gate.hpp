@@ -3,6 +3,7 @@
 //
 // - No goal active: nothing, except one home command on the active-to-inactive transition (none while yielding).
 // - Yielding (a command from a yield source within yield_s): nothing.
+// - Goal active and the goal near the robot: one home command (no target needed), then nothing until it is far again.
 // - Goal active: the first target of the goal at once; later targets only when pan moved more than reaim_pan_deg or
 //   tilt more than reaim_tilt_deg from the last command, and never sooner than min_reaim_interval_s after it. The step
 //   and the pause let the head settle, so ground_estimator (which drops frames while the camera turns) keeps frames.
@@ -60,8 +61,9 @@ public:
   // The command to publish now, if any; a returned command counts as sent.
   // @param target the current aim (Aim), nullopt when an input is missing.
   // @param now seconds.
+  // @param goal_near the goal is so close to the robot that the head goes home instead of aiming (bool).
   // @return the command (Command) or nullopt.
-  std::optional<Command> decide(const std::optional<Aim> & target, double now);
+  std::optional<Command> decide(const std::optional<Aim> & target, double now, bool goal_near = false);
 
   // @return whether the yield window is open at now (bool).
   bool yielding(double now) const;
@@ -76,6 +78,7 @@ private:
   double yield_until_ = -1.0e300;
   std::optional<Command> last_;  // last command of this goal; reset at goal start and by a foreign command
   double last_time_ = 0.0;
+  bool homed_near_ = false;  // the home command of a near goal was sent; reset when the goal is no longer near
 };
 
 }  // namespace head_aim_cpp

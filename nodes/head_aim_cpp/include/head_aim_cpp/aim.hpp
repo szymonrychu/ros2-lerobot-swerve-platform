@@ -11,6 +11,9 @@
 namespace head_aim_cpp
 {
 
+// Extra distance past home_near_goal_margin_m before a near goal counts as far again, metres.
+constexpr double NEAR_GOAL_HYSTERESIS_M = 0.02;
+
 // A point or vector in the base_link xy plane, metres.
 struct Point2
 {
@@ -79,6 +82,16 @@ Point2 look_point(
 // @return the clamped pan and tilt (Aim).
 Aim aim(
   const Point2 & look, const Point3 & head_origin, const Point2 & leading_edge, double vfov_rad, const Config & cfg);
+
+// Whether the goal is so close to the robot that the head should be at home: its distance to the footprint box
+// (0 inside the box) is within margin_m. Once near it stays near until the distance exceeds margin_m +
+// NEAR_GOAL_HYSTERESIS_M, so a goal on the border does not flap between home and aim.
+// @param goal the goal position in base_link (Point2).
+// @param box footprint bounding box in base_link (FootprintBox).
+// @param margin_m the distance from the box that counts as near, metres.
+// @param was_near the result of the previous call (bool).
+// @return whether the goal is near the robot (bool).
+bool goal_near_robot(const Point2 & goal, const FootprintBox & box, double margin_m, bool was_near);
 
 // Vertical field of view of a pinhole camera: 2 * atan(height / (2 fy)).
 // @param height image height, pixels.

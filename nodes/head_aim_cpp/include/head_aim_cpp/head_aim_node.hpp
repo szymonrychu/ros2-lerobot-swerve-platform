@@ -52,6 +52,10 @@ private:
   // @param reason why nothing was aimed (std::string).
   void skip(const std::string & reason);
 
+  // Whether the goal (the last pose of the latest path) is near the robot; updated by target().
+  bool goal_near_ = false;
+  bool was_goal_near_ = false;  // hysteresis memory of goal_near_
+
   bool fresh(const rclcpp::Time & received) const;
 
   Config cfg_;

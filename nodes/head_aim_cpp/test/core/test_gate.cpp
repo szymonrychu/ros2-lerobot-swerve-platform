@@ -157,3 +157,62 @@ TEST(AimGate, NewGoalStartsFresh)
   ASSERT_TRUE(cmd);
   EXPECT_FALSE(cmd->home);
 }
+
+TEST(AimGate, NearGoalSendsHomeOnceInsteadOfAiming)
+{
+  AimGate gate = active_gate_after_first_command();  // aimed at (0, 25) at t = 0
+  const auto home = gate.decide(target(40.0, 10.0), 0.1, true);
+  ASSERT_TRUE(home);
+  EXPECT_TRUE(home->home);
+  EXPECT_NEAR(home->pan, Config{}.home_pan_rad, TOL);
+  EXPECT_NEAR(home->tilt, Config{}.home_tilt_rad, TOL);
+  EXPECT_FALSE(gate.decide(target(40.0, 10.0), 0.5, true));
+  EXPECT_FALSE(gate.decide(std::nullopt, 5.0, true));
+}
+
+TEST(AimGate, NearGoalHomesEvenWithoutATarget)
+{
+  AimGate gate{Config{}};
+  gate.on_goal_status(true, 0.0);
+  const auto home = gate.decide(std::nullopt, 0.0, true);
+  ASSERT_TRUE(home);
+  EXPECT_TRUE(home->home);
+}
+
+TEST(AimGate, AimingResumesWhenTheGoalIsNoLongerNear)
+{
+  AimGate gate = active_gate_after_first_command();
+  ASSERT_TRUE(gate.decide(target(40.0, 10.0), 0.1, true));
+  const auto cmd = gate.decide(target(40.0, 10.0), 0.2, false);
+  ASSERT_TRUE(cmd);
+  EXPECT_FALSE(cmd->home);
+  EXPECT_NEAR(cmd->pan, 40.0 * DEG, TOL);
+}
+
+TEST(AimGate, NearGoalWaitsOutTheYieldWindow)
+{
+  AimGate gate = active_gate_after_first_command();
+  gate.on_foreign_command("web_ui", 1.0);
+  EXPECT_FALSE(gate.decide(std::nullopt, 2.0, true));
+  EXPECT_TRUE(gate.decide(std::nullopt, 11.5, true));
+}
+
+TEST(AimGate, GoalEndAfterANearHomeSendsNoSecondHomeUntilTheGoalEnds)
+{
+  AimGate gate = active_gate_after_first_command();
+  ASSERT_TRUE(gate.decide(std::nullopt, 0.1, true));
+  gate.on_goal_status(false, 1.0);
+  const auto end_home = gate.decide(std::nullopt, 1.0, false);
+  ASSERT_TRUE(end_home);
+  EXPECT_TRUE(end_home->home);
+}
+
+TEST(AimGate, NewGoalNearAgainHomesAgain)
+{
+  AimGate gate = active_gate_after_first_command();
+  ASSERT_TRUE(gate.decide(std::nullopt, 0.1, true));
+  gate.on_goal_status(false, 1.0);
+  gate.decide(std::nullopt, 1.0, false);
+  gate.on_goal_status(true, 2.0);
+  EXPECT_TRUE(gate.decide(std::nullopt, 2.0, true));
+}

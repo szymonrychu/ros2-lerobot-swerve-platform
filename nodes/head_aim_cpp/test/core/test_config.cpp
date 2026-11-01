@@ -59,6 +59,7 @@ TEST(Config, ShippedYamlLoadsWithoutErrors)
   EXPECT_DOUBLE_EQ(c.footprint.max_y, 0.1958);
   EXPECT_DOUBLE_EQ(c.lookahead_m, 0.4);
   EXPECT_DOUBLE_EQ(c.floor_margin_m, 0.05);
+  EXPECT_DOUBLE_EQ(c.home_near_goal_margin_m, 0.10);
   EXPECT_DOUBLE_EQ(c.pan_min_rad, -1.5708);
   EXPECT_DOUBLE_EQ(c.pan_max_rad, 1.5708);
   EXPECT_DOUBLE_EQ(c.tilt_min_rad, -0.5236);
@@ -131,6 +132,7 @@ TEST(Config, ScalarRules)
 {
   expect_one_error("lookahead_m: 0.0", "lookahead_m");
   expect_one_error("floor_margin_m: -0.01", "floor_margin_m");
+  expect_one_error("home_near_goal_margin_m: -0.01", "home_near_goal_margin_m");
   expect_one_error("reaim_pan_deg: -1.0", "reaim_pan_deg");
   expect_one_error("reaim_tilt_deg: -1.0", "reaim_tilt_deg");
   expect_one_error("min_reaim_interval_s: -0.5", "min_reaim_interval_s");

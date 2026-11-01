@@ -16,12 +16,36 @@ constexpr double MAX_RATE_HZ = 50.0;
 constexpr double MAX_TF_TIMEOUT_S = 0.5;
 
 const std::vector<std::string> KEYS = {
-  "plan_topic",      "cmd_vel_topic",   "goal_status_topic", "head_command_topic",  "camera_info_topic",
-  "base_frame",      "head_frame",      "source_tag",        "yield_sources",       "yield_s",
-  "footprint_min_x", "footprint_max_x", "footprint_min_y",   "footprint_max_y",     "lookahead_m",
-  "floor_margin_m",  "pan_min_rad",     "pan_max_rad",       "tilt_min_rad",        "tilt_max_rad",
-  "home_pan_rad",    "home_tilt_rad",   "reaim_pan_deg",     "reaim_tilt_deg",      "min_reaim_interval_s",
-  "rate_hz",         "tf_timeout_s",    "input_timeout_s",   "min_travel_speed_mps"};
+  "plan_topic",
+  "cmd_vel_topic",
+  "goal_status_topic",
+  "head_command_topic",
+  "camera_info_topic",
+  "base_frame",
+  "head_frame",
+  "source_tag",
+  "yield_sources",
+  "yield_s",
+  "footprint_min_x",
+  "footprint_max_x",
+  "footprint_min_y",
+  "footprint_max_y",
+  "lookahead_m",
+  "floor_margin_m",
+  "home_near_goal_margin_m",
+  "pan_min_rad",
+  "pan_max_rad",
+  "tilt_min_rad",
+  "tilt_max_rad",
+  "home_pan_rad",
+  "home_tilt_rad",
+  "reaim_pan_deg",
+  "reaim_tilt_deg",
+  "min_reaim_interval_s",
+  "rate_hz",
+  "tf_timeout_s",
+  "input_timeout_s",
+  "min_travel_speed_mps"};
 
 // The value under node[key] as T (fallback when missing or invalid) with the lax pydantic-style coercions.
 template <typename T>
@@ -110,6 +134,8 @@ void parse_geometry(const YAML::Node & node, Config & c, Errors & errors)
   rc::gt("lookahead_m", c.lookahead_m, 0.0, errors);
   c.floor_margin_m = read<double>(node, "floor_margin_m", c.floor_margin_m, errors);
   rc::ge("floor_margin_m", c.floor_margin_m, 0.0, errors);
+  c.home_near_goal_margin_m = read<double>(node, "home_near_goal_margin_m", c.home_near_goal_margin_m, errors);
+  rc::ge("home_near_goal_margin_m", c.home_near_goal_margin_m, 0.0, errors);
 }
 
 void parse_head(const YAML::Node & node, Config & c, Errors & errors)

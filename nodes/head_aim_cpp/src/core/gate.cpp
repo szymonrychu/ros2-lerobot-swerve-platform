@@ -29,6 +29,7 @@ void AimGate::on_goal_status(bool active, double /*now*/)
   if (active && !active_) {
     last_.reset();
     home_pending_ = false;
+    homed_near_ = false;
   } else if (!active && active_) {
     home_pending_ = true;
   }
@@ -45,11 +46,12 @@ void AimGate::on_foreign_command(const std::string & source, double now)
   }
   yield_until_ = std::max(yield_until_, now + cfg_.yield_s);
   last_.reset();
+  homed_near_ = false;
 }
 
 bool AimGate::yielding(double now) const { return now < yield_until_; }
 
-std::optional<Command> AimGate::decide(const std::optional<Aim> & target, double now)
+std::optional<Command> AimGate::decide(const std::optional<Aim> & target, double now, bool goal_near)
 {
   if (!active_) {
     const bool home = home_pending_ && !yielding(now);
@@ -60,7 +62,20 @@ std::optional<Command> AimGate::decide(const std::optional<Aim> & target, double
     last_time_ = now;
     return Command{cfg_.home_pan_rad, cfg_.home_tilt_rad, true};
   }
-  if (yielding(now) || !target) {
+  if (yielding(now)) {
+    return std::nullopt;
+  }
+  if (goal_near) {
+    if (homed_near_) {
+      return std::nullopt;
+    }
+    homed_near_ = true;
+    last_.reset();
+    last_time_ = now;
+    return Command{cfg_.home_pan_rad, cfg_.home_tilt_rad, true};
+  }
+  homed_near_ = false;
+  if (!target) {
     return std::nullopt;
   }
   if (last_) {

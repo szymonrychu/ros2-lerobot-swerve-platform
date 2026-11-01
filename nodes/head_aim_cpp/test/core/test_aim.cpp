@@ -217,3 +217,53 @@ TEST(VerticalFov, PinholeFormula)
   EXPECT_NEAR(head_aim_cpp::vertical_fov(480.0, 240.0), M_PI / 2.0, 1e-12);
   EXPECT_NEAR(head_aim_cpp::vertical_fov(480.0, 432.9), 2.0 * std::atan(240.0 / 432.9), 1e-12);
 }
+
+TEST(GoalNearRobot, GoalUnderTheRobotIsNear)
+{
+  const Config cfg;
+  EXPECT_TRUE(head_aim_cpp::goal_near_robot({0.0, 0.0}, cfg.footprint, cfg.home_near_goal_margin_m, false));
+  EXPECT_TRUE(head_aim_cpp::goal_near_robot({0.3225, 0.1958}, cfg.footprint, cfg.home_near_goal_margin_m, false));
+}
+
+TEST(GoalNearRobot, GoalNineCentimetresOutsideTheOutlineIsNear)
+{
+  const Config cfg;
+  EXPECT_TRUE(head_aim_cpp::goal_near_robot({0.3225 + 0.09, 0.0}, cfg.footprint, cfg.home_near_goal_margin_m, false));
+  EXPECT_TRUE(head_aim_cpp::goal_near_robot({-0.215 - 0.09, 0.0}, cfg.footprint, cfg.home_near_goal_margin_m, false));
+  EXPECT_TRUE(head_aim_cpp::goal_near_robot({0.0, 0.1958 + 0.09}, cfg.footprint, cfg.home_near_goal_margin_m, false));
+  EXPECT_TRUE(head_aim_cpp::goal_near_robot({0.0, -0.1958 - 0.09}, cfg.footprint, cfg.home_near_goal_margin_m, false));
+}
+
+TEST(GoalNearRobot, GoalElevenCentimetresOutsideTheOutlineIsNotNear)
+{
+  const Config cfg;
+  EXPECT_FALSE(head_aim_cpp::goal_near_robot({0.3225 + 0.11, 0.0}, cfg.footprint, cfg.home_near_goal_margin_m, false));
+  EXPECT_FALSE(head_aim_cpp::goal_near_robot({-0.215 - 0.11, 0.0}, cfg.footprint, cfg.home_near_goal_margin_m, false));
+  EXPECT_FALSE(head_aim_cpp::goal_near_robot({0.0, 0.1958 + 0.11}, cfg.footprint, cfg.home_near_goal_margin_m, false));
+}
+
+TEST(GoalNearRobot, MarginIsMeasuredAsDistanceNotAsGrownBox)
+{
+  // 8 cm out on both axes at the front-left corner is 11.3 cm away: outside a rounded 10 cm margin.
+  const Config cfg;
+  EXPECT_FALSE(
+    head_aim_cpp::goal_near_robot({0.3225 + 0.08, 0.1958 + 0.08}, cfg.footprint, cfg.home_near_goal_margin_m, false));
+  EXPECT_TRUE(
+    head_aim_cpp::goal_near_robot({0.3225 + 0.06, 0.1958 + 0.06}, cfg.footprint, cfg.home_near_goal_margin_m, false));
+}
+
+TEST(GoalNearRobot, HysteresisKeepsNearUntilTwoCentimetresPastTheMargin)
+{
+  const Config cfg;
+  const Point2 goal{0.3225 + 0.11, 0.0};
+  EXPECT_FALSE(head_aim_cpp::goal_near_robot(goal, cfg.footprint, cfg.home_near_goal_margin_m, false));
+  EXPECT_TRUE(head_aim_cpp::goal_near_robot(goal, cfg.footprint, cfg.home_near_goal_margin_m, true));
+  EXPECT_FALSE(head_aim_cpp::goal_near_robot({0.3225 + 0.13, 0.0}, cfg.footprint, cfg.home_near_goal_margin_m, true));
+}
+
+TEST(GoalNearRobot, ZeroMarginMeansOnlyInsideTheOutline)
+{
+  const Config cfg;
+  EXPECT_TRUE(head_aim_cpp::goal_near_robot({0.0, 0.0}, cfg.footprint, 0.0, false));
+  EXPECT_FALSE(head_aim_cpp::goal_near_robot({0.3225 + 0.01, 0.0}, cfg.footprint, 0.0, false));
+}

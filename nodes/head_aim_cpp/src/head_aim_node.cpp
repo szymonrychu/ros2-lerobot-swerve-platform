@@ -118,11 +118,9 @@ void HeadAimNode::skip(const std::string & reason)
 
 std::optional<Aim> HeadAimNode::target()
 {
+  goal_near_ = false;
   if (!gate_.goal_active()) {
-    return std::nullopt;
-  }
-  if (!vfov_rad_ || !fresh(camera_info_received_)) {
-    skip("no fresh camera_info on " + cfg_.camera_info_topic);
+    was_goal_near_ = false;
     return std::nullopt;
   }
   if (!plan_ || !fresh(plan_received_)) {
@@ -147,6 +145,19 @@ std::optional<Aim> HeadAimNode::target()
     const tf2::Vector3 p = to_base * tf2::Vector3(pose.pose.position.x, pose.pose.position.y, pose.pose.position.z);
     path.push_back({p.x(), p.y()});
   }
+  // The last pose of the near path is the goal once the robot is close to it (farther away it is the edge of the
+  // pruned path, outside the margin anyway).
+  if (!path.empty()) {
+    goal_near_ = goal_near_robot(path.back(), cfg_.footprint, cfg_.home_near_goal_margin_m, was_goal_near_);
+  }
+  was_goal_near_ = goal_near_;
+  if (goal_near_) {
+    return std::nullopt;  // the gate sends the home pose; nothing to aim at
+  }
+  if (!vfov_rad_ || !fresh(camera_info_received_)) {
+    skip("no fresh camera_info on " + cfg_.camera_info_topic);
+    return std::nullopt;
+  }
   Point2 velocity;
   if (cmd_vel_ && fresh(cmd_vel_received_)) {
     velocity = {cmd_vel_->linear.x, cmd_vel_->linear.y};
@@ -164,7 +175,7 @@ std::optional<Aim> HeadAimNode::target()
 void HeadAimNode::tick()
 {
   const auto aim_target = target();
-  const auto command = gate_.decide(aim_target, now().seconds());
+  const auto command = gate_.decide(aim_target, now().seconds(), goal_near_);
   if (!command) {
     return;
   }

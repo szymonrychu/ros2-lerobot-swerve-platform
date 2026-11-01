@@ -48,7 +48,13 @@ does not move with pan or tilt), and the path frame to `base_link` transforms th
    the head steps and holds instead of tracking continuously.
 6. **Yield.** A head command whose `header.frame_id` is in `yield_sources` (`web_ui`, `autonomy`) silences the node for
    `yield_s`, extended by every further one. The node's own `head_aim` tag never yields.
-7. **Goal end.** When the last goal ends the node sends exactly one home command (`home_pan_rad`, `home_tilt_rad`), none
+7. **Goal close to the robot.** The goal is the last pose of the path (transformed into `base_link` through TF). When
+   its distance to the footprint box is at most `home_near_goal_margin_m` (0.10 m; 0 inside the box, so a goal under the
+   robot counts; corners are rounded, the distance is Euclidean), the node sends the home pose (`home_pan_rad`,
+   `home_tilt_rad`, the same command as at goal end) once instead of aiming, so the camera does not stare at the
+   robot's own arm. Hysteresis: once near, the goal counts as far again only past the margin plus 2 cm. Aiming resumes
+   at once when it is far again (e.g. a new goal); a yield command re-arms the home command after the window.
+8. **Goal end.** When the last goal ends the node sends exactly one home command (`home_pan_rad`, `home_tilt_rad`), none
    while yielding. With no goal active it publishes nothing.
 
 mcp_server's `release_control` does not home the head while a navigation goal runs (`head: kept: navigating`), so the
@@ -80,6 +86,7 @@ Every key of `config/head_aim.yaml` (unknown keys exit 78):
 | `footprint_max_x` | `0.3225` | front edge, metres, > footprint_min_x |
 | `footprint_min_y` | `-0.1958` | right edge, metres |
 | `footprint_max_y` | `0.1958` | left edge, metres, > footprint_min_y |
+| `home_near_goal_margin_m` | `0.10` | a goal within this distance of the footprint box (0 inside it, rounded corners) sends the head home instead of aiming, metres, >= 0 |
 | `lookahead_m` | `0.4` | how far beyond the leading footprint edge the look point lies along the path, metres, > 0 |
 | `floor_margin_m` | `0.05` | how far past the leading edge the bottom of the camera frustum lands on the floor, metres, >= 0 |
 | `pan_min_rad` | `-1.5708` | lowest pan command (right), rad, >= -1.5708 (servo limit) |
