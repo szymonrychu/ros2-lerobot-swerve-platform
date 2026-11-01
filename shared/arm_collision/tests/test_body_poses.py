@@ -65,6 +65,8 @@ DRIVE_POSE = {
     "gripper": 0.1,
 }
 FK_TOLERANCE_M = 1e-3
+# The posed head parts of head.urdf (head.HeadModel.parts): bracket and D435 boxes, pan base and pan link cylinders.
+HEAD_PARTS = ("head_link", "d435_link", "head_pan_base", "head_pan_link")
 # mcp_server head home (config.head home_pan_rad, home_tilt_rad): straight ahead, 30 deg down.
 HEAD_HOME = HeadPose(pan=0.0, tilt=0.5236)
 # Arm swung far left with the wrist folded up beside the head: inside the full head envelope, clear of the head at
@@ -137,13 +139,14 @@ def test_parked_home_and_drive_pose_clear_the_hard_margin(joints: dict[str, floa
 
 
 def test_a_measured_head_pose_replaces_the_envelope_by_the_posed_head() -> None:
-    """Beside the head: rejected against the full envelope (no head pose), clear of the head posed at home."""
+    """Beside the head: rejected against the full envelope (no head pose), clear of the body with the head posed at
+    home (the envelope gives way to the posed parts, boxes before cylinders as BodyModel orders them)."""
     assert CHECKER.posed(None) is CHECKER
     posed = CHECKER.posed(HEAD_HOME)
     assert CHECKER.pose(BESIDE_THE_HEAD).per_obstacle["head"][0] < CHECK.hard_margin_m
-    assert posed.pose(BESIDE_THE_HEAD).per_obstacle["head"][0] > CHECK.hard_margin_m
-    assert posed.body.by_name("head").describe()["shape"] == "box"
-    assert [o.name for o in posed.body.obstacles] == [o.name for o in CHECKER.body.obstacles]
+    assert posed.pose(BESIDE_THE_HEAD).min_clearance > CHECK.hard_margin_m
+    names = [o.name for o in posed.body.obstacles]
+    assert names == [*(n for n in (o.name for o in CHECKER.body.obstacles) if n != "head"), *HEAD_PARTS]
 
 
 def test_the_posed_checker_is_reused_for_the_same_head_pose() -> None:

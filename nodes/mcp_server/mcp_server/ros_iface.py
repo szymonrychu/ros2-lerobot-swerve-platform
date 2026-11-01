@@ -18,6 +18,7 @@ import numpy as np
 import rclpy
 from action_msgs.msg import GoalStatus, GoalStatusArray
 from action_msgs.srv import CancelGoal
+from arm_collision.head import head_pose
 from arm_collision.ik import ArmKinematics, load_joint_limits
 from geometry_msgs.msg import Point32, PolygonStamped, PoseStamped, Twist
 from geometry_msgs.msg import Polygon as PolygonMsg
@@ -920,6 +921,7 @@ class RosRobot:
             self.monitor,
             tilt_source=lambda: monitor_tilt_sample(self.monitor.imu),
             ground_source=lambda: self.ground_state(max_age_s=None),
+            head_source=lambda: head_pose(self.head.measured()),
         )
         self.monitor.lease_held = lambda: self.arm.control_held
         # Web-UI grasp actions (JSON in on grasp_command, JSON out on grasp_result); 'stop' answers at once, the

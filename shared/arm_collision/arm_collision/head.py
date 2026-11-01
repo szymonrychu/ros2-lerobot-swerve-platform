@@ -2,8 +2,8 @@
 
 The packaged body (robot_body.yaml) holds the head as its full envelope, the cylinder `head` that holds the head at
 every pan/tilt. With a measured head pose (head_pose: both joints known, finite and fresh) the checks use the posed
-head instead: the axis-aligned box (base_link) around the pan base, the pan link, the bracket (head_link) and the D435
-(d435_link) visuals of head.urdf at that pan/tilt, rounded outwards to 1 mm (HeadModel.box, posed_body). A missing or
+head instead: the pan base and pan link (vertical cylinders), the bracket (head_link) and the D435 (d435_link) visuals of
+head.urdf at that pan/tilt, each its own obstacle rounded outwards to 1 mm (HeadModel.parts, posed_body). A missing or
 stale head pose keeps the full envelope (fail closed).
 """
 
@@ -14,19 +14,22 @@ from pathlib import Path
 
 import numpy as np
 
-from .settings import REPO_ROOT, BodyBox, BodySettings
+from .settings import REPO_ROOT, BodyBox, BodyCylinder, BodySettings
 
 HEAD_URDF = REPO_ROOT / "nodes" / "web_ui" / "urdf" / "head.urdf"
 HEAD_PAN = "head_pan"
 HEAD_TILT = "head_tilt"
-# The head links the posed box holds: the pan base under the pan servo and every link the pan or tilt moves.
+# The head links posed as obstacles: the pan base under the pan servo and every link the pan or tilt moves.
 HEAD_LINKS = ("head_pan_base", "head_pan_link", "head_link", "d435_link")
-# Name of the head obstacle in the body: the full envelope cylinder, or the posed box replacing it.
+# Name of the full head envelope cylinder in the body; the posed head parts replace it.
 HEAD_OBSTACLE = "head"
 ROOT_LINK = "base_link"
 ROUND_OUT_M = 0.001
 # Shaves float noise off a bound before rounding it outwards, so an exact millimetre stays that millimetre.
 ROUND_EPS_M = 1e-9
+ROUND_DIGITS = 6
+# A posed cylinder whose axis is within this of vertical (|axis z| vs 1) stays a vertical cylinder.
+VERTICAL_TOLERANCE = 1e-9
 
 
 @dataclass(frozen=True)
@@ -236,49 +239,72 @@ class HeadModel:
             link = joint.parent
         return transform
 
-    def box(self, pose: HeadPose) -> BodyBox:
-        """The posed head: the base_link axis-aligned box around every HEAD_LINKS visual, rounded outwards to 1 mm.
+    def parts(self, pose: HeadPose) -> tuple[list[BodyBox], list[BodyCylinder]]:
+        """The posed head: one obstacle per HEAD_LINKS visual, named after its link, rounded outwards to 1 mm.
+
+        A box visual becomes its base_link axis-aligned bounding box; a cylinder whose axis stays vertical (the pan base
+        and the pan link turn about their own axis) stays a vertical cylinder, any other cylinder becomes its bounding
+        box.
 
         Args:
             pose (HeadPose): Measured pan/tilt.
 
         Returns:
-            BodyBox: Box named HEAD_OBSTACLE.
+            tuple[list[BodyBox], list[BodyCylinder]]: Boxes and vertical cylinders in base_link.
         """
-        lo, hi = np.full(3, math.inf), np.full(3, -math.inf)
-        for link, parts in self.visuals.items():
+        boxes: list[BodyBox] = []
+        cylinders: list[BodyCylinder] = []
+        for link, visuals in self.visuals.items():
             frame = self.link_transform(link, pose)
-            for part in parts:
-                placed = frame @ part.origin
+            for k, visual in enumerate(visuals):
+                name = link if len(visuals) == 1 else f"{link}_{k}"
+                placed = frame @ visual.origin
                 rotation, centre = placed[:3, :3], placed[:3, 3]
-                if part.box is not None:
-                    half = np.abs(rotation) @ (np.array(part.box) / 2.0)
+                if visual.box is not None:
+                    half = np.abs(rotation) @ (np.array(visual.box) / 2.0)
                 else:
-                    radius, length = part.cylinder
+                    radius, length = visual.cylinder
                     axis = rotation[:, 2]
+                    if abs(abs(axis[2]) - 1.0) < VERTICAL_TOLERANCE:
+                        lo, hi = round_out(centre - length / 2.0, centre + length / 2.0)
+                        cylinders.append(
+                            BodyCylinder(
+                                name=name,
+                                x=round(float(centre[0]), ROUND_DIGITS),
+                                y=round(float(centre[1]), ROUND_DIGITS),
+                                radius=float(np.ceil((radius - ROUND_EPS_M) / ROUND_OUT_M) * ROUND_OUT_M),
+                                z_min=round(float(lo[2]), ROUND_DIGITS),
+                                z_max=round(float(hi[2]), ROUND_DIGITS),
+                            )
+                        )
+                        continue
                     half = np.abs(axis) * length / 2.0 + radius * np.sqrt(np.clip(1.0 - axis**2, 0.0, 1.0))
-                lo, hi = np.minimum(lo, centre - half), np.maximum(hi, centre + half)
-        lo, hi = round_out(lo, hi)
-        return BodyBox(
-            name=HEAD_OBSTACLE,
-            center=tuple(float(v) for v in np.round((lo + hi) / 2.0, 6)),
-            size=tuple(float(v) for v in np.round(hi - lo, 6)),
-        )
+                lo, hi = round_out(centre - half, centre + half)
+                boxes.append(
+                    BodyBox(
+                        name=name,
+                        center=tuple(float(v) for v in np.round((lo + hi) / 2.0, ROUND_DIGITS)),
+                        size=tuple(float(v) for v in np.round(hi - lo, ROUND_DIGITS)),
+                    )
+                )
+        return boxes, cylinders
 
 
-def posed_body(body: BodySettings, head: BodyBox | None) -> BodySettings:
-    """The body with its head envelope replaced by a posed head box; None keeps the full envelope.
+def posed_body(body: BodySettings, head: tuple[list[BodyBox], list[BodyCylinder]] | None) -> BodySettings:
+    """The body with its head envelope replaced by the posed head parts; None keeps the full envelope.
 
     Args:
         body (BodySettings): Body holding the head envelope cylinder HEAD_OBSTACLE (load_robot_body).
-        head (BodyBox | None): Posed head (HeadModel.box), None without a fresh head pose.
+        head (tuple[list[BodyBox], list[BodyCylinder]] | None): Posed head (HeadModel.parts), None without a fresh
+            head pose.
 
     Returns:
-        BodySettings: The body to check against.
+        BodySettings: The body to check against (the head parts after the other boxes and cylinders).
     """
     if head is None:
         return body
+    boxes, cylinders = head
     return BodySettings(
-        boxes=[*(b for b in body.boxes if b.name != HEAD_OBSTACLE), head],
-        cylinders=[c for c in body.cylinders if c.name != HEAD_OBSTACLE],
+        boxes=[*(b for b in body.boxes if b.name != HEAD_OBSTACLE), *boxes],
+        cylinders=[*(c for c in body.cylinders if c.name != HEAD_OBSTACLE), *cylinders],
     )

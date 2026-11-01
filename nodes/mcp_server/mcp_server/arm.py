@@ -17,6 +17,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Literal, Protocol
 
+from arm_collision.head import HeadPose
 from arm_collision.ik import ArmKinematics, UnreachableError, grasp_offset
 from arm_collision.self_collision import (
     GRIPPER_MOVING_PARTS,
@@ -557,6 +558,7 @@ class ArmController:
         monitor: RobotMonitor | None = None,
         tilt_source: Callable[[], TiltSample | None] | None = None,
         ground_source: Callable[[], tuple[GroundState, float] | None] | None = None,
+        head_source: Callable[[], HeadPose | None] | None = None,
     ) -> None:
         """Create the controller.
 
@@ -570,6 +572,9 @@ class ArmController:
                 the below-surface slow zone; None = no IMU (robot plane only).
             ground_source (Callable[[], tuple[GroundState, float] | None] | None): Latest /ground/state with its age
                 (s) for use_ground_estimate; None = never available (such a motion is refused).
+            head_source (Callable[[], HeadPose | None] | None): Head pose of a fresh /head/joint_states sample, None
+                when missing or stale: the body checks pose the head there, else they use the full head envelope.
+                None = no head state ever (always the full envelope).
         """
         self.monitor = monitor
         self._watch: MotionWatch | None = None
@@ -589,6 +594,7 @@ class ArmController:
         )
         self.tilt_source = tilt_source or (lambda: None)
         self.ground_source = ground_source or (lambda: None)
+        self.head_source = head_source or (lambda: None)
         # Guard rule arm phase (tools.register_tools wires GuardEngine.check_arm): called with (start, full target
         # pose) once per motion leg before the first setpoint; raises ArmError to refuse. None = no rule engine.
         self.motion_guard: Callable[[dict[str, float], dict[str, float]], None] | None = None
@@ -2877,6 +2883,14 @@ class ArmController:
             return plan_trajectory(start, goal, vmax, rate), []
         return path_trajectory(start, path, vmax, rate), []
 
+    def body_now(self) -> SelfCollisionChecker:
+        """The body checker with the head where it is now (SelfCollisionChecker.posed of the head source).
+
+        Returns:
+            SelfCollisionChecker: Posed checker, or body_check (full head envelope) without a fresh head pose.
+        """
+        return self.body_check.posed(self.head_source())
+
     def check_body(
         self, samples: list[dict[str, float]], execute: bool = False, moving_parts: tuple[str, ...] | None = None
     ) -> BodyReport:
@@ -2893,7 +2907,7 @@ class ArmController:
         Raises:
             SelfCollisionError: When a sample breaks the hard margin (counted in mcp_self_collision_rejections_total).
         """
-        report = self.body_check.path(samples, moving_parts=moving_parts)
+        report = self.body_now().path(samples, moving_parts=moving_parts)
         if report.enabled and math.isfinite(report.min_clearance) and execute:
             SELF_COLLISION_MIN_CLEARANCE.set(report.min_clearance)
         if report.rejected:
@@ -2925,7 +2939,7 @@ class ArmController:
             pose = pose | self.clamp_targets(target)
             full.append(pose)
         if not full:
-            return self.body_check.path([start])
+            return self.body_now().path([start])
         if len(full) == 1:
             points, _ = self.plan_points(start, full[0], vmax)
         else:
@@ -2963,10 +2977,11 @@ class ArmController:
             return "direct", [goal]
         first: BodyReport | None = None
         tried: list[str] = []
+        body = self.body_now()
         for note, legs in self.home_routes(start, goal):
             prev, failed = start, None
             for leg in legs:
-                report = self.body_check.path(joint_line(prev, leg))
+                report = body.path(joint_line(prev, leg))
                 if report.rejected:
                     failed = report
                     break

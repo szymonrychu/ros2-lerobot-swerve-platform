@@ -564,9 +564,10 @@ class SelfCollisionChecker:
         return cls(kin, BodyModel.from_settings(body), check, mount, jaw, arm.gripper_joint, HeadModel.from_urdf())
 
     def posed(self, head: HeadPose | None) -> "SelfCollisionChecker":
-        """The checker of the body with the head at a measured pose: its full envelope obstacle (HEAD_OBSTACLE)
-        replaced by the posed head box (head.HeadModel.box). No pose, no head model or no head obstacle in the body
-        returns this checker (the full envelope, fail closed). The last posed checker is reused for the same pose.
+        """The checker of the body with the head at a measured pose: the full envelope obstacle (HEAD_OBSTACLE)
+        replaced by the posed head parts (head.HeadModel.parts, head.posed_body). No pose, no head model or no head
+        obstacle in the body returns this checker (the full envelope, fail closed). The last posed checker is reused
+        for the same pose.
 
         Args:
             head (HeadPose | None): Fresh measured head pose (head.head_pose), None when missing or stale.
@@ -574,14 +575,14 @@ class SelfCollisionChecker:
         Returns:
             SelfCollisionChecker: Checker of the posed body (no head model of its own: it is never posed again).
         """
-        names = [o.name for o in self.body.obstacles]
-        if head is None or self.head is None or HEAD_OBSTACLE not in names:
+        if head is None or self.head is None or HEAD_OBSTACLE not in [o.name for o in self.body.obstacles]:
             return self
         last = self.last_posed
         if last is not None and last[0] == head:
             return last[1]
-        box = BodyModel.from_settings(BodySettings(boxes=[self.head.box(head)], cylinders=[])).obstacles[0]
-        body = BodyModel([box if o.name == HEAD_OBSTACLE else o for o in self.body.obstacles])
+        boxes, cylinders = self.head.parts(head)
+        parts = BodyModel.from_settings(BodySettings(boxes=boxes, cylinders=cylinders)).obstacles
+        body = BodyModel([o for o in self.body.obstacles if o.name != HEAD_OBSTACLE] + parts)
         checker = SelfCollisionChecker(self.kin, body, self.settings, self.mount, self.jaw, self.gripper)
         self.last_posed = (head, checker)
         return checker

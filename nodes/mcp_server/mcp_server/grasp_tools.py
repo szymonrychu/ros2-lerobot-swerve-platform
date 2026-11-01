@@ -276,7 +276,7 @@ class GraspExecutor:
         self.arm = arm
         self.cfg = config
         self.calibration = calibration
-        self.planner = GraspPlanner(arm.kin, config, arm.floor_guard, arm.jaw, arm.body_check)
+        self.planner = GraspPlanner(arm.kin, config, arm.floor_guard, arm.jaw, arm.body_check, arm.head_source)
 
     def fraction(self, angle: float) -> float:
         """Gripper open fraction of a gripper angle.
