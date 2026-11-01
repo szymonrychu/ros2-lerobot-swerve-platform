@@ -8,6 +8,7 @@ import math
 import numpy as np
 import pytest
 
+from arm_collision.head import HeadPose
 from arm_collision.ik import ArmKinematics
 from arm_collision.jaw import JawModel, yaw_matrix
 from arm_collision.self_collision import SelfCollisionChecker
@@ -64,6 +65,18 @@ DRIVE_POSE = {
     "gripper": 0.1,
 }
 FK_TOLERANCE_M = 1e-3
+# mcp_server head home (config.head home_pan_rad, home_tilt_rad): straight ahead, 30 deg down.
+HEAD_HOME = HeadPose(pan=0.0, tilt=0.5236)
+# Arm swung far left with the wrist folded up beside the head: inside the full head envelope, clear of the head at
+# home (the envelope holds every pan/tilt, the posed head only the measured one).
+BESIDE_THE_HEAD = {
+    "shoulder_pan": 1.2,
+    "shoulder_lift": -1.2,
+    "elbow_flex": -0.9,
+    "wrist_flex": 1.6,
+    "wrist_roll": 0.0,
+    "gripper": 0.0,
+}
 
 
 def tool_base_link(joints: dict[str, float]) -> np.ndarray:
@@ -121,3 +134,20 @@ def test_parked_home_and_drive_pose_clear_the_hard_margin(joints: dict[str, floa
     assert tool_base_link(joints)[2] > WHEEL_TOP_Z_M  # FK check: both keep the tool above the wheels
     check = CHECKER.pose(joints)
     assert check.min_clearance > CHECK.hard_margin_m, (check.obstacle, check.part, check.min_clearance)
+
+
+def test_a_measured_head_pose_replaces_the_envelope_by_the_posed_head() -> None:
+    """Beside the head: rejected against the full envelope (no head pose), clear of the head posed at home."""
+    assert CHECKER.posed(None) is CHECKER
+    posed = CHECKER.posed(HEAD_HOME)
+    assert CHECKER.pose(BESIDE_THE_HEAD).per_obstacle["head"][0] < CHECK.hard_margin_m
+    assert posed.pose(BESIDE_THE_HEAD).per_obstacle["head"][0] > CHECK.hard_margin_m
+    assert posed.body.by_name("head").describe()["shape"] == "box"
+    assert [o.name for o in posed.body.obstacles] == [o.name for o in CHECKER.body.obstacles]
+
+
+def test_the_posed_checker_is_reused_for_the_same_head_pose() -> None:
+    """Asking again for the same head pose returns the same checker; another pose builds a new one."""
+    first = CHECKER.posed(HeadPose(pan=0.1, tilt=0.2))
+    assert CHECKER.posed(HeadPose(pan=0.1, tilt=0.2)) is first
+    assert CHECKER.posed(HeadPose(pan=0.1, tilt=0.3)) is not first
