@@ -11,8 +11,10 @@
 # column bottom 100 mm.
 # Wheels reach 5 cm above the 120 mm wheel top (z_max 0.17, user decision 2026-11-01): the arm keeps off the tyres.
 # Head (nodes/web_ui/urdf/head.urdf): the post (a 12 mm radius column at (0.09, 0.10) up to 0.30 m), its horizontal arm
-# at z 0.30 forward to the pan base, and the head envelope about the pan axis (ros2_common arm_pose_check.head_envelope
-# with the deployed head_radius_m 0.075 / head_height_m 0.09, rounded outwards to 1 mm; test_head_envelope_body.py).
+# at z 0.30 forward to the pan base, and the tight head envelope about the pan axis: the cylinder holding the pan base,
+# the pan and head links and the 90 x 25 x 25 mm D435 at every pan/tilt inside the URDF limits (pan +-90 deg, tilt -30
+# to +45 deg, the head_aim_cpp command range), rounded outwards to 1 mm (test_head_envelope_body.py). Below the pan
+# base (z 0.287) only the post is body. The nav footprint leaves the head out (settings.footprint_body).
 boxes:
   - {name: frame_left, center: [0.0, 0.1333, 0.15], size: [0.425, 0.035, 0.06]}
   - {name: frame_right, center: [0.0, -0.1333, 0.15], size: [0.425, 0.035, 0.06]}
@@ -25,4 +27,4 @@ cylinders:
   - {name: wheel_rr, x: -0.1525, y: -0.1333, radius: 0.0625, z_min: 0.0, z_max: 0.17}
   - {name: lidar, x: 0.150, y: 0.040, radius: 0.037, z_min: 0.10, z_max: 0.21}
   - {name: head_post, x: 0.09, y: 0.10, radius: 0.012, z_min: 0.0, z_max: 0.30}
-  - {name: head, x: 0.15, y: 0.10, radius: 0.075, z_min: 0.10, z_max: 0.40}
+  - {name: head, x: 0.15, y: 0.10, radius: 0.075, z_min: 0.287, z_max: 0.396}

@@ -12,6 +12,8 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_URDF = Path("nodes/web_ui/urdf/so101_arm.urdf")
 # The one body definition (load_robot_body), packaged next to this module.
 ROBOT_BODY_FILE = Path(__file__).resolve().with_name("robot_body.yaml")
+# Body obstacles above the floor-level H (the head on its post): in every arm check, left out of the nav footprint.
+HEAD_OBSTACLES = ("head_post", "head_arm", "head")
 ARM_JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper")
 # Arm mount (URDF base_link origin) in base_link (m), measured on the robot 2026-10-10: shoulder_pan axis 98 mm forward and
 # 50 mm right of the centre between the wheels, URDF origin 38.8 mm behind and 62.4 mm below it; height from tip
@@ -272,3 +274,18 @@ def load_robot_body() -> BodySettings:
         BodySettings: Validated boxes and cylinders (a fresh model per call).
     """
     return BodySettings.model_validate(yaml.safe_load(ROBOT_BODY_FILE.read_text()))
+
+
+def footprint_body(body: BodySettings) -> BodySettings:
+    """The floor-level body of the nav footprint: the body without the head post, head arm and head envelope.
+
+    Args:
+        body (BodySettings): Full body (load_robot_body).
+
+    Returns:
+        BodySettings: Boxes and cylinders not in HEAD_OBSTACLES, in body order.
+    """
+    return BodySettings(
+        boxes=[b for b in body.boxes if b.name not in HEAD_OBSTACLES],
+        cylinders=[c for c in body.cylinders if c.name not in HEAD_OBSTACLES],
+    )

@@ -21,6 +21,7 @@ from arm_collision import arm_geometry, body_model
 from arm_collision.arm_geometry import JAW_POINTS
 from arm_collision.ik import ArmKinematics
 from arm_collision.self_collision import SelfCollisionChecker, joint_line
+from arm_collision.settings import footprint_body
 from ros2_common.camera_geometry import pixel_to_ground
 
 from mcp_server import camera_overlay, camera_scene, footprint_geometry, frontiers, perception
@@ -971,7 +972,7 @@ def body_outline_call(kind: str) -> Call:
     Returns:
         Call: One evaluation.
     """
-    body = config().body
+    body = footprint_body(config().body)
     footprint = config().nav_footprint
 
     def call() -> None:
