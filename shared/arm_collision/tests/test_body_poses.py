@@ -59,7 +59,7 @@ PARKED_HOME = {
 DRIVE_POSE = {
     "shoulder_pan": -0.003,
     "shoulder_lift": -1.711,
-    "elbow_flex": -1.483,
+    "elbow_flex": -1.283,
     "wrist_flex": 1.543,
     "wrist_roll": -1.637,
     "gripper": 0.1,
