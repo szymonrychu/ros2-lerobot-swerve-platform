@@ -272,11 +272,10 @@ def test_fit_base_in_base_link_equals_mcp_server_arm() -> None:
     assert calib_config()["fit"]["base_in_base_link"] == mcp_config()["arm"]["base_in_base_link"]
 
 
-def test_pose_check_body_equals_mcp_server_body() -> None:
-    body = calib_config()["arm_sequence"]["pose_check"]["body"]
-    mcp_body = yaml.safe_load(ROBOT_BODY_YAML.read_text())
-    assert body["boxes"] == mcp_body["boxes"]
-    assert body["cylinders"] == mcp_body["cylinders"]
+def test_pose_check_body_is_the_packaged_robot_body() -> None:
+    """The pose check configures no body of its own: PoseCheckConfig loads robot_body.yaml (the full body)."""
+    assert "body" not in calib_config()["arm_sequence"]["pose_check"]
+    assert ROBOT_BODY_YAML.is_file()
 
 
 def test_arm_urdf_file_is_the_mcp_server_arm_urdf() -> None:

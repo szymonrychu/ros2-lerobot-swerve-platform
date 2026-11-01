@@ -179,8 +179,16 @@ def test_body_defaults_equal_mcp_server_body() -> None:
     body = yaml.safe_load(ROBOT_BODY_YAML.read_text())
     assert BodyConfig.model_validate(body) == BodyConfig()
     assert PoseCheckConfig().body == BodyConfig()
-    assert [b.name for b in BodyConfig().boxes] == ["frame_left", "frame_right", "crossbar"]
-    assert [c.name for c in BodyConfig().cylinders] == ["wheel_fl", "wheel_fr", "wheel_rl", "wheel_rr", "lidar"]
+    assert [b.name for b in BodyConfig().boxes] == ["frame_left", "frame_right", "crossbar", "head_arm"]
+    assert [c.name for c in BodyConfig().cylinders] == [
+        "wheel_fl",
+        "wheel_fr",
+        "wheel_rl",
+        "wheel_rr",
+        "lidar",
+        "head_post",
+        "head",
+    ]
 
 
 @pytest.mark.parametrize(
