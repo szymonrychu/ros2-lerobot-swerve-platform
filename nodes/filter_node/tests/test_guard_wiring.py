@@ -2,6 +2,7 @@
 and the filtered leader output), seeded by the follower feedback and posing the head from /head/joint_states."""
 
 import importlib
+import json
 from collections.abc import Callable
 from types import ModuleType, SimpleNamespace
 from typing import Any
@@ -22,6 +23,7 @@ LEADER = "/in"
 OUTPUT = "/out"
 WEB_UI = "/web_ui"
 AUTONOMY = "/autonomy"
+GUARD_STATE = "/filter/guard_state"
 FEEDBACK = "/follower/joint_states"
 HEAD = "/head/joint_states"
 ARM_NAMES = ["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper"]
@@ -49,6 +51,7 @@ class Harness:
         self.steps: list[Callable[[], None]] = []
         self.published: list[tuple[str, dict[str, float]]] = []
         self.guards: list[ArmGuard] = []
+        self.guard_states: list[dict[str, Any]] = []
         self.node = MagicMock()
         self.node.create_subscription.side_effect = lambda _t, topic, cb, _q: (
             self.callbacks.__setitem__(topic, cb) or topic
@@ -61,6 +64,8 @@ class Harness:
                 pub.publish.side_effect = lambda m: self.published.append(
                     (m.header.frame_id, dict(zip(m.name, m.position, strict=True)))
                 )
+            if topic == GUARD_STATE:
+                pub.publish.side_effect = lambda m: self.guard_states.append(json.loads(m.data))
             return pub
 
         self.node.create_publisher.side_effect = create_publisher
@@ -106,6 +111,7 @@ class Harness:
             web_ui_timeout_s=0.5,
             follower_feedback_topic=FEEDBACK,
             autonomy_input_topic=AUTONOMY,
+            guard_state_topic=GUARD_STATE,
             self_collision_guard=GuardSettings(hard_margin_m=HARD_MARGIN_M, head_state_topic=HEAD, arm=ARM),
         )
         self.module.serve_filter_node(config, self.node)
@@ -186,6 +192,21 @@ def test_a_direct_command_into_a_wheel_publishes_the_clamp(harness: Harness, top
     assert_clamped(pose, WHEEL_FR_PRESSED)
     warnings = [str(c.args[0]) for c in harness.log.warning.call_args_list]
     assert any(source in w and "frame_right" in w for w in warnings)
+
+
+def test_a_blocked_command_publishes_the_guard_state_and_a_clear_one_unblocks_it(harness: Harness) -> None:
+    """The guard state topic reports the obstacle on a clamp and blocked false after the next clear command."""
+    harness.steps = [
+        harness.at(0.1, FEEDBACK, joint_msg(PARKED_HOME)),
+        harness.at(0.2, WEB_UI, joint_msg(WHEEL_FR_PRESSED)),
+        harness.at(0.25),
+        harness.at(0.3, WEB_UI, joint_msg(PARKED_HOME)),
+        harness.at(0.35),
+    ]
+    harness.run()
+    states = harness.guard_states
+    assert [s["blocked"] for s in states] == [True, False]
+    assert states[0]["source"] == "web_ui" and states[0]["obstacle"]
 
 
 def test_a_clear_command_publishes_the_request(harness: Harness) -> None:

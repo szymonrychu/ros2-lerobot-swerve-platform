@@ -290,3 +290,13 @@ def test_bad_leader_gripper_ranges_raise(tmp_path: Path, ranges: str) -> None:
     path.write_text(f"self_collision_guard:\n  arm: {{}}\n  leader_gripper:\n    {ranges}\n")
     with pytest.raises(ValidationError):
         load_config(path)
+
+
+def test_load_config_guard_state_topic_default_and_explicit(tmp_path: Path) -> None:
+    p = tmp_path / "c.yaml"
+    p.write_text("algorithm: kalman\n")
+    cfg = load_config(p)
+    assert cfg is not None and cfg.guard_state_topic == "/filter/guard_state"
+    p.write_text("algorithm: kalman\nguard_state_topic: /x/guard\n")
+    cfg = load_config(p)
+    assert cfg is not None and cfg.guard_state_topic == "/x/guard"

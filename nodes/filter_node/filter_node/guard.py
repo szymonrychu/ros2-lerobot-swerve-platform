@@ -10,6 +10,7 @@ violation the request is published as is; otherwise the furthest safe sample bef
 nothing when that sample is the start (the arm holds).
 """
 
+import json
 import math
 import time
 from collections.abc import Callable, Sequence
@@ -25,6 +26,10 @@ from .config import LeaderGripperSettings
 
 # Obstacle label of a refusal whose arm pose is unknown (a partial request before any command or feedback).
 UNKNOWN_POSE = "unknown_pose"
+# A blocked guard state is republished this often (s) while commands keep arriving blocked.
+GUARD_STATE_PERIOD_S = 1.0
+# A blocked guard state with no new blocked command for this long (s) reports clear again.
+GUARD_STATE_HOLD_S = 2.0
 
 
 class BodyCheck(Protocol):
@@ -210,3 +215,74 @@ class ArmGuard:
             clearance_m=report.violation_clearance,
             check_seconds=elapsed,
         )
+
+
+def guard_state_payload(source: str, result: GuardResult) -> str:
+    """JSON text of the guard state topic for one verdict.
+
+    Args:
+        source (str): Command source of the verdict (reported only while blocked, '' otherwise).
+        result (GuardResult): The verdict.
+
+    Returns:
+        str: JSON object with blocked, source, link, obstacle and clearance_m (null when not blocked).
+    """
+    return json.dumps(
+        {
+            "blocked": result.blocked,
+            "source": source if result.blocked else "",
+            "link": result.link,
+            "obstacle": result.obstacle,
+            "clearance_m": result.clearance_m if result.blocked and math.isfinite(result.clearance_m) else None,
+        }
+    )
+
+
+class GuardStateReporter:
+    """Decides when to publish the guard state: on change and every GUARD_STATE_PERIOD_S while blocked."""
+
+    def __init__(self) -> None:
+        """Start clear, nothing published."""
+        self.payload = guard_state_payload("", GuardResult(None))
+        self.blocked = False
+        self.blocked_at = -math.inf
+        self.published: str | None = None
+        self.published_at = -math.inf
+
+    def update(self, source: str, result: GuardResult, now: float) -> None:
+        """Take one verdict. A failed check says nothing about the arm and leaves the state alone.
+
+        Args:
+            source (str): Command source of the verdict.
+            result (GuardResult): The verdict.
+            now (float): Monotonic time (s).
+        """
+        if result.error:
+            return
+        self.payload = guard_state_payload(source, result)
+        self.blocked = result.blocked
+        if result.blocked:
+            self.blocked_at = now
+
+    def poll(self, now: float) -> str | None:
+        """The payload to publish now, or None.
+
+        A blocked state without a blocked command for GUARD_STATE_HOLD_S turns clear first.
+
+        Args:
+            now (float): Monotonic time (s).
+
+        Returns:
+            str | None: JSON payload when the state changed or the blocked period elapsed; None otherwise. The first
+                clear state is not published (nothing was ever blocked).
+        """
+        if self.blocked and now - self.blocked_at > GUARD_STATE_HOLD_S:
+            self.payload = guard_state_payload("", GuardResult(None))
+            self.blocked = False
+        changed = self.payload != self.published and (self.published is not None or self.blocked)
+        repeat = self.blocked and now - self.published_at >= GUARD_STATE_PERIOD_S
+        if not (changed or repeat):
+            return None
+        self.published = self.payload
+        self.published_at = now
+        return self.payload

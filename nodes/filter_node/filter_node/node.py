@@ -31,7 +31,7 @@ from .arbitration import (
 from .command import fill_command
 from .config import EXECUTOR_KINDS, FilterConfig, GuardSettings
 from .feedback_rate import FeedbackRateSwitch
-from .guard import ArmGuard, GuardResult
+from .guard import ArmGuard, GuardResult, GuardStateReporter
 from .metrics import FilterMetrics
 
 NODE_NAME = "filter_node"
@@ -185,6 +185,20 @@ def serve_filter_node(config: FilterConfig, node: Node) -> None:
 
     guard = build_arm_guard(guard_settings, fresh_head_pose) if guard_settings is not None else None
     last_guard_log = [-GUARD_LOG_PERIOD_S]
+    guard_state_pub = (
+        node.create_publisher(String, config.guard_state_topic, LATCHED_QOS)
+        if guard is not None and config.guard_state_topic
+        else None
+    )
+    guard_state = GuardStateReporter()
+
+    def report_guard_state() -> None:
+        """Publish the guard state when it changed or its blocked period elapsed."""
+        payload = guard_state.poll(time.monotonic())
+        if guard_state_pub is not None and payload is not None:
+            state_msg = String()
+            state_msg.data = payload
+            guard_state_pub.publish(state_msg)
 
     def log_guard(source: str, result: GuardResult) -> None:
         """Log a clamped, refused or failed check, at most once per GUARD_LOG_PERIOD_S."""
@@ -214,6 +228,8 @@ def serve_filter_node(config: FilterConfig, node: Node) -> None:
             if guard.enabled:
                 metrics.record_guard(source, result)
                 log_guard(source, result)
+                guard_state.update(source, result, time.monotonic())
+                report_guard_state()
             if result.positions is None:
                 return
             positions = result.positions
@@ -226,6 +242,7 @@ def serve_filter_node(config: FilterConfig, node: Node) -> None:
     def report_source() -> None:
         """Update metrics, then publish the active source when it changed or the 1 Hz period elapsed."""
         metrics.refresh(arbiter.active_source, time.monotonic())
+        report_guard_state()
         if source_pub is not None and reporter.due(arbiter.active_source, time.monotonic()):
             source_msg = String()
             source_msg.data = arbiter.active_source

@@ -15,6 +15,7 @@ ENV_CONFIG_PATH_KEY = "FILTER_NODE_CONFIG"
 DEFAULT_AUTONOMY_INPUT_TOPIC = "/filter/autonomy_joint_commands"
 DEFAULT_AUTONOMY_RELEASE_TOPIC = "/filter/autonomy_release"
 DEFAULT_ACTIVE_SOURCE_TOPIC = "/filter/active_source"
+DEFAULT_GUARD_STATE_TOPIC = "/filter/guard_state"
 DEFAULT_FOLLOWER_TORQUE_STATE_TOPIC = "/follower/torque_state"
 EXECUTOR_KINDS = ("events", "single_threaded")
 DEFAULT_EXECUTOR = "single_threaded"
@@ -136,6 +137,8 @@ class FilterConfig:
         executor: rclpy executor spinning the node: "events" (rclpy.experimental.EventsExecutor, lower CPU) or
             "single_threaded" (default, rollback).
         metrics_port: Prometheus /metrics port on 127.0.0.1; None disables the exporter.
+        guard_state_topic: std_msgs/String JSON topic of the guard state (blocked, source, link, obstacle,
+            clearance_m); published only when the guard is configured; empty disables it.
         self_collision_guard: Arm self-collision guard settings; None (no block) disables the guard.
     """
 
@@ -158,6 +161,7 @@ class FilterConfig:
     follower_torque_state_topic: str = DEFAULT_FOLLOWER_TORQUE_STATE_TOPIC
     metrics_port: int | None = None
     executor: str = DEFAULT_EXECUTOR
+    guard_state_topic: str = DEFAULT_GUARD_STATE_TOPIC
     self_collision_guard: GuardSettings | None = None
 
 
@@ -256,6 +260,7 @@ def load_config(path: Path | None = None) -> FilterConfig | None:
         follower_torque_state_topic=read_topic(
             data, "follower_torque_state_topic", DEFAULT_FOLLOWER_TORQUE_STATE_TOPIC
         ),
+        guard_state_topic=read_topic(data, "guard_state_topic", DEFAULT_GUARD_STATE_TOPIC),
         metrics_port=int(raw_metrics_port) if raw_metrics_port is not None else None,
         executor=executor,
         self_collision_guard=GuardSettings.model_validate(raw_guard) if raw_guard is not None else None,

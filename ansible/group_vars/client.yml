@@ -1296,6 +1296,8 @@ ros2_nodes:
       autonomy_input_topic: /filter/autonomy_joint_commands
       autonomy_release_topic: /filter/autonomy_release
       active_source_topic: /filter/active_source
+      # Self-collision guard verdict (std_msgs/String JSON: blocked, source, link, obstacle, clearance_m); web_ui ARM tab shows it.
+      guard_state_topic: /filter/guard_state
       # lerobot_follower torque state: while the arm is released nothing is published on /follower/joint_commands.
       follower_torque_state_topic: /follower/torque_state
       joint_names:
