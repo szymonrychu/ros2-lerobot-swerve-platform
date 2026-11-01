@@ -60,7 +60,8 @@ struct Clearances {
   explicit Clearances(size_t size = 0) : values(size), parts(size), soft(size), soft_parts(size) {}
 };
 
-// path() result: per sample the smallest soft clearance with its obstacle and part, and the first hard violation.
+// path() result: per sample the soft clearance (raw) of the obstacle furthest inside its own soft margin (smallest
+// clearance + soft offset) with that obstacle and part, and the first hard violation.
 struct PathResult {
   std::vector<double> clearances;
   std::vector<int64_t> obstacles;
@@ -75,7 +76,8 @@ struct PathResult {
 class BodyChecker {
  public:
   BodyChecker(std::vector<Obstacle> obstacles, std::vector<double> capsule_radii, std::vector<PointGroup> groups,
-              Rigid mount, int parts, int jaws, int links, double prune_slack, double escape_tolerance);
+              Rigid mount, int parts, int jaws, int links, double prune_slack, double escape_tolerance,
+              std::vector<double> soft_offsets);
 
   size_t obstacle_count() const { return obstacles_.size(); }
   int capsule_count() const { return static_cast<int>(radii_.size()); }
@@ -109,6 +111,9 @@ class BodyChecker {
   int links_;
   double prune_slack_;
   double escape_tolerance_;
+  // Per obstacle: added to its clearance in the soft band (default soft margin minus the obstacle's own margin), so
+  // the worst soft sample is the one furthest inside its own margin.
+  std::vector<double> soft_offsets_;
   size_t total_blocks_;
 };
 

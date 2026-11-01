@@ -153,14 +153,19 @@ def bounded_clearances(
     # Pass 1: bounds (and the jaw points, single points evaluated exactly).
     cap_lo = np.empty((m, len(CAPSULES), n))
     block_lo: list[list[np.ndarray]] = [[] for _ in range(m)]
+    # soft_up bounds the smallest offset soft clearance (clearance + soft offset), raw_up the same without offsets.
+    offsets = checker.soft_offsets
     soft_up = np.full(n, np.inf)
+    raw_up = np.full(n, np.inf)
     hard_up = np.full(n, np.inf)
     for k, obstacle in enumerate(obstacles):
         for p, (name, *_r, radius) in enumerate(CAPSULES):
             a, b = fixed[name][:, 0], fixed[name][:, 1]
             half = np.linalg.norm(b - a, axis=-1) / 2.0
             cap_lo[k, p] = obstacle.signed_distance((a + b) / 2.0) - half - radius
-            soft_up = np.minimum(soft_up, np.minimum(obstacle.signed_distance(a), obstacle.signed_distance(b)) - radius)
+            end = np.minimum(obstacle.signed_distance(a), obstacle.signed_distance(b)) - radius
+            raw_up = np.minimum(raw_up, end)
+            soft_up = np.minimum(soft_up, end + offsets[k])
         for blocks, centre in zip(LINK_BLOCKS, centres, strict=True):
             at = obstacle.signed_distance(centre)
             block_lo[k].append(at - blocks.radii)
@@ -168,15 +173,17 @@ def bounded_clearances(
             if blocks.contact_only:
                 hard_up = np.minimum(hard_up, upper + hm)
             else:
-                soft_up = np.minimum(soft_up, upper)
+                raw_up = np.minimum(raw_up, upper)
+                soft_up = np.minimum(soft_up, upper + offsets[k])
         for p in jaw_parts:
             out[:, k, p] = obstacle.signed_distance(fixed[CHECKED_PARTS[p]]).min(axis=1)
-            soft_up = np.minimum(soft_up, out[:, k, p])
-    hard_up = np.minimum(hard_up, soft_up)
+            raw_up = np.minimum(raw_up, out[:, k, p])
+            soft_up = np.minimum(soft_up, out[:, k, p] + offsets[k])
+    hard_up = np.minimum(hard_up, raw_up)
     soft_t = soft_up + PRUNE_SLACK_M if soft else np.full(n, -np.inf)
     limit = hard_up[:, None] if hard_limit is None else hard_limit
     hard_t = np.broadcast_to(limit + PRUNE_SLACK_M, (n, m))
-    need = np.maximum(soft_t[:, None], hard_t)  # (N, M): held parts can matter below this
+    need = np.maximum(soft_t[:, None] - offsets[None, :], hard_t)  # (N, M): held parts can matter below this
     # Pass 2: exact distances of what can matter, the three capsules of an obstacle in one axis search.
     for k, obstacle in enumerate(obstacles):
         rows = [np.nonzero(cap_lo[k, p] <= need[:, k])[0] for p in range(len(CAPSULES))]
@@ -311,10 +318,11 @@ def path(
     if moving_parts and geometry is not None:
         soft, soft_parts = moving_soft_clearances(checker, geometry, moving_parts)
     names = [o.name for o in checker.body.obstacles]
-    worst = soft.argmin(axis=1)
+    worst = (soft + checker.soft_offsets[None, :]).argmin(axis=1)
     clearances = [float(soft[i, worst[i]]) for i in range(n)]
+    margins = checker.soft_margins
     report = BodyReport(
-        scales=[cfg.slow_speed_scale if c < cfg.soft_margin_m else NORMAL_SCALE for c in clearances],
+        scales=[cfg.slow_speed_scale if c < margins[worst[i]] else NORMAL_SCALE for i, c in enumerate(clearances)],
         clearances=clearances,
         obstacles=[names[int(worst[i])] for i in range(n)],
         parts=[CHECKED_PARTS[int(soft_parts[i, worst[i]])] for i in range(n)],
@@ -350,6 +358,7 @@ def pose(checker: SelfCollisionChecker, joints: dict[str, float]) -> PoseClearan
     return PoseClearance(
         {o.name: (float(values[0, k]), CHECKED_PARTS[int(parts[0, k])]) for k, o in enumerate(obstacles)},
         {o.name: float(soft[0, k]) for k, o in enumerate(obstacles)},
+        dict(zip((o.name for o in obstacles), checker.soft_margins.tolist(), strict=True)),
     )
 
 
@@ -399,7 +408,7 @@ def pose_outputs(clearance: PoseClearance) -> dict[str, Any]:
         "obstacle": clearance.obstacle,
         "part": clearance.part,
         "hard_clear": clearance.min_clearance >= settings.hard_margin_m,
-        "soft_clear": clearance.min_soft_clearance >= settings.soft_margin_m,
+        "soft_clear": not clearance.slowed,
     }
 
 

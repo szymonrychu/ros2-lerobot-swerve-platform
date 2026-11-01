@@ -379,9 +379,11 @@ def test_tier2_shoulder_pan_stays_in_the_clear_band() -> None:
 
 
 def test_base_pose_puts_the_board_in_front_of_the_head() -> None:
-    body = SEQ.pose_check.body
-    body_front = max([box.center[0] + box.size[0] / 2 for box in body.boxes] + [c.x + c.radius for c in body.cylinders])
-    body_top = max([box.center[2] + box.size[2] / 2 for box in body.boxes] + [c.z_max for c in body.cylinders])
+    # The floor-level body (the head post, head arm and head envelope stand above it; the board is checked ahead of the head envelope below).
+    boxes = [b for b in SEQ.pose_check.body.boxes if not b.name.startswith("head")]
+    cylinders = [c for c in SEQ.pose_check.body.cylinders if not c.name.startswith("head")]
+    body_front = max([box.center[0] + box.size[0] / 2 for box in boxes] + [c.x + c.radius for c in cylinders])
+    body_top = max([box.center[2] + box.size[2] / 2 for box in boxes] + [c.z_max for c in cylinders])
     for head_name, head_urdf in HEADS.items():
         checker = PoseChecker(ARM_URDF, head_urdf, FIT, SEQ.pose_check)
         board = checker.board_points(SEQ.base_pose)

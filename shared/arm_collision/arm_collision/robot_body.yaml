@@ -10,6 +10,8 @@
 # 0.1525/0.1333, side bar bottom 120 mm, crossbar extent and height (it spans to the side bars' inner faces), lidar
 # column bottom 100 mm.
 # Wheels reach 5 cm above the 120 mm wheel top (z_max 0.17, user decision 2026-11-01): the arm keeps off the tyres.
+# Those 5 cm are the wheels' clearance margin: margin_m 0 (an obstacle's own margin, in place of body_check
+# soft_margin_m and the pose check margin_m; None/absent = the check's margin). The hard margin still applies.
 # Head (nodes/web_ui/urdf/head.urdf): the post (a 12 mm radius column at (0.09, 0.10) up to 0.30 m), its horizontal arm
 # at z 0.30 forward to the pan base, and the tight head envelope about the pan axis: the cylinder holding the pan base,
 # the pan and head links and the 90 x 25 x 25 mm D435 at every pan/tilt inside the URDF limits (pan +-90 deg, tilt -30
@@ -21,10 +23,10 @@ boxes:
   - {name: crossbar, center: [-0.025, 0.0, 0.08], size: [0.25, 0.2316, 0.04]}
   - {name: head_arm, center: [0.12, 0.10, 0.30], size: [0.08, 0.024, 0.024]}
 cylinders:
-  - {name: wheel_fl, x: 0.1525, y: 0.1333, radius: 0.0625, z_min: 0.0, z_max: 0.17}
-  - {name: wheel_fr, x: 0.1525, y: -0.1333, radius: 0.0625, z_min: 0.0, z_max: 0.17}
-  - {name: wheel_rl, x: -0.1525, y: 0.1333, radius: 0.0625, z_min: 0.0, z_max: 0.17}
-  - {name: wheel_rr, x: -0.1525, y: -0.1333, radius: 0.0625, z_min: 0.0, z_max: 0.17}
+  - {name: wheel_fl, x: 0.1525, y: 0.1333, radius: 0.0625, z_min: 0.0, z_max: 0.17, margin_m: 0.0}
+  - {name: wheel_fr, x: 0.1525, y: -0.1333, radius: 0.0625, z_min: 0.0, z_max: 0.17, margin_m: 0.0}
+  - {name: wheel_rl, x: -0.1525, y: 0.1333, radius: 0.0625, z_min: 0.0, z_max: 0.17, margin_m: 0.0}
+  - {name: wheel_rr, x: -0.1525, y: -0.1333, radius: 0.0625, z_min: 0.0, z_max: 0.17, margin_m: 0.0}
   - {name: lidar, x: 0.150, y: 0.040, radius: 0.037, z_min: 0.10, z_max: 0.21}
   - {name: head_post, x: 0.09, y: 0.10, radius: 0.012, z_min: 0.0, z_max: 0.30}
   - {name: head, x: 0.15, y: 0.10, radius: 0.075, z_min: 0.287, z_max: 0.396}

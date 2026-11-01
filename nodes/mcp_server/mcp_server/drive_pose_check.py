@@ -6,7 +6,9 @@ lower follows the same choice from the drive pose back home. Both chosen routes 
 and every sample is held to:
 
 - body: clearance of every arm part (self_collision part points and capsules) to the body (robot_body.yaml, with the
-  head post and the head envelope about the pan axis) at least margin_m; where the parked home is already closer to an obstacle, its clearance minus ESCAPE_TOLERANCE_M;
+  head post and the head envelope about the pan axis) at least margin_m, or the obstacle's own margin_m (the wheels'
+  0: the 5 cm above the tyres is their margin); where the parked home is already closer to an obstacle, its clearance
+  minus ESCAPE_TOLERANCE_M;
 - floor: the tool point and both wrist capsule ends at least min_tool_height_m above the floor;
 - stretched: never elbow_flex < 0 with shoulder_lift above stretched_shoulder_lift_max_rad;
 - footprint: the arm's ground shadow inside the static footprint outline (grown by simplify_m, the test the
@@ -249,6 +251,10 @@ class DrivePoseChecker:
         # One body (with the head post and head envelope) for the routes plan_home takes and the drive pose clearance.
         self.clearance = SelfCollisionChecker.from_settings(self.kin, config.body, config.body_check, config.arm, jaw)
         self.obstacles = [o.name for o in self.clearance.body.obstacles]
+        # Body margin per obstacle: its own margin_m (robot_body.yaml, the wheels' 0), else the pose check margin_m.
+        self.margins = np.array(
+            [self.limits.margin_m if o.margin_m is None else o.margin_m for o in self.clearance.body.obstacles]
+        )
         floor = footprint_body(config.body)
         outline = body_outline(floor.boxes, floor.cylinders, footprint.circle_segments, footprint.close_gap_m)
         self.static = static_outline(outline, footprint.parked_arm_shadow).buffer(footprint.simplify_m)
@@ -322,7 +328,7 @@ class DrivePoseChecker:
             out.setdefault(check, DrivePoseViolation(check, f"{where}: {detail}"))
 
         home_clear = self.clearances([home])[0]
-        limit = np.minimum(self.limits.margin_m, home_clear - ESCAPE_TOLERANCE_M)
+        limit = np.minimum(self.margins, home_clear - ESCAPE_TOLERANCE_M)
         stacked = self.clearance.stacked_points(samples)
         clear = self.clearance.clearances_of(stacked)[0]
         for i, sample in enumerate(samples):

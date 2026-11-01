@@ -97,7 +97,7 @@
     "obstacle": "wheel_fr",
     "part": "upper arm",
     "hard_clear": true,
-    "soft_clear": false
+    "soft_clear": true
    }
   },
   {
@@ -176,7 +176,7 @@
     "obstacle": "lidar",
     "part": "upper arm",
     "hard_clear": true,
-    "soft_clear": false
+    "soft_clear": true
    }
   },
   {
@@ -255,7 +255,7 @@
     "obstacle": "lidar",
     "part": "upper arm",
     "hard_clear": true,
-    "soft_clear": false
+    "soft_clear": true
    }
   },
   {
@@ -887,7 +887,7 @@
     "obstacle": "wheel_fr",
     "part": "upper arm",
     "hard_clear": true,
-    "soft_clear": false
+    "soft_clear": true
    }
   },
   {
@@ -1519,7 +1519,7 @@
     "obstacle": "lidar",
     "part": "upper arm",
     "hard_clear": true,
-    "soft_clear": false
+    "soft_clear": true
    }
   },
   {
@@ -2230,7 +2230,7 @@
     "obstacle": "wheel_fr",
     "part": "upper arm",
     "hard_clear": true,
-    "soft_clear": false
+    "soft_clear": true
    }
   },
   {
@@ -2546,7 +2546,7 @@
     "obstacle": "wheel_fr",
     "part": "upper arm",
     "hard_clear": true,
-    "soft_clear": false
+    "soft_clear": true
    }
   },
   {

@@ -12,6 +12,7 @@ import xml.etree.ElementTree as ET
 import numpy as np
 import pytest
 from arm_collision.arm_geometry import BOX_POINT_SPACING_M, LINK_COLLISION_BOXES, box_surface_points
+from arm_collision.head import HeadPose
 from arm_collision.ik import ArmKinematics
 from arm_collision.self_collision import SelfCollisionChecker, joint_line
 
@@ -27,6 +28,8 @@ BODY_LINKS = {"upper_arm": "upper_arm_link", "lower_arm": "lower_arm_link", "wri
 CONTACT_ONLY = {"upper_arm_link": True, "lower_arm_link": False, "wrist_link": False}
 ALLOWANCE_M = {link: CONFIG_HARD_MARGIN_M if only else 0.0 for link, only in CONTACT_ONLY.items()}
 CONFIG = McpServerConfig()
+# The head at its config home (straight ahead, 30 deg down), as /head/joint_states reports it on the robot.
+HEAD_HOME = HeadPose(pan=CONFIG.head.home_pan_rad, tilt=CONFIG.head.home_tilt_rad)
 KIN = ArmKinematics(CONFIG.arm.urdf_path, margin=CONFIG.limits.arm_limit_margin_rad)
 CHECKER = SelfCollisionChecker.from_settings(
     KIN,
@@ -171,13 +174,15 @@ def test_home_stays_clear_of_the_hard_margin_with_the_upper_arm_boxes() -> None:
 
 def test_the_upper_arm_boxes_never_slow_a_motion() -> None:
     """With the upper arm box 23 mm from the dome edge there is no slowdown from it (contact only); the hard check
-    still sees it (the effective clearance is the box distance plus the hard margin)."""
+    still sees it (the effective clearance is the box distance plus the hard margin). The head is measured at home
+    (as on the robot): its full pan/tilt envelope would slow this raised arm by itself."""
     near = UPPER_ARM_NEAR_DOME
-    report = CHECKER.path(joint_line(near, near | {"elbow_flex": 0.3}, 0.05))
+    checker = CHECKER.posed(HEAD_HOME)
+    report = checker.path(joint_line(near, near | {"elbow_flex": 0.3}, 0.05))
     assert not report.rejected
     assert report.scales == [1.0] * len(report.scales)
-    assert CHECKER.pose(near).part == "upper arm"
-    assert CONFIG.body_check.hard_margin_m < CHECKER.pose(near).min_clearance < CONFIG.body_check.soft_margin_m
+    assert checker.pose(near).part == "upper arm"
+    assert CONFIG.body_check.hard_margin_m < checker.pose(near).min_clearance < CONFIG.body_check.soft_margin_m
 
 
 def test_box_point_spacing_cannot_hide_a_hard_margin_violation() -> None:

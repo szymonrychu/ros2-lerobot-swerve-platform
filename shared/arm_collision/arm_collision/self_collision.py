@@ -290,13 +290,16 @@ class ReleasedKernel:
         raise RuntimeError(f"self-collision kernel released at interpreter exit (BodyChecker.{name})")
 
 
-def body_kernel(body: BodyModel, mount_rotation: np.ndarray, mount_offset: np.ndarray) -> BodyChecker:
+def body_kernel(
+    body: BodyModel, mount_rotation: np.ndarray, mount_offset: np.ndarray, soft_offsets: np.ndarray
+) -> BodyChecker:
     """The C++ kernel of a body and arm mount, holding CAPSULES, LINK_BLOCKS and the part layout of CHECKED_PARTS.
 
     Args:
         body (BodyModel): Body obstacles.
         mount_rotation (np.ndarray): (3, 3) arm mount rotation in base_link.
         mount_offset (np.ndarray): (3,) arm mount position in base_link.
+        soft_offsets (np.ndarray): (M,) per obstacle, body_check.soft_margin_m minus its soft margin.
 
     Returns:
         BodyChecker: The kernel.
@@ -318,6 +321,7 @@ def body_kernel(body: BodyModel, mount_rotation: np.ndarray, mount_offset: np.nd
         len(BLOCK_LINKS),
         PRUNE_SLACK_M,
         ESCAPE_TOLERANCE_M,
+        np.asarray(soft_offsets, dtype=np.float64),
     )
 
 
@@ -332,6 +336,19 @@ def combine_scales(floor: list[float], body: list[float]) -> list[float]:
         list[float]: Combined scales.
     """
     return [min(a, b) for a, b in zip(floor, body, strict=True)]
+
+
+def obstacle_margin(obstacle: Obstacle, settings: BodyCheckSettings) -> float:
+    """Soft margin of an obstacle: its own margin_m (robot_body.yaml), else body_check.soft_margin_m.
+
+    Args:
+        obstacle (Obstacle): Body obstacle.
+        settings (BodyCheckSettings): Margins.
+
+    Returns:
+        float: Margin (m).
+    """
+    return settings.soft_margin_m if obstacle.margin_m is None else obstacle.margin_m
 
 
 def obstacle_hint(obstacle: Obstacle, part: str, settings: BodyCheckSettings) -> str:
@@ -352,10 +369,11 @@ def obstacle_hint(obstacle: Obstacle, part: str, settings: BodyCheckSettings) ->
         "crossbar": "the crossbar is the robot deck under and behind the arm base",
     }
     note = next((text for key, text in where.items() if obstacle.name.startswith(key)), "")
+    margin = max(obstacle_margin(obstacle, settings), settings.hard_margin_m)
     return (
-        f"keep the {part} more than {settings.soft_margin_m:g} m from {obstacle.name} (top at z "
+        f"keep the {part} more than {margin:g} m from {obstacle.name} (top at z "
         f"{obstacle.top_z:.3f} m in base_link{'; ' + note if note else ''}): raise the arm first (shoulder_lift back, "
-        f"elbow up) so it passes above z {obstacle.top_z + settings.soft_margin_m:.2f} m, then lower outside the "
+        f"elbow up) so it passes above z {obstacle.top_z + margin:.2f} m, then lower outside the "
         f"obstacle, or approach from another side (turn shoulder_pan away from {obstacle.name}). get_arm_reach lists "
         "the collision-free envelope and the pitches that work for a point."
     )
@@ -364,19 +382,30 @@ def obstacle_hint(obstacle: Obstacle, part: str, settings: BodyCheckSettings) ->
 @dataclass(frozen=True)
 class PoseClearance:
     """Clearance of one joint configuration to every obstacle: name -> (clearance m, closest part), as the hard check
-    sees it, and name -> soft clearance (m, what the slow band uses: without the contact-only boxes)."""
+    sees it, name -> soft clearance (m, what the slow band uses: without the contact-only boxes) and name -> the soft
+    margin of that obstacle (its own margin_m, else body_check.soft_margin_m)."""
 
     per_obstacle: dict[str, tuple[float, str]]
     soft: dict[str, float] = field(default_factory=dict)
+    margins: dict[str, float] = field(default_factory=dict)
 
     @property
     def min_soft_clearance(self) -> float:
-        """Smallest soft clearance (m; inf without obstacles): below body_check.soft_margin_m a motion runs slowed.
+        """Smallest soft clearance (m; inf without obstacles), whatever the obstacle's margin.
 
         Returns:
             float: Clearance.
         """
         return min(self.soft.values(), default=math.inf)
+
+    @property
+    def slowed(self) -> bool:
+        """Whether a motion through this pose runs slowed: some obstacle's soft clearance is below its soft margin.
+
+        Returns:
+            bool: True inside some obstacle's soft band.
+        """
+        return any(value < self.margins[name] for name, value in self.soft.items())
 
     @property
     def obstacle(self) -> str:
@@ -533,7 +562,10 @@ class SelfCollisionChecker:
         self.rotation = yaw_matrix(mount.yaw)
         self.offset = np.array([mount.x, mount.y, mount.z])
         # The C++ kernels (path, pose, closest, clear_of and the clearance matrices run in it).
-        self.core: BodyChecker | ReleasedKernel = body_kernel(body, self.rotation, self.offset)
+        # Per obstacle soft margin (obstacle_margin) and its offset from the default one, as the kernel takes it.
+        self.soft_margins = np.array([obstacle_margin(o, settings) for o in body.obstacles], dtype=np.float64)
+        self.soft_offsets = settings.soft_margin_m - self.soft_margins
+        self.core: BodyChecker | ReleasedKernel = body_kernel(body, self.rotation, self.offset, self.soft_offsets)
         CHECKERS.add(self)
         # Exact distances evaluated ('points': part points, 'capsules': capsule axis searches), for the pruning tests.
         self.distance_counts: Counter[str] = Counter()
@@ -799,6 +831,7 @@ class SelfCollisionChecker:
         return PoseClearance(
             {o.name: (float(values[0, k]), CHECKED_PARTS[int(parts[0, k])]) for k, o in enumerate(obstacles)},
             {o.name: float(soft[0, k]) for k, o in enumerate(obstacles)},
+            dict(zip((o.name for o in obstacles), self.soft_margins.tolist(), strict=True)),
         )
 
     def closest(self, samples: list[dict[str, float]]) -> list[tuple[float, str, str]]:
@@ -863,7 +896,10 @@ class SelfCollisionChecker:
         self.distance_counts["capsules"] += counts[1]
         names = [o.name for o in self.body.obstacles]
         report = BodyReport(
-            scales=[cfg.slow_speed_scale if c < cfg.soft_margin_m else NORMAL_SCALE for c in clearances.tolist()],
+            scales=[
+                cfg.slow_speed_scale if c < self.soft_margins[k] else NORMAL_SCALE
+                for c, k in zip(clearances.tolist(), worst.tolist(), strict=True)
+            ],
             clearances=clearances.tolist(),
             obstacles=[names[k] for k in worst.tolist()],
             parts=[CHECKED_PARTS[p] for p in soft_parts.tolist()],

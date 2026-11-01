@@ -94,7 +94,7 @@ def test_clear_pose_has_full_clearance() -> None:
     """Outside the slow band; the hard check's clearance is lower (the upper arm box passes 1.5 cm over the dome top
     edge, contact-only: it counts its distance plus the hard margin) but clear of the hard margin."""
     check = CHECKER.pose(clear_pose())
-    assert check.min_soft_clearance > CONFIG.body_check.soft_margin_m
+    assert not check.slowed  # outside every obstacle's own soft band (the wheels' is 0)
     assert check.min_clearance > CONFIG.body_check.hard_margin_m
     assert set(check.per_obstacle) == {o.name for o in CHECKER.body.obstacles}
 
@@ -243,7 +243,7 @@ def test_path_near_the_lidar_is_slowed_not_rejected() -> None:
 
 def test_clear_path_is_neither_slowed_nor_rejected() -> None:
     goal = solve_base_link(0.30, -0.05, 0.25, 0.6)  # 10 cm above the clear pose
-    assert CHECKER.pose(goal).min_soft_clearance > CONFIG.body_check.soft_margin_m
+    assert not CHECKER.pose(goal).slowed
     report = CHECKER.path(joint_line(clear_pose(), goal, 0.02))
     assert not report.rejected
     assert report.summary() is None
@@ -260,13 +260,16 @@ def test_path_home_is_slowed_only_near_the_lidar() -> None:
 
 
 def test_escaping_from_a_colliding_start_is_allowed() -> None:
-    """A start already inside the hard margin may move out (clearance never gets worse), slowed."""
+    """A start already inside the hard margin may move out (clearance never gets worse), slowed. The goal, 8 mm above
+    the dome, leaves the lidar's soft band (the head above the lidar still slows it: see
+    test_path_near_the_lidar_is_slowed_not_rejected)."""
     start = inside_lidar_margin()
     goal = beside_lidar(LIDAR.z_max + 0.008)
     report = CHECKER.path(joint_line(start, goal, 0.02))
     assert not report.rejected
     assert report.scales[0] == CONFIG.body_check.slow_speed_scale
-    assert report.scales[-1] == 1.0
+    assert report.obstacles[0] == "lidar"
+    assert CHECKER.pose(goal).soft["lidar"] > CONFIG.body_check.soft_margin_m
 
 
 def deep_lidar_pose() -> dict[str, float]:

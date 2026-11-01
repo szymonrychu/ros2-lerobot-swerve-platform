@@ -77,6 +77,7 @@ class BoxObstacle(StrictModel):
     name: str
     center: Vec3
     size: Vec3
+    margin_m: float | None = Field(default=None, ge=0)  # own margin in place of margin_m (None = margin_m)
 
     @model_validator(mode="after")
     def check_size(self) -> Self:
@@ -94,6 +95,7 @@ class CylinderObstacle(StrictModel):
     radius: float = Field(gt=0)
     z_min: float
     z_max: float
+    margin_m: float | None = Field(default=None, ge=0)  # own margin in place of margin_m (None = margin_m)
 
     @model_validator(mode="after")
     def check_height(self) -> Self:
@@ -289,6 +291,8 @@ class ObstacleSet:
             cylinders: Cylinder obstacles (after the boxes).
         """
         self.names = [b.name for b in boxes] + [c.name for c in cylinders]
+        # Own clearance margin per obstacle (robot_body.yaml margin_m, the wheels' 0), None = the check's margin.
+        self.margins = [b.margin_m for b in boxes] + [c.margin_m for c in cylinders]
         self.box_centre = np.array([b.center for b in boxes], dtype=float).reshape(-1, 3)
         self.box_half = np.array([b.size for b in boxes], dtype=float).reshape(-1, 3) / 2.0
         self.cyl_xy = np.array([(c.x, c.y) for c in cylinders], dtype=float).reshape(-1, 2)
@@ -516,18 +520,22 @@ class PoseChecker:
             entries.append(f"min_board_height_m: board point height {mm(board_z)} < {mm(cfg.min_board_height_m)}")
         margin = f"margin_m {mm(cfg.margin_m)}"
         board_margin = f"board_margin_m {mm(self.board_margin_m)}"
-        for name, clearance in zip(self.obstacles.names, self.obstacles.distances(board).min(axis=0), strict=True):
-            if clearance < self.board_margin_m:
-                entries.append(f"board_clearance: board to {name} clearance {mm(clearance)} < {board_margin}")
+        board_clear = self.obstacles.distances(board).min(axis=0)
+        for name, own, clearance in zip(self.obstacles.names, self.obstacles.margins, board_clear, strict=True):
+            limit = self.board_margin_m if own is None else own
+            if clearance < limit:
+                used = board_margin if own is None else f"{name} margin_m {mm(own)}"
+                entries.append(f"board_clearance: board to {name} clearance {mm(clearance)} < {used}")
         starts = np.array([poses[start][:3, 3] for _, start, _ in CAPSULES])
         ends = np.array([poses[end][:3, 3] for _, _, end in CAPSULES])
         link_clear = self.obstacles.segment_distances(starts, ends) - cfg.link_radius_m
         for (part, _, _), row in zip(CAPSULES, link_clear, strict=True):
-            for name, clearance in zip(self.obstacles.names, row, strict=True):
+            for name, own, clearance in zip(self.obstacles.names, self.obstacles.margins, row, strict=True):
                 if part == UPPER_ARM and name == CROSSBAR:
                     continue
-                if clearance < cfg.margin_m:
-                    entries.append(f"link_clearance: {part} to {name} clearance {mm(clearance)} < {margin}")
+                if clearance < (cfg.margin_m if own is None else own):
+                    used = margin if own is None else f"{name} margin_m {mm(own)}"
+                    entries.append(f"link_clearance: {part} to {name} clearance {mm(clearance)} < {used}")
         for (part, _, _), start, end in zip(CAPSULES, starts, ends, strict=True):
             if part not in BOARD_LINK_PARTS:
                 continue

@@ -27,6 +27,7 @@ class Obstacle(Protocol):
     """A convex body obstacle with an exact point signed distance."""
 
     name: str
+    margin_m: float | None
 
     @property
     def top_z(self) -> float:
@@ -49,6 +50,7 @@ class BoxObstacle:
     name: str
     lo: np.ndarray
     hi: np.ndarray
+    margin_m: float | None = None  # own soft margin (robot_body.yaml margin_m), None = the check's default
 
     @property
     def top_z(self) -> float:
@@ -100,6 +102,7 @@ class CylinderObstacle:
     radius: float
     z_min: float
     z_max: float
+    margin_m: float | None = None  # own soft margin (robot_body.yaml margin_m), None = the check's default
 
     @property
     def top_z(self) -> float:
@@ -203,9 +206,9 @@ class BodyModel:
         obstacles: list[Obstacle] = []
         for box in settings.boxes:
             centre, half = np.array(box.center), np.array(box.size) / 2.0
-            obstacles.append(BoxObstacle(box.name, centre - half, centre + half))
+            obstacles.append(BoxObstacle(box.name, centre - half, centre + half, box.margin_m))
         for cyl in settings.cylinders:
-            obstacles.append(CylinderObstacle(cyl.name, (cyl.x, cyl.y), cyl.radius, cyl.z_min, cyl.z_max))
+            obstacles.append(CylinderObstacle(cyl.name, (cyl.x, cyl.y), cyl.radius, cyl.z_min, cyl.z_max, cyl.margin_m))
         return cls(obstacles)
 
     def by_name(self, name: str) -> Any:
