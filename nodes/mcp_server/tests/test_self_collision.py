@@ -223,19 +223,21 @@ def inside_lidar_margin() -> dict[str, float]:
 
 
 def test_path_near_the_lidar_is_slowed_not_rejected() -> None:
-    """Lowering the tool beside the dome from above its top: the end runs slow, nothing is rejected."""
+    """Lowering the tool beside the dome from above its top: the end runs slow at the lidar, nothing is rejected.
+
+    The start, 8 mm above the dome top, is clear of the lidar's soft band but within the head's at every head pose
+    (the head stands above the lidar): the whole motion runs slow, the end limited by the lidar."""
     above = beside_lidar(LIDAR.z_max + 0.008)
-    assert CHECKER.pose(above).min_soft_clearance > CONFIG.body_check.soft_margin_m
+    assert CHECKER.pose(above).soft["lidar"] > CONFIG.body_check.soft_margin_m
     samples = joint_line(above, hover_over_lidar(), 0.01)
     report = CHECKER.path(samples)
     assert not report.rejected
-    assert report.scales[0] == 1.0
     assert report.scales[-1] == CONFIG.body_check.slow_speed_scale
+    assert report.obstacles[-1] == "lidar"
+    assert CONFIG.body_check.hard_margin_m < report.clearances[-1] < CONFIG.body_check.soft_margin_m
     summary = report.summary()
     assert summary is not None
-    assert summary["obstacle"] == "lidar"
     assert summary["speed_scale"] == CONFIG.body_check.slow_speed_scale
-    assert CONFIG.body_check.hard_margin_m < summary["min_clearance_m"] < CONFIG.body_check.soft_margin_m
     assert summary["slowed_samples"] >= 1
 
 
