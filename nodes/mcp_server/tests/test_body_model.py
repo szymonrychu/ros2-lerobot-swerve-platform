@@ -95,17 +95,21 @@ def test_capsule_distance_is_vectorised() -> None:
 
 
 def test_default_body_is_the_h_shape() -> None:
+    """The floor-level H (frames, crossbar, wheels, lidar) and the head on its post (head_arm, head_post, head)."""
     body = BodyModel.from_settings(McpServerConfig().body)
     names = [o.name for o in body.obstacles]
     assert names == [
         "frame_left",
         "frame_right",
         "crossbar",
+        "head_arm",
         "wheel_fl",
         "wheel_fr",
         "wheel_rl",
         "wheel_rr",
         "lidar",
+        "head_post",
+        "head",
     ]
     lidar = body.by_name("lidar")
     assert isinstance(lidar, CylinderObstacle)

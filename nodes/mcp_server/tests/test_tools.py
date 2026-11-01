@@ -9,6 +9,7 @@ import anyio
 import cv2
 import numpy as np
 import pytest
+from arm_collision.head import head_pose
 from arm_collision.ik import ArmKinematics, load_joint_limits
 from mcp.server.mcpserver.exceptions import ToolError
 from starlette.testclient import TestClient
@@ -71,14 +72,16 @@ class FakeRobot(PerceptionFakeMixin):
         cfg = McpServerConfig()
         cfg.arm.home_file = tmp_path / "home.yaml"
         self.arm_backend = FakeArmBackend()
+        self.head_backend = FakeHeadBackend()
+        self.head = HeadController(self.head_backend, AppliedHeadKinematics(cfg.head.urdf_path, None), cfg.head)
+        # As ros_iface wires it: the arm's body checks pose the head from its fresh joint state.
         self.arm = ArmController(
             self.arm_backend,
             ArmKinematics(cfg.arm.urdf_path, margin=cfg.limits.arm_limit_margin_rad),
             load_joint_limits(cfg.arm.urdf_path),
             cfg,
+            head_source=lambda: head_pose(self.head.measured()),
         )
-        self.head_backend = FakeHeadBackend()
-        self.head = HeadController(self.head_backend, AppliedHeadKinematics(cfg.head.urdf_path, None), cfg.head)
         self.calls: list[tuple[str, tuple[Any, ...]]] = []
         self.camera_error: str | None = None
         self.base_released: bool | None = None  # bridge torque state of the base group (None unknown or stale)

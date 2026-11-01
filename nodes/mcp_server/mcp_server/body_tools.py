@@ -93,7 +93,8 @@ def register(ctx: ToolContext) -> None:
             f"{settings.reach_heading_step_deg:g} deg and tool height 0..{settings.reach_height_max_m:g} m every "
             f"{settings.reach_height_step_m:g} m: min/max horizontal tool distance from the pan axis; computed in the "
             "background at server start; while it is still computing the envelope reports status computing). With points (up to "
-            f"{settings.reach_max_points}, base_link x/y/z and optional pitch) each point reports reachable (IK within "
+            f"{settings.reach_max_points}, base_link x/y/z and optional pitch) each point, checked with the head where it is "
+            "now (its full pan/tilt envelope without a fresh head joint state), reports reachable (IK within "
             "joint limits), collision_free, the working pitch range, the limiting obstacle/link/clearance and a "
             "suggestion. Call it when unsure whether a target near the robot body is safe."
         )
@@ -130,5 +131,5 @@ def register(ctx: ToolContext) -> None:
                 "slow_speed_scale": settings.slow_speed_scale,
             },
             envelope=env,
-            points=[point_reach(checker, p.model_dump(), seed, envelope) for p in wanted],
+            points=[point_reach(arm.body_now(), p.model_dump(), seed, envelope) for p in wanted],
         )

@@ -5,6 +5,7 @@ import math
 
 import numpy as np
 import pytest
+from arm_collision.head import HeadPose
 from arm_collision.ik import ArmKinematics
 
 from mcp_server.config import BodyCheckSettings, GraspSettings, ImuLevelReference, McpServerConfig
@@ -27,7 +28,10 @@ MOUNT = CONFIG.arm.base_in_base_link
 assert MOUNT is not None
 JAW = JawModel(KIN, CONFIG.arm.jaw_open_axis, CONFIG.arm.gripper_closed_rad)
 GUARD = FloorGuard(KIN, CONFIG.floor_guard, MOUNT, JAW)
-PLANNER = GraspPlanner(KIN, CONFIG, GUARD, JAW)
+# The head at its home (config.head home_pan_rad / home_tilt_rad) as /head/joint_states reports it on the robot: the
+# planner checks the head posed there (SelfCollisionChecker.posed), not the full pan/tilt envelope.
+HEAD_HOME = HeadPose(pan=CONFIG.head.home_pan_rad, tilt=CONFIG.head.home_tilt_rad)
+PLANNER = GraspPlanner(KIN, CONFIG, GUARD, JAW, head_source=lambda: HEAD_HOME)
 FLAT = SurfaceModel(surface_z_m=0.0, tilt=None, tilt_source="none", mount=MOUNT)
 FLOOR = CONFIG.arm.floor_z_m
 SEED = {"shoulder_pan": 0.0, "shoulder_lift": 0.0, "elbow_flex": 1.2, "wrist_flex": 0.3, "wrist_roll": 0.0}

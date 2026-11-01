@@ -12,6 +12,7 @@ from types import ModuleType
 
 import numpy as np
 import pytest
+from arm_collision.head import HeadPose
 from arm_collision.ik import ArmKinematics
 
 from mcp_server.config import BodyCheckSettings
@@ -46,7 +47,10 @@ MOUNT = CFG.arm.base_in_base_link
 assert MOUNT is not None
 JAW = JawModel(KIN, CFG.arm.jaw_open_axis, CFG.arm.gripper_closed_rad)
 GUARD = FloorGuard(KIN, CFG.floor_guard, MOUNT, JAW)
-PLANNER = GraspPlanner(KIN, CFG, GUARD, JAW)
+# The head at its home (config.head home_pan_rad / home_tilt_rad) as /head/joint_states reports it on the robot: the
+# planner checks the head posed there (SelfCollisionChecker.posed), not the full pan/tilt envelope.
+HEAD_HOME = HeadPose(pan=CFG.head.home_pan_rad, tilt=CFG.head.home_tilt_rad)
+PLANNER = GraspPlanner(KIN, CFG, GUARD, JAW, head_source=lambda: HEAD_HOME)
 # Planner without the robot body check: the step-edge scenarios at 20 cm and at 25 cm / 30 deg also pass the lidar
 # dome or the front-right wheel under the assumed body; these tests are about the surfaces only.
 NO_BODY = GraspPlanner(KIN, CFG.model_copy(update={"body_check": BodyCheckSettings(enabled=False)}), GUARD, JAW)

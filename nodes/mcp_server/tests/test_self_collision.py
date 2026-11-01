@@ -11,6 +11,7 @@ from typing import Any
 import numpy as np
 import pytest
 import yaml
+from arm_collision.head import HeadPose
 from arm_collision.ik import ArmKinematics
 from arm_collision.self_collision import (
     CHECKED_PARTS,
@@ -28,7 +29,10 @@ from mcp_server.floor_guard import JawModel, arm_to_base_link, base_link_to_arm
 CONFIG = McpServerConfig()
 KIN = ArmKinematics(CONFIG.arm.urdf_path, margin=CONFIG.limits.arm_limit_margin_rad)
 JAW = JawModel(KIN, CONFIG.arm.jaw_open_axis, CONFIG.arm.gripper_closed_rad)
-CHECKER = SelfCollisionChecker.from_settings(KIN, CONFIG.body, CONFIG.body_check, CONFIG.arm, JAW)
+# The head at its home (config.head home_pan_rad / home_tilt_rad, straight ahead and 30 deg down), as /head/joint_states
+# reports it on the robot: the checks pose the head there (SelfCollisionChecker.posed).
+HEAD_HOME = HeadPose(pan=CONFIG.head.home_pan_rad, tilt=CONFIG.head.home_tilt_rad)
+CHECKER = SelfCollisionChecker.from_settings(KIN, CONFIG.body, CONFIG.body_check, CONFIG.arm, JAW).posed(HEAD_HOME)
 MOUNT = CONFIG.arm.base_in_base_link
 SEED = {"shoulder_pan": 0.0, "shoulder_lift": 0.0, "elbow_flex": 1.2, "wrist_flex": 0.3, "wrist_roll": 0.0}
 # Home pose of the 2026-10-10 calibration (docs/calibration/2026-10-10/session/scripts/fullfit.py, tip 243 mm up).

@@ -28,6 +28,7 @@ from mcp_server.tools import build_mcp_server
 
 from .fakes import FakeArmBackend
 from .test_self_collision import (
+    HEAD_HOME,
     HOME,
     JAW,
     KIN,
@@ -54,7 +55,8 @@ def make(tmp_path: Path, start: dict[str, float], enabled: bool = True) -> tuple
     cfg = CONFIG.model_copy(deep=True)
     cfg.arm.home_file = tmp_path / "home.yaml"
     cfg.body_check = BodyCheckSettings(enabled=enabled)
-    return ArmController(be, KIN, load_joint_limits(cfg.arm.urdf_path), cfg), be
+    # The head measured at home, as on the robot: the checks pose the head there.
+    return ArmController(be, KIN, load_joint_limits(cfg.arm.urdf_path), cfg, head_source=lambda: HEAD_HOME), be
 
 
 def above_lidar() -> dict[str, float]:
@@ -233,7 +235,7 @@ def lidar_object() -> ObjectSpec:
 def planner(enabled: bool) -> GraspPlanner:
     cfg = CONFIG.model_copy(update={"body_check": BodyCheckSettings(enabled=enabled)})
     arm, _ = make(Path("/tmp"), clear_pose(), enabled)
-    return GraspPlanner(KIN, cfg, arm.floor_guard, JAW, arm.body_check)
+    return GraspPlanner(KIN, cfg, arm.floor_guard, JAW, arm.body_check, arm.head_source)
 
 
 def test_planner_rejects_candidates_that_hit_the_body() -> None:
@@ -296,7 +298,9 @@ def server(tmp_path: Path) -> Any:
 
 def test_get_arm_reach_describes_body_mount_margins_and_envelope(server: Any) -> None:
     data = call(server, "get_arm_reach", {}).structured_content
-    assert [o["name"] for o in data["obstacles"]][-1] == "lidar" and len(data["obstacles"]) == 8
+    assert [o["name"] for o in data["obstacles"]][-3:] == ["lidar", "head_post", "head"] and len(
+        data["obstacles"]
+    ) == 11
     assert data["arm_mount"]["base_in_base_link"] == {"x": 0.0592, "y": -0.05, "z": 0.1, "yaw": 0.0}
     assert len(data["arm_mount"]["pan_axis_base_link"]) == 3
     assert data["margins"] == {"enabled": True, "soft_margin_m": 0.03, "hard_margin_m": 0.002, "slow_speed_scale": 0.3}
