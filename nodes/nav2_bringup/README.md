@@ -28,7 +28,7 @@ ends with the D435 switch-over (design D6). The head 3D input is the D435 cloud:
 `/head/d435/points_filtered`.
 
 - Local costmap: `depth_voxel_layer` is enabled and its three sources (`depth_mark`, `depth_cliff_mark`,
-  `depth_clear`) read `/head/d435/points_filtered` (see [D435 obstacle layer](#d435-obstacle-layer)). The global costmap has no head input.
+  `depth_clear`) read `/head/d435/points_filtered` (see [D435 obstacle layer](#d435-obstacle-layer)). The global costmap has the same `depth_voxel_layer` with a 60 s decay (no ground layer).
 - Collision monitor: the sources `depth_obstacles` and `depth_cliff` are enabled on `/head/d435/points_filtered`;
   `StopBox` reads `scan` and `depth_obstacles`, `CliffStop` is enabled on `depth_cliff` (see
   [Collision monitor](#collision-monitor)).
@@ -459,16 +459,21 @@ separate grids combined by max: depth frustum clearing only decays depth voxels 
 and lidar raytracing never clears depth voxels (they decay after 15 s). The lidar covers 360 deg out to ~12 m; the D435
 adds height detail inside its 2-3 m view.
 
-Local costmap only: the global costmap keeps `static_layer, obstacle_layer, keepout_filter, inflation_layer` (user
-decision 2026-10-18). The goal is local avoidance; a second voxel grid in the global costmap would cost Pi 5 CPU, and
-decaying voxels do not belong in the planner's long-lived map.
+The global costmap has the same `depth_voxel_layer` (user decision 2026-11-01, reverses the earlier local-only decision):
+plugins `static_layer, obstacle_layer, depth_voxel_layer, keepout_filter, inflation_layer`, the same three sources
+(`depth_mark`, `depth_cliff_mark`, `depth_clear` frustum clearing) and bands, `voxel_decay` 60 s, `publish_voxel_map`
+false. Reason: the lidar plane passes over a table, so the global plan went through it and MPPI (which sees the D435 in the
+local costmap) refused it, a deadlock. The 60 s decay keeps what the head saw while the planner routes around it; the local
+costmap keeps 15 s. The global `update_frequency` stays 1 Hz: STVL takes the latest cloud at each update and the voxels
+persist 60 s, so a 1 s update loses nothing, and a faster update would cost Pi 5 CPU on the 2.5 cm map. There is no ground
+layer in the global costmap: its flickering lethal points piled up into false lethal cells under a long decay.
 
 Limitations: a cliff into a void with no returns (a deep stairwell, a very dark or absorbing lower floor) gives no
 below-floor points and is not seen; the D435 sees a cliff only while the head looks at it (the costmap keeps the voxels
 for 15 s). The height bands follow from the table above: 10 cm over the floor and 10 cm under it keep the D435 floor
 noise out of both bands, and 0.6 m is the robot height. Post-deploy check: on an empty flat floor with the head tilted
 down, the local costmap shows no `depth_voxel_layer` cells; a box at least 10 cm tall placed 1 m ahead shows up as
-lethal cells within one D435 frame and clears within 15 s once the box is removed.
+lethal cells within one D435 frame and clears within 15 s (local) and 60 s (global) once the box is removed.
 
 ## Ground layer (plane-relative D435 marks)
 
@@ -477,8 +482,8 @@ floor plane from `/head/d435/points_filtered` (IMU prior) and publishes plane-re
 a second spatio-temporal voxel layer, `ground_voxel_layer`, alongside the fixed bands. Both `ground_voxel_layer` and
 `ground_cost_filter` are enabled since the D435 replaced the head ToF (design D6), so path planning goes around the
 steps, drops and steep ramps the estimator finds and costs its warning areas. Layer order: `obstacle_layer,
-depth_voxel_layer, ground_voxel_layer, keepout_filter, ground_cost_filter, inflation_layer`. The global costmap is
-unchanged (`static_layer, obstacle_layer, keepout_filter, inflation_layer`, no STVL, no ground topic).
+depth_voxel_layer, ground_voxel_layer, keepout_filter, ground_cost_filter, inflation_layer`. The global costmap has the fixed-band `depth_voxel_layer` only (`static_layer, obstacle_layer, depth_voxel_layer,
+keepout_filter, inflation_layer`), no ground layer and no ground topic.
 
 What it marks: `/ground/obstacle_points` (steps up, thresholds, ramps steeper than the limit, objects) and
 `/ground/drop_points` (floor beyond a drop edge), both PointCloud2 in the layer `ground_obstacle_mark` /

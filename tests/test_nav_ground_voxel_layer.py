@@ -33,7 +33,7 @@ LOCAL_PLUGINS = [
     "ground_cost_filter",
     "inflation_layer",
 ]
-GLOBAL_PLUGINS = ["static_layer", "obstacle_layer", "keepout_filter", "inflation_layer"]
+GLOBAL_PLUGINS = ["static_layer", "obstacle_layer", "depth_voxel_layer", "keepout_filter", "inflation_layer"]
 GROUND_SOURCES = ["ground_obstacle_mark", "ground_drop_mark", "ground_clear"]
 INSCRIBED_COST = 253
 LETHAL_COST = 254
@@ -251,12 +251,11 @@ def test_ground_clear_equals_the_depth_clear_frustum() -> None:
         assert clear[key] == local[DEPTH_LAYER]["depth_clear"][key], key
 
 
-def test_global_costmap_is_untouched() -> None:
+def test_global_costmap_has_no_ground_layer() -> None:
+    """The global costmap takes the fixed-band depth layer only; the flickering ground marks stay local."""
     params = costmap_params("global_costmap")
     assert params["plugins"] == GLOBAL_PLUGINS
-    text = yaml.dump(params)
-    assert "ground" not in text
-    assert STVL_PLUGIN not in text
+    assert "ground" not in yaml.dump(params)
 
 
 def test_collision_monitor_sources_are_unchanged_and_free_of_ground_topics() -> None:

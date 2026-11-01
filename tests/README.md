@@ -3130,7 +3130,7 @@ Docs guard for the driving-agent skills suite.
 
 ### test_nav_ground_voxel_layer.py
 
-Static checks of the plane-relative `ground_voxel_layer` and the `ground_cost_filter` in the Nav2 local costmap (design D8, D13, D15; both enabled on the D435, design D6), the unchanged global costmap, collision monitor and CliffStop, and the README section. Reads `nav2_params.yaml`, `client.yml`, the ground_estimator_cpp config, the costmap_zones config and the READMEs.
+Static checks of the plane-relative `ground_voxel_layer` and the `ground_cost_filter` in the Nav2 local costmap (design D8, D13, D15; both enabled on the D435, design D6), the global costmap without a ground layer, collision monitor and CliffStop, and the README section. Reads `nav2_params.yaml`, `client.yml`, the ground_estimator_cpp config, the costmap_zones config and the READMEs.
 
 | Test | Covers |
 |---|---|
@@ -3143,7 +3143,7 @@ Static checks of the plane-relative `ground_voxel_layer` and the `ground_cost_fi
 | `test_ground_layer_and_keepout_are_enabled` | `ground_voxel_layer` and `ground_cost_filter` are in the local plugins and enabled (as `depth_voxel_layer`); the marks read `/ground/obstacle_points` and `/ground/drop_points` (the ground_estimator_cpp `output_namespace`), `ground_clear` reads the `depth_clear` topic; neither block carries a lidar-only comment and each names its `enabled false` runtime switch. |
 | `test_ground_layer_sources_topics_and_pass_through_limits` | Sources `ground_obstacle_mark, ground_drop_mark, ground_clear`; topics equal the ground_estimator_cpp `output_namespace` (client.yml and package config) plus `/obstacle_points` / `/drop_points`; limits -1.5 / 1.5 and the buffer settings. |
 | `test_ground_clear_equals_the_depth_clear_frustum` | `ground_clear` equals `depth_clear` on `/head/d435/points_filtered`. |
-| `test_global_costmap_is_untouched` | Global plugins unchanged; no STVL and no ground topic. |
+| `test_global_costmap_has_no_ground_layer` | Global plugins are the lidar, depth and keepout layers plus inflation; no ground layer or topic there. |
 | `test_collision_monitor_sources_are_unchanged_and_free_of_ground_topics` | Monitor sources `scan, depth_obstacles, depth_cliff`, CliffStop on `depth_cliff` only, no `/ground/` topic. |
 | `test_depth_voxel_layer_is_pinned` | `depth_voxel_layer` sources (`depth_mark depth_cliff_mark depth_clear`) and bands unchanged. |
 | `test_ground_values_are_commented_with_their_reasons` | Layer and filter values carry comments; the header names the runtime switch, the fixed bands and D-A1. |
@@ -3183,11 +3183,11 @@ Static checks of the head D435 spatio-temporal voxel layer (`depth_voxel_layer`,
 | `test_depth_layer_reads_the_d435_laser_filter_output` | laser_filter's `cloud_filtered_topic` is `/head/d435/points_filtered`, every layer source reads it, and the layer is enabled. |
 | `test_lidar_obstacle_layer_keeps_the_scan_source` | Both costmaps keep the enabled ObstacleLayer with the single `/scan_filtered` LaserScan source (marking and clearing). |
 | `test_no_stvl_source_uses_the_lidar` | No STVL source reads `/scan_filtered`, a scan topic or a LaserScan. |
-| `test_global_costmap_has_no_depth_voxels` | Global plugins unchanged; no STVL plugin and no D435 topic there (user decision Q3). |
+| `test_global_costmap_has_the_d435_depth_layer_with_60s_decay` | The global costmap has `depth_voxel_layer` before keepout/inflation with the local settings and sources except `voxel_decay` 60 s (local stays 15 s), the only STVL there, no ground layer (user decision 2026-11-01). |
 | `test_only_one_stvl_layer_in_the_local_costmap` | The STVL layers of the local costmap are exactly `depth_voxel_layer, ground_voxel_layer`. |
 | `test_layer_values_are_commented_with_their_reason` | Key values carry a comment naming their reason (decay, notches, max, TF, floor, robot height, max_depth, 87 deg and 58 deg FOV, D435 min-Z, collision monitor). |
 | `test_nav2_bringup_installs_stvl` | nav2_bringup `apt_packages` lists `ros-jazzy-spatio-temporal-voxel-layer` with a comment. |
-| `test_readme_documents_the_depth_obstacle_layer` | The nav2_bringup README "D435 obstacle layer" section names the D435 pipeline, layer settings, the 87 x 58 deg FOV, the U5 separation, local-only and the no-returns cliff limitation, and no `/tof`, `tof_obstacle_cloud`, `tof_voxel_layer` or Arducam. |
+| `test_readme_documents_the_depth_obstacle_layer` | The nav2_bringup README "D435 obstacle layer" section names the D435 pipeline, layer settings, the 87 x 58 deg FOV, the U5 separation, the global costmap 60 s layer and the no-returns cliff limitation, and no `/tof`, `tof_obstacle_cloud`, `tof_voxel_layer` or Arducam. |
 | `test_readme_depth_section_has_no_parking_wording` | The nav2_bringup README "D435 obstacle layer" section states what the values are and how to check them, with no wording that defers the values to a later change. |
 | `test_tests_readme_documents_this_file` | This section lists every test of the file. |
 

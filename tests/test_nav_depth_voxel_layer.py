@@ -1,7 +1,7 @@
-"""Static invariants of the D435 spatio-temporal voxel layer (STVL) in the Nav2 local costmap (design D6).
+"""Static invariants of the D435 spatio-temporal voxel layer (STVL) in the Nav2 local and global costmaps (design D6).
 
 The head D435 cloud (/head/d435/points_filtered: d435_obstacle_cloud point_cloud_xyz -> laser_filter self filter) marks
-3D obstacles and below-floor cliff points in a `depth_voxel_layer` of the local costmap only; the lidar `obstacle_layer`
+3D obstacles and below-floor cliff points in a `depth_voxel_layer` of the local (15 s decay) and the global (60 s decay) costmap; the lidar `obstacle_layer`
 keeps its /scan_filtered source in both costmaps (U5). No ROS is available on the dev machine, so the YAML is read
 directly.
 
@@ -43,7 +43,9 @@ LOCAL_PLUGINS = [
     "ground_cost_filter",
     "inflation_layer",
 ]
-GLOBAL_PLUGINS = ["static_layer", "obstacle_layer", "keepout_filter", "inflation_layer"]
+GLOBAL_PLUGINS = ["static_layer", "obstacle_layer", "depth_voxel_layer", "keepout_filter", "inflation_layer"]
+GLOBAL_DEPTH_DECAY_S = 60.0
+LOCAL_DEPTH_DECAY_S = 15.0
 MARK_SOURCES = ("depth_mark", "depth_cliff_mark")
 CLEAR_SOURCE = "depth_clear"
 README_HEADING = "## D435 obstacle layer"
@@ -312,15 +314,26 @@ def test_no_stvl_source_uses_the_lidar() -> None:
         assert "scan" not in layer[name]["topic"]
 
 
-def test_global_costmap_has_no_depth_voxels() -> None:
-    """Depth voxels live only in the local costmap (user decision 2026-10-18, Q3)."""
+def test_global_costmap_has_the_d435_depth_layer_with_60s_decay() -> None:
+    """The global costmap carries a D435 STVL depth layer (user decision 2026-11-01, reverses Q3): the planner must see
+    obstacles the lidar plane passes over (a table). Sources mirror the local layer; decay is 60 s; the local decay
+    stays 15 s."""
     params = costmap_params("global_costmap")
     assert params["plugins"] == GLOBAL_PLUGINS
-    assert LAYER not in params
-    for key, value in params.items():
-        if isinstance(value, dict):
-            assert value.get("plugin") != STVL_PLUGIN, key
-    assert D435_TOPIC not in yaml.safe_dump(params)
+    layer = params[LAYER]
+    local = depth_layer()
+    assert layer["plugin"] == STVL_PLUGIN
+    assert layer["enabled"] is True
+    assert layer["voxel_decay"] == GLOBAL_DEPTH_DECAY_S
+    assert local["voxel_decay"] == LOCAL_DEPTH_DECAY_S
+    assert layer["publish_voxel_map"] is False
+    assert layer["observation_sources"].split() == [*MARK_SOURCES, CLEAR_SOURCE]
+    for key, value in local.items():
+        if key not in ("voxel_decay",):
+            assert layer[key] == value, key
+    stvl = [key for key, value in params.items() if isinstance(value, dict) and value.get("plugin") == STVL_PLUGIN]
+    assert stvl == [LAYER]
+    assert GROUND_LAYER not in params
 
 
 def test_only_one_stvl_layer_in_the_local_costmap() -> None:
@@ -374,7 +387,8 @@ def test_readme_documents_the_depth_obstacle_layer() -> None:
         "lidar raytracing never clears depth voxels",
         "only decays depth voxels",
         "87 x 58 deg",
-        "Local costmap only",
+        "global costmap",
+        "60 s",
         "void",
     ):
         assert phrase in section, phrase

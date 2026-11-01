@@ -232,7 +232,7 @@
 
 ## Head ToF 3D obstacles (2026-10-19) - moved to the D435 (2026-10-31)
 
-- Now: `d435_obstacle_cloud` (`/head/d435/points`), the laser_filter self filter (`/head/d435/points_filtered`), the STVL `depth_voxel_layer` in the local costmap and the collision_monitor pointcloud sources `depth_obstacles` (StopBox) and `depth_cliff` (CliffStop); `depth_obstacles.enabled` and `depth_cliff.enabled` are the runtime switches. The ToF names below are historical.
+- Now: `d435_obstacle_cloud` (`/head/d435/points`), the laser_filter self filter (`/head/d435/points_filtered`), the STVL `depth_voxel_layer` in the local (15 s decay) and global (60 s decay, user decision 2026-11-01, so the planner avoids tables the lidar plane misses) costmaps and the collision_monitor pointcloud sources `depth_obstacles` (StopBox) and `depth_cliff` (CliffStop); `depth_obstacles.enabled` and `depth_cliff.enabled` are the runtime switches. The ToF names below are historical.
 - **Historical decision**: the head ToF depth becomes obstacles and cliffs through `tof_obstacle_cloud` (rtabmap_util `point_cloud_xyz`, `/tof/points`), the `laser_filter` self filter (`/tof/points_filtered`), an STVL (`spatio_temporal_voxel_layer`) `tof_voxel_layer` in the local costmap only, and two collision_monitor pointcloud sources (`tof_obstacles` into StopBox, `tof_cliff` into CliffStop).
 - **Height bands, not obstacles_detection**: floor and overhang are separated by fixed bands in base_link (obstacles 6 cm to 0.6 m, cliffs -1 m to -10 cm; STVL and collision monitor use the same numbers), not by rtabmap's `obstacles_detection`; the head TF comes from the pan/tilt joint states.
 - **Lidar layers stay separate**: the lidar `obstacle_layer` keeps its own grid, so ToF clearing never erases lidar cells (U5); slam_toolbox keeps `map -> odom` and no ToF node publishes TF.
@@ -245,7 +245,7 @@
 - Now: `ground_estimator_cpp` reads the 15 Hz D435 cloud `/head/d435/points_filtered`; the ToF figures below are historical.
 
 - **Decision**: `ground_estimator_cpp` fits the floor plane from the 10 Hz ToF (`/tof/points_filtered`) with an IMU prior and publishes plane-relative `/ground/obstacle_points` and `/ground/drop_points`, plus `/ground/labelled_points`, `/ground/state` and `/ground/warning_areas`.
-- **Nav2**: the plane-relative bands feed a second STVL layer (`ground_voxel_layer`) alongside the fixed bands; the fixed bands remain active while the runbook switch-over criteria are checked. The collision monitor keeps the 10 Hz ToF bands and the global costmap stays static + lidar.
+- **Nav2**: the plane-relative bands feed a second STVL layer (`ground_voxel_layer`) alongside the fixed bands; the fixed bands remain active while the runbook switch-over criteria are checked. The collision monitor keeps the 10 Hz ToF bands and the global costmap has the fixed-band D435 layer (60 s) but no ground layer.
 - **Obstacle vs warning**: a cluster is an obstacle when its step exceeds one third of the wheel diameter (0.04 m) or its slope exceeds 8 deg (the lower tilt_guard warn limit); anything below both limits is a warning, applied as a costmap_zones slow-down (speed mask + local non-lethal ground cost filter), also for colour-flagged flat objects.
 - **mcp_server**: `floor_guard` is opt-in. **CPU budget**: 0.10 core for the node (Pi 5), +0.05 core for nav2_bringup. Runbook: `docs/runbooks/ground-estimation.md`; docs pinned by `tests/test_ground_docs.py`.
 

@@ -779,7 +779,7 @@ def costmap_zones_defaults() -> dict[str, str]:
 @pytest.mark.parametrize(
     ("costmap", "plugins"),
     [
-        ("global_costmap", ["static_layer", "obstacle_layer", "keepout_filter", "inflation_layer"]),
+        ("global_costmap", ["static_layer", "obstacle_layer", "depth_voxel_layer", "keepout_filter", "inflation_layer"]),
         (
             "local_costmap",
             [
