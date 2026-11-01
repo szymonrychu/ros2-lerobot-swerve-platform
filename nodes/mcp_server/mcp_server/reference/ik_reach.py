@@ -22,19 +22,14 @@ import time
 from typing import Any
 
 import numpy as np
+from arm_collision.body_model import BodyModel
+from arm_collision.ik import ArmKinematics, UnreachableError
+from arm_collision.self_collision import SelfCollisionChecker
+from arm_collision.settings import ArmBaseOffset
 
 from mcp_server.arm_reach import ENVELOPE_BATCH_SAMPLES, POINT_PITCHES_DEG, SHOULDER_PAN, ReachEnvelope, joint_range
-from mcp_server.body_model import BodyModel
-from mcp_server.config import (
-    REPO_ROOT,
-    ArmBaseOffset,
-    BodyCheckSettings,
-    BodySettings,
-    McpServerConfig,
-    ReachMapSettings,
-)
+from mcp_server.config import REPO_ROOT, BodyCheckSettings, BodySettings, McpServerConfig, ReachMapSettings
 from mcp_server.floor_guard import JawModel, arm_to_base_link, base_link_to_arm
-from mcp_server.ik import ArmKinematics, UnreachableError
 from mcp_server.reach_map import (
     GRID_DECIMALS,
     PITCH_HALF_SPACING_DEG,
@@ -51,7 +46,6 @@ from mcp_server.reach_map import (
     wrap_deg,
 )
 from mcp_server.reference import ReferenceKernel, Tolerance
-from mcp_server.self_collision import SelfCollisionChecker
 
 # IK joint solutions agree within this (rad) wherever the Python solver converges.
 SOLUTION_TOLERANCE_RAD = 1e-6

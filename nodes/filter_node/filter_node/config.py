@@ -6,16 +6,94 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from arm_collision.self_collision import JOINT_LINE_STEP_RAD
+from arm_collision.settings import ArmModelSettings, BodyCheckSettings, StrictModel
+from pydantic import Field, model_validator
 
 DEFAULT_CONFIG_PATH = Path("/etc/ros2/filter_node/config.yaml")
 ENV_CONFIG_PATH_KEY = "FILTER_NODE_CONFIG"
 DEFAULT_AUTONOMY_INPUT_TOPIC = "/filter/autonomy_joint_commands"
 DEFAULT_AUTONOMY_RELEASE_TOPIC = "/filter/autonomy_release"
 DEFAULT_ACTIVE_SOURCE_TOPIC = "/filter/active_source"
+DEFAULT_GUARD_STATE_TOPIC = "/filter/guard_state"
 DEFAULT_FOLLOWER_TORQUE_STATE_TOPIC = "/follower/torque_state"
 EXECUTOR_KINDS = ("events", "single_threaded")
 DEFAULT_EXECUTOR = "single_threaded"
 DEFAULT_IDLE_FALLBACK_S = 2.0
+DEFAULT_HEAD_STATE_TOPIC = "/head/joint_states"
+# A head joint state older than this is stale: the guard checks against the full head envelope (mcp_server's
+# head.state_max_age_s).
+DEFAULT_HEAD_STATE_MAX_AGE_S = 0.5
+MAX_GUARD_STEP_RAD = 0.5
+# Upper bound of a hard margin (m), as BodyCheckSettings.hard_margin_m bounds it.
+MAX_HARD_MARGIN_M = 0.2
+# Feetech raw step range (STS3215: 4096 steps per turn).
+SERVO_STEPS_MAX = 4095
+
+
+class LeaderGripperSettings(StrictModel):
+    """The follower bridge's leader -> follower range mapping of the gripper (lerobot_follower joint_names entry):
+    leader commands reach the bridge in leader radians and are mapped onto the follower command range, so the guard
+    checks them where the bridge will put them (feetech_mapping.command_mapping.map_position_to_steps).
+
+    Attributes:
+        joint: Gripper joint name.
+        source_min_steps: Leader range minimum (raw steps).
+        source_max_steps: Leader range maximum (raw steps).
+        source_inverted: Invert the leader progress before mapping.
+        command_min_steps: Follower command range minimum (raw steps; the servo's min_angle_limit).
+        command_max_steps: Follower command range maximum (raw steps; the servo's max_angle_limit).
+        inverted: Follower joint direction opposite to the servo's (as /follower/joint_states reports it).
+    """
+
+    joint: str = "gripper"
+    source_min_steps: int = Field(ge=0, le=SERVO_STEPS_MAX)
+    source_max_steps: int = Field(ge=0, le=SERVO_STEPS_MAX)
+    source_inverted: bool = False
+    command_min_steps: int = Field(ge=0, le=SERVO_STEPS_MAX)
+    command_max_steps: int = Field(ge=0, le=SERVO_STEPS_MAX)
+    inverted: bool = False
+
+    @model_validator(mode="after")
+    def ranges_ascending(self) -> "LeaderGripperSettings":
+        """Require min below max in both ranges.
+
+        Returns:
+            LeaderGripperSettings: The validated settings.
+        """
+        if not self.source_min_steps < self.source_max_steps:
+            raise ValueError("leader_gripper.source_min_steps must be below source_max_steps")
+        if not self.command_min_steps < self.command_max_steps:
+            raise ValueError("leader_gripper.command_min_steps must be below command_max_steps")
+        return self
+
+
+class GuardSettings(StrictModel):
+    """Arm self-collision guard (filter_node.guard): every follower command is checked against the robot body.
+
+    Attributes:
+        enabled: False publishes every command unchecked (rollback).
+        max_step_rad: Largest per-joint step between the checked samples of a command segment (rad).
+        hard_margin_m: Keep-away from every body part (m); the semantics and default of mcp_server's
+            body_check.hard_margin_m (BodyCheckSettings).
+        head_state_topic: Head pan/tilt (sensor_msgs/JointState): the D435 head is posed where it is.
+        head_state_max_age_s: Older head states are stale: the full head envelope is checked instead.
+        arm: Arm URDF, mount and calibration (the shared ArmModelSettings, equal to mcp_server's arm values).
+        leader_gripper: The follower bridge's gripper range mapping, applied to leader commands before the check;
+            None checks leader commands as sent.
+    """
+
+    enabled: bool = True
+    max_step_rad: float = Field(default=JOINT_LINE_STEP_RAD, gt=0.0, le=MAX_GUARD_STEP_RAD)
+    hard_margin_m: float = Field(
+        default=BodyCheckSettings.model_fields["hard_margin_m"].default,
+        ge=0.0,
+        le=MAX_HARD_MARGIN_M,
+    )
+    head_state_topic: str = Field(default=DEFAULT_HEAD_STATE_TOPIC, pattern=r"^/[A-Za-z0-9_/]+$")
+    head_state_max_age_s: float = Field(default=DEFAULT_HEAD_STATE_MAX_AGE_S, gt=0.0)
+    arm: ArmModelSettings
+    leader_gripper: LeaderGripperSettings | None = None
 
 
 @dataclass
@@ -59,6 +137,9 @@ class FilterConfig:
         executor: rclpy executor spinning the node: "events" (rclpy.experimental.EventsExecutor, lower CPU) or
             "single_threaded" (default, rollback).
         metrics_port: Prometheus /metrics port on 127.0.0.1; None disables the exporter.
+        guard_state_topic: std_msgs/String JSON topic of the guard state (blocked, source, link, obstacle,
+            clearance_m); published only when the guard is configured; empty disables it.
+        self_collision_guard: Arm self-collision guard settings; None (no block) disables the guard.
     """
 
     input_topic: str
@@ -80,6 +161,8 @@ class FilterConfig:
     follower_torque_state_topic: str = DEFAULT_FOLLOWER_TORQUE_STATE_TOPIC
     metrics_port: int | None = None
     executor: str = DEFAULT_EXECUTOR
+    guard_state_topic: str = DEFAULT_GUARD_STATE_TOPIC
+    self_collision_guard: GuardSettings | None = None
 
 
 def read_topic(data: dict[str, Any], key: str, default: str) -> str:
@@ -156,6 +239,7 @@ def load_config(path: Path | None = None) -> FilterConfig | None:
     executor = str(data.get("executor", DEFAULT_EXECUTOR)).strip().lower()
     if executor not in EXECUTOR_KINDS:
         raise ValueError(f"executor must be one of {EXECUTOR_KINDS}, got {executor!r}")
+    raw_guard = data.get("self_collision_guard")
     return FilterConfig(
         input_topic=input_topic,
         output_topic=output_topic,
@@ -176,8 +260,10 @@ def load_config(path: Path | None = None) -> FilterConfig | None:
         follower_torque_state_topic=read_topic(
             data, "follower_torque_state_topic", DEFAULT_FOLLOWER_TORQUE_STATE_TOPIC
         ),
+        guard_state_topic=read_topic(data, "guard_state_topic", DEFAULT_GUARD_STATE_TOPIC),
         metrics_port=int(raw_metrics_port) if raw_metrics_port is not None else None,
         executor=executor,
+        self_collision_guard=GuardSettings.model_validate(raw_guard) if raw_guard is not None else None,
     )
 
 

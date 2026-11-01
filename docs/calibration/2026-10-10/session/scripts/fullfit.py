@@ -18,7 +18,7 @@ import refine as R
 import tipxy as T
 from fitlib import *
 
-from mcp_server.ik import ArmKinematics
+from arm_collision.ik import ArmKinematics
 
 ALL = [f"c{i:02d}" for i in range(1, 21)]
 HOLD_IMG = ["c03", "c09", "c15", "c19"]

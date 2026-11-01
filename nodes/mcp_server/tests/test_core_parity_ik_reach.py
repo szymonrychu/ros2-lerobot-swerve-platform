@@ -15,15 +15,15 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from arm_collision.ik import ArmKinematics
+from arm_collision.self_collision import SelfCollisionChecker
 
 import mcp_core_cpp
 from bench import inputs
 from mcp_server import arm_reach, reach_map
 from mcp_server.arm_reach import ReachEnvelope
 from mcp_server.config import ReachMapSettings
-from mcp_server.ik import ArmKinematics
 from mcp_server.reference import ik_reach as reference
-from mcp_server.self_collision import SelfCollisionChecker
 from tests import core_parity
 
 FAMILY = "ik_reach"

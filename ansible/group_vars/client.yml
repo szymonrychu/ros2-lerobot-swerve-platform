@@ -167,11 +167,16 @@ ros2_node_type_defaults:
     deploy_mode: native
     node_launch_command: "python3 -m filter_node"
     node_src_dir: "nodes/filter_node"
-    # Depends on shared/ros2_metrics (editable path dependency): shared/ changes restart and re-sync it.
+    # Depends on shared/ros2_metrics and shared/arm_collision (editable path dependencies): shared/ changes restart and
+    # re-sync it.
     src_shared: true
-    # Working set MiB p50/24 h peak 47.6/48.2 (Mimir, 2026-10-11): MemoryLow ~ p50, MemoryMax >= 2x peak.
+    # The self-collision guard: arm_collision path-depends on the C++ kernels (built into this venv) and loads the arm
+    # URDF from the web_ui package directory.
+    src_extra_paths: [nodes/mcp_server/mcp_core_cpp, nodes/web_ui/urdf]
+    # Working set MiB p50/24 h peak 47.6/48.2 (Mimir, 2026-10-11) before the guard; 256M until the guard (ikpy, scipy,
+    # the C++ kernels) is measured, then MemoryMax >= 2x peak.
     memory_low: "48M"
-    memory_max: "128M"
+    memory_max: "256M"
     cpu_weight: 1000
     io_weight: 1000
     oom_score_adjust: -900
@@ -1291,6 +1296,8 @@ ros2_nodes:
       autonomy_input_topic: /filter/autonomy_joint_commands
       autonomy_release_topic: /filter/autonomy_release
       active_source_topic: /filter/active_source
+      # Self-collision guard verdict (std_msgs/String JSON: blocked, source, link, obstacle, clearance_m); web_ui ARM tab shows it.
+      guard_state_topic: /filter/guard_state
       # lerobot_follower torque state: while the arm is released nothing is published on /follower/joint_commands.
       follower_torque_state_topic: /follower/torque_state
       joint_names:
@@ -1307,6 +1314,39 @@ ros2_nodes:
         prediction_lead_s: 0.045
         velocity_decay_per_s: 4.5
         max_prediction_time_s: 0.14
+      # Arm self-collision guard: every /follower/joint_commands command (leader, web UI, autonomy) is checked against
+      # the robot body (shared/arm_collision robot_body.yaml) and clamped to the last safe point short of it.
+      # Rollback: `enabled: false`, then deploy-nodes.sh client filter_node.
+      self_collision_guard:
+        enabled: true
+        max_step_rad: 0.02
+        # Keep-away from every body part (m): equal to mcp_server body_check.hard_margin_m (tests/test_arm_guard_config.py).
+        hard_margin_m: 0.005
+        # The D435 head is posed from a fresh pan/tilt; older than head_state_max_age_s = the full head envelope.
+        head_state_topic: /head/joint_states
+        head_state_max_age_s: 0.5
+        # Arm calibration: equal to mcp_server's arm block (tests/test_arm_guard_config.py pins it).
+        arm:
+          urdf_path: nodes/web_ui/urdf/so101_arm.urdf
+          arm_base_height_m: 0.100
+          joint_offsets_rad:
+            shoulder_pan: 0.0182
+            shoulder_lift: -0.0345
+            elbow_flex: -0.1070
+            wrist_flex: 0.0988
+            wrist_roll: -0.0710
+          tool_offset_m: {x: 0.0010, y: -0.0056, z: -0.0014}
+          joint_limit_overrides_rad:
+            shoulder_lift: [-1.745, 1.9]
+          base_in_base_link: {x: 0.0592, y: -0.05, z: 0.100, yaw: 0.0}
+        # Leader commands carry the gripper in leader radians; lerobot_follower maps them onto the follower range.
+        # Equal to its gripper joint entry (tests/test_arm_guard_config.py): the check sees the follower gripper.
+        leader_gripper:
+          joint: gripper
+          source_min_steps: 2045
+          source_max_steps: 3289
+          command_min_steps: 1900
+          command_max_steps: 3377
   - name: test_joint_api
     node_type: test_joint_api
     present: true
@@ -1903,20 +1943,10 @@ ros2_nodes:
         park_pose: {shoulder_pan: -0.003, shoulder_lift: -1.35, elbow_flex: 1.578, wrist_flex: -0.1, wrist_roll: -1.637}
         park_board_sag_margin_m: 0.01 # added to the board floor, body and head clearances of the Park path check (board sags under its weight), m (>= 0)
         board_record_max_age_s: 7200.0 # a board-clipped record older than this is ignored at start-up, s (> 0)
-        # FK pose check before every arm command (shared core arm_pose_check; body equals the mcp_server body block).
+        # FK pose check before every arm command (shared core arm_pose_check); its body is the packaged robot body
+        # (shared/arm_collision/arm_collision/robot_body.yaml, loaded by the BodyConfig defaults).
         pose_check:
-          body: # robot body obstacles in base_link, a copy of the mcp_server body block (m)
-            boxes: # axis-aligned boxes: centre and full size
-              - {name: frame_left, center: [0.0, 0.1333, 0.15], size: [0.425, 0.035, 0.06]}
-              - {name: frame_right, center: [0.0, -0.1333, 0.15], size: [0.425, 0.035, 0.06]}
-              - {name: crossbar, center: [-0.025, 0.0, 0.08], size: [0.25, 0.2316, 0.04]}
-            cylinders: # vertical cylinders about (x, y) from z_min to z_max
-              - {name: wheel_fl, x: 0.1525, y: 0.1333, radius: 0.0625, z_min: 0.0, z_max: 0.12}
-              - {name: wheel_fr, x: 0.1525, y: -0.1333, radius: 0.0625, z_min: 0.0, z_max: 0.12}
-              - {name: wheel_rl, x: -0.1525, y: 0.1333, radius: 0.0625, z_min: 0.0, z_max: 0.12}
-              - {name: wheel_rr, x: -0.1525, y: -0.1333, radius: 0.0625, z_min: 0.0, z_max: 0.12}
-              - {name: lidar, x: 0.15, y: 0.04, radius: 0.037, z_min: 0.1, z_max: 0.21}
-          margin_m: 0.03 # clearance of the arm links (and the board, plus provisional_margin_m) from body and head, m
+          margin_m: 0.005 # clearance of the arm links (and the board, plus provisional_margin_m) from body and head, m
           min_tool_height_m: 0.1 # tool point above the floor, m
           min_board_height_m: 0.05 # every board outline point above the floor, m
           link_radius_m: 0.025 # radius of the upper arm, forearm and wrist capsules, m
@@ -1973,6 +2003,8 @@ ros2_nodes:
       metrics_port: 19101
       # ROS node name and metrics `node` label of this instance (base_servos is the second bridge on this host).
       node_name: lerobot_follower
+      # Arm motion goes through filter_node's self-collision guard: set_register may not write goal_position/goal_speed/goal_time.
+      set_register_motion_blocked: true
       # The arm (IDs 1-6) alone on its own adapter; the swerve base runs in base_servos on the other adapter.
       device: /dev/serial/by-id/usb-1a86_USB_Single_Serial_5AE6081020-if00
       namespace: follower
@@ -2030,7 +2062,11 @@ ros2_nodes:
           id: 6
           source_min_steps: 2045
           source_max_steps: 3289
+          # The command range is used only with both ends (else the servo's min/max_angle_limit are read at start):
+          # these are those limits (startup register dump of servo 6, 2026-11-01), so the behaviour is unchanged and
+          # filter_node's guard reads the same mapping (self_collision_guard.leader_gripper, tests/test_arm_guard_config.py).
           command_min_steps: 1900
+          command_max_steps: 3377
   # Swerve base servos (IDs 32-39) on their own bus: the original adapter, served as /swerve_drive/* by a second
   # feetech_servos instance.
   - name: base_servos
@@ -2864,6 +2900,8 @@ ros2_nodes:
           arm_set_drive_pose_service: /arm/set_drive_pose
           arm_drive_pose_enable_service: /arm/drive_pose/enable
           drive_pose_state_topic: /arm/drive_pose/state
+          # filter_node self-collision guard state (latched JSON): the arm tab shows "Blocked by <obstacle>".
+          guard_state_topic: /filter/guard_state
         # Head tab: the RealSense D435 on the pan/tilt head (realsense_d435, live topics pinned in
         # nodes/bridges/realsense_d435/config/topics.yaml): colour plus a greyscale preview of its 16UC1 mm depth.
         - id: head
@@ -2942,7 +2980,7 @@ ros2_nodes:
         mount_rpy_rad: [3.141593, 0.0, 0.185886] # fixed-axis xyz rotation
         mount_tolerance_m: 0.03
         mount_tolerance_deg: 10.0
-        margin_m: 0.09 # clearance from the body: 0.03 pose-check margin + 0.05 nominal-mount allowance + 0.01 sag
+        margin_m: 0.065 # clearance from the body: 0.005 pose-check margin + 0.05 nominal-mount allowance + 0.01 sag
         min_height_m: 0.06 # lowest board point above the floor: 0.05 + 0.01 sag
       topics:
         # Head camera (tool camera `head`): the D435 colour on the pan/tilt head (realsense_d435), 640x360 at 15 fps,
@@ -3054,12 +3092,12 @@ ros2_nodes:
           max_rad: 0.12
         # Drive pose (nodes/mcp_server/README.md, "Drive pose"): while a NavigateToPose goal is active the arm lifts
         # from home to these measured-space joints, out of the D435 view, and returns home lower_delay_s after the last
-        # goal ended. On by default (toggled at runtime on the web UI ARM tab). joints: picked 2026-10-31 by
+        # goal ended. On by default (toggled at runtime on the web UI ARM tab). joints: picked 2026-11-01 by
         # `python -m mcp_server.drive_pose_check search` (0.1 rad grid over shoulder_lift, elbow_flex, wrist_flex; the
-        # rest as the parked home): upper arm laid back, forearm folded over the crossbar. It hides 0.165 m2 of floor
-        # beside the right wheels over head pans -50..-90 deg at tilt 30 deg (home 1.12 m2 there, 1.60 m2 over
-        # 0..-90; least of every pose passing the body, floor, footprint and route checks); gravity torque on
-        # shoulder_lift -0.75 N m. A shoulder_pan swing would reach 0.088 m2 (not used: the pan stays as home).
+        # rest as the parked home) against the packaged body (wheels to z 0.15, head post, head envelope) at the 5 mm
+        # keep-away: upper arm laid back, forearm folded over the crossbar. Rank 1 of 449 passing poses: search score
+        # 0.203 m2 of hidden floor (least of every pose passing the body, floor, footprint and route checks); gravity
+        # torque on shoulder_lift -0.75 N m (the 2026-10-31 pose again).
         drive_pose:
           enabled: true
           joints:
@@ -3457,33 +3495,18 @@ ros2_nodes:
         imu_level_reference:
           roll_deg: 0.7
           pitch_deg: 1.3
-      # Robot body the arm must not hit (nodes/mcp_server/README.md, "Body collision"), base_link metres (x forward, y left,
-      # z up from the floor). Seen from above the robot is an H: two side frames above the wheels, the crossbar between
-      # them (the arm base and the lidar stand on it; the arm base/shoulder link is not checked), the wheels as their
-      # steering envelopes (vertical cylinders around the steer axes, they steer) and the lidar column up to the dome top.
-      # Measured 2026-10-10: lidar dome diameter 74 mm (radius 37 mm), top face 210 mm; wheels and side bars 35 mm wide (wheel envelope =
-      # half-diagonal of the 120 x 35 mm wheel, 62.5 mm); side bar top ~180 mm. Still assumed (README "How to
-      # measure"): wheel line from swerve half_length/half_width 0.1525/0.1333, side bar bottom 120 mm, crossbar extent
-      # and height (it spans to the side bars' inner faces), lidar column bottom 100 mm.
-      body:
-        boxes:
-          - {name: frame_left, center: [0.0, 0.1333, 0.15], size: [0.425, 0.035, 0.06]}
-          - {name: frame_right, center: [0.0, -0.1333, 0.15], size: [0.425, 0.035, 0.06]}
-          - {name: crossbar, center: [-0.025, 0.0, 0.08], size: [0.25, 0.2316, 0.04]}
-        cylinders:
-          - {name: wheel_fl, x: 0.1525, y: 0.1333, radius: 0.0625, z_min: 0.0, z_max: 0.12}
-          - {name: wheel_fr, x: 0.1525, y: -0.1333, radius: 0.0625, z_min: 0.0, z_max: 0.12}
-          - {name: wheel_rl, x: -0.1525, y: 0.1333, radius: 0.0625, z_min: 0.0, z_max: 0.12}
-          - {name: wheel_rr, x: -0.1525, y: -0.1333, radius: 0.0625, z_min: 0.0, z_max: 0.12}
-          - {name: lidar, x: 0.150, y: 0.040, radius: 0.037, z_min: 0.10, z_max: 0.21}
-      # Arm self-collision soft boundary over every executed arm trajectory sample: link clearance to a body obstacle
-      # below soft_margin_m runs at slow_speed_scale (the slower of this and the floor guard wins); below hard_margin_m
-      # (or penetrating) the motion is rejected before it starts. enabled: false switches the check off. The reach_*
-      # values set get_arm_reach's envelope grid (shoulder_pan headings x tool heights in base_link).
+      # Robot body the arm must not hit: not configured here, the one definition is
+      # shared/arm_collision/arm_collision/robot_body.yaml (mcp_server refuses a body: key).
+      # Arm self-collision boundary over every executed arm trajectory sample: link clearance to a body obstacle below
+      # hard_margin_m (or penetrating) rejects the motion before it starts; below soft_margin_m it runs at
+      # slow_speed_scale (the slower of this and the floor guard wins). One 5 mm keep-away for every body part (user
+      # decision 2026-11-01): soft equals hard, no slow band; only an escape from inside the margin runs slowed.
+      # enabled: false switches the check off. The reach_* values set get_arm_reach's envelope grid (shoulder_pan
+      # headings x tool heights in base_link).
       body_check:
         enabled: true
-        soft_margin_m: 0.03
-        hard_margin_m: 0.002
+        soft_margin_m: 0.005
+        hard_margin_m: 0.005
         slow_speed_scale: 0.3
         reach_heading_step_deg: 15
         reach_height_max_m: 0.35

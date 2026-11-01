@@ -19,9 +19,8 @@ from dataclasses import dataclass
 from typing import Literal
 
 import numpy as np
+from arm_collision.settings import ArmBaseOffset
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-
-from .config import ArmBaseOffset
 
 MAX_REGIONS = 16
 MAX_POLYGON_VERTICES = 32

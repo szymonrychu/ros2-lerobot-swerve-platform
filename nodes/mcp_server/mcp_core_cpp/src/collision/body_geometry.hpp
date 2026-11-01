@@ -1,4 +1,4 @@
-// Robot body obstacles and rigid placement for the arm self-collision kernels (port of mcp_server/body_model.py and
+// Robot body obstacles and rigid placement for the arm self-collision kernels (port of arm_collision/body_model.py and
 // self_collision.rigid). Every expression keeps the operation order of the numpy original, and the .cpp files of this
 // family turn off floating-point contraction (no fused multiply-add), so a value gets the same bits as in numpy.
 #pragma once

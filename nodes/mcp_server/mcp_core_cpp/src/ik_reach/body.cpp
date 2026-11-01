@@ -1,5 +1,5 @@
 // Body obstacles and the pruned clearance pass of the reach kernels (see body.hpp); every step mirrors
-// mcp_server/body_model.py and SelfCollisionChecker.bounded_clearances, so a verdict or a reported clearance equals
+// arm_collision/body_model.py and SelfCollisionChecker.bounded_clearances, so a verdict or a reported clearance equals
 // the Python one.
 #if defined(__clang__)
 // No fused multiply-add: the sums round like numpy's (GCC in ISO C++ mode does not contract either).

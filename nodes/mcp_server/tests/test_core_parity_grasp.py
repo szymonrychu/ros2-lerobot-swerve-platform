@@ -62,7 +62,7 @@ NANOBIND_LEAK = "nanobind: leaked"
 EXIT_WITH_HELD_MODELS = """
 import threading
 from mcp_server.config import McpServerConfig
-from mcp_server.ik import ArmKinematics
+from arm_collision.ik import ArmKinematics
 config = McpServerConfig()
 def kinematics():
     kin = ArmKinematics(config.arm.urdf_path, margin=config.limits.arm_limit_margin_rad)
@@ -79,7 +79,7 @@ started.wait(10.0)
 # release_core_models runs at exit; called early here (in a child) to show a released kinematics refuses the model.
 CALL_AFTER_RELEASE = """
 from mcp_server.config import McpServerConfig
-from mcp_server.ik import ArmKinematics, release_core_models
+from arm_collision.ik import ArmKinematics, release_core_models
 config = McpServerConfig()
 kin = ArmKinematics(config.arm.urdf_path, margin=config.limits.arm_limit_margin_rad)
 kin.core_model()

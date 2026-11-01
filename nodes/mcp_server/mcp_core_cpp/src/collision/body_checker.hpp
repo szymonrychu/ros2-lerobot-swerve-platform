@@ -1,4 +1,4 @@
-// Arm self-collision kernels (port of mcp_server/self_collision.py SelfCollisionChecker: clearances_of,
+// Arm self-collision kernels (port of arm_collision/self_collision.py SelfCollisionChecker: clearances_of,
 // bounded_clearances, path; reference bodies in mcp_server/reference/collision.py).
 //
 // Parts are indexed as CHECKED_PARTS: the capsules first (0 .. C-1), then the parts held as points, the last J of

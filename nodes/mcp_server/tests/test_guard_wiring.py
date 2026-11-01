@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from arm_collision.ik import ArmKinematics, load_joint_limits
 from mcp.server.mcpserver.exceptions import ToolError
 from prometheus_client import REGISTRY
 
@@ -14,7 +15,6 @@ from mcp_server.arm import ArmController, ArmError
 from mcp_server.config import McpServerConfig
 from mcp_server.guard_rules import GUARD_ORIGIN, GUARD_REFUSAL_PATTERN
 from mcp_server.guard_state import GuardState
-from mcp_server.ik import ArmKinematics, load_joint_limits
 from mcp_server.monitor import RobotMonitor
 from mcp_server.tools import build_mcp_server
 

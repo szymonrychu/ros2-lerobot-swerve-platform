@@ -3,7 +3,7 @@
 The body seen from above is an H: two side frames (boxes along x above the wheels), the crossbar between them (box,
 the arm and the lidar stand on it), four wheels modelled as their steering envelopes (vertical cylinders around the
 steer axes) and the lidar column (vertical cylinder from the crossbar top to the dome top). Everything is in the robot
-base_link (x forward, y left, z up from the floor), configured in config.BodySettings.
+base_link (x forward, y left, z up from the floor), configured in settings.BodySettings.
 
 Distances are signed (negative = penetration depth) and exact for points. Every obstacle is convex, so the signed
 distance along a capsule axis is a convex function of the axis parameter: its minimum is found by golden-section search
@@ -16,7 +16,7 @@ from typing import Any, Protocol
 
 import numpy as np
 
-from .config import BodySettings
+from .settings import BodySettings
 
 GOLDEN_RATIO = (math.sqrt(5.0) - 1.0) / 2.0
 GOLDEN_ITERATIONS = 48

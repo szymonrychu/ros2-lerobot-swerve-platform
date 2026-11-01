@@ -34,8 +34,9 @@ from scipy.optimize import brentq
 ROOT = Path(__file__).resolve().parents[1]
 URDF_DIR = ROOT / "nodes" / "web_ui" / "urdf"
 HEAD_URDF = (URDF_DIR / "head.urdf").read_text()
+# The robot body mcp_server checks against (the single definition in the shared arm_collision package).
+ROBOT_BODY_YAML = ROOT / "shared" / "arm_collision" / "arm_collision" / "robot_body.yaml"
 ARM_URDF = (URDF_DIR / "so101_arm.urdf").read_text()
-CLIENT_YML = ROOT / "ansible" / "group_vars" / "client.yml"
 HEAD_LINKS = ("head_post", "head_pan_base", "head_pan_link", "head_link")
 HEAD_POINT_LINKS = ("d435_depth_optical_frame", "d435_color_optical_frame")  # D435 frames without a visual
 WIDENED_TILT = (-0.5236, 0.7854)  # -30..+45 deg, the reprinted mount's range (runbook head-arm-calibration Hardware)
@@ -175,13 +176,19 @@ def assert_contains_head(urdf: str, envelope: CylinderObstacle) -> None:
 
 
 def test_body_defaults_equal_mcp_server_body() -> None:
-    nodes = yaml.safe_load(CLIENT_YML.read_text())["ros2_nodes"]
-    node = next(n for n in nodes if n["name"] == "mcp_server")
-    body = yaml.safe_load(node["config"])["body"]
+    body = yaml.safe_load(ROBOT_BODY_YAML.read_text())
     assert BodyConfig.model_validate(body) == BodyConfig()
     assert PoseCheckConfig().body == BodyConfig()
-    assert [b.name for b in BodyConfig().boxes] == ["frame_left", "frame_right", "crossbar"]
-    assert [c.name for c in BodyConfig().cylinders] == ["wheel_fl", "wheel_fr", "wheel_rl", "wheel_rr", "lidar"]
+    assert [b.name for b in BodyConfig().boxes] == ["frame_left", "frame_right", "crossbar", "head_arm"]
+    assert [c.name for c in BodyConfig().cylinders] == [
+        "wheel_fl",
+        "wheel_fr",
+        "wheel_rl",
+        "wheel_rr",
+        "lidar",
+        "head_post",
+        "head",
+    ]
 
 
 @pytest.mark.parametrize(

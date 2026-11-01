@@ -22,6 +22,7 @@ import time
 from typing import Any
 
 import rclpy
+from feetech_mapping.command_mapping import speed_register_to_velocity, steps_to_radians
 from rclpy._rclpy_pybind11 import RCLError
 from rclpy.executors import Executor, ExternalShutdownException, SingleThreadedExecutor
 from rclpy.experimental import EventsExecutor
@@ -35,7 +36,6 @@ from std_srvs.srv import Trigger
 
 from .battery import BatteryMonitor, battery_fields
 from .bridge_cycle import MAX_STEPS, MIN_STEPS, BridgeCycle, drain_callbacks, end_cycle, split_stamp_ns
-from .command_mapping import speed_register_to_velocity, steps_to_radians
 from .config import BridgeConfig, JointGroup, load_config_from_env
 from .joint_updates import get_position_updates
 from .metrics import BUS_UP, init_joints, record_read_cycle, record_register_dump

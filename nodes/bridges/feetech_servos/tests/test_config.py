@@ -621,3 +621,19 @@ def test_neutral_config_bad_types_rejected(tmp_path: Path) -> None:
     ):
         p.write_text(NEUTRAL_BASE + extra)
         assert load_config(p) is None, extra
+
+
+def test_load_config_set_register_motion_blocked(tmp_path: Path) -> None:
+    p = tmp_path / "c.yaml"
+    p.write_text("namespace: follower\nset_register_motion_blocked: true\njoint_names:\n  - name: j1\n    id: 1\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.set_register_motion_blocked is True
+
+
+def test_load_config_set_register_motion_blocked_default_off(tmp_path: Path) -> None:
+    p = tmp_path / "c.yaml"
+    p.write_text("namespace: follower\njoint_names:\n  - name: j1\n    id: 1\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.set_register_motion_blocked is False

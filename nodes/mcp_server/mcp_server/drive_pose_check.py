@@ -5,9 +5,8 @@ home_routes route from home whose every leg clears the body at the hard margin (
 lower follows the same choice from the drive pose back home. Both chosen routes are sampled leg by leg (joint_line)
 and every sample is held to:
 
-- body: clearance of every arm part (self_collision part points and capsules) to the body and the head envelope
-  (ros2_common arm_pose_check.head_envelope: a cylinder about the pan axis containing the head at every pan/tilt) at
-  least margin_m; where the parked home is already closer to an obstacle, its clearance minus ESCAPE_TOLERANCE_M;
+- body: clearance of every arm part (self_collision part points and capsules) to the body (robot_body.yaml, with the
+  head post and the head envelope about the pan axis) at least margin_m; where the parked home is already closer to an obstacle, its clearance minus ESCAPE_TOLERANCE_M;
 - floor: the tool point and both wrist capsule ends at least min_tool_height_m above the floor;
 - stretched: never elbow_flex < 0 with shoulder_lift above stretched_shoulder_lift_max_rad;
 - footprint: the arm's ground shadow inside the static footprint outline (grown by simplify_m, the test the
@@ -28,8 +27,8 @@ and the pose itself to:
   the parked home's. Home hides 1.60 m2 over pans 0..-90 and 1.12 m2 over -50..-90; the pinned drive pose 0.165 m2
   over -50..-90 (nothing at 0..-40). A shoulder_pan swing would reach 0.088 m2 (not searched: D4 keeps the pan).
 
-Margins and heights are the shared arm_pose_check defaults (PoseCheckConfig: margin_m 0.03, min_tool_height_m 0.10,
-stretched_shoulder_lift_max_rad 1.85, head envelope 0.075 / 0.09 m). The D435 depth field of view is the datasheet
+Margins and heights are the shared arm_pose_check defaults (PoseCheckConfig: margin_m 0.005, min_tool_height_m 0.10,
+stretched_shoulder_lift_max_rad 1.85). The D435 depth field of view is the datasheet
 87 x 58 deg of the 640x360 depth profile (nodes/bridges/realsense_d435/config/realsense_d435.yaml).
 
 `python -m mcp_server.drive_pose_check search <client.yml> <home json>` grids shoulder_lift, elbow_flex and
@@ -49,24 +48,21 @@ from pathlib import Path
 
 import numpy as np
 import yaml
+from arm_collision.arm_geometry import LINK_CAPSULE_RADIUS_M, UPPER_ARM_CAPSULE, WRIST_CAPSULE
+from arm_collision.ik import ArmKinematics
+from arm_collision.self_collision import ESCAPE_TOLERANCE_M, SelfCollisionChecker, joint_line
+from arm_collision.settings import footprint_body
 from ros2_common.head_rgbd_calibration.arm_pose_check import (
-    BodyConfig,
-    BoxObstacle,
-    CylinderObstacle,
     PoseCheckConfig,
-    head_envelope,
 )
 
 from .arm import home_routes
-from .arm_geometry import LINK_CAPSULE_RADIUS_M, UPPER_ARM_CAPSULE, WRIST_CAPSULE
-from .config import REPO_ROOT, BodyCylinder, BodySettings, McpServerConfig
+from .config import REPO_ROOT, McpServerConfig
 from .floor_guard import JawModel
 from .footprint import arm_shadow
 from .footprint_geometry import body_outline, static_outline
 from .head_kinematics import DEPTH_FRAME, HeadKinematics
-from .ik import ArmKinematics
 from .sag import GravityModel
-from .self_collision import ESCAPE_TOLERANCE_M, SelfCollisionChecker, joint_line
 
 LOGGER = logging.getLogger(__name__)
 CHECKS = ("body", "floor", "stretched", "roll", "footprint", "view")
@@ -236,7 +232,7 @@ class DrivePoseChecker:
     """The drive pose checks (module docstring) on one configuration."""
 
     def __init__(self, config: McpServerConfig) -> None:
-        """Build the arm model, the body with the head envelope, the static outline and the head kinematics.
+        """Build the arm model, the body checker, the static outline (floor-level body) and the head kinematics.
 
         Args:
             config (McpServerConfig): Node configuration (arm, body, body_check, head, nav_footprint).
@@ -247,25 +243,14 @@ class DrivePoseChecker:
         footprint = config.nav_footprint
         if footprint is None:
             raise ValueError("drive pose check needs nav_footprint (the static footprint outline)")
-        self.limits = PoseCheckConfig(
-            body=BodyConfig(
-                boxes=[BoxObstacle(name=b.name, center=b.center, size=b.size) for b in config.body.boxes],
-                cylinders=[CylinderObstacle(**c.model_dump()) for c in config.body.cylinders],
-            )
-        )
+        self.limits = PoseCheckConfig()
         self.kin = arm_kinematics(config)
         jaw = JawModel(self.kin, config.arm.jaw_open_axis, config.arm.gripper_closed_rad)
-        # The router sees the body plan_home sees; the clearance checker adds the head envelope.
-        self.router = SelfCollisionChecker.from_config(self.kin, config, jaw)
-        head = head_envelope(Path(config.head.urdf_path).read_text(), self.limits)
-        with_head = BodySettings(
-            boxes=config.body.boxes, cylinders=[*config.body.cylinders, BodyCylinder(**head.model_dump())]
-        )
-        self.clearance = SelfCollisionChecker.from_config(self.kin, config.model_copy(update={"body": with_head}), jaw)
+        # One body (with the head post and head envelope) for the routes plan_home takes and the drive pose clearance.
+        self.clearance = SelfCollisionChecker.from_settings(self.kin, config.body, config.body_check, config.arm, jaw)
         self.obstacles = [o.name for o in self.clearance.body.obstacles]
-        outline = body_outline(
-            config.body.boxes, config.body.cylinders, footprint.circle_segments, footprint.close_gap_m
-        )
+        floor = footprint_body(config.body)
+        outline = body_outline(floor.boxes, floor.cylinders, footprint.circle_segments, footprint.close_gap_m)
         self.static = static_outline(outline, footprint.parked_arm_shadow).buffer(footprint.simplify_m)
         self.segments = footprint.circle_segments
         self.head = HeadKinematics(Path(config.head.urdf_path))
@@ -295,12 +280,12 @@ class DrivePoseChecker:
             tuple[str, list[dict[str, float]]] | None: (description, legs), None when no route clears the body.
         """
         routes = home_routes(self.kin, start, goal)
-        if not self.router.settings.enabled:
+        if not self.clearance.settings.enabled:
             return routes[0]
         for note, legs in routes:
             prev = start
             for leg in legs:
-                if self.router.path(joint_line(prev, leg)).rejected:
+                if self.clearance.path(joint_line(prev, leg)).rejected:
                     break
                 prev = leg
             else:

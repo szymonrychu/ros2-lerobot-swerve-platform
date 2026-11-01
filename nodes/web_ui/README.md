@@ -752,6 +752,15 @@ mcp_server lifts the arm out of the head camera's view while a navigation goal r
 - A caption under the jog rows says why jogging is off: `Take control to jog`, `Arm action in flight`, or the released reason.
 - While the lease is held (agent or Take control), drags on the arm view are ignored by filter_node (autonomy outranks web_ui), so the view disables dragging with the reason `Arm held by the agent or Take control - Release to drag`; release first.
 
+### Guard banner (Arm tab)
+
+filter_node's [self-collision guard](../filter_node/README.md#self-collision-guard) latches its verdict on
+`/filter/guard_state` (`std_msgs/String` JSON). The bridge subscribes it as the `guard_state` role (arm tab key
+`guard_state_topic`, default `/filter/guard_state`, deployed in `client.yml` and `config/default.yaml`; reliable +
+transient_local like the drive pose state). While `blocked` is true the Arm tab shows a warning alert
+`Blocked by <obstacle>` (`data-testid="guard-blocked-banner"`, `guardStateOf` in `frontend/src/arm/armControls.ts`,
+vitest `ArmTab.test.tsx`); it disappears 2 s after the last blocked command.
+
 ### Arm tab routes
 
 All take `tab=<arm tab id>` (404 for an unknown tab or one that is not an `arm` tab; `/api/arm/home`, `/api/arm/set_home`, `/api/grasp` and `/api/grasp/stop` accept `map_nav` and `arm` tabs), are rejected with 503 in battery cut-off, and answer 503 without the ROS bridge or when the service / mcp_server is not running. Replies are `{"ok", "message"}`.

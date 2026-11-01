@@ -79,7 +79,7 @@ All of these are accepted on any group's `joint_commands`, matched by joint name
 
 - **Separate messages** (what `swerve_drive_controller` publishes today): a steer-only `JointState` (names + `position`) and a drive-only one (names + `velocity`, rad/s). Arm commands are position-only (`velocity` empty).
 - **Combined message:** one `JointState` naming all joints, with `position[i] = NaN` for velocity-mode joints and `velocity[i] = NaN` for position-mode joints.
-- **NaN / inf entries are ignored** and never written to a servo (no goal_position / goal_speed write, and a NaN velocity does not feed the wheel watchdog). `command_mapping` additionally refuses non-finite values with `ValueError`; before this check a NaN velocity clamped to full speed.
+- **NaN / inf entries are ignored** and never written to a servo (no goal_position / goal_speed write, and a NaN velocity does not feed the wheel watchdog). `feetech_mapping.command_mapping` (shared/feetech_mapping) additionally refuses non-finite values with `ValueError`; before this check a NaN velocity clamped to full speed.
 
 ### Control loop, callback draining and the wheel watchdog
 
@@ -99,6 +99,8 @@ Every group namespace (`follower`, and `swerve_drive` / `head` with `extra_group
 - `/<ns>/servo/enable_torque`: per position joint reads `present_position`, writes `goal_position = present`, then `torque_enable = 1` (verified), so nothing moves when torque returns. A joint failing a step stays gated and is named in `message`.
 
 `success` / `message` come from the result; without an open bus the answer is `success=false`, `message="no servo bus"`. Velocity (wheel) joints are never released: they are stopped and their commands dropped while the group is released, and their torque stays on.
+
+With `set_register_motion_blocked: true` (config key, default false; the follower arm bridge in `client.yml`) `set_register` refuses `goal_position`, `goal_speed` and `goal_time` for every joint with reason `motion_blocked` and writes nothing, so arm motion cannot bypass filter_node's [self-collision guard](../../filter_node/README.md#self-collision-guard); `torque_limit`, `acceleration` and `torque_enable` still pass. The leader -> follower gripper range mapping lives in `shared/feetech_mapping` (`feetech_mapping.command_mapping`), which filter_node's guard reuses.
 
 `set_register` cannot move or re-enable a released joint: `torque_enable = 1`, `goal_position`, `goal_speed`, `goal_time` and `acceleration` for a released servo fail with reason `released` and write nothing; `torque_enable = 0` and other RAM registers such as `torque_limit` still pass. `torque_enable` accepts only 0 or 1 (128 is DefineMiddle, an EEPROM calibration command).
 
@@ -246,7 +248,7 @@ and `robot_node_start_time_seconds{node}`. Metric objects live in `metrics.py`. 
 | `servo_temperature_celsius` | gauge | `joint` | Servo temperature from the last register dump. |
 | `servo_voltage_volts` | gauge | `joint` | Servo supply voltage from the last register dump (0.1 V units converted). |
 | `servo_torque_enabled` | gauge | `joint` | 1 when `torque_enable` is set (last register dump). |
-| `servo_set_register_failures_total` | counter | `reason` | `set_register` messages that did not write: `no_bus`, `invalid_json`, `missing_field`, `unknown_register`, `unknown_joint`, `bad_value` (not an int, outside the register's byte range, or `torque_enable` other than 0 or 1), `released` (move or torque-on write to a released joint), `eprom_rejected`, `write_failed`. |
+| `servo_set_register_failures_total` | counter | `reason` | `set_register` messages that did not write: `no_bus`, `invalid_json`, `missing_field`, `unknown_register`, `unknown_joint`, `motion_blocked` (goal register on a bridge with `set_register_motion_blocked`), `bad_value` (not an int, outside the register's byte range, or `torque_enable` other than 0 or 1), `released` (move or torque-on write to a released joint), `eprom_rejected`, `write_failed`. |
 | `servo_commands_total` | counter |  | Joint command targets processed by the loop (one per joint per cycle with a pending target). |
 
 Load, temperature, voltage and torque come from the full register dump (`register_publish_interval_s`, one servo per cycle); with the dump disabled (0) they stay unset. Gauges for registers that could not be read are never set to a placeholder.

@@ -5,13 +5,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from arm_collision.ik import ArmKinematics, load_joint_limits
 from ros2_common.battery import BatteryConfig, BatteryGuard
 
 from mcp_server.arm import ArmController
 from mcp_server.base_motion import NavPort, run_drive, run_nav
 from mcp_server.config import McpServerConfig, MonitorSettings
 from mcp_server.geometry import integrate_twist, relative_pose
-from mcp_server.ik import ArmKinematics, load_joint_limits
 from mcp_server.models import BasePose, RobotError
 from mcp_server.monitor import ARM_INTERRUPTS, BASE_INTERRUPTS, RobotMonitor
 

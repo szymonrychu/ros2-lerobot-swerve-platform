@@ -22,17 +22,19 @@ from dataclasses import dataclass, replace
 from typing import Any, Literal
 
 import numpy as np
+from arm_collision import ik
+from arm_collision.arm_geometry import FOREARM_CAPSULE, GRIPPER_BODY, GRIPPER_BODY_POINTS, JAW_POINTS, WRIST_CAPSULE
+from arm_collision.head import HeadPose
+from arm_collision.ik import ArmKinematics, UnreachableError, grasp_offset
+from arm_collision.jaw import rotate
+from arm_collision.self_collision import SelfCollisionChecker, joint_line
 from ikpy.utils import geometry as ik_geometry
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 import mcp_core_cpp
 
-from . import ik
-from .arm_geometry import FOREARM_CAPSULE, GRIPPER_BODY, GRIPPER_BODY_POINTS, JAW_POINTS, WRIST_CAPSULE
 from .config import GraspSettings, GripProfileOverride, LimitSettings, McpServerConfig
-from .floor_guard import FloorGuard, JawModel, SurfaceModel, arm_to_base_link, base_link_to_arm, rotate
-from .ik import ArmKinematics, UnreachableError, grasp_offset
-from .self_collision import SelfCollisionChecker, joint_line
+from .floor_guard import FloorGuard, JawModel, SurfaceModel, arm_to_base_link, base_link_to_arm
 from .surfaces import Clearance, SurfaceRegion
 
 GraspParams = GraspSettings  # per-call grasp parameters: the configured defaults with overrides applied
@@ -779,6 +781,7 @@ class GraspPlanner:
         guard: FloorGuard,
         jaw: JawModel,
         body: SelfCollisionChecker | None = None,
+        head_source: Callable[[], HeadPose | None] | None = None,
     ) -> None:
         """Bind the planner to the arm model.
 
@@ -788,12 +791,15 @@ class GraspPlanner:
             guard (FloorGuard): Slow-zone evaluator for the annotations.
             jaw (JawModel): Jaw opening model.
             body (SelfCollisionChecker | None): Robot body check (the arm controller's); None builds one from config.
+            head_source (Callable[[], HeadPose | None] | None): Fresh measured head pose (the arm controller's): plan
+                samples are checked against the head posed there; None or a None pose = the full head envelope.
         """
         self.kin = kin
         self.cfg = config
         self.guard = guard
         self.jaw = jaw
-        self.body = body or SelfCollisionChecker.from_config(kin, config, jaw)
+        self.body = body or SelfCollisionChecker.from_settings(kin, config.body, config.body_check, config.arm, jaw)
+        self.head_source = head_source or (lambda: None)
 
     def body_problem(self, label: str, samples: list[dict[str, float]], escape: bool = False) -> str | None:
         """Robot body check of plan samples: a sample within body_check.hard_margin_m makes the candidate infeasible.
@@ -806,7 +812,7 @@ class GraspPlanner:
         Returns:
             str | None: 'body_collision:<obstacle>: ...' reason, or None (also when the check is disabled).
         """
-        report = self.body.path(samples, allow_escape=escape)
+        report = self.body.posed(self.head_source()).path(samples, allow_escape=escape)
         if not report.rejected:
             return None
         r = report.rejection()

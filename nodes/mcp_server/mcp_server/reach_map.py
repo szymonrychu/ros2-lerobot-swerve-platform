@@ -39,14 +39,14 @@ from typing import Any
 
 import numpy as np
 import yaml
+from arm_collision.ik import ArmKinematics
+from arm_collision.self_collision import SampleGeometry, SelfCollisionChecker
 
 import mcp_core_cpp
 
 from .arm_reach import POINT_PITCHES_DEG, SHOULDER_PAN, core_body, joint_range, reach_inputs
 from .config import REPO_ROOT, McpServerConfig, ReachMapSettings
 from .floor_guard import JawModel
-from .ik import ArmKinematics
-from .self_collision import SampleGeometry, SelfCollisionChecker
 
 REACH_MAP_VERSION = 1
 PLANAR_JOINTS = ("shoulder_lift", "elbow_flex", "wrist_flex")
@@ -151,7 +151,7 @@ def checker_from_config(config: McpServerConfig) -> SelfCollisionChecker:
         limit_overrides=config.arm.joint_limit_overrides_rad,
     )
     jaw = JawModel(kin, config.arm.jaw_open_axis, config.arm.gripper_closed_rad)
-    return SelfCollisionChecker.from_config(kin, config, jaw)
+    return SelfCollisionChecker.from_settings(kin, config.body, config.body_check, config.arm, jaw)
 
 
 def config_from_client_yml(path: Path) -> McpServerConfig:

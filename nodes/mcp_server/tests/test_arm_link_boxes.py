@@ -11,14 +11,15 @@ import xml.etree.ElementTree as ET
 
 import numpy as np
 import pytest
+from arm_collision.arm_geometry import BOX_POINT_SPACING_M, LINK_COLLISION_BOXES, box_surface_points
+from arm_collision.head import HeadPose
+from arm_collision.ik import ArmKinematics
+from arm_collision.self_collision import SelfCollisionChecker, joint_line
 
-from mcp_server.arm_geometry import BOX_POINT_SPACING_M, LINK_COLLISION_BOXES, box_surface_points
 from mcp_server.config import REPO_ROOT, BodyCheckSettings, McpServerConfig
 from mcp_server.floor_guard import JawModel
-from mcp_server.ik import ArmKinematics
-from mcp_server.self_collision import SelfCollisionChecker, joint_line
 
-CONFIG_HARD_MARGIN_M = 0.002
+CONFIG_HARD_MARGIN_M = 0.005
 MJCF = REPO_ROOT / "sim/grasp_sim/assets/so101/so101.xml"
 # MJCF body -> URDF link (the frames coincide: same origins and axes for the same raw joint angles).
 BODY_LINKS = {"upper_arm": "upper_arm_link", "lower_arm": "lower_arm_link", "wrist": "wrist_link"}
@@ -27,9 +28,15 @@ BODY_LINKS = {"upper_arm": "upper_arm_link", "lower_arm": "lower_arm_link", "wri
 CONTACT_ONLY = {"upper_arm_link": True, "lower_arm_link": False, "wrist_link": False}
 ALLOWANCE_M = {link: CONFIG_HARD_MARGIN_M if only else 0.0 for link, only in CONTACT_ONLY.items()}
 CONFIG = McpServerConfig()
+# The head at its config home (straight ahead, 30 deg down), as /head/joint_states reports it on the robot.
+HEAD_HOME = HeadPose(pan=CONFIG.head.home_pan_rad, tilt=CONFIG.head.home_tilt_rad)
 KIN = ArmKinematics(CONFIG.arm.urdf_path, margin=CONFIG.limits.arm_limit_margin_rad)
-CHECKER = SelfCollisionChecker.from_config(
-    KIN, CONFIG, JawModel(KIN, CONFIG.arm.jaw_open_axis, CONFIG.arm.gripper_closed_rad)
+CHECKER = SelfCollisionChecker.from_settings(
+    KIN,
+    CONFIG.body,
+    CONFIG.body_check,
+    CONFIG.arm,
+    JawModel(KIN, CONFIG.arm.jaw_open_axis, CONFIG.arm.gripper_closed_rad),
 )
 SURFACE_STEPS = 6  # samples per box edge (corners included)
 POSES = 300
@@ -42,7 +49,7 @@ UPPER_ARM_IN_DOME = {
     "wrist_flex": 0.0,
     "wrist_roll": 0.0,
 }
-# The upper arm box 23 mm from the dome edge (inside the soft margin by its distance, but contact-only): no slowdown.
+# The upper arm box 13 mm from the dome edge (inside a 3 cm slow band by its distance, but contact-only): no slowdown.
 UPPER_ARM_NEAR_DOME = {
     "shoulder_pan": -0.4,
     "shoulder_lift": -0.6,
@@ -166,14 +173,20 @@ def test_home_stays_clear_of_the_hard_margin_with_the_upper_arm_boxes() -> None:
 
 
 def test_the_upper_arm_boxes_never_slow_a_motion() -> None:
-    """With the upper arm box 23 mm from the dome edge there is no slowdown from it (contact only); the hard check
-    still sees it (the effective clearance is the box distance plus the hard margin)."""
+    """With the upper arm box 13 mm from the dome edge, inside a configured 3 cm slow band (the deployed keep-away
+    has none), there is no slowdown from it (contact only); the hard check still sees it (the effective clearance is
+    the box distance plus the hard margin). The head is measured at home (as on the robot): its full pan/tilt envelope
+    would slow this raised arm by itself."""
     near = UPPER_ARM_NEAR_DOME
-    report = CHECKER.path(joint_line(near, near | {"elbow_flex": 0.3}, 0.05))
+    slow_band = CONFIG.body_check.model_copy(update={"soft_margin_m": 0.03})
+    checker = SelfCollisionChecker.from_settings(
+        KIN, CONFIG.body, slow_band, CONFIG.arm, JawModel(KIN, CONFIG.arm.jaw_open_axis, CONFIG.arm.gripper_closed_rad)
+    ).posed(HEAD_HOME)
+    report = checker.path(joint_line(near, near | {"elbow_flex": 0.3}, 0.05))
     assert not report.rejected
     assert report.scales == [1.0] * len(report.scales)
-    assert CHECKER.pose(near).part == "upper arm"
-    assert CONFIG.body_check.hard_margin_m < CHECKER.pose(near).min_clearance < CONFIG.body_check.soft_margin_m
+    assert checker.pose(near).part == "upper arm"
+    assert slow_band.hard_margin_m < checker.pose(near).min_clearance < slow_band.soft_margin_m
 
 
 def test_box_point_spacing_cannot_hide_a_hard_margin_violation() -> None:

@@ -1,7 +1,7 @@
 # collision kernel family
 
-Arm self-collision and footprint kernels of mcp_server (`self_collision.py`, `body_model.py`,
-`footprint_geometry.py`). Only the kernels the profile (`../../bench/report.json`, threshold 5 ms on the dev Mac)
+Arm self-collision and footprint kernels of arm_collision (`self_collision.py`, `body_model.py`) and mcp_server
+(`footprint_geometry.py`). Only the kernels the profile (`../../bench/report.json`, threshold 5 ms on the dev Mac)
 ranks above threshold are ported; `tests/test_core_parity_collision.py` checks this table against the report.
 
 ## Kernels in the report

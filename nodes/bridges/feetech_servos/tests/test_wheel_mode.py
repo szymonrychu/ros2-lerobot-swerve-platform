@@ -3,8 +3,7 @@
 import math
 
 import pytest
-
-from feetech_servos.command_mapping import (
+from feetech_mapping.command_mapping import (
     SPEED_SIGN_BIT,
     STEP_CENTER,
     STEPS_PER_RADIAN,
@@ -15,6 +14,7 @@ from feetech_servos.command_mapping import (
     steps_to_radians,
     velocity_to_speed_register,
 )
+
 from feetech_servos.sync_read import PRESENT_POSITION_ADDRESS, ServoState, read_servo_states
 from feetech_servos.velocity_watchdog import expired_velocity_joints
 

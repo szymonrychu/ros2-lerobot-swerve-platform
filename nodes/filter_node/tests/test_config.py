@@ -3,6 +3,8 @@
 from pathlib import Path
 
 import pytest
+from arm_collision.settings import REPO_ROOT, ArmModelSettings, BodyCheckSettings
+from pydantic import ValidationError
 
 from filter_node.config import load_config, load_config_from_env
 
@@ -181,3 +183,120 @@ def test_idle_feedback_fallback_must_be_positive(tmp_path) -> None:
     path.write_text("follower_feedback_idle_fallback_s: 0\n")
     with pytest.raises(ValueError, match="fallback"):
         load_config(path)
+
+
+GUARD_BLOCK = """
+self_collision_guard:
+  enabled: true
+  max_step_rad: 0.03
+  hard_margin_m: 0.004
+  head_state_topic: /head/joint_states
+  head_state_max_age_s: 0.4
+  arm:
+    urdf_path: nodes/web_ui/urdf/so101_arm.urdf
+    arm_base_height_m: 0.1
+    base_in_base_link: {x: 0.0592, y: -0.05, z: 0.1, yaw: 0.0}
+    joint_offsets_rad: {shoulder_pan: 0.0182, elbow_flex: -0.107}
+    tool_offset_m: {x: 0.001, y: -0.0056, z: -0.0014}
+    joint_limit_overrides_rad: {shoulder_lift: [-1.745, 1.9]}
+"""
+
+
+def test_self_collision_guard_block_parses(tmp_path: Path) -> None:
+    """The self_collision_guard block parses into GuardSettings with the shared ArmModelSettings."""
+    path = tmp_path / "c.yaml"
+    path.write_text("algorithm: kalman\n" + GUARD_BLOCK)
+    guard = load_config(path).self_collision_guard
+    assert guard is not None and guard.enabled
+    assert guard.max_step_rad == pytest.approx(0.03)
+    assert guard.hard_margin_m == pytest.approx(0.004)
+    assert guard.head_state_topic == "/head/joint_states"
+    assert guard.head_state_max_age_s == pytest.approx(0.4)
+    assert isinstance(guard.arm, ArmModelSettings)
+    assert guard.arm.joint_offsets_rad.elbow_flex == pytest.approx(-0.107)
+    assert guard.arm.joint_limit_overrides_rad == {"shoulder_lift": (-1.745, 1.9)}
+    # urdf_path resolves against the repository root, as mcp_server's does
+    assert guard.arm.urdf_path == REPO_ROOT / "nodes" / "web_ui" / "urdf" / "so101_arm.urdf"
+    assert guard.arm.urdf_path.is_file()
+
+
+def test_self_collision_guard_defaults(tmp_path: Path) -> None:
+    """Only the arm block given: enabled, the shared 5 mm keep-away, the fresh head state of /head/joint_states."""
+    path = tmp_path / "c.yaml"
+    path.write_text("self_collision_guard:\n  arm: {}\n")
+    guard = load_config(path).self_collision_guard
+    assert guard is not None and guard.enabled
+    assert guard.hard_margin_m == BodyCheckSettings().hard_margin_m
+    assert guard.max_step_rad > 0
+    assert guard.head_state_topic == "/head/joint_states"
+    assert guard.head_state_max_age_s == pytest.approx(0.5)
+
+
+def test_missing_self_collision_guard_block_disables_the_guard(tmp_path: Path) -> None:
+    """No self_collision_guard block: no guard."""
+    path = tmp_path / "c.yaml"
+    path.write_text("algorithm: kalman\n")
+    assert load_config(path).self_collision_guard is None
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "self_collision_guard:\n  max_step_rad: 0\n  arm: {}\n",
+        "self_collision_guard:\n  max_step_rad: -0.1\n  arm: {}\n",
+        "self_collision_guard:\n  hard_margin_m: -0.001\n  arm: {}\n",
+        "self_collision_guard:\n  arm: {}\n  typo_key: 1\n",
+        "self_collision_guard:\n  arm: {joint_offsets_rad: {gripper: 0.1}}\n",
+        "self_collision_guard:\n  arm: {}\n  head_state_max_age_s: 0\n",
+    ],
+    ids=["zero_step", "negative_step", "negative_margin", "unknown_key", "unknown_arm_joint", "zero_head_age"],
+)
+def test_bad_self_collision_guard_values_raise(tmp_path: Path, bad: str) -> None:
+    """Bad guard values fail loudly at load."""
+    path = tmp_path / "c.yaml"
+    path.write_text(bad)
+    with pytest.raises(ValidationError):
+        load_config(path)
+
+
+def test_leader_gripper_block_parses_and_defaults_off(tmp_path: Path) -> None:
+    """leader_gripper carries the bridge's gripper range mapping; without it leader commands are checked as sent."""
+    path = tmp_path / "c.yaml"
+    path.write_text("self_collision_guard:\n  arm: {}\n")
+    assert load_config(path).self_collision_guard.leader_gripper is None
+    path.write_text(
+        "self_collision_guard:\n  arm: {}\n  leader_gripper:\n    source_min_steps: 2045\n    source_max_steps: 3289\n"
+        "    command_min_steps: 1900\n    command_max_steps: 3377\n"
+    )
+    gripper = load_config(path).self_collision_guard.leader_gripper
+    assert (gripper.joint, gripper.source_min_steps, gripper.source_max_steps) == ("gripper", 2045, 3289)
+    assert (gripper.command_min_steps, gripper.command_max_steps) == (1900, 3377)
+    assert not gripper.source_inverted and not gripper.inverted
+
+
+@pytest.mark.parametrize(
+    "ranges",
+    [
+        "source_min_steps: 3289\n    source_max_steps: 2045\n    command_min_steps: 1900\n    command_max_steps: 3377",
+        "source_min_steps: 2045\n    source_max_steps: 3289\n    command_min_steps: 3377\n    command_max_steps: 3377",
+        "source_min_steps: 2045\n    source_max_steps: 4096\n    command_min_steps: 1900\n    command_max_steps: 3377",
+        "source_min_steps: 2045\n    source_max_steps: 3289\n    command_min_steps: 1900",
+    ],
+    ids=["source_reversed", "command_empty", "out_of_range", "command_max_missing"],
+)
+def test_bad_leader_gripper_ranges_raise(tmp_path: Path, ranges: str) -> None:
+    """Both ranges are required, within 0..4095 and min below max."""
+    path = tmp_path / "c.yaml"
+    path.write_text(f"self_collision_guard:\n  arm: {{}}\n  leader_gripper:\n    {ranges}\n")
+    with pytest.raises(ValidationError):
+        load_config(path)
+
+
+def test_load_config_guard_state_topic_default_and_explicit(tmp_path: Path) -> None:
+    p = tmp_path / "c.yaml"
+    p.write_text("algorithm: kalman\n")
+    cfg = load_config(p)
+    assert cfg is not None and cfg.guard_state_topic == "/filter/guard_state"
+    p.write_text("algorithm: kalman\nguard_state_topic: /x/guard\n")
+    cfg = load_config(p)
+    assert cfg is not None and cfg.guard_state_topic == "/x/guard"

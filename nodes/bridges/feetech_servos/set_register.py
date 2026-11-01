@@ -12,6 +12,8 @@ TORQUE_ENABLE_REGISTER = "torque_enable"
 TORQUE_ENABLE_VALUES = (0, 1)
 # RAM registers that move a servo or turn torque on; refused for a released servo ("acc" is the STS name for acceleration).
 RELEASED_BLOCKED_REGISTERS = frozenset({"goal_position", "goal_speed", "goal_time", "acceleration", "acc"})
+# Registers that command a motion target; refused for every joint when the bridge has set_register_motion_blocked.
+MOTION_REGISTERS = frozenset({"goal_position", "goal_speed", "goal_time"})
 
 
 def apply_set_register(
@@ -29,7 +31,7 @@ def apply_set_register(
 
     Args:
         servo (Any): ST3215 bus, or None when no bus is open.
-        config (BridgeConfig): Bridge config (joint name -> servo id lookup).
+        config (BridgeConfig): Bridge config (joint name -> servo id lookup, set_register_motion_blocked).
         last_written (dict[int, dict[str, int]]): servo_id -> register cache shared with write_register.
         payload (str): JSON text with joint_name (or joint), register (or register_name) and value.
         warn (Callable[[str], None]): Receives a human-readable message for each failure.
@@ -78,6 +80,8 @@ def apply_set_register(
         return fail("bad_value", f"{reg_name}={value} outside 0..{max_value}")
     if reg_name == TORQUE_ENABLE_REGISTER and value not in TORQUE_ENABLE_VALUES:
         return fail("bad_value", f"torque_enable must be 0 or 1, got {value}")
+    if config.set_register_motion_blocked and reg_name in MOTION_REGISTERS:
+        return fail("motion_blocked", f"{reg_name} is blocked on this bridge (arm commands go through the guard)")
     if sid in released_ids and (
         reg_name in RELEASED_BLOCKED_REGISTERS or (reg_name == TORQUE_ENABLE_REGISTER and value == 1)
     ):

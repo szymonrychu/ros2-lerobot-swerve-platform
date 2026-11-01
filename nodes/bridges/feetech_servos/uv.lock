@@ -12,10 +12,16 @@ wheels = [
 ]
 
 [[package]]
+name = "feetech-mapping"
+version = "0.1.0"
+source = { editable = "../../../shared/feetech_mapping" }
+
+[[package]]
 name = "feetech-servos"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "feetech-mapping" },
     { name = "numpy" },
     { name = "pyyaml" },
     { name = "ros2-metrics" },
@@ -32,6 +38,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "feetech-mapping", editable = "../../../shared/feetech_mapping" },
     { name = "numpy", specifier = ">=1.26.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "ros2-metrics", editable = "../../../shared/ros2_metrics" },

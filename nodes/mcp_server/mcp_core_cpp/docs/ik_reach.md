@@ -1,6 +1,6 @@
 # ik_reach kernel family
 
-Kernels of `mcp_server.ik`, `arm_reach`, `reach_map`, `arm_geometry` and `sag`, as ranked by the bench
+Kernels of `arm_collision.ik`, `arm_reach`, `reach_map`, `arm_geometry` and `sag`, as ranked by the bench
 (`../../bench/report.json`, dev Mac, threshold 5 ms). Only the kernels above the threshold are ported; the C++ lives in
 `../src/ik_reach/` and is registered by `register_ik_reach` as `mcp_core_cpp.ik_reach`.
 

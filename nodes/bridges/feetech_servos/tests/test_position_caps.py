@@ -3,9 +3,9 @@
 from pathlib import Path
 
 import pytest
+from feetech_mapping.command_mapping import acceleration_cap_register, speed_cap_register
 
 from feetech_servos.bridge_cycle import BridgeCycle, PendingTarget
-from feetech_servos.command_mapping import acceleration_cap_register, speed_cap_register
 from feetech_servos.config import JointEntry, load_config
 from feetech_servos.registers import STS_ACC, get_register_entry_by_name
 from feetech_servos.sync_write import sync_write_block

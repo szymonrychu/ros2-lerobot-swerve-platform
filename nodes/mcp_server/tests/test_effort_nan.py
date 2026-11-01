@@ -14,13 +14,13 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
 import pytest
+from arm_collision.ik import ArmKinematics, load_joint_limits
 
 from mcp_server.arm import ArmController, finite_effort
 from mcp_server.config import McpServerConfig
 from mcp_server.grasp import grasp_params
 from mcp_server.grasp_tools import GraspExecutor
 from mcp_server.grip import resolve_grip_profile
-from mcp_server.ik import ArmKinematics, load_joint_limits
 from mcp_server.models import ArmMotionResult
 from mcp_server.motion_queue import LiveState, Precondition, evaluate_precondition, read_live_state, state_digest
 

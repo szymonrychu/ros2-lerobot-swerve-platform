@@ -7,6 +7,8 @@ import math
 import cv2
 import numpy as np
 import pytest
+from arm_collision.ik import ArmKinematics
+from arm_collision.jaw import jaw_points, tool_point_in_base
 from ros2_common.camera_geometry import CameraIntrinsics, project_point_to_pixel
 from ros2_common.head_rgbd_calibration.arm_pose_check import D435_MIN_Z_M
 
@@ -14,8 +16,7 @@ from mcp_server.camera_scene import Scene, build_scene, camera_setup, head_paren
 from mcp_server.config import GraspCheckSettings, McpServerConfig
 from mcp_server.floor_guard import GRIPPER_LINK, TOOL_FRAME_LINK, JawModel
 from mcp_server.head_kinematics import CAMERA_FRAME, HeadKinematics
-from mcp_server.ik import ArmKinematics
-from mcp_server.jaw_crop import JawCropError, crop_jpeg, jaw_crop, jaw_points, tool_point_in_base
+from mcp_server.jaw_crop import JawCropError, crop_jpeg, jaw_crop
 
 from .camera_helpers import fresh_head
 from .test_camera_scene_head import InfoSource
@@ -219,11 +220,11 @@ def test_self_collision_fixed_points_reuse_jaw_points(
     cfg: McpServerConfig, kin: ArmKinematics, jaw: JawModel, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """SelfCollisionChecker.fixed_points takes its jaw points from jaw_crop.jaw_points (one definition)."""
-    from mcp_server import self_collision
+    from arm_collision import self_collision
 
     marker = {name: np.full(3, float(i)) for i, name in enumerate(("jaw_tip", "tool_point", "moving_jaw_tip"))}
     monkeypatch.setattr(self_collision, "jaw_points", lambda *args, **kwargs: marker)
-    checker = self_collision.SelfCollisionChecker.from_config(kin, cfg, jaw)
+    checker = self_collision.SelfCollisionChecker.from_settings(kin, cfg.body, cfg.body_check, cfg.arm, jaw)
     out = checker.fixed_points(kin.link_frames(JOINTS), JOINTS)
     for name, point in marker.items():
         np.testing.assert_allclose(out[name], checker.to_base_link(point[None, :]))

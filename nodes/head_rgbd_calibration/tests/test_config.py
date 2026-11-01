@@ -28,10 +28,14 @@ RETIRED_LIMIT_KEYS = {
     "tof_zero_distortion_rms_px": 0.3,
 }
 
+# The pose check body is not written in any config: its default loads shared/arm_collision robot_body.yaml (the one
+# body definition), so the key-for-key comparisons leave it out.
+LOADED_BODY = {"arm_sequence": {"pose_check": {"body"}}}
+
 
 def test_defaults_equal_shipped_yaml() -> None:
     assert load_config(SHIPPED) == NodeConfig()
-    assert yaml.safe_load(SHIPPED.read_text()) == NodeConfig().model_dump(mode="json")
+    assert yaml.safe_load(SHIPPED.read_text()) == NodeConfig().model_dump(mode="json", exclude=LOADED_BODY)
 
 
 def client_block() -> dict:
@@ -43,7 +47,7 @@ def client_block() -> dict:
 def test_client_block_equals_the_defaults() -> None:
     """The deployed config block shows every key at its default, key for key."""
     block = client_block()
-    assert block == NodeConfig().model_dump(mode="json")
+    assert block == NodeConfig().model_dump(mode="json", exclude=LOADED_BODY)
     assert NodeConfig.model_validate(block) == NodeConfig()
 
 
@@ -108,7 +112,7 @@ def test_tof_keys_are_rejected(data: dict) -> None:
 def test_client_yml_arm_sequence_and_board_mount_equal_defaults() -> None:
     """The deployed config block carries the shipped arm sequence and the nominal board mount, key for key."""
     block = client_block()
-    defaults = NodeConfig().model_dump(mode="json")
+    defaults = NodeConfig().model_dump(mode="json", exclude=LOADED_BODY)
     assert block["arm_sequence"] == defaults["arm_sequence"]
     assert block["fit"]["board_mount"] == defaults["fit"]["board_mount"]
     deployed = NodeConfig.model_validate(block)
@@ -275,8 +279,8 @@ def test_arm_sequence_defaults() -> None:
 
 def test_arm_sequence_board_margin() -> None:
     seq = NodeConfig().arm_sequence
-    assert seq.board_margin_m(nominal_mount=True) == pytest.approx(0.03 + 0.05)
-    assert seq.board_margin_m(nominal_mount=False) == pytest.approx(0.03)
+    assert seq.board_margin_m(nominal_mount=True) == pytest.approx(0.005 + 0.05)
+    assert seq.board_margin_m(nominal_mount=False) == pytest.approx(0.005)
 
 
 @pytest.mark.parametrize("speed", [0.0, -0.1, 0.31])

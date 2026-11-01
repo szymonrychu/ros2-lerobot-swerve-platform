@@ -4,10 +4,10 @@ import math
 
 import numpy as np
 import pytest
+from arm_collision.ik import ARM_CHAIN_JOINTS, ArmKinematics, UnreachableError, grasp_offset, load_joint_limits
 
 from bench import inputs
 from mcp_server.config import McpServerConfig
-from mcp_server.ik import ARM_CHAIN_JOINTS, ArmKinematics, UnreachableError, grasp_offset, load_joint_limits
 
 URDF = McpServerConfig().arm.urdf_path
 MARGIN = 0.05

@@ -347,13 +347,18 @@ def test_safe_under_board_mount_uncertainty(head_name: str) -> None:
 
 
 def test_safety_check_refuses_a_pose_the_tier_rules_allow() -> None:
-    """The tier bounds alone do not make a pose safe: shoulder_pan at +max_big_delta_rad swings the upper arm over
-    the right frame rail, which the safety test catches."""
-    pose = {**SEQ.base_pose, "shoulder_pan": SEQ.base_pose["shoulder_pan"] + SEQ.max_big_delta_rad}
+    """The tier bounds alone do not make a pose safe: shoulder_lift and elbow_flex both at +max_big_delta_rad lower
+    the board below the floor, which the safety test catches. (At the 5 mm body keep-away no tier-2 corner reaches
+    a body part: the pan swing that once came within 30 mm of the right frame rail now passes.)"""
+    pose = {
+        **SEQ.base_pose,
+        "shoulder_lift": SEQ.base_pose["shoulder_lift"] + SEQ.max_big_delta_rad,
+        "elbow_flex": SEQ.base_pose["elbow_flex"] + SEQ.max_big_delta_rad,
+    }
     ArmSequenceConfig.model_validate({**SEQ.model_dump(), "tier2_poses": [*SEQ.tier2_poses, pose]})
     _, checker = next(checkers(SHIPPED_HEAD, [("nominal", FIT.board_mount)]))
     entries = checker.check_pose(pose, SEQ.gripper_rad, rolling=False)
-    assert any(e.startswith("link_clearance: upper arm to frame_right") for e in entries), entries
+    assert any(e.startswith("min_board_height_m") for e in entries), entries
 
 
 def test_measured_mount_refuses_a_low_pose_rolled_toward_the_floor() -> None:
@@ -372,16 +377,19 @@ def test_measured_mount_refuses_a_low_pose_rolled_toward_the_floor() -> None:
 def test_tier2_shoulder_pan_stays_in_the_clear_band() -> None:
     """At margin_m 0.03 the upper arm comes within 30 mm of frame_right above pan ~0.25 rad and the lidar and head
     envelope below pan ~-0.5, so every shipped shoulder_pan stays inside [-0.5, 0.2] and the base pan keeps the
-    +-max_big_delta_rad tier-2 swing from reaching either edge."""
+    +-max_big_delta_rad tier-2 swing from reaching either edge. The shipped 5 mm margin is smaller: the band stays
+    clear."""
     pans = [pose["shoulder_pan"] for pose in [SEQ.base_pose, *SEQ.tier2_poses]]
-    assert SEQ.pose_check.margin_m >= 0.03
+    assert SEQ.pose_check.margin_m <= 0.03
     assert -0.5 <= min(pans) and max(pans) <= 0.2, pans
 
 
 def test_base_pose_puts_the_board_in_front_of_the_head() -> None:
-    body = SEQ.pose_check.body
-    body_front = max([box.center[0] + box.size[0] / 2 for box in body.boxes] + [c.x + c.radius for c in body.cylinders])
-    body_top = max([box.center[2] + box.size[2] / 2 for box in body.boxes] + [c.z_max for c in body.cylinders])
+    # The floor-level body (the head post, head arm and head envelope stand above it; the board is checked ahead of the head envelope below).
+    boxes = [b for b in SEQ.pose_check.body.boxes if not b.name.startswith("head")]
+    cylinders = [c for c in SEQ.pose_check.body.cylinders if not c.name.startswith("head")]
+    body_front = max([box.center[0] + box.size[0] / 2 for box in boxes] + [c.x + c.radius for c in cylinders])
+    body_top = max([box.center[2] + box.size[2] / 2 for box in boxes] + [c.z_max for c in cylinders])
     for head_name, head_urdf in HEADS.items():
         checker = PoseChecker(ARM_URDF, head_urdf, FIT, SEQ.pose_check)
         board = checker.board_points(SEQ.base_pose)

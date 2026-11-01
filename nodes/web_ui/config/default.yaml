@@ -120,6 +120,8 @@ tabs:
     arm_set_drive_pose_service: /arm/set_drive_pose
     arm_drive_pose_enable_service: /arm/drive_pose/enable
     drive_pose_state_topic: /arm/drive_pose/state
+    # filter_node self-collision guard state (latched JSON): the arm tab shows "Blocked by <obstacle>".
+    guard_state_topic: /filter/guard_state
 
   # Head tab: the RealSense D435 on the pan/tilt head (realsense_d435, live topics pinned in
   # nodes/bridges/realsense_d435/config/topics.yaml): colour plus a greyscale preview of its 16UC1 mm depth.

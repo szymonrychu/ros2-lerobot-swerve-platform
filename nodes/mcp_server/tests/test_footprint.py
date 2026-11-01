@@ -14,6 +14,8 @@ from typing import Any
 import numpy as np
 import pytest
 import yaml
+from arm_collision.ik import ArmKinematics, load_joint_limits
+from arm_collision.settings import footprint_body
 from mcp.server.mcpserver.exceptions import ToolError
 from shapely.geometry import Point, Polygon
 
@@ -40,7 +42,6 @@ from mcp_server.footprint_geometry import (
     to_points,
     union_outline,
 )
-from mcp_server.ik import ArmKinematics, load_joint_limits
 from mcp_server.tools import build_mcp_server
 
 from .test_tools import TOKEN, FakeRobot, call
@@ -843,13 +844,12 @@ def test_circumscribed_radius_follows_the_published_footprint(tmp_path: Path) ->
 
 
 def outline_points() -> list[tuple[float, float]]:
-    """The deployed body outline (H shape, no parked arm) as written points."""
+    """The deployed body outline (floor-level H shape, no head, no parked arm) as written points."""
     cfg = deployed_config()
     nav = cfg.nav_footprint
     assert nav is not None
-    return to_points(
-        body_outline(cfg.body.boxes, cfg.body.cylinders, nav.circle_segments, nav.close_gap_m), nav.decimals
-    )
+    floor = footprint_body(cfg.body)
+    return to_points(body_outline(floor.boxes, floor.cylinders, nav.circle_segments, nav.close_gap_m), nav.decimals)
 
 
 def test_shrink_polygon_is_a_simple_ccw_polygon_inside_the_input() -> None:
@@ -913,7 +913,8 @@ def test_drive_outline_is_the_body_and_the_drive_shadow_inside_the_static_one(tm
     robot = footprint_robot(tmp_path)
     cfg = settings()
     nav = nav_for(robot)
-    body = body_outline(robot.arm.cfg.body.boxes, robot.arm.cfg.body.cylinders, cfg.circle_segments, cfg.close_gap_m)
+    floor = footprint_body(robot.arm.cfg.body)
+    body = body_outline(floor.boxes, floor.cylinders, cfg.circle_segments, cfg.close_gap_m)
     drive = union_outline(body, Polygon(cfg.drive_arm_shadow))
     assert nav.drive_points == to_points(drive, cfg.decimals)
     assert Polygon(nav.static_points).buffer(2 * cfg.simplify_m).contains(Polygon(nav.drive_points))

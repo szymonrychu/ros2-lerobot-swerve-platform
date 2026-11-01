@@ -19,7 +19,7 @@ from pathlib import Path
 
 import yaml
 from mcp_server.config import McpServerConfig
-from mcp_server.ik import ArmKinematics
+from arm_collision.ik import ArmKinematics
 from mcp_server.sag import (
     APPROACH_LIFTING,
     APPROACH_LOWERING,

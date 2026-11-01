@@ -12,7 +12,7 @@ from collections.abc import Callable, Collection, Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from .command_mapping import (
+from feetech_mapping.command_mapping import (
     acceleration_cap_register,
     is_finite_command,
     map_position_to_steps,
@@ -20,6 +20,7 @@ from .command_mapping import (
     speed_cap_register,
     velocity_to_speed_register,
 )
+
 from .config import DEFAULT_GOAL_REFRESH_INTERVAL_S, JointEntry, JointGroup
 from .metrics import COMMANDS, CYCLE_DURATION
 from .registers import STS_ACC, RegisterEntry, write_register

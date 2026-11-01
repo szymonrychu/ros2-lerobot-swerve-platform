@@ -4,10 +4,10 @@ import math
 from pathlib import Path
 
 import pytest
+from arm_collision.ik import ArmKinematics, UnreachableError, load_joint_limits
 
 from mcp_server.arm import ArmController, ArmError
 from mcp_server.config import McpServerConfig
-from mcp_server.ik import ArmKinematics, UnreachableError, load_joint_limits
 
 from .fakes import FakeArmBackend
 

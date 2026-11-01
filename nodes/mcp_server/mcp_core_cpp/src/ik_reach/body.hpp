@@ -1,7 +1,8 @@
-// Body clearance of arm configurations for the reach kernels: the convex body obstacles of mcp_server/body_model.py
+// Body clearance of arm configurations for the reach kernels: the convex body obstacles of arm_collision/body_model.py
 // (exact point signed distances, golden-section capsule search) and the pruned clearance pass of
-// SelfCollisionChecker.bounded_clearances (mcp_server/self_collision.py) over the checked parts: three link capsules,
-// the link collision box face points and gripper hull points in blocks with bounding spheres, and the three jaw points.
+// SelfCollisionChecker.bounded_clearances (arm_collision/self_collision.py) over the checked parts: three link
+// capsules, the link collision box face points and gripper hull points in blocks with bounding spheres, and the three
+// jaw points.
 #pragma once
 
 #include <array>

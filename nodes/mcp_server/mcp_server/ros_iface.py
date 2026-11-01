@@ -18,6 +18,8 @@ import numpy as np
 import rclpy
 from action_msgs.msg import GoalStatus, GoalStatusArray
 from action_msgs.srv import CancelGoal
+from arm_collision.head import head_pose
+from arm_collision.ik import ArmKinematics, load_joint_limits
 from geometry_msgs.msg import Point32, PolygonStamped, PoseStamped, Twist
 from geometry_msgs.msg import Polygon as PolygonMsg
 from nav2_msgs.action import ComputePathToPose, DockRobot, NavigateToPose
@@ -76,7 +78,6 @@ from .frontiers import MapGrid
 from .geometry import compose_relative, integrate_twist, quaternion_from_yaw, relative_pose, yaw_from_quaternion
 from .grasp_tools import GraspService
 from .head import HEAD_FRAME_ID, AppliedHeadKinematics, HeadController, HeadHistory
-from .ik import ArmKinematics, load_joint_limits
 from .look_around import check_clearance, escape_translation, nearest_inside, read_sectors, required_clearance_m
 from .map3d import cloud_from_message
 from .map_client import MapRequests
@@ -920,6 +921,7 @@ class RosRobot:
             self.monitor,
             tilt_source=lambda: monitor_tilt_sample(self.monitor.imu),
             ground_source=lambda: self.ground_state(max_age_s=None),
+            head_source=lambda: head_pose(self.head.measured()),
         )
         self.monitor.lease_held = lambda: self.arm.control_held
         # Web-UI grasp actions (JSON in on grasp_command, JSON out on grasp_result); 'stop' answers at once, the

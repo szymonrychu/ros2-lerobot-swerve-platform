@@ -1,0 +1,30 @@
+# Robot body the arm must not hit: the one body definition (settings.load_robot_body) for every node that checks the
+# arm against the body (mcp_server, filter_node). base_link metres (x forward, y left, z up from the floor).
+#
+# Seen from above the robot is an H: two side frames above the wheels, the crossbar between them (the arm base and the
+# lidar stand on it; the arm base/shoulder link is not checked), the wheels as their steering envelopes (vertical
+# cylinders around the steer axes, they steer) and the lidar column up to the dome top.
+# Measured 2026-10-10: lidar dome diameter 74 mm (radius 37 mm) centred at (0.150, 0.040), top face 210 mm; wheels and
+# side bars 35 mm wide (wheel envelope = half-diagonal of the 120 x 35 mm wheel, 62.5 mm); side bar top ~180 mm. Still
+# assumed (nodes/mcp_server/README.md "Body collision", "How to measure"): wheel line from swerve half_length/half_width
+# 0.1525/0.1333, side bar bottom 120 mm, crossbar extent and height (it spans to the side bars' inner faces), lidar
+# column bottom 100 mm.
+# Wheels reach 3 cm above the 120 mm wheel top (z_max 0.15, user decision 2026-11-01): the arm keeps off the tyres.
+# Head (nodes/web_ui/urdf/head.urdf): the post (a 12 mm radius column at (0.09, 0.10) up to 0.30 m), its horizontal arm
+# at z 0.30 forward to the pan base, and the tight head envelope about the pan axis: the cylinder holding the pan base,
+# the pan and head links and the 90 x 25 x 25 mm D435 at every pan/tilt inside the URDF limits (pan +-90 deg, tilt -30
+# to +45 deg, the head_aim_cpp command range), rounded outwards to 1 mm (test_head_envelope_body.py). Below the pan
+# base (z 0.287) only the post is body. The nav footprint leaves the head out (settings.footprint_body).
+boxes:
+  - {name: frame_left, center: [0.0, 0.1333, 0.15], size: [0.425, 0.035, 0.06]}
+  - {name: frame_right, center: [0.0, -0.1333, 0.15], size: [0.425, 0.035, 0.06]}
+  - {name: crossbar, center: [-0.025, 0.0, 0.08], size: [0.25, 0.2316, 0.04]}
+  - {name: head_arm, center: [0.12, 0.10, 0.30], size: [0.08, 0.024, 0.024]}
+cylinders:
+  - {name: wheel_fl, x: 0.1525, y: 0.1333, radius: 0.0625, z_min: 0.0, z_max: 0.15}
+  - {name: wheel_fr, x: 0.1525, y: -0.1333, radius: 0.0625, z_min: 0.0, z_max: 0.15}
+  - {name: wheel_rl, x: -0.1525, y: 0.1333, radius: 0.0625, z_min: 0.0, z_max: 0.15}
+  - {name: wheel_rr, x: -0.1525, y: -0.1333, radius: 0.0625, z_min: 0.0, z_max: 0.15}
+  - {name: lidar, x: 0.150, y: 0.040, radius: 0.037, z_min: 0.10, z_max: 0.21}
+  - {name: head_post, x: 0.09, y: 0.10, radius: 0.012, z_min: 0.0, z_max: 0.30}
+  - {name: head, x: 0.15, y: 0.10, radius: 0.075, z_min: 0.287, z_max: 0.396}

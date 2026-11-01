@@ -50,10 +50,10 @@ from .arm_geometry import (
     box_surface_points,
 )
 from .body_model import BodyModel, BoxObstacle, CylinderObstacle, Obstacle
-from .config import ArmBaseOffset, BodyCheckSettings, McpServerConfig
-from .floor_guard import GRIPPER_LINK, JawModel, yaw_matrix
+from .head import HEAD_OBSTACLE, HeadModel, HeadPose
 from .ik import ArmKinematics
-from .jaw_crop import jaw_points
+from .jaw import GRIPPER_LINK, JawModel, jaw_points, yaw_matrix
+from .settings import ArmBaseOffset, ArmModelSettings, BodyCheckSettings, BodySettings
 
 CAPSULES = (UPPER_ARM_CAPSULE, FOREARM_CAPSULE, WRIST_CAPSULE)
 CHECKED_PARTS = (*(c[0] for c in CAPSULES), GRIPPER_BODY, *JAW_POINTS)
@@ -508,6 +508,7 @@ class SelfCollisionChecker:
         mount: ArmBaseOffset,
         jaw: JawModel,
         gripper_joint: str = "gripper",
+        head: HeadModel | None = None,
     ) -> None:
         """Bind the checker to the arm model and the body.
 
@@ -518,6 +519,7 @@ class SelfCollisionChecker:
             mount (ArmBaseOffset): Arm base pose in base_link.
             jaw (JawModel): Moving jaw model.
             gripper_joint (str): Gripper joint name in the samples (closed when missing).
+            head (HeadModel | None): Head kinematics that pose the head obstacle (posed); None = never posed.
         """
         self.kin = kin
         self.body = body
@@ -525,6 +527,9 @@ class SelfCollisionChecker:
         self.mount = mount
         self.jaw = jaw
         self.gripper = gripper_joint
+        self.head = head
+        # The last posed checker (posed): (head pose, checker) of the most recent head pose asked for.
+        self.last_posed: tuple[HeadPose, SelfCollisionChecker] | None = None
         self.rotation = yaw_matrix(mount.yaw)
         self.offset = np.array([mount.x, mount.y, mount.z])
         # The C++ kernels (path, pose, closest, clear_of and the clearance matrices run in it).
@@ -534,21 +539,53 @@ class SelfCollisionChecker:
         self.distance_counts: Counter[str] = Counter()
 
     @classmethod
-    def from_config(cls, kin: ArmKinematics, config: McpServerConfig, jaw: JawModel) -> "SelfCollisionChecker":
-        """Checker from the node config (body, body_check, arm mount; no mount = straight above base_link at the mount
+    def from_settings(
+        cls,
+        kin: ArmKinematics,
+        body: BodySettings,
+        check: BodyCheckSettings,
+        arm: ArmModelSettings,
+        jaw: JawModel,
+    ) -> "SelfCollisionChecker":
+        """Checker from the settings (body, body check, arm mount; no mount = straight above base_link at the mount
         height, as the floor guard assumes).
 
         Args:
             kin (ArmKinematics): Kinematics.
-            config (McpServerConfig): Node configuration.
+            body (BodySettings): Body obstacles.
+            check (BodyCheckSettings): Margins, slow scale, enabled.
+            arm (ArmModelSettings): Arm mount, mount height and gripper joint.
             jaw (JawModel): Jaw model.
 
         Returns:
             SelfCollisionChecker: The checker.
         """
-        mount = config.arm.base_in_base_link or ArmBaseOffset(z=config.arm.arm_base_height_m)
-        body = BodyModel.from_settings(config.body)
-        return cls(kin, body, config.body_check, mount, jaw, config.arm.gripper_joint)
+        mount = arm.base_in_base_link or ArmBaseOffset(z=arm.arm_base_height_m)
+        return cls(kin, BodyModel.from_settings(body), check, mount, jaw, arm.gripper_joint, HeadModel.from_urdf())
+
+    def posed(self, head: HeadPose | None) -> "SelfCollisionChecker":
+        """The checker of the body with the head at a measured pose: the full envelope obstacle (HEAD_OBSTACLE)
+        replaced by the posed head parts (head.HeadModel.parts, head.posed_body). No pose, no head model or no head
+        obstacle in the body returns this checker (the full envelope, fail closed). The last posed checker is reused
+        for the same pose.
+
+        Args:
+            head (HeadPose | None): Fresh measured head pose (head.head_pose), None when missing or stale.
+
+        Returns:
+            SelfCollisionChecker: Checker of the posed body (no head model of its own: it is never posed again).
+        """
+        if head is None or self.head is None or HEAD_OBSTACLE not in [o.name for o in self.body.obstacles]:
+            return self
+        last = self.last_posed
+        if last is not None and last[0] == head:
+            return last[1]
+        boxes, cylinders = self.head.parts(head)
+        parts = BodyModel.from_settings(BodySettings(boxes=boxes, cylinders=cylinders)).obstacles
+        body = BodyModel([o for o in self.body.obstacles if o.name != HEAD_OBSTACLE] + parts)
+        checker = SelfCollisionChecker(self.kin, body, self.settings, self.mount, self.jaw, self.gripper)
+        self.last_posed = (head, checker)
+        return checker
 
     def to_base_link(self, points: np.ndarray) -> np.ndarray:
         """Arm-frame points (..., 3) -> base_link (element by element, see rigid).

@@ -1,4 +1,4 @@
-// SO101 arm kinematics of mcp_server.ik.ArmKinematics in C++: forward kinematics of the ikpy chain and the IK
+// SO101 arm kinematics of arm_collision.ik.ArmKinematics in C++: forward kinematics of the ikpy chain and the IK
 // (inverse / inverse_flange with the same seeds, heading refinement, acceptance tests and solution cache), solved by
 // trf.hpp, a port of the scipy least_squares 'trf' method ikpy calls.
 #pragma once
@@ -31,7 +31,7 @@ constexpr int ELBOW_FLEX = 2;
 using LinkVector = std::array<double, MAX_LINKS>;
 using Frames = std::array<Mat4, MAX_LINKS>;
 
-// Constants of mcp_server/ik.py.
+// Constants of arm_collision/ik.py.
 constexpr double POSITION_TOLERANCE_M = 0.002;
 constexpr double PITCH_TOLERANCE_DEG = 3.0;
 constexpr int HEADING_REFINEMENTS = 6;

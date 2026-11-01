@@ -10,13 +10,13 @@ import math
 
 import cv2
 import numpy as np
+from arm_collision.ik import ArmKinematics
+from arm_collision.jaw import GRIPPER_LINK, JawModel, jaw_points
 from ros2_common.head_rgbd_calibration.arm_pose_check import D435_MIN_Z_M
 
 from .camera_overlay import MAX_PROJECTED_PX, MIN_DEPTH, project_points
-from .camera_scene import Scene, offset_matrix, transform_point
-from .config import ArmBaseOffset, GraspCheckSettings
-from .floor_guard import GRIPPER_LINK, TOOL_FRAME_LINK, JawModel
-from .ik import ArmKinematics
+from .camera_scene import Scene
+from .config import GraspCheckSettings
 
 JPEG_QUALITY = 85
 NO_ARM_MOUNT = "arm.base_in_base_link is not configured: the jaws cannot be placed in the head camera"
@@ -25,46 +25,6 @@ OUTSIDE_IMAGE = "the jaw is outside the head camera image"
 
 class JawCropError(ValueError):
     """The jaw region cannot be cropped from the head image; the message is the reason (the full frame is used)."""
-
-
-def jaw_points(
-    kin: ArmKinematics, jaw: JawModel, frames: dict[str, np.ndarray], gripper_angle: float
-) -> dict[str, np.ndarray]:
-    """Jaw points in the arm base frame: the one definition shared by self_collision and the jaw crop.
-
-    Args:
-        kin (ArmKinematics): Arm kinematics on the URDF (tool_offset).
-        jaw (JawModel): Moving jaw geometry.
-        frames (dict[str, np.ndarray]): kin.link_frames(joints).
-        gripper_angle (float): Measured gripper angle (rad); it moves the moving jaw tip.
-
-    Returns:
-        dict[str, np.ndarray]: 'jaw_tip', 'tool_point' and 'moving_jaw_tip' -> (3,) positions.
-    """
-    tool = frames[TOOL_FRAME_LINK]
-    return {
-        "jaw_tip": tool[:3, 3],
-        "tool_point": tool[:3, :3] @ kin.tool_offset + tool[:3, 3],
-        "moving_jaw_tip": jaw.moving_tip(frames[GRIPPER_LINK], gripper_angle),
-    }
-
-
-def tool_point_in_base(
-    kin: ArmKinematics, jaw: JawModel, joints: dict[str, float], offset: ArmBaseOffset
-) -> np.ndarray:
-    """FK tool point in base_link (the point the head aims the head camera at for the grasp image).
-
-    Args:
-        kin (ArmKinematics): Arm kinematics on the URDF.
-        jaw (JawModel): Moving jaw geometry.
-        joints (dict[str, float]): Measured joint name -> rad.
-        offset (ArmBaseOffset): arm.base_in_base_link.
-
-    Returns:
-        np.ndarray: (3,) tool point in base_link (m).
-    """
-    point = jaw_points(kin, jaw, kin.link_frames(joints), joints.get("gripper", jaw.closed_rad))["tool_point"]
-    return transform_point(offset_matrix(offset), point)
 
 
 def jaw_crop(

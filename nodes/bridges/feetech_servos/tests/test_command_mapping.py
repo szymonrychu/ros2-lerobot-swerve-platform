@@ -3,8 +3,7 @@
 import math
 
 import pytest
-
-from feetech_servos.command_mapping import (
+from feetech_mapping.command_mapping import (
     STEP_CENTER,
     STEPS_PER_RADIAN,
     map_position_to_steps,
@@ -158,6 +157,6 @@ def test_map_position_gripper_midpoint() -> None:
 
 def test_scale_consistency() -> None:
     """STEPS_PER_RADIAN × RADIANS_PER_STEP == 1 (inverse constants)."""
-    from feetech_servos.command_mapping import RADIANS_PER_STEP
+    from feetech_mapping.command_mapping import RADIANS_PER_STEP
 
     assert STEPS_PER_RADIAN * RADIANS_PER_STEP == pytest.approx(1.0)

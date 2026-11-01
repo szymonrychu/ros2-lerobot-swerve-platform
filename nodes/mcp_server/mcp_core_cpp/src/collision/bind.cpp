@@ -1,5 +1,5 @@
 // Python bindings of the collision kernel family (submodule mcp_core_cpp.collision): BodyChecker, the arm
-// self-collision kernels of mcp_server.self_collision (ported: SelfCollisionChecker.path and .pose; see
+// self-collision kernels of arm_collision.self_collision (ported: SelfCollisionChecker.path and .pose; see
 // docs/collision.md). Arrays are float64 / int64 numpy arrays; non-contiguous inputs are copied on the way in.
 #include <cstdint>
 #include <optional>
@@ -231,7 +231,7 @@ nb::tuple path(const BodyChecker &self, const InArray &capsules, const InArray &
 
 void register_collision(nb::module_ &m) {
   nb::class_<BodyChecker>(m, "BodyChecker",
-                          "Arm self-collision clearances to the robot body (mcp_server.self_collision kernels).")
+                          "Arm self-collision clearances to the robot body (arm_collision.self_collision kernels).")
       .def(nb::new_(&make_checker), "obstacles"_a, "capsule_radii"_a, "group_parts"_a, "group_links"_a,
            "group_contact_only"_a, "group_counts"_a, "group_points"_a, "group_centres"_a, "group_radii"_a,
            "mount_rotation"_a, "mount_offset"_a, "part_count"_a, "jaw_count"_a, "link_count"_a, "prune_slack"_a,

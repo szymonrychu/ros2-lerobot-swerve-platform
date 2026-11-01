@@ -1,3 +1,4 @@
+import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { ReleasedBannerView, releasedLabel } from '../calibrate/ReleasedBanner'
@@ -5,7 +6,7 @@ import { useServoGroups } from '../calibrate/servoApi'
 import ArmJogPanel from '../arm/ArmJogPanel'
 import ArmActions from '../arm/ArmActions'
 import { BASE_LINK_POSE } from '../arm/armViewPick'
-import { activeSourceOf, armControlState, drivePoseOf, releasedJoints } from '../arm/armControls'
+import { activeSourceOf, armControlState, drivePoseOf, guardStateOf, releasedJoints } from '../arm/armControls'
 import { CameraStream } from '../components/CameraStream'
 import { DEFAULT_ARM_OFFSET } from '../grasp/grasp'
 import { GraspPanel } from '../grasp/GraspPanel'
@@ -30,7 +31,7 @@ const CELL_SX = { flex: '1 1 0', minWidth: 0, minHeight: 0, overflow: 'hidden', 
  * lift toggle / Grasp and the jog panel.
  * Phone stacks everything vertically; tablet and desktop put the stream side by side with the 3D view.
  *
- * @param tab - tab config (head_camera_topic, arm_offset, grasp_command_topic, drive_pose_state_topic)
+ * @param tab - tab config (head_camera_topic, arm_offset, grasp_command_topic, drive_pose_state_topic, guard_state_topic)
  * @param topicData - latest payload per topic
  * @param publish - ROS publish helper
  */
@@ -58,6 +59,7 @@ export default function ArmTab({ tab, topicData, publish }: Props) {
   // The picked point is already in base_link: the identity pose keeps it unchanged.
   const onPick = useCallback((point: Vec2) => applyClick(point, BASE_LINK_POSE), [applyClick])
   const drivePose = drivePoseOf(tab, topicData)
+  const guard = guardStateOf(tab, topicData)
   const controls = armControlState({
     released,
     releasedJoints: releasedList,
@@ -78,6 +80,11 @@ export default function ArmTab({ tab, topicData, publish }: Props) {
   return (
     <Box sx={{ width: '100%', height: '100%', position: 'relative', display: 'flex', flexDirection: 'column', gap: 1, overflowY: layout === 'phone' ? 'auto' : 'hidden' }}>
       <ReleasedBannerView groupId="arm" servo={servo} />
+      {guard?.blocked && (
+        <Alert severity="warning" data-testid="guard-blocked-banner">
+          {`Blocked by ${guard.obstacle}`}
+        </Alert>
+      )}
       <Box
         data-testid="arm-layout"
         data-direction={direction}

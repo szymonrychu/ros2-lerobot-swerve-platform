@@ -11,13 +11,9 @@ from typing import Any
 import numpy as np
 import pytest
 import yaml
-
-from mcp_server import arm_reach
-from mcp_server.arm_reach import ReachEnvelope
-from mcp_server.config import REPO_ROOT, BodyCheckSettings, McpServerConfig
-from mcp_server.floor_guard import JawModel, arm_to_base_link, base_link_to_arm
-from mcp_server.ik import ArmKinematics
-from mcp_server.self_collision import (
+from arm_collision.head import HeadPose
+from arm_collision.ik import ArmKinematics
+from arm_collision.self_collision import (
     CHECKED_PARTS,
     SampleGeometry,
     SelfCollisionChecker,
@@ -25,10 +21,22 @@ from mcp_server.self_collision import (
     joint_line,
 )
 
+from mcp_server import arm_reach
+from mcp_server.arm_reach import ReachEnvelope
+from mcp_server.config import REPO_ROOT, BodyCheckSettings, McpServerConfig
+from mcp_server.floor_guard import JawModel, arm_to_base_link, base_link_to_arm
+
 CONFIG = McpServerConfig()
 KIN = ArmKinematics(CONFIG.arm.urdf_path, margin=CONFIG.limits.arm_limit_margin_rad)
 JAW = JawModel(KIN, CONFIG.arm.jaw_open_axis, CONFIG.arm.gripper_closed_rad)
-CHECKER = SelfCollisionChecker.from_config(KIN, CONFIG, JAW)
+# The head at its home (config.head home_pan_rad / home_tilt_rad, straight ahead and 30 deg down), as /head/joint_states
+# reports it on the robot: the checks pose the head there (SelfCollisionChecker.posed).
+HEAD_HOME = HeadPose(pan=CONFIG.head.home_pan_rad, tilt=CONFIG.head.home_tilt_rad)
+CHECKER = SelfCollisionChecker.from_settings(KIN, CONFIG.body, CONFIG.body_check, CONFIG.arm, JAW).posed(HEAD_HOME)
+# The deployed body_check has no slow band (one 5 mm keep-away: soft equals hard). The slow band mechanism is checked
+# with a configured one: soft margin 3 cm over the deployed hard margin.
+SLOW_BAND = CONFIG.body_check.model_copy(update={"soft_margin_m": 0.03})
+SLOW = SelfCollisionChecker.from_settings(KIN, CONFIG.body, SLOW_BAND, CONFIG.arm, JAW).posed(HEAD_HOME)
 MOUNT = CONFIG.arm.base_in_base_link
 SEED = {"shoulder_pan": 0.0, "shoulder_lift": 0.0, "elbow_flex": 1.2, "wrist_flex": 0.3, "wrist_roll": 0.0}
 # Home pose of the 2026-10-10 calibration (docs/calibration/2026-10-10/session/scripts/fullfit.py, tip 243 mm up).
@@ -95,14 +103,16 @@ def test_clear_pose_has_full_clearance() -> None:
     assert set(check.per_obstacle) == {o.name for o in CHECKER.body.obstacles}
 
 
-def test_home_pose_is_clear_of_the_hard_margin_and_in_the_lidar_slow_band() -> None:
-    """The folded home is never rejected, but its upper arm box (contact-only) and wrist link stand about 2.5 cm from
-    the measured lidar dome (diameter 74 mm, top 210 mm): inside the soft margin, so moves near home run slowed."""
+def test_home_pose_is_clear_of_the_keep_away_and_closest_to_the_lidar() -> None:
+    """The folded home is never rejected and never slowed: its upper arm box (contact-only) and wrist link stand about
+    2.5 cm from the measured lidar dome (diameter 74 mm, top 210 mm), outside the 5 mm keep-away. A configured 3 cm
+    slow band would slow moves near home."""
     tip = tool_base_link(KIN, HOME)
     assert tip[2] > 0.15  # FK check: the folded home keeps the tool well above the body
     check = CHECKER.pose(HOME)
-    assert CONFIG.body_check.hard_margin_m < check.min_clearance < CONFIG.body_check.soft_margin_m
+    assert CONFIG.body_check.soft_margin_m < check.min_clearance < SLOW_BAND.soft_margin_m
     assert (check.obstacle, check.part) == ("lidar", "upper arm")
+    assert set(CHECKER.path([HOME, HOME]).scales) == {1.0}
 
 
 def test_lidar_pose_penetrates_the_lidar() -> None:
@@ -141,8 +151,8 @@ def touch_check(touch: str) -> tuple[Any, McpServerConfig]:
         (cfg.arm.tool_offset_m.x, cfg.arm.tool_offset_m.y, cfg.arm.tool_offset_m.z),
         cfg.arm.joint_limit_overrides_rad,
     )
-    checker = SelfCollisionChecker.from_config(
-        kin, cfg, JawModel(kin, cfg.arm.jaw_open_axis, cfg.arm.gripper_closed_rad)
+    checker = SelfCollisionChecker.from_settings(
+        kin, cfg.body, cfg.body_check, cfg.arm, JawModel(kin, cfg.arm.jaw_open_axis, cfg.arm.gripper_closed_rad)
     )
     entry = next(t for t in TOUCHES if t["name"] == touch)
     joints = entry["last_free"]["joints"] if "last_free" in entry else entry["hover"]["joints"]
@@ -194,13 +204,14 @@ def beside_lidar(z: float) -> dict[str, float]:
 
 def hover_over_lidar() -> dict[str, float]:
     """Tool beside the dome edge, lowered in 2 mm steps from just above the dome top until the closest link is
-    inside the slow band (its soft clearance)."""
+    inside the configured slow band (SLOW_BAND), within 1 cm of the hard margin by its soft clearance (closer to the
+    lidar than the head above it gets on the way)."""
     z = LIDAR.z_max + 0.008
     while z > LIDAR.z_max - 0.06:
         joints = beside_lidar(z)
-        check = CHECKER.pose(joints)
-        if check.soft["lidar"] < (CONFIG.body_check.soft_margin_m + CONFIG.body_check.hard_margin_m) / 2.0:
-            assert check.per_obstacle["lidar"][0] > CONFIG.body_check.hard_margin_m
+        check = SLOW.pose(joints)
+        if check.soft["lidar"] < SLOW_BAND.hard_margin_m + 0.01:
+            assert check.per_obstacle["lidar"][0] > SLOW_BAND.hard_margin_m
             return joints
         z -= 0.002
     raise AssertionError("no hover pose in the slow band")
@@ -219,20 +230,22 @@ def inside_lidar_margin() -> dict[str, float]:
 
 
 def test_path_near_the_lidar_is_slowed_not_rejected() -> None:
-    """Lowering the tool beside the dome from above its top: the end runs slow, nothing is rejected."""
+    """Lowering the tool beside the dome from above its top with a configured slow band: the end runs slow at the
+    lidar, nothing is rejected. The deployed keep-away (no slow band) runs it at full speed."""
     above = beside_lidar(LIDAR.z_max + 0.008)
-    assert CHECKER.pose(above).min_soft_clearance > CONFIG.body_check.soft_margin_m
+    assert SLOW.pose(above).soft["lidar"] > SLOW_BAND.soft_margin_m
     samples = joint_line(above, hover_over_lidar(), 0.01)
-    report = CHECKER.path(samples)
+    report = SLOW.path(samples)
     assert not report.rejected
-    assert report.scales[0] == 1.0
-    assert report.scales[-1] == CONFIG.body_check.slow_speed_scale
+    assert report.scales[-1] == SLOW_BAND.slow_speed_scale
+    assert report.obstacles[-1] == "lidar"
+    assert SLOW_BAND.hard_margin_m < report.clearances[-1] < SLOW_BAND.soft_margin_m
     summary = report.summary()
     assert summary is not None
-    assert summary["obstacle"] == "lidar"
-    assert summary["speed_scale"] == CONFIG.body_check.slow_speed_scale
-    assert CONFIG.body_check.hard_margin_m < summary["min_clearance_m"] < CONFIG.body_check.soft_margin_m
+    assert summary["speed_scale"] == SLOW_BAND.slow_speed_scale
     assert summary["slowed_samples"] >= 1
+    deployed = CHECKER.path(samples)
+    assert not deployed.rejected and set(deployed.scales) == {1.0}
 
 
 def test_clear_path_is_neither_slowed_nor_rejected() -> None:
@@ -245,22 +258,29 @@ def test_clear_path_is_neither_slowed_nor_rejected() -> None:
 
 
 def test_path_home_is_slowed_only_near_the_lidar() -> None:
-    report = CHECKER.path(joint_line(clear_pose(), HOME, 0.02))
+    """With a configured slow band the move home slows near the lidar only; the deployed keep-away never slows it."""
+    samples = joint_line(clear_pose(), HOME, 0.02)
+    report = SLOW.path(samples)
     assert not report.rejected
     assert report.scales[0] == 1.0
-    assert report.scales[-1] == CONFIG.body_check.slow_speed_scale
+    assert report.scales[-1] == SLOW_BAND.slow_speed_scale
     summary = report.summary()
     assert summary is not None and summary["obstacle"] == "lidar"
+    deployed = CHECKER.path(samples)
+    assert not deployed.rejected and set(deployed.scales) == {1.0}
 
 
 def test_escaping_from_a_colliding_start_is_allowed() -> None:
-    """A start already inside the hard margin may move out (clearance never gets worse), slowed."""
+    """A start already inside the hard margin may move out (clearance never gets worse), slowed. The goal, 8 mm above
+    the dome, leaves the lidar's soft band (the head above the lidar still slows it: see
+    test_path_near_the_lidar_is_slowed_not_rejected)."""
     start = inside_lidar_margin()
     goal = beside_lidar(LIDAR.z_max + 0.008)
     report = CHECKER.path(joint_line(start, goal, 0.02))
     assert not report.rejected
     assert report.scales[0] == CONFIG.body_check.slow_speed_scale
-    assert report.scales[-1] == 1.0
+    assert report.obstacles[0] == "lidar"
+    assert CHECKER.pose(goal).soft["lidar"] > CONFIG.body_check.soft_margin_m
 
 
 def deep_lidar_pose() -> dict[str, float]:
@@ -283,7 +303,7 @@ def test_going_deeper_from_a_colliding_start_is_rejected() -> None:
 
 def test_disabled_check_passes_everything() -> None:
     cfg = CONFIG.model_copy(update={"body_check": BodyCheckSettings(enabled=False)})
-    checker = SelfCollisionChecker.from_config(KIN, cfg, JAW)
+    checker = SelfCollisionChecker.from_settings(KIN, cfg.body, cfg.body_check, cfg.arm, JAW)
     report = checker.path(joint_line(clear_pose(), lidar_pose(), 0.02))
     assert not report.rejected
     assert set(report.scales) == {1.0}
@@ -412,14 +432,16 @@ def report_fields(report: Any) -> dict[str, Any]:
 @pytest.mark.parametrize("allow_escape", [True, False])
 def test_pruned_path_equals_the_full_computation(allow_escape: bool) -> None:
     """Every report field (scales, per-sample clearance/obstacle/part, the verdict and its clearance) of the pruned
-    path equals the full computation exactly, also beyond the soft margin (the min-clearance gauge reports it)."""
+    path equals the full computation exactly, also beyond the soft margin (the min-clearance gauge reports it), with
+    the deployed keep-away and with a configured slow band."""
     lines = prune_trajectories()
     verdicts = set()
-    for samples in lines:
-        pruned = CHECKER.path(samples, allow_escape=allow_escape)
-        full = CHECKER.path(samples, allow_escape=allow_escape, prune=False)
-        assert report_fields(pruned) == report_fields(full)
-        verdicts.add((pruned.rejected, pruned.summary() is not None))
+    for checker in (CHECKER, SLOW):
+        for samples in lines:
+            pruned = checker.path(samples, allow_escape=allow_escape)
+            full = checker.path(samples, allow_escape=allow_escape, prune=False)
+            assert report_fields(pruned) == report_fields(full)
+            verdicts.add((pruned.rejected, pruned.summary() is not None))
     assert verdicts == {(True, True), (False, True), (False, False)}  # the set covers rejected, slowed and clear
 
 
@@ -434,21 +456,22 @@ def test_closest_equals_the_pose_clearance() -> None:
 
 
 def test_point_reach_equals_the_unpruned_pose_check(monkeypatch: pytest.MonkeyPatch) -> None:
-    """point_reach (batched, pruned closest) reports what the per-pitch full pose() check reports."""
-    envelope = ReachEnvelope(CHECKER, CONFIG.body_check, None)
+    """point_reach (batched, pruned closest) reports what the per-pitch full pose() check reports (with a configured
+    slow band, so some points report slowed)."""
+    envelope = ReachEnvelope(SLOW, SLOW_BAND, None)
     points = [
         {"x": 0.30, "y": -0.05, "z": 0.12, "pitch": None},
         {"x": LIDAR.center_xy[0] + 0.06, "y": LIDAR.center_xy[1] - 0.02, "z": LIDAR.z_max - 0.03, "pitch": None},
         {"x": LIDAR.center_xy[0], "y": LIDAR.center_xy[1], "z": LIDAR.z_max - 0.04, "pitch": None},
         {"x": 0.33, "y": -0.10, "z": 0.12, "pitch": 0.8},
     ]
-    pruned = [arm_reach.point_reach(CHECKER, p, SEED, envelope) for p in points]
+    pruned = [arm_reach.point_reach(SLOW, p, SEED, envelope) for p in points]
 
     def unpruned(samples: list[dict[str, float]]) -> list[tuple[float, str, str]]:
-        return [(c.min_clearance, c.obstacle, c.part) for c in map(CHECKER.pose, samples)]
+        return [(c.min_clearance, c.obstacle, c.part) for c in map(SLOW.pose, samples)]
 
-    monkeypatch.setattr(CHECKER, "closest", unpruned)
-    assert pruned == [arm_reach.point_reach(CHECKER, p, SEED, envelope) for p in points]
+    monkeypatch.setattr(SLOW, "closest", unpruned)
+    assert pruned == [arm_reach.point_reach(SLOW, p, SEED, envelope) for p in points]
     assert any(r["limiting"] for r in pruned) and any(r["collision_free"] for r in pruned)
     assert any(r["slowed"] for r in pruned) and not all(r["slowed"] for r in pruned)
 

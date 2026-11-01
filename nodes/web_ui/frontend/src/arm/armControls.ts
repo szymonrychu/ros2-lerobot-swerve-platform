@@ -1,9 +1,10 @@
 import type { ServoGroupsState } from '../calibrate/servoApi'
-import type { DrivePoseState, TabConfig } from '../types'
+import type { DrivePoseState, GuardState, TabConfig } from '../types'
 
 /** filter_node reports `autonomy` while the mcp_server lease taken by Take control (or the agent) is held. */
 export const HELD_SOURCE = 'autonomy'
 const DEFAULT_SOURCE_TOPIC = '/filter/active_source'
+const DEFAULT_GUARD_TOPIC = '/filter/guard_state'
 const DEFAULT_DRIVE_POSE_TOPIC = '/arm/drive_pose/state'
 export const HELD_REASON = 'Arm held by the agent or Take control - Release to drag'
 export const BUSY_REASON = 'Arm action in flight'
@@ -66,6 +67,17 @@ export function activeSourceOf(tab: TabConfig, topicData: Record<string, unknown
  */
 export function drivePoseOf(tab: TabConfig, topicData: Record<string, unknown>): DrivePoseState | undefined {
   return (topicData[tab.drive_pose_state_topic ?? DEFAULT_DRIVE_POSE_TOPIC] as DrivePoseState | null | undefined) ?? undefined
+}
+
+/**
+ * The filter_node self-collision guard state on the tab's guard_state_topic.
+ *
+ * @param tab - arm tab config (guard_state_topic)
+ * @param topicData - latest payload per topic
+ * @returns the state, undefined before the first message
+ */
+export function guardStateOf(tab: TabConfig, topicData: Record<string, unknown>): GuardState | undefined {
+  return (topicData[tab.guard_state_topic ?? DEFAULT_GUARD_TOPIC] as GuardState | null | undefined) ?? undefined
 }
 
 /**

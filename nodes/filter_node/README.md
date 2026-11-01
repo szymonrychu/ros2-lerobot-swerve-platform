@@ -11,6 +11,45 @@
 - **Executor:** `executor` (`events` | `single_threaded`, default `single_threaded`; an unknown value is a config error at load). `events` runs the node on `rclpy.experimental.EventsExecutor`, which cuts Python executor overhead for the 100 Hz loop; the main loop still calls `executor.spin_once(timeout_sec=control_period_s)`, so the loop period is unchanged. EventsExecutor ignores callback groups: this node creates none (everything is in the default group) and never uses a MultiThreadedExecutor. **Rollback:** set `executor: single_threaded` in `ansible/group_vars/client.yml` and redeploy the node.
 - **Config path:** Set `FILTER_NODE_CONFIG` or deploy to `/etc/ros2/filter_node/config.yaml`.
 
+## Self-collision guard
+
+Every command filter_node publishes on `output_topic` (leader after Kalman, web UI, autonomy) is checked against the
+robot body first (`filter_node/guard.py`, `ArmGuard`; the checker is `arm_collision.self_collision`, see
+[shared/arm_collision](../../shared/arm_collision/README.md)). The `lerobot_follower` bridge only moves the arm as
+told, so this is the one place no source can bypass: the follower bridge's `set_register` refuses `goal_position`,
+`goal_speed` and `goal_time` (`set_register_motion_blocked: true` in its config).
+
+Flow, per command:
+
+1. The guard keeps the arm's last known pose: the last command it published, replaced by every follower feedback
+   sample (`seed`), whichever came last.
+2. The request is the straight joint-space segment from that pose to the requested pose, sampled at most
+   `max_step_rad` per joint, and every sample is checked with the head posed from `head_state_topic`
+   (`/head/joint_states`); a head state older than `head_state_max_age_s` (0.5 s) or missing checks the full head
+   envelope. One keep-away `hard_margin_m` (0.005 m) applies to every body part, wheels included.
+3. No violation: the request is published as is. A violation: the **furthest safe sample before the first violating
+   one** is published (the arm slides to it and stops); when that sample is the start, nothing is published and the arm
+   holds. A start already inside the margin may move out but not deeper.
+4. A leader command carries the gripper in leader radians, which the bridge maps onto the follower range. The guard
+   checks it mapped (`leader_gripper`, the bridge's `feetech_mapping.command_mapping` mapping) and a clamp goes out
+   mapped back. A partial request before any command or feedback is refused (`unknown_pose`). A checker exception
+   publishes nothing and is logged (at most once per 5 s); the check fails closed.
+
+Config (`self_collision_guard:` in the node config; `ansible/group_vars/client.yml`, pinned by
+`tests/test_arm_guard_config.py`): `enabled` (default true), `max_step_rad` (0.02 deployed, <= 0.5),
+`hard_margin_m` (0.005, equal to mcp_server `body_check.hard_margin_m`), `head_state_topic`, `head_state_max_age_s`,
+`arm` (URDF, mount and calibration, equal to mcp_server's `arm` values; shared `ArmModelSettings`) and
+`leader_gripper` (the bridge's gripper range mapping). The node type ships `src_extra_paths:
+[nodes/mcp_server/mcp_core_cpp, nodes/web_ui/urdf]`. Omit the block and the guard is off.
+
+**Rollback:** `enabled: false` in `ansible/group_vars/client.yml`, then `scripts/deploy-nodes.sh client filter_node`.
+Commands then go out unchecked (mcp_server still checks its own motions).
+
+**Guard state topic:** `guard_state_topic` (default `/filter/guard_state`, `std_msgs/String` JSON, reliable +
+transient_local) carries `{"blocked", "source", "link", "obstacle", "clearance_m"}`. It is published on change, and
+once per second while blocked commands keep arriving; it reads clear again 2 s after the last blocked command. A failed
+check leaves the state alone. The web UI ARM tab shows it as the banner `Blocked by <obstacle>`.
+
 ## Network delay compensation
 
 The Kalman algorithm outputs a short-horizon **prediction** ahead of the last measurement (`state.position + state.velocity * prediction_lead_s`). Increasing `prediction_lead_s` (e.g. 0.04–0.06 s) makes the follower command “ahead” in time and **compensates for leader→client network delay**: the filter effectively defies delay by predicting where the leader will be. If topic_scraper or logs show large leader–follower skew or oscillations, raise `prediction_lead_s` (and optionally `max_prediction_time_s`) and re-test.
@@ -26,6 +65,7 @@ The Kalman algorithm outputs a short-horizon **prediction** ahead of the last me
 - **Autonomy release:** `std_msgs/Bool` on `autonomy_release_topic`; `true` ends the lease, `false` is ignored.
 - **Follower feedback (optional):** `sensor_msgs/JointState` on `follower_feedback_topic` (e.g. `/follower/joint_states`), used by the proximity rule.
 - **Idle feedback rate (optional):** with `follower_feedback_idle_topic` set (client: `/follower/joint_states/throttled`, the 10 Hz copy from `joint_state_throttle_follower`), the node subscribes that topic while no source is commanding and the full-rate `follower_feedback_topic` (~89 Hz) while one is. Active = leader input within `idle_timeout_s`, web UI command within `web_ui_timeout_s`, or the autonomy lease held. The subscription is swapped (destroy, create) from the main loop between `spin_once` calls, never in a callback; the takeover/proximity rule is unchanged, and a leader message that needs a proximity decision while the subscription is still on the idle topic (or before the first full-rate sample after the swap) is dropped, so the rule never sees throttled positions (`tests/test_feedback_takeover.py`). If the idle topic delivers nothing for `follower_feedback_idle_fallback_s` after subscribing (throttle node down) the node falls back to the full-rate topic, logs once per outage and retries the idle topic every 30 s. Logic: `filter_node/feedback_rate.py` (`FeedbackRateSwitch`).
+- **Guard state:** `std_msgs/String` JSON on `guard_state_topic` (see [Self-collision guard](#self-collision-guard)).
 - **Active source:** `std_msgs/String` on `active_source_topic`: `leader`, `web_ui`, `autonomy`, `none` or `released`; published on every change and at 1 Hz.
 
 ## Command source arbitration
@@ -60,6 +100,8 @@ and `robot_node_start_time_seconds{node}`. Metric objects live in `metrics.py`.
 | `filter_active_source` | gauge | `source` (leader, web_ui, autonomy, none, released) | 1 for the arbiter's active source, 0 for the others. |
 | `filter_source_switches_total` | counter |  | Changes of the active source. |
 | `filter_loop_overruns_total` | counter |  | Control-loop iterations that started more than 1.5 control periods after the previous one. |
+| `filter_guard_check_seconds` | histogram |  | Wall time of one guard check (budget: p99 <= 2 ms at 100 Hz on the Pi 5). |
+| `filter_guard_refusals_total` | counter | `source`, `obstacle` | Commands the guard clamped or refused, by the obstacle hit (`check_error` when the check itself failed). |
 
 ## Build and run
 

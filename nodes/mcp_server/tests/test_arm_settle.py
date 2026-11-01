@@ -3,11 +3,11 @@
 from pathlib import Path
 
 import pytest
+from arm_collision.ik import ArmKinematics, load_joint_limits
 from pydantic import ValidationError
 
 from mcp_server.arm import ArmController, tracking_limit
 from mcp_server.config import LimitSettings, McpServerConfig
-from mcp_server.ik import ArmKinematics, load_joint_limits
 
 from .fakes import FakeArmBackend
 

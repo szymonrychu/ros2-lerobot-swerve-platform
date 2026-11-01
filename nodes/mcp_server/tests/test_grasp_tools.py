@@ -10,6 +10,8 @@ import anyio
 import cv2
 import numpy as np
 import pytest
+from arm_collision.ik import ArmKinematics, load_joint_limits
+from arm_collision.jaw import tool_point_in_base
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ImageContent, TextContent
 
@@ -25,8 +27,6 @@ from mcp_server.grasp_tools import (
     GraspService,
     floor_override,
 )
-from mcp_server.ik import ArmKinematics, load_joint_limits
-from mcp_server.jaw_crop import tool_point_in_base
 from mcp_server.models import CameraFrame
 from mcp_server.surfaces import SurfaceRegion
 from mcp_server.tool_context import ToolContext

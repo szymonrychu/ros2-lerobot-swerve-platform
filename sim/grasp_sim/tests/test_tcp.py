@@ -76,7 +76,7 @@ def test_rig_grip_point_follows_the_calibrated_jaws() -> None:
     assert np.allclose(delta, rot @ expected, atol=1e-6)
 
 
-MCP_JAW_PROFILE = REPO_ROOT / "nodes" / "mcp_server" / "mcp_server" / "jaw_profile.py"
+MCP_JAW_PROFILE = REPO_ROOT / "shared" / "arm_collision" / "arm_collision" / "jaw_profile.py"
 
 
 def load_mcp_jaw_profile() -> ModuleType:

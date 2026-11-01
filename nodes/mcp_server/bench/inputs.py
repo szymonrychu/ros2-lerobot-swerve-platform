@@ -17,23 +17,25 @@ from typing import Any
 import cv2
 import numpy as np
 import yaml
+from arm_collision import arm_geometry, body_model
+from arm_collision.arm_geometry import JAW_POINTS
+from arm_collision.ik import ArmKinematics
+from arm_collision.self_collision import SelfCollisionChecker, joint_line
+from arm_collision.settings import footprint_body
 from ros2_common.camera_geometry import pixel_to_ground
 
-from mcp_server import arm_geometry, body_model, camera_overlay, camera_scene, footprint_geometry, frontiers, perception
-from mcp_server.arm_geometry import JAW_POINTS
+from mcp_server import camera_overlay, camera_scene, footprint_geometry, frontiers, perception
 from mcp_server.arm_reach import ReachEnvelope, joint_range, point_reach
 from mcp_server.camera_candidates import CandidateStore, RobotSnapshot
 from mcp_server.config import REPO_ROOT, McpServerConfig, ReachMapSettings
 from mcp_server.floor_guard import FloorGuard, JawModel, SurfaceModel, base_link_to_arm
 from mcp_server.grasp import GraspPlanner, ObjectSpec, grasp_params, kernel_params, solver_geometry
 from mcp_server.grasp_check import GripMeasurements, band_verdict, fuse, grip_evidence
-from mcp_server.ik import ArmKinematics
 from mcp_server.jaw_crop import jaw_crop
 from mcp_server.reach_map import build as build_reach_map
 from mcp_server.reach_map import checker_from_config
 from mcp_server.reference.ik_reach import robot_inputs
 from mcp_server.sag import GravityModel, SagCompensator, compensate
-from mcp_server.self_collision import SelfCollisionChecker, joint_line
 from tests.camera_helpers import HEAD_MOUNT, HFOV, fresh_head
 
 Call = Callable[[], Any]
@@ -151,7 +153,7 @@ def checker() -> SelfCollisionChecker:
     Returns:
         SelfCollisionChecker: Body checker.
     """
-    return SelfCollisionChecker.from_config(kinematics(), config(), jaw())
+    return SelfCollisionChecker.from_settings(kinematics(), config().body, config().body_check, config().arm, jaw())
 
 
 @cache
@@ -970,7 +972,7 @@ def body_outline_call(kind: str) -> Call:
     Returns:
         Call: One evaluation.
     """
-    body = config().body
+    body = footprint_body(config().body)
     footprint = config().nav_footprint
 
     def call() -> None:

@@ -47,6 +47,8 @@ ros2-common = { path = "shared", editable = true }
 [tool.pytest.ini_options]
 addopts = "-v -rxXs"
 testpaths = ["tests"]
+# shared/arm_collision is a uv package (its module one level down): root tests importing mcp_server config need it.
+pythonpath = ["shared/arm_collision"]
 log_cli = true
 log_cli_level = "INFO"
 

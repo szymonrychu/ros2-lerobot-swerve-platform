@@ -21,10 +21,12 @@ The collision checks use both faces (`board_points_local`).
 import math
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Self
 
 import cv2
 import numpy as np
+import yaml
 from pydantic import Field, model_validator
 
 from ros2_common.camera_geometry import CameraIntrinsics
@@ -63,18 +65,8 @@ MIN_Z_RULE = "inside D435 min-Z"
 FOV_RULE = "outside colour FOV"
 D435_MIN_Z_M = 0.15  # depth min-Z of the D435 at 640x360 (design D2, datasheet table 4-12)
 D435_MIN_Z_MARGIN_M = 0.05
-DEFAULT_BOXES = (
-    ("frame_left", (0.0, 0.1333, 0.15), (0.425, 0.035, 0.06)),
-    ("frame_right", (0.0, -0.1333, 0.15), (0.425, 0.035, 0.06)),
-    ("crossbar", (-0.025, 0.0, 0.08), (0.25, 0.2316, 0.04)),
-)
-DEFAULT_CYLINDERS = (
-    ("wheel_fl", 0.1525, 0.1333, 0.0625, 0.0, 0.12),
-    ("wheel_fr", 0.1525, -0.1333, 0.0625, 0.0, 0.12),
-    ("wheel_rl", -0.1525, 0.1333, 0.0625, 0.0, 0.12),
-    ("wheel_rr", -0.1525, -0.1333, 0.0625, 0.0, 0.12),
-    ("lidar", 0.150, 0.040, 0.037, 0.10, 0.21),
-)
+# The one robot body definition (shared/arm_collision, settings.load_robot_body): the BodyConfig defaults load it.
+ROBOT_BODY_FILE = Path(__file__).resolve().parents[2] / "arm_collision" / "arm_collision" / "robot_body.yaml"
 
 Vec3 = tuple[float, float, float]
 
@@ -111,19 +103,25 @@ class CylinderObstacle(StrictModel):
 
 
 def default_boxes() -> list[BoxObstacle]:
-    """The client.yml mcp_server body boxes."""
-    return [BoxObstacle(name=n, center=c, size=s) for n, c, s in DEFAULT_BOXES]
+    """The robot body boxes of robot_body.yaml.
+
+    Returns:
+        list[BoxObstacle]: Boxes in file order.
+    """
+    return [BoxObstacle.model_validate(box) for box in yaml.safe_load(ROBOT_BODY_FILE.read_text())["boxes"]]
 
 
 def default_cylinders() -> list[CylinderObstacle]:
-    """The client.yml mcp_server body cylinders."""
-    return [
-        CylinderObstacle(name=n, x=x, y=y, radius=r, z_min=lo, z_max=hi) for n, x, y, r, lo, hi in DEFAULT_CYLINDERS
-    ]
+    """The robot body cylinders of robot_body.yaml.
+
+    Returns:
+        list[CylinderObstacle]: Cylinders in file order.
+    """
+    return [CylinderObstacle.model_validate(c) for c in yaml.safe_load(ROBOT_BODY_FILE.read_text())["cylinders"]]
 
 
 class BodyConfig(StrictModel):
-    """Robot body obstacles, a copy of the client.yml mcp_server `body` block (a test pins them equal)."""
+    """Robot body obstacles, by default the full robot body of shared/arm_collision robot_body.yaml (head included)."""
 
     boxes: list[BoxObstacle] = Field(default_factory=default_boxes)
     cylinders: list[CylinderObstacle] = Field(default_factory=default_cylinders)
@@ -138,7 +136,7 @@ class PoseCheckConfig(StrictModel):
     """
 
     body: BodyConfig = Field(default_factory=BodyConfig)
-    margin_m: float = Field(default=0.03, ge=0)
+    margin_m: float = Field(default=0.005, ge=0)  # the 5 mm keep-away of every body part
     min_tool_height_m: float = Field(default=0.10, ge=0)
     min_board_height_m: float = Field(default=0.05, ge=0)
     link_radius_m: float = Field(default=0.025, ge=0)

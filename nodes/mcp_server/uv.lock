@@ -29,6 +29,35 @@ wheels = [
 ]
 
 [[package]]
+name = "arm-collision"
+version = "0.1.0"
+source = { editable = "../../shared/arm_collision" }
+dependencies = [
+    { name = "ikpy" },
+    { name = "mcp-core-cpp" },
+    { name = "numpy" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "ikpy", specifier = "==4.1.0" },
+    { name = "mcp-core-cpp", directory = "mcp_core_cpp" },
+    { name = "numpy", specifier = "==2.4.3" },
+    { name = "pydantic", specifier = "==2.13.5" },
+    { name = "pyyaml", specifier = "==6.0.3" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "poethepoet", specifier = "==0.48.0" },
+    { name = "pytest", specifier = "==9.1.1" },
+    { name = "ruff", specifier = "==0.15.20" },
+    { name = "vulture", specifier = "==2.16" },
+]
+
+[[package]]
 name = "attrs"
 version = "26.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -358,6 +387,7 @@ name = "mcp-server"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "arm-collision" },
     { name = "ikpy" },
     { name = "mcp" },
     { name = "mcp-core-cpp" },
@@ -383,6 +413,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "arm-collision", editable = "../../shared/arm_collision" },
     { name = "ikpy", specifier = "==4.1.0" },
     { name = "mcp", specifier = "==2.3.0" },
     { name = "mcp-core-cpp", directory = "mcp_core_cpp" },

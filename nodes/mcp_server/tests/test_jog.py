@@ -9,11 +9,11 @@ from typing import Any
 
 import numpy as np
 import pytest
+from arm_collision.ik import ArmKinematics, UnreachableError, load_joint_limits
 
 from mcp_server.arm import ArmController, ArmError, SelfCollisionError
 from mcp_server.config import JogSettings, McpServerConfig
 from mcp_server.grasp_tools import GraspService
-from mcp_server.ik import ArmKinematics, UnreachableError, load_joint_limits
 from mcp_server.jog import Jogger, JogSpec, gripper_axes
 
 from .fakes import FakeArmBackend
@@ -321,7 +321,8 @@ def test_jog_is_refused_while_a_grasp_action_runs(tmp_path: Path) -> None:
 
 def test_handle_json_answers_a_plain_jog_at_once(tmp_path: Path) -> None:
     arm, be, service, _ = make(tmp_path)
-    answer = service.handle_json(json.dumps({"action": "jog", "jog": {"kind": "wrist_pitch", "direction": "down"}}))
+    # Pitching the wrist down from START takes the gripper body inside wheel_fr's 5 mm keep-away (6.6 mm at START): up.
+    answer = service.handle_json(json.dumps({"action": "jog", "jog": {"kind": "wrist_pitch", "direction": "up"}}))
     assert answer is not None and json.loads(answer)["ok"] is True
 
 

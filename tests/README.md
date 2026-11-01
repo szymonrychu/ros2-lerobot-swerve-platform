@@ -128,13 +128,26 @@ Head-from-arm fit config, board corner geometry and view types (`shared/ros2_com
 | `test_board_outline_spans_outer_squares_plus_margin` | `board_outline` is 4 points spanning the outer squares plus the margin; margin 0 gives 0.24 x 0.2 m. |
 | `test_require_joints_names_missing` | `require_joints` accepts a complete `ArmBoardView` and raises `ValueError` naming the view and each missing head/arm joint. |
 
+### `test_arm_guard_config.py`
+
+filter_node's self-collision guard config in `ansible/group_vars/client.yml` stays equal to the nodes it mirrors (the body is the one packaged `shared/arm_collision` `robot_body.yaml`; the arm calibration and gripper mapping are per-node config). Reads `client.yml` only. Unit tests of the guard itself live in the node (`nodes/filter_node/tests`: `test_guard.py`, `test_guard_state.py`, `test_guard_wiring.py`) and the shared package (`shared/arm_collision/tests`).
+
+| Test | Description |
+|------|-------------|
+| `test_filter_node_guard_arm_equals_mcp_server_arm` | Every `ArmModelSettings` field of the guard's `arm` equals mcp_server's `arm` value and the guard's key set equals the shared set. |
+| `test_filter_node_guard_keep_away_equals_mcp_server_hard_margin` | The guard's `hard_margin_m` equals mcp_server's `body_check.hard_margin_m`. |
+| `test_filter_node_guard_is_enabled` | `self_collision_guard.enabled` is true. |
+| `test_filter_node_node_type_ships_the_urdf_and_the_kernels` | The filter_node node type has `src_shared: true` and `src_extra_paths` `nodes/mcp_server/mcp_core_cpp` and `nodes/web_ui/urdf`. |
+| `test_follower_gripper_command_range_is_configured_in_full` | The follower bridge's gripper entry has the full command range 1900..3377. |
+| `test_filter_node_leader_gripper_equals_the_follower_bridge_mapping` | The guard's `leader_gripper` equals the bridge's gripper mapping, and the bridge applies it to `leader` commands only (`direct_command_sources` holds `web_ui` and `autonomy`). |
+
 ### `test_arm_pose_check.py`
 
 FK pose check of the arm with the board on the gripper (`shared/ros2_common/head_rgbd_calibration/arm_pose_check.py`) against the robot body, head envelope and board outline, and the D435 view check (min-Z, colour FOV). The head envelope test checks the D435 depth and colour optical frames, which have no visual.
 
 | Test | Description |
 |------|-------------|
-| `test_body_defaults_equal_mcp_server_body` | `BodyConfig` defaults equal the `body` config of the `mcp_server` node in `client.yml` (frame boxes, wheel and lidar cylinders). |
+| `test_body_defaults_equal_mcp_server_body` | `BodyConfig` defaults equal the packaged `shared/arm_collision/arm_collision/robot_body.yaml` (frame boxes, head arm, wheel, lidar, head post and head cylinders). |
 | `test_head_envelope_contains_head_visuals` | The head envelope (default and grown radius/height) contains the head URDF visuals. |
 | `test_pose_violations_are_named` | A clear pose gives no entries; a pose with the tool at 50 mm is reported as a named `min_tool_height_m` violation. |
 | `test_roll_rules` | Wrist roll with the tool level at 12 cm and 20 cm: a roll at 20 cm violates `max_roll_gripper_rad`, a roll at 12 cm `roll_min_tool_height_m`; a 0.5 rad margin check at 20 cm passes; any wrist_roll difference counts as a roll; no roll gives no entries. |

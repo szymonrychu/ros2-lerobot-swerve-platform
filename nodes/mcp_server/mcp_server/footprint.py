@@ -1,6 +1,6 @@
 """Navigation footprint (no ROS): what Nav2, the collision monitor and the laser_filter treat as the robot.
 
-static: the H body outline (footprint_geometry.body_outline over config.body) united with the ground shadow of the arm
+static: the H body outline (footprint_geometry.body_outline over settings.footprint_body(config.body), no head) united with the ground shadow of the arm
 parked at its stored home (nav_footprint.parked_arm_shadow), the outline scripts/gen_nav_footprint.py writes into
 nav2_params.yaml. Published while autonomy holds the arm (take_control('arm'): the arm may move from then on), after a
 parked release, after a converged /arm/home (its tick sees the parked arm) and whenever the measured arm shadow lies
@@ -58,11 +58,14 @@ from typing import Literal, Protocol
 
 import numpy as np
 import yaml
+from arm_collision.arm_geometry import LINK_CAPSULE_RADIUS_M
+from arm_collision.ik import ArmKinematics
+from arm_collision.self_collision import CAPSULES, SelfCollisionChecker
+from arm_collision.settings import footprint_body
 from shapely import get_coordinates
 from shapely.geometry import MultiPoint, Point, Polygon
 from shapely.ops import unary_union
 
-from .arm_geometry import LINK_CAPSULE_RADIUS_M
 from .config import BodySettings, McpServerConfig, NavFootprintSettings
 from .floor_guard import JawModel
 from .footprint_geometry import (
@@ -80,9 +83,7 @@ from .footprint_geometry import (
     to_points,
     union_outline,
 )
-from .ik import ArmKinematics
 from .models import FootprintState
-from .self_collision import CAPSULES, SelfCollisionChecker
 
 LOGGER = logging.getLogger(__name__)
 TOOL_POINT = "tool_point"
@@ -298,7 +299,7 @@ def parked_arm_shadow(
         limit_overrides=config.arm.joint_limit_overrides_rad,
     )
     jaw = JawModel(kin, config.arm.jaw_open_axis, config.arm.gripper_closed_rad)
-    parts = SelfCollisionChecker.from_config(kin, config, jaw).part_points(joints)
+    parts = SelfCollisionChecker.from_settings(kin, config.body, config.body_check, config.arm, jaw).part_points(joints)
     return to_points(grow_extension(arm_shadow(parts, circle_segments), simplify_m), decimals)
 
 
@@ -315,7 +316,8 @@ class NavFootprint:
         """
         self.cfg = settings
         self.sink = sink
-        outline = body_outline(body.boxes, body.cylinders, settings.circle_segments, settings.close_gap_m)
+        floor = footprint_body(body)  # the head on its post stays out of the nav footprint
+        outline = body_outline(floor.boxes, floor.cylinders, settings.circle_segments, settings.close_gap_m)
         self.static = static_outline(outline, settings.parked_arm_shadow)
         self.static_points = to_points(self.static, settings.decimals)
         # Drive outline: the body with the arm at its drive pose; None without a drive shadow (no drive mode).

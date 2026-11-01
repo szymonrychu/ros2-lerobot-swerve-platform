@@ -12,8 +12,9 @@ from feetech_servos.set_register import apply_set_register
 JOINT_ID = 3
 
 
-def make_config() -> MagicMock:
+def make_config(motion_blocked: bool = False) -> MagicMock:
     config = MagicMock()
+    config.set_register_motion_blocked = motion_blocked
     config.servo_id_for_joint_name.side_effect = lambda n: JOINT_ID if n == "elbow" else None
     return config
 
@@ -25,11 +26,13 @@ def make_servo() -> MagicMock:
     return servo
 
 
-def run(register: str, value: Any, released: set[int] | None = None) -> tuple[bool, MagicMock, list[str]]:
+def run(
+    register: str, value: Any, released: set[int] | None = None, motion_blocked: bool = False
+) -> tuple[bool, MagicMock, list[str]]:
     servo = make_servo()
     warnings: list[str] = []
     payload = json.dumps({"joint_name": "elbow", "register": register, "value": value})
-    ok = apply_set_register(servo, make_config(), {}, payload, warnings.append, released or set())
+    ok = apply_set_register(servo, make_config(motion_blocked), {}, payload, warnings.append, released or set())
     return ok, servo, warnings
 
 
@@ -102,5 +105,27 @@ def test_released_joint_accepts_torque_off_and_limit(register: str, value: int) 
 
 def test_unreleased_joint_accepts_goal_position() -> None:
     ok, servo, _ = run("goal_position", 2048, {99})
+    assert ok
+    assert writes(servo) == 1
+
+
+@pytest.mark.parametrize(("register", "value"), [("goal_position", 2048), ("goal_speed", 100), ("goal_time", 10)])
+def test_motion_blocked_refuses_goal_registers_on_a_held_joint(register: str, value: int) -> None:
+    before = failures("motion_blocked")
+    ok, servo, _ = run(register, value, set(), motion_blocked=True)
+    assert not ok
+    assert writes(servo) == 0
+    assert failures("motion_blocked") == before + 1
+
+
+@pytest.mark.parametrize(("register", "value"), [("torque_limit", 500), ("acceleration", 5), ("torque_enable", 1)])
+def test_motion_blocked_still_writes_other_registers(register: str, value: int) -> None:
+    ok, servo, _ = run(register, value, set(), motion_blocked=True)
+    assert ok
+    assert writes(servo) == 1
+
+
+def test_motion_flag_off_writes_goal_position() -> None:
+    ok, servo, _ = run("goal_position", 2048, set(), motion_blocked=False)
     assert ok
     assert writes(servo) == 1

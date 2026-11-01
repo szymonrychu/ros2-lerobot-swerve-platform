@@ -25,6 +25,7 @@ from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from typing import Annotated, Any, Literal, Protocol
 
+from arm_collision.ik import UnreachableError
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .arm import ArmError, SelfCollisionError, finite_effort
@@ -33,7 +34,6 @@ from .floor_guard import FloorOverride, TiltOverrideDeg
 from .grasp import ObjectSpec
 from .grasp_tools import floor_override
 from .guard_rules import GUARD_ORIGIN, GuardRejection
-from .ik import UnreachableError
 from .metrics import MOTION_QUEUE_DEPTH, MOTION_STEPS, MOTION_TRACKING_ERROR, MOTION_WATCH_TRIGGERS
 from .models import ArmMotionResult, BasePose, NavigationResult, RobotError, SettlePolicy
 from .surfaces import MAX_REGIONS, SurfaceRegion

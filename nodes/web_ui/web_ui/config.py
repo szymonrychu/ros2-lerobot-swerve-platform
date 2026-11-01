@@ -128,6 +128,7 @@ ARM_TAB_DEFAULTS: dict[str, str] = {
     "arm_set_drive_pose_service": "/arm/set_drive_pose",
     "arm_drive_pose_enable_service": "/arm/drive_pose/enable",
     "drive_pose_state_topic": MAP_NAV_DEFAULTS["drive_pose_state_topic"],
+    "guard_state_topic": "/filter/guard_state",
 }
 # Arm mount in the base frame (ROS x, y, z metres); the same value as ansible mcp_server arm.base_in_base_link.
 ARM_TAB_DEFAULT_ARM_OFFSET: tuple[float, float, float] = (0.0592, -0.05, 0.100)
@@ -155,6 +156,7 @@ HEAD_RGBD_DEPTH_ROLE = "head_rgbd_depth"  # registered depth of head_rgbd_cpp: r
 RGBD_CLOUD_ROLE = "rgbd_cloud"  # coloured point cloud of head_rgbd_cpp, drawn in the map frame
 GROUND_CLOUD_ROLE = "ground_cloud"  # labelled cloud (XYZ rgb label) of ground_estimator_cpp, drawn in the map frame
 GROUND_STATE_ROLE = "ground_state"  # std_msgs/String JSON state of ground_estimator_cpp (latched)
+GUARD_STATE_ROLE = "guard_state"  # std_msgs/String JSON self-collision guard state of filter_node (latched)
 DRIVE_POSE_STATE_ROLE = "drive_pose_state"  # std_msgs/String JSON drive pose state of mcp_server (latched)
 # Seconds without a ground state message after which the backend marks the cached state "stale": true.
 GROUND_STALE_S_DEFAULT = 2.0
@@ -309,6 +311,8 @@ class TabConfig(BaseModel):
     arm_drive_pose_enable_service: str | None = None  # arm: std_srvs/SetBool switching the drive pose lift on or off
     # map_nav, arm: std_msgs/String JSON drive pose state of mcp_server (latched), shown read-only on the map.
     drive_pose_state_topic: str | None = None
+    # arm: std_msgs/String JSON self-collision guard state of filter_node (latched), shown as "Blocked by <obstacle>".
+    guard_state_topic: str | None = None
     rgb_camera_topic: str | None = None  # head: sensor_msgs/CompressedImage of the head RGB camera
     rgbd_rgb_topic: str | None = None  # head: sensor_msgs/CompressedImage RGB of head_rgbd_cpp (RGB-D view)
     rgbd_depth_topic: str | None = None  # head: sensor_msgs/Image 16UC1 mm depth registered into rgbd_rgb_topic
@@ -852,7 +856,7 @@ class AppConfig(BaseModel):
         """Map each map_nav topic to its bridge subscription role.
 
         Roles are "map" and "costmap" (OccupancyGrid), "cloud" and "map3d_cloud" (PointCloud2) and "scan_points" (LaserScan), "map3d_status" and "map3d_result" (std_msgs/String JSON), "path" (Path), "goal" (PoseStamped), "footprint"
-        (PolygonStamped), "gps" (NavSatFix), "poi_list", "poi_photos", "poi_result" and "grasp_result" (std_msgs/String JSON), "active_source" (arm tab, std_msgs/String), "head_rgb" and "head_rgbd_rgb" (CompressedImage), "head_depth" and "head_rgbd_depth" (Image) of head tabs, "rgbd_cloud" and "ground_cloud" (PointCloud2), "ground_state" and "drive_pose_state" (std_msgs/String JSON, map_nav and arm tabs) and "battery" (BatteryState) and "gps_status" (std_msgs/String JSON); the bridge derives message types from these instead of
+        (PolygonStamped), "gps" (NavSatFix), "poi_list", "poi_photos", "poi_result" and "grasp_result" (std_msgs/String JSON), "active_source" (arm tab, std_msgs/String), "head_rgb" and "head_rgbd_rgb" (CompressedImage), "head_depth" and "head_rgbd_depth" (Image) of head tabs, "rgbd_cloud" and "ground_cloud" (PointCloud2), "ground_state" and "drive_pose_state" (std_msgs/String JSON, map_nav and arm tabs), "guard_state" (std_msgs/String JSON, arm tab) and "battery" (BatteryState) and "gps_status" (std_msgs/String JSON); the bridge derives message types from these instead of
         TOPIC_TYPE_HINTS.
 
         Returns:
@@ -882,6 +886,8 @@ class AppConfig(BaseModel):
                 roles[tab.grasp_result_topic] = GRASP_RESULT_ROLE
             if tab.drive_pose_state_topic:
                 roles[tab.drive_pose_state_topic] = DRIVE_POSE_STATE_ROLE
+            if tab.guard_state_topic:
+                roles[tab.guard_state_topic] = GUARD_STATE_ROLE
         if self.battery is not None:
             roles[self.battery.topic] = BATTERY_ROLE
         if self.gps_status is not None and self.gps_status.rover_topic:

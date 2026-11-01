@@ -5,9 +5,9 @@ from collections import deque
 from dataclasses import dataclass, field
 
 import pytest
+from feetech_mapping.command_mapping import map_position_to_steps
 
 from feetech_servos.bridge_cycle import BridgeCycle, drain_callbacks, remaining_sleep_s, split_stamp_ns
-from feetech_servos.command_mapping import map_position_to_steps
 from feetech_servos.config import JointEntry, JointGroup
 from feetech_servos.registers import STS_GOAL_POSITION_L, STS_GOAL_SPEED_L, get_register_entry_by_name
 

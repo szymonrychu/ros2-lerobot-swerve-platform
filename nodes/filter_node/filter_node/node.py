@@ -1,9 +1,15 @@
 """ROS2 filter node: subscribe input JointState, run algorithm, publish filtered JointState."""
 
 import time
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import rclpy
+from arm_collision.head import HeadPose, head_pose
+from arm_collision.ik import ArmKinematics
+from arm_collision.jaw import JawModel
+from arm_collision.self_collision import SelfCollisionChecker
+from arm_collision.settings import BodyCheckSettings, load_robot_body
 from rclpy._rclpy_pybind11 import RCLError
 from rclpy.executors import Executor, ExternalShutdownException, SingleThreadedExecutor
 from rclpy.experimental import EventsExecutor
@@ -23,8 +29,9 @@ from .arbitration import (
     parse_released,
 )
 from .command import fill_command
-from .config import EXECUTOR_KINDS, FilterConfig
+from .config import EXECUTOR_KINDS, FilterConfig, GuardSettings
 from .feedback_rate import FeedbackRateSwitch
+from .guard import ArmGuard, GuardResult, GuardStateReporter
 from .metrics import FilterMetrics
 
 NODE_NAME = "filter_node"
@@ -45,6 +52,10 @@ INPUT_STALE_WARN_S = 5.0
 HEALTH_TIMER_PERIOD_S = 5.0
 # Poll faster than the 1 Hz report period so timer jitter never stretches it to 2 s.
 ACTIVE_SOURCE_POLL_S = 0.1
+# A blocked or failed guard check is logged at most once per this period (s).
+GUARD_LOG_PERIOD_S = 5.0
+# Joint limit margin of the guard's kinematics: it only shrinks the IK bounds, which the body check never uses.
+GUARD_LIMIT_MARGIN_RAD = 0.0
 
 
 def joint_positions(msg: JointState) -> dict[str, float]:
@@ -76,6 +87,34 @@ def make_executor(kind: str) -> Executor:
     if kind == "single_threaded":
         return SingleThreadedExecutor()
     raise ValueError(f"executor must be one of {EXECUTOR_KINDS}, got {kind!r}")
+
+
+def build_arm_guard(settings: GuardSettings, head_source: Callable[[], HeadPose | None]) -> ArmGuard:
+    """The self-collision guard of the configured arm against the packaged robot body.
+
+    Args:
+        settings (GuardSettings): Guard settings with the arm calibration.
+        head_source (Callable[[], HeadPose | None]): Head pose of a fresh /head/joint_states sample, None when missing
+            or stale (the full head envelope).
+
+    Returns:
+        ArmGuard: The guard.
+    """
+    arm = settings.arm
+    kin = ArmKinematics(
+        arm.urdf_path,
+        margin=GUARD_LIMIT_MARGIN_RAD,
+        joint_offsets=arm.joint_offsets_rad.model_dump(),
+        tool_offset=(arm.tool_offset_m.x, arm.tool_offset_m.y, arm.tool_offset_m.z),
+        limit_overrides=arm.joint_limit_overrides_rad,
+    )
+    jaw = JawModel(kin, arm.jaw_open_axis, arm.gripper_closed_rad)
+    check = BodyCheckSettings(
+        hard_margin_m=settings.hard_margin_m,
+        soft_margin_m=max(settings.hard_margin_m, BodyCheckSettings().soft_margin_m),
+    )
+    checker = SelfCollisionChecker.from_settings(kin, load_robot_body(), check, arm, jaw)
+    return ArmGuard(checker, settings.max_step_rad, settings.enabled, head_source, settings.leader_gripper)
 
 
 def run_filter_node(config: FilterConfig) -> None:
@@ -130,14 +169,80 @@ def serve_filter_node(config: FilterConfig, node: Node) -> None:
         node.create_publisher(String, config.active_source_topic, FILTER_QOS) if config.active_source_topic else None
     )
     log = node.get_logger()
+    head_state: list[tuple[float, dict[str, float]] | None] = [None]  # (receive time, head joint angles)
+    guard_settings = config.self_collision_guard
+
+    def fresh_head_pose() -> HeadPose | None:
+        """Head pose of the last /head/joint_states sample while it is fresh; None (the full envelope) otherwise."""
+        sample = head_state[0]
+        if (
+            guard_settings is None
+            or sample is None
+            or time.monotonic() - sample[0] > guard_settings.head_state_max_age_s
+        ):
+            return None
+        return head_pose(sample[1])
+
+    guard = build_arm_guard(guard_settings, fresh_head_pose) if guard_settings is not None else None
+    last_guard_log = [-GUARD_LOG_PERIOD_S]
+    guard_state_pub = (
+        node.create_publisher(String, config.guard_state_topic, LATCHED_QOS)
+        if guard is not None and config.guard_state_topic
+        else None
+    )
+    guard_state = GuardStateReporter()
+
+    def report_guard_state() -> None:
+        """Publish the guard state when it changed or its blocked period elapsed."""
+        payload = guard_state.poll(time.monotonic())
+        if guard_state_pub is not None and payload is not None:
+            state_msg = String()
+            state_msg.data = payload
+            guard_state_pub.publish(state_msg)
+
+    def log_guard(source: str, result: GuardResult) -> None:
+        """Log a clamped, refused or failed check, at most once per GUARD_LOG_PERIOD_S."""
+        now = time.monotonic()
+        if not (result.blocked or result.error) or now - last_guard_log[0] < GUARD_LOG_PERIOD_S:
+            return
+        last_guard_log[0] = now
+        if result.error:
+            log.error(f"Self-collision guard check failed for {source}, nothing published: {result.error}")
+            return
+        action = "clamped to the last safe sample" if result.positions is not None else "refused (holding)"
+        log.warning(
+            f"Self-collision guard: {source} command {action}: {result.link or 'arm'} at "
+            f"{result.clearance_m:.3f} m from {result.obstacle}"
+        )
+
+    def publish_guarded(names: Sequence[str], positions: Sequence[float], source: str) -> None:
+        """Publish a command on the output topic, tagged with its source, after the self-collision guard.
+
+        Args:
+            names (Sequence[str]): Joint names.
+            positions (Sequence[float]): Positions (rad), aligned with names.
+            source (str): Command source.
+        """
+        if guard is not None:
+            result = guard.admit(source, names, positions)
+            if guard.enabled:
+                metrics.record_guard(source, result)
+                log_guard(source, result)
+                guard_state.update(source, result, time.monotonic())
+                report_guard_state()
+            if result.positions is None:
+                return
+            positions = result.positions
+        pub.publish(fill_command(JointState(), clock.now().to_msg(), names, positions, source))
 
     def publish_direct(msg: JointState, source: str) -> None:
         """Republish a clean command (web UI / autonomy) unfiltered on the output topic, tagged with its source."""
-        pub.publish(fill_command(JointState(), clock.now().to_msg(), msg.name, msg.position, source))
+        publish_guarded(msg.name, msg.position, source)
 
     def report_source() -> None:
         """Update metrics, then publish the active source when it changed or the 1 Hz period elapsed."""
         metrics.refresh(arbiter.active_source, time.monotonic())
+        report_guard_state()
         if source_pub is not None and reporter.due(arbiter.active_source, time.monotonic()):
             source_msg = String()
             source_msg.data = arbiter.active_source
@@ -225,10 +330,17 @@ def serve_filter_node(config: FilterConfig, node: Node) -> None:
     def on_follower_feedback(msg: JointState) -> None:
         full_rate_seen[0] = True
         arbiter.update_follower_positions(joint_positions(msg))
+        if guard is not None:
+            guard.seed(msg.name, msg.position)
 
     def on_idle_feedback(msg: JointState) -> None:
         last_idle_feedback_time[0] = time.monotonic()
         arbiter.update_follower_positions(joint_positions(msg))
+        if guard is not None:
+            guard.seed(msg.name, msg.position)
+
+    def on_head_state(msg: JointState) -> None:
+        head_state[0] = (time.monotonic(), joint_positions(msg))
 
     node.create_subscription(JointState, config.input_topic, on_input, FILTER_QOS)
     node.create_timer(HEALTH_TIMER_PERIOD_S, health_check)
@@ -281,6 +393,13 @@ def serve_filter_node(config: FilterConfig, node: Node) -> None:
 
     if config.follower_feedback_topic:
         swap_feedback_subscription(time.monotonic())
+    if guard_settings is not None:
+        node.create_subscription(JointState, guard_settings.head_state_topic, on_head_state, FILTER_QOS)
+        log.info(
+            f"Self-collision guard {'enabled' if guard_settings.enabled else 'disabled'}: keep-away "
+            f"{guard_settings.hard_margin_m} m, step {guard_settings.max_step_rad} rad, head from "
+            f"{guard_settings.head_state_topic}"
+        )
     if config.follower_torque_state_topic:
         node.create_subscription(String, config.follower_torque_state_topic, on_torque_state, LATCHED_QOS)
         log.info(f"Follower torque state: {config.follower_torque_state_topic}")
@@ -334,5 +453,5 @@ def serve_filter_node(config: FilterConfig, node: Node) -> None:
                 pos = algorithm.predict(st, n, now, last_t)
                 positions.append(pos)
             if names and len(positions) == len(names):
-                pub.publish(fill_command(JointState(), clock.now().to_msg(), names, positions, SOURCE_LEADER))
+                publish_guarded(names, positions, SOURCE_LEADER)
         executor.spin_once(timeout_sec=control_period_s)

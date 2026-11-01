@@ -4,12 +4,12 @@ import math
 from pathlib import Path
 
 import pytest
+from arm_collision.ik import ArmKinematics, grasp_offset, load_joint_limits
 
 from mcp_server.arm import ArmController, ArmError, tracking_limit
 from mcp_server.config import McpServerConfig
 from mcp_server.floor_guard import FloorOverride, Tilt, TiltOverrideDeg, TiltSample
 from mcp_server.grasp import jaw_clearance
-from mcp_server.ik import ArmKinematics, grasp_offset, load_joint_limits
 from mcp_server.models import ArmMotionResult
 
 from .fakes import JOINTS, DelayedFollower, FakeArmBackend

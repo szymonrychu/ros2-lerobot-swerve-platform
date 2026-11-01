@@ -82,7 +82,7 @@ def test_params_file_overrides_the_grasp_defaults(tmp_path: Path) -> None:
     index = json.loads((tmp_path / "run" / "index.json").read_text())
     assert index["planner_params"]["scoop_max_pitch_deg"] == 60
     # the robot body for the sim scene: the deployed obstacles and the arm mount
-    assert [c["name"] for c in index["body"]["cylinders"]][-1] == "lidar"
+    assert [c["name"] for c in index["body"]["cylinders"]][-3:] == ["lidar", "head_post", "head"]
     assert index["body"]["mount_xyz_m"] == [0.0592, -0.05, 0.1]
     assert [e["key"] for e in index["entries"]] == ["4x4x4_r20_floor_top_down"]
 

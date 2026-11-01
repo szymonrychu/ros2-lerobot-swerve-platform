@@ -340,6 +340,28 @@ describe('ArmTab drive pose', () => {
     ])
   })
 
+  it('shows "Blocked by <obstacle>" while the guard state is blocked and hides it when cleared', () => {
+    const blocked = { blocked: true, source: 'web_ui', link: 'frame_right', obstacle: 'wheel_fr', clearance_m: 0.004 }
+    const view = renderTab({ '/filter/guard_state': blocked })
+    expect(screen.getByTestId('guard-blocked-banner').textContent).toContain('Blocked by wheel_fr')
+    view.unmount()
+    renderTab({ '/filter/guard_state': { ...blocked, blocked: false, source: '', link: '', obstacle: '', clearance_m: null } })
+    expect(screen.queryByTestId('guard-blocked-banner')).toBeNull()
+  })
+
+  it('shows no guard banner before the first guard state and reads the tab guard_state_topic', () => {
+    renderTab({})
+    expect(screen.queryByTestId('guard-blocked-banner')).toBeNull()
+    cleanup()
+    render(
+      <ThemeProvider theme={theme}>
+        <ArmTab tab={{ ...TAB, guard_state_topic: '/x/guard' }} topicData={{ '/x/guard': { blocked: true, source: 'leader', link: 'gripper', obstacle: 'crossbar', clearance_m: 0.001 } }} publish={vi.fn()} />
+      </ThemeProvider>,
+    )
+    expect(screen.getByTestId('guard-blocked-banner').textContent).toContain('Blocked by crossbar')
+    expect(tabTopics({ ...TAB, guard_state_topic: '/x/guard' })).toContain('/x/guard')
+  })
+
   it('reads the tab drive_pose_state_topic', () => {
     render(
       <ThemeProvider theme={theme}>
