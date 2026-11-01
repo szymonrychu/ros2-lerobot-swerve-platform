@@ -309,4 +309,4 @@
 
 ## Arm lifts to a drive pose during navigation (2026-11-01)
 
-- **Decision**: while a NavigateToPose goal runs, the arm lifts from home to a drive pose out of the head D435's view and lowers 3 s after the last goal (`arm.drive_pose`, ships `enabled: false`, toggled on the web UI ARM tab). mcp_server owns it (`drive_pose.py`, `/arm/drive_pose/state`); the Nav2 BT step `WaitForArmDriveReady` (`arm_drive_wait_bt_cpp`) holds each goal up to 8 s for the lift and never blocks or fails a goal otherwise. Details: `nodes/mcp_server/README.md` ("Drive pose"), `nodes/nav2_bringup/README.md` ("Arm drive pose wait").
+- **Decision**: while a NavigateToPose goal runs, the arm lifts from home to a drive pose out of the head D435's view and lowers 3 s after the last goal (`arm.drive_pose`, ships `enabled: true`, toggled on the web UI ARM tab). mcp_server owns it (`drive_pose.py`, `/arm/drive_pose/state`); the Nav2 BT step `WaitForArmDriveReady` (`arm_drive_wait_bt_cpp`) holds each goal up to 8 s for the lift and never blocks or fails a goal otherwise. Details: `nodes/mcp_server/README.md` ("Drive pose"), `nodes/nav2_bringup/README.md` ("Arm drive pose wait").

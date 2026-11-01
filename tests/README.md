@@ -2013,7 +2013,7 @@ lists `StopBoxDrive` among the collision_monitor polygons with the `scan` and `d
 
 | File | What it covers |
 |---|---|
-| `nodes/mcp_server/tests/test_config.py` | `ArmSettings.drive_pose` defaults, rejected values (joints, `speed_scale`, `lower_delay_s`, unknown keys), and the deployed client.yml block (disabled, every joint named). |
+| `nodes/mcp_server/tests/test_config.py` | `ArmSettings.drive_pose` defaults, rejected values (joints, `speed_scale`, `lower_delay_s`, unknown keys), and the deployed client.yml block (enabled, every joint named). |
 | `nodes/mcp_server/tests/test_drive_pose_check.py` | The drive pose check on synthetic poses: `body`, `floor`, `stretched`, `roll`, `footprint` and `view` failures, every `home_routes` leg in both directions, the D435 frustum and floor-region geometry, the search ranking. |
 | `nodes/mcp_server/tests/test_drive_pose_config.py` | The client.yml `drive_pose.joints` pass every check from the parked home. |
 | `nodes/mcp_server/tests/test_drive_pose.py` | The controller with fake arm, control, clock and worker: lift on the goal edge, every skip reason, lowering after `lower_delay_s`, chained goals, lease or moved arm means no lower, non-converged motions, `request_lift`, abort, runtime enable, `store_pose` / `load_pose`, `at_drive_pose`. |

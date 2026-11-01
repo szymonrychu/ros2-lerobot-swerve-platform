@@ -1216,7 +1216,7 @@ configs (a test checks it). Without the block nothing is published.
 
 `drive_pose.py` (`DrivePose`, no ROS) lifts the arm from home to a drive pose out of the head D435's view while a
 NavigateToPose goal is active and lowers it afterwards, so the head can pan right with an unobstructed view. It ships
-`arm.drive_pose.enabled: false` (`client.yml`); the web UI ARM tab toggles it at runtime.
+`arm.drive_pose.enabled: true` (`client.yml`); the web UI ARM tab toggles it at runtime.
 
 | State (`/arm/drive_pose/state`) | Meaning |
 |---|---|

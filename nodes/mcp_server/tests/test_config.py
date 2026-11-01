@@ -717,10 +717,10 @@ def test_drive_pose_speed_scale_one_and_zero_delay_are_valid() -> None:
     assert (drive.arm.drive_pose.speed_scale, drive.arm.drive_pose.lower_delay_s) == (1.0, 0.0)
 
 
-def test_deployed_config_has_a_disabled_drive_pose_naming_every_joint() -> None:
+def test_deployed_config_has_an_enabled_drive_pose_naming_every_joint() -> None:
     nodes = yaml.safe_load((REPO_ROOT / "ansible" / "group_vars" / "client.yml").read_text())["ros2_nodes"]
     entry = next(n for n in nodes if n["name"] == "mcp_server")
     assert "drive_pose" in yaml.safe_load(entry["config"])["arm"]
     drive = McpServerConfig.model_validate(yaml.safe_load(entry["config"])).arm.drive_pose
-    assert drive.enabled is False
+    assert drive.enabled is True
     assert drive.joints is not None and set(drive.joints) == set(DRIVE_JOINTS)

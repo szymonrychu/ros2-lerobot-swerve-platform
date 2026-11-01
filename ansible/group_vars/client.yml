@@ -3053,14 +3053,14 @@ ros2_nodes:
           max_rad: 0.12
         # Drive pose (nodes/mcp_server/README.md, "Drive pose"): while a NavigateToPose goal is active the arm lifts
         # from home to these measured-space joints, out of the D435 view, and returns home lower_delay_s after the last
-        # goal ended. Off until checked live (servo safety rule). joints: picked 2026-10-31 by
+        # goal ended. On by default (toggled at runtime on the web UI ARM tab). joints: picked 2026-10-31 by
         # `python -m mcp_server.drive_pose_check search` (0.1 rad grid over shoulder_lift, elbow_flex, wrist_flex; the
         # rest as the parked home): upper arm laid back, forearm folded over the crossbar. It hides 0.165 m2 of floor
         # beside the right wheels over head pans -50..-90 deg at tilt 30 deg (home 1.12 m2 there, 1.60 m2 over
         # 0..-90; least of every pose passing the body, floor, footprint and route checks); gravity torque on
         # shoulder_lift -0.75 N m. A shoulder_pan swing would reach 0.088 m2 (not used: the pan stays as home).
         drive_pose:
-          enabled: false
+          enabled: true
           joints:
             shoulder_pan: -0.003
             shoulder_lift: -1.711
