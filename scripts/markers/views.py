@@ -23,7 +23,7 @@ VIEW_DIRECTIONS: dict[str, tuple[float, float, float]] = {
 }
 DISTANCE_PER_DIAGONAL = 2.0  # camera distance as a multiple of the bounds diagonal
 UP_PARALLEL_TOL = 0.99  # |direction . z| above this uses +y as the view up
-ARM_PATTERN_FACE = "bottom"  # the ARM board prints face down (pattern on the bed)
+ARM_PATTERN_FACE = "top"  # the ARM board prints back down (pattern up, user m540)
 COLOUR_BASE = "white"
 COLOUR_MODULES = "black"
 COLOUR_FIXED_JAW = "lightsteelblue"

@@ -34,7 +34,7 @@ try:
     from head_rgbd_calibration.config import NodeConfig
     from mcp_server.calibration_board import BoardPark
     from mcp_server.config import CalibrationBoardSettings, McpServerConfig
-    from ros2_common.head_rgbd_calibration.arm_pose_check import back_box_points_local, board_points_local
+    from ros2_common.head_rgbd_calibration.arm_pose_check import board_points_local, handle_box_points_local
 finally:
     del sys.path[:3]
 
@@ -58,7 +58,7 @@ def test_mcp_server_board_equals_the_calibration_fit_board_and_mount() -> None:
     assert mcp["lattice_points"] == GRID == seq.pose_check.board_grid
     assert tuple(mcp["mount_xyz_m"]) == fit.board_mount.xyz_init
     assert tuple(mcp["mount_rpy_rad"]) == fit.board_mount.rpy_init
-    assert [tuple(map(tuple, box)) for box in mcp["back_boxes_mm"]] == fit.board_mount.back_boxes_mm
+    assert [tuple(map(tuple, box)) for box in mcp["handle_boxes_mm"]] == fit.board_mount.handle_boxes_mm
     # The strictest clearances the node's park check uses: sequence margin + nominal-mount allowance + sag.
     assert mcp["margin_m"] == pytest.approx(seq.board_margin_m(True) + seq.park_board_sag_margin_m)
     assert mcp["min_height_m"] == pytest.approx(seq.pose_check.min_board_height_m + seq.park_board_sag_margin_m)
@@ -83,8 +83,8 @@ def test_deployed_block_and_code_defaults_agree() -> None:
 def test_mcp_server_points_equal_the_node_board_points_at_the_configured_mount() -> None:
     calib = NodeConfig()
     settings = CalibrationBoardSettings()
-    expected = np.vstack([board_points_local(calib.fit, GRID), back_box_points_local(calib.fit)])
-    assert len(back_box_points_local(calib.fit)) > 0  # the grip post and its gussets are checked too
+    expected = np.vstack([board_points_local(calib.fit, GRID), handle_box_points_local(calib.fit)])
+    assert len(handle_box_points_local(calib.fit)) > 0  # the handle post, gusset and tab are checked too
     park = BoardPark.from_mount(settings, list(settings.mount_xyz_m), list(settings.mount_rpy_rad))
     assert np.allclose(np.sort(park.points, axis=0), np.sort(expected, axis=0), atol=1e-9)
     assert np.allclose(park.points, expected, atol=1e-9)

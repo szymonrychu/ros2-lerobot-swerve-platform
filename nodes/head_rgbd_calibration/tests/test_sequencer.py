@@ -84,9 +84,9 @@ MIN_DEPTH_M = 0.20  # D435 min-Z at 640x360 (0.15 m) plus the 0.05 m margin
 # at every pose within the tier bounds and the head tilt limit, so that test raises the min-Z instead
 MIN_Z_M = 0.22
 NEAR_MIN_DEPTH_M = MIN_Z_M + 0.05
-# A tier-2 pose (within the tier bounds) that puts the board 0.25 m in front of the D435 at every head offset, the head
-# within its limits: inside the NEAR_MIN_DEPTH_M limit above.
-NEAR_POSE = {"shoulder_pan": -0.47, "shoulder_lift": 0.15, "elbow_flex": 0.0, "wrist_flex": -0.8, "wrist_roll": -0.5}
+# A tier-2 pose (within the tier bounds) that puts the board (edge handle CAD mount) within 0.27 m of the D435 at every
+# head offset, the head within its limits: inside the NEAR_MIN_DEPTH_M limit above.
+NEAR_POSE = {"shoulder_pan": -0.47, "shoulder_lift": -0.05, "elbow_flex": 0.0, "wrist_flex": -0.5, "wrist_roll": 0.5}
 WIDE_K = np.array([[100.0, 0.0, 320.0], [0.0, 100.0, 180.0], [0.0, 0.0, 1.0]])  # 145 deg across 640 px
 D435_FOCAL_PX = 320.0 / math.tan(math.radians(69.0 / 2))  # nominal D435 colour, 69 deg across 640 px
 D435_K = np.array([[D435_FOCAL_PX, 0.0, 320.0], [0.0, D435_FOCAL_PX, 180.0], [0.0, 0.0, 1.0]])

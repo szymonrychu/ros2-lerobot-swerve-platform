@@ -67,6 +67,12 @@ def test_load_gripper_places_the_tool_frame() -> None:
     assert GRIPPER.tool[:3, 3] == pytest.approx([-7.9, -0.218121, -98.1274], abs=1e-3)
 
 
+def test_load_gripper_reads_both_gripper_limits() -> None:
+    """The URDF gripper joint limits (rad): the lower one bounds the contact search, the upper one is fully open."""
+    assert GRIPPER.lower_rad == pytest.approx(-0.174533)
+    assert GRIPPER.upper_rad == pytest.approx(1.74533)
+
+
 def test_moving_jaw_turns_about_the_gripper_joint() -> None:
     a, b = moving_jaw(GRIPPER, 0.0), moving_jaw(GRIPPER, 0.3)
     pivot = GRIPPER.joint[:3, 3]

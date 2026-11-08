@@ -396,33 +396,33 @@ def test_fit_mounts_are_the_cad_seed() -> None:
     assert "CAD seed from the handle" in SHIPPED.read_text()
 
 
-def test_board_back_boxes_are_the_handle_cad() -> None:
-    """The grip post and its two gussets of the handle metadata (decision 296), each a box from the plate back up:
-    the post box rails-wide, from the nominal bed face to the taller rail top, neck plus grip high (generator
-    handle); the gusset boxes reach out from the post walls along the board x axis."""
+def test_board_handle_boxes_are_the_handle_cad() -> None:
+    """The post, its gusset and the tab of the edge handle metadata (user m540, handle_envelope_mm), boxes in the board
+    frame (pattern at z = 0, back at z = T): on the pattern side (z < 0) and off the plate outline past its bottom
+    edge; the post box rails-wide along board y, from the nominal bed face to the taller rail top along board x, from
+    the tab top up neck plus grip; the tab box from the plate back to the tab top."""
     meta = json.loads(ARM_JSON.read_text())
-    envelope = meta["back_envelope_mm"]
+    envelope = meta["handle_envelope_mm"]
     handle = next(b for b in yaml.safe_load(MARKERS_YAML.read_text())["boards"] if b["name"] == ARM_BOARD.name)[
         "handle"
     ]
-    boxes = NodeConfig().fit.board_mount.back_boxes_mm
-    assert boxes == load_config(SHIPPED).fit.board_mount.back_boxes_mm
-    assert len(boxes) == 3
-    post, gussets = boxes[0], boxes[1:]
-    expected = [envelope["post"], *envelope["gussets"]]
+    boxes = NodeConfig().fit.board_mount.handle_boxes_mm
+    assert boxes == load_config(SHIPPED).fit.board_mount.handle_boxes_mm
+    expected = [envelope["post"], envelope["gusset"], envelope["tab"]]
+    assert len(boxes) == len(expected)
     for box, want in zip(boxes, expected, strict=True):
         assert [*box[0], *box[1]] == pytest.approx([*want[0], *want[1]], abs=1e-6)
-        assert box[0][2] == pytest.approx(ARM_BOARD.thickness_mm, abs=1e-6)  # from the plate back
-        assert box[1][2] == pytest.approx(ARM_BOARD.thickness_mm + envelope["height_mm"], abs=1e-6)
-    (x0, y0, _), (x1, y1, _) = post
-    assert x1 - x0 == pytest.approx(handle["channel_end_mm"] + 2 * handle["rail_width_mm"], abs=1e-6)
+        assert box[0][2] < 0.0  # the pattern side
+        assert box[0][1] >= ARM_BOARD.squares_y * ARM_BOARD.square_mm  # past the bottom edge of the squares
+    post, _, tab = boxes
+    (x0, y0, z0), (x1, y1, z1) = post
+    assert y1 - y0 == pytest.approx(handle["channel_end_mm"] + 2 * handle["rail_width_mm"], abs=1e-6)
     top = max(handle["thickness_tip_mm"], handle["thickness_end_mm"]) + handle["rail_height_mm"]
-    assert y1 - y0 == pytest.approx(top + handle["clamp_clearance_mm"], abs=1e-6)
-    assert envelope["height_mm"] == pytest.approx(handle["neck_mm"] + handle["length_mm"], abs=1e-6)
-    assert (gussets[0][1][0], gussets[1][0][0]) == pytest.approx((x0, x1), abs=1e-6)  # flush with the post walls
-    for low, high in gussets:
-        assert high[0] - low[0] == pytest.approx(handle["gusset_reach_mm"], abs=1e-6)
-        assert high[1] - low[1] == pytest.approx(handle["gusset_thickness_mm"], abs=1e-6)
+    assert x1 - x0 == pytest.approx(top + handle["clamp_clearance_mm"], abs=1e-6)
+    tab_top = ARM_BOARD.thickness_mm - handle["tab_thickness_mm"]
+    assert z1 == pytest.approx(tab_top, abs=1e-6)
+    assert z1 - z0 == pytest.approx(handle["neck_mm"] + handle["length_mm"], abs=1e-6)
+    assert tab[0][2] == pytest.approx(tab_top, abs=1e-6) and tab[1][2] == pytest.approx(ARM_BOARD.thickness_mm)
 
 
 def test_arm_sequence_grip_defaults_come_from_the_handle() -> None:

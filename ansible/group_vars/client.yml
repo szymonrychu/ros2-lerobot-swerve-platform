@@ -1796,15 +1796,16 @@ ros2_nodes:
           thickness_mm: 4.0 # plate thickness behind the printed face, in the collision checks
         # ARM board mount in gripper_link: CAD seed from the handle (markers/charuco-arm-6x5-28mm.json), not fit-solved.
         board_mount:
-          xyz_init: [0.0746, -0.084051, -0.116113] # initial mount position, m
-          rpy_init: [0.0, 0.0, 1.570796] # initial mount roll/pitch/yaw, rad
+          xyz_init: [-0.0794, 0.187949, -0.118113] # initial mount position, m
+          rpy_init: [3.141593, 0.0, 0.0] # initial mount roll/pitch/yaw, rad
           outline_margin_m: 0.01 # margin around the board outline, m
-          # Material behind the plate back, [min, max] boxes in the board frame (mm), checked as board points by the pose
-          # check: the right-angle grip post and its two gussets (markers/charuco-arm-6x5-28mm.json back_envelope_mm).
-          back_boxes_mm:
-            - [[71.7, 53.95, 4.0], [96.3, 82.5, 40.0]]
-            - [[35.7, 66.0, 4.0], [71.7, 74.0, 40.0]]
-            - [[96.3, 66.0, 4.0], [132.3, 74.0, 40.0]]
+          # Handle material beyond the plate, [min, max] boxes in the board frame (mm), checked as board points by the pose
+          # check: the edge handle's post, gusset and tab on the pattern side (z < 0) past the plate's bottom edge
+          # (markers/charuco-arm-6x5-28mm.json handle_envelope_mm).
+          handle_boxes_mm:
+            - [[71.5, 175.7, -42.0], [100.05, 200.3, -6.0]]
+            - [[80.0, 145.7, -42.0], [88.0, 175.7, -6.0]]
+            - [[34.0, 145.0, -6.0], [134.0, 200.3, 4.0]]
         # Fit the head pan axis position (head_pan origin x, y) relative to the head; the head_tilt origin moves back by
         # the same shift so the head stays put at pan 0. Session calib-20261023-074418: the fixed axis left 13 px at the
         # +-10 deg pan offsets (rms 12.2 px), the free axis sits 38 mm behind and 11 mm right of the URDF value (rms 2.7 px).
@@ -1865,10 +1866,10 @@ ros2_nodes:
         # Plate in gripper_link: CAD seed from the handle (markers/charuco-arm-6x5-28mm.json), not fit-solved. rpy is the CAD
         # rotation (wrist_roll fitted); tool_in_board_m the CAD board-to-jaw-tip offset (the tool point is fitted).
         plate_mount:
-          xyz_init: [0.0746, -0.084051, -0.116113]
-          rpy_init: [0.0, 0.0, 1.570796]
-          rpy: [0.0, 0.0, 1.570796]
-          tool_in_board_m: [0.078233, 0.0835, 0.019386]
+          xyz_init: [-0.0794, 0.187949, -0.118113]
+          rpy_init: [3.141593, 0.0, 0.0]
+          rpy: [3.141593, 0.0, 0.0]
+          tool_in_board_m: [0.0705, 0.193767, -0.021386]
         wrist_roll_offset_rad: null # wrist_roll zero from the recorded servo neutral, rad; required when rpy is null
         tool_offset_m: [0.001, -0.0056, -0.0014] # current tool point in gripper_frame_link (mcp_server arm), m
         floor_fit: # floor views of the arm offsets fit: plane fit, limits and residual scales (as floor.fit)
@@ -1905,7 +1906,7 @@ ros2_nodes:
         insert_gripper_rad: 0.4 # sent once with the base pose; at most pose_check.max_roll_gripper_rad (half open)
         handle_contact_rad: 0.070279 # gripper angle at first contact on the ARM board handle (CAD), rad
         handle_squeeze_rad: 0.02 # squeeze past contact, rad (> 0); grip = contact - squeeze
-        board_mass_g: 171.226917 # ARM board mass from the CAD, g (> 0)
+        board_mass_g: 211.72779 # ARM board mass from the CAD, g (> 0)
         # Tier 0: wrist_roll only (within max_roll_delta_rad of base_pose).
         tier0_poses:
         - {shoulder_pan: -0.12, shoulder_lift: 0.3, elbow_flex: 0.0, wrist_flex: -0.5, wrist_roll: 0.3}
@@ -2993,13 +2994,14 @@ ros2_nodes:
         thickness_mm: 4.0 # plate thickness behind the printed face
         outline_margin_m: 0.01 # plate margin beyond the outer squares
         lattice_points: 5 # points per plate edge of the checked lattice
-        mount_xyz_m: [0.0746, -0.084051, -0.116113] # board frame origin in gripper_link
-        mount_rpy_rad: [0.0, 0.0, 1.570796] # fixed-axis xyz rotation
-        # Material behind the plate back, [min, max] boxes in the board frame (mm): the grip post and its gussets.
-        back_boxes_mm:
-          - [[71.7, 53.95, 4.0], [96.3, 82.5, 40.0]]
-          - [[35.7, 66.0, 4.0], [71.7, 74.0, 40.0]]
-          - [[96.3, 66.0, 4.0], [132.3, 74.0, 40.0]]
+        mount_xyz_m: [-0.0794, 0.187949, -0.118113] # board frame origin in gripper_link
+        mount_rpy_rad: [3.141593, 0.0, 0.0] # fixed-axis xyz rotation
+        # Handle material beyond the plate, [min, max] boxes in the board frame (mm): the edge handle's post, gusset
+        # and tab on the pattern side (z < 0) past the plate's bottom edge.
+        handle_boxes_mm:
+          - [[71.5, 175.7, -42.0], [100.05, 200.3, -6.0]]
+          - [[80.0, 145.7, -42.0], [88.0, 175.7, -6.0]]
+          - [[34.0, 145.0, -6.0], [134.0, 200.3, 4.0]]
         mount_tolerance_m: 0.03
         mount_tolerance_deg: 10.0
         margin_m: 0.065 # clearance from the body: 0.005 pose-check margin + 0.05 nominal-mount allowance + 0.01 sag
