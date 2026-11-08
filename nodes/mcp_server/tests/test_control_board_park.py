@@ -125,7 +125,7 @@ def test_the_board_geometry_is_mcp_servers_own_and_the_request_only_moves_the_mo
     park = board()
     assert park.margin_m == settings.margin_m and park.min_height_m == settings.min_height_m
     plate_count = 2 * (4 + settings.lattice_points**2)
-    assert len(park.points) == plate_count + 27 * len(settings.back_boxes_mm)
+    assert len(park.points) == plate_count + 27 * len(settings.handle_boxes_mm)
     width, height = settings.squares_x * settings.square_mm / 1000, settings.squares_y * settings.square_mm / 1000
     # In the board frame the outline spans the squares plus the margin; the mount is a rigid pose of it.
     diagonal = math.sqrt(
@@ -136,8 +136,8 @@ def test_the_board_geometry_is_mcp_servers_own_and_the_request_only_moves_the_mo
     plate = park.points[:plate_count]
     reach = max(float(np.linalg.norm(a - b)) for a in plate for b in plate)
     assert reach == pytest.approx(diagonal)
-    # Then a 3 x 3 x 3 lattice per back box (the grip post and its gussets), the same rigid pose: its diagonal is kept.
-    for index, (low, high) in enumerate(settings.back_boxes_mm):
+    # Then a 3 x 3 x 3 lattice per handle box (the post, its gusset and the tab), the same rigid pose: its diagonal is kept.
+    for index, (low, high) in enumerate(settings.handle_boxes_mm):
         box = park.points[plate_count + 27 * index : plate_count + 27 * (index + 1)]
         span = max(float(np.linalg.norm(a - b)) for a in box for b in box)
         assert span == pytest.approx(math.dist(low, high) / 1000)

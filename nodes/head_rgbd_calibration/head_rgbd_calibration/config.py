@@ -79,20 +79,20 @@ DEFAULT_ROBOT_TOKEN_FILE = "/etc/ros2/mcp_server/token"
 DEFAULT_ROBOT_BOARD_PARK_TOKEN_FILE = "/etc/ros2/mcp_server/board_park_token"
 # ARM board mount in gripper_link from the handle CAD (markers/charuco-arm-6x5-28mm.json board_mount and
 # handle_in_board, 6 decimals): a CAD seed, not fit-solved. The fit refines the real mount from this start value.
-CAD_BOARD_XYZ = (0.0746, -0.084051, -0.116113)
-CAD_BOARD_RPY = (0.0, 0.0, 1.570796)
+CAD_BOARD_XYZ = (-0.0794, 0.187949, -0.118113)
+CAD_BOARD_RPY = (3.141593, 0.0, 0.0)
 CAD_TOOL_IN_BOARD_M = (
-    0.078233,
-    0.0835,
-    0.019386,
+    0.0705,
+    0.193767,
+    -0.021386,
 )  # jaw-tip tool point in the board frame (handle_in_board.tool_point_m)
-# ARM board material behind its plate back, ((min), (max)) boxes in the board frame (mm) for the pose check: the
-# right-angle grip post and its two gussets (decision 296, markers/charuco-arm-6x5-28mm.json back_envelope_mm), each
-# from the plate back (z = 4) up to the post top 36 mm above it; the gusset boxes hold the triangular webs.
-CAD_BACK_BOXES_MM = (
-    ((71.7, 53.95, 4.0), (96.3, 82.5, 40.0)),
-    ((35.7, 66.0, 4.0), (71.7, 74.0, 40.0)),
-    ((96.3, 66.0, 4.0), (132.3, 74.0, 40.0)),
+# ARM board handle material beyond its plate, ((min), (max)) boxes in the board frame (mm, pattern at z = 0, back at
+# z = 4) for the pose check: the edge handle's post, its gusset and the tab (user m540, markers/charuco-arm-6x5-28mm.json
+# handle_envelope_mm), on the pattern side up to the post top 42 mm above the pattern face, past the bottom edge.
+CAD_HANDLE_BOXES_MM = (
+    ((71.5, 175.7, -42.0), (100.05, 200.3, -6.0)),
+    ((80.0, 145.7, -42.0), (88.0, 175.7, -6.0)),
+    ((34.0, 145.0, -6.0), (134.0, 200.3, 4.0)),
 )
 WRIST_ROLL = "wrist_roll"
 WRIST_FLEX = "wrist_flex"
@@ -107,7 +107,7 @@ DEFAULT_INSERT_GRIPPER_RAD = 0.4  # gripper opening while the handle is inserted
 # squeeze past it (inside the mcp_server gripper converge tolerance), and the board mass.
 DEFAULT_HANDLE_CONTACT_RAD = 0.070279
 DEFAULT_HANDLE_SQUEEZE_RAD = 0.02
-DEFAULT_BOARD_MASS_G = 171.226917
+DEFAULT_BOARD_MASS_G = 211.72779
 # The parked arm: scripts/gen_nav_footprint.yaml parked_arm_joints (the mcp_server home), the target of a park with the
 # board on (a test pins the two equal).
 DEFAULT_PARK_POSE = (-0.003, -1.35, 1.578, -0.1, -1.637)
@@ -347,7 +347,7 @@ def default_fit() -> HeadArmFitConfig:
     """
     return HeadArmFitConfig(
         board_mount=BoardMountConfig(
-            xyz_init=CAD_BOARD_XYZ, rpy_init=CAD_BOARD_RPY, back_boxes_mm=list(CAD_BACK_BOXES_MM)
+            xyz_init=CAD_BOARD_XYZ, rpy_init=CAD_BOARD_RPY, handle_boxes_mm=list(CAD_HANDLE_BOXES_MM)
         ),
         plate_mount=PlateMountConfig(
             xyz_init=CAD_BOARD_XYZ, rpy_init=CAD_BOARD_RPY, rpy=CAD_BOARD_RPY, tool_in_board_m=CAD_TOOL_IN_BOARD_M

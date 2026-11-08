@@ -15,8 +15,8 @@ and obstacle at once. mcp_server keeps its own checks on top of this one.
 ChArUco corner keeps `d435_min_z_m` plus `d435_min_z_margin_m` of depth from the camera's optical frame (the D435
 depth min-Z, design D2) and projects inside the colour image of the camera_info. The corners lie on the printed face,
 the face the camera sees; the board's thickness is behind it, so it does not bring the corners nearer the camera.
-The collision checks use both faces (`board_points_local`) and the material beyond the plate, the grip post and its
-gussets (`back_box_points_local`, from `board_mount.back_boxes_mm`).
+The collision checks use both faces (`board_points_local`) and the material beyond the plate, the edge handle's
+post, gusset and tab (`handle_box_points_local`, from `board_mount.handle_boxes_mm`).
 """
 
 import math
@@ -58,7 +58,7 @@ HEAD_MOUNT_JOINT = "head_mount_joint"
 HEAD_PAN = "head_pan"
 HEAD_TILT = "head_tilt"
 HEAD_SAMPLE_STEP_RAD = math.radians(15.0)
-BACK_BOX_POINTS_PER_AXIS = 3  # corners, edge midpoints, face centres and the centre of each back box
+HANDLE_BOX_POINTS_PER_AXIS = 3  # corners, edge midpoints, face centres and the centre of each handle box
 RIM_SIDES = 32  # cylinder visuals as circumscribed polygons: their vertices bound the round rim from outside
 GOLDEN_RATIO = (math.sqrt(5.0) - 1.0) / 2.0
 GOLDEN_ITERATIONS = 48  # shrinks the bracket below 1e-10 of the capsule length
@@ -391,18 +391,18 @@ def board_points_local(fit: HeadArmFitConfig, grid: int) -> np.ndarray:
     return mounted(fit, np.vstack([front, back]))
 
 
-def back_box_points_local(fit: HeadArmFitConfig) -> np.ndarray:
-    """A BACK_BOX_POINTS_PER_AXIS lattice over each box of `fit.board_mount.back_boxes_mm`, in gripper_link.
+def handle_box_points_local(fit: HeadArmFitConfig) -> np.ndarray:
+    """A HANDLE_BOX_POINTS_PER_AXIS lattice over each box of `fit.board_mount.handle_boxes_mm`, in gripper_link.
 
     Args:
-        fit: Fit config (`board_mount` xyz_init/rpy_init/back_boxes_mm).
+        fit: Fit config (`board_mount` xyz_init/rpy_init/handle_boxes_mm).
 
     Returns:
-        np.ndarray: (BACK_BOX_POINTS_PER_AXIS^3 * boxes, 3) points (m), box by box; (0, 3) without boxes.
+        np.ndarray: (HANDLE_BOX_POINTS_PER_AXIS^3 * boxes, 3) points (m), box by box; (0, 3) without boxes.
     """
     boxes = []
-    for low, high in fit.board_mount.back_boxes_mm:
-        axes = [np.linspace(lo, hi, BACK_BOX_POINTS_PER_AXIS) / MM_PER_M for lo, hi in zip(low, high, strict=True)]
+    for low, high in fit.board_mount.handle_boxes_mm:
+        axes = [np.linspace(lo, hi, HANDLE_BOX_POINTS_PER_AXIS) / MM_PER_M for lo, hi in zip(low, high, strict=True)]
         boxes.append(np.stack(np.meshgrid(*axes, indexing="ij"), axis=-1).reshape(-1, 3))
     return mounted(fit, np.vstack(boxes)) if boxes else np.zeros((0, 3))
 
@@ -462,7 +462,7 @@ class PoseChecker:
         self.base = arm_in_robot_base(fit.base_in_base_link.model_dump())
         self.envelope = head_envelope(head_urdf, cfg)
         self.obstacles = ObstacleSet(list(cfg.body.boxes), [*cfg.body.cylinders, self.envelope])
-        self.board_local = np.vstack([board_points_local(fit, cfg.board_grid), back_box_points_local(fit)])
+        self.board_local = np.vstack([board_points_local(fit, cfg.board_grid), handle_box_points_local(fit)])
         self.corners_local = mounted(fit, board_corners_3d(fit.board))
         self.limits = {name: self.chain.limits(name) for name in (*ARM_JOINT_NAMES, GRIPPER_JOINT)}
 
@@ -483,7 +483,7 @@ class PoseChecker:
         return self.link_poses(joints)[TOOL_LINK][:3, 3]
 
     def board_points(self, joints: Mapping[str, float]) -> np.ndarray:
-        """Board outline and grid points of both plate faces, then the back box points, in base_link (m)."""
+        """Board outline and grid points of both plate faces, then the handle box points, in base_link (m)."""
         gripper = self.link_poses(joints)[BOARD_LINK]
         return self.board_local @ gripper[:3, :3].T + gripper[:3, 3]
 

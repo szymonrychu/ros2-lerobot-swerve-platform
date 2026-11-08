@@ -161,8 +161,9 @@ class BoardMountConfig(StrictModel):
     """Board frame in gripper_link: start values of the mount and the plate margin.
 
     `xyz_init` is the board frame origin in gripper_link (m), `rpy_init` the fixed-axis xyz rotation (rad),
-    `outline_margin_m` the plate margin beyond the outer squares used by the pose check. `back_boxes_mm` is the
-    material of the held board beyond its plate (the grip post and its gussets on the plate back, decision 296),
+    `outline_margin_m` the plate margin beyond the outer squares used by the pose check. `handle_boxes_mm` is the
+    material of the held board beyond its plate (the edge handle's post, gusset and tab, user m540; on the pattern
+    side they reach z < 0 and lie outside the plate outline),
     one ((min x, y, z), (max x, y, z)) box per part in the board frame (mm); the pose check checks them as board
     points. Empty for a bare plate.
     """
@@ -170,14 +171,14 @@ class BoardMountConfig(StrictModel):
     xyz_init: tuple[float, float, float] = (0.0, 0.0, 0.0)
     rpy_init: tuple[float, float, float] = (0.0, 0.0, 0.0)
     outline_margin_m: float = Field(default=0.01, ge=0)
-    back_boxes_mm: list[tuple[tuple[float, float, float], tuple[float, float, float]]] = Field(default_factory=list)
+    handle_boxes_mm: list[tuple[tuple[float, float, float], tuple[float, float, float]]] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def check_back_boxes(self) -> Self:
-        """Every back box has its min below its max on each axis."""
-        for index, (low, high) in enumerate(self.back_boxes_mm):
+    def check_handle_boxes(self) -> Self:
+        """Every handle box has its min below its max on each axis (anywhere in the board frame)."""
+        for index, (low, high) in enumerate(self.handle_boxes_mm):
             if any(lo >= hi for lo, hi in zip(low, high, strict=True)):
-                raise ValueError(f"back_boxes_mm[{index}]: min {low} must be below max {high} on every axis")
+                raise ValueError(f"handle_boxes_mm[{index}]: min {low} must be below max {high} on every axis")
         return self
 
 

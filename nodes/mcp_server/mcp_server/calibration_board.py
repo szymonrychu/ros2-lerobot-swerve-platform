@@ -16,7 +16,7 @@ from ros2_common.head_rgbd_calibration.chain import pose_from_xyz_rpy
 from .config import CalibrationBoardSettings
 
 MM_PER_M = 1000.0
-BACK_BOX_POINTS_PER_AXIS = 3  # corners, edge midpoints, face centres and the centre of each back box
+HANDLE_BOX_POINTS_PER_AXIS = 3  # corners, edge midpoints, face centres and the centre of each handle box
 
 
 @dataclass(frozen=True)
@@ -24,8 +24,8 @@ class BoardPark:
     """The calibration board a park is checked with.
 
     Attributes:
-        points: (N, 3) outline corners and lattice points of both plate faces, then a lattice over each back box
-            (the grip post and its gussets), in gripper_link (m).
+        points: (N, 3) outline corners and lattice points of both plate faces, then a lattice over each handle box
+            (the post, its gusset and the tab), in gripper_link (m).
         margin_m: Clearance the board keeps from every body obstacle (m), sag margin included.
         min_height_m: Lowest board point height above the floor (base_link z, m), sag margin included.
     """
@@ -71,21 +71,21 @@ class BoardPark:
         lattice = np.array([[x, y, 0.0] for y in ys for x in xs])
         front = np.vstack([corners, lattice])
         back = front + np.array([0.0, 0.0, settings.thickness_mm / MM_PER_M])
-        board = np.vstack([front, back, *[box_lattice(low, high) for low, high in settings.back_boxes_mm]])
+        board = np.vstack([front, back, *[box_lattice(low, high) for low, high in settings.handle_boxes_mm]])
         return cls(board @ mount[:3, :3].T + mount[:3, 3], settings.margin_m, settings.min_height_m)
 
 
 def box_lattice(low_mm: tuple[float, float, float], high_mm: tuple[float, float, float]) -> np.ndarray:
-    """A BACK_BOX_POINTS_PER_AXIS lattice over a box.
+    """A HANDLE_BOX_POINTS_PER_AXIS lattice over a box.
 
     Args:
         low_mm: Box min corner in the board frame (mm).
         high_mm: Box max corner in the board frame (mm).
 
     Returns:
-        np.ndarray: (BACK_BOX_POINTS_PER_AXIS^3, 3) points in the board frame (m).
+        np.ndarray: (HANDLE_BOX_POINTS_PER_AXIS^3, 3) points in the board frame (m).
     """
-    axes = [np.linspace(lo, hi, BACK_BOX_POINTS_PER_AXIS) / MM_PER_M for lo, hi in zip(low_mm, high_mm, strict=True)]
+    axes = [np.linspace(lo, hi, HANDLE_BOX_POINTS_PER_AXIS) / MM_PER_M for lo, hi in zip(low_mm, high_mm, strict=True)]
     return np.stack(np.meshgrid(*axes, indexing="ij"), axis=-1).reshape(-1, 3)
 
 
