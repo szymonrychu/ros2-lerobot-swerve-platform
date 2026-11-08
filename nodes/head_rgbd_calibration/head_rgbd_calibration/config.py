@@ -79,12 +79,12 @@ DEFAULT_ROBOT_TOKEN_FILE = "/etc/ros2/mcp_server/token"
 DEFAULT_ROBOT_BOARD_PARK_TOKEN_FILE = "/etc/ros2/mcp_server/board_park_token"
 # ARM board mount in gripper_link from the handle CAD (markers/charuco-arm-6x5-28mm.json board_mount and
 # handle_in_board, 6 decimals): a CAD seed, not fit-solved. The fit refines the real mount from this start value.
-CAD_BOARD_XYZ = (-0.0079, -0.084051, -0.255108)
+CAD_BOARD_XYZ = (-0.00775, -0.084051, -0.255113)
 CAD_BOARD_RPY = (1.570796, 0.0, 1.570796)
 CAD_TOOL_IN_BOARD_M = (
     0.078233,
-    0.15838,
-    -0.001,
+    0.158386,
+    -0.00115,
 )  # jaw-tip tool point in the board frame (handle_in_board.tool_point_m)
 WRIST_ROLL = "wrist_roll"
 WRIST_FLEX = "wrist_flex"
@@ -97,9 +97,9 @@ DEFAULT_BASE_POSE = (-0.12, 0.3, 0.0, -0.5, 0.0)
 DEFAULT_INSERT_GRIPPER_RAD = 0.4  # gripper opening while the handle is inserted (half open)
 # Handle grip (markers/charuco-arm-6x5-28mm.json grip, mass_g): the jaw angle at first contact on the handle, the
 # squeeze past it (inside the mcp_server gripper converge tolerance), and the board mass.
-DEFAULT_HANDLE_CONTACT_RAD = 0.07027
+DEFAULT_HANDLE_CONTACT_RAD = 0.070279
 DEFAULT_HANDLE_SQUEEZE_RAD = 0.02
-DEFAULT_BOARD_MASS_G = 157.026637
+DEFAULT_BOARD_MASS_G = 156.863701
 # The parked arm: scripts/gen_nav_footprint.yaml parked_arm_joints (the mcp_server home), the target of a park with the
 # board on (a test pins the two equal).
 DEFAULT_PARK_POSE = (-0.003, -1.35, 1.578, -0.1, -1.637)

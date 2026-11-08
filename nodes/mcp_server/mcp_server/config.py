@@ -105,7 +105,7 @@ class CalibrationBoardSettings(StrictModel):
     thickness_mm: float = Field(default=4.0, gt=0)  # plate thickness behind the printed face
     outline_margin_m: float = Field(default=0.01, ge=0)  # plate margin beyond the outer squares
     lattice_points: int = Field(default=5, ge=2)  # points per plate edge of the checked lattice
-    mount_xyz_m: tuple[float, float, float] = (-0.0079, -0.084051, -0.255108)  # board frame origin in gripper_link
+    mount_xyz_m: tuple[float, float, float] = (-0.00775, -0.084051, -0.255113)  # board frame origin in gripper_link
     mount_rpy_rad: tuple[float, float, float] = (1.570796, 0.0, 1.570796)  # fixed-axis xyz rotation
     mount_tolerance_m: float = Field(default=0.03, gt=0)
     mount_tolerance_deg: float = Field(default=10.0, gt=0)
