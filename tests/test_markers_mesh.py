@@ -1,6 +1,7 @@
 """Tests for scripts/markers/mesh.py: watertight two-body meshes, footprint, heights, plate size, 3MF structure."""
 
 import logging
+import math
 import zipfile
 from pathlib import Path
 from xml.etree import ElementTree
@@ -224,3 +225,35 @@ def test_printed_solid_is_the_plate_of_a_flush_inlay() -> None:
     )
     solid = printed_solid(base, modules)
     assert solid.is_watertight and solid.volume == pytest.approx(12.0 * 12.0 * 4.0)
+
+
+def chamfered_block(size: float, run: float | None = None, z0: float = 0.0) -> trimesh.Trimesh:
+    """Block 10 x 10 x 12 mm with its x=0 bottom edge chamfered: rise `size`, run `run` (default `size`, 45 deg)."""
+    run = size if run is None else run
+    xs, zs = [0.0, 10.0], [0.0, 12.0]
+    pts = [(x, y, z0 + z) for x in xs for y in (0.0, 10.0) for z in zs if not (x == 0.0 and z == 0.0)]
+    pts += [(0.0, y, z0 + size) for y in (0.0, 10.0)] + [(run, y, z0) for y in (0.0, 10.0)]
+    return to_trimesh(Manifold.hull_points(np.array(pts)))
+
+
+@pytest.mark.parametrize("size", [0.1, 0.7, 1.1, 2.3, 3.7, 5.3])
+def test_print_violations_pass_exact_45_degree_chamfer(size: float) -> None:
+    assert print_violations(chamfered_block(size)) == []
+
+
+def test_print_violations_flag_44_degree_underside() -> None:
+    steep = chamfered_block(5.0, run=5.0 / math.tan(math.radians(44.0)))
+    assert any("overhang" in v for v in print_violations(steep))
+
+
+def test_print_violations_flag_raised_feature_bottom() -> None:
+    plate = box(0, 0, 0, 20, 20, 2)
+    floating_ledge = box(5, 5, 6, 15, 15, 8) + box(9, 9, 2, 11, 11, 6)  # stem carries a wide slab, bottom at z=6
+    assert any("overhang" in v for v in print_violations(to_trimesh(plate + floating_ledge)))
+
+
+def test_print_violations_use_bed_relative_to_bounds() -> None:
+    offset = to_trimesh(box(0, 0, 7.3, 10, 10, 11.3))
+    assert print_violations(offset) == []
+    ledge = to_trimesh(box(0, 0, 7.3, 4, 4, 17.3) + box(-6, 0, 15.3, 10, 4, 17.3))
+    assert any("overhang" in v for v in print_violations(ledge))

@@ -188,3 +188,12 @@ def test_pdf_detects_all_arm_corners_at_28_mm(tmp_path: Path) -> None:
         np.linalg.norm(grid[i + 1] - grid[i]) for i in grid if i + 1 in grid and (i + 1) % (ARM_SPEC.squares_x - 1)
     ]
     assert np.mean(pitch_x) / PX_PER_MM == pytest.approx(28.0, abs=0.1)
+
+
+def test_write_charuco_refuses_unprintable_solid(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "scripts.markers.charuco.print_violations", lambda mesh: ["3 overhang faces (1.0 mm2) below 45 deg"]
+    )
+    with pytest.raises(ValueError, match=f"board {FULL_SPEC.name} is not printable: 3 overhang faces"):
+        write_charuco(FULL_SPEC, StlOptions(), tmp_path / "board")
+    assert not list(tmp_path.glob("*.stl"))

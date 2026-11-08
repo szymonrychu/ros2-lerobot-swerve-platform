@@ -22,6 +22,7 @@ EXTRUDERS = {BASE_NAME: 1, MODULES_NAME: 2}
 CUT_OVERSHOOT_MM = 1.0
 OVERHANG_LIMIT_DEG = 45.0
 BED_TOL_MM = 0.05
+NORMAL_TOL = 1e-6
 
 
 def box(x0: float, y0: float, z0: float, x1: float, y1: float, z1: float) -> Manifold:
@@ -69,12 +70,13 @@ def print_violations(mesh: trimesh.Trimesh) -> list[str]:
 
     Returns:
         Empty when printable; "not watertight" and/or "N overhang faces (A mm2) below 45 deg" otherwise. Overhang
-        faces have normal z below -sin(OVERHANG_LIMIT_DEG) and a centre above the bed by more than BED_TOL_MM.
+        faces have normal z below -(sin(OVERHANG_LIMIT_DEG) + NORMAL_TOL) and a centre above the bed by more than
+        BED_TOL_MM.
     """
     violations: list[str] = []
     if not mesh.is_watertight:
         violations.append("not watertight")
-    steep = mesh.face_normals[:, 2] < -math.sin(math.radians(OVERHANG_LIMIT_DEG))
+    steep = mesh.face_normals[:, 2] < -(math.sin(math.radians(OVERHANG_LIMIT_DEG)) + NORMAL_TOL)
     raised = mesh.triangles_center[:, 2] > mesh.bounds[0][2] + BED_TOL_MM
     bad = steep & raised
     if bad.any():
