@@ -11,12 +11,12 @@ import math
 from dataclasses import dataclass
 
 import numpy as np
+from ros2_common.head_rgbd_calibration.board_lattice import handle_box_lattice, plate_lattice
 from ros2_common.head_rgbd_calibration.chain import pose_from_xyz_rpy
 
 from .config import CalibrationBoardSettings
 
 MM_PER_M = 1000.0
-HANDLE_BOX_POINTS_PER_AXIS = 3  # corners, edge midpoints, face centres and the centre of each handle box
 
 
 @dataclass(frozen=True)
@@ -24,8 +24,9 @@ class BoardPark:
     """The calibration board a park is checked with.
 
     Attributes:
-        points: (N, 3) outline corners and lattice points of both plate faces, then a lattice over each handle box
-            (the post, its gusset and the tab), in gripper_link (m).
+        points: (N, 3) a lattice through the plate, then one over each handle box (the post, its gusset and the
+            tab), no gap wider than `lattice_spacing_m`, in gripper_link (m) (ros2_common board_lattice, the points
+            head_rgbd_calibration's pose check uses).
         margin_m: Clearance the board keeps from every body obstacle (m), sag margin included.
         min_height_m: Lowest board point height above the floor (base_link z, m), sag margin included.
     """
@@ -62,31 +63,15 @@ class BoardPark:
                 f"board mount differs from the configured mount by {shift * MM_PER_M:.1f} mm and {turn:.1f} deg "
                 f"(limit {settings.mount_tolerance_m * MM_PER_M:.0f} mm, {settings.mount_tolerance_deg:g} deg)"
             )
-        width = settings.squares_x * settings.square_mm / MM_PER_M
-        height = settings.squares_y * settings.square_mm / MM_PER_M
-        margin = settings.outline_margin_m
-        x0, y0, x1, y1 = -margin, -margin, width + margin, height + margin
-        corners = np.array([[x0, y0, 0.0], [x1, y0, 0.0], [x1, y1, 0.0], [x0, y1, 0.0]])
-        xs, ys = np.linspace(x0, x1, settings.lattice_points), np.linspace(y0, y1, settings.lattice_points)
-        lattice = np.array([[x, y, 0.0] for y in ys for x in xs])
-        front = np.vstack([corners, lattice])
-        back = front + np.array([0.0, 0.0, settings.thickness_mm / MM_PER_M])
-        board = np.vstack([front, back, *[box_lattice(low, high) for low, high in settings.handle_boxes_mm]])
+        plate = plate_lattice(
+            settings.squares_x * settings.square_mm / MM_PER_M,
+            settings.squares_y * settings.square_mm / MM_PER_M,
+            settings.outline_margin_m,
+            settings.thickness_mm / MM_PER_M,
+            settings.lattice_spacing_m,
+        )
+        board = np.vstack([plate, handle_box_lattice(settings.handle_boxes_mm, settings.lattice_spacing_m)])
         return cls(board @ mount[:3, :3].T + mount[:3, 3], settings.margin_m, settings.min_height_m)
-
-
-def box_lattice(low_mm: tuple[float, float, float], high_mm: tuple[float, float, float]) -> np.ndarray:
-    """A HANDLE_BOX_POINTS_PER_AXIS lattice over a box.
-
-    Args:
-        low_mm: Box min corner in the board frame (mm).
-        high_mm: Box max corner in the board frame (mm).
-
-    Returns:
-        np.ndarray: (HANDLE_BOX_POINTS_PER_AXIS^3, 3) points in the board frame (m).
-    """
-    axes = [np.linspace(lo, hi, HANDLE_BOX_POINTS_PER_AXIS) / MM_PER_M for lo, hi in zip(low_mm, high_mm, strict=True)]
-    return np.stack(np.meshgrid(*axes, indexing="ij"), axis=-1).reshape(-1, 3)
 
 
 def finite_triple(value: object, name: str) -> tuple[float, float, float]:

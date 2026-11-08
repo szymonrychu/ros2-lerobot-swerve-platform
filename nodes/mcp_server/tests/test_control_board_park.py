@@ -16,9 +16,12 @@ import anyio
 import numpy as np
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
+from pydantic import ValidationError
+from ros2_common.head_rgbd_calibration.board_lattice import box_lattice, plate_lattice
+from ros2_common.head_rgbd_calibration.chain import pose_from_xyz_rpy
 from starlette.testclient import TestClient
 
-from mcp_server.calibration_board import BoardPark, box_lattice
+from mcp_server.calibration_board import BoardPark
 from mcp_server.config import CalibrationBoardSettings, McpServerConfig
 from mcp_server.control import CALIBRATION_BOARD_PARK_SPEED_SCALE
 from mcp_server.tools import ADMIN_PARK_BOARD_PATH, build_app, build_mcp_server
@@ -120,27 +123,74 @@ def test_board_park_still_refuses_any_other_carried_object(tmp_path: Path, recor
     assert robot.arm.control_held is True
 
 
+def plate_points(settings: CalibrationBoardSettings) -> np.ndarray:
+    """The plate lattice of the settings in the board frame (m)."""
+    return plate_lattice(
+        settings.squares_x * settings.square_mm / 1000,
+        settings.squares_y * settings.square_mm / 1000,
+        settings.outline_margin_m,
+        settings.thickness_mm / 1000,
+        settings.lattice_spacing_m,
+    )
+
+
 def test_the_board_geometry_is_mcp_servers_own_and_the_request_only_moves_the_mount() -> None:
     settings = SETTINGS
     park = board()
     assert park.margin_m == settings.margin_m and park.min_height_m == settings.min_height_m
-    plate_count = 2 * (4 + settings.lattice_points**2)
-    assert len(park.points) == plate_count + 27 * len(settings.handle_boxes_mm)
+    plate_count = len(plate_points(settings))
+    box_counts = [
+        len(box_lattice(np.array(low) / 1000, np.array(high) / 1000, settings.lattice_spacing_m))
+        for low, high in settings.handle_boxes_mm
+    ]
+    assert len(park.points) == plate_count + sum(box_counts)
+    # In the board frame the plate spans the squares plus the margin, printed face to plate back, and each handle box
+    # its own min/max; the mount is a rigid pose of it.
+    mount = pose_from_xyz_rpy(settings.mount_xyz_m, settings.mount_rpy_rad)
+    local = (park.points - mount[:3, 3]) @ mount[:3, :3]
     width, height = settings.squares_x * settings.square_mm / 1000, settings.squares_y * settings.square_mm / 1000
-    # In the board frame the outline spans the squares plus the margin; the mount is a rigid pose of it.
-    diagonal = math.sqrt(
-        (width + 2 * settings.outline_margin_m) ** 2
-        + (height + 2 * settings.outline_margin_m) ** 2
-        + (settings.thickness_mm / 1000) ** 2  # the back face lies behind the printed one
+    margin, thickness = settings.outline_margin_m, settings.thickness_mm / 1000
+    plate = local[:plate_count]
+    assert plate.min(axis=0) == pytest.approx([-margin, -margin, 0.0])
+    assert plate.max(axis=0) == pytest.approx([width + margin, height + margin, thickness])
+    start = plate_count
+    for (low, high), count in zip(settings.handle_boxes_mm, box_counts, strict=True):
+        box = local[start : start + count]
+        start += count
+        assert box.min(axis=0) == pytest.approx(np.array(low) / 1000)
+        assert box.max(axis=0) == pytest.approx(np.array(high) / 1000)
+
+
+def test_the_park_lattice_is_no_coarser_than_the_spacing() -> None:
+    """Every plate and handle box axis is sampled no coarser than lattice_spacing_m (the 100 mm tab was sampled 50 mm
+    apart by the former 3-points-per-axis lattice), and the spacing never exceeds margin_m."""
+    settings = SETTINGS
+    assert settings.lattice_spacing_m <= settings.margin_m
+    flat = BoardPark.from_mount(
+        settings.model_copy(update={"mount_xyz_m": (0.0,) * 3, "mount_rpy_rad": (0.0,) * 3}), [0.0] * 3, [0.0] * 3
     )
-    plate = park.points[:plate_count]
-    reach = max(float(np.linalg.norm(a - b)) for a in plate for b in plate)
-    assert reach == pytest.approx(diagonal)
-    # Then a 3 x 3 x 3 lattice per handle box (the post, its gusset and the tab), the same rigid pose: its diagonal is kept.
-    for index, (low, high) in enumerate(settings.handle_boxes_mm):
-        box = park.points[plate_count + 27 * index : plate_count + 27 * (index + 1)]
-        span = max(float(np.linalg.norm(a - b)) for a in box for b in box)
-        assert span == pytest.approx(math.dist(low, high) / 1000)
+    start = len(plate_points(settings))
+    for low, high in settings.handle_boxes_mm:
+        count = len(box_lattice(np.array(low) / 1000, np.array(high) / 1000, settings.lattice_spacing_m))
+        box = flat.points[start : start + count]
+        start += count
+        for axis in range(3):
+            values = np.unique(box[:, axis].round(9))
+            assert np.diff(values).max() <= settings.lattice_spacing_m + 1e-12
+
+
+@pytest.mark.parametrize(
+    "update",
+    [
+        {"handle_boxes_mm": [((0.0, 0.0, 4.0), (10.0, 10.0, 4.0))]},  # zero height
+        {"handle_boxes_mm": [((10.0, 0.0, 0.0), (0.0, 10.0, 10.0))]},  # min above max
+        {"lattice_spacing_m": 0.07},  # over margin_m 0.065
+        {"lattice_spacing_m": 0.0005},  # below the minimum spacing
+    ],
+)
+def test_calibration_board_settings_refuse_an_inverted_box_or_a_coarse_lattice(update: dict[str, Any]) -> None:
+    with pytest.raises(ValidationError, match="handle_boxes_mm|lattice_spacing_m"):
+        CalibrationBoardSettings.model_validate(SETTINGS.model_dump() | update)
 
 
 @pytest.mark.parametrize(
@@ -267,11 +317,3 @@ def test_admin_route_parks_a_valid_mount_and_refuses_bad_requests(tmp_path: Path
         ok = client.post(ADMIN_PARK_BOARD_PATH, json=body(), headers=AUTH)
     assert ok.status_code == 200 and ok.json()["ok"] is True
     assert ok.json()["result"]["reset"]["arm"] == "homed"
-
-
-def test_box_lattice_spans_the_box_in_metres() -> None:
-    points = box_lattice((0.0, 10.0, 4.0), (20.0, 30.0, 24.0))
-    assert points.shape == (27, 3)
-    assert points.min(axis=0) == pytest.approx([0.0, 0.010, 0.004])
-    assert points.max(axis=0) == pytest.approx([0.020, 0.030, 0.024])
-    assert [0.010, 0.020, 0.014] in points.round(9).tolist()  # the box centre

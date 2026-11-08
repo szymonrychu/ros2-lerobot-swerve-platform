@@ -22,7 +22,6 @@ MCP_SETUP = REPO_ROOT / "ansible" / "playbooks" / "tasks" / "mcp_server_setup.ym
 CALIB_SETUP = REPO_ROOT / "ansible" / "playbooks" / "tasks" / "head_rgbd_calibration_setup.yml"
 BOARD_GROUP = "board-park"
 BOARD_TOKEN_FILE = "/etc/ros2/mcp_server/board_park_token"
-GRID = 5
 BOARD_THICKNESS_MM = 4.0  # the printed 6x5 ChArUco plate (scripts/markers_generate.yaml thickness_mm)
 
 sys.path[:0] = [
@@ -55,7 +54,7 @@ def test_mcp_server_board_equals_the_calibration_fit_board_and_mount() -> None:
     )
     assert mcp["thickness_mm"] == fit.board.thickness_mm == BOARD_THICKNESS_MM
     assert mcp["outline_margin_m"] == fit.board_mount.outline_margin_m
-    assert mcp["lattice_points"] == GRID == seq.pose_check.board_grid
+    assert mcp["lattice_spacing_m"] == seq.pose_check.board_spacing_m <= seq.pose_check.margin_m
     assert tuple(mcp["mount_xyz_m"]) == fit.board_mount.xyz_init
     assert tuple(mcp["mount_rpy_rad"]) == fit.board_mount.rpy_init
     assert [tuple(map(tuple, box)) for box in mcp["handle_boxes_mm"]] == fit.board_mount.handle_boxes_mm
@@ -83,8 +82,11 @@ def test_deployed_block_and_code_defaults_agree() -> None:
 def test_mcp_server_points_equal_the_node_board_points_at_the_configured_mount() -> None:
     calib = NodeConfig()
     settings = CalibrationBoardSettings()
-    expected = np.vstack([board_points_local(calib.fit, GRID), handle_box_points_local(calib.fit)])
-    assert len(handle_box_points_local(calib.fit)) > 0  # the handle post, gusset and tab are checked too
+    spacing = calib.arm_sequence.pose_check.board_spacing_m
+    assert settings.lattice_spacing_m == spacing
+    handle = handle_box_points_local(calib.fit, spacing)
+    expected = np.vstack([board_points_local(calib.fit, spacing), handle])
+    assert len(handle) > 0  # the handle post, gusset and tab are checked too
     park = BoardPark.from_mount(settings, list(settings.mount_xyz_m), list(settings.mount_rpy_rad))
     assert np.allclose(np.sort(park.points, axis=0), np.sort(expected, axis=0), atol=1e-9)
     assert np.allclose(park.points, expected, atol=1e-9)
@@ -96,8 +98,8 @@ def test_both_board_models_span_the_4_mm_thickness_behind_the_printed_face() -> 
     assert calib.fit.board.thickness_mm == settings.thickness_mm == BOARD_THICKNESS_MM
     flat = calib.fit.board_mount.model_copy(update={"xyz_init": (0.0,) * 3, "rpy_init": (0.0,) * 3})
     fit = calib.fit.model_copy(update={"board_mount": flat})
-    local = board_points_local(fit, GRID)
-    assert len(local) == 2 * (4 + GRID**2)
+    local = board_points_local(fit, calib.arm_sequence.pose_check.board_spacing_m)
+    assert len(np.unique(local[:, 2].round(9))) == 2  # the printed face and the plate back
     assert np.ptp(local[:, 2]) == pytest.approx(BOARD_THICKNESS_MM / 1000.0)
     assert local[:, 2].min() == 0.0
 

@@ -17,6 +17,7 @@ from arm_collision.settings import (
 from pydantic import Field, PositiveFloat, field_validator, model_validator
 from ros2_common.battery import BatteryConfig
 from ros2_common.camera_geometry import MountPose
+from ros2_common.head_rgbd_calibration.board_lattice import MIN_SPACING_M
 from ros2_common.maps import COMMAND_TOPIC, RESULT_TOPIC, STATUS_TOPIC
 
 from .guard_rules import GuardRuleSettings
@@ -104,7 +105,8 @@ class CalibrationBoardSettings(StrictModel):
     square_mm: float = Field(default=28.0, gt=0)
     thickness_mm: float = Field(default=4.0, gt=0)  # plate thickness behind the printed face
     outline_margin_m: float = Field(default=0.01, ge=0)  # plate margin beyond the outer squares
-    lattice_points: int = Field(default=5, ge=2)  # points per plate edge of the checked lattice
+    # Largest gap of the checked board lattice per axis (ros2_common board_lattice), <= margin_m.
+    lattice_spacing_m: float = Field(default=0.005, ge=MIN_SPACING_M)
     mount_xyz_m: tuple[float, float, float] = (-0.0794, 0.187949, -0.118113)  # board frame origin in gripper_link
     mount_rpy_rad: tuple[float, float, float] = (3.141593, 0.0, 0.0)  # fixed-axis xyz rotation
     # Handle material beyond the plate, ((min), (max)) boxes in the board frame (mm): the edge handle's post, gusset
@@ -122,6 +124,26 @@ class CalibrationBoardSettings(StrictModel):
     # Clearance of the board from every body obstacle: 0.005 margin + 0.05 CAD-seed-mount allowance + 0.01 sag.
     margin_m: float = Field(default=0.065, ge=0, le=0.3)
     min_height_m: float = Field(default=0.06, ge=0, le=0.5)  # lowest board point above the floor, sag included
+
+    @model_validator(mode="after")
+    def check_lattice(self) -> "CalibrationBoardSettings":
+        """Refuse a handle box with min not below max on an axis, and a lattice coarser than the margin.
+
+        Returns:
+            CalibrationBoardSettings: self.
+
+        Raises:
+            ValueError: A degenerate or inverted handle box, or lattice_spacing_m above margin_m.
+        """
+        for index, (low, high) in enumerate(self.handle_boxes_mm):
+            if any(lo >= hi for lo, hi in zip(low, high, strict=True)):
+                raise ValueError(f"handle_boxes_mm[{index}]: min {low} must be below max {high} on every axis")
+        if self.lattice_spacing_m > self.margin_m:
+            raise ValueError(
+                f"lattice_spacing_m {self.lattice_spacing_m} must not exceed margin_m {self.margin_m}: a point check "
+                "misses up to half a lattice cell diagonal"
+            )
+        return self
 
 
 class TopicSettings(StrictModel):
