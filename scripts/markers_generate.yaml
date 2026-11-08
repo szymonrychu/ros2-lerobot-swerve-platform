@@ -73,5 +73,10 @@ boards:
       rail_width_mm: 4.0
       rail_height_mm: 5.0 # rails and shoulder rise this far above the top plane (over the rounded finger tip)
       squeeze_rad: 0.02 # grip angle = contact angle - squeeze
+      # Twin ribs (user decision 292): continue the handle outer side walls onto the plate back, full shoulder height
+      # at the plate edge, tapering to rib_end_height_mm above the back at rib_length_mm (about half the plate height)
+      rib_width_mm: 4.0
+      rib_length_mm: 75.0
+      rib_end_height_mm: 3.0
       density_g_per_cm3: 1.24 # filament density for the mass (plan D7)
       tool_offset_m: [0.001, -0.0056, -0.0014] # mcp_server arm.tool_offset_m (tool point in gripper_frame_link)
