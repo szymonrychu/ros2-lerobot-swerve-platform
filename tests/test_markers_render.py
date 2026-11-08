@@ -1,5 +1,6 @@
-"""Tests for scripts/markers/views.py and scripts/markers_render.py: the eight view directions, the camera, the grip fit
-scene, the render config and (only where pyvista and the OSMesa libs are installed) the nine PNGs."""
+"""Tests for scripts/markers/views.py, the render config (scripts/markers/config.py) and scripts/markers_render.py: the
+eight view directions, the camera, the grip fit scene, the render config and (only where pyvista and the OSMesa libs
+are installed) the nine PNGs."""
 
 import json
 from pathlib import Path
@@ -11,9 +12,9 @@ import trimesh
 import yaml
 from pydantic import ValidationError
 
+from scripts.markers.config import load_render_config
 from scripts.markers.jaw_fit import OPEN_AXIS, TOOL_AXIS, fixed_jaw_face_mm, load_gripper, moving_jaw
 from scripts.markers.views import VIEW_DIRECTIONS, camera_for, grip_scene
-from scripts.markers_render import load_render_config, render_all
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SHIPPED_RENDER_YAML = REPO_ROOT / "scripts" / "markers_render.yaml"
@@ -87,6 +88,8 @@ def test_shipped_render_config_loads() -> None:
 
 
 def test_render_writes_nine_pngs(tmp_path: Path) -> None:
-    pytest.importorskip("pyvista")  # only in the render group with the OSMesa libs
-    paths = render_all(load_render_config(SHIPPED_RENDER_YAML).model_copy(update={"out_dir": str(tmp_path)}))
+    # markers_render imports pyvista at the top: only in the render group with the OSMesa libs
+    markers_render = pytest.importorskip("scripts.markers_render", exc_type=ImportError)
+    config = load_render_config(SHIPPED_RENDER_YAML).model_copy(update={"out_dir": str(tmp_path)})
+    paths = markers_render.render_all(config)
     assert len(paths) == PNG_COUNT and all(p.stat().st_size > MIN_PNG_BYTES for p in paths)

@@ -1113,8 +1113,8 @@ head_rgbd_calibration service group only); the shared MCP token that claude_agen
 answers 503 while the token file is missing or short. `release_control` has no board argument and keeps refusing every
 carried object. The body is `{"mount": {"xyz": [x, y, z], "rpy": [r, p, y]}}` and nothing else: the board outline,
 clearances and floor height are mcp_server's own `calibration_board:` config (board squares, `outline_margin_m`,
-`lattice_spacing_m` 0.005, `margin_m` 0.065, `min_height_m` 0.06, the configured `mount_*`), pinned equal to head_rgbd_calibration's
-by `tests/test_board_park_config.py`; a mount further than `mount_tolerance_m` (30 mm) or `mount_tolerance_deg` (10 deg)
+`lattice_spacing_m` 0.005, `handle_boxes_mm`, `margin_m` 0.065, `min_height_m` 0.06, the configured `mount_*`), pinned equal to
+head_rgbd_calibration's by `tests/test_board_park_config.py`; a mount further than `mount_tolerance_m` (30 mm) or `mount_tolerance_deg` (10 deg)
 from the configured one answers 400. `ControlManager.park_calibration_board` then ignores the `holding load` reason alone
 (a held grasp or a `carried_object_radius_m` record still refuses, naming only those reasons), requires the arm lease,
 a fresh `/follower/joint_states` (`timeouts.follower_stale_s`), the MEASURED arm within 0.1 rad of the stored home and of
@@ -1122,6 +1122,24 @@ the commanded pose, and FK-checks the board along every leg of the home route, s
 against the floor and the body (`ArmController.check_board_legs`, before anything is released: a refusal leaves the arm
 holding). The park runs at `speed_scale` 0.1 (`CALIBRATION_BOARD_PARK_SPEED_SCALE`). Answers: 200 `{ok, result:
 ReleaseResult}`, 400 invalid body or mount, 401 token, 409 refused (the reason is `error`), 503 no token configured.
+
+The `calibration_board:` block (`CalibrationBoardSettings`, `mcp_server/calibration_board.py` `BoardPark`) describes
+the ARM board, the 6x5 ChArUco board with 28 mm squares held in the gripper by its edge handle (`docs/markers.md`,
+"Calibration boards"): `squares_x` 6, `squares_y` 5, `square_mm` 28.0, `thickness_mm` 4.0, `outline_margin_m` 0.01,
+`lattice_spacing_m` 0.005, `mount_xyz_m` (-0.0794, 0.187949, -0.118113) and `mount_rpy_rad` (3.141593, 0, 0) (the handle CAD
+seed of head_rgbd_calibration's `fit.board_mount`, from `markers/charuco-arm-6x5-28mm.json`), `mount_tolerance_m`
+0.03, `mount_tolerance_deg` 10, `margin_m` 0.065 (0.005 margin + 0.05 CAD-seed-mount allowance + 0.01 sag) and
+`min_height_m` 0.06. `handle_boxes_mm` (default the three boxes of the JSON `handle_envelope_mm`, mm in the board
+frame) is the handle material beyond the plate, all on the pattern side (z < 0) past the plate's bottom edge: the post
+`[[71.5, 175.7, -42], [100.05, 200.3, -6]]`, the gusset `[[80, 145.7, -42], [88, 175.7, -6]]` and the tab
+`[[34, 145, -6], [134, 200.3, 4]]`. `BoardPark.from_mount` checks both plate faces (a lattice with no gap wider than
+`lattice_spacing_m`, `board_lattice.plate_lattice`) and points sampled over each handle box (`box_lattice`), so the post top 42 mm above the pattern face keeps the
+same floor and body clearance as the plate. The clearance threshold is `margin_m` plus `lattice_miss_bound(lattice_spacing_m)`
+(spacing * sqrt(3) / 2, 4.33 mm at 5 mm): a point check of a solid box misses at most half a cell diagonal, so a passing pose keeps
+the full `margin_m` from the true board. `lattice_spacing_m` must not exceed `margin_m` (config validation). The board weighs about
+212 g (`board_mass_g` 211.72779 in head_rgbd_calibration, from the CAD volume); `margin_m` and `min_height_m` include the
+0.01 m sag allowance, more than the ~0.25 mm the CAD estimates for the tab and plate. The client.yml
+`calibration_board:` block equals these defaults (`tests/test_board_park_config.py`).
 
 **get_control_state** (sensor): `arm.at_home` is true when the five non-gripper joints are within
 `limits.settle_tolerance_for(joint)` (0.08 rad default) of the stored home pose; the gripper is excluded so a job may

@@ -382,7 +382,7 @@ export function HeadArmCalibration({ armRun = false }: { armRun?: boolean }) {
       >
         {`Use this when the arm still holds the board but this page lost the sequence (for example after a restart). The board is recorded as on the gripper, the park path is checked with it, and Park is refused, naming the rule, when the board would hit the floor, the body or the head.${
           sequence?.board_record
-            ? ` The node remembers a board clipped in session ${sequence.board_record.session_id ?? 'unknown'} at ${sequence.board_record.clipped_at}: confirm it is still on the gripper.`
+            ? ` The node remembers a board attached in session ${sequence.board_record.session_id ?? 'unknown'} at ${sequence.board_record.clipped_at}: confirm it is still on the gripper.`
             : ''
         }`}
       </Confirm>

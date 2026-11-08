@@ -1,30 +1,31 @@
 """Guided head-from-arm capture sequence (design D37, D38, D46): the board on the gripper, moved by the trusted arm
 through checked poses, the head aimed at it by the node.
 
-Order: `move_to_base` (confirmed; no board) -> the user clips the board, `board_attached` -> tier 0 (wrist_roll) ->
-tier 1 (wrist_flex, wrist_roll) -> `allow_big_joints` (elbow_flex, shoulder_lift, shoulder_pan; declined skips tier 2)
--> tier 2 -> back to the base pose -> `holding` -> `park` (confirmed) -> `idle`. Park works with the board on (design
+Order: `move_to_base` (confirmed; no board) -> the user seats the board handle, `board_attached` -> tier 0 (wrist_roll)
+-> tier 1 (wrist_flex, wrist_roll) -> `allow_big_joints` (elbow_flex, shoulder_lift, shoulder_pan; declined skips tier
+2) -> tier 2 -> back to the base pose -> `holding` -> `park` (confirmed) -> `idle`. Park works with the board on (design
 D63, easy retries): the whole path from the measured joints to `arm_sequence.park_pose` is checked with the board
 outline (the latest fitted board_mount when a result exists, else the configured one) and `park_board_sag_margin_m`
 added to the board floor, body and head clearances; a pass moves there at `speed_scale` and parks through mcp_server's
 internal `POST /admin/park_calibration_board` (own token, the board mount as the only request content): mcp_server
-ignores the holding load of the clamped stick and nothing else, and re-checks the board on every home leg from the
-measured joints. The agent-facing `release_control` has no board argument.
+ignores the holding load of the gripped board handle and nothing else, and re-checks the board on every home leg from
+the measured joints. The agent-facing `release_control` has no board argument.
 
 Every motion goes through RobotClient (mcp_server's guarded tools) and every arm command waits for the FK path check
-from the measured joints to the target (`PoseChecker.check_path`); a refusal stops before anything moves. Every view
-(an arm pose with the head aimed at the board plus one head offset) keeps every ChArUco corner at 0.20 m or more of
-depth from `camera_frame` (the D435 min-Z plus a margin) and inside the colour image of the still session's
-camera_info (`PoseChecker.check_view`), else it is skipped with the reason "inside D435 min-Z" or "outside colour FOV",
-as a view outside the head limits is. A pose whose every view would be skipped, judged at its target joints, is not
-visited; the others are judged again at the measured joints. The sequence waits up to `still.timeout_s` for the first
-colour camera_info after the still session starts. The gripper opens to `insert_gripper_rad` with the base pose; after
-the user's Board attached confirm it closes on the handle to `grip_rad` (handle contact minus the squeeze, below the
-mcp converge tolerance so the target stays commanded), and the servo `Torque_Limit` (the default grip profile) is the
-effort limit, as `move_arm_joints` has no per-call one. A jaw that ends below `handle_contact_rad - handle_squeeze_rad /
-2` closed past the handle (unseated), and the sequence stops holding the arm. Every exit of the sequence (end, stop,
-tool error, exception, confirm timeout) stops the still capture and releases the arm with `keep_position=True`: the arm holds a checked pose and mcp_server
-keeps the head where it is. The sequence never parks on its own and never sends `carried_object_radius_m`.
+from the measured joints to the target (`PoseChecker.check_path`); a refusal stops before anything moves. Every view (an
+arm pose with the head aimed at the board plus one head offset) keeps every ChArUco corner at 0.20 m or more of depth
+from `camera_frame` (the D435 min-Z plus a margin) and inside the colour image of the still session's camera_info
+(`PoseChecker.check_view`), else it is skipped with the reason "inside D435 min-Z" or "outside colour FOV", as a view
+outside the head limits is. A pose whose every view would be skipped, judged at its target joints, is not visited; the
+others are judged again at the measured joints. The sequence waits up to `still.timeout_s` for the first colour
+camera_info after the still session starts. The gripper opens to `insert_gripper_rad` with the base pose; after the
+user's Board attached confirm it closes on the handle to `grip_rad` (handle contact minus the squeeze, below the mcp
+converge tolerance so the target stays commanded), and the servo `Torque_Limit` (the default grip profile) is the effort
+limit, as `move_arm_joints` has no per-call one. A jaw that ends below `handle_contact_rad - handle_squeeze_rad / 2`
+closed past the handle (unseated), and the sequence stops holding the arm. Every exit of the sequence (end, stop, tool
+error, exception, confirm timeout) stops the still capture and releases the arm with `keep_position=True`: the arm holds
+a checked pose and mcp_server keeps the head where it is. The sequence never parks on its own and never sends
+`carried_object_radius_m`.
 
 Threads (as floor_sweep.py): `move_to_base`, `board_attached`, `allow_big_joints`, `stop`, `park` and `state` run on
 HTTP threads; one worker thread runs the sequence or the park. `lock` guards the shared fields and is only held for
@@ -81,7 +82,7 @@ MESSAGE_BOARD = "Seat the arm board handle in the gripper jaws up to the shoulde
 MESSAGE_UNSEATED = "the gripper closed past the handle contact: seat the handle up to the shoulder and start again"
 MESSAGE_STATE_BOARD = "; if the calibration board is on the gripper, state that the board is on and press Park again"
 MESSAGE_PARK = "Press Park (the board may stay on when its park path is clear)"
-HOLDING_LOAD_PREFIX = "holding load"  # mcp_server carrying reason of a gripper that clamps something (the board stick)
+HOLDING_LOAD_PREFIX = "holding load"  # mcp_server carrying reason of a gripper that clamps something (the board handle)
 BASE_JOINTS = (*ARM_JOINT_NAMES, GRIPPER_JOINT)
 
 
@@ -253,7 +254,7 @@ class Sequencer:
             clock: Monotonic seconds; every wait is measured on it.
             fitted_mount: Given the capture session id, the board mount `{"xyz", "rpy"}` of its latest fit result, or
                 None without one; the Park path check uses it instead of `fit.board_mount`.
-            board_file: JSON record `{session_id, mount, clipped_at}` of a board clipped to the gripper, written when
+            board_file: JSON record `{session_id, mount, clipped_at}` of a board attached to the gripper, written when
                 the board is attached (or the user states it is on) and removed by a completed park or a new base
                 move. A node start only offers it (state()["board_record"]) when it is younger than
                 `arm_sequence.board_record_max_age_s` and `session_exists` accepts its session; the user must still
@@ -318,7 +319,7 @@ class Sequencer:
         age = (self.now() - clipped_at).total_seconds()
         if age > self.seq.board_record_max_age_s or age < 0:
             LOG.warning(
-                "board record %s ignored: clipped %.0f s ago (limit %g s)",
+                "board record %s ignored: attached %.0f s ago (limit %g s)",
                 self.board_file,
                 age,
                 self.seq.board_record_max_age_s,
@@ -332,7 +333,7 @@ class Sequencer:
         self.board_record = {"session_id": session, "clipped_at": record["clipped_at"]}
         self.session_id = session
         self.recorded_mount = recorded
-        LOG.info("board record offered (session %s, clipped %s)", session, record["clipped_at"])
+        LOG.info("board record offered (session %s, attached %s)", session, record["clipped_at"])
 
     def record_board(self) -> None:
         """Write the board record (atomically); a failed write is logged, the in-memory state stands."""
@@ -512,7 +513,7 @@ class Sequencer:
         return Plan(checker=checker, head=head, poses=scripted_poses(self.cfg), board_centre=centre)
 
     def board_attached(self) -> dict[str, Any]:
-        """The user clipped the board to the fixed jaw: start the still session and tiers 0 and 1.
+        """The user seated the board handle in the jaws: close the grip, start the still session and tiers 0 and 1.
 
         Returns:
             The state() after the request.
@@ -548,16 +549,16 @@ class Sequencer:
     def park(self, confirmed: bool, board_on: bool = False) -> dict[str, Any]:
         """Park the arm (mcp_server homes the arm, then the head), with the board on or off the gripper.
 
-        Board not on (this sequence did not clip it and the user did not state it): the plain park, refused by
-        mcp_server's carry reasons as ever. Board on (the sequence clipped it, or `board_on`): whatever the load
+        Board not on (this sequence did not attach it and the user did not state it): the plain park, refused by
+        mcp_server's carry reasons as ever. Board on (the sequence attached it, or `board_on`): whatever the load
         reads, the path to `park_pose` is checked with the board outline and the sag margin, the arm moves there and
         mcp_server's internal board park finishes it (it checks the board again on its home legs). Any carry reason
-        other than the holding load of the clamped stick refuses.
+        other than the holding load of the gripped board handle refuses.
 
         Args:
             confirmed: The user confirmed the park move.
             board_on: The user states, now, that the calibration board is on the gripper (a node that never saw the
-                clip, or restarted since): recorded in the board file; the path checks still run.
+                attach, or restarted since): recorded in the board file; the path checks still run.
 
         Returns:
             The state() after the start of the park.

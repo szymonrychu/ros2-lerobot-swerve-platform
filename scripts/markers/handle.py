@@ -84,7 +84,7 @@ class HandleSpec(StrictModel):
     (OPEN_AXIS is board +x) and grip the post like the earlier in-line paddle grip block, approaching along the post
     axis toward the tab; the plate lies beside the jaws along WIDTH_AXIS (board -y is gripper_link +y).
 
-    length_mm: grip length behind the shoulder (the jaw depth it covers). neck_mm: shoulder block from the plate back
+    length_mm: grip length behind the shoulder (the jaw depth it covers). neck_mm: shoulder block from the tab top
     to the shoulder face (long enough that no part of either jaw reaches the plate or a gusset). thickness_tip_mm /
     thickness_end_mm: nominal grip thickness (bed face to top plane) at the shoulder and at the free end (chosen
     from the jaw gap at the contact angle). channel_tip_mm / channel_end_mm:
@@ -174,7 +174,7 @@ class HandleSpec(StrictModel):
 
     @property
     def extent_mm(self) -> float:
-        """Post length above the plate back (neck plus grip) in mm."""
+        """Post length above the tab top (neck plus grip) in mm."""
         return self.neck_mm + self.length_mm
 
     @property

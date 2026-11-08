@@ -324,7 +324,7 @@ Distances are signed (negative = penetration). Rules (`PoseCheckConfig`, m and r
 | `min_tool_height_m` | The tool point (`gripper_frame_link`) is lower than 0.10 m. |
 | `max_roll_gripper_rad`, `roll_min_tool_height_m` | While `wrist_roll` changes the gripper must be at most 0.8 rad open (half open) and the tool at least 0.15 m high. |
 | `min_board_height_m` | A board point is lower than 0.05 m. |
-| `board_clearance` | The board outline and grid points keep `board_margin_m` from every body obstacle and the head. |
+| `board_clearance` | The board outline and grid points, and the points of the handle boxes, keep `board_margin_m` from every body obstacle and the head. |
 | `link_clearance` | The upper arm, forearm and wrist capsules (`link_radius_m` 0.025) keep `margin_m` (0.03) from the body and the head; the upper arm is exempt from the crossbar it stands on. |
 | `board_link_clearance` | The board keeps `board_margin_m` from the upper arm and forearm capsules. |
 
@@ -336,7 +336,9 @@ optical axis (`inside D435 min-Z`), and lies in front of the camera and projects
 for a usable view. The corners are on the printed face the camera sees; the 4 mm board thickness lies behind it.
 
 `board_margin_m` defaults to `margin_m`; the sequencer passes `margin_m + provisional_margin_m` while the board mount is
-the hand-measured start value, because the mount uncertainty moves the board and not the arm links.
+the shipped CAD seed, because the mount uncertainty moves the board and not the arm links. The board points are both
+plate faces (`board_points_local`) and points over each `fit.board_mount.handle_boxes_mm` box (`handle_box_points_local`),
+so the ARM board's handle post, gusset and tab are checked like the plate (floor height, body, head and arm links).
 
 The body is `BodyConfig` (`BoxObstacle` and `CylinderObstacle` lists): a copy of the client.yml `mcp_server` `body`
 block (frame rails, crossbar, four wheels, lidar), pinned equal by `tests/test_arm_pose_check.py`. It is a copy on
@@ -350,11 +352,23 @@ between samples). Pass the applied chain: a head that reaches further, or a wide
 
 `HeadArmFitConfig` (`board`, `fit_pan_axis`, `fit_camera_mount`, `board_mount`, `limits`, `huber_f_scale_px`, `base_in_base_link`,
 `joint_offsets_rad` (exactly the five arm joints), `floor_prior_weight`), `BoardMountConfig` (`xyz_init`, `rpy_init`,
-`outline_margin_m`: the start of the board frame in `gripper_link` and the plate margin the pose check uses),
+`outline_margin_m`: the start of the board frame in `gripper_link` and the plate margin the pose check uses;
+`handle_boxes_mm`: the held board's material beyond its plate, one `((min x, y, z), (max x, y, z))` box per part in the
+board frame (mm), each min below its max; for the ARM board the edge handle's post, gusset and tab on the pattern side,
+z < 0, past the plate's bottom edge; empty for a bare plate),
 `HeadArmFitLimits` (every limit above, with `holdout_every` >= 2) and `BaseInBaseLink` (`x`, `y`, `z`, `yaw`, default
 0.0592, -0.05, 0.100, 0). The defaults of the joint offsets and the base gauge equal the arm config in `client.yml`
 (pinned by `tests/test_head_arm_calib_config.py`). `charuco.board_corners_3d` and `board_outline` give the board corner
 geometry the fit and the pose check use. Unknown keys are rejected by every model.
+
+Boards: `BoardConfig` has no defaults: `name` (the board id, the generator's file stem), `squares_x`, `squares_y`,
+`square_mm`, `marker_mm` (below `square_mm`), `dictionary`, `ids_offset` (first ArUco marker id; the board uses
+`squares_x * squares_y // 2` consecutive ids, `marker_ids`, which must exist in the dictionary) and `thickness_mm`.
+`charuco.make_board` builds the OpenCV board with those ids, so two boards with disjoint ids are told apart in one
+image. The two printed boards are module constants equal to the `boards:` entries of `scripts/markers_generate.yaml`
+(pinned by `tests/test_head_arm_calib_config.py`): `FULL_BOARD` (`charuco-6x5-40mm`, 40/30 mm, ids 0-14; the
+intrinsics board) and `ARM_BOARD` (`charuco-arm-6x5-28mm`, 28/21 mm, ids 15-29; the board held in the gripper by its
+handle). `HeadArmFitConfig.board` and `plate` default to `ARM_BOARD`. See `docs/markers.md`, "Calibration boards".
 
 Tests: `tests/test_head_arm_fit.py`, `tests/test_head_arm_real_session.py`, `tests/test_arm_pose_check.py`,
 `tests/test_head_arm_calib_config.py`, `tests/test_head_arm_calib_chain.py`.
@@ -412,7 +426,7 @@ indented for the client.yml mcp_server `arm:` block; it is reviewed and committe
 
 `HeadArmFitConfig` fields read by this fit:
 
-- `plate` (`BoardConfig`, default the 6x5 board).
+- `plate` (`BoardConfig`, default `ARM_BOARD`, the 6x5 28 mm board held by its handle).
 - `plate_mount` (`PlateMountConfig | None`, default None): `xyz_init`, `rpy_init` (required, the plate start in
   `gripper_link`), `rpy` (CAD rotation, default None) and `tool_in_board_m` (the CAD board-to-jaw-tip offset in the
   plate frame, m: a required key with no default, null allowed until the user has measured it; null means the tool
