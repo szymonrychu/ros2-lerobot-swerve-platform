@@ -391,9 +391,9 @@ def test_board_outside_the_colour_fov() -> None:
     for joints in (ZERO, LEVEL_TOOL_20CM):
         centred = checker(fit_with(mount_facing_camera(joints, 0.45)))
         assert centred.check_view(joints, 0.0, 0.0, D435_COLOR) == []
-        # 0.25 m to the side: the far column of 4 corners (0.33 m out) passes the 34.5 deg half-angle (0.31 m at
-        # 0.45 m), the next one (0.29 m) does not.
-        aside = checker(fit_with(mount_facing_camera(joints, 0.45, lateral_m=0.25)))
+        # 0.27 m to the side (the 28 mm ARM board, corner columns 0.028 m apart): the far column of 4 corners (0.326 m
+        # out) passes the 34.5 deg half-angle (0.31 m at 0.45 m), the next one (0.298 m) does not.
+        aside = checker(fit_with(mount_facing_camera(joints, 0.45, lateral_m=0.27)))
         entries = aside.check_view(joints, 0.0, 0.0, D435_COLOR)
         assert rules(entries) == {FOV_RULE}, entries
         assert entries[0].startswith(f"{FOV_RULE}: 4 of 20 board corners outside the 640x360 colour image")

@@ -90,7 +90,9 @@ class ServerSettings(StrictModel):
 
 
 class CalibrationBoardSettings(StrictModel):
-    """The head calibration board on the gripper, for the board park (POST /admin/park_calibration_board).
+    """The ARM calibration board (6x5, 28 mm, with the handle) on the gripper, for the board park.
+
+    The board park is POST /admin/park_calibration_board.
 
     mcp_server owns this geometry: the caller sends only the board mount pose, which must lie within the tolerance of
     `mount_*`; the outline, the clearances and the floor height below are never taken from a request. Kept equal to
@@ -99,15 +101,15 @@ class CalibrationBoardSettings(StrictModel):
 
     squares_x: int = Field(default=6, ge=2)
     squares_y: int = Field(default=5, ge=2)
-    square_mm: float = Field(default=40.0, gt=0)
+    square_mm: float = Field(default=28.0, gt=0)
     thickness_mm: float = Field(default=4.0, gt=0)  # plate thickness behind the printed face
     outline_margin_m: float = Field(default=0.01, ge=0)  # plate margin beyond the outer squares
     lattice_points: int = Field(default=5, ge=2)  # points per plate edge of the checked lattice
-    mount_xyz_m: tuple[float, float, float] = (-0.1665, 0.1938, -0.1181)  # board frame origin in gripper_link
-    mount_rpy_rad: tuple[float, float, float] = (3.141593, 0.0, 0.185886)  # fixed-axis xyz rotation
+    mount_xyz_m: tuple[float, float, float] = (-0.0079, -0.084051, -0.255108)  # board frame origin in gripper_link
+    mount_rpy_rad: tuple[float, float, float] = (1.570796, 0.0, 1.570796)  # fixed-axis xyz rotation
     mount_tolerance_m: float = Field(default=0.03, gt=0)
     mount_tolerance_deg: float = Field(default=10.0, gt=0)
-    # Clearance of the board from every body obstacle: 0.005 margin + 0.05 hand-measured-mount allowance + 0.01 sag.
+    # Clearance of the board from every body obstacle: 0.005 margin + 0.05 CAD-seed-mount allowance + 0.01 sag.
     margin_m: float = Field(default=0.065, ge=0, le=0.3)
     min_height_m: float = Field(default=0.06, ge=0, le=0.5)  # lowest board point above the floor, sag included
 

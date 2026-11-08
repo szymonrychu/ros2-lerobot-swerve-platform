@@ -1,4 +1,4 @@
-"""The calibration board on the gripper, for the board park: mcp_server's own geometry, a caller-chosen mount only.
+"""The ARM calibration board (the one with the handle) on the gripper, for the board park: mcp_server's own geometry, a caller-chosen mount only.
 
 POST /admin/park_calibration_board (head_rgbd_calibration, own token) sends the board mount pose it believes in. The
 outline, the clearances and the floor height come from `config.calibration_board`; a mount further than the configured

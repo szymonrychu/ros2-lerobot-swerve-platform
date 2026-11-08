@@ -1,18 +1,20 @@
 """Tests for the head_rgbd_calibration node config."""
 
+import json
 from pathlib import Path
 
 import pytest
 import yaml
 from pydantic import ValidationError
 from ros2_common.head_rgbd_calibration.arm_pose_check import PoseCheckConfig
-from ros2_common.head_rgbd_calibration.config import ARM_JOINT_NAMES, FULL_BOARD, FloorFitConfig
+from ros2_common.head_rgbd_calibration.config import ARM_BOARD, ARM_JOINT_NAMES, FULL_BOARD, FloorFitConfig
 
 from head_rgbd_calibration.config import CONFIG_ENV, ArmSequenceConfig, NodeConfig, load_config
 
 NODE_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = NODE_DIR.parents[1]
 SHIPPED = NODE_DIR / "config" / "head_rgbd_calibration.yaml"
+ARM_JSON = REPO_ROOT / "markers" / "charuco-arm-6x5-28mm.json"
 CLIENT_YML = REPO_ROOT / "ansible" / "group_vars" / "client.yml"
 # Keys of the retired ToF calibration, with their last defaults.
 RETIRED_SELECTION_KEYS = {
@@ -228,7 +230,7 @@ def test_still_capture_defaults() -> None:
         "timeout_s": 6.0,
     }
     assert cfg.arm_urdf_file == "/opt/ros2-lerobot-swerve-platform/nodes/web_ui/urdf/so101_arm.urdf"
-    assert cfg.fit.board == cfg.board
+    assert cfg.fit.board == ARM_BOARD and cfg.board == FULL_BOARD
 
 
 @pytest.mark.parametrize("key", ["window_s", "rgb_mad", "joint_still_rad", "max_joint_dt_s", "timeout_s"])
@@ -237,12 +239,17 @@ def test_still_values_must_be_positive(key: str) -> None:
         NodeConfig.model_validate({"still": {key: 0}})
 
 
-def test_fit_board_mismatch_refused_naming_both() -> None:
-    wide = {**FULL_BOARD.model_dump(), "squares_x": 7}
-    with pytest.raises(ValidationError, match=r"fit\.board.*board"):
-        NodeConfig.model_validate({"fit": {"board": wide}})
-    cfg = NodeConfig.model_validate({"board": wide, "fit": {"board": wide}})
-    assert cfg.fit.board.squares_x == 7
+def test_board_roles_default_full_and_arm() -> None:
+    cfg = NodeConfig()
+    assert cfg.board == FULL_BOARD and cfg.fit.board == ARM_BOARD and cfg.fit.plate == ARM_BOARD
+
+
+def test_board_id_ranges_must_not_overlap() -> None:
+    clash = ARM_BOARD.model_copy(update={"ids_offset": 5})
+    with pytest.raises(ValidationError, match="charuco-6x5-40mm.*charuco-arm-6x5-28mm"):
+        NodeConfig.model_validate({"fit": {"board": clash.model_dump()}})
+    with pytest.raises(ValidationError, match="charuco-6x5-40mm.*charuco-arm-6x5-28mm"):
+        NodeConfig.model_validate({"fit": {"plate": clash.model_dump()}})
 
 
 def test_robot_defaults() -> None:
@@ -263,7 +270,7 @@ def test_robot_timeouts_must_be_positive(key: str) -> None:
 def test_arm_sequence_defaults() -> None:
     seq = NodeConfig().arm_sequence
     assert set(seq.base_pose) == set(ARM_JOINT_NAMES)
-    assert 0.0 <= seq.gripper_rad <= seq.pose_check.max_roll_gripper_rad
+    assert 0.0 <= seq.insert_gripper_rad <= seq.pose_check.max_roll_gripper_rad
     assert seq.max_roll_delta_rad == 1.2
     assert seq.max_flex_delta_rad == 0.4
     assert seq.max_big_delta_rad == 0.35
@@ -334,7 +341,7 @@ def base(joint: str) -> float:
             ),
             r"base_pose.*wrist_roll",
         ),
-        (lambda: sequence_with(gripper_rad=0.81), r"gripper_rad.*max_roll_gripper_rad"),
+        (lambda: sequence_with(insert_gripper_rad=0.81), r"insert_gripper_rad.*max_roll_gripper_rad"),
         (lambda: sequence_with(head_offsets_deg=[]), r"head_offsets_deg"),
     ],
     ids=[
@@ -372,12 +379,25 @@ def test_arm_sequence_error_names_every_bad_pose() -> None:
     assert "tier 2 pose 2" in message and "shoulder_pan" in message
 
 
-def test_fit_board_mount_default_is_the_measured_mount() -> None:
-    mount = NodeConfig().fit.board_mount
-    assert mount.xyz_init != (0.0, 0.0, 0.0)
-    assert mount == load_config(SHIPPED).fit.board_mount
-    assert mount.outline_margin_m == 0.01
-    assert "board_mount: # measured by the user 2026-10-23, not fit-solved" in SHIPPED.read_text()
+def test_fit_mounts_are_the_cad_seed() -> None:
+    meta, fit = json.loads(ARM_JSON.read_text()), NodeConfig().fit
+    assert fit.board_mount.xyz_init == pytest.approx(meta["board_mount"]["xyz_init"], abs=1e-6)
+    assert fit.board_mount.rpy_init == pytest.approx(meta["board_mount"]["rpy_init"], abs=1e-6)
+    assert fit.plate_mount.rpy == fit.plate_mount.rpy_init == fit.board_mount.rpy_init
+    assert fit.plate_mount.xyz_init == fit.board_mount.xyz_init
+    assert fit.plate_mount.tool_in_board_m == pytest.approx(meta["handle_in_board"]["tool_point_m"], abs=1e-6)
+    assert fit.board_mount.outline_margin_m == 0.01
+    assert fit.board_mount == load_config(SHIPPED).fit.board_mount
+    assert "CAD seed from the handle" in SHIPPED.read_text()
+
+
+def test_arm_sequence_grip_defaults_come_from_the_handle() -> None:
+    meta, seq = json.loads(ARM_JSON.read_text()), NodeConfig().arm_sequence
+    assert seq.handle_contact_rad == pytest.approx(meta["grip"]["contact_rad"], abs=1e-4)
+    assert seq.grip_rad == pytest.approx(meta["grip"]["grip_rad"], abs=1e-4)
+    assert seq.handle_squeeze_rad == 0.02
+    assert seq.board_mass_g == pytest.approx(meta["mass_g"], abs=0.5)
+    assert seq.insert_gripper_rad == 0.4
 
 
 def test_park_pose_is_the_parked_arm_and_sag_margin_defaults() -> None:

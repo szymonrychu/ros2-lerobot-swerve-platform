@@ -114,27 +114,21 @@ still:
   joint_still_rad: 0.002 # each of the seven joints moves less than this over the window, rad (> 0)
   max_joint_dt_s: 0.1 # joint samples must be this close to the frame stamp, s (> 0)
   timeout_s: 6.0 # give up waiting for stillness after this, s (> 0)
-# Head-from-arm fit (shared core); fit.board must equal board.
+# Head-from-arm fit (shared core); fit.board is the ARM board, board the FULL board (intrinsics).
 fit:
-  board: # the printed ChArUco board, equal to board above
-    name: charuco-6x5-40mm
+  board: # the ARM board (the one with the handle), disjoint marker ids from board
+    name: charuco-arm-6x5-28mm
     squares_x: 6
     squares_y: 5
-    square_mm: 40.0
-    marker_mm: 30.0
+    square_mm: 28.0
+    marker_mm: 21.0
     dictionary: DICT_5X5_100
-    ids_offset: 0
+    ids_offset: 15
     thickness_mm: 4.0 # plate thickness behind the printed face, in the collision checks
-  # Board on a stick held in the closed gripper (rubber band), in gripper_link, as measured by the user
-  # (2026-10-23), not the jaw-geometry estimate: the 250 x 210 mm sheet is glued at the middle of its lower long
-  # edge to the stick, its plane across the tool axis 2 cm past the URDF tool point (gripper_frame_joint), the
-  # print toward the arm. "Up" is base_link +z in gripper_link at the parked arm (scripts/gen_nav_footprint.yaml
-  # parked_arm_joints, FK with joint_offsets_rad) projected normal to the tool axis: (-0.185, 0.983, 0). The
-  # lower edge sits 15 mm above the axis on that side, so the centre is 15 + 105 = 120 mm above it; the long
-  # edges are level and board y points down when parked. The fit solves the real mount from this start value.
-  board_mount: # measured by the user 2026-10-23, not fit-solved (design D47)
-    xyz_init: [-0.1665, 0.1938, -0.1181] # initial mount position, m
-    rpy_init: [3.141593, 0.0, 0.185886] # initial mount roll/pitch/yaw, rad
+  # ARM board mount in gripper_link: CAD seed from the handle (markers/charuco-arm-6x5-28mm.json), not fit-solved.
+  board_mount: # CAD seed from the handle (markers/charuco-arm-6x5-28mm.json), not fit-solved
+    xyz_init: [-0.0079, -0.084051, -0.255108] # initial mount position, m
+    rpy_init: [1.570796, 0.0, 1.570796] # initial mount roll/pitch/yaw, rad
     outline_margin_m: 0.01 # margin around the board outline, m
   # Fit the head pan axis position (head_pan origin x, y) relative to the head; the head_tilt origin moves back by
   # the same shift so the head stays put at pan 0. Session calib-20261023-074418: the fixed axis left 13 px at the
@@ -184,20 +178,22 @@ fit:
   floor_prior_weight: 10.0
   # Arm offsets fit (shared core arm_offsets_fit, design D9, Q2): the gripper-held plate in the D435 colour camera
   # plus floor planes give the arm joint offsets (shoulder_pan the gauge), the head chain and the tool point.
-  plate: # the 6x5 board
-    name: charuco-6x5-40mm
+  plate: # the ARM board, as fit.board
+    name: charuco-arm-6x5-28mm
     squares_x: 6
     squares_y: 5
-    square_mm: 40.0
-    marker_mm: 30.0
+    square_mm: 28.0
+    marker_mm: 21.0
     dictionary: DICT_5X5_100
-    ids_offset: 0
+    ids_offset: 15
     thickness_mm: 4.0
-  # Plate in gripper_link: xyz_init / rpy_init start values, rpy the CAD rotation (null: rotation fitted,
-  # wrist_roll fixed at wrist_roll_offset_rad), tool_in_board_m the CAD board-to-jaw-tip offset (required
-  # key, null until measured: the tool point is not fitted). Required by the arm offsets fit; null until the
-  # clip is measured.
-  plate_mount: null
+  # Plate in gripper_link: CAD seed from the handle (markers/charuco-arm-6x5-28mm.json), not fit-solved. rpy is the CAD
+  # rotation (wrist_roll fitted); tool_in_board_m the CAD board-to-jaw-tip offset (the tool point is fitted).
+  plate_mount:
+    xyz_init: [-0.0079, -0.084051, -0.255108]
+    rpy_init: [1.570796, 0.0, 1.570796]
+    rpy: [1.570796, 0.0, 1.570796]
+    tool_in_board_m: [0.078233, 0.15838, -0.001]
   wrist_roll_offset_rad: null # wrist_roll zero from the recorded servo neutral, rad; required when rpy is null
   tool_offset_m: [0.001, -0.0056, -0.0014] # current tool point in gripper_frame_link (mcp_server arm), m
   floor_fit: # floor views of the arm offsets fit: plane fit, limits and residual scales (as floor.fit)
@@ -231,7 +227,10 @@ robot:
 arm_sequence:
   # Board about 0.34 m in front of the head camera, lifted to the camera height and forward of the body.
   base_pose: {shoulder_pan: -0.12, shoulder_lift: 0.3, elbow_flex: 0.0, wrist_flex: -0.5, wrist_roll: 0.0}
-  gripper_rad: 0.4 # sent once with the base pose; at most pose_check.max_roll_gripper_rad (half open)
+  insert_gripper_rad: 0.4 # sent once with the base pose; at most pose_check.max_roll_gripper_rad (half open)
+  handle_contact_rad: 0.07027 # gripper angle at first contact on the ARM board handle (CAD), rad
+  handle_squeeze_rad: 0.02 # squeeze past contact, rad (> 0); grip = contact - squeeze
+  board_mass_g: 157.03 # ARM board mass from the CAD, g (> 0)
   # Tier 0: wrist_roll only (within max_roll_delta_rad of base_pose).
   tier0_poses:
   - {shoulder_pan: -0.12, shoulder_lift: 0.3, elbow_flex: 0.0, wrist_flex: -0.5, wrist_roll: 0.3}
@@ -281,7 +280,7 @@ arm_sequence:
   settle_s: 1.0 # wait after a move before the still capture, s (>= 0)
   confirm_timeout_s: 600.0 # an unanswered confirm ends the sequence (arm held), s (> 0)
   head_offsets_deg: [[0.0, 0.0], [10.0, 0.0], [-10.0, 0.0], [0.0, -3.0]] # (pan, tilt) added to the aimed head, deg; tilt -3 (up) fits the D435 colour FOV
-  provisional_margin_m: 0.05 # extra board margin while board_mount is the hand-measured start, m (>= 0)
+  provisional_margin_m: 0.05 # extra board margin while board_mount is the CAD seed, m (>= 0)
   # Parked arm (gen_nav_footprint.yaml parked_arm_joints): the target of Park with the board on.
   park_pose: {shoulder_pan: -0.003, shoulder_lift: -1.35, elbow_flex: 1.578, wrist_flex: -0.1, wrist_roll: -1.637}
   park_board_sag_margin_m: 0.01 # added to the board floor, body and head clearances of the Park path check (board sags under its weight), m (>= 0)

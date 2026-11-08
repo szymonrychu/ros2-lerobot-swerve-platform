@@ -264,7 +264,7 @@ class HeadArmFitConfig(StrictModel):
     tool point is not fitted), `floor_fit` (its floor views) and `arm_limits`.
     """
 
-    board: BoardConfig = FULL_BOARD
+    board: BoardConfig = ARM_BOARD
     fit_pan_axis: bool = True
     fit_camera_mount: bool = True
     board_mount: BoardMountConfig = Field(default_factory=BoardMountConfig)
@@ -273,7 +273,7 @@ class HeadArmFitConfig(StrictModel):
     base_in_base_link: BaseInBaseLink = Field(default_factory=BaseInBaseLink)
     joint_offsets_rad: dict[str, float] = Field(default_factory=lambda: dict(DEFAULT_JOINT_OFFSETS_RAD))
     floor_prior_weight: float = Field(default=10.0, ge=0)
-    plate: BoardConfig = FULL_BOARD
+    plate: BoardConfig = ARM_BOARD
     plate_mount: PlateMountConfig | None = None
     wrist_roll_offset_rad: float | None = None
     tool_offset_m: tuple[float, float, float] = DEFAULT_TOOL_OFFSET_M

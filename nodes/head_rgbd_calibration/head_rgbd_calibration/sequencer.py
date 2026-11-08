@@ -51,7 +51,7 @@ from ros2_common.head_rgbd_calibration.floor_fit import PAN_JOINT, TILT_JOINT
 from ros2_common.head_rgbd_calibration.head_arm_fit import aim_head, board_centre
 
 from head_rgbd_calibration.capture import CaptureController, StillOutcome
-from head_rgbd_calibration.config import BIG_JOINTS, NOMINAL_BOARD_RPY, NOMINAL_BOARD_XYZ, NodeConfig
+from head_rgbd_calibration.config import BIG_JOINTS, CAD_BOARD_RPY, CAD_BOARD_XYZ, NodeConfig
 from head_rgbd_calibration.robot_client import RobotClient, ToolResult
 
 LOG = logging.getLogger(__name__)
@@ -134,16 +134,16 @@ class Plan:
 
 
 def nominal_mount(cfg: NodeConfig) -> bool:
-    """Whether `fit.board_mount` is still the shipped hand-measured start (design D47; it gets the provisional margin).
+    """Whether `fit.board_mount` is still the shipped CAD seed (design D47; it gets the provisional margin).
 
     Args:
         cfg: Node config.
 
     Returns:
-        bool: True when xyz_init and rpy_init equal NOMINAL_BOARD_XYZ / NOMINAL_BOARD_RPY.
+        bool: True when xyz_init and rpy_init equal CAD_BOARD_XYZ / CAD_BOARD_RPY.
     """
     mount = cfg.fit.board_mount
-    pairs = zip((*mount.xyz_init, *mount.rpy_init), (*NOMINAL_BOARD_XYZ, *NOMINAL_BOARD_RPY), strict=True)
+    pairs = zip((*mount.xyz_init, *mount.rpy_init), (*CAD_BOARD_XYZ, *CAD_BOARD_RPY), strict=True)
     return all(math.isclose(a, b, abs_tol=MOUNT_TOLERANCE) for a, b in pairs)
 
 
@@ -631,7 +631,7 @@ class Sequencer:
         except (ValueError, KeyError, OSError, SyntaxError) as exc:
             raise SequenceError(f"cannot read the arm or head URDF: {type(exc).__name__}: {exc}") from exc
         start = self.measured()
-        gripper = max(start.get(GRIPPER_JOINT, seq.gripper_rad), seq.gripper_rad)
+        gripper = max(start.get(GRIPPER_JOINT, seq.insert_gripper_rad), seq.insert_gripper_rad)
         entries = checker.check_path(start, dict(seq.park_pose), gripper)
         if entries:
             quoted = "; ".join(entries[:MAX_QUOTED_ENTRIES])
@@ -755,7 +755,7 @@ class Sequencer:
         with self.lock:
             self.status = "moving to the base pose (no board)"
         base = dict(self.seq.base_pose)
-        self.checked_move(plan, base, "the base pose", {**base, GRIPPER_JOINT: self.seq.gripper_rad})
+        self.checked_move(plan, base, "the base pose", {**base, GRIPPER_JOINT: self.seq.insert_gripper_rad})
         self.wait_confirm(WAITING_BOARD, MESSAGE_BOARD, lambda: self.board_on)
         session_id = self.capture.start_still_session(None)
         with self.lock:
@@ -846,7 +846,7 @@ class Sequencer:
             StepFailed: get_arm_state fails, the path check refuses, the move fails or does not converge.
         """
         start = self.measured()
-        gripper = max(start.get(GRIPPER_JOINT, self.seq.gripper_rad), self.seq.gripper_rad)
+        gripper = max(start.get(GRIPPER_JOINT, self.seq.insert_gripper_rad), self.seq.insert_gripper_rad)
         entries = plan.checker.check_path(start, pose, gripper)
         if entries:
             quoted = "; ".join(entries[:MAX_QUOTED_ENTRIES])

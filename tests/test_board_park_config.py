@@ -1,4 +1,4 @@
-"""Calibration board park (D63): mcp_server's board geometry equals the calibration node's; the route token is private.
+"""Calibration board park (D63): mcp_server's ARM board (with the handle) equals the calibration fit board.
 
 mcp_server owns the board outline, margins and floor height of POST /admin/park_calibration_board (the
 `calibration_board:` block of its client.yml config). head_rgbd_calibration checks the same board with its own copy.
@@ -61,6 +61,17 @@ def test_mcp_server_board_equals_the_calibration_fit_board_and_mount() -> None:
     # The strictest clearances the node's park check uses: sequence margin + nominal-mount allowance + sag.
     assert mcp["margin_m"] == pytest.approx(seq.board_margin_m(True) + seq.park_board_sag_margin_m)
     assert mcp["min_height_m"] == pytest.approx(seq.pose_check.min_board_height_m + seq.park_board_sag_margin_m)
+
+
+def test_mcp_server_board_is_the_arm_board() -> None:
+    settings = CalibrationBoardSettings()
+    assert (settings.squares_x, settings.squares_y, settings.square_mm) == (6, 5, 28.0)
+
+
+def test_grip_squeeze_stays_inside_the_mcp_converge_tolerance() -> None:
+    seq = NodeConfig.model_validate(client_node("head_rgbd_calibration")).arm_sequence
+    limits = McpServerConfig.model_validate(client_node("mcp_server")).limits
+    assert seq.handle_squeeze_rad < limits.converge_tolerance_for("gripper")
 
 
 def test_deployed_block_and_code_defaults_agree() -> None:

@@ -283,9 +283,11 @@ def test_arm_urdf_file_is_the_mcp_server_arm_urdf() -> None:
     assert calib_config()["arm_urdf_file"].endswith("/" + mcp_urdf)
 
 
-def test_fit_board_equals_board() -> None:
+def test_boards_are_the_full_and_the_arm_board_with_disjoint_ids() -> None:
     config = calib_config()
-    assert config["fit"]["board"] == config["board"]
+    assert config["board"]["name"] == "charuco-6x5-40mm" and config["board"]["ids_offset"] == 0
+    assert config["fit"]["board"] == config["fit"]["plate"]
+    assert config["fit"]["board"]["name"] == "charuco-arm-6x5-28mm" and config["fit"]["board"]["ids_offset"] == 15
 
 
 def test_service_joins_mcp_token_group_created_by_mcp_server_setup() -> None:
