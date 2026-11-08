@@ -16,6 +16,7 @@ REPO_ROOT = NODE_DIR.parents[1]
 SHIPPED = NODE_DIR / "config" / "head_rgbd_calibration.yaml"
 ARM_JSON = REPO_ROOT / "markers" / "charuco-arm-6x5-28mm.json"
 CLIENT_YML = REPO_ROOT / "ansible" / "group_vars" / "client.yml"
+MARKERS_YAML = REPO_ROOT / "scripts" / "markers_generate.yaml"
 # Keys of the retired ToF calibration, with their last defaults.
 RETIRED_SELECTION_KEYS = {
     "still_tof_mad": 0.01,
@@ -393,6 +394,30 @@ def test_fit_mounts_are_the_cad_seed() -> None:
     assert fit.board_mount.outline_margin_m == 0.01
     assert fit.board_mount == load_config(SHIPPED).fit.board_mount
     assert "CAD seed from the handle" in SHIPPED.read_text()
+
+
+def test_board_back_boxes_are_the_handle_cad() -> None:
+    """The twin ribs of the handle metadata (each at its full shoulder height) and the handle block off the plate
+    edge (generator handle: rails width, neck plus grip length, the taller rail top over the printed face)."""
+    meta = json.loads(ARM_JSON.read_text())
+    envelope = meta["back_envelope_mm"]
+    handle = next(b for b in yaml.safe_load(MARKERS_YAML.read_text())["boards"] if b["name"] == ARM_BOARD.name)[
+        "handle"
+    ]
+    boxes = NodeConfig().fit.board_mount.back_boxes_mm
+    assert boxes == load_config(SHIPPED).fit.board_mount.back_boxes_mm
+    assert len(boxes) == 3
+    ribs, block = boxes[:2], boxes[2]
+    for rib, expected in zip(ribs, envelope["ribs"], strict=True):
+        assert [*rib[0], *rib[1]] == pytest.approx([*expected[0], *expected[1]], abs=1e-6)
+        assert rib[1][2] == pytest.approx(ARM_BOARD.thickness_mm + envelope["height_mm"], abs=1e-6)
+    (x0, y0, z0), (x1, y1, z1) = block
+    assert (x0, x1) == pytest.approx((ribs[0][0][0], ribs[1][1][0]), abs=1e-6)  # ribs flush with the handle walls
+    assert x1 - x0 == pytest.approx(handle["channel_end_mm"] + 2 * handle["rail_width_mm"], abs=1e-6)
+    assert y0 == pytest.approx(ribs[0][1][1], abs=1e-6)  # the plate edge the ribs start from
+    assert y1 - y0 == pytest.approx(handle["neck_mm"] + handle["length_mm"], abs=1e-6)
+    top = max(handle["thickness_tip_mm"], handle["thickness_end_mm"]) + handle["rail_height_mm"]
+    assert (z0, z1) == pytest.approx((0.0, top), abs=1e-6)
 
 
 def test_arm_sequence_grip_defaults_come_from_the_handle() -> None:

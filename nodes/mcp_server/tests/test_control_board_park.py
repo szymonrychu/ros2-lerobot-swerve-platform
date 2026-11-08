@@ -18,7 +18,7 @@ import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 from starlette.testclient import TestClient
 
-from mcp_server.calibration_board import BoardPark
+from mcp_server.calibration_board import BoardPark, box_lattice
 from mcp_server.config import CalibrationBoardSettings, McpServerConfig
 from mcp_server.control import CALIBRATION_BOARD_PARK_SPEED_SCALE
 from mcp_server.tools import ADMIN_PARK_BOARD_PATH, build_app, build_mcp_server
@@ -124,7 +124,8 @@ def test_the_board_geometry_is_mcp_servers_own_and_the_request_only_moves_the_mo
     settings = SETTINGS
     park = board()
     assert park.margin_m == settings.margin_m and park.min_height_m == settings.min_height_m
-    assert len(park.points) == 2 * (4 + settings.lattice_points**2)
+    plate_count = 2 * (4 + settings.lattice_points**2)
+    assert len(park.points) == plate_count + 27 * len(settings.back_boxes_mm)
     width, height = settings.squares_x * settings.square_mm / 1000, settings.squares_y * settings.square_mm / 1000
     # In the board frame the outline spans the squares plus the margin; the mount is a rigid pose of it.
     diagonal = math.sqrt(
@@ -132,8 +133,14 @@ def test_the_board_geometry_is_mcp_servers_own_and_the_request_only_moves_the_mo
         + (height + 2 * settings.outline_margin_m) ** 2
         + (settings.thickness_mm / 1000) ** 2  # the back face lies behind the printed one
     )
-    reach = max(float(np.linalg.norm(a - b)) for a in park.points for b in park.points)
+    plate = park.points[:plate_count]
+    reach = max(float(np.linalg.norm(a - b)) for a in plate for b in plate)
     assert reach == pytest.approx(diagonal)
+    # Then a 3 x 3 x 3 lattice per back box (the ribs and the handle), the same rigid pose: its diagonal is kept.
+    for index, (low, high) in enumerate(settings.back_boxes_mm):
+        box = park.points[plate_count + 27 * index : plate_count + 27 * (index + 1)]
+        span = max(float(np.linalg.norm(a - b)) for a in box for b in box)
+        assert span == pytest.approx(math.dist(low, high) / 1000)
 
 
 @pytest.mark.parametrize(
@@ -260,3 +267,11 @@ def test_admin_route_parks_a_valid_mount_and_refuses_bad_requests(tmp_path: Path
         ok = client.post(ADMIN_PARK_BOARD_PATH, json=body(), headers=AUTH)
     assert ok.status_code == 200 and ok.json()["ok"] is True
     assert ok.json()["result"]["reset"]["arm"] == "homed"
+
+
+def test_box_lattice_spans_the_box_in_metres() -> None:
+    points = box_lattice((0.0, 10.0, 4.0), (20.0, 30.0, 24.0))
+    assert points.shape == (27, 3)
+    assert points.min(axis=0) == pytest.approx([0.0, 0.010, 0.004])
+    assert points.max(axis=0) == pytest.approx([0.020, 0.030, 0.024])
+    assert [0.010, 0.020, 0.014] in points.round(9).tolist()  # the box centre

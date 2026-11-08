@@ -86,6 +86,14 @@ CAD_TOOL_IN_BOARD_M = (
     0.158386,
     -0.00115,
 )  # jaw-tip tool point in the board frame (handle_in_board.tool_point_m)
+# ARM board material beyond its plate, ((min), (max)) boxes in the board frame (mm) for the pose check: the twin ribs
+# (markers/charuco-arm-6x5-28mm.json back_envelope_mm, each box at the full 24.7 mm shoulder height) and the handle
+# block off the plate edge (scripts/markers_generate.yaml handle: 24.6 mm wide, 34 mm long, 28.4 mm over the face).
+CAD_BACK_BOXES_MM = (
+    ((71.7, 70.0, 4.0), (75.7, 145.0, 24.7)),
+    ((92.3, 70.0, 4.0), (96.3, 145.0, 24.7)),
+    ((71.7, 145.0, 0.0), (96.3, 179.0, 28.4)),
+)
 WRIST_ROLL = "wrist_roll"
 WRIST_FLEX = "wrist_flex"
 BIG_JOINTS = ("elbow_flex", "shoulder_lift", "shoulder_pan")
@@ -338,7 +346,9 @@ def default_fit() -> HeadArmFitConfig:
             fixed to the CAD rotation and `tool_in_board_m` the CAD jaw-tip offset.
     """
     return HeadArmFitConfig(
-        board_mount=BoardMountConfig(xyz_init=CAD_BOARD_XYZ, rpy_init=CAD_BOARD_RPY),
+        board_mount=BoardMountConfig(
+            xyz_init=CAD_BOARD_XYZ, rpy_init=CAD_BOARD_RPY, back_boxes_mm=list(CAD_BACK_BOXES_MM)
+        ),
         plate_mount=PlateMountConfig(
             xyz_init=CAD_BOARD_XYZ, rpy_init=CAD_BOARD_RPY, rpy=CAD_BOARD_RPY, tool_in_board_m=CAD_TOOL_IN_BOARD_M
         ),

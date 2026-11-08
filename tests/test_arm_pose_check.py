@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import yaml
+from pydantic import ValidationError
 from ros2_common.camera_geometry import CameraIntrinsics
 from ros2_common.head_rgbd_calibration.arm_pose_check import (
     FOV_RULE,
@@ -16,6 +17,7 @@ from ros2_common.head_rgbd_calibration.arm_pose_check import (
     CylinderObstacle,
     PoseCheckConfig,
     PoseChecker,
+    back_box_points_local,
     board_points_local,
     head_envelope,
 )
@@ -425,3 +427,40 @@ def test_thicker_board_has_less_clearance_than_a_thin_one() -> None:
     thick.board.thickness_mm = 40.0
     clear = lambda f: float(checker(f).obstacles.distances(checker(f).board_points(ZERO)).min())  # noqa: E731
     assert clear(thick) < clear(thin)
+
+
+# A rib-like box behind the plate back and a block off the plate edge (board frame, mm), for the back box cases.
+BACK_BOXES_MM = [((70.0, 70.0, 4.0), (76.0, 150.0, 25.0)), ((70.0, 150.0, 0.0), (100.0, 180.0, 30.0))]
+
+
+def test_back_boxes_are_board_points_of_the_checker() -> None:
+    flat = BoardMountConfig(xyz_init=(0.0, 0.0, 0.0), rpy_init=(0.0, 0.0, 0.0), back_boxes_mm=BACK_BOXES_MM)
+    fit = fit_with(flat)
+    local = back_box_points_local(fit)
+    assert len(local) == 27 * len(BACK_BOXES_MM)
+    for low, high in BACK_BOXES_MM:  # every box corner is a checked point
+        for corner in np.array(np.meshgrid(*zip(low, high, strict=True))).reshape(3, -1).T / 1000.0:
+            assert np.isclose(local, corner).all(axis=1).any(), corner
+    assert len(back_box_points_local(fit_with(flat.model_copy(update={"back_boxes_mm": []})))) == 0
+    boxed_mount = TEST_MOUNT.model_copy(update={"back_boxes_mm": BACK_BOXES_MM})
+    plain, boxed = checker(fit_with()), checker(fit_with(boxed_mount))
+    assert len(boxed.board_points(ZERO)) == len(plain.board_points(ZERO)) + 27 * len(BACK_BOXES_MM)
+    assert np.allclose(boxed.board_points(ZERO)[: len(plain.board_points(ZERO))], plain.board_points(ZERO))
+
+
+def test_a_back_box_near_the_floor_fails_the_board_height() -> None:
+    """The plate alone keeps min_board_height_m; a 10 mm box 0.25 m below the board origin (base_link -z) does not."""
+    mount = mount_with_corner_at(LEVEL_TOOL_20CM, np.array([0.45, -0.05, 0.20]))
+    fit = fit_with(mount)
+    assert not [e for e in checker(fit).check_pose(LEVEL_TOOL_20CM, 0.0, False) if e.startswith("min_board_height_m")]
+    board = arm_pose("gripper_link", LEVEL_TOOL_20CM, fit) @ pose_from_xyz_rpy(mount.xyz_init, mount.rpy_init)
+    down_mm = board[:3, :3].T @ np.array([0.0, 0.0, -250.0])
+    box = (tuple(float(v) for v in down_mm), tuple(float(v) + 10.0 for v in down_mm))
+    reaching = checker(fit_with(mount.model_copy(update={"back_boxes_mm": [box]})))
+    entries = reaching.check_pose(LEVEL_TOOL_20CM, 0.0, False)
+    assert any(e.startswith("min_board_height_m") for e in entries), entries
+
+
+def test_back_boxes_need_min_below_max() -> None:
+    with pytest.raises(ValidationError, match="back_boxes_mm"):
+        BoardMountConfig(back_boxes_mm=[((0.0, 0.0, 4.0), (10.0, 10.0, 4.0))])

@@ -1799,6 +1799,13 @@ ros2_nodes:
           xyz_init: [-0.00775, -0.084051, -0.255113] # initial mount position, m
           rpy_init: [1.570796, 0.0, 1.570796] # initial mount roll/pitch/yaw, rad
           outline_margin_m: 0.01 # margin around the board outline, m
+          # Material beyond the plate, [min, max] boxes in the board frame (mm), checked as board points by the pose check:
+          # the twin ribs (markers/charuco-arm-6x5-28mm.json back_envelope_mm, full shoulder height) and the handle block
+          # off the plate edge (scripts/markers_generate.yaml handle).
+          back_boxes_mm:
+            - [[71.7, 70.0, 4.0], [75.7, 145.0, 24.7]]
+            - [[92.3, 70.0, 4.0], [96.3, 145.0, 24.7]]
+            - [[71.7, 145.0, 0.0], [96.3, 179.0, 28.4]]
         # Fit the head pan axis position (head_pan origin x, y) relative to the head; the head_tilt origin moves back by
         # the same shift so the head stays put at pan 0. Session calib-20261023-074418: the fixed axis left 13 px at the
         # +-10 deg pan offsets (rms 12.2 px), the free axis sits 38 mm behind and 11 mm right of the URDF value (rms 2.7 px).
@@ -2989,6 +2996,11 @@ ros2_nodes:
         lattice_points: 5 # points per plate edge of the checked lattice
         mount_xyz_m: [-0.00775, -0.084051, -0.255113] # board frame origin in gripper_link
         mount_rpy_rad: [1.570796, 0.0, 1.570796] # fixed-axis xyz rotation
+        # Material beyond the plate, [min, max] boxes in the board frame (mm): the twin ribs and the handle block.
+        back_boxes_mm:
+          - [[71.7, 70.0, 4.0], [75.7, 145.0, 24.7]]
+          - [[92.3, 70.0, 4.0], [96.3, 145.0, 24.7]]
+          - [[71.7, 145.0, 0.0], [96.3, 179.0, 28.4]]
         mount_tolerance_m: 0.03
         mount_tolerance_deg: 10.0
         margin_m: 0.065 # clearance from the body: 0.005 pose-check margin + 0.05 nominal-mount allowance + 0.01 sag
