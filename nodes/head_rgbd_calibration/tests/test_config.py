@@ -343,6 +343,8 @@ def base(joint: str) -> float:
         ),
         (lambda: sequence_with(insert_gripper_rad=0.81), r"insert_gripper_rad.*max_roll_gripper_rad"),
         (lambda: sequence_with(head_offsets_deg=[]), r"head_offsets_deg"),
+        (lambda: sequence_with(handle_squeeze_rad=0.08), r"handle_squeeze_rad.*below handle_contact_rad"),
+        (lambda: sequence_with(handle_squeeze_rad=0.0), r"handle_squeeze_rad"),
     ],
     ids=[
         "gripper-in-pose",
@@ -362,6 +364,8 @@ def base(joint: str) -> float:
         "base-missing-joint",
         "gripper-too-open",
         "no-head-offsets",
+        "squeeze-past-contact",
+        "squeeze-zero",
     ],
 )
 def test_arm_sequence_validation_names_pose(data, pattern: str) -> None:

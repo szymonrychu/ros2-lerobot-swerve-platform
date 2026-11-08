@@ -99,7 +99,7 @@ DEFAULT_INSERT_GRIPPER_RAD = 0.4  # gripper opening while the handle is inserted
 # squeeze past it (inside the mcp_server gripper converge tolerance), and the board mass.
 DEFAULT_HANDLE_CONTACT_RAD = 0.07027
 DEFAULT_HANDLE_SQUEEZE_RAD = 0.02
-DEFAULT_BOARD_MASS_G = 157.03
+DEFAULT_BOARD_MASS_G = 157.026637
 # The parked arm: scripts/gen_nav_footprint.yaml parked_arm_joints (the mcp_server home), the target of a park with the
 # board on (a test pins the two equal).
 DEFAULT_PARK_POSE = (-0.003, -1.35, 1.578, -0.1, -1.637)
@@ -352,11 +352,12 @@ class ArmSequenceConfig(StrictModel):
     (within `max_flex_delta_rad`), tier 2 also in elbow_flex, shoulder_lift and shoulder_pan (each within
     `max_big_delta_rad`). `insert_gripper_rad` is sent once with the base pose and is at most the half-open
     `pose_check.max_roll_gripper_rad`. `handle_contact_rad` is the gripper angle at first contact on the ARM board
-    handle, `handle_squeeze_rad` the squeeze past it (`grip_rad` is the commanded grip), `board_mass_g` the board mass. `head_offsets_deg` are (pan, tilt) offsets added to the aimed head angles,
-    one view each. `provisional_margin_m` is added to `pose_check.margin_m` for the board points while the board
+    handle, `handle_squeeze_rad` the squeeze past it (`grip_rad` is the commanded grip), `board_mass_g` the board mass.
+    `head_offsets_deg` are (pan, tilt) offsets added to the aimed head angles, one view each. `provisional_margin_m` is added to `pose_check.margin_m` for the board points while the board
     mount is the shipped CAD seed (not fit-solved). `park_pose` is the parked arm a park with the board on
     drives to (path-checked first); `park_board_sag_margin_m` is added to the board floor, body and head clearances
-    of that check, because the board sags below FK under its weight (about 4 mm measured with a heavier board; `board_mass_g` is lighter, so the same margin is conservative).
+    of that check, because the board sags below FK under its weight (about 4 mm measured with a heavier board; `board_mass_g` is
+    lighter, so the same margin is conservative).
     `board_record_max_age_s` is the oldest board-clipped record a node start still offers to the user (older ones are
     ignored and logged).
     """
@@ -400,6 +401,11 @@ class ArmSequenceConfig(StrictModel):
             errors.append(
                 f"insert_gripper_rad {self.insert_gripper_rad:g} exceeds pose_check.max_roll_gripper_rad "
                 f"{self.pose_check.max_roll_gripper_rad:g} (half open)"
+            )
+        if self.handle_squeeze_rad >= self.handle_contact_rad:
+            errors.append(
+                f"handle_squeeze_rad {self.handle_squeeze_rad:g} must be below handle_contact_rad "
+                f"{self.handle_contact_rad:g} (grip_rad must stay positive)"
             )
         if errors:
             raise ValueError("; ".join(errors))

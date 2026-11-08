@@ -1795,7 +1795,7 @@ ros2_nodes:
           ids_offset: 15
           thickness_mm: 4.0 # plate thickness behind the printed face, in the collision checks
         # ARM board mount in gripper_link: CAD seed from the handle (markers/charuco-arm-6x5-28mm.json), not fit-solved.
-        board_mount: # CAD seed from the handle (markers/charuco-arm-6x5-28mm.json), not fit-solved
+        board_mount:
           xyz_init: [-0.0079, -0.084051, -0.255108] # initial mount position, m
           rpy_init: [1.570796, 0.0, 1.570796] # initial mount roll/pitch/yaw, rad
           outline_margin_m: 0.01 # margin around the board outline, m
@@ -1899,7 +1899,7 @@ ros2_nodes:
         insert_gripper_rad: 0.4 # sent once with the base pose; at most pose_check.max_roll_gripper_rad (half open)
         handle_contact_rad: 0.07027 # gripper angle at first contact on the ARM board handle (CAD), rad
         handle_squeeze_rad: 0.02 # squeeze past contact, rad (> 0); grip = contact - squeeze
-        board_mass_g: 157.03 # ARM board mass from the CAD, g (> 0)
+        board_mass_g: 157.026637 # ARM board mass from the CAD, g (> 0)
         # Tier 0: wrist_roll only (within max_roll_delta_rad of base_pose).
         tier0_poses:
         - {shoulder_pan: -0.12, shoulder_lift: 0.3, elbow_flex: 0.0, wrist_flex: -0.5, wrist_roll: 0.3}
