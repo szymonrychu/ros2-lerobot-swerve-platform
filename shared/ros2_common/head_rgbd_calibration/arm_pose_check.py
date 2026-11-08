@@ -15,8 +15,8 @@ and obstacle at once. mcp_server keeps its own checks on top of this one.
 ChArUco corner keeps `d435_min_z_m` plus `d435_min_z_margin_m` of depth from the camera's optical frame (the D435
 depth min-Z, design D2) and projects inside the colour image of the camera_info. The corners lie on the printed face,
 the face the camera sees; the board's thickness is behind it, so it does not bring the corners nearer the camera.
-The collision checks use both faces (`board_points_local`) and the material beyond the plate, the handle and its ribs
-(`back_box_points_local`, from `board_mount.back_boxes_mm`).
+The collision checks use both faces (`board_points_local`) and the material beyond the plate, the grip post and its
+gussets (`back_box_points_local`, from `board_mount.back_boxes_mm`).
 """
 
 import math

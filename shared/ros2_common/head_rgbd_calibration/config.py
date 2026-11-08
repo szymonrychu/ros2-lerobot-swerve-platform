@@ -162,7 +162,7 @@ class BoardMountConfig(StrictModel):
 
     `xyz_init` is the board frame origin in gripper_link (m), `rpy_init` the fixed-axis xyz rotation (rad),
     `outline_margin_m` the plate margin beyond the outer squares used by the pose check. `back_boxes_mm` is the
-    material of the held board beyond its plate (the ribs behind the plate back and the handle off the plate edge),
+    material of the held board beyond its plate (the grip post and its gussets on the plate back, decision 296),
     one ((min x, y, z), (max x, y, z)) box per part in the board frame (mm); the pose check checks them as board
     points. Empty for a bare plate.
     """

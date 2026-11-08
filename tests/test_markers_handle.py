@@ -1,5 +1,6 @@
-"""Tests for scripts/markers/handle.py and the ARM board flow of write_charuco: paddle handle, face-down print,
-seat in the SO-101 jaws (URDF meshes), metadata JSON and the shipped outputs."""
+"""Tests for scripts/markers/handle.py and the ARM board flow of write_charuco: right-angle grip post with gussets on
+the board back (decision 296), face-down print, seat in the SO-101 jaws (URDF meshes), metadata JSON and the shipped
+outputs."""
 
 import json
 from pathlib import Path
@@ -30,19 +31,24 @@ from scripts.markers.handle import (
     HandleSpec,
     board_in_mesh,
     face_down,
+    gusset_solid,
     handle_solid,
     nominal_solid,
+    post_in_mesh,
+    post_solid,
     printed_contact_rad,
-    rib_solid,
-    rib_x_ranges_mm,
+    seat_crop,
     shoulder_top_mm,
 )
 from scripts.markers.jaw_fit import (
     CONTACT_HI_RAD,
     OPEN_AXIS,
+    TOOL_AXIS,
+    WIDTH_AXIS,
     clearance_mm,
     load_gripper,
     moving_jaw,
+    nearest_distance_mm,
     penetration_mm,
     surface_points,
 )
@@ -61,7 +67,7 @@ VIEW_PX_PER_MM = 10.0
 INNER_CORNERS = 20
 CONTACT_TOL_MM = 0.05
 FLOAT_TOL_MM = 1e-9  # JSON pose round trip (see test_seated_handle_touches_both_jaws_without_penetration)
-HANDLE_CUT_MM = 0.5  # mesh y below which the printed solid is the handle (plate starts at y = 0)
+HANDLE_CUT_MM = 0.5  # mesh z above the plate back (T) from which the printed solid is the post and its gussets
 INSERT_GRIPPER_RAD = 0.4  # the sequencer's opening for sliding the handle in (Task 8 DEFAULT_INSERT_GRIPPER_RAD)
 MIN_INSERT_CLEARANCE_MM = 6.0  # 3 mm per side with the handle centred between the open jaws
 LAND_TOL_MM = 0.4
@@ -72,17 +78,19 @@ CLAMP_CLEARANCE_MM = 0.15  # user decision 282: print allowance on each clamp fa
 ALLOWANCE_TOL_MM = 0.02
 COLUMN_MM = 0.2  # half-size of the vertical probe column through the handle
 VOLUME_REL_TOL = 0.02
-# Task 6c (user decision 292): twin ribs on the board back. The jaw region must stay exactly as at 96322bd1.
-BASE_GRIP = {"contact_rad": 0.07027905529357185, "modelled_contact_rad": 0.06620181229285478}
-BASE_BOARD_MOUNT = {
-    "xyz_init": [-0.007749999618530183, -0.08405085943012967, -0.2551131187031419],
-    "rpy_init": [1.5707963267948966, 0.0, 1.5707963267948966],
-}
-BASE_TOOL_POINT_M = [0.07823273843012968, 0.15838571604954718, -0.0011500040964920074]
-BASE_MASS_G = 156.86370096027835  # the unribbed board at 96322bd1
-RIB_MASS_RANGE_G = (5.0, 12.0)  # the decision's "about +8 g"
-INVARIANT_TOL = 1e-6
-RIB_PROBE_MM = 0.5  # column and slab offsets off the rib ends
+# Decision 296: the in-line paddle's grip is reused unchanged, only turned to stand on the board back, so the contact
+# angles of the in-line handle (Task 6c, 8f0c0a55) stay; the crop now holds the post instead of a plate sliver.
+IN_LINE_GRIP = {"contact_rad": 0.07027905529357185, "modelled_contact_rad": 0.06620181229285478}
+GRIP_INVARIANT_TOL_RAD = 1e-4
+MIN_PLATE_CLEARANCE_MM = 5.0  # jaws to the plate back over the insert opening and the seat sweep
+MIN_GUSSET_CLEARANCE_MM = 5.0  # jaws to the gussets over the insert opening and the seat sweep
+GUSSET_SLOPE_LIMIT_DEG = 45.0  # gusset top face at most this far from vertical in print orientation
+MASS_RANGE_G = (150.0, 200.0)  # plausible board mass: the 157 g plate and post plus the gussets
+AXIS_TOL = 1e-9
+PROBE_MM = 0.5  # column offsets inside the post and the gussets
+JAW_SAMPLES = 5000  # jaw surface samples for the jaw-to-gusset distance (plus every jaw vertex)
+TOOL_POINT_TOL_MM = 2.0  # the tool point lies on the fixed jaw face plane, just off the printed bed face
+CROSS_STEP_RAD = 0.05  # gripper angle step of the jaw-to-gusset clearance sweep (penetration uses SWEEP_STEP_RAD)
 
 
 @pytest.fixture(scope="module")
@@ -158,7 +166,8 @@ def seated_handle(
     """The handle part of the nominal (as grown after printing) or the printed solid moved into gripper_link with
     handle_in_board.
 
-    The solid is cut at mesh y = HANDLE_CUT_MM (capped, watertight), so surface samples are dense where the jaws are.
+    The solid is cut at mesh z = T + HANDLE_CUT_MM (capped, watertight): the post and its gussets, so surface samples
+    are dense where the jaws are.
 
     Args:
         meta (dict[str, Any]): Board metadata.
@@ -172,9 +181,34 @@ def seated_handle(
     solid = printed_solid(*bodies)
     if nominal:
         assert ARM.handle is not None
-        solid = nominal_solid(solid, ARM.handle, ARM.plate_mm)
-    handle = trimesh.intersections.slice_mesh_plane(solid, (0.0, -1.0, 0.0), (0.0, HANDLE_CUT_MM, 0.0), cap=True)
-    return handle.apply_transform(mesh_in_gripper_link(meta))
+        solid = nominal_solid(solid, ARM.handle, ARM.plate_mm, ARM.thickness_mm)
+    return post_crop(solid).apply_transform(mesh_in_gripper_link(meta))
+
+
+def post_crop(solid: trimesh.Trimesh) -> trimesh.Trimesh:
+    """The solid above mesh z = T + HANDLE_CUT_MM (the post and its gussets), capped.
+
+    Args:
+        solid (trimesh.Trimesh): Watertight solid in mesh coordinates (mm).
+
+    Returns:
+        trimesh.Trimesh: The capped crop (mm).
+    """
+    origin = (0.0, 0.0, ARM.thickness_mm + HANDLE_CUT_MM)
+    return trimesh.intersections.slice_mesh_plane(solid, (0.0, 0.0, 1.0), origin, cap=True)
+
+
+def handle_frame(meta: dict[str, Any]) -> np.ndarray:
+    """Pose of the handle frame (x across the post, y along it toward the plate, z from the bed face) in gripper_link.
+
+    Args:
+        meta (dict[str, Any]): Board metadata.
+
+    Returns:
+        np.ndarray: 4x4 transform, mm.
+    """
+    assert ARM.handle is not None
+    return mesh_in_gripper_link(meta) @ post_in_mesh(ARM.handle, ARM.plate_mm, ARM.thickness_mm)
 
 
 def bottom_view(modules: trimesh.Trimesh, spec: CharucoSpec) -> np.ndarray:
@@ -229,20 +263,23 @@ def detect(image: np.ndarray, spec: CharucoSpec) -> tuple[np.ndarray, np.ndarray
     return corners.reshape(-1, 2), ids.reshape(-1)
 
 
-def plate_region_top(base: trimesh.Trimesh, ribs: bool = True) -> float:
-    """Highest base vertex over the plate (mesh y >= HANDLE_CUT_MM), with or without the ribs.
+def bare_plate_top(base: trimesh.Trimesh) -> float:
+    """Highest base vertex over the plate outside the post and gusset footprints (the bare plate back).
 
     Args:
         base (trimesh.Trimesh): Base body.
-        ribs (bool): True counts every vertex over the plate; False only those past the rib ends (mesh y beyond
-            rib_length_mm + HANDLE_CUT_MM), i.e. the bare plate back.
 
     Returns:
         float: z (mm).
     """
-    assert ARM.handle is not None
-    start = HANDLE_CUT_MM if ribs else ARM.handle.rib_length_mm + HANDLE_CUT_MM
-    return float(base.vertices[base.vertices[:, 1] >= start][:, 2].max())
+    h = ARM.handle
+    assert h is not None
+    lo, hi = to_trimesh(
+        post_solid(h, ARM.plate_mm, ARM.thickness_mm) + gusset_solid(h, ARM.plate_mm, ARM.thickness_mm)
+    ).bounds
+    v = base.vertices
+    outside = np.any((v[:, :2] < lo[:2] - PROBE_MM) | (v[:, :2] > hi[:2] + PROBE_MM), axis=1)
+    return float(v[outside][:, 2].max())
 
 
 def flatten(value: Any, prefix: str = "") -> dict[str, Any]:
@@ -287,10 +324,13 @@ def client_node(name: str) -> dict[str, Any]:
         ({"squeeze_rad": 0.03}, "squeeze_rad"),
         ({"clamp_clearance_mm": -0.01}, "clamp_clearance_mm"),
         ({"clamp_clearance_mm": 0.31}, "clamp_clearance_mm"),
-        ({"rib_width_mm": 0.0}, "rib_width_mm"),
-        ({"rib_width_mm": 11.0}, "rib_width_mm"),
-        ({"rib_length_mm": 0.0}, "rib_length_mm"),
-        ({"rib_end_height_mm": 0.0}, "rib_end_height_mm"),
+        ({"gusset_height_mm": 0.0}, "gusset_height_mm"),
+        ({"gusset_height_mm": 37.0}, "gusset_height_mm"),  # taller than the post (neck plus grip)
+        ({"gusset_reach_mm": 0.0}, "gusset_reach_mm"),
+        ({"gusset_reach_mm": 36.1}, "gusset_reach_mm"),  # flatter than 45 deg from vertical
+        ({"gusset_thickness_mm": 0.0}, "gusset_thickness_mm"),
+        ({"gusset_thickness_mm": 24.8}, "gusset_thickness_mm"),  # thicker than the post section
+        ({"rib_width_mm": 4.0}, "rib_width_mm"),  # the twin ribs are gone (decision 296)
         ({"bogus": 1}, "bogus"),
     ],
 )
@@ -316,11 +356,18 @@ def test_pattern_face_is_required_and_arm_prints_face_down() -> None:
     assert next(b for b in CONFIG.boards if b.name != ARM_NAME).pattern_face == "top"
 
 
-def test_bed_check_includes_the_handle_extent() -> None:
+def test_charuco_spec_refuses_gussets_off_the_plate() -> None:
     assert ARM.handle is not None
-    tight = ARM.plate_mm[1] + ARM.handle.extent_mm - 1.0
-    with pytest.raises(ValidationError, match="handle"):
-        CharucoSpec.model_validate({**ARM.model_dump(), "bed_mm": tight})
+    spec = ARM.model_dump()
+    reach = ARM.plate_mm[0] / 2 - ARM.handle.width_mm / 2 + 1.0
+    spec["handle"] = {**spec["handle"], "gusset_reach_mm": reach, "gusset_height_mm": reach, "neck_mm": reach}
+    with pytest.raises(ValidationError, match="gusset_reach_mm"):
+        CharucoSpec.model_validate(spec)
+
+
+def test_charuco_spec_needs_the_pattern_face_down_for_a_post() -> None:
+    with pytest.raises(ValidationError, match="pattern_face"):
+        CharucoSpec.model_validate({**ARM.model_dump(), "pattern_face": "top"})
 
 
 def test_face_down_turns_about_the_plate_y_axis() -> None:
@@ -340,17 +387,45 @@ def test_board_in_mesh_bottom_is_the_face_down_top() -> None:
     assert bottom == pytest.approx(turn @ top)
 
 
-def test_handle_solid_alone_is_printable_and_sized() -> None:
+def test_handle_solid_is_the_grip_in_the_handle_frame() -> None:
     h = ARM.handle
     assert h is not None
-    solid = to_trimesh(handle_solid(h, ARM.plate_mm))
-    assert print_violations(solid) == []
-    centre = ARM.plate_mm[0] / 2
+    solid = to_trimesh(handle_solid(h))
     expected = [
-        [centre - h.width_mm / 2, -h.extent_mm, 0.0],
-        [centre + h.width_mm / 2, 0.0, h.thickness_end_mm + h.rail_height_mm],
+        [-h.width_mm / 2, -h.extent_mm, 0.0],
+        [h.width_mm / 2, 0.0, h.thickness_end_mm + h.rail_height_mm],
     ]
     assert solid.bounds == pytest.approx(np.array(expected), abs=1e-3)
+
+
+def test_post_in_mesh_stands_the_handle_on_the_plate_centre() -> None:
+    """Handle y (toward the plate) is mesh -z, the free end points away from the plate back (mesh z = T); the
+    footprint centre (x = 0, z = shoulder top / 2) lands on the plate centre; handle z (OPEN_AXIS) is mesh +y."""
+    h = ARM.handle
+    assert h is not None
+    pose = post_in_mesh(h, ARM.plate_mm, ARM.thickness_mm)
+    assert pose[:3, :3] == pytest.approx(np.array([[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, -1.0, 0.0]]))
+    assert np.linalg.det(pose[:3, :3]) == pytest.approx(1.0)
+    centre = pose @ np.array([0.0, 0.0, shoulder_top_mm(h) / 2, 1.0])
+    assert centre[:3] == pytest.approx([ARM.plate_mm[0] / 2, ARM.plate_mm[1] / 2, ARM.thickness_mm])
+    free_end = pose @ np.array([0.0, -h.extent_mm, 0.0, 1.0])
+    assert free_end[2] == pytest.approx(ARM.thickness_mm + h.extent_mm)
+
+
+def test_post_solid_alone_is_printable_and_stands_on_the_back() -> None:
+    """The post prints standing on the plate back: its tapered walls lean a few degrees, never past 45 deg."""
+    h = ARM.handle
+    assert h is not None
+    solid = to_trimesh(post_solid(h, ARM.plate_mm, ARM.thickness_mm))
+    assert print_violations(solid) == []
+    cx, cy, t = ARM.plate_mm[0] / 2, ARM.plate_mm[1] / 2, ARM.thickness_mm
+    low_y = cy - shoulder_top_mm(h) / 2
+    expected = [
+        [cx - h.width_mm / 2, low_y, t],
+        [cx + h.width_mm / 2, low_y + h.thickness_end_mm + h.rail_height_mm, t + h.extent_mm],
+    ]
+    assert solid.bounds == pytest.approx(np.array(expected), abs=1e-3)
+    assert solid.bounds[0][2] == pytest.approx(t, abs=1e-3)
 
 
 def test_arm_board_union_is_watertight_and_overhang_free(arm_bodies: tuple[trimesh.Trimesh, trimesh.Trimesh]) -> None:
@@ -370,12 +445,28 @@ def test_face_down_pattern_reads_from_below(arm_bodies: tuple[trimesh.Trimesh, t
 
 
 def test_handle_dimensions_follow_the_spec(arm_bodies: tuple[trimesh.Trimesh, trimesh.Trimesh]) -> None:
+    """The board stays inside its plate outline; the post rises neck plus grip above the back, perpendicular to the
+    plate at its centre; the rest of the back is bare."""
     base, _ = arm_bodies
     h = ARM.handle
     assert h is not None
-    assert base.bounds[0][1] == pytest.approx(-h.extent_mm, abs=1e-3)
-    assert base.bounds[1][2] == pytest.approx(h.thickness_end_mm + h.rail_height_mm, abs=1e-3)
-    assert plate_region_top(base, ribs=False) == pytest.approx(ARM.thickness_mm, abs=1e-3)
+    t = ARM.thickness_mm
+    assert base.bounds[0] == pytest.approx([0.0, 0.0, 0.0], abs=1e-3)
+    assert base.bounds[1] == pytest.approx([*ARM.plate_mm, t + h.extent_mm], abs=1e-3)
+    assert column_z(to_manifold(base), ARM.plate_mm[0] / 2, ARM.plate_mm[1] / 2)[1] == pytest.approx(
+        t + h.extent_mm, abs=1e-3
+    )
+    web_low = (ARM.plate_mm[1] - h.gusset_thickness_mm) / 2 - PROBE_MM  # mesh y below the gusset webs
+    for depth in (PROBE_MM, h.extent_mm / 2, h.extent_mm - PROBE_MM):  # the post is straight, centred at every level
+        level = box(0.0, 0.0, t + depth - COLUMN_MM, ARM.plate_mm[0], web_low, t + depth + COLUMN_MM)
+        lo, hi = to_trimesh(to_manifold(base) ^ level).bounds
+        assert [lo[0], hi[0]] == pytest.approx([(ARM.plate_mm[0] - s * h.width_mm) / 2 for s in (1, -1)], abs=1e-3)
+        assert lo[1] == pytest.approx((ARM.plate_mm[1] - shoulder_top_mm(h)) / 2, abs=1e-3)
+    assert bare_plate_top(base) == pytest.approx(t, abs=1e-3)
+
+
+def test_arm_board_is_one_piece(arm_bodies: tuple[trimesh.Trimesh, trimesh.Trimesh]) -> None:
+    assert len(to_manifold(arm_bodies[0]).decompose()) == 1
 
 
 def test_seated_handle_touches_both_jaws_without_penetration(
@@ -410,19 +501,18 @@ def test_top_plane_bears_on_the_moving_jaw_lands(arm_metadata: dict[str, Any]) -
     coordinates) never dips below the top plane beyond LAND_TOL_MM and comes within LAND_TOL_MM of it at grip
     depths at least MIN_LAND_SPREAD_MM apart, so the moving jaw bears along the grip, not at one line. The margin
     is taken per PROFILE_STEP_MM depth bin from the jaw surface across the channel, not from mid-plane rays
-    (jaw_gap_mm): the moving finger has a hole on its mid-plane about 28 mm behind the tip.
+    (jaw_gap_mm): the moving finger has a hole on its mid-plane about 28 mm behind the tip. Coordinates are the handle
+    frame (`post_in_mesh`).
     """
     h = ARM.handle
     assert h is not None
     jaw = moving_jaw(GRIPPER, arm_metadata["grip"]["contact_rad"])
-    points = trimesh.transform_points(
-        surface_points(jaw, LAND_SAMPLES), np.linalg.inv(mesh_in_gripper_link(arm_metadata))
-    )
-    grip_depth = -h.neck_mm - points[:, 1]  # behind the shoulder face (mesh y = -neck)
-    over_channel = np.abs(points[:, 0] - ARM.plate_mm[0] / 2) <= h.channel_tip_mm / 2
+    points = trimesh.transform_points(surface_points(jaw, LAND_SAMPLES), np.linalg.inv(handle_frame(arm_metadata)))
+    grip_depth = -h.neck_mm - points[:, 1]  # behind the shoulder face (handle y = -neck)
+    over_channel = np.abs(points[:, 0]) <= h.channel_tip_mm / 2
     keep = over_channel & (grip_depth >= 0.0) & (grip_depth <= h.length_mm)
     points, grip_depth = points[keep], grip_depth[keep]
-    # nominal top plane: the nominal bed face lies clamp_clearance_mm below the printed one (mesh z = -c)
+    # nominal top plane: the nominal bed face lies clamp_clearance_mm below the printed one (handle z = -c)
     top = (
         h.thickness_tip_mm + (h.thickness_end_mm - h.thickness_tip_mm) * grip_depth / h.length_mm
     ) - h.clamp_clearance_mm
@@ -503,7 +593,8 @@ def test_tool_offset_is_the_mcp_server_tool_point() -> None:
 
 def test_handle_solid_is_a_manifold() -> None:
     assert ARM.handle is not None
-    assert isinstance(handle_solid(ARM.handle, ARM.plate_mm), Manifold)
+    assert isinstance(handle_solid(ARM.handle), Manifold)
+    assert isinstance(post_solid(ARM.handle, ARM.plate_mm, ARM.thickness_mm), Manifold)
 
 
 def column_z(solid: Manifold, x: float, y: float) -> tuple[float, float]:
@@ -534,9 +625,9 @@ def test_printed_grip_is_thinner_at_the_clamp_faces_only() -> None:
     h = ARM.handle
     assert h is not None
     c = h.clamp_clearance_mm
-    printed = handle_solid(h, ARM.plate_mm)
-    nominal = handle_solid(h, ARM.plate_mm, nominal=True)
-    centre = ARM.plate_mm[0] / 2
+    printed = handle_solid(h)
+    nominal = handle_solid(h, nominal=True)
+    centre = 0.0  # handle frame: the grip is centred on x = 0
     for depth in (2.0, h.length_mm / 2, h.length_mm - 2.0):
         y = -h.neck_mm - depth
         p_lo, p_hi = column_z(printed, centre, y)
@@ -561,11 +652,15 @@ def test_nominal_solid_adds_the_clamp_allowance(arm_bodies: tuple[trimesh.Trimes
     h = ARM.handle
     assert h is not None
     solid = printed_solid(*arm_bodies)
-    grown = nominal_solid(solid, h, ARM.plate_mm)
-    allowance = handle_solid(h, ARM.plate_mm, nominal=True) - handle_solid(h, ARM.plate_mm)
+    grown = nominal_solid(solid, h, ARM.plate_mm, ARM.thickness_mm)
+    allowance = post_solid(h, ARM.plate_mm, ARM.thickness_mm, nominal=True) - post_solid(
+        h, ARM.plate_mm, ARM.thickness_mm
+    )
     assert grown.is_watertight
     assert grown.volume == pytest.approx(solid.volume + allowance.volume(), rel=1e-6)
-    assert grown.bounds[0][2] == pytest.approx(-h.clamp_clearance_mm, abs=1e-3)
+    bed_face_y = (ARM.plate_mm[1] - shoulder_top_mm(h)) / 2  # mesh y of the printed bed face (handle z = 0)
+    lo_y = to_trimesh(to_manifold(grown) ^ box(0.0, 0.0, ARM.thickness_mm + h.neck_mm + 1.0, *ARM.plate_mm, 100.0))
+    assert lo_y.bounds[0][1] == pytest.approx(bed_face_y - h.clamp_clearance_mm, abs=1e-3)
     assert (to_manifold(solid) - to_manifold(grown)).volume() == pytest.approx(0.0, abs=1e-3)
 
 
@@ -602,201 +697,204 @@ def test_printed_contact_rad_seats_the_print_on_the_fixed_jaw(
     h = ARM.handle
     assert h is not None
     solid = printed_solid(*arm_bodies)
-    contact = printed_contact_rad(GRIPPER, solid, h, mesh_in_gripper_link(arm_metadata))
+    contact = printed_contact_rad(GRIPPER, solid, h, mesh_in_gripper_link(arm_metadata), ARM.thickness_mm)
     assert contact == pytest.approx(arm_metadata["grip"]["modelled_contact_rad"], abs=1e-6)
     pressed = mesh_in_gripper_link(arm_metadata)
     pressed[:3, 3] -= np.asarray(OPEN_AXIS) * h.clamp_clearance_mm  # bed face onto the fixed jaw
-    handle = trimesh.intersections.slice_mesh_plane(solid, (0.0, -1.0, 0.0), (0.0, HANDLE_CUT_MM, 0.0), cap=True)
-    handle.apply_transform(pressed)
+    handle = post_crop(solid).apply_transform(pressed)
     assert clearance_mm(handle, GRIPPER.fixed) <= CONTACT_TOL_MM
     assert penetration_mm(handle, GRIPPER.fixed) <= CONTACT_TOL_MM
 
 
-def rib_tops_mm() -> tuple[float, float]:
-    """Rib top z (print coordinates) at the plate edge and at the rib end.
-
-    Returns:
-        tuple[float, float]: (shoulder top = thickness_tip_mm + rail_height_mm, thickness_mm + rib_end_height_mm).
-    """
-    h = ARM.handle
-    assert h is not None
-    return h.thickness_tip_mm + h.rail_height_mm, ARM.thickness_mm + h.rib_end_height_mm
-
-
-def rib_top_at_mm(y: float) -> float:
-    """Rib top z at mesh y on the linear taper.
+def gusset_sides(meta: dict[str, Any]) -> list[np.ndarray]:
+    """Centroid offsets of the two gussets from the post axis in gripper_link (mm).
 
     Args:
-        y (float): Mesh y in [0, rib_length_mm] (mm).
+        meta (dict[str, Any]): Board metadata.
 
     Returns:
-        float: z (mm).
-    """
-    assert ARM.handle is not None
-    edge, end = rib_tops_mm()
-    return edge + (end - edge) * y / ARM.handle.rib_length_mm
-
-
-def expected_rib_x_ranges_mm() -> list[tuple[float, float]]:
-    """The two rib x ranges, flush with the handle outer side walls.
-
-    Returns:
-        list[tuple[float, float]]: [(x0, x1) of the low-x rib, (x0, x1) of the high-x rib] (mm).
+        list[np.ndarray]: One (3,) offset per gusset.
     """
     h = ARM.handle
     assert h is not None
-    centre, half = ARM.plate_mm[0] / 2, h.width_mm / 2
-    return [(centre - half, centre - half + h.rib_width_mm), (centre + half - h.rib_width_mm, centre + half)]
+    pose = mesh_in_gripper_link(meta)
+    axis = pose @ post_in_mesh(h, ARM.plate_mm, ARM.thickness_mm) @ np.array([0.0, 0.0, shoulder_top_mm(h) / 2, 1.0])
+    parts = gusset_solid(h, ARM.plate_mm, ARM.thickness_mm).decompose()
+    return [trimesh.transform_points([to_trimesh(part).centroid], pose)[0] - axis[:3] for part in parts]
 
 
-def test_rib_solid_tapers_from_the_shoulder_top_to_the_end_height() -> None:
+def test_gussets_brace_the_post_rail_walls_within_45_deg() -> None:
+    """Two triangular webs, one off each rail outer wall: gusset_height_mm up the wall, gusset_reach_mm along the
+    plate back, gusset_thickness_mm thick around the post axis. Side walls vertical, the top face up-facing and at
+    most 45 deg from vertical, the bottom on the plate back."""
     h = ARM.handle
     assert h is not None
-    ribs = rib_solid(h, ARM.plate_mm, ARM.thickness_mm)
-    edge, _ = rib_tops_mm()
-    (lo_x0, _), (_, hi_x1) = expected_rib_x_ranges_mm()
-    expected = [[lo_x0, 0.0, ARM.thickness_mm], [hi_x1, h.rib_length_mm, edge]]
-    assert to_trimesh(ribs).bounds == pytest.approx(np.array(expected), abs=1e-3)
-    for x0, x1 in expected_rib_x_ranges_mm():
-        for y in (RIB_PROBE_MM, h.rib_length_mm - RIB_PROBE_MM):
-            lo, hi = column_z(ribs, (x0 + x1) / 2, y)
-            assert lo == pytest.approx(ARM.thickness_mm, abs=1e-3)
-            assert hi == pytest.approx(rib_top_at_mm(y - COLUMN_MM), abs=1e-3)
+    t, (w, height) = ARM.thickness_mm, ARM.plate_mm
+    gussets = gusset_solid(h, ARM.plate_mm, t)
+    parts = sorted(gussets.decompose(), key=lambda part: to_trimesh(part).bounds[0][0])
+    assert len(parts) == 2
+    half = h.width_mm / 2
+    web = (height / 2 - h.gusset_thickness_mm / 2, height / 2 + h.gusset_thickness_mm / 2)
+    expected = [
+        [[w / 2 - half - h.gusset_reach_mm, web[0], t], [w / 2 - half, web[1], t + h.gusset_height_mm]],
+        [[w / 2 + half, web[0], t], [w / 2 + half + h.gusset_reach_mm, web[1], t + h.gusset_height_mm]],
+    ]
+    limit = np.sin(np.radians(GUSSET_SLOPE_LIMIT_DEG)) + 1e-6
+    for part, bounds in zip(parts, expected, strict=True):
+        mesh = to_trimesh(part)
+        assert mesh.bounds == pytest.approx(np.array(bounds), abs=1e-3)
+        assert part.volume() == pytest.approx(
+            h.gusset_height_mm * h.gusset_reach_mm / 2 * h.gusset_thickness_mm, rel=1e-6
+        )
+        nz = mesh.face_normals[:, 2]
+        bottom = (nz < -0.5) & np.isclose(mesh.triangles_center[:, 2], t, atol=1e-3)
+        vertical = np.abs(nz) < 1e-4
+        sloped = ~bottom & ~vertical
+        assert sloped.any() and np.all((nz[sloped] > 0.0) & (nz[sloped] <= limit))
+        assert np.all(bottom | vertical | sloped)
+        side = vertical & (np.abs(mesh.face_normals[:, 1]) > 1.0 - 1e-6)  # walls facing the jaw-closing direction
+        assert side.sum() >= 2
+    assert h.gusset_reach_mm / h.gusset_height_mm <= np.tan(np.radians(GUSSET_SLOPE_LIMIT_DEG)) + 1e-9
 
 
-def test_ribs_continue_the_handle_side_walls_as_two_full_height_webs(
-    arm_bodies: tuple[trimesh.Trimesh, trimesh.Trimesh],
-) -> None:
-    """Cross-section of the printed base at the plate edge, above the plate back: two webs of rib_width_mm at the
-    shoulder height, flush with the handle outer walls, nothing between them; at rib_length_mm the rib top is
-    thickness_mm + rib_end_height_mm."""
+def test_gussets_sit_on_the_sides_the_jaws_do_not_occupy(arm_metadata: dict[str, Any]) -> None:
+    """The jaws close along OPEN_AXIS; the gussets stand off the post along WIDTH_AXIS (the rail outer walls)."""
+    for offset in gusset_sides(arm_metadata):
+        along_width = abs(float(offset @ np.asarray(WIDTH_AXIS)))
+        assert along_width > ARM.handle.width_mm / 2  # type: ignore[union-attr]
+        assert abs(float(offset @ np.asarray(OPEN_AXIS))) < 1e-3
+
+
+def test_gussets_join_the_post_and_plate_into_one_print(arm_bodies: tuple[trimesh.Trimesh, trimesh.Trimesh]) -> None:
     h = ARM.handle
     assert h is not None
     base = to_manifold(arm_bodies[0])
-    width, t = ARM.plate_mm[0], ARM.thickness_mm
-    web_top, web_bottom = rib_top_at_mm(RIB_PROBE_MM), t + RIB_PROBE_MM  # clear of the plate back face
-    shoulder = to_trimesh(base ^ box(0.0, -h.neck_mm, web_bottom, width, 0.0, web_top)).bounds
-    halves = (  # from COLUMN_MM: clear of the shoulder face at y = 0
-        box(0.0, COLUMN_MM, web_bottom, width / 2, RIB_PROBE_MM, web_top),
-        box(width / 2, COLUMN_MM, web_bottom, width, RIB_PROBE_MM, web_top),
-    )
-    for (x0, x1), half in zip(expected_rib_x_ranges_mm(), halves, strict=True):
-        web = base ^ half
-        assert to_trimesh(web).bounds[:, 0] == pytest.approx([x0, x1], abs=1e-3)
-        assert web.volume() == pytest.approx(
-            h.rib_width_mm * (RIB_PROBE_MM - COLUMN_MM) * (web_top - web_bottom), rel=1e-4
-        )
-    (lo_x0, _), (_, hi_x1) = expected_rib_x_ranges_mm()
-    assert shoulder[:, 0] == pytest.approx([lo_x0, hi_x1], abs=1e-3)
-    for x0, x1 in expected_rib_x_ranges_mm():
-        _, end_top = column_z(base, (x0 + x1) / 2, h.rib_length_mm - COLUMN_MM)
-        assert end_top == pytest.approx(rib_top_at_mm(h.rib_length_mm - 2 * COLUMN_MM), abs=1e-3)
-        _, past = column_z(base, (x0 + x1) / 2, h.rib_length_mm + RIB_PROBE_MM)
-        assert past == pytest.approx(t, abs=1e-3)
-    _, between = column_z(base, width / 2, RIB_PROBE_MM)
-    assert between == pytest.approx(t, abs=1e-3)
+    gussets = gusset_solid(h, ARM.plate_mm, ARM.thickness_mm)
+    assert (gussets - base).volume() == pytest.approx(0.0, abs=1e-3)
+    assert (gussets ^ post_solid(h, ARM.plate_mm, ARM.thickness_mm)).volume() == pytest.approx(0.0, abs=1e-3)
+    cx, cy, t = ARM.plate_mm[0] / 2, ARM.plate_mm[1] / 2, ARM.thickness_mm
+    for sign in (-1.0, 1.0):
+        x = cx + sign * (h.width_mm / 2 + PROBE_MM)  # just off the rail wall: the gusset top is near its full height
+        top = t + h.gusset_height_mm * (1.0 - (PROBE_MM - COLUMN_MM) / h.gusset_reach_mm)  # the column's inner edge
+        assert column_z(base, x, cy)[1] == pytest.approx(top, abs=1e-3)
 
 
-def test_ribs_lie_inside_the_plate_and_off_the_pattern_face(
-    arm_bodies: tuple[trimesh.Trimesh, trimesh.Trimesh],
-) -> None:
+def test_jaws_clear_the_plate_and_gussets_at_insert_and_over_the_seat_sweep(arm_metadata: dict[str, Any]) -> None:
+    """At the insert opening, the grip angle and every seat-sweep angle (contact to CONTACT_HI_RAD), and for the fixed
+    jaw: no jaw vertex within MIN_PLATE_CLEARANCE_MM of the plate back (a plane: the closest point is a vertex), no
+    penetration into the gussets either way, and jaw surface points at least MIN_GUSSET_CLEARANCE_MM from them
+    (memory-safe nearest_distance_mm from the jaw points onto the small gusset mesh, never closest_point over a
+    jaw)."""
     h = ARM.handle
     assert h is not None
-    base, modules = arm_bodies
-    ribs = rib_solid(h, ARM.plate_mm, ARM.thickness_mm)
-    lo, hi = to_trimesh(ribs).bounds
-    assert lo[0] >= 0.0 and lo[1] >= 0.0 and hi[0] <= ARM.plate_mm[0] and hi[1] <= ARM.plate_mm[1]
-    assert lo[2] == pytest.approx(ARM.thickness_mm, abs=1e-3)
-    assert (ribs ^ to_manifold(modules)).volume() == pytest.approx(0.0, abs=1e-6)
-    for x0, x1 in expected_rib_x_ranges_mm():
-        below = box(x0, 0.0, -1.0, x1, h.rib_length_mm, ARM.thickness_mm)
-        filled = (to_manifold(base) ^ below).volume() + (to_manifold(modules) ^ below).volume()
-        assert filled == pytest.approx((x1 - x0) * h.rib_length_mm * ARM.thickness_mm, rel=1e-6)
-
-
-def test_jaw_region_is_unchanged_by_the_ribs(arm_metadata: dict[str, Any]) -> None:
-    """Seat pose, contact_rad, modelled_contact_rad, grip_rad and the CAD mount seed are the 96322bd1 values."""
+    pose = mesh_in_gripper_link(arm_metadata)
+    to_mesh = np.linalg.inv(pose)
+    gussets = to_trimesh(gusset_solid(h, ARM.plate_mm, ARM.thickness_mm)).apply_transform(pose)
     grip = arm_metadata["grip"]
-    for key, value in BASE_GRIP.items():
-        assert grip[key] == pytest.approx(value, abs=INVARIANT_TOL)
-    assert grip["grip_rad"] == pytest.approx(BASE_GRIP["contact_rad"] - grip["squeeze_rad"], abs=INVARIANT_TOL)
-    assert flatten(arm_metadata["board_mount"]) == pytest.approx(flatten(BASE_BOARD_MOUNT), abs=INVARIANT_TOL)
-    assert arm_metadata["handle_in_board"]["tool_point_m"] == pytest.approx(BASE_TOOL_POINT_M, abs=INVARIANT_TOL)
+    sweep = [float(a) for a in np.arange(grip["contact_rad"], CONTACT_HI_RAD, SWEEP_STEP_RAD)]
+    angles = [INSERT_GRIPPER_RAD, grip["grip_rad"], *sweep, CONTACT_HI_RAD]
+    cross = {INSERT_GRIPPER_RAD, grip["grip_rad"], *sweep[:: round(CROSS_STEP_RAD / SWEEP_STEP_RAD)], CONTACT_HI_RAD}
+    jaws = [(f"moving {a:.3f}", moving_jaw(GRIPPER, a), a in cross) for a in angles] + [("fixed", GRIPPER.fixed, True)]
+    for name, jaw, full in jaws:
+        lift = float(trimesh.transform_points(jaw.vertices, to_mesh)[:, 2].min()) - ARM.thickness_mm
+        assert lift >= MIN_PLATE_CLEARANCE_MM, name
+        assert penetration_mm(gussets, jaw) == 0.0, name
+        assert penetration_mm(jaw, gussets) == 0.0, name
+        if full:
+            assert nearest_distance_mm(gussets, surface_points(jaw, JAW_SAMPLES)) >= MIN_GUSSET_CLEARANCE_MM, name
 
 
-def test_ribs_clear_the_jaws_at_insert_and_over_the_seat_sweep(arm_metadata: dict[str, Any]) -> None:
-    """The moving finger at the insert opening and at every shoulder-sweep angle (contact to CONTACT_HI_RAD), and
-    the fixed jaw, stay out of the ribs."""
+def test_seat_crop_keeps_the_post_and_gussets_only(arm_bodies: tuple[trimesh.Trimesh, trimesh.Trimesh]) -> None:
     h = ARM.handle
     assert h is not None
-    ribs = to_trimesh(rib_solid(h, ARM.plate_mm, ARM.thickness_mm)).apply_transform(mesh_in_gripper_link(arm_metadata))
-    angles = [INSERT_GRIPPER_RAD, *np.arange(arm_metadata["grip"]["contact_rad"], CONTACT_HI_RAD, SWEEP_STEP_RAD)]
-    for angle in angles:
-        assert penetration_mm(ribs, moving_jaw(GRIPPER, float(angle))) == 0.0
-    assert penetration_mm(ribs, GRIPPER.fixed) == 0.0
-    assert clearance_mm(ribs, moving_jaw(GRIPPER, INSERT_GRIPPER_RAD)) > 0.0
+    crop = seat_crop(printed_solid(*arm_bodies), ARM.thickness_mm)
+    assert crop.is_watertight
+    expected = (post_solid(h, ARM.plate_mm, ARM.thickness_mm) + gusset_solid(h, ARM.plate_mm, ARM.thickness_mm)) ^ box(
+        0.0, 0.0, ARM.thickness_mm + 0.5, *ARM.plate_mm, 100.0
+    )
+    assert crop.volume == pytest.approx(expected.volume(), rel=1e-4)
+    assert crop.bounds[0][2] == pytest.approx(ARM.thickness_mm + 0.5, abs=1e-3)
 
 
-def test_ribs_add_about_eight_grams(
-    arm_metadata: dict[str, Any], arm_bodies: tuple[trimesh.Trimesh, trimesh.Trimesh]
-) -> None:
+def test_grip_angles_are_the_in_line_handle_ones(arm_metadata: dict[str, Any]) -> None:
+    """The grip is reused unchanged and only turned: the nominal and modelled contact angles are those of the in-line
+    handle, and grip_rad < modelled_contact_rad < contact_rad as in Task 6b."""
+    grip = arm_metadata["grip"]
+    for key, value in IN_LINE_GRIP.items():
+        assert grip[key] == pytest.approx(value, abs=GRIP_INVARIANT_TOL_RAD)
+    assert grip["grip_rad"] < grip["modelled_contact_rad"] < grip["contact_rad"]
+
+
+def test_post_axis_is_the_tool_axis_and_jaws_close_along_board_y(arm_metadata: dict[str, Any]) -> None:
+    """The board normal lies along the tool axis (the jaw tips point at the plate back, board -z), the jaws close
+    along the board y axis; both recorded in handle_in_board."""
+    hib = arm_metadata["handle_in_board"]
+    rotation = pose_from_xyz_rpy(hib["gripper_link_xyz_m"], hib["gripper_link_rpy_rad"])[:3, :3]
+    assert rotation @ np.asarray(TOOL_AXIS) == pytest.approx([0.0, 0.0, -1.0], abs=AXIS_TOL)
+    assert rotation @ np.asarray(OPEN_AXIS) == pytest.approx([0.0, -1.0, 0.0], abs=AXIS_TOL)
+    assert hib["tool_axis"] == pytest.approx([0.0, 0.0, -1.0], abs=AXIS_TOL)
+    assert hib["open_axis"] == pytest.approx([0.0, -1.0, 0.0], abs=AXIS_TOL)
+    # the tool point lies on the post, between the plate centre and the free end
     h = ARM.handle
     assert h is not None
-    added = arm_metadata["mass_g"] - BASE_MASS_G
-    assert RIB_MASS_RANGE_G[0] <= added <= RIB_MASS_RANGE_G[1]
-    rib_g = rib_solid(h, ARM.plate_mm, ARM.thickness_mm).volume() / 1000.0 * h.density_g_per_cm3
-    assert added == pytest.approx(rib_g, rel=1e-3)
+    margin, (w, height) = ARM.margin_mm, ARM.plate_mm
+    point_mm = np.asarray(hib["tool_point_m"]) * MM_PER_M
+    assert abs(point_mm[0] - (w / 2 - margin)) <= h.width_mm / 2
+    assert abs(point_mm[1] - (height / 2 - margin)) <= shoulder_top_mm(h) / 2 + TOOL_POINT_TOL_MM
+    assert ARM.thickness_mm < point_mm[2] < ARM.thickness_mm + h.extent_mm
 
 
-def test_back_envelope_is_the_rib_height_and_footprint_in_the_board_frame(
+def test_board_mass_and_centre_of_mass(
     arm_metadata: dict[str, Any], arm_bodies: tuple[trimesh.Trimesh, trimesh.Trimesh]
 ) -> None:
+    """Mass in a plausible range, equal to the bare face-down plate plus the post and gussets; the centre of mass in
+    the board frame (m) sits over the plate centre, a little behind the plate."""
+    h = ARM.handle
+    assert h is not None
+    bare = ARM.model_copy(update={"handle": None})
+    plate_cm3 = sum(body.volume for body in print_bodies(bare, CONFIG.stl)) / 1000.0
+    post_cm3 = (
+        post_solid(h, ARM.plate_mm, ARM.thickness_mm) + gusset_solid(h, ARM.plate_mm, ARM.thickness_mm)
+    ).volume()
+    assert arm_metadata["mass_g"] == pytest.approx((plate_cm3 + post_cm3 / 1000.0) * h.density_g_per_cm3, rel=1e-4)
+    assert MASS_RANGE_G[0] <= arm_metadata["mass_g"] <= MASS_RANGE_G[1]
+    solid = printed_solid(*arm_bodies)
+    mesh_to_board = np.linalg.inv(board_in_mesh(ARM.plate_mm, ARM.margin_mm, ARM.pattern_face, ARM.thickness_mm))
+    expected = trimesh.transform_points([solid.center_mass], mesh_to_board)[0] / MM_PER_M
+    com = np.asarray(arm_metadata["centre_of_mass_m"])
+    assert com == pytest.approx(expected, abs=1e-6)
+    centre = (np.asarray(ARM.plate_mm) / 2 - ARM.margin_mm) / MM_PER_M
+    assert com[:2] == pytest.approx(centre, abs=0.003)
+    assert ARM.thickness_mm / 2 / MM_PER_M < com[2] < (ARM.thickness_mm + h.extent_mm) / MM_PER_M
+
+
+def test_back_envelope_boxes_hold_the_post_and_gussets(
+    arm_metadata: dict[str, Any], arm_bodies: tuple[trimesh.Trimesh, trimesh.Trimesh]
+) -> None:
+    """back_envelope_mm: the post box (nominal bed face included) and one box per gusset in the OpenCV board frame,
+    each from the plate back (z = T) up; together they hold all material behind the plate back."""
     h = ARM.handle
     assert h is not None
     envelope = back_envelope_mm(ARM)
     assert flatten(arm_metadata["back_envelope_mm"]) == pytest.approx(flatten(envelope), abs=1e-6)
-    edge, _ = rib_tops_mm()
     t = ARM.thickness_mm
-    base = to_manifold(arm_bodies[0])
-    # the tallest material over the plate is the rib top at the plate edge
-    tallest = max(column_z(base, (x0 + x1) / 2, COLUMN_MM)[1] for x0, x1 in expected_rib_x_ranges_mm())
-    assert envelope["height_mm"] == pytest.approx(tallest - t, abs=1e-3)
-    assert plate_region_top(arm_bodies[0]) - t <= envelope["height_mm"]
-    assert envelope["height_mm"] == pytest.approx(edge - t, abs=1e-9)
-    assert envelope["end_height_mm"] == h.rib_end_height_mm
+    assert envelope["height_mm"] == pytest.approx(h.extent_mm)
+    boxes = [envelope["post"], *envelope["gussets"]]
+    assert len(envelope["gussets"]) == 2
+    for low, high in boxes:
+        assert low[2] == pytest.approx(t)
+        assert 0.0 <= low[0] and high[0] <= ARM.plate_mm[0] and -ARM.margin_mm <= low[1]
+    assert envelope["post"][1][2] == pytest.approx(t + h.extent_mm)
     mesh_to_board = np.linalg.inv(board_in_mesh(ARM.plate_mm, ARM.margin_mm, ARM.pattern_face, t))
-    expected = []
-    for x0, x1 in expected_rib_x_ranges_mm():
-        corners = trimesh.transform_points(np.array([[x0, 0.0, t], [x1, h.rib_length_mm, edge]]), mesh_to_board)
-        expected.append([corners.min(axis=0).tolist(), corners.max(axis=0).tolist()])
-    expected.sort()
-    assert flatten(envelope["ribs"]) == pytest.approx(flatten(expected), abs=1e-9)
-    for low, high in envelope["ribs"]:
-        assert low[2] == pytest.approx(t) and high[2] == pytest.approx(edge)
-        assert 0.0 <= low[1] and high[1] <= ARM.plate_mm[1] - ARM.margin_mm
+    grown = nominal_solid(printed_solid(*arm_bodies), h, ARM.plate_mm, t)
+    behind = trimesh.transform_points(post_crop(grown).vertices, mesh_to_board)
+    inside = np.zeros(len(behind), dtype=bool)
+    for low, high in boxes:
+        inside |= np.all((behind >= np.asarray(low) - 1e-3) & (behind <= np.asarray(high) + 1e-3), axis=1)
+    assert inside.all()
 
 
-@pytest.mark.parametrize(
-    ("update", "field"),
-    [
-        ({"handle": {"rib_length_mm": 151.0}}, "rib_length_mm"),
-        ({"handle": {"rib_end_height_mm": 21.0}}, "rib_end_height_mm"),
-        ({"pattern_face": "top"}, "pattern_face"),
-    ],
-)
-def test_charuco_spec_refuses_ribs_off_the_plate_back(update: dict[str, Any], field: str) -> None:
-    spec = ARM.model_dump()
-    spec["handle"] = {**spec["handle"], **update.get("handle", {})}
-    spec.update({k: v for k, v in update.items() if k != "handle"})
-    with pytest.raises(ValidationError, match=field):
-        CharucoSpec.model_validate(spec)
-
-
-def test_shoulder_top_and_rib_ranges_follow_the_spec() -> None:
+def test_shoulder_top_follows_the_spec() -> None:
     h = ARM.handle
     assert h is not None
     assert shoulder_top_mm(h) == h.thickness_tip_mm + h.rail_height_mm
-    assert rib_x_ranges_mm(h, ARM.plate_mm) == pytest.approx(expected_rib_x_ranges_mm())
-    (lo_x0, lo_x1), (hi_x0, hi_x1) = rib_x_ranges_mm(h, ARM.plate_mm)
-    assert lo_x1 - lo_x0 == pytest.approx(h.rib_width_mm) and hi_x1 - hi_x0 == pytest.approx(h.rib_width_mm)
-    assert hi_x1 - lo_x0 == pytest.approx(h.width_mm)

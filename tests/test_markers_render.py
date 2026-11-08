@@ -11,7 +11,7 @@ import trimesh
 import yaml
 from pydantic import ValidationError
 
-from scripts.markers.jaw_fit import load_gripper, moving_jaw
+from scripts.markers.jaw_fit import OPEN_AXIS, TOOL_AXIS, fixed_jaw_face_mm, load_gripper, moving_jaw
 from scripts.markers.views import VIEW_DIRECTIONS, camera_for, grip_scene
 from scripts.markers_render import load_render_config, render_all
 
@@ -29,6 +29,8 @@ ARM_BODIES = (
 MIN_PNG_BYTES = 1000
 VIEW_COUNT = 8
 PNG_COUNT = 9
+POST_GRIP_MM = 30.0  # grip length behind the shoulder face (scripts/markers_generate.yaml handle length_mm)
+FACE_TOL_MM = 0.5
 
 
 def test_eight_views_cover_axes_and_two_isometric() -> None:
@@ -57,11 +59,18 @@ def test_grip_scene_poses_both_jaws_at_the_grip_angle() -> None:
     assert scene[2][0].vertices == pytest.approx(GRIPPER.fixed.vertices)
 
 
-def test_grip_scene_puts_the_handle_between_the_jaws() -> None:
-    base = grip_scene(GRIPPER, META, *ARM_BODIES)[0][0]
-    fixed = GRIPPER.fixed.bounds
-    # the bed face lies on the fixed jaw: the board spans gripper_link x from about the fixed face upward
-    assert base.bounds[0][0] > fixed[0][0] and base.bounds[1][0] > base.bounds[0][0]
+def test_grip_scene_puts_the_post_between_the_jaws_and_the_plate_past_the_tips() -> None:
+    """The right-angle post (decision 296): the plate lies past both jaw tips along TOOL_AXIS, and the post material
+    behind the tips stands on the fixed jaw side (OPEN_AXIS from about the fixed jaw face up)."""
+    scene = grip_scene(GRIPPER, META, *ARM_BODIES)
+    base, moving = scene[0][0], scene[3][0]
+    tool, opening = np.asarray(TOOL_AXIS), np.asarray(OPEN_AXIS)
+    tips = max(float((GRIPPER.fixed.vertices @ tool).max()), float((moving.vertices @ tool).max()))
+    depth = base.vertices @ tool
+    assert depth.max() > tips
+    post = base.vertices[depth < tips - 1.0]
+    assert len(post) > 0
+    assert float((post @ opening).min()) > fixed_jaw_face_mm(GRIPPER, (0.0, POST_GRIP_MM)) - FACE_TOL_MM
 
 
 def test_render_config_rejects_unknown_keys(tmp_path: Path) -> None:

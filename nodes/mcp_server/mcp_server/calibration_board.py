@@ -25,7 +25,7 @@ class BoardPark:
 
     Attributes:
         points: (N, 3) outline corners and lattice points of both plate faces, then a lattice over each back box
-            (the ribs and the handle), in gripper_link (m).
+            (the grip post and its gussets), in gripper_link (m).
         margin_m: Clearance the board keeps from every body obstacle (m), sag margin included.
         min_height_m: Lowest board point height above the floor (base_link z, m), sag margin included.
     """

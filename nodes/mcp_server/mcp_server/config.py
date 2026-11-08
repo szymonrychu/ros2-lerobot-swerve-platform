@@ -105,15 +105,15 @@ class CalibrationBoardSettings(StrictModel):
     thickness_mm: float = Field(default=4.0, gt=0)  # plate thickness behind the printed face
     outline_margin_m: float = Field(default=0.01, ge=0)  # plate margin beyond the outer squares
     lattice_points: int = Field(default=5, ge=2)  # points per plate edge of the checked lattice
-    mount_xyz_m: tuple[float, float, float] = (-0.00775, -0.084051, -0.255113)  # board frame origin in gripper_link
-    mount_rpy_rad: tuple[float, float, float] = (1.570796, 0.0, 1.570796)  # fixed-axis xyz rotation
-    # Material beyond the plate, ((min), (max)) boxes in the board frame (mm): the twin ribs behind the plate back and
-    # the handle block off the plate edge (markers/charuco-arm-6x5-28mm.json, scripts/markers_generate.yaml handle).
+    mount_xyz_m: tuple[float, float, float] = (0.0746, -0.084051, -0.116113)  # board frame origin in gripper_link
+    mount_rpy_rad: tuple[float, float, float] = (0.0, 0.0, 1.570796)  # fixed-axis xyz rotation
+    # Material behind the plate back, ((min), (max)) boxes in the board frame (mm): the right-angle grip post and its
+    # two gussets (markers/charuco-arm-6x5-28mm.json back_envelope_mm).
     back_boxes_mm: list[tuple[tuple[float, float, float], tuple[float, float, float]]] = Field(
         default_factory=lambda: [
-            ((71.7, 70.0, 4.0), (75.7, 145.0, 24.7)),
-            ((92.3, 70.0, 4.0), (96.3, 145.0, 24.7)),
-            ((71.7, 145.0, 0.0), (96.3, 179.0, 28.4)),
+            ((71.7, 53.95, 4.0), (96.3, 82.5, 40.0)),
+            ((35.7, 66.0, 4.0), (71.7, 74.0, 40.0)),
+            ((96.3, 66.0, 4.0), (132.3, 74.0, 40.0)),
         ]
     )
     mount_tolerance_m: float = Field(default=0.03, gt=0)

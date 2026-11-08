@@ -1,25 +1,31 @@
-"""Paddle handle of a gripper-held ChArUco board: spec, solid, face-down turn and the seat in the SO-101 jaws.
+"""Right-angle grip post of a gripper-held ChArUco board (decision 296): spec, solid, face-down print and the seat
+in the SO-101 jaws.
+
+Handle frame: the grip is built as a tab, x across its width (centred at x = 0), y along it with y = 0 at its base
+and the free end at y = -extent, z through its thickness with the printed bed face (fixed-jaw clamp face) at z = 0. A
+shoulder block (y in [-neck, 0]) stops the moving finger tip at y = -neck. The grip (y in [-extent, -neck]) has a top
+plane that rises from thickness_tip at the shoulder to thickness_end at the free end, with a tapered channel for the
+moving finger between two rails. Seated in the gripper, handle +z is gripper_link OPEN_AXIS, handle +y TOOL_AXIS (the
+jaw tips point toward the base) and handle x -WIDTH_AXIS.
 
 Mesh coordinates are the print coordinates after the face-down turn: the plate spans x in [0, W], y in [0, H], z in
-[0, T] with the bed at z = 0. The handle tab sticks out off the y = 0 edge (y in [-extent, 0]), centred at x = W / 2,
-bottom on the bed. A shoulder block (y in [-neck, 0]) stops the moving finger tip. The grip (y in [-extent, -neck])
-has a top plane that rises from thickness_tip at the shoulder to thickness_end at the free end, with a tapered channel
-for the moving finger between two rails. Every wall is vertical and every top face rises, so nothing overhangs.
+[0, T], the pattern on the bed (z = 0) and the back at z = T. The post stands on the back (`post_in_mesh`): handle y
+runs along mesh -z (base on the back, free end up), handle z along mesh +y and handle x along mesh +x, and the post
+footprint centre (x = 0, z = shoulder top / 2) lies over the plate centre. The board normal is therefore the tool axis
+and the jaws close along the board y axis. In print orientation the post's tapered faces lean a few degrees from
+vertical, every other face is vertical or up-facing, so nothing overhangs.
 
 The clamp faces (the grip bed face on the fixed jaw and the channel floor under the moving jaw lands) carry a print
 allowance (user decisions 282, 283): the thickness_* numbers are the NOMINAL grip (as printed after FDM growth), and
-the printed solid is clamp_clearance_mm thinner at each clamp face. The printed grip stays on the bed (a raised bed
-face would overhang), so the nominal bed face lies clamp_clearance_mm below it (mesh z = -c) and the nominal channel
-floor at thickness - c; the printed floor is at thickness - 2 c. Rails, channel walls and the shoulder are the same in
-both. Seated in the gripper the nominal bed face (mesh z = -c) lies on the fixed jaw, the moving finger in the
-channel on the nominal top plane, its tip at the shoulder face. Mesh +z is gripper_link OPEN_AXIS and mesh +y is
-TOOL_AXIS (the jaw tips point toward the plate).
+the printed solid is clamp_clearance_mm thinner at each clamp face. The printed grip keeps its bed face at handle z =
+0 (flush with the shoulder block), so the nominal bed face lies clamp_clearance_mm beyond it (z = -c) and the nominal
+channel floor at thickness - c; the printed floor is at thickness - 2 c. Rails, channel walls and the shoulder are the
+same in both. Seated in the gripper the nominal bed face lies on the fixed jaw, the moving finger in the channel on
+the nominal top plane, its tip at the shoulder face.
 
-Twin ribs (user decision 292) join the handle to the board back: each continues one handle outer side wall (outer
-face flush) onto the plate back (mesh z = T) from the plate edge (y = 0) to y = rib_length_mm. A rib top runs from
-the shoulder top at the edge down to rib_end_height_mm above the plate back at its end, so the top slopes up toward
-the handle (no overhang) and every side wall is vertical. The ribs lie on the board side of the plate edge, past the
-shoulder face, where the jaws never reach.
+Two gussets brace the post base to the plate back on the sides the jaws do not occupy (the rail outer walls, along
+WIDTH_AXIS): triangular webs gusset_thickness_mm thick around the post axis, gusset_height_mm up the wall and
+gusset_reach_mm along the back, their top face at most 45 deg from vertical and up-facing, their side walls vertical.
 """
 
 from typing import Literal, Self
@@ -49,25 +55,33 @@ SEAT_TOL_MM = 0.01
 SWEEP_STEP_RAD = 0.005  # gripper angle step of the finger sweep that places the shoulder face
 CUT_HEIGHT_MM = 100.0  # height of the channel cutter above the top plane (well above any rail)
 CUT_OVERSHOOT_MM = 1.0  # the channel runs this far past the free end so it opens cleanly
-MAX_RIB_WIDTH_MM = 10.0  # a rib is a web continuing one handle side wall, not a slab
-SEAT_CROP_MM = 0.5  # the seat tests the solid below mesh y = this (handle plus a plate sliver), where the jaws are
+SEAT_CROP_MM = 0.5  # the seat tests the solid above mesh z = T + this (the post and its gussets), where the jaws are
+MAX_GUSSET_SLOPE_DEG = 45.0  # gusset top face at most this far from vertical in print orientation
+# Handle frame (x across, y along toward the base, z from the bed face) to mesh: x -> +x, y -> -z, z -> +y.
+POST_ROTATION = np.array([[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, -1.0, 0.0]])
 
 
 class HandleSpec(StrictModel):
-    """Paddle handle of a gripper-held board. All lengths in mm.
+    """Right-angle grip post of a gripper-held board (decision 296). All lengths in mm.
 
-    length_mm: grip length behind the shoulder (the jaw depth it covers). neck_mm: shoulder block from the plate edge
-    to the shoulder face. thickness_tip_mm / thickness_end_mm: nominal grip thickness (bed face to top plane) at the
-    shoulder and at the free end (chosen from the jaw gap at the contact angle). channel_tip_mm / channel_end_mm:
+    The post stands perpendicular on the centre of the plate back, so the board normal lies along the tool axis; the
+    jaws close along the board y axis (OPEN_AXIS is board -y) and grip it like the earlier in-line paddle grip block,
+    approaching along the post axis toward the board.
+
+    length_mm: grip length behind the shoulder (the jaw depth it covers). neck_mm: shoulder block from the plate back
+    to the shoulder face (long enough that no part of either jaw reaches the plate or a gusset). thickness_tip_mm /
+    thickness_end_mm: nominal grip thickness (bed face to top plane) at the shoulder and at the free end (chosen
+    from the jaw gap at the contact angle). channel_tip_mm / channel_end_mm:
     channel width at the shoulder and at the free end (finger width plus 2 x clearance_mm). rail_width_mm /
     rail_height_mm: rails beside the channel, rising to thickness + rail_height_mm over the printed bed face (the
     shoulder rises as high). squeeze_rad: how far the grip angle closes past the contact angle. density_g_per_cm3:
     print material density for the mass. tool_offset_m: the tool point in gripper_frame_link (m), the mcp_server arm
     tool_offset_m. clamp_clearance_mm: print allowance taken off each clamp face (bed face and channel floor) of the
     printed grip; thickness_* are the nominal grip, as printed after FDM growth (user decisions 282, 283).
-    rib_width_mm / rib_length_mm / rib_end_height_mm: the twin ribs on the board back (user decision 292), each
-    rib_width_mm wide, flush with one handle outer side wall, rib_length_mm from the plate edge into the plate, its
-    top tapering linearly from the shoulder top at the plate edge to rib_end_height_mm above the plate back.
+    gusset_height_mm / gusset_reach_mm / gusset_thickness_mm: the two gussets bracing the post base to the plate
+    back off the rail outer walls (along the board x axis), each a triangular web gusset_height_mm up the wall (at
+    most the post length, neck plus grip), gusset_reach_mm along the back (at most gusset_height_mm: the top face at
+    most 45 deg from vertical) and gusset_thickness_mm thick, centred on the post axis (at most the shoulder top).
     """
 
     length_mm: float = Field(ge=25.0, le=40.0)
@@ -83,9 +97,9 @@ class HandleSpec(StrictModel):
     density_g_per_cm3: float = Field(gt=0)
     tool_offset_m: tuple[float, float, float]
     clamp_clearance_mm: float = Field(default=0.15, ge=0.0, le=0.3)
-    rib_width_mm: float = Field(gt=0, le=MAX_RIB_WIDTH_MM)
-    rib_length_mm: float = Field(gt=0)
-    rib_end_height_mm: float = Field(gt=0)
+    gusset_height_mm: float = Field(gt=0)
+    gusset_reach_mm: float = Field(gt=0)
+    gusset_thickness_mm: float = Field(gt=0)
 
     @model_validator(mode="after")
     def check_profile(self) -> Self:
@@ -101,9 +115,26 @@ class HandleSpec(StrictModel):
             )
         return self
 
+    @model_validator(mode="after")
+    def check_gussets(self) -> Self:
+        """gusset_height_mm <= extent_mm (the post length), gusset_reach_mm <= gusset_height_mm x tan(45 deg) (the
+        top face at most 45 deg from vertical) and gusset_thickness_mm <= the shoulder top (the post section)."""
+        if self.gusset_height_mm > self.extent_mm:
+            raise ValueError(f"gusset_height_mm {self.gusset_height_mm} exceeds the post length {self.extent_mm} mm")
+        if self.gusset_reach_mm > self.gusset_height_mm * np.tan(np.radians(MAX_GUSSET_SLOPE_DEG)) + 1e-9:
+            raise ValueError(
+                f"gusset_reach_mm {self.gusset_reach_mm} exceeds gusset_height_mm {self.gusset_height_mm}: the top face"
+                f" would lie more than {MAX_GUSSET_SLOPE_DEG:g} deg from vertical"
+            )
+        if self.gusset_thickness_mm > shoulder_top_mm(self):
+            raise ValueError(
+                f"gusset_thickness_mm {self.gusset_thickness_mm} exceeds the post section {shoulder_top_mm(self)} mm"
+            )
+        return self
+
     @property
     def extent_mm(self) -> float:
-        """Handle length off the plate edge (neck plus grip) in mm."""
+        """Post length above the plate back (neck plus grip) in mm."""
         return self.neck_mm + self.length_mm
 
     @property
@@ -113,7 +144,7 @@ class HandleSpec(StrictModel):
 
 
 def grip_profile(handle: HandleSpec, low: tuple[float, float], high: tuple[float, float], width: float) -> Manifold:
-    """A prism along mesh x over `width` centred at x = 0, whose y-z section runs from the shoulder to the free end.
+    """A prism along handle x over `width` centred at x = 0, whose y-z section runs from the shoulder to the free end.
 
     Args:
         handle (HandleSpec): The handle (for neck and extent).
@@ -134,23 +165,22 @@ def grip_profile(handle: HandleSpec, low: tuple[float, float], high: tuple[float
             ]
         ]
     )
-    # extrude along local z, then local (u, v, w) -> mesh (y, z, x): a cyclic permutation (proper rotation)
+    # extrude along local z, then local (u, v, w) -> handle (y, z, x): a cyclic permutation (proper rotation)
     turn = np.array([[0.0, 0.0, 1.0, -width / 2], [1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]])
     return Manifold.extrude(section, width).transform(turn)
 
 
-def handle_solid(handle: HandleSpec, plate_mm: tuple[float, float], nominal: bool = False) -> Manifold:
-    """The handle tab in print (face-down) coordinates, printed or nominal.
+def handle_solid(handle: HandleSpec, nominal: bool = False) -> Manifold:
+    """The grip tab in the handle frame, printed or nominal.
 
     Args:
         handle (HandleSpec): The handle.
-        plate_mm (tuple[float, float]): Plate (W, H) in mm; the tab is centred at x = W / 2.
         nominal (bool): False for the printed tab (grip bed face at z = 0, channel floor at thickness - 2 c), True
             for the nominal tab (grip bed face at z = -c, channel floor at thickness - c), c = clamp_clearance_mm.
 
     Returns:
-        Manifold: Shoulder block plus grip with rails and channel, y in [-extent, 0]; the shoulder bottom at z = 0,
-        rails thickness + rail_height_mm high in both.
+        Manifold: Shoulder block plus grip with rails and channel, x centred at 0, y in [-extent, 0]; the shoulder
+        bed face at z = 0, rails thickness + rail_height_mm high in both.
     """
     half = handle.width_mm / 2
     clamp = handle.clamp_clearance_mm
@@ -184,8 +214,72 @@ def handle_solid(handle: HandleSpec, plate_mm: tuple[float, float], nominal: boo
         ),
         handle.width_mm + 2 * CUT_OVERSHOOT_MM,
     ).transform(np.array([[0.0, 0.0, 1.0, -half - CUT_OVERSHOOT_MM], [1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]]))
-    solid = (shoulder + grip) - (channel ^ above)
-    return solid.translate((plate_mm[0] / 2, 0.0, 0.0))
+    return (shoulder + grip) - (channel ^ above)
+
+
+def post_in_mesh(handle: HandleSpec, plate_mm: tuple[float, float], thickness_mm: float) -> np.ndarray:
+    """Pose of the handle frame in the mesh: the post standing on the plate back, its footprint centred on the plate.
+
+    Args:
+        handle (HandleSpec): The handle.
+        plate_mm (tuple[float, float]): Plate (W, H) in mm.
+        thickness_mm (float): Plate thickness T in mm (the plate back is mesh z = T).
+
+    Returns:
+        np.ndarray: 4x4 transform (mm), rotation POST_ROTATION (handle x -> mesh x, y -> -z, z -> y); the handle point
+        (0, 0, shoulder top / 2) goes to (W / 2, H / 2, T).
+    """
+    pose = np.eye(4)
+    pose[:3, :3] = POST_ROTATION
+    pose[:3, 3] = (plate_mm[0] / 2, plate_mm[1] / 2 - shoulder_top_mm(handle) / 2, thickness_mm)
+    return pose
+
+
+def post_solid(
+    handle: HandleSpec, plate_mm: tuple[float, float], thickness_mm: float, nominal: bool = False
+) -> Manifold:
+    """The grip post in print (face-down) coordinates, standing on the plate back.
+
+    Args:
+        handle (HandleSpec): The handle.
+        plate_mm (tuple[float, float]): Plate (W, H) in mm.
+        thickness_mm (float): Plate thickness T in mm.
+        nominal (bool): True for the nominal grip (clamp faces grown back), see `handle_solid`.
+
+    Returns:
+        Manifold: `handle_solid` moved by `post_in_mesh`; mesh z from T to T + extent_mm.
+    """
+    return handle_solid(handle, nominal).transform(post_in_mesh(handle, plate_mm, thickness_mm)[:3])
+
+
+def gusset_solid(handle: HandleSpec, plate_mm: tuple[float, float], thickness_mm: float) -> Manifold:
+    """The two gussets bracing the post to the plate back, in print (face-down) coordinates.
+
+    Each is a triangle in the handle x-y plane, from the rail outer wall (|x| = width / 2) gusset_reach_mm out along
+    the plate back and gusset_height_mm up the wall, extruded gusset_thickness_mm along handle z, centred on the post
+    axis (z = shoulder top / 2).
+
+    Args:
+        handle (HandleSpec): The handle.
+        plate_mm (tuple[float, float]): Plate (W, H) in mm.
+        thickness_mm (float): Plate thickness T in mm.
+
+    Returns:
+        Manifold: Both gussets; bottoms on the plate back (mesh z = T), side walls vertical (normal along mesh y).
+    """
+    half = handle.width_mm / 2
+    gussets = Manifold()
+    for sign in (-1.0, 1.0):
+        corners = [
+            (sign * half, 0.0),
+            (sign * (half + handle.gusset_reach_mm), 0.0),
+            (sign * half, -handle.gusset_height_mm),
+        ]
+        if sign > 0:
+            corners.reverse()  # counter-clockwise, so the cross section is filled
+        web = Manifold.extrude(CrossSection([corners]), handle.gusset_thickness_mm)
+        gussets = gussets + web.translate((0.0, 0.0, (shoulder_top_mm(handle) - handle.gusset_thickness_mm) / 2))
+    return gussets.transform(post_in_mesh(handle, plate_mm, thickness_mm)[:3])
 
 
 def shoulder_top_mm(handle: HandleSpec) -> float:
@@ -200,65 +294,21 @@ def shoulder_top_mm(handle: HandleSpec) -> float:
     return handle.thickness_tip_mm + handle.rail_height_mm
 
 
-def rib_x_ranges_mm(handle: HandleSpec, plate_mm: tuple[float, float]) -> list[tuple[float, float]]:
-    """Mesh x ranges of the two ribs, each flush with one handle outer side wall.
-
-    Args:
-        handle (HandleSpec): The handle.
-        plate_mm (tuple[float, float]): Plate (W, H) in mm; the handle is centred at x = W / 2.
-
-    Returns:
-        list[tuple[float, float]]: [(x0, x1) of the low-x rib, (x0, x1) of the high-x rib] (mm).
-    """
-    centre, half = plate_mm[0] / 2, handle.width_mm / 2
-    return [
-        (centre - half, centre - half + handle.rib_width_mm),
-        (centre + half - handle.rib_width_mm, centre + half),
-    ]
-
-
-def rib_solid(handle: HandleSpec, plate_mm: tuple[float, float], thickness_mm: float) -> Manifold:
-    """The twin ribs on the plate back in print (face-down) coordinates.
-
-    Args:
-        handle (HandleSpec): The handle.
-        plate_mm (tuple[float, float]): Plate (W, H) in mm.
-        thickness_mm (float): Plate thickness T in mm (the plate back is mesh z = T).
-
-    Returns:
-        Manifold: Two prisms, y in [0, rib_length_mm], bottom on the plate back (z = T), top from
-        `shoulder_top_mm` at y = 0 down to T + rib_end_height_mm at y = rib_length_mm.
-    """
-    section = CrossSection(
-        [
-            [
-                (0.0, thickness_mm),
-                (handle.rib_length_mm, thickness_mm),
-                (handle.rib_length_mm, thickness_mm + handle.rib_end_height_mm),
-                (0.0, shoulder_top_mm(handle)),
-            ]
-        ]
-    )
-    ribs = Manifold()
-    for x0, x1 in rib_x_ranges_mm(handle, plate_mm):
-        # extrude along local z, then local (u, v, w) -> mesh (y, z, x): a cyclic permutation (proper rotation)
-        turn = np.array([[0.0, 0.0, 1.0, x0], [1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]])
-        ribs = ribs + Manifold.extrude(section, x1 - x0).transform(turn)
-    return ribs
-
-
-def nominal_solid(solid: trimesh.Trimesh, handle: HandleSpec, plate_mm: tuple[float, float]) -> trimesh.Trimesh:
+def nominal_solid(
+    solid: trimesh.Trimesh, handle: HandleSpec, plate_mm: tuple[float, float], thickness_mm: float
+) -> trimesh.Trimesh:
     """The printed solid with its clamp faces grown back to the nominal handle (as printed after FDM growth).
 
     Args:
         solid (trimesh.Trimesh): Watertight printed solid in mesh coordinates (mm).
         handle (HandleSpec): The handle.
         plate_mm (tuple[float, float]): Plate (W, H) in mm.
+        thickness_mm (float): Plate thickness T in mm.
 
     Returns:
-        trimesh.Trimesh: The printed solid united with the nominal handle tab (`handle_solid(nominal=True)`).
+        trimesh.Trimesh: The printed solid united with the nominal post (`post_solid(nominal=True)`).
     """
-    return to_trimesh(to_manifold(solid) + handle_solid(handle, plate_mm, nominal=True))
+    return to_trimesh(to_manifold(solid) + post_solid(handle, plate_mm, thickness_mm, nominal=True))
 
 
 def face_down(solid: Manifold, plate_mm: tuple[float, float], thickness_mm: float) -> Manifold:
@@ -305,17 +355,14 @@ def board_in_mesh(
     return pose
 
 
-def mesh_to_gripper(
-    fixed_face: float, centre: float, shoulder: float, handle: HandleSpec, plate_mm: tuple[float, float]
-) -> np.ndarray:
-    """Mesh pose in gripper_link for a seat: mesh +z on OPEN_AXIS, mesh +y on TOOL_AXIS (mesh x on -WIDTH_AXIS).
+def handle_to_gripper(fixed_face: float, centre: float, shoulder: float, handle: HandleSpec) -> np.ndarray:
+    """Handle frame pose in gripper_link for a seat: handle +z on OPEN_AXIS, +y on TOOL_AXIS (x on -WIDTH_AXIS).
 
     Args:
-        fixed_face (float): OPEN_AXIS coordinate of the fixed jaw face, where mesh z = 0 goes (mm).
-        centre (float): WIDTH_AXIS coordinate of the moving finger centre, where mesh x = W / 2 goes (mm).
-        shoulder (float): TOOL_AXIS coordinate of the shoulder face, where mesh y = -neck goes (mm).
+        fixed_face (float): OPEN_AXIS coordinate of the fixed jaw face, where handle z = 0 goes (mm).
+        centre (float): WIDTH_AXIS coordinate of the moving finger centre, where handle x = 0 goes (mm).
+        shoulder (float): TOOL_AXIS coordinate of the shoulder face, where handle y = -neck goes (mm).
         handle (HandleSpec): The handle.
-        plate_mm (tuple[float, float]): Plate (W, H) in mm.
 
     Returns:
         np.ndarray: 4x4 transform (mm).
@@ -323,7 +370,7 @@ def mesh_to_gripper(
     opening, tool, width = (np.asarray(a) for a in (OPEN_AXIS, TOOL_AXIS, WIDTH_AXIS))
     pose = np.eye(4)
     pose[:3, :3] = np.column_stack([-width, tool, opening])
-    pose[:3, 3] = opening * fixed_face + tool * (shoulder + handle.neck_mm) + width * (centre + plate_mm[0] / 2)
+    pose[:3, 3] = opening * fixed_face + tool * (shoulder + handle.neck_mm) + width * centre
     return pose
 
 
@@ -354,23 +401,24 @@ def shoulder_stop_mm(gripper: Gripper, contact_rad: float, top_mm: float) -> flo
 
 
 def seat(
-    gripper: Gripper, solid: trimesh.Trimesh, handle: HandleSpec, plate_mm: tuple[float, float]
+    gripper: Gripper, solid: trimesh.Trimesh, handle: HandleSpec, plate_mm: tuple[float, float], thickness_mm: float
 ) -> tuple[np.ndarray, float]:
     """Seat the board in the jaws on its nominal handle surfaces and find the gripper contact angle.
 
-    The nominal solid (`nominal_solid`, clamp faces grown back) is seated: its bed face (mesh z = -clamp_clearance_mm)
-    lies on the fixed jaw face (over the grip length behind the fixed tip), the channel centre on the
-    moving finger centre and the shoulder face on the finger sweep (`shoulder_stop_mm`). The contact angle comes
+    The nominal solid (`nominal_solid`, clamp faces grown back) is seated: its bed face (handle z =
+    -clamp_clearance_mm) lies on the fixed jaw face (over the grip length behind the fixed tip), the channel centre on
+    the moving finger centre and the shoulder face on the finger sweep (`shoulder_stop_mm`). The contact angle comes
     from `contact_angle_rad` on the seated solid; seat and angle are iterated (at most SEAT_ITERATIONS, until the
     seat moves less than SEAT_TOL_MM; the returned seat is the one the angle was measured on). The contact is found
-    on the solid below mesh y = SEAT_CROP_MM (capped): the jaw tips stay behind the shoulder face, so the plate
-    cannot touch them, and the small mesh keeps the contact search fast.
+    on `seat_crop` (the post and its gussets): the jaws stay clear of the plate back, and the small mesh keeps the
+    contact search fast.
 
     Args:
         gripper (Gripper): Loaded gripper.
         solid (trimesh.Trimesh): Watertight printed solid in mesh coordinates (mm).
         handle (HandleSpec): The handle.
         plate_mm (tuple[float, float]): Plate (W, H) in mm.
+        thickness_mm (float): Plate thickness T in mm.
 
     Returns:
         tuple[np.ndarray, float]: (mesh pose in gripper_link, 4x4 mm; nominal contact angle, rad).
@@ -379,25 +427,27 @@ def seat(
         ValueError: When the seat does not converge or the contact angle is unreachable.
     """
     width = np.asarray(WIDTH_AXIS)
-    reachable = seat_crop(nominal_solid(solid, handle, plate_mm))
-    fixed_face = fixed_jaw_face_mm(gripper, (0.0, handle.length_mm)) + handle.clamp_clearance_mm  # mesh z = 0
+    reachable = seat_crop(nominal_solid(solid, handle, plate_mm, thickness_mm), thickness_mm)
+    handle_to_mesh = np.linalg.inv(post_in_mesh(handle, plate_mm, thickness_mm))
+    fixed_face = fixed_jaw_face_mm(gripper, (0.0, handle.length_mm)) + handle.clamp_clearance_mm  # handle z = 0
     top = fixed_face + handle.thickness_tip_mm + handle.rail_height_mm
     contact = 0.0
-    pose = mesh_to_gripper(
-        fixed_face,
-        float(moving_tip_mm(gripper, contact) @ width),
-        shoulder_stop_mm(gripper, contact, top),
-        handle,
-        plate_mm,
+    pose = (
+        handle_to_gripper(
+            fixed_face, float(moving_tip_mm(gripper, contact) @ width), shoulder_stop_mm(gripper, contact, top), handle
+        )
+        @ handle_to_mesh
     )
     for _ in range(SEAT_ITERATIONS):
         contact = contact_angle_rad(gripper, reachable.copy().apply_transform(pose))
-        new = mesh_to_gripper(
-            fixed_face,
-            float(moving_tip_mm(gripper, contact) @ width),
-            shoulder_stop_mm(gripper, contact, top),
-            handle,
-            plate_mm,
+        new = (
+            handle_to_gripper(
+                fixed_face,
+                float(moving_tip_mm(gripper, contact) @ width),
+                shoulder_stop_mm(gripper, contact, top),
+                handle,
+            )
+            @ handle_to_mesh
         )
         if float(np.linalg.norm(new[:3, 3] - pose[:3, 3])) < SEAT_TOL_MM:
             return pose, contact  # the seat the contact angle was measured on, so the pair is consistent
@@ -405,19 +455,23 @@ def seat(
     raise ValueError(f"handle seat did not converge in {SEAT_ITERATIONS} iterations")
 
 
-def seat_crop(solid: trimesh.Trimesh) -> trimesh.Trimesh:
-    """The solid below mesh y = SEAT_CROP_MM (handle plus a plate sliver), capped: the part the jaws can reach.
+def seat_crop(solid: trimesh.Trimesh, thickness_mm: float) -> trimesh.Trimesh:
+    """The solid above mesh z = T + SEAT_CROP_MM (the post and its gussets), capped: the part the jaws can reach.
 
     Args:
         solid (trimesh.Trimesh): Watertight solid in mesh coordinates (mm).
+        thickness_mm (float): Plate thickness T in mm (the plate back is mesh z = T).
 
     Returns:
         trimesh.Trimesh: The capped, watertight crop (mm).
     """
-    return trimesh.intersections.slice_mesh_plane(solid, (0.0, -1.0, 0.0), (0.0, SEAT_CROP_MM, 0.0), cap=True)
+    origin = (0.0, 0.0, thickness_mm + SEAT_CROP_MM)
+    return trimesh.intersections.slice_mesh_plane(solid, (0.0, 0.0, 1.0), origin, cap=True)
 
 
-def printed_contact_rad(gripper: Gripper, solid: trimesh.Trimesh, handle: HandleSpec, mesh_pose: np.ndarray) -> float:
+def printed_contact_rad(
+    gripper: Gripper, solid: trimesh.Trimesh, handle: HandleSpec, mesh_pose: np.ndarray, thickness_mm: float
+) -> float:
     """Contact angle of an exact (not grown) print: the printed solid, its bed face pressed on the fixed jaw.
 
     At the nominal seat the printed bed face stands clamp_clearance_mm off the fixed jaw; the jaws clamp the print
@@ -429,10 +483,11 @@ def printed_contact_rad(gripper: Gripper, solid: trimesh.Trimesh, handle: Handle
         solid (trimesh.Trimesh): Watertight printed solid in mesh coordinates (mm).
         handle (HandleSpec): The handle.
         mesh_pose (np.ndarray): Nominal seat (`seat`), mesh pose in gripper_link (4x4, mm).
+        thickness_mm (float): Plate thickness T in mm.
 
     Returns:
         float: The modelled contact angle (rad).
     """
     pressed = np.array(mesh_pose, dtype=float)
     pressed[:3, 3] -= np.asarray(OPEN_AXIS) * handle.clamp_clearance_mm
-    return contact_angle_rad(gripper, seat_crop(solid).apply_transform(pressed))
+    return contact_angle_rad(gripper, seat_crop(solid, thickness_mm).apply_transform(pressed))
