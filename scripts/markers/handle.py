@@ -6,9 +6,14 @@ bottom on the bed. A shoulder block (y in [-neck, 0]) stops the moving finger ti
 has a top plane that rises from thickness_tip at the shoulder to thickness_end at the free end, with a tapered channel
 for the moving finger between two rails. Every wall is vertical and every top face rises, so nothing overhangs.
 
-Seated in the gripper the bed face (mesh z = 0) lies on the fixed jaw, the moving finger in the channel on the top
-plane, its tip at the shoulder face. Mesh +z is gripper_link OPEN_AXIS and mesh +y is TOOL_AXIS (the jaw tips point
-toward the plate).
+The clamp faces (the grip bed face on the fixed jaw and the channel floor under the moving jaw lands) carry a print
+allowance (user decisions 282, 283): the thickness_* numbers are the NOMINAL grip (as printed after FDM growth), and
+the printed solid is clamp_clearance_mm thinner at each clamp face. The printed grip stays on the bed (a raised bed
+face would overhang), so the nominal bed face lies clamp_clearance_mm below it (mesh z = -c) and the nominal channel
+floor at thickness - c; the printed floor is at thickness - 2 c. Rails, channel walls and the shoulder are the same in
+both. Seated in the gripper the nominal bed face (mesh z = -c) lies on the fixed jaw, the moving finger in the
+channel on the nominal top plane, its tip at the shoulder face. Mesh +z is gripper_link OPEN_AXIS and mesh +y is
+TOOL_AXIS (the jaw tips point toward the plate).
 """
 
 from typing import Literal, Self
@@ -29,7 +34,7 @@ from scripts.markers.jaw_fit import (
     moving_jaw,
     moving_tip_mm,
 )
-from scripts.markers.mesh import box
+from scripts.markers.mesh import box, to_manifold, to_trimesh
 from scripts.markers.models import StrictModel
 
 MAX_CONTACT_WIDTH_MM = 12.0  # moving finger width at its tip: the channel floor must not be wider
@@ -45,12 +50,14 @@ class HandleSpec(StrictModel):
     """Paddle handle of a gripper-held board. All lengths in mm.
 
     length_mm: grip length behind the shoulder (the jaw depth it covers). neck_mm: shoulder block from the plate edge
-    to the shoulder face. thickness_tip_mm / thickness_end_mm: top plane height over the bed at the shoulder and at
-    the free end (chosen from the jaw gap at the contact angle). channel_tip_mm / channel_end_mm: channel width at the
-    shoulder and at the free end (finger width plus 2 x clearance_mm). rail_width_mm / rail_height_mm: rails beside
-    the channel, rail_height_mm above the top plane (the shoulder rises as high). squeeze_rad: how far the grip angle
-    closes past the contact angle. density_g_per_cm3: print material density for the mass. tool_offset_m: the tool
-    point in gripper_frame_link (m), the mcp_server arm tool_offset_m.
+    to the shoulder face. thickness_tip_mm / thickness_end_mm: nominal grip thickness (bed face to top plane) at the
+    shoulder and at the free end (chosen from the jaw gap at the contact angle). channel_tip_mm / channel_end_mm:
+    channel width at the shoulder and at the free end (finger width plus 2 x clearance_mm). rail_width_mm /
+    rail_height_mm: rails beside the channel, rising to thickness + rail_height_mm over the printed bed face (the
+    shoulder rises as high). squeeze_rad: how far the grip angle closes past the contact angle. density_g_per_cm3:
+    print material density for the mass. tool_offset_m: the tool point in gripper_frame_link (m), the mcp_server arm
+    tool_offset_m. clamp_clearance_mm: print allowance taken off each clamp face (bed face and channel floor) of the
+    printed grip; thickness_* are the nominal grip, as printed after FDM growth (user decisions 282, 283).
     """
 
     length_mm: float = Field(ge=25.0, le=40.0)
@@ -65,6 +72,7 @@ class HandleSpec(StrictModel):
     squeeze_rad: float = Field(gt=0, lt=0.03)
     density_g_per_cm3: float = Field(gt=0)
     tool_offset_m: tuple[float, float, float]
+    clamp_clearance_mm: float = Field(default=0.15, ge=0.0, le=0.3)
 
     @model_validator(mode="after")
     def check_profile(self) -> Self:
@@ -118,21 +126,27 @@ def grip_profile(handle: HandleSpec, low: tuple[float, float], high: tuple[float
     return Manifold.extrude(section, width).transform(turn)
 
 
-def handle_solid(handle: HandleSpec, plate_mm: tuple[float, float]) -> Manifold:
-    """The handle tab in print (face-down) coordinates.
+def handle_solid(handle: HandleSpec, plate_mm: tuple[float, float], nominal: bool = False) -> Manifold:
+    """The handle tab in print (face-down) coordinates, printed or nominal.
 
     Args:
         handle (HandleSpec): The handle.
         plate_mm (tuple[float, float]): Plate (W, H) in mm; the tab is centred at x = W / 2.
+        nominal (bool): False for the printed tab (grip bed face at z = 0, channel floor at thickness - 2 c), True
+            for the nominal tab (grip bed face at z = -c, channel floor at thickness - c), c = clamp_clearance_mm.
 
     Returns:
-        Manifold: Shoulder block plus grip with rails and channel, y in [-extent, 0], bottom at z = 0.
+        Manifold: Shoulder block plus grip with rails and channel, y in [-extent, 0]; the shoulder bottom at z = 0,
+        rails thickness + rail_height_mm high in both.
     """
     half = handle.width_mm / 2
-    top = (handle.thickness_tip_mm, handle.thickness_end_mm)
-    rails = (top[0] + handle.rail_height_mm, top[1] + handle.rail_height_mm)
+    clamp = handle.clamp_clearance_mm
+    bed = -clamp if nominal else 0.0
+    floor_drop = clamp if nominal else 2 * clamp
+    rails = (handle.thickness_tip_mm + handle.rail_height_mm, handle.thickness_end_mm + handle.rail_height_mm)
+    top = (handle.thickness_tip_mm - floor_drop, handle.thickness_end_mm - floor_drop)
     shoulder = box(-half, -handle.neck_mm, 0.0, half, 0.0, rails[0])
-    grip = grip_profile(handle, (0.0, 0.0), rails, handle.width_mm)
+    grip = grip_profile(handle, (bed, bed), rails, handle.width_mm)
     slope_tip = (handle.channel_end_mm - handle.channel_tip_mm) / handle.length_mm
     far_y = -handle.extent_mm - CUT_OVERSHOOT_MM
     far_half = (handle.channel_end_mm + slope_tip * CUT_OVERSHOOT_MM) / 2
@@ -159,6 +173,20 @@ def handle_solid(handle: HandleSpec, plate_mm: tuple[float, float]) -> Manifold:
     ).transform(np.array([[0.0, 0.0, 1.0, -half - CUT_OVERSHOOT_MM], [1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]]))
     solid = (shoulder + grip) - (channel ^ above)
     return solid.translate((plate_mm[0] / 2, 0.0, 0.0))
+
+
+def nominal_solid(solid: trimesh.Trimesh, handle: HandleSpec, plate_mm: tuple[float, float]) -> trimesh.Trimesh:
+    """The printed solid with its clamp faces grown back to the nominal handle (as printed after FDM growth).
+
+    Args:
+        solid (trimesh.Trimesh): Watertight printed solid in mesh coordinates (mm).
+        handle (HandleSpec): The handle.
+        plate_mm (tuple[float, float]): Plate (W, H) in mm.
+
+    Returns:
+        trimesh.Trimesh: The printed solid united with the nominal handle tab (`handle_solid(nominal=True)`).
+    """
+    return to_trimesh(to_manifold(solid) + handle_solid(handle, plate_mm, nominal=True))
 
 
 def face_down(solid: Manifold, plate_mm: tuple[float, float], thickness_mm: float) -> Manifold:
@@ -256,9 +284,10 @@ def shoulder_stop_mm(gripper: Gripper, contact_rad: float, top_mm: float) -> flo
 def seat(
     gripper: Gripper, solid: trimesh.Trimesh, handle: HandleSpec, plate_mm: tuple[float, float]
 ) -> tuple[np.ndarray, float]:
-    """Seat the printed solid in the jaws and find the gripper contact angle.
+    """Seat the board in the jaws on its nominal handle surfaces and find the gripper contact angle.
 
-    The bed face lies on the fixed jaw face (over the grip length behind the fixed tip), the channel centre on the
+    The nominal solid (`nominal_solid`, clamp faces grown back) is seated: its bed face (mesh z = -clamp_clearance_mm)
+    lies on the fixed jaw face (over the grip length behind the fixed tip), the channel centre on the
     moving finger centre and the shoulder face on the finger sweep (`shoulder_stop_mm`). The contact angle comes
     from `contact_angle_rad` on the seated solid; seat and angle are iterated (at most SEAT_ITERATIONS, until the
     seat moves less than SEAT_TOL_MM; the returned seat is the one the angle was measured on). The contact is found
@@ -272,14 +301,14 @@ def seat(
         plate_mm (tuple[float, float]): Plate (W, H) in mm.
 
     Returns:
-        tuple[np.ndarray, float]: (mesh pose in gripper_link, 4x4 mm; contact angle, rad).
+        tuple[np.ndarray, float]: (mesh pose in gripper_link, 4x4 mm; nominal contact angle, rad).
 
     Raises:
         ValueError: When the seat does not converge or the contact angle is unreachable.
     """
     width = np.asarray(WIDTH_AXIS)
-    reachable = trimesh.intersections.slice_mesh_plane(solid, (0.0, -1.0, 0.0), (0.0, SEAT_CROP_MM, 0.0), cap=True)
-    fixed_face = fixed_jaw_face_mm(gripper, (0.0, handle.length_mm))
+    reachable = seat_crop(nominal_solid(solid, handle, plate_mm))
+    fixed_face = fixed_jaw_face_mm(gripper, (0.0, handle.length_mm)) + handle.clamp_clearance_mm  # mesh z = 0
     top = fixed_face + handle.thickness_tip_mm + handle.rail_height_mm
     contact = 0.0
     pose = mesh_to_gripper(
@@ -302,3 +331,36 @@ def seat(
             return pose, contact  # the seat the contact angle was measured on, so the pair is consistent
         pose = new
     raise ValueError(f"handle seat did not converge in {SEAT_ITERATIONS} iterations")
+
+
+def seat_crop(solid: trimesh.Trimesh) -> trimesh.Trimesh:
+    """The solid below mesh y = SEAT_CROP_MM (handle plus a plate sliver), capped: the part the jaws can reach.
+
+    Args:
+        solid (trimesh.Trimesh): Watertight solid in mesh coordinates (mm).
+
+    Returns:
+        trimesh.Trimesh: The capped, watertight crop (mm).
+    """
+    return trimesh.intersections.slice_mesh_plane(solid, (0.0, -1.0, 0.0), (0.0, SEAT_CROP_MM, 0.0), cap=True)
+
+
+def printed_contact_rad(gripper: Gripper, solid: trimesh.Trimesh, handle: HandleSpec, mesh_pose: np.ndarray) -> float:
+    """Contact angle of an exact (not grown) print: the printed solid, its bed face pressed on the fixed jaw.
+
+    At the nominal seat the printed bed face stands clamp_clearance_mm off the fixed jaw; the jaws clamp the print
+    once it lies on the fixed jaw, so the solid is moved clamp_clearance_mm along -OPEN_AXIS before the angle solve.
+    The printed grip is 2 x clamp_clearance_mm thinner, so the moving jaw closes further (a smaller angle).
+
+    Args:
+        gripper (Gripper): Loaded gripper.
+        solid (trimesh.Trimesh): Watertight printed solid in mesh coordinates (mm).
+        handle (HandleSpec): The handle.
+        mesh_pose (np.ndarray): Nominal seat (`seat`), mesh pose in gripper_link (4x4, mm).
+
+    Returns:
+        float: The modelled contact angle (rad).
+    """
+    pressed = np.array(mesh_pose, dtype=float)
+    pressed[:3, 3] -= np.asarray(OPEN_AXIS) * handle.clamp_clearance_mm
+    return contact_angle_rad(gripper, seat_crop(solid).apply_transform(pressed))

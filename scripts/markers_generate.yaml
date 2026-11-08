@@ -68,7 +68,8 @@ boards:
       thickness_end_mm: 23.4
       channel_tip_mm: 12.6 # finger channel, widths of the moving finger + 2 x clearance
       channel_end_mm: 16.6
-      clearance_mm: 0.3
+      clearance_mm: 0.3 # channel side walls
+      clamp_clearance_mm: 0.15 # print allowance off each clamp face (bed face, channel floor); thickness_* are nominal
       rail_width_mm: 4.0
       rail_height_mm: 5.0 # rails and shoulder rise this far above the top plane (over the rounded finger tip)
       squeeze_rad: 0.02 # grip angle = contact angle - squeeze

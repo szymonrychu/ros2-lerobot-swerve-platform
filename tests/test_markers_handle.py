@@ -24,15 +24,23 @@ from scripts.markers.charuco import (
     write_charuco,
 )
 from scripts.markers.config import load_generator_config
-from scripts.markers.handle import HandleSpec, board_in_mesh, face_down, handle_solid
+from scripts.markers.handle import (
+    HandleSpec,
+    board_in_mesh,
+    face_down,
+    handle_solid,
+    nominal_solid,
+    printed_contact_rad,
+)
 from scripts.markers.jaw_fit import (
+    OPEN_AXIS,
     clearance_mm,
     load_gripper,
     moving_jaw,
     penetration_mm,
     surface_points,
 )
-from scripts.markers.mesh import box, print_violations, printed_solid, to_trimesh
+from scripts.markers.mesh import box, print_violations, printed_solid, to_manifold, to_trimesh
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SHIPPED_YAML = REPO_ROOT / "scripts" / "markers_generate.yaml"
@@ -54,6 +62,10 @@ LAND_TOL_MM = 0.4
 MIN_LAND_SPREAD_MM = 15.0
 PROFILE_STEP_MM = 0.5
 LAND_SAMPLES = 200000  # moving jaw surface samples, ~10 per mm2 of face over the channel
+CLAMP_CLEARANCE_MM = 0.15  # user decision 282: print allowance on each clamp face
+ALLOWANCE_TOL_MM = 0.02
+COLUMN_MM = 0.2  # half-size of the vertical probe column through the handle
+VOLUME_REL_TOL = 0.02
 
 
 @pytest.fixture(scope="module")
@@ -123,19 +135,27 @@ def mesh_in_gripper_link(meta: dict[str, Any]) -> np.ndarray:
     )
 
 
-def seated_handle(meta: dict[str, Any], bodies: tuple[trimesh.Trimesh, trimesh.Trimesh]) -> trimesh.Trimesh:
-    """The handle part of the printed solid moved into gripper_link with handle_in_board.
+def seated_handle(
+    meta: dict[str, Any], bodies: tuple[trimesh.Trimesh, trimesh.Trimesh], nominal: bool = True
+) -> trimesh.Trimesh:
+    """The handle part of the nominal (as grown after printing) or the printed solid moved into gripper_link with
+    handle_in_board.
 
     The solid is cut at mesh y = HANDLE_CUT_MM (capped, watertight), so surface samples are dense where the jaws are.
 
     Args:
         meta (dict[str, Any]): Board metadata.
         bodies (tuple[trimesh.Trimesh, trimesh.Trimesh]): (base, modules).
+        nominal (bool): True for the nominal solid (clamp faces grown back by clamp_clearance_mm), False for the
+            printed solid as exported.
 
     Returns:
         trimesh.Trimesh: The seated handle (mm, gripper_link).
     """
     solid = printed_solid(*bodies)
+    if nominal:
+        assert ARM.handle is not None
+        solid = nominal_solid(solid, ARM.handle, ARM.plate_mm)
     handle = trimesh.intersections.slice_mesh_plane(solid, (0.0, -1.0, 0.0), (0.0, HANDLE_CUT_MM, 0.0), cap=True)
     return handle.apply_transform(mesh_in_gripper_link(meta))
 
@@ -244,6 +264,8 @@ def client_node(name: str) -> dict[str, Any]:
         ({"channel_end_mm": 1.0}, "channel_end_mm"),
         ({"thickness_end_mm": 1.0}, "thickness_end_mm"),
         ({"squeeze_rad": 0.03}, "squeeze_rad"),
+        ({"clamp_clearance_mm": -0.01}, "clamp_clearance_mm"),
+        ({"clamp_clearance_mm": 0.31}, "clamp_clearance_mm"),
         ({"bogus": 1}, "bogus"),
     ],
 )
@@ -334,7 +356,8 @@ def test_handle_dimensions_follow_the_spec(arm_bodies: tuple[trimesh.Trimesh, tr
 def test_seated_handle_touches_both_jaws_without_penetration(
     arm_metadata: dict[str, Any], arm_bodies: tuple[trimesh.Trimesh, trimesh.Trimesh]
 ) -> None:
-    """Both directions of penetration (penetration_mm only tests `other` inside `solid`) and contact on both jaws.
+    """Both directions of penetration (penetration_mm only tests `other` inside `solid`) and contact on both jaws,
+    on the nominal surfaces (the printed solid with its clamp faces grown back, user decision 283).
 
     contact_angle_rad bisects to the angle where the jaw penetration is CONTACT_TOL_MM to float precision, and the
     pose read back from the JSON (rpy of +-pi/2, cos(pi/2) = 6e-17) moves the handle by ~1e-14 mm, so the
@@ -374,7 +397,10 @@ def test_top_plane_bears_on_the_moving_jaw_lands(arm_metadata: dict[str, Any]) -
     over_channel = np.abs(points[:, 0] - ARM.plate_mm[0] / 2) <= h.channel_tip_mm / 2
     keep = over_channel & (grip_depth >= 0.0) & (grip_depth <= h.length_mm)
     points, grip_depth = points[keep], grip_depth[keep]
-    top = h.thickness_tip_mm + (h.thickness_end_mm - h.thickness_tip_mm) * grip_depth / h.length_mm
+    # nominal top plane: the nominal bed face lies clamp_clearance_mm below the printed one (mesh z = -c)
+    top = (
+        h.thickness_tip_mm + (h.thickness_end_mm - h.thickness_tip_mm) * grip_depth / h.length_mm
+    ) - h.clamp_clearance_mm
     bins = np.floor(grip_depth / PROFILE_STEP_MM).astype(int)
     depths = np.unique(bins)
     margins_mm = np.array([float((points[bins == b, 2] - top[bins == b]).min()) for b in depths])
@@ -453,3 +479,109 @@ def test_tool_offset_is_the_mcp_server_tool_point() -> None:
 def test_handle_solid_is_a_manifold() -> None:
     assert ARM.handle is not None
     assert isinstance(handle_solid(ARM.handle, ARM.plate_mm), Manifold)
+
+
+def column_z(solid: Manifold, x: float, y: float) -> tuple[float, float]:
+    """Lowest and highest z of a solid inside a thin vertical column.
+
+    Args:
+        solid (Manifold): The solid (mm).
+        x (float): Column centre x (mm).
+        y (float): Column centre y (mm).
+
+    Returns:
+        tuple[float, float]: (z min, z max) of the material in the column (mm).
+    """
+    column = box(x - COLUMN_MM, y - COLUMN_MM, -10.0, x + COLUMN_MM, y + COLUMN_MM, 100.0)
+    lo, hi = to_trimesh(solid ^ column).bounds
+    return float(lo[2]), float(hi[2])
+
+
+def test_shipped_clamp_clearance_is_the_user_allowance() -> None:
+    assert ARM.handle is not None
+    assert ARM.handle.clamp_clearance_mm == CLAMP_CLEARANCE_MM
+    assert HandleSpec.model_fields["clamp_clearance_mm"].default == CLAMP_CLEARANCE_MM
+
+
+def test_printed_grip_is_thinner_at_the_clamp_faces_only() -> None:
+    """The printed grip loses clamp_clearance_mm at the bed face and at the channel floor; the rails, the channel
+    walls and the shoulder block are the nominal ones."""
+    h = ARM.handle
+    assert h is not None
+    c = h.clamp_clearance_mm
+    printed = handle_solid(h, ARM.plate_mm)
+    nominal = handle_solid(h, ARM.plate_mm, nominal=True)
+    centre = ARM.plate_mm[0] / 2
+    for depth in (2.0, h.length_mm / 2, h.length_mm - 2.0):
+        y = -h.neck_mm - depth
+        p_lo, p_hi = column_z(printed, centre, y)
+        n_lo, n_hi = column_z(nominal, centre, y)
+        assert p_lo == pytest.approx(0.0, abs=1e-3)
+        assert p_lo - n_lo == pytest.approx(c, abs=ALLOWANCE_TOL_MM)
+        assert n_hi - p_hi == pytest.approx(c, abs=ALLOWANCE_TOL_MM)
+        assert (n_hi - n_lo) - (p_hi - p_lo) == pytest.approx(2 * c, abs=ALLOWANCE_TOL_MM)
+        rail_x = centre + h.channel_end_mm / 2 + h.rail_width_mm / 2
+        assert column_z(printed, rail_x, y)[1] == pytest.approx(column_z(nominal, rail_x, y)[1], abs=1e-3)
+    assert (printed - nominal).volume() == pytest.approx(0.0, abs=1e-3)
+    shoulder = box(centre - h.width_mm, -h.neck_mm, -10.0, centre + h.width_mm, 0.0, 100.0)
+    assert (printed ^ shoulder).volume() == pytest.approx((nominal ^ shoulder).volume(), abs=1e-3)
+    channel_area = (h.channel_tip_mm + h.channel_end_mm) / 2 * h.length_mm
+    expected = c * h.width_mm * h.length_mm + c * channel_area
+    assert (nominal - printed).volume() == pytest.approx(expected, rel=VOLUME_REL_TOL)
+    above = box(centre - h.width_mm, -h.extent_mm - 1.0, h.thickness_end_mm, centre + h.width_mm, 0.0, 100.0)
+    assert (printed ^ above).volume() == pytest.approx((nominal ^ above).volume(), abs=1e-3)
+
+
+def test_nominal_solid_adds_the_clamp_allowance(arm_bodies: tuple[trimesh.Trimesh, trimesh.Trimesh]) -> None:
+    h = ARM.handle
+    assert h is not None
+    solid = printed_solid(*arm_bodies)
+    grown = nominal_solid(solid, h, ARM.plate_mm)
+    allowance = handle_solid(h, ARM.plate_mm, nominal=True) - handle_solid(h, ARM.plate_mm)
+    assert grown.is_watertight
+    assert grown.volume == pytest.approx(solid.volume + allowance.volume(), rel=1e-6)
+    assert grown.bounds[0][2] == pytest.approx(-h.clamp_clearance_mm, abs=1e-3)
+    assert (to_manifold(solid) - to_manifold(grown)).volume() == pytest.approx(0.0, abs=1e-3)
+
+
+def test_printed_handle_clears_both_jaws_at_the_nominal_contact(
+    arm_metadata: dict[str, Any], arm_bodies: tuple[trimesh.Trimesh, trimesh.Trimesh]
+) -> None:
+    """At the nominal seat and contact angle the printed (thinner) handle stands off each jaw by clamp_clearance_mm.
+
+    On the moving jaw the nominal contact itself is found to within CONTACT_TOL_MM of penetration, so the printed
+    gap there lies between c - CONTACT_TOL_MM and c (plus ALLOWANCE_TOL_MM either way).
+    """
+    c = ARM.handle.clamp_clearance_mm  # type: ignore[union-attr]
+    handle = seated_handle(arm_metadata, arm_bodies, nominal=False)
+    moving = moving_jaw(GRIPPER, arm_metadata["grip"]["contact_rad"])
+    assert clearance_mm(handle, GRIPPER.fixed) == pytest.approx(c, abs=ALLOWANCE_TOL_MM)
+    assert c - CONTACT_TOL_MM - ALLOWANCE_TOL_MM <= clearance_mm(handle, moving) <= c + ALLOWANCE_TOL_MM
+    for jaw in (GRIPPER.fixed, moving):
+        assert penetration_mm(handle, jaw) == 0.0
+        assert penetration_mm(jaw, handle) == 0.0
+
+
+def test_squeeze_closes_past_the_modelled_contact_on_an_exact_print(arm_metadata: dict[str, Any]) -> None:
+    """An exact (not grown) print is 2 c thinner: pressed on the fixed jaw, the moving jaw first touches it at
+    modelled_contact_rad, further closed (a smaller angle) than the nominal contact. The commanded grip still closes
+    past it."""
+    grip = arm_metadata["grip"]
+    assert grip["clearance_clamp_mm"] == ARM.handle.clamp_clearance_mm  # type: ignore[union-attr]
+    assert grip["grip_rad"] < grip["modelled_contact_rad"] < grip["contact_rad"]
+
+
+def test_printed_contact_rad_seats_the_print_on_the_fixed_jaw(
+    arm_metadata: dict[str, Any], arm_bodies: tuple[trimesh.Trimesh, trimesh.Trimesh]
+) -> None:
+    h = ARM.handle
+    assert h is not None
+    solid = printed_solid(*arm_bodies)
+    contact = printed_contact_rad(GRIPPER, solid, h, mesh_in_gripper_link(arm_metadata))
+    assert contact == pytest.approx(arm_metadata["grip"]["modelled_contact_rad"], abs=1e-6)
+    pressed = mesh_in_gripper_link(arm_metadata)
+    pressed[:3, 3] -= np.asarray(OPEN_AXIS) * h.clamp_clearance_mm  # bed face onto the fixed jaw
+    handle = trimesh.intersections.slice_mesh_plane(solid, (0.0, -1.0, 0.0), (0.0, HANDLE_CUT_MM, 0.0), cap=True)
+    handle.apply_transform(pressed)
+    assert clearance_mm(handle, GRIPPER.fixed) <= CONTACT_TOL_MM
+    assert penetration_mm(handle, GRIPPER.fixed) <= CONTACT_TOL_MM

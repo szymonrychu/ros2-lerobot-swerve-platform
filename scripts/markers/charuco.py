@@ -14,7 +14,7 @@ from pydantic import Field, field_validator, model_validator
 from ros2_common.head_rgbd_calibration.chain import xyz_rpy_from_pose
 from ros2_common.head_rgbd_calibration.config import BoardConfig
 
-from scripts.markers.handle import HandleSpec, board_in_mesh, face_down, handle_solid, seat
+from scripts.markers.handle import HandleSpec, board_in_mesh, face_down, handle_solid, printed_contact_rad, seat
 from scripts.markers.jaw_fit import Gripper
 from scripts.markers.mesh import mask_bodies, print_violations, printed_solid, to_manifold, to_trimesh, write_bodies
 from scripts.markers.models import OUTPUT_FORMATS, PageSpec, StlOptions, StrictModel
@@ -224,14 +224,18 @@ def board_metadata(
         dict[str, Any]: name, board (BoardConfig dump), plate_mm, volume_cm3, mass_g; handle_in_board
         (gripper_link_xyz_m and gripper_link_rpy_rad: gripper_link in the board frame; tool_point_m: the handle
         tool_offset_m point in the board frame); board_mount (xyz_init, rpy_init: the board frame in gripper_link,
-        m and rad); grip (contact_rad, squeeze_rad, grip_rad = contact_rad - squeeze_rad).
+        m and rad); grip (contact_rad: on the nominal handle surfaces, squeeze_rad, grip_rad = contact_rad -
+        squeeze_rad, clearance_clamp_mm: the print allowance on each clamp face, modelled_contact_rad: the contact on
+        the printed, thinner solid pressed on the fixed jaw).
 
     Raises:
         ValueError: When the spec has no handle or the seat fails.
     """
     if spec.handle is None:
         raise ValueError(f"board {spec.name} has no handle")
-    mesh_pose, contact = seat(gripper, printed_solid(base, modules), spec.handle, spec.plate_mm)
+    solid = printed_solid(base, modules)
+    mesh_pose, contact = seat(gripper, solid, spec.handle, spec.plate_mm)
+    modelled = printed_contact_rad(gripper, solid, spec.handle, mesh_pose)
     board_pose = mesh_pose @ board_in_mesh(spec.plate_mm, spec.margin_mm, spec.pattern_face, spec.thickness_mm)
     board_pose[:3, 3] /= MM_PER_M
     gripper_in_board = np.linalg.inv(board_pose)
@@ -257,6 +261,8 @@ def board_metadata(
             "contact_rad": float(contact),
             "squeeze_rad": spec.handle.squeeze_rad,
             "grip_rad": float(contact - spec.handle.squeeze_rad),
+            "clearance_clamp_mm": spec.handle.clamp_clearance_mm,
+            "modelled_contact_rad": float(modelled),
         },
     }
 
