@@ -8,13 +8,15 @@ with `fit.joint_offsets_rad`.
 
 The home pose the sequence starts from is `HOME_POSE`: `scripts/gen_nav_footprint.yaml` `parked_arm_joints`, the
 repo record of the home that mcp_server's `arm.home_file` (/var/lib/ros2/arm/home.yaml) holds and `arm_home` parks
-at. The board mount is the user's hand-measured mount (2026-10-23), not yet fit-solved (design D47): the safety tests
-use the board margin `margin_m + provisional_margin_m` and the mount shifted by +-1 cm and turned by +-5 deg about each
+at. The board is the ARM board on its paddle handle, mounted at the handle CAD seed (markers/charuco-arm-6x5-28mm.json),
+not yet fit-solved (design D47): the safety tests check the plate plus its ribs and handle (`board_mount.back_boxes_mm`)
+with the board margin `margin_m + provisional_margin_m` and the mount shifted by +-1 cm and turned by +-5 deg about each
 gripper axis. The camera is the head D435 colour camera (`d435_color_optical_frame`) with the nominal 640x360
 intrinsics (69 deg across, the datasheet colour FOV); the factory camera_info replaces them at run time.
 """
 
 import importlib.util
+import json
 import math
 import sys
 import xml.etree.ElementTree as ET
@@ -31,7 +33,7 @@ from ros2_common.camera_geometry import CameraIntrinsics
 from ros2_common.head_rgbd_calibration.arm_pose_check import FOV_RULE, MIN_Z_RULE, PoseChecker
 from ros2_common.head_rgbd_calibration.chain import UrdfChain, pose_from_xyz_rpy, xyz_rpy_from_pose
 from ros2_common.head_rgbd_calibration.charuco import board_corners_3d
-from ros2_common.head_rgbd_calibration.config import ARM_JOINT_NAMES, BoardMountConfig, HeadArmFitConfig
+from ros2_common.head_rgbd_calibration.config import ARM_BOARD, ARM_JOINT_NAMES, BoardMountConfig, HeadArmFitConfig
 from ros2_common.head_rgbd_calibration.floor_fit import PARAM_NAMES as FLOOR_PARAMS
 from ros2_common.head_rgbd_calibration.head_arm_fit import (
     aim_head,
@@ -42,7 +44,7 @@ from ros2_common.head_rgbd_calibration.head_arm_fit import (
     start_params,
 )
 
-from head_rgbd_calibration.config import ArmSequenceConfig, NodeConfig, load_config
+from head_rgbd_calibration.config import ArmSequenceConfig, load_config
 
 NODE_DIR = Path(__file__).resolve().parents[1]
 REPO_ROOT = NODE_DIR.parents[1]
@@ -57,13 +59,6 @@ MEASURED_SPACE_PHRASE = (
 )
 WIDENED_TILT_RAD = (-0.5236, 0.7854)  # -30..+45 deg, the reprinted mount's range (head-tilt-range-widened)
 CLIENT_YML = REPO_ROOT / "ansible" / "group_vars" / "client.yml"
-MOUNT_MEASURED_NOTE = "measured by the user"
-TOOL_AXIS = np.array([0.0, 0.0, -1.0])  # tool direction in gripper_link (gripper_frame_joint lies along -z)
-MEASURED_STANDOFF_M = 0.02  # board plane past the URDF tool point along the tool axis
-MEASURED_CENTRE_ABOVE_AXIS_M = (0.11, 0.13)  # board centre above the tool axis on the side up when parked
-BOARD_OUTER_HEIGHT_M = 0.21  # printed sheet with its margins (models/charuco-6x5-40mm)
-MAX_LOWER_EDGE_ABOVE_AXIS_M = 0.03
-MOUNT_TOLERANCE_M = 0.002
 MOUNT_SHIFT_M = 0.01
 MOUNT_TURN_DEG = 5.0
 MIN_VISIBLE_CORNERS = 12
@@ -240,46 +235,19 @@ def test_home_pose_is_the_parked_arm() -> None:
     assert home_file in FOOTPRINT_YAML.read_text()
 
 
-def park_up_in_gripper() -> np.ndarray:
-    """Unit vector in gripper_link, normal to the tool axis, that points up (base_link +z) at the parked arm."""
-    gripper = UrdfChain.from_text(ARM_URDF).transform("gripper_link", HOME_POSE, offsets=FIT.joint_offsets_rad)
-    up = gripper[:3, :3].T @ np.array([0.0, 0.0, 1.0])  # the arm base is only yawed in base_link
-    up -= (up @ TOOL_AXIS) * TOOL_AXIS
-    return up / np.linalg.norm(up)
-
-
-def test_board_mount_is_the_measured_mount() -> None:
-    """The user's mount (2026-10-23): the board on a stick in the closed gripper, its plane across the tool axis
-    2 cm past the URDF tool point, the print toward the arm, the long edges level and the board above the tool axis
-    when parked, its centre half the 210 mm sheet height plus the stick offset above the axis."""
-    tool_xyz, _ = UrdfChain.from_text(ARM_URDF).origin("gripper_frame_joint")
-    assert tool_xyz == pytest.approx(SYN.TOOL_POINT, abs=EPS)
-    up = park_up_in_gripper()
-    assert abs(up @ np.array([0.0, 1.0, 0.0])) > 0.9  # parked unrolled: gripper_link +y is (about) up
+def test_board_mount_is_the_handle_cad_mount() -> None:
+    """The ARM board on its paddle handle in the closed gripper: the CAD seed of the handle metadata, the board normal
+    along the jaw opening axis and board y against the tool direction; both yamls name the handle CAD."""
+    meta = json.loads((REPO_ROOT / "markers" / "charuco-arm-6x5-28mm.json").read_text())
+    assert FIT.board == ARM_BOARD
+    assert FIT.board_mount.xyz_init == pytest.approx(meta["board_mount"]["xyz_init"], abs=1e-6)
     mount = pose_from_xyz_rpy(FIT.board_mount.xyz_init, FIT.board_mount.rpy_init)
-    centre = (mount @ np.append(board_centre(FIT.board), 1.0))[:3] - np.array(tool_xyz)
-    assert centre @ TOOL_AXIS == pytest.approx(MEASURED_STANDOFF_M, abs=MOUNT_TOLERANCE_M)
-    assert MEASURED_CENTRE_ABOVE_AXIS_M[0] <= centre @ up <= MEASURED_CENTRE_ABOVE_AXIS_M[1]
-    assert centre @ np.cross(TOOL_AXIS, up) == pytest.approx(
-        0.0, abs=MOUNT_TOLERANCE_M
-    )  # stick at the long edge middle
-    assert 0.0 < centre @ up - BOARD_OUTER_HEIGHT_M / 2 <= MAX_LOWER_EDGE_ABOVE_AXIS_M  # lower edge just above the jaw
-    # Board z (into the board) along the tool direction: the print faces back toward the arm and the head.
-    assert mount[:3, 2] == pytest.approx(TOOL_AXIS, abs=1e-6)
-    assert mount[:3, 0] @ up == pytest.approx(0.0, abs=1e-6)  # the long (6-square) edges level when parked
-    assert mount[:3, 1] @ up == pytest.approx(-1.0, abs=1e-6)  # board y (image down) points down when parked
-    checker = PoseChecker(ARM_URDF, SHIPPED_HEAD, FIT, SEQ.pose_check)
-    tool_in_base = checker.link_poses(HOME_POSE)["gripper_link"] @ np.append(tool_xyz, 1.0)
-    assert board_centre_in_base(checker, HOME_POSE)[2] - tool_in_base[2] >= MEASURED_CENTRE_ABOVE_AXIS_M[0] - 0.01
-    xyz, rpy = SYN.measured_board_mount(FIT, HOME_POSE)
-    assert FIT.board_mount.xyz_init == pytest.approx(xyz, abs=1e-4)
-    assert FIT.board_mount.rpy_init == pytest.approx(rpy, abs=1e-6)
-    assert NodeConfig().fit.board_mount == FIT.board_mount
+    assert mount[:3, 2] == pytest.approx([1.0, 0.0, 0.0], abs=1e-6)  # board z along the jaw opening axis
+    assert mount[:3, 1] == pytest.approx([0.0, 0.0, 1.0], abs=1e-6)  # board y against the tool direction
     for path in (SHIPPED_YAML, CLIENT_YML):
         text = path.read_text()
-        mount_block = text[text.index("  board_mount:") : text.index("  limits: # acceptance limits of the fit")]
-        assert MOUNT_MEASURED_NOTE in mount_block, path
-        assert "jaw-geometry" not in mount_block, path
+        block = text[text.index("  board_mount:") : text.index("  limits: # acceptance limits of the fit")]
+        assert "charuco-arm-6x5-28mm.json" in block and "measured by the user" not in block, path
 
 
 def test_tier_rules_hold_for_shipped_set() -> None:
@@ -287,7 +255,7 @@ def test_tier_rules_hold_for_shipped_set() -> None:
     assert len(SEQ.tier0_poses) >= MIN_TIER0
     assert len(SEQ.tier1_poses) >= MIN_TIER1
     assert len(SEQ.tier2_poses) >= MIN_TIER2
-    assert SEQ.gripper_rad <= SEQ.pose_check.max_roll_gripper_rad
+    assert SEQ.insert_gripper_rad <= SEQ.pose_check.max_roll_gripper_rad
     base = SEQ.base_pose
     for tier, allowed in ((0, {WRIST_ROLL}), (1, {WRIST_ROLL, WRIST_FLEX}), (2, {WRIST_ROLL, WRIST_FLEX, *BIG_JOINTS})):
         for index, pose in enumerate(getattr(SEQ, f"tier{tier}_poses")):
@@ -324,8 +292,10 @@ def sequence_failures(head_urdf: str, mounts: Iterable[tuple[str, BoardMountConf
     for mount, checker in checkers(head_urdf, mounts):
         for (name_a, a), (name_b, b) in zip(steps, steps[1:], strict=False):
             rolling = b[WRIST_ROLL] != a[WRIST_ROLL]
-            failures += [f"{mount} {name_b}: {e}" for e in checker.check_pose(b, SEQ.gripper_rad, rolling)]
-            failures += [f"{mount} {name_a} -> {name_b}: {e}" for e in checker.check_path(a, b, SEQ.gripper_rad)]
+            # The base move opens the gripper for the handle; every later move holds it closed on the handle.
+            gripper = SEQ.insert_gripper_rad if name_a == "home" else SEQ.grip_rad
+            failures += [f"{mount} {name_b}: {e}" for e in checker.check_pose(b, gripper, rolling)]
+            failures += [f"{mount} {name_a} -> {name_b}: {e}" for e in checker.check_path(a, b, gripper)]
     return failures
 
 
@@ -357,21 +327,8 @@ def test_safety_check_refuses_a_pose_the_tier_rules_allow() -> None:
     }
     ArmSequenceConfig.model_validate({**SEQ.model_dump(), "tier2_poses": [*SEQ.tier2_poses, pose]})
     _, checker = next(checkers(SHIPPED_HEAD, [("nominal", FIT.board_mount)]))
-    entries = checker.check_pose(pose, SEQ.gripper_rad, rolling=False)
+    entries = checker.check_pose(pose, SEQ.grip_rad, rolling=False)
     assert any(e.startswith("min_board_height_m") for e in entries), entries
-
-
-def test_measured_mount_refuses_a_low_pose_rolled_toward_the_floor() -> None:
-    """The measured board hangs 0.12 m off the tool axis, so a low tier-2 pose rolled +0.8 rad (the jaw-mount set's
-    tier 2 pose 3) swings it below min_board_height_m; the shipped set rolls that pose the other way."""
-    pose = {"shoulder_pan": -0.42, "shoulder_lift": 0.6, "elbow_flex": 0.15, "wrist_flex": -0.85, "wrist_roll": 0.8}
-    _, checker = next(checkers(SHIPPED_HEAD, [("nominal", FIT.board_mount)]))
-    entries = checker.check_pose(pose, SEQ.gripper_rad, rolling=False)
-    assert any(e.startswith("min_board_height_m") for e in entries), entries
-    assert pose not in set_poses()
-    fixed = {**pose, "wrist_roll": -0.2}
-    assert fixed in SEQ.tier2_poses
-    assert checker.check_pose(fixed, SEQ.gripper_rad, rolling=False) == []
 
 
 def test_tier2_shoulder_pan_stays_in_the_clear_band() -> None:
@@ -402,7 +359,7 @@ def test_base_pose_puts_the_board_in_front_of_the_head() -> None:
         pan, tilt = aim_head(chain, centre)
         distance = float(np.linalg.norm(centre - camera_pose(chain, {PAN: pan, TILT: tilt})[:3, 3]))
         assert BASE_MIN_DISTANCE_M <= distance <= BASE_MAX_DISTANCE_M, (head_name, distance)
-        assert checker.check_pose(SEQ.base_pose, SEQ.gripper_rad, rolling=False) == [], head_name
+        assert checker.check_pose(SEQ.base_pose, SEQ.grip_rad, rolling=False) == [], head_name
 
 
 @pytest.mark.parametrize("head_name", list(HEADS))
@@ -494,7 +451,7 @@ def test_synthetic_fit_on_shipped_set_passes(head_name: str) -> None:
     floor = {name: start[name] for name in FLOOR_PARAMS}
     if head_name == "applied":
         assert floor == pytest.approx(SYN.APPLIED_FLOOR)
-    truth = SYN.synth_truth(head_urdf, cfg=FIT, mount=SYN.measured_board_mount(FIT, HOME_POSE))
+    truth = SYN.synth_truth(head_urdf, cfg=FIT, mount=(FIT.board_mount.xyz_init, FIT.board_mount.rpy_init))
     start_xyz, start_rpy = SYN.perturbed_board_mount(
         FIT.board_mount.xyz_init, FIT.board_mount.rpy_init, SYN.MOUNT_INIT_SHIFT_M, SYN.MOUNT_INIT_TURN_DEG
     )

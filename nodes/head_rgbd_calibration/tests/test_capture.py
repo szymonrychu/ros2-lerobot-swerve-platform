@@ -12,6 +12,7 @@ import cv2
 import numpy as np
 import pytest
 from rclpy.qos import HistoryPolicy, ReliabilityPolicy
+from ros2_common.head_rgbd_calibration.config import ARM_BOARD
 from sensor_msgs.msg import CameraInfo, CompressedImage, Image, JointState
 
 from head_rgbd_calibration.capture import (
@@ -586,7 +587,7 @@ def feed_still(
     """Feed the colour camera_info, 4 RGB frames at 2 Hz and joint samples at 50 Hz around them; returns the newest
     frame stamp."""
     if rgb_jpeg is None:
-        frame, _ = synthetic_view(NEAR_M, 1)
+        frame, _ = synthetic_view(NEAR_M, 1, ARM_BOARD.name)  # a still session detects the fit board, the ARM board
         rgb_jpeg = jpeg(frame)
     if send_info:
         node.subscription(INFO_TOPIC).callback(camera_info_msg())

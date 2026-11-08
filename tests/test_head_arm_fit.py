@@ -203,7 +203,7 @@ def test_noiseless_recovery_exact() -> None:
         assert result.params[name] == pytest.approx(want[name], abs=1e-6), name
     np.testing.assert_allclose(
         pose_from_xyz_rpy(result.board_mount["xyz"], result.board_mount["rpy"]),
-        pose_from_xyz_rpy(*nominal_board_mount(HeadArmFitConfig())),
+        pose_from_xyz_rpy(*nominal_board_mount(synth_fit_config())),  # the scene's 40 mm board
         atol=1e-6,
     )
 
