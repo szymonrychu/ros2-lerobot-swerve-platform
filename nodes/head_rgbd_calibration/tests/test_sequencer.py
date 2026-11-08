@@ -34,6 +34,7 @@ from head_rgbd_calibration.robot_client import RawToolResult, RobotClient
 from head_rgbd_calibration.sequencer import (
     HOLDING,
     IDLE,
+    MESSAGE_UNSEATED,
     WAITING_BIG_JOINTS,
     WAITING_BOARD,
     Busy,
@@ -79,9 +80,14 @@ COLOR_FRAME = "d435_color_optical_frame"
 MIN_Z_REASON = "inside D435 min-Z"
 FOV_REASON = "outside colour FOV"
 MIN_DEPTH_M = 0.20  # D435 min-Z at 640x360 (0.15 m) plus the 0.05 m margin
-# A tier-2 pose (within the tier bounds and clear by the pose check) that lifts the board to 0.17-0.18 m in front of
-# the D435 at every head offset, the head within its limits.
-NEAR_POSE = {"shoulder_pan": -0.43, "shoulder_lift": -0.03, "elbow_flex": 0.33, "wrist_flex": -0.88, "wrist_roll": -0.1}
+MIN_Z_M = (
+    0.22  # d435_min_z_m of the near-pose test (shipped 0.15 m): the CAD handle mount keeps the board 0.25 m or more
+)
+# from the D435 at every pose within the tier bounds and the head tilt limit, so that test raises the min-Z instead
+NEAR_MIN_DEPTH_M = MIN_Z_M + 0.05
+# A tier-2 pose (within the tier bounds) that puts the board 0.25 m in front of the D435 at every head offset, the head
+# within its limits: inside the NEAR_MIN_DEPTH_M limit above.
+NEAR_POSE = {"shoulder_pan": -0.47, "shoulder_lift": 0.15, "elbow_flex": 0.0, "wrist_flex": -0.8, "wrist_roll": -0.5}
 WIDE_K = np.array([[100.0, 0.0, 320.0], [0.0, 100.0, 180.0], [0.0, 0.0, 1.0]])  # 145 deg across 640 px
 D435_FOCAL_PX = 320.0 / math.tan(math.radians(69.0 / 2))  # nominal D435 colour, 69 deg across 640 px
 D435_K = np.array([[D435_FOCAL_PX, 0.0, 320.0], [0.0, D435_FOCAL_PX, 180.0], [0.0, 0.0, 1.0]])
@@ -120,6 +126,8 @@ class FakeRobot:
         measured: Overrides the measured positions get_arm_state reports (None: the commanded ones).
         carrying: Reasons get_control_state reports in arm.carrying (empty: not carrying).
         reset_arm: reset.arm of a park release.
+        jaw_after_close: Gripper angle get_arm_state reports after the gripper-only handle close (None: the gripper is
+            not reported after it).
     """
 
     def __init__(self, log: list[tuple[str, str, dict[str, Any]]]) -> None:
@@ -132,6 +140,7 @@ class FakeRobot:
         self.measured: dict[str, float] | None = None
         self.carrying: list[str] = []
         self.reset_arm = "homed"
+        self.jaw_after_close: float | None = NodeConfig().arm_sequence.handle_contact_rad  # the jaw stops on the handle
 
     def count(self, name: str) -> int:
         return sum(1 for called, _ in self.calls if called == name)
@@ -155,6 +164,11 @@ class FakeRobot:
             status = self.move_status.get(number, "converged")
             if status == "converged":
                 self.positions.update(args["targets"])
+                if set(args["targets"]) == {GRIPPER}:  # the handle close: the jaw stops where the handle is
+                    if self.jaw_after_close is None:
+                        self.positions.pop(GRIPPER)
+                    else:
+                        self.positions[GRIPPER] = self.jaw_after_close
             message = "" if status == "converged" else "not converged (error 0.200 rad); holding measured pose"
             return RawToolResult(False, "ok", {"status": status, "message": message, "positions": self.positions})
         if name == "set_head_angles":
@@ -283,6 +297,17 @@ class Rig:
         assert not state["running"]
         return state
 
+    def run_to_capture(self, jaw_after_close: float | None) -> None:
+        """Run to the board confirm, press Board attached with the jaw reporting `jaw_after_close` after the close.
+
+        Args:
+            jaw_after_close: Gripper angle (rad, or None for not reported) get_arm_state reports after the close.
+        """
+        self.robot.jaw_after_close = jaw_after_close
+        self.seq.move_to_base(confirmed=True)
+        self.wait_phase(WAITING_BOARD)
+        self.seq.board_attached()
+
     def run_to_holding(self, allow: bool = True) -> dict[str, Any]:
         self.seq.move_to_base(confirmed=True)
         self.wait_phase(WAITING_BOARD)
@@ -350,11 +375,13 @@ def test_full_run_call_order(tmp_path: Path) -> None:
     rig.seq.move_to_base(confirmed=True)
     state = rig.wait_phase(WAITING_BOARD)
     assert state["running"] is True
-    assert "Clip the board to the fixed jaw, then press Board attached" in state["status"]
+    assert (
+        "Seat the arm board handle in the gripper jaws up to the shoulder, then press Board attached" in state["status"]
+    )
     assert state["waiting_since"] is not None
     assert rig.names() == ["take_control", "get_arm_state", "move_arm_joints"]
     assert rig.robot.named("move_arm_joints")[0] == {
-        "targets": {**seq_cfg.base_pose, GRIPPER: seq_cfg.gripper_rad},
+        "targets": {**seq_cfg.base_pose, GRIPPER: seq_cfg.insert_gripper_rad},
         "speed_scale": seq_cfg.speed_scale,
     }
     assert rig.capture.sessions == []
@@ -371,7 +398,15 @@ def test_full_run_call_order(tmp_path: Path) -> None:
 
     poses = tier_poses(cfg)
     offsets = seq_cfg.head_offsets_deg
-    expected: list[str] = ["take_control", "get_arm_state", "move_arm_joints", "start_still_session"]
+    expected: list[str] = [
+        "take_control",
+        "get_arm_state",
+        "move_arm_joints",
+        "get_arm_state",
+        "move_arm_joints",
+        "get_arm_state",
+        "start_still_session",
+    ]
     for _ in poses:
         expected += ["get_arm_state", "move_arm_joints", "get_arm_state"]
         expected += ["set_head_angles", "capture_still"] * len(offsets)
@@ -379,7 +414,8 @@ def test_full_run_call_order(tmp_path: Path) -> None:
     assert rig.names() == expected
     assert rig.capture.sessions == [None]
     moves = rig.robot.named("move_arm_joints")
-    assert [m["targets"] for m in moves[1:-1]] == [pose for _, pose in poses]
+    assert moves[1] == {"targets": {GRIPPER: pytest.approx(seq_cfg.grip_rad)}, "speed_scale": seq_cfg.speed_scale}
+    assert [m["targets"] for m in moves[2:-1]] == [pose for _, pose in poses]
     assert moves[-1]["targets"] == seq_cfg.base_pose
     assert all(m["speed_scale"] == seq_cfg.speed_scale for m in moves)
     assert rig.robot.named("release_control") == [{"subsystem": "arm", "keep_position": True}]
@@ -424,13 +460,50 @@ def test_big_joints_need_confirm(tmp_path: Path, allow: bool) -> None:
         assert "tier 2 skipped" in state["status"]
 
 
-def test_gripper_only_in_base_move(tmp_path: Path) -> None:
+def test_gripper_opens_at_base_and_closes_on_the_handle(tmp_path: Path) -> None:
     rig = Rig(tmp_path, small_cfg())
+    seq = rig.cfg.arm_sequence
     rig.run_to_holding()
-    moves = rig.robot.named("move_arm_joints")
-    assert len(moves) > 2
-    assert moves[0]["targets"][GRIPPER] == rig.cfg.arm_sequence.gripper_rad
-    assert all(GRIPPER not in m["targets"] for m in moves[1:])
+    moves = [m["targets"] for m in rig.robot.named("move_arm_joints")]
+    assert len(moves) > 3
+    assert moves[0][GRIPPER] == seq.insert_gripper_rad
+    assert moves[1] == {GRIPPER: pytest.approx(seq.grip_rad)}
+    assert all(GRIPPER not in m for m in moves[2:])
+
+
+def test_unseated_handle_stops_the_sequence(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, small_cfg())
+    seq = rig.cfg.arm_sequence
+    rig.run_to_capture(jaw_after_close=seq.grip_rad)  # the jaw closed past the contact: nothing in it
+    state = rig.finish()
+    assert MESSAGE_UNSEATED in state["error"]
+    assert f"{seq.grip_rad:.4f}" in state["error"]
+    assert rig.robot.calls[-1] == ("release_control", {"subsystem": "arm", "keep_position": True})
+    assert rig.capture.sessions == [] and rig.capture.stills == []
+    assert rig.robot.count("move_arm_joints") == 2
+
+
+def test_handle_close_at_the_unseated_threshold(tmp_path: Path) -> None:
+    seq = small_cfg().arm_sequence
+    limit = seq.handle_contact_rad - seq.handle_squeeze_rad / 2
+    rig = Rig(tmp_path, small_cfg())
+    rig.run_to_capture(jaw_after_close=limit + 1e-3)  # a seated handle with the gripper zero offset of the real arm
+    rig.wait_phase(WAITING_BIG_JOINTS)
+    rig.seq.stop()
+    rig.finish()
+    assert rig.capture.sessions == [None]
+    rig = Rig(tmp_path, small_cfg())
+    rig.run_to_capture(jaw_after_close=limit - 1e-3)
+    assert MESSAGE_UNSEATED in rig.finish()["error"]
+
+
+def test_handle_close_without_a_measured_gripper_stops(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, small_cfg())
+    rig.run_to_capture(jaw_after_close=None)
+    state = rig.finish()
+    assert "reports no gripper" in state["error"]
+    assert rig.robot.calls[-1] == ("release_control", {"subsystem": "arm", "keep_position": True})
+    assert rig.capture.sessions == []
 
 
 def test_path_check_refusal_sends_nothing(tmp_path: Path) -> None:
@@ -1008,9 +1081,11 @@ def corners_in_camera(cfg: NodeConfig, head_urdf: str, joints: dict[str, float],
     return (np.linalg.solve(camera, board) @ np.column_stack([corners, np.ones(len(corners))]).T).T[:, :3]
 
 
-def expected_views(cfg: NodeConfig, head_urdf: str, k: np.ndarray) -> list[tuple[int, int, float, float, str | None]]:
+def expected_views(
+    cfg: NodeConfig, head_urdf: str, k: np.ndarray, min_depth: float = MIN_DEPTH_M
+) -> list[tuple[int, int, float, float, str | None]]:
     """(arm pose, head offset, pan deg, tilt deg, skip reason) of every view of the pose set, computed independently:
-    outside the head limits, then any corner nearer than MIN_DEPTH_M, then any corner outside the 640x360 image."""
+    outside the head limits, then any corner nearer than `min_depth` (m), then any corner outside the 640x360 image."""
     chain = UrdfChain.from_text(head_urdf)
     out = []
     for index, (_, pose) in enumerate(tier_poses(cfg)):
@@ -1032,7 +1107,7 @@ def expected_views(cfg: NodeConfig, head_urdf: str, k: np.ndarray) -> list[tuple
                     & (pixels[:, 1] >= 0)
                     & (pixels[:, 1] <= IMAGE_SIZE[1] - 1)
                 )
-                if points[:, 2].min() < MIN_DEPTH_M:
+                if points[:, 2].min() < min_depth:
                     reason = MIN_Z_REASON
                 elif not inside.all():
                     reason = FOV_REASON
@@ -1062,17 +1137,19 @@ def assert_rule_skips(rig: Rig, views: list[tuple[int, int, float, float, str | 
         )
     visited = sorted({i for i, *_ in kept})
     moved = [m["targets"] for m in rig.robot.named("move_arm_joints")]
-    assert moved[1:-1] == [poses[i][1] for i in visited]
+    assert moved[2:-1] == [poses[i][1] for i in visited]
 
 
 def test_poses_inside_min_z_are_skipped(tmp_path: Path) -> None:
-    """A board pose with a ChArUco corner nearer than 0.20 m to the D435 colour camera (0.15 m min-Z + 0.05 m margin)
+    """A board pose with a ChArUco corner nearer than 0.20 m to the D435 colour camera (0.15 m min-Z + 0.05 m margin; the
+    near-pose half raises the min-Z to 0.22 m, as no pose within the tier bounds gets the CAD handle board that close)
     or outside its colour FOV is skipped with the reason, and a pose whose every view is skipped is not visited; the
     tiers and the big-joint confirm are unchanged."""
     seq = NodeConfig().arm_sequence
-    cfg = small_cfg(tier2_poses=[seq.tier2_poses[0], NEAR_POSE, seq.tier2_poses[1]])
+    pose_check = seq.pose_check.model_copy(update={"d435_min_z_m": MIN_Z_M})
+    cfg = small_cfg(tier2_poses=[seq.tier2_poses[0], NEAR_POSE, seq.tier2_poses[1]], pose_check=pose_check)
     rig = Rig(tmp_path, cfg)
-    views = expected_views(rig.cfg, HEAD_URDF, WIDE_K)
+    views = expected_views(rig.cfg, HEAD_URDF, WIDE_K, NEAR_MIN_DEPTH_M)
     near = [why for i, *_, why in views if tier_poses(cfg)[i][1] == NEAR_POSE]
     assert near == [MIN_Z_REASON] * len(cfg.arm_sequence.head_offsets_deg)
     assert {why for *_, why in views} == {None, MIN_Z_REASON}
@@ -1081,8 +1158,8 @@ def test_poses_inside_min_z_are_skipped(tmp_path: Path) -> None:
     assert {tier for _, tier, _ in rig.capture.stills} == {0, 1, 2}
 
     # The nominal D435 colour camera (69 deg across 640 px): views with a corner outside the image are skipped, the
-    # others of the same pose are captured. A +6 deg tilt offset pushes the board out of the 360 px image height.
-    rig = Rig(tmp_path, small_cfg(head_offsets_deg=[*seq.head_offsets_deg, (0.0, 6.0)]))
+    # others of the same pose are captured. A +30 deg pan offset pushes the (smaller) CAD handle board out of the 640 px image width.
+    rig = Rig(tmp_path, small_cfg(head_offsets_deg=[*seq.head_offsets_deg, (30.0, 0.0)]))
     rig.capture.camera_info = camera_info(D435_K)
     views = expected_views(rig.cfg, HEAD_URDF, D435_K)
     assert {why for *_, why in views} == {None, FOV_REASON}
@@ -1105,5 +1182,5 @@ def test_sequence_needs_the_colour_camera_info(tmp_path: Path) -> None:
     state = rig.finish()
     assert state["phase"] == HOLDING
     assert "no colour camera_info" in state["error"] and "6 s" in state["error"]
-    assert rig.robot.count("move_arm_joints") == 1 and rig.capture.stills == []
+    assert rig.robot.count("move_arm_joints") == 2 and rig.capture.stills == []  # base pose and handle grip
     assert_held_not_parked(rig)

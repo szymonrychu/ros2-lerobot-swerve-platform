@@ -18,8 +18,11 @@ depth from `camera_frame` (the D435 min-Z plus a margin) and inside the colour i
 camera_info (`PoseChecker.check_view`), else it is skipped with the reason "inside D435 min-Z" or "outside colour FOV",
 as a view outside the head limits is. A pose whose every view would be skipped, judged at its target joints, is not
 visited; the others are judged again at the measured joints. The sequence waits up to `still.timeout_s` for the first
-colour camera_info after the still session starts. The gripper
-target is sent once, with the base pose. Every exit of the sequence (end, stop, tool error, exception, confirm timeout)
+colour camera_info after the still session starts. The gripper opens to `insert_gripper_rad` with the base pose; after
+the user's Board attached confirm it closes on the handle to `grip_rad` (handle contact minus the squeeze, below the
+mcp converge tolerance so the target stays commanded), and the servo `Torque_Limit` (the default grip profile) is the
+effort limit, as `move_arm_joints` has no per-call one. A jaw that ends below `handle_contact_rad - handle_squeeze_rad /
+2` closed past the handle (unseated), and the sequence stops holding the arm. Every exit of the sequence (end, stop, tool error, exception, confirm timeout)
 stops the still capture and releases the arm with `keep_position=True`: the arm holds a checked pose and mcp_server
 keeps the head where it is. The sequence never parks on its own and never sends `carried_object_radius_m`.
 
@@ -74,7 +77,8 @@ MAX_QUOTED_ENTRIES = 3
 TIER_COUNT = 3
 BIG_JOINT_TIER = 2
 REASON_STOPPED = "stopped"
-MESSAGE_BOARD = "Clip the board to the fixed jaw, then press Board attached"
+MESSAGE_BOARD = "Seat the arm board handle in the gripper jaws up to the shoulder, then press Board attached"
+MESSAGE_UNSEATED = "the gripper closed past the handle contact: seat the handle up to the shoulder and start again"
 MESSAGE_STATE_BOARD = "; if the calibration board is on the gripper, state that the board is on and press Park again"
 MESSAGE_PARK = "Press Park (the board may stay on when its park path is clear)"
 HOLDING_LOAD_PREFIX = "holding load"  # mcp_server carrying reason of a gripper that clamps something (the board stick)
@@ -631,7 +635,7 @@ class Sequencer:
         except (ValueError, KeyError, OSError, SyntaxError) as exc:
             raise SequenceError(f"cannot read the arm or head URDF: {type(exc).__name__}: {exc}") from exc
         start = self.measured()
-        gripper = max(start.get(GRIPPER_JOINT, seq.insert_gripper_rad), seq.insert_gripper_rad)
+        gripper = max(start.get(GRIPPER_JOINT, seq.grip_rad), seq.grip_rad)
         entries = checker.check_path(start, dict(seq.park_pose), gripper)
         if entries:
             quoted = "; ".join(entries[:MAX_QUOTED_ENTRIES])
@@ -757,6 +761,7 @@ class Sequencer:
         base = dict(self.seq.base_pose)
         self.checked_move(plan, base, "the base pose", {**base, GRIPPER_JOINT: self.seq.insert_gripper_rad})
         self.wait_confirm(WAITING_BOARD, MESSAGE_BOARD, lambda: self.board_on)
+        self.close_on_handle(plan)
         session_id = self.capture.start_still_session(None)
         with self.lock:
             self.session_id = session_id
@@ -781,6 +786,30 @@ class Sequencer:
             self.tier = None
             self.status = "moving back to the base pose"
         self.checked_move(plan, base, "the base pose (return)", base)
+
+    def close_on_handle(self, plan: Plan) -> None:
+        """Close the gripper on the handle to `grip_rad`, then refuse a jaw that closed past the handle contact.
+
+        Args:
+            plan: The sequence plan.
+
+        Raises:
+            StepFailed: The grip move fails or does not converge, no gripper angle is reported, or the measured angle
+                is below `handle_contact_rad - handle_squeeze_rad / 2` (the handle is not seated).
+        """
+        with self.lock:
+            self.phase = MOVING_TO_BASE
+            self.status = "closing the gripper on the handle"
+        base = dict(self.seq.base_pose)
+        self.checked_move(plan, base, "the handle grip", {GRIPPER_JOINT: self.seq.grip_rad})
+        measured = self.measured().get(GRIPPER_JOINT)
+        if measured is None:
+            raise StepFailed(
+                "get_arm_state reports no gripper angle after the handle grip: cannot tell a seated handle"
+            )
+        limit = self.seq.handle_contact_rad - self.seq.handle_squeeze_rad / 2
+        if measured < limit:
+            raise StepFailed(f"{MESSAGE_UNSEATED} (measured {measured:.4f} rad, limit {limit:.4f} rad)")
 
     def camera_intrinsics(self) -> CameraIntrinsics:
         """The colour intrinsics of the still session, waiting up to `still.timeout_s` for the first camera_info.
@@ -840,13 +869,14 @@ class Sequencer:
             plan: The sequence plan.
             pose: Arm joint target (measured joint space) the path is checked to.
             label: The pose named in the messages.
-            targets: What move_arm_joints is sent (`pose`, plus the gripper for the base move only).
+            targets: What move_arm_joints is sent (`pose`, plus the gripper for the base move; the gripper alone for the
+                handle grip).
 
         Raises:
             StepFailed: get_arm_state fails, the path check refuses, the move fails or does not converge.
         """
         start = self.measured()
-        gripper = max(start.get(GRIPPER_JOINT, self.seq.insert_gripper_rad), self.seq.insert_gripper_rad)
+        gripper = max(start.get(GRIPPER_JOINT, self.seq.grip_rad), self.seq.grip_rad)
         entries = plan.checker.check_path(start, pose, gripper)
         if entries:
             quoted = "; ".join(entries[:MAX_QUOTED_ENTRIES])
