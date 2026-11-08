@@ -17,7 +17,8 @@ depth min-Z, design D2) and projects inside the colour image of the camera_info.
 the face the camera sees; the board's thickness is behind it, so it does not bring the corners nearer the camera.
 The collision checks use a lattice through the plate (`board_points_local`) and over the material beyond it, the edge
 handle's post, gusset and tab (`handle_box_points_local`, from `board_mount.handle_boxes_mm`), no gap wider than
-`board_spacing_m` <= `margin_m` (`board_lattice`): a point check misses at most half a cell diagonal of clearance.
+`board_spacing_m` <= `margin_m` (`board_lattice`): a point check misses at most half a cell diagonal of clearance, so
+the board rules compare against the board margin plus that bound (`lattice_miss_bound`) and keep the full margin.
 """
 
 import math
@@ -32,7 +33,12 @@ import yaml
 from pydantic import Field, model_validator
 
 from ros2_common.camera_geometry import CameraIntrinsics
-from ros2_common.head_rgbd_calibration.board_lattice import MIN_SPACING_M, handle_box_lattice, plate_lattice
+from ros2_common.head_rgbd_calibration.board_lattice import (
+    MIN_SPACING_M,
+    handle_box_lattice,
+    lattice_miss_bound,
+    plate_lattice,
+)
 from ros2_common.head_rgbd_calibration.chain import UrdfChain, arm_in_robot_base, parse_vec, pose_from_xyz_rpy
 from ros2_common.head_rgbd_calibration.charuco import board_corners_3d
 from ros2_common.head_rgbd_calibration.config import ARM_JOINT_NAMES, HeadArmFitConfig, StrictModel
@@ -462,9 +468,11 @@ class PoseChecker:
                 check its camera frames).
             fit: Head-from-arm fit config: joint offsets, arm base in base_link, board and its mount.
             cfg: Pose check settings.
-            board_margin_m: Clearance the board points keep from the obstacles and the arm links (m); None uses
-                `cfg.margin_m`. The arm sequence passes `margin_m + provisional_margin_m` for the estimated
-                board mount (design D47): the mount uncertainty moves the board, not the arm links.
+            board_margin_m: Clearance the board keeps from the obstacles and the arm links (m); None uses
+                `cfg.margin_m`. The arm sequence passes `margin_m + provisional_margin_m` for the estimated board
+                mount (design D47): the mount uncertainty moves the board, not the arm links. The board points are
+                compared against it plus `lattice_miss_bound(cfg.board_spacing_m)` (`board_threshold_m`), so the
+                margin holds for the true board surface, not only for the lattice points.
 
         Raises:
             ValueError: `board_margin_m` is negative.
@@ -476,6 +484,7 @@ class PoseChecker:
         self.fit = fit
         self.cfg = cfg
         self.board_margin_m = cfg.margin_m if board_margin_m is None else board_margin_m
+        self.board_threshold_m = self.board_margin_m + lattice_miss_bound(cfg.board_spacing_m)
         self.base = arm_in_robot_base(fit.base_in_base_link.model_dump())
         self.envelope = head_envelope(head_urdf, cfg)
         self.obstacles = ObstacleSet(list(cfg.body.boxes), [*cfg.body.cylinders, self.envelope])
@@ -552,9 +561,10 @@ class PoseChecker:
         if board_z < cfg.min_board_height_m:
             entries.append(f"min_board_height_m: board point height {mm(board_z)} < {mm(cfg.min_board_height_m)}")
         margin = f"margin_m {mm(cfg.margin_m)}"
-        board_margin = f"board_margin_m {mm(self.board_margin_m)}"
+        miss = mm(self.board_threshold_m - self.board_margin_m)
+        board_margin = f"board_margin_m {mm(self.board_margin_m)} + lattice miss bound {miss}"
         for name, clearance in zip(self.obstacles.names, self.obstacles.distances(board).min(axis=0), strict=True):
-            if clearance < self.board_margin_m:
+            if clearance < self.board_threshold_m:
                 entries.append(f"board_clearance: board to {name} clearance {mm(clearance)} < {board_margin}")
         starts = np.array([poses[start][:3, 3] for _, start, _ in CAPSULES])
         ends = np.array([poses[end][:3, 3] for _, _, end in CAPSULES])
@@ -569,7 +579,7 @@ class PoseChecker:
             if part not in BOARD_LINK_PARTS:
                 continue
             clearance = float(point_segment_distances(board, start, end).min()) - cfg.link_radius_m
-            if clearance < self.board_margin_m:
+            if clearance < self.board_threshold_m:
                 entries.append(f"board_link_clearance: board to {part} clearance {mm(clearance)} < {board_margin}")
         return entries
 

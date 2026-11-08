@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import ValidationError
-from ros2_common.head_rgbd_calibration.board_lattice import box_lattice, plate_lattice
+from ros2_common.head_rgbd_calibration.board_lattice import box_lattice, lattice_miss_bound, plate_lattice
 from ros2_common.head_rgbd_calibration.chain import pose_from_xyz_rpy
 from starlette.testclient import TestClient
 
@@ -212,6 +212,17 @@ def test_a_board_mount_outside_the_tolerance_of_the_configured_one_is_refused(mo
 def test_a_mount_within_the_tolerance_is_accepted() -> None:
     near = board(xyz=[MOUNT["xyz"][0] + 0.02, MOUNT["xyz"][1], MOUNT["xyz"][2]])
     assert near.margin_m == SETTINGS.margin_m  # margins are never the request's
+
+
+def test_the_park_clearance_threshold_adds_the_lattice_miss_bound(tmp_path: Path) -> None:
+    """The board points are compared against margin_m plus the lattice miss bound (spacing * sqrt(3) / 2), so the
+    configured margin is kept to the true board surface, and the refusal names that threshold."""
+    bound = lattice_miss_bound(SETTINGS.lattice_spacing_m)
+    assert board().clearance_m == pytest.approx(SETTINGS.margin_m + bound)
+    robot, ctl = at_rest_with_board(tmp_path)
+    strict = SETTINGS.model_copy(update={"margin_m": 0.3})
+    with pytest.raises(ToolError, match=f"< {(0.3 + bound) * 1000:.1f} mm"):
+        ctl.park_calibration_board(board(strict))
 
 
 def test_board_park_refused_when_the_board_hits_the_floor(tmp_path: Path) -> None:

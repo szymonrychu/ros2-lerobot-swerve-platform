@@ -11,7 +11,7 @@ import math
 from dataclasses import dataclass
 
 import numpy as np
-from ros2_common.head_rgbd_calibration.board_lattice import handle_box_lattice, plate_lattice
+from ros2_common.head_rgbd_calibration.board_lattice import handle_box_lattice, lattice_miss_bound, plate_lattice
 from ros2_common.head_rgbd_calibration.chain import pose_from_xyz_rpy
 
 from .config import CalibrationBoardSettings
@@ -29,11 +29,14 @@ class BoardPark:
             head_rgbd_calibration's pose check uses).
         margin_m: Clearance the board keeps from every body obstacle (m), sag margin included.
         min_height_m: Lowest board point height above the floor (base_link z, m), sag margin included.
+        clearance_m: The threshold the board points are compared against (m): margin_m plus the lattice miss bound
+            (`board_lattice.lattice_miss_bound(lattice_spacing_m)`), so the margin holds for the true board surface.
     """
 
     points: np.ndarray
     margin_m: float
     min_height_m: float
+    clearance_m: float
 
     @classmethod
     def from_mount(cls, settings: CalibrationBoardSettings, xyz: object, rpy: object) -> "BoardPark":
@@ -71,7 +74,12 @@ class BoardPark:
             settings.lattice_spacing_m,
         )
         board = np.vstack([plate, handle_box_lattice(settings.handle_boxes_mm, settings.lattice_spacing_m)])
-        return cls(board @ mount[:3, :3].T + mount[:3, 3], settings.margin_m, settings.min_height_m)
+        return cls(
+            board @ mount[:3, :3].T + mount[:3, 3],
+            settings.margin_m,
+            settings.min_height_m,
+            settings.margin_m + lattice_miss_bound(settings.lattice_spacing_m),
+        )
 
 
 def finite_triple(value: object, name: str) -> tuple[float, float, float]:

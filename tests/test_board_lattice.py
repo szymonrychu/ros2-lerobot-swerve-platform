@@ -14,6 +14,7 @@ from ros2_common.head_rgbd_calibration.board_lattice import (
     axis_samples,
     box_lattice,
     handle_box_lattice,
+    lattice_miss_bound,
     plate_lattice,
 )
 
@@ -61,6 +62,12 @@ def test_a_box_point_lies_within_half_a_cell_diagonal_of_the_lattice() -> None:
     miss = sampled - box_distance(points, low, high)
     assert miss.min() >= -1e-12
     assert miss.max() <= SPACING_M * math.sqrt(3.0) / 2.0 + 1e-12
+
+
+def test_the_lattice_miss_bound_is_half_a_cell_diagonal() -> None:
+    """The bound a clearance threshold adds to keep its margin to the true box: spacing * sqrt(3) / 2."""
+    assert lattice_miss_bound(SPACING_M) == pytest.approx(SPACING_M * math.sqrt(3.0) / 2.0)
+    assert lattice_miss_bound(2.0 * SPACING_M) == pytest.approx(2.0 * lattice_miss_bound(SPACING_M))
 
 
 def test_plate_lattice_is_the_outline_box_through_the_thickness() -> None:

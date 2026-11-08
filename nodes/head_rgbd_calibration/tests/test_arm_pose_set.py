@@ -10,8 +10,9 @@ The home pose the sequence starts from is `HOME_POSE`: `scripts/gen_nav_footprin
 repo record of the home that mcp_server's `arm.home_file` (/var/lib/ros2/arm/home.yaml) holds and `arm_home` parks
 at. The board is the ARM board on its edge handle (a tab off the plate's bottom edge with the grip post on the pattern
 side), mounted at the handle CAD seed (markers/charuco-arm-6x5-28mm.json), not yet fit-solved (design D47): the safety
-tests check the plate plus the handle's post, gusset and tab (`board_mount.handle_boxes_mm`) with the board margin `margin_m + provisional_margin_m` and the mount shifted by +-1 cm and turned by +-5 deg about each
-gripper axis. The camera is the head D435 colour camera (`d435_color_optical_frame`) with the nominal 640x360
+tests check the plate plus the handle's post, gusset and tab (`board_mount.handle_boxes_mm`) with the board margin
+`margin_m + provisional_margin_m` (plus the lattice miss bound) and the mount shifted by +-1 cm and turned by +-5 deg
+about each gripper axis. The camera is the head D435 colour camera (`d435_color_optical_frame`) with the nominal 640x360
 intrinsics (69 deg across, the datasheet colour FOV); the factory camera_info replaces them at run time.
 """
 

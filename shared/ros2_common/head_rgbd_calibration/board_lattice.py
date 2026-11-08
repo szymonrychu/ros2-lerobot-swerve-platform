@@ -1,8 +1,9 @@
 """Collision lattice of the calibration board: points over the plate and the boxes of its edge handle.
 
 A point check of a solid box can miss at most half a cell diagonal (spacing * sqrt(3) / 2) of clearance, so the
-lattice is laid out from a maximum spacing per axis, not a fixed count: with the spacing at most the clearance margin,
-no obstacle that passes the check reaches the box. Used by the head_rgbd_calibration pose check
+lattice is laid out from a maximum spacing per axis, not a fixed count, and every board clearance threshold is the
+configured margin plus that bound (`lattice_miss_bound`): an obstacle that passes the check keeps the full margin from
+the box. Used by the head_rgbd_calibration pose check
 (`arm_pose_check.PoseChecker`) and the mcp_server board park (`calibration_board.BoardPark`), so both see the same
 points.
 """
@@ -15,6 +16,7 @@ import numpy as np
 MM_PER_M = 1000.0
 MIN_SPACING_M = 0.001  # bounds the point count: a finer spacing is refused
 SPACING_ROUND_OFF = 1e-9
+HALF_CELL_DIAGONAL = math.sqrt(3.0) / 2.0  # largest distance of a box point to its nearest lattice point, per spacing
 
 Triple = tuple[float, float, float]
 
@@ -37,6 +39,22 @@ def axis_samples(lower: float, upper: float, max_spacing: float) -> np.ndarray:
         raise ValueError(f"lattice spacing {max_spacing} is below the minimum {MIN_SPACING_M}")
     gaps = max(1, math.ceil((upper - lower) / max_spacing - SPACING_ROUND_OFF))
     return np.linspace(lower, upper, gaps + 1)
+
+
+def lattice_miss_bound(max_spacing: float) -> float:
+    """The most clearance a point check of a lattice-sampled box can miss: half a cell diagonal.
+
+    Every point of a solid box, surface or interior, lies within half a cell diagonal of a lattice point, and a
+    distance to any obstacle changes by at most the distance moved, so a lattice point clearance exceeds the true box
+    clearance by at most this bound. It holds for every box (plate and handle boxes) and every obstacle shape.
+
+    Args:
+        max_spacing: Largest gap between neighbouring lattice points per axis.
+
+    Returns:
+        float: max_spacing * sqrt(3) / 2, same unit.
+    """
+    return max_spacing * HALF_CELL_DIAGONAL
 
 
 def box_lattice(low: Sequence[float], high: Sequence[float], max_spacing: float) -> np.ndarray:

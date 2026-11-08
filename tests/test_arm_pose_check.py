@@ -22,7 +22,7 @@ from ros2_common.head_rgbd_calibration.arm_pose_check import (
     head_envelope,
     point_segment_distances,
 )
-from ros2_common.head_rgbd_calibration.board_lattice import box_lattice
+from ros2_common.head_rgbd_calibration.board_lattice import box_lattice, lattice_miss_bound, plate_lattice
 from ros2_common.head_rgbd_calibration.chain import (
     UrdfChain,
     arm_in_robot_base,
@@ -70,6 +70,9 @@ OLD_BOX_POINTS = 3  # the former fixed handle box lattice: 3 points per axis (50
 CLOSE_M = 0.002  # an obstacle this close to the board, well inside the 5 mm margin
 # The edge handle's tab (board frame, mm, the CAD box): 100 mm along the plate edge, 10 mm thick.
 TAB_BOX_MM = ((34.0, 145.0, -6.0), (134.0, 200.3, 4.0))
+ELBOW_GAP_M = 0.04  # the plate starts this far past the elbow along the forearm: the upper arm keeps clear of it
+PROBE_SIZE_M = 0.0005  # a body box small enough to sit in the middle of one lattice cell
+PROBE_GAP_M = 0.0045  # probe to plate back: inside the 5 mm margin, beyond it from every lattice point
 
 
 def fit_with(mount: BoardMountConfig = TEST_MOUNT, offsets: dict[str, float] | None = None) -> HeadArmFitConfig:
@@ -563,10 +566,14 @@ def test_a_body_box_between_the_old_plate_lattice_points_is_caught() -> None:
 
 def test_a_forearm_passing_between_the_old_plate_lattice_points_is_caught() -> None:
     """The forearm axis along board x, parallel to the plate back and link_radius_m + 2 mm behind it, between two
-    former lattice rows: the former points keep more than the margin, the margin-spaced lattice reports it."""
+    former lattice rows: the former points keep more than the margin, the margin-spaced lattice reports it. The plate
+    starts past the elbow, so the forearm is the only link it is reported against."""
     cfg = PoseCheckConfig()
     point = old_cell_centre(fit_with()) + [0.0, 0.0, cfg.link_radius_m + CLOSE_M]
-    point[0] = float(np.mean(board_outline(fit_with().board, 0.01)[:, 0]))  # the forearm stays over the plate
+    elbow, wrist = forearm_segment(ZERO, fit_with())
+    # The plate starts ELBOW_GAP_M past the elbow and runs past the wrist, so only the forearm passes over it.
+    point[0] = float(board_outline(fit_with().board, 0.01)[:, 0].min()) + np.linalg.norm(wrist - elbow) / 2.0
+    point[0] -= ELBOW_GAP_M
     placed = fit_with(forearm_mount(ZERO, point, np.array([1.0, 0.0, 0.0])))
     board = board_in_base(placed, ZERO)
     elbow, wrist = forearm_segment(ZERO, placed)
@@ -574,6 +581,7 @@ def test_a_forearm_passing_between_the_old_plate_lattice_points_is_caught() -> N
     assert point_segment_distances(old, elbow, wrist).min() - cfg.link_radius_m > cfg.margin_m
     entries = checker(placed, cfg).check_pose(ZERO, 0.3, rolling=False)
     assert [e for e in entries if e.startswith("board_link_clearance: board to forearm")], entries
+    assert not [e for e in entries if e.startswith("board_link_clearance: board to upper arm")], entries
 
 
 def test_a_forearm_passing_between_the_old_tab_lattice_points_is_caught() -> None:
@@ -623,3 +631,32 @@ def test_a_handle_box_inside_the_head_envelope_is_refused() -> None:
     centre = np.array([head.x, head.y, (head.z_min + head.z_max) / 2])
     entries = checker(fit_with(handle_box_at(fit, ZERO, centre))).check_pose(ZERO, 0.3, rolling=False)
     assert [e for e in entries if e.startswith(f"board_clearance: board to {head.name}")], entries
+
+
+def test_a_body_box_within_the_margin_of_the_plate_but_beyond_it_from_every_lattice_point_is_refused() -> None:
+    """A small body box PROBE_GAP_M (4.5 mm) behind the plate back, over the middle of one lattice cell: every lattice
+    point keeps more than margin_m from it, the plate itself does not. The board threshold adds the lattice miss
+    bound (spacing * sqrt(3) / 2), so the configured margin is kept to the true plate surface."""
+    fit = fit_with(mount_with_corner_at(ZERO, np.array([0.40, -0.05, 0.35])))
+    cfg = PoseCheckConfig()
+    plate, thickness = fit.board, fit.board.thickness_mm / 1000.0
+    local = plate_lattice(
+        plate.squares_x * plate.square_mm / 1000.0,
+        plate.squares_y * plate.square_mm / 1000.0,
+        fit.board_mount.outline_margin_m,
+        thickness,
+        cfg.board_spacing_m,
+    )
+    xs, ys = np.unique(local[:, 0].round(9)), np.unique(local[:, 1].round(9))
+    cell = np.array([xs[len(xs) // 2 : len(xs) // 2 + 2].mean(), ys[len(ys) // 2 : len(ys) // 2 + 2].mean()])
+    board = board_in_base(fit, ZERO)
+    centre_local = np.array([*cell, thickness + PROBE_GAP_M + PROBE_SIZE_M / 2.0])
+    centre = (board @ np.append(centre_local, 1.0))[:3]
+    probe = BoxObstacle(name="probe", center=tuple(centre), size=(PROBE_SIZE_M,) * 3)
+    probed = PoseCheckConfig(body=cfg.body.model_copy(update={"boxes": [*cfg.body.boxes, probe]}))
+    plain = checker(fit, probed)
+    distances = plain.obstacles.distances(plain.board_points(ZERO))
+    lattice_clear = float(distances[:, plain.obstacles.names.index("probe")].min())
+    assert PROBE_GAP_M < cfg.margin_m < lattice_clear < cfg.margin_m + lattice_miss_bound(cfg.board_spacing_m)
+    entries = plain.check_pose(ZERO, 0.3, rolling=False)
+    assert [e for e in entries if e.startswith("board_clearance: board to probe")], entries
