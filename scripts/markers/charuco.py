@@ -14,7 +14,17 @@ from pydantic import Field, field_validator, model_validator
 from ros2_common.head_rgbd_calibration.chain import xyz_rpy_from_pose
 from ros2_common.head_rgbd_calibration.config import BoardConfig
 
-from scripts.markers.handle import HandleSpec, board_in_mesh, face_down, handle_solid, printed_contact_rad, seat
+from scripts.markers.handle import (
+    HandleSpec,
+    board_in_mesh,
+    face_down,
+    handle_solid,
+    printed_contact_rad,
+    rib_solid,
+    rib_x_ranges_mm,
+    seat,
+    shoulder_top_mm,
+)
 from scripts.markers.jaw_fit import Gripper
 from scripts.markers.mesh import mask_bodies, print_violations, printed_solid, to_manifold, to_trimesh, write_bodies
 from scripts.markers.models import OUTPUT_FORMATS, PageSpec, StlOptions, StrictModel
@@ -58,7 +68,8 @@ class CharucoSpec(StrictModel):
     inlay when relief_mm is 0). bed_mm: print bed edge the plate (with the handle) must fit. page: PDF media.
     outputs: subset of pdf/stl/3mf. pattern_face: "top" prints the pattern face up, "bottom" face down on the bed (the
     smooth bed face carries the pattern, the handle rises from the back). handle: optional paddle handle for the
-    gripper (off the plate edge at mesh y = 0); a board with a handle also writes <stem>.json.
+    gripper (off the plate edge at mesh y = 0) with twin ribs on the plate back; it needs pattern_face "bottom" and
+    a board with a handle also writes <stem>.json.
     """
 
     name: str = Field(pattern=NAME_PATTERN)
@@ -120,10 +131,21 @@ class CharucoSpec(StrictModel):
                 raise ValueError(f"{field} {squares}: plate {plate:g} mm exceeds bed_mm {self.bed_mm:g}")
         if self.pattern_face == "bottom" and self.relief_mm > 0:
             raise ValueError(f"relief_mm {self.relief_mm} must be 0 for pattern_face bottom (modules flush on the bed)")
-        if self.handle is not None and self.plate_mm[1] + self.handle.extent_mm > self.bed_mm:
+        if self.handle is None:
+            return self
+        if self.plate_mm[1] + self.handle.extent_mm > self.bed_mm:
             raise ValueError(
                 f"plate {self.plate_mm[1]:g} mm plus handle extent {self.handle.extent_mm:g} mm exceeds bed_mm "
                 f"{self.bed_mm:g}"
+            )
+        if self.pattern_face != "bottom":
+            raise ValueError("a handle needs pattern_face bottom (the handle and its ribs rise from the plate back)")
+        if self.handle.rib_length_mm > self.plate_mm[1]:
+            raise ValueError(f"rib_length_mm {self.handle.rib_length_mm:g} exceeds the plate {self.plate_mm[1]:g} mm")
+        if self.thickness_mm + self.handle.rib_end_height_mm > shoulder_top_mm(self.handle):
+            raise ValueError(
+                f"rib_end_height_mm {self.handle.rib_end_height_mm:g} over the plate back rises above the shoulder "
+                f"top {shoulder_top_mm(self.handle):g} mm (the rib top must slope up toward the handle)"
             )
         return self
 
@@ -209,6 +231,37 @@ def board_mask(spec: CharucoSpec) -> tuple[np.ndarray, float]:
     return image < DARK_BELOW, 1.0 / ppm
 
 
+def back_envelope_mm(spec: CharucoSpec) -> dict[str, Any]:
+    """Material above the plate back of a board with a handle: the twin ribs, in the OpenCV board frame (mm).
+
+    Args:
+        spec (CharucoSpec): The board (with a handle).
+
+    Returns:
+        dict[str, Any]: height_mm (max material height above the plate back over the plate: the rib height at the
+        plate edge, the shoulder top), end_height_mm (rib height at its far end), ribs (one [[x, y, z] min, [x, y, z]
+        max] box per rib in the board frame, z from the plate back to the shoulder top, sorted).
+
+    Raises:
+        ValueError: When the spec has no handle.
+    """
+    if spec.handle is None:
+        raise ValueError(f"board {spec.name} has no handle")
+    top = shoulder_top_mm(spec.handle)
+    mesh_to_board = np.linalg.inv(board_in_mesh(spec.plate_mm, spec.margin_mm, spec.pattern_face, spec.thickness_mm))
+    ribs = []
+    for x0, x1 in rib_x_ranges_mm(spec.handle, spec.plate_mm):
+        corners = trimesh.transform_points(
+            np.array([[x0, 0.0, spec.thickness_mm], [x1, spec.handle.rib_length_mm, top]]), mesh_to_board
+        )
+        ribs.append([[float(v) for v in corners.min(axis=0)], [float(v) for v in corners.max(axis=0)]])
+    return {
+        "height_mm": float(top - spec.thickness_mm),
+        "end_height_mm": spec.handle.rib_end_height_mm,
+        "ribs": sorted(ribs),
+    }
+
+
 def board_metadata(
     spec: CharucoSpec, base: trimesh.Trimesh, modules: trimesh.Trimesh, gripper: Gripper
 ) -> dict[str, Any]:
@@ -226,7 +279,7 @@ def board_metadata(
         tool_offset_m point in the board frame); board_mount (xyz_init, rpy_init: the board frame in gripper_link,
         m and rad); grip (contact_rad: on the nominal handle surfaces, squeeze_rad, grip_rad = contact_rad -
         squeeze_rad, clearance_clamp_mm: the print allowance on each clamp face, modelled_contact_rad: the contact on
-        the printed, thinner solid pressed on the fixed jaw).
+        the printed, thinner solid pressed on the fixed jaw); back_envelope_mm (`back_envelope_mm`).
 
     Raises:
         ValueError: When the spec has no handle or the seat fails.
@@ -256,6 +309,7 @@ def board_metadata(
             "gripper_link_rpy_rad": list(gripper_rpy),
             "tool_point_m": [float(v) for v in tool_point[:3]],
         },
+        "back_envelope_mm": back_envelope_mm(spec),
         "board_mount": {"xyz_init": list(board_xyz), "rpy_init": list(board_rpy)},
         "grip": {
             "contact_rad": float(contact),
@@ -284,7 +338,7 @@ def write_board_metadata(meta: dict[str, Any], stem: Path) -> Path:
 
 def print_bodies(spec: CharucoSpec, opts: StlOptions) -> tuple[trimesh.Trimesh, trimesh.Trimesh]:
     """The print bodies of a board: mask bodies built face up, turned face down for pattern_face "bottom", the
-    handle unioned into the base.
+    handle and its ribs unioned into the base.
 
     Args:
         spec (CharucoSpec): The board.
@@ -315,7 +369,11 @@ def print_bodies(spec: CharucoSpec, opts: StlOptions) -> tuple[trimesh.Trimesh, 
     if spec.pattern_face == "bottom":
         solids = [face_down(solid, spec.plate_mm, spec.thickness_mm) for solid in solids]
     if spec.handle is not None:
-        solids[0] = solids[0] + handle_solid(spec.handle, spec.plate_mm)
+        solids[0] = (
+            solids[0]
+            + handle_solid(spec.handle, spec.plate_mm)
+            + rib_solid(spec.handle, spec.plate_mm, spec.thickness_mm)
+        )
     return to_trimesh(solids[0]), to_trimesh(solids[1])
 
 

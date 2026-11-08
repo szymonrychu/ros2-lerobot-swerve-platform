@@ -99,7 +99,7 @@ DEFAULT_INSERT_GRIPPER_RAD = 0.4  # gripper opening while the handle is inserted
 # squeeze past it (inside the mcp_server gripper converge tolerance), and the board mass.
 DEFAULT_HANDLE_CONTACT_RAD = 0.070279
 DEFAULT_HANDLE_SQUEEZE_RAD = 0.02
-DEFAULT_BOARD_MASS_G = 156.863701
+DEFAULT_BOARD_MASS_G = 165.680101
 # The parked arm: scripts/gen_nav_footprint.yaml parked_arm_joints (the mcp_server home), the target of a park with the
 # board on (a test pins the two equal).
 DEFAULT_PARK_POSE = (-0.003, -1.35, 1.578, -0.1, -1.637)

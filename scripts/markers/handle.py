@@ -14,6 +14,12 @@ floor at thickness - c; the printed floor is at thickness - 2 c. Rails, channel 
 both. Seated in the gripper the nominal bed face (mesh z = -c) lies on the fixed jaw, the moving finger in the
 channel on the nominal top plane, its tip at the shoulder face. Mesh +z is gripper_link OPEN_AXIS and mesh +y is
 TOOL_AXIS (the jaw tips point toward the plate).
+
+Twin ribs (user decision 292) join the handle to the board back: each continues one handle outer side wall (outer
+face flush) onto the plate back (mesh z = T) from the plate edge (y = 0) to y = rib_length_mm. A rib top runs from
+the shoulder top at the edge down to rib_end_height_mm above the plate back at its end, so the top slopes up toward
+the handle (no overhang) and every side wall is vertical. The ribs lie on the board side of the plate edge, past the
+shoulder face, where the jaws never reach.
 """
 
 from typing import Literal, Self
@@ -43,6 +49,7 @@ SEAT_TOL_MM = 0.01
 SWEEP_STEP_RAD = 0.005  # gripper angle step of the finger sweep that places the shoulder face
 CUT_HEIGHT_MM = 100.0  # height of the channel cutter above the top plane (well above any rail)
 CUT_OVERSHOOT_MM = 1.0  # the channel runs this far past the free end so it opens cleanly
+MAX_RIB_WIDTH_MM = 10.0  # a rib is a web continuing one handle side wall, not a slab
 SEAT_CROP_MM = 0.5  # the seat tests the solid below mesh y = this (handle plus a plate sliver), where the jaws are
 
 
@@ -58,6 +65,9 @@ class HandleSpec(StrictModel):
     print material density for the mass. tool_offset_m: the tool point in gripper_frame_link (m), the mcp_server arm
     tool_offset_m. clamp_clearance_mm: print allowance taken off each clamp face (bed face and channel floor) of the
     printed grip; thickness_* are the nominal grip, as printed after FDM growth (user decisions 282, 283).
+    rib_width_mm / rib_length_mm / rib_end_height_mm: the twin ribs on the board back (user decision 292), each
+    rib_width_mm wide, flush with one handle outer side wall, rib_length_mm from the plate edge into the plate, its
+    top tapering linearly from the shoulder top at the plate edge to rib_end_height_mm above the plate back.
     """
 
     length_mm: float = Field(ge=25.0, le=40.0)
@@ -73,6 +83,9 @@ class HandleSpec(StrictModel):
     density_g_per_cm3: float = Field(gt=0)
     tool_offset_m: tuple[float, float, float]
     clamp_clearance_mm: float = Field(default=0.15, ge=0.0, le=0.3)
+    rib_width_mm: float = Field(gt=0, le=MAX_RIB_WIDTH_MM)
+    rib_length_mm: float = Field(gt=0)
+    rib_end_height_mm: float = Field(gt=0)
 
     @model_validator(mode="after")
     def check_profile(self) -> Self:
@@ -173,6 +186,65 @@ def handle_solid(handle: HandleSpec, plate_mm: tuple[float, float], nominal: boo
     ).transform(np.array([[0.0, 0.0, 1.0, -half - CUT_OVERSHOOT_MM], [1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]]))
     solid = (shoulder + grip) - (channel ^ above)
     return solid.translate((plate_mm[0] / 2, 0.0, 0.0))
+
+
+def shoulder_top_mm(handle: HandleSpec) -> float:
+    """Height of the shoulder block (and the rails at the shoulder) over the bed.
+
+    Args:
+        handle (HandleSpec): The handle.
+
+    Returns:
+        float: thickness_tip_mm + rail_height_mm (mm).
+    """
+    return handle.thickness_tip_mm + handle.rail_height_mm
+
+
+def rib_x_ranges_mm(handle: HandleSpec, plate_mm: tuple[float, float]) -> list[tuple[float, float]]:
+    """Mesh x ranges of the two ribs, each flush with one handle outer side wall.
+
+    Args:
+        handle (HandleSpec): The handle.
+        plate_mm (tuple[float, float]): Plate (W, H) in mm; the handle is centred at x = W / 2.
+
+    Returns:
+        list[tuple[float, float]]: [(x0, x1) of the low-x rib, (x0, x1) of the high-x rib] (mm).
+    """
+    centre, half = plate_mm[0] / 2, handle.width_mm / 2
+    return [
+        (centre - half, centre - half + handle.rib_width_mm),
+        (centre + half - handle.rib_width_mm, centre + half),
+    ]
+
+
+def rib_solid(handle: HandleSpec, plate_mm: tuple[float, float], thickness_mm: float) -> Manifold:
+    """The twin ribs on the plate back in print (face-down) coordinates.
+
+    Args:
+        handle (HandleSpec): The handle.
+        plate_mm (tuple[float, float]): Plate (W, H) in mm.
+        thickness_mm (float): Plate thickness T in mm (the plate back is mesh z = T).
+
+    Returns:
+        Manifold: Two prisms, y in [0, rib_length_mm], bottom on the plate back (z = T), top from
+        `shoulder_top_mm` at y = 0 down to T + rib_end_height_mm at y = rib_length_mm.
+    """
+    section = CrossSection(
+        [
+            [
+                (0.0, thickness_mm),
+                (handle.rib_length_mm, thickness_mm),
+                (handle.rib_length_mm, thickness_mm + handle.rib_end_height_mm),
+                (0.0, shoulder_top_mm(handle)),
+            ]
+        ]
+    )
+    ribs = Manifold()
+    for x0, x1 in rib_x_ranges_mm(handle, plate_mm):
+        # extrude along local z, then local (u, v, w) -> mesh (y, z, x): a cyclic permutation (proper rotation)
+        turn = np.array([[0.0, 0.0, 1.0, x0], [1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]])
+        ribs = ribs + Manifold.extrude(section, x1 - x0).transform(turn)
+    return ribs
 
 
 def nominal_solid(solid: trimesh.Trimesh, handle: HandleSpec, plate_mm: tuple[float, float]) -> trimesh.Trimesh:
