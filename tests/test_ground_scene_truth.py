@@ -221,6 +221,7 @@ def test_run_writes_truth_yaml(tmp_path: Path) -> None:
                         "ids_offset": 0,
                         "margin_mm": 0.0,
                         "thickness_mm": 4.0,
+                        "pattern_face": "top",
                     }
                 ]
             }
@@ -258,6 +259,7 @@ def test_load_board_picks_the_named_board(tmp_path: Path) -> None:
         "dictionary": "DICT_5X5_100",
         "margin_mm": 5.0,
         "thickness_mm": 4.0,
+        "pattern_face": "top",
     }
     path = tmp_path / "boards.yaml"
     path.write_text(
