@@ -1,5 +1,6 @@
 """ChArUco calibration board: spec, OpenCV board, exact-pixel dark mask, PDF, two-colour STL/3MF output and, for a
-board with a handle, the metadata JSON (mass, centre of mass, seat in the gripper, grip angles, back envelope)."""
+board with a handle, the metadata JSON (mass, centre of mass, seat in the gripper, grip angles, handle envelope, tab
+stiffness)."""
 
 import json
 import logging
@@ -18,12 +19,12 @@ from scripts.markers.handle import (
     HandleSpec,
     board_in_mesh,
     face_down,
-    gusset_solid,
+    handle_body,
     post_in_mesh,
-    post_solid,
     printed_contact_rad,
     seat,
     shoulder_top_mm,
+    stiffness,
 )
 from scripts.markers.jaw_fit import OPEN_AXIS, TOOL_AXIS, Gripper
 from scripts.markers.mesh import mask_bodies, print_violations, printed_solid, to_manifold, to_trimesh, write_bodies
@@ -66,10 +67,12 @@ class CharucoSpec(StrictModel):
     dictionary: any cv2.aruco.DICT_* name. margin_mm: plate border around the board. thickness_mm: STL base
     thickness (>= 4). relief_mm: module height above the base. inlay_mm: module depth sunk into the base (flush
     inlay when relief_mm is 0). bed_mm: print bed edge the plate (with the handle) must fit. page: PDF media.
-    outputs: subset of pdf/stl/3mf. pattern_face: "top" prints the pattern face up, "bottom" face down on the bed (the
-    smooth bed face carries the pattern, the handle rises from the back). handle: optional right-angle grip post for
-    the gripper, standing on the centre of the plate back with two gussets (decision 296); it needs pattern_face
-    "bottom", its gussets must stay on the plate, and a board with a handle also writes <stem>.json.
+    outputs: subset of pdf/stl/3mf. pattern_face: "top" prints the pattern face up (back on the bed, the inlays in
+    the top layers), "bottom" face down on the bed (the smooth bed face carries the pattern). handle: optional edge
+    handle for the gripper (user m540): a tab off the middle of the plate edge with the grip post standing on it on
+    the pattern side; it needs pattern_face "top" (the board prints back down, the post rises from the tab), a tab
+    thicker than the plate and no wider than it, plate plus tab within bed_mm, and a board with a handle also writes
+    <stem>.json.
     """
 
     name: str = Field(pattern=NAME_PATTERN)
@@ -118,8 +121,8 @@ class CharucoSpec(StrictModel):
 
     @model_validator(mode="after")
     def check_geometry(self) -> Self:
-        """marker_mm < square_mm, modules have height, inlay < thickness, plate fits bed_mm, a handle stands on the
-        back of a face-down board with its gussets on the plate."""
+        """marker_mm < square_mm, modules have height, inlay < thickness, plate fits bed_mm, a handle needs a
+        back-down (pattern up) board, its tab thicker than the plate and no wider, plate plus tab within bed_mm."""
         if self.relief_mm + self.inlay_mm <= 0:
             raise ValueError("relief_mm + inlay_mm must be positive")
         if self.inlay_mm >= self.thickness_mm:
@@ -134,14 +137,21 @@ class CharucoSpec(StrictModel):
             raise ValueError(f"relief_mm {self.relief_mm} must be 0 for pattern_face bottom (modules flush on the bed)")
         if self.handle is None:
             return self
-        if self.pattern_face != "bottom":
-            raise ValueError("a handle needs pattern_face bottom (the post and its gussets rise from the plate back)")
-        room = self.plate_mm[0] / 2 - self.handle.width_mm / 2
-        if self.handle.gusset_reach_mm > room:
+        if self.pattern_face != "top":
             raise ValueError(
-                f"gusset_reach_mm {self.handle.gusset_reach_mm:g} runs off the plate ({room:g} mm from the post wall "
-                "to the plate edge)"
+                "a handle needs pattern_face top (the board prints back down, the post rises from the tab)"
             )
+        if self.handle.tab_thickness_mm <= self.thickness_mm:
+            raise ValueError(
+                f"tab_thickness_mm {self.handle.tab_thickness_mm:g} must exceed thickness_mm {self.thickness_mm:g}"
+            )
+        if self.handle.tab_root_width_mm > self.plate_mm[0]:
+            raise ValueError(
+                f"tab_root_width_mm {self.handle.tab_root_width_mm:g} exceeds the plate edge {self.plate_mm[0]:g} mm"
+            )
+        length = self.plate_mm[1] + self.handle.tab_length_mm
+        if length > self.bed_mm:
+            raise ValueError(f"plate plus tab_length_mm {length:g} mm exceeds bed_mm {self.bed_mm:g}")
         return self
 
     @property
@@ -226,16 +236,20 @@ def board_mask(spec: CharucoSpec) -> tuple[np.ndarray, float]:
     return image < DARK_BELOW, 1.0 / ppm
 
 
-def back_envelope_mm(spec: CharucoSpec) -> dict[str, Any]:
-    """Material above the plate back of a board with a handle: the post and its gussets, in the OpenCV board frame.
+def handle_envelope_mm(spec: CharucoSpec) -> dict[str, Any]:
+    """Material of a board with a handle beyond its plate: the post, its gusset and the tab, in the OpenCV board frame.
+
+    The board frame has the pattern at z = 0 and the back at z = T; the handle lies on the pattern side (z < 0) and
+    outside the plate outline (y > plate height - margin).
 
     Args:
         spec (CharucoSpec): The board (with a handle).
 
     Returns:
-        dict[str, Any]: height_mm (post height above the plate back, neck plus grip), post (the post box: rails
-        width, from the nominal bed face to the taller rail top, from the plate back to the free end) and gussets (one
-        box per gusset, sorted); each box is [[x, y, z] min, [x, y, z] max] in mm, z from the plate back (T) up.
+        dict[str, Any]: height_mm (how far the post top stands above the pattern face), post (the post box: rails
+        width, from the nominal bed face to the taller rail top, from the tab top to the free end), gusset (the box
+        around the gusset web) and tab (the tab box, from the plate back to the tab top); each box is [[x, y, z] min,
+        [x, y, z] max] in mm.
 
     Raises:
         ValueError: When the spec has no handle.
@@ -243,30 +257,32 @@ def back_envelope_mm(spec: CharucoSpec) -> dict[str, Any]:
     handle = spec.handle
     if handle is None:
         raise ValueError(f"board {spec.name} has no handle")
-    to_board = np.linalg.inv(board_in_mesh(spec.plate_mm, spec.margin_mm, spec.pattern_face, spec.thickness_mm))
-    to_board = to_board @ post_in_mesh(handle, spec.plate_mm, spec.thickness_mm)
+    mesh_to_board = np.linalg.inv(board_in_mesh(spec.plate_mm, spec.margin_mm, spec.pattern_face, spec.thickness_mm))
+    to_board = mesh_to_board @ post_in_mesh(handle, spec.plate_mm)
     half, top = handle.width_mm / 2, max(handle.thickness_tip_mm, handle.thickness_end_mm) + handle.rail_height_mm
     web = (shoulder_top_mm(handle) - handle.gusset_thickness_mm) / 2  # handle z of the gusset web faces: web, top - web
     corners = {
-        "post": [[-half, -handle.extent_mm, -handle.clamp_clearance_mm], [half, 0.0, top]],
-        "low": [
-            [-half - handle.gusset_reach_mm, -handle.gusset_height_mm, web],
-            [-half, 0.0, web + handle.gusset_thickness_mm],
-        ],
-        "high": [
-            [half, -handle.gusset_height_mm, web],
-            [half + handle.gusset_reach_mm, 0.0, web + handle.gusset_thickness_mm],
-        ],
+        "post": ([[-half, -handle.extent_mm, -handle.clamp_clearance_mm], [half, 0.0, top]], to_board),
+        "gusset": (
+            [
+                [-half - handle.gusset_reach_mm, -handle.gusset_height_mm, web],
+                [-half, 0.0, web + handle.gusset_thickness_mm],
+            ],
+            to_board,
+        ),
+        "tab": (
+            [
+                [(spec.plate_mm[0] - handle.tab_root_width_mm) / 2, -handle.tab_length_mm, 0.0],
+                [(spec.plate_mm[0] + handle.tab_root_width_mm) / 2, 0.0, handle.tab_thickness_mm],
+            ],
+            mesh_to_board,
+        ),
     }
-    boxes = {}
-    for name, pair in corners.items():
-        points = trimesh.transform_points(np.array(pair), to_board)
+    boxes: dict[str, Any] = {}
+    for name, (pair, transform) in corners.items():
+        points = trimesh.transform_points(np.array(pair), transform)
         boxes[name] = [[float(v) for v in points.min(axis=0)], [float(v) for v in points.max(axis=0)]]
-    return {
-        "height_mm": handle.extent_mm,
-        "post": boxes["post"],
-        "gussets": sorted([boxes["low"], boxes["high"]]),
-    }
+    return {"height_mm": handle.tab_thickness_mm - spec.thickness_mm + handle.extent_mm, **boxes}
 
 
 def board_metadata(
@@ -286,9 +302,9 @@ def board_metadata(
         tool_point_m: the handle tool_offset_m point in the board frame; tool_axis and open_axis: gripper_link
         TOOL_AXIS and OPEN_AXIS in the board frame, the post axis and the jaw-closing direction); board_mount
         (xyz_init, rpy_init: the board frame in gripper_link, m and rad); grip (contact_rad: on the nominal handle
-        surfaces, squeeze_rad, grip_rad = contact_rad -
-        squeeze_rad, clearance_clamp_mm: the print allowance on each clamp face, modelled_contact_rad: the contact on
-        the printed, thinner solid pressed on the fixed jaw); back_envelope_mm (`back_envelope_mm`).
+        surfaces, squeeze_rad, grip_rad = contact_rad - squeeze_rad, clearance_clamp_mm: the print allowance on each
+        clamp face, modelled_contact_rad: the contact on the printed, thinner solid pressed on the fixed jaw);
+        handle_envelope_mm (`handle_envelope_mm`); stiffness (`stiffness` at mass_g).
 
     Raises:
         ValueError: When the spec has no handle or the seat fails.
@@ -296,8 +312,8 @@ def board_metadata(
     if spec.handle is None:
         raise ValueError(f"board {spec.name} has no handle")
     solid = printed_solid(base, modules)
-    mesh_pose, contact = seat(gripper, solid, spec.handle, spec.plate_mm, spec.thickness_mm)
-    modelled = printed_contact_rad(gripper, solid, spec.handle, mesh_pose, spec.thickness_mm)
+    mesh_pose, contact = seat(gripper, solid, spec.handle, spec.plate_mm)
+    modelled = printed_contact_rad(gripper, solid, spec.handle, mesh_pose)
     board_in = board_in_mesh(spec.plate_mm, spec.margin_mm, spec.pattern_face, spec.thickness_mm)
     centre_of_mass = trimesh.transform_points([solid.center_mass], np.linalg.inv(board_in))[0] / MM_PER_M
     board_pose = mesh_pose @ board_in
@@ -309,12 +325,13 @@ def board_metadata(
     gripper_xyz, gripper_rpy = xyz_rpy_from_pose(gripper_in_board)
     board_xyz, board_rpy = xyz_rpy_from_pose(board_pose)
     volume = (base.volume + modules.volume) / MM3_PER_CM3
+    mass = float(volume * spec.handle.density_g_per_cm3)
     return {
         "name": spec.name,
         "board": board_config(spec).model_dump(),
         "plate_mm": list(spec.plate_mm),
         "volume_cm3": float(volume),
-        "mass_g": float(volume * spec.handle.density_g_per_cm3),
+        "mass_g": mass,
         "handle_in_board": {
             "gripper_link_xyz_m": list(gripper_xyz),
             "gripper_link_rpy_rad": list(gripper_rpy),
@@ -323,7 +340,8 @@ def board_metadata(
             "open_axis": [float(v) for v in gripper_in_board[:3, :3] @ np.asarray(OPEN_AXIS)],
         },
         "centre_of_mass_m": [float(v) for v in centre_of_mass],
-        "back_envelope_mm": back_envelope_mm(spec),
+        "handle_envelope_mm": handle_envelope_mm(spec),
+        "stiffness": stiffness(spec.handle, spec.plate_mm, spec.thickness_mm, mass),
         "board_mount": {"xyz_init": list(board_xyz), "rpy_init": list(board_rpy)},
         "grip": {
             "contact_rad": float(contact),
@@ -351,8 +369,8 @@ def write_board_metadata(meta: dict[str, Any], stem: Path) -> Path:
 
 
 def print_bodies(spec: CharucoSpec, opts: StlOptions) -> tuple[trimesh.Trimesh, trimesh.Trimesh]:
-    """The print bodies of a board: mask bodies built face up, turned face down for pattern_face "bottom", the
-    grip post and its gussets unioned into the base.
+    """The print bodies of a board: mask bodies built face up (back on the bed, the inlays in the top layers), turned
+    face down for pattern_face "bottom", the handle (tab, post and gusset) unioned into the base.
 
     Args:
         spec (CharucoSpec): The board.
@@ -383,11 +401,7 @@ def print_bodies(spec: CharucoSpec, opts: StlOptions) -> tuple[trimesh.Trimesh, 
     if spec.pattern_face == "bottom":
         solids = [face_down(solid, spec.plate_mm, spec.thickness_mm) for solid in solids]
     if spec.handle is not None:
-        solids[0] = (
-            solids[0]
-            + post_solid(spec.handle, spec.plate_mm, spec.thickness_mm)
-            + gusset_solid(spec.handle, spec.plate_mm, spec.thickness_mm)
-        )
+        solids[0] = solids[0] + handle_body(spec.handle, spec.plate_mm)
     return to_trimesh(solids[0]), to_trimesh(solids[1])
 
 

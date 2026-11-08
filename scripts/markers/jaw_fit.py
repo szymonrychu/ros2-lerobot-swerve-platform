@@ -55,6 +55,7 @@ class Gripper:
         tool (np.ndarray): 4x4 pose of gripper_frame_link in gripper_link.
         axis (np.ndarray): Gripper joint axis in the joint frame.
         lower_rad (float): Gripper lower limit (rad).
+        upper_rad (float): Gripper upper limit (rad), fully open.
     """
 
     fixed: trimesh.Trimesh
@@ -63,6 +64,7 @@ class Gripper:
     tool: np.ndarray
     axis: np.ndarray
     lower_rad: float
+    upper_rad: float
 
 
 def origin_mm(element: ElementTree.Element | None) -> np.ndarray:
@@ -146,7 +148,8 @@ def load_gripper(urdf_path: Path) -> Gripper:
         urdf_path (Path): The SO-101 arm URDF; mesh filenames resolve relative to its directory.
 
     Returns:
-        Gripper: The fixed and moving meshes, the gripper joint and the tool frame in gripper_link (mm).
+        Gripper: The fixed and moving meshes, the gripper joint and the tool frame in gripper_link (mm), and the
+        gripper joint limits.
     """
     root = ElementTree.parse(urdf_path).getroot()
     joint = find_joint(root, GRIPPER_JOINT)
@@ -164,6 +167,7 @@ def load_gripper(urdf_path: Path) -> Gripper:
         tool=origin_mm(tool.find("origin")),
         axis=axis / np.linalg.norm(axis),
         lower_rad=float(urdf_child(joint, "limit").get("lower", "0")),  # type: ignore[union-attr]
+        upper_rad=float(urdf_child(joint, "limit").get("upper", "0")),  # type: ignore[union-attr]
     )
 
 
