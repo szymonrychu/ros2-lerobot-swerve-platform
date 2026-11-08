@@ -8,9 +8,17 @@ import { RgbdCapture } from './RgbdCapture'
 import captureStartFx from '../../../../head_rgbd_calibration/tests/fixtures/api/capture_start.json'
 import captureStopFx from '../../../../head_rgbd_calibration/tests/fixtures/api/capture_stop.json'
 import resultFx from '../../../../head_rgbd_calibration/tests/fixtures/api/result.json'
+import stateFx from '../../../../head_rgbd_calibration/tests/fixtures/api/state.json'
 
 const IDLE: CaptureState = { running: false, session_id: null, status: 'idle', pose_count: 0, started_at: null, stops_at: null }
 const COMPUTE = { running: false, session_id: null, result_id: null, started_at: null, error: null }
+const BOARDS = stateFx.boards
+const MODELS = {
+  files: [
+    { name: 'charuco-6x5-40mm.3mf', size: 1, url: '/models/charuco-6x5-40mm.3mf' },
+    { name: 'charuco-6x5-40mm.pdf', size: 1, url: '/models/charuco-6x5-40mm.pdf' },
+  ],
+}
 const cov = (counts: number[][]): Coverage => ({ cols: counts[0].length, rows: counts.length, counts })
 
 interface World {
@@ -36,14 +44,15 @@ function install(w: World): void {
       const method = init?.method ?? 'GET'
       w.calls.push(`${method} ${url}`)
       const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status })
-      if (url.endsWith('/state')) return json({ capture: w.capture, compute: COMPUTE, applied: null })
+      if (url === '/api/models') return json(MODELS)
+      if (url.endsWith('/state')) return json({ capture: w.capture, compute: COMPUTE, applied: null, boards: BOARDS })
       if (url.endsWith('/capture/start')) {
         w.capture = { ...w.capture, running: true, session_id: 's1', status: 'still - waiting', started_at: 'a', stops_at: 'b' }
-        return json({ capture: w.capture, compute: COMPUTE, applied: null })
+        return json({ capture: w.capture, compute: COMPUTE, applied: null, boards: BOARDS })
       }
       if (url.endsWith('/capture/stop')) {
         w.capture = { ...w.capture, running: false }
-        return json({ capture: w.capture, compute: COMPUTE, applied: null })
+        return json({ capture: w.capture, compute: COMPUTE, applied: null, boards: BOARDS })
       }
       if (method === 'DELETE') {
         w.poses = w.poses.filter((p) => !url.endsWith(`/poses/${p.id}`))
@@ -161,10 +170,20 @@ describe('RgbdCapture', () => {
     expect(stateCalls(w)).toBe(n)
   })
 
+  it('names the FULL board it needs with its PDF and 3MF downloads', async () => {
+    const w: World = { capture: IDLE, poses: [], calls: [] }
+    install(w)
+    render(<RgbdCalibration />)
+    expect(await screen.findByText(/FULL board: charuco-6x5-40mm, 6x5 squares of 40 mm/)).toBeTruthy()
+    expect(screen.getByRole('link', { name: /PDF/ }).getAttribute('href')).toBe('/models/charuco-6x5-40mm.pdf')
+  })
+
   it('start error shows the server message', async () => {
     vi.stubGlobal('fetch', vi.fn(async (u: string) =>
-      u.endsWith('/state')
-        ? new Response(JSON.stringify({ capture: IDLE, compute: COMPUTE, applied: null }))
+      u === '/api/models'
+        ? new Response(JSON.stringify(MODELS))
+        : u.endsWith('/state')
+        ? new Response(JSON.stringify({ capture: IDLE, compute: COMPUTE, applied: null, boards: BOARDS }))
         : new Response(JSON.stringify({ message: 'compute is running' }), { status: 409 })))
     render(<RgbdCalibration />)
     fireEvent.click(await screen.findByRole('button', { name: 'Start capture' }))
@@ -187,7 +206,8 @@ describe('RgbdCapture with the node contract fixtures', () => {
     vi.unstubAllGlobals()
   })
 
-  const serve = (body: unknown) => vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(body), { status: 200 })))
+  const serve = (body: unknown) =>
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify(url === '/api/models' ? MODELS : body), { status: 200 })))
 
   it('Start with capture_start.json hands the state up and shows no error', async () => {
     serve(captureStartFx)
@@ -212,7 +232,9 @@ describe('RgbdCapture with the node contract fixtures', () => {
     const sid = captureStartFx.capture.session_id
     const detail = { id: sid, created: 'c', poses: [], coverage: { rgb: cov([[0]]) }, results: [] }
     const f = vi.fn(async (url: string) => {
-      const body = url.endsWith('/capture/start')
+      const body = url === '/api/models'
+        ? MODELS
+        : url.endsWith('/capture/start')
         ? captureStartFx
         : url.endsWith('/state')
           ? { ...captureStartFx, capture: IDLE }
@@ -248,7 +270,8 @@ describe('RgbdCapture pose hints and errors', () => {
     results,
   })
   const serve = (getBody: () => unknown) => {
-    const f = vi.fn(async () => new Response(JSON.stringify(getBody()), { status: 200 }))
+    const f = vi.fn(async (url: string) =>
+      new Response(JSON.stringify(url === '/api/models' ? MODELS : url.endsWith('/state') ? stateFx : getBody()), { status: 200 }))
     vi.stubGlobal('fetch', f)
     return f
   }

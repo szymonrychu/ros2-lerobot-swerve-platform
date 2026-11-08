@@ -16,6 +16,7 @@ import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
 import Typography from '@mui/material/Typography'
 import { TOUCH_TARGET_PX } from '../theme'
+import { BoardNeeded } from './BoardNeeded'
 import type { AppliedHeadChain, FloorApplied, FloorApiResult } from './headFloorApi'
 import {
   HeadArmResult,
@@ -277,9 +278,10 @@ export function HeadArmCalibration({ armRun = false }: { armRun?: boolean }) {
         Head from arm
       </Typography>
       <Typography variant="body2" color="text.secondary">
-        The head chain is fitted against the trusted arm: the head D435 watches the ChArUco board on the fixed jaw while
-        the arm moves it, and the head pan and tilt are measured against it. Robot not driving.
+        The head chain is fitted against the trusted arm: the head D435 watches the ARM board held by its handle in the
+        jaws while the arm moves it, and the head pan and tilt are measured against it. Robot not driving.
       </Typography>
+      <BoardNeeded role="arm" />
       {error && <Alert severity="error">{error}</Alert>}
       {sequence?.error && <Alert severity="error">{sequence.error}</Alert>}
 
@@ -298,7 +300,7 @@ export function HeadArmCalibration({ armRun = false }: { armRun?: boolean }) {
       )}
       {phase === PHASE_WAITING_BOARD && (
         <Box sx={{ mt: 1 }}>
-          <Typography variant="body2">Clip the ChArUco board to the fixed jaw.</Typography>
+          <Typography variant="body2">Seat the arm board handle in the gripper jaws up to the shoulder.</Typography>
           <Button variant="contained" sx={{ ...target, mt: 1 }} onClick={() => void step(boardAttached)}>
             Board attached
           </Button>

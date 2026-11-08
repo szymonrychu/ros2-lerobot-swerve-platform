@@ -7,6 +7,7 @@ import Typography from '@mui/material/Typography'
 import DeleteIcon from '@mui/icons-material/Delete'
 import { ConfirmDialog } from '../layout/ConfirmDialog'
 import { TOUCH_TARGET_PX } from '../theme'
+import { BoardNeeded } from './BoardNeeded'
 import { CoverageGrid } from './CoverageGrid'
 import {
   CaptureState,
@@ -90,6 +91,7 @@ export function RgbdCapture({ capture, compute, sessionId, onState }: Props) {
   const btn = { minHeight: TOUCH_TARGET_PX }
   return (
     <Box>
+      <BoardNeeded role="full" />
       <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', my: 1 }}>
         <Button variant="contained" sx={btn} disabled={capture.running || compute.running} onClick={() => void act(() => startCapture())}>
           Start capture

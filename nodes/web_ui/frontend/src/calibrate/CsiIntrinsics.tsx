@@ -10,6 +10,7 @@ import ToggleButton from '@mui/material/ToggleButton'
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
 import Typography from '@mui/material/Typography'
 import { TOUCH_TARGET_PX } from '../theme'
+import { BoardNeeded } from './BoardNeeded'
 import { CoverageGrid } from './CoverageGrid'
 import {
   CSI_CAMERAS,
@@ -152,6 +153,7 @@ export function CsiIntrinsics() {
         Hold the ChArUco board in front of the camera and move it between views: near and far, tilted, into every
         corner of the image. A view is kept when the board is found and it moved from the last kept view.
       </Typography>
+      <BoardNeeded role="full" />
       <ToggleButtonGroup
         exclusive
         size="small"

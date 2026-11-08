@@ -11,6 +11,7 @@ import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
 import Typography from '@mui/material/Typography'
 import { TOUCH_TARGET_PX } from '../theme'
+import { BoardNeeded } from './BoardNeeded'
 import type { AppliedHeadChain, FloorApplied, FloorApiResult } from './headFloorApi'
 import {
   ArmResult,
@@ -146,7 +147,7 @@ function ArmResultCard({ result }: { result: ArmResult }) {
 
 /**
  * Arm section of the Calibrate page: the arm joint offsets and tool point fitted from the head D435 watching the
- * board on the fixed jaw. Needs an applied head chain. Drives the head-arm sequence (base pose, board attached:
+ * ARM board held by its handle in the jaws. Needs an applied head chain. Drives the head-arm sequence (base pose, board attached:
  * tiers 0 and 1; shoulder moves only after their confirm), computes the arm fit on the session and applies its head
  * part; the offsets snippet is committed by hand.
  *
@@ -285,8 +286,8 @@ export function ArmCalibration({ onRunChange }: { onRunChange?: (running: boolea
         Arm calibration
       </Typography>
       <Typography variant="body2" color="text.secondary">
-        The arm joint offsets and tool point are fitted from the head D435 watching the ChArUco board on the fixed jaw,
-        through the applied head chain. Robot not driving.
+        The arm joint offsets and tool point are fitted from the head D435 watching the ARM board held by its handle in
+        the jaws, through the applied head chain. Robot not driving.
       </Typography>
       <Button variant="contained" sx={{ ...target, mt: 1 }} disabled={applied === null} onClick={() => setOpen(!open)}>
         Arm calibrate
@@ -302,9 +303,10 @@ export function ArmCalibration({ onRunChange }: { onRunChange?: (running: boolea
           {sequence?.error && <Alert severity="error">{sequence.error}</Alert>}
           <Box sx={{ mt: 1 }}>
             <Typography variant="body2">
-              Step 1: board off the floor, clipped to the fixed jaw; the area around the arm clear. Start moves the arm
+              Step 1: ARM board seated in the jaws up to the shoulder; the area around the arm clear. Start moves the arm
               to the base pose and runs the slow wrist and elbow poses.
             </Typography>
+            <BoardNeeded role="arm" />
             <Button variant="contained" sx={{ ...target, mt: 1 }} disabled={busy || running} onClick={() => void start()}>
               Start
             </Button>

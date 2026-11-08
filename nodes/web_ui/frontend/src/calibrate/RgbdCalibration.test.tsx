@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { RgbdCalibration, RGBD_POLL_MS } from './RgbdCalibration'
+import stateFx from '../../../../head_rgbd_calibration/tests/fixtures/api/state.json'
 
 vi.mock('./RgbdCapture', () => ({ RgbdCapture: (p: { sessionId: string | null }) => <div data-testid="cap">{p.sessionId}</div> }))
 vi.mock('./RgbdResults', () => ({ RgbdResults: () => <div /> }))
@@ -19,6 +20,7 @@ const state = {
   capture: { running: true, session_id: 'live', status: 'capturing', pose_count: 1, started_at: null, stops_at: null },
   compute: { running: false, session_id: null, result_id: null, started_at: null, error: null },
   applied: null,
+  boards: stateFx.boards,
 }
 
 describe('RgbdCalibration', () => {

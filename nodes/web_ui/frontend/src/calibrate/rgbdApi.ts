@@ -42,11 +42,25 @@ export interface AppliedState extends AppliedRecord {
   units: UnitRestart[]
 }
 
-/** Body of GET /state; `applied` is null while nothing is applied. */
+/** One printed ChArUco board of the node config with the calibration steps that need it (`role`). */
+export interface BoardSpec {
+  name: string
+  squares_x: number
+  squares_y: number
+  square_mm: number
+  marker_mm: number
+  dictionary: string
+  ids_offset: number
+  thickness_mm: number
+  role: string
+}
+
+/** Body of GET /state; `applied` is null while nothing is applied. `boards`: FULL (intrinsics) and ARM (head-arm, arm). */
 export interface RgbdState {
   capture: CaptureState
   compute: ComputeState
   applied: AppliedRecord | null
+  boards: { full: BoardSpec; arm: BoardSpec }
 }
 
 export interface SessionSummary {
@@ -170,8 +184,17 @@ const isApplied = (v: unknown) =>
 /** The apply answer and GET /applied carry the node's `units` next to applied.json. */
 const isAppliedWithUnits = (v: unknown) => isApplied(v) && isArrayOf(isUnit)((v as Record<string, unknown>).units)
 
+const BOARD_NUM_KEYS = ['squares_x', 'squares_y', 'square_mm', 'marker_mm', 'ids_offset', 'thickness_mm'] as const
+const isBoard = (v: unknown) =>
+  isObj(v) && isStr(v.name) && isStr(v.dictionary) && isStr(v.role) && BOARD_NUM_KEYS.every((k) => isNum(v[k]))
+const isBoards = (v: unknown) => isObj(v) && isBoard(v.full) && isBoard(v.arm)
+
 const isState = (v: unknown) =>
-  isObj(v) && isCapture(v.capture) && isCompute(v.compute) && isNullOr(isApplied)(v.applied ?? null)
+  isObj(v) &&
+  isCapture(v.capture) &&
+  isCompute(v.compute) &&
+  isNullOr(isApplied)(v.applied ?? null) &&
+  isBoards(v.boards)
 
 const isSessionSummary = (v: unknown) =>
   isObj(v) && isStr(v.id) && (isStr(v.created) || isNum(v.created)) && isNum(v.pose_count) && isNum(v.result_count)
@@ -264,7 +287,8 @@ export function downloadUrl(sid: string, rid: string): string {
   return `${sessionPath(sid)}/results/${seg(rid)}/download`
 }
 
-async function call<T>(url: string, init: RequestInit, valid: (v: unknown) => boolean): Promise<RgbdApiResult<T>> {
+/** Fetch `url` and validate its JSON body; a non-2xx answer gives the API `message` (or `reason`) verbatim. */
+export async function call<T>(url: string, init: RequestInit, valid: (v: unknown) => boolean): Promise<RgbdApiResult<T>> {
   let res: Response
   try {
     res = await fetch(url, init)
@@ -287,7 +311,7 @@ async function call<T>(url: string, init: RequestInit, valid: (v: unknown) => bo
   return { ok: false, status: res.status, message }
 }
 
-const GET: RequestInit = { cache: 'no-store' }
+export const GET: RequestInit = { cache: 'no-store' }
 
 export const getState = () => call<RgbdState>(`${BASE}/state`, GET, isState)
 
