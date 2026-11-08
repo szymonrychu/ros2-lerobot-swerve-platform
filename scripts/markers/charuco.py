@@ -8,6 +8,7 @@ from typing import Literal, Self
 import cv2
 import numpy as np
 from pydantic import Field, field_validator, model_validator
+from ros2_common.head_rgbd_calibration.config import BoardConfig
 
 from scripts.markers.mesh import mask_bodies, write_bodies
 from scripts.markers.models import OUTPUT_FORMATS, PageSpec, StlOptions, StrictModel
@@ -26,15 +27,28 @@ NAME_PATTERN = r"^[a-z0-9][a-z0-9-]*$"
 MESH_SUFFIX = {"stl": ("-base.stl", "-modules.stl"), "3mf": (".3mf",)}
 
 
+def board_config(spec: "CharucoSpec") -> BoardConfig:
+    """The calibration-side board definition of a generator spec.
+
+    Args:
+        spec: Generator board spec (CharucoSpec).
+
+    Returns:
+        The BoardConfig with the fields both sides share.
+    """
+    return BoardConfig.model_validate(spec.model_dump(include=set(BoardConfig.model_fields)))
+
+
 class CharucoSpec(StrictModel):
     """ChArUco board definition shared by the generator and the calibration tool.
 
     name: file stem and board id (lower case, digits, hyphens). ids_offset: first ArUco marker id; the board uses
     squares_x * squares_y // 2 consecutive ids from it, so boards sharing a dictionary can have disjoint ids.
-    squares_x / squares_y: chessboard squares (squares_y odd). square_mm / marker_mm: square and ArUco marker
-    edge. dictionary: any cv2.aruco.DICT_* name. margin_mm: plate border around the board. thickness_mm: STL base
-    thickness (>= 4). relief_mm: module height above the base. inlay_mm: module depth sunk into the base (flush inlay when relief_mm is 0). bed_mm: print bed edge the plate must fit. page: PDF
-    media. outputs: subset of pdf/stl/3mf.
+    squares_x / squares_y: chessboard squares (squares_y odd). square_mm / marker_mm: square and ArUco marker edge.
+    dictionary: any cv2.aruco.DICT_* name. margin_mm: plate border around the board. thickness_mm: STL base
+    thickness (>= 4). relief_mm: module height above the base. inlay_mm: module depth sunk into the base (flush
+    inlay when relief_mm is 0). bed_mm: print bed edge the plate must fit. page: PDF media. outputs: subset of
+    pdf/stl/3mf.
     """
 
     name: str = Field(pattern=NAME_PATTERN)

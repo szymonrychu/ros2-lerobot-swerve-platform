@@ -6,7 +6,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 from ros2_common.head_rgbd_calibration.arm_pose_check import PoseCheckConfig
-from ros2_common.head_rgbd_calibration.config import ARM_JOINT_NAMES, FloorFitConfig
+from ros2_common.head_rgbd_calibration.config import ARM_JOINT_NAMES, FULL_BOARD, FloorFitConfig
 
 from head_rgbd_calibration.config import CONFIG_ENV, ArmSequenceConfig, NodeConfig, load_config
 
@@ -238,9 +238,10 @@ def test_still_values_must_be_positive(key: str) -> None:
 
 
 def test_fit_board_mismatch_refused_naming_both() -> None:
+    wide = {**FULL_BOARD.model_dump(), "squares_x": 7}
     with pytest.raises(ValidationError, match=r"fit\.board.*board"):
-        NodeConfig.model_validate({"fit": {"board": {"squares_x": 7}}})
-    cfg = NodeConfig.model_validate({"board": {"squares_x": 7}, "fit": {"board": {"squares_x": 7}}})
+        NodeConfig.model_validate({"fit": {"board": wide}})
+    cfg = NodeConfig.model_validate({"board": wide, "fit": {"board": wide}})
     assert cfg.fit.board.squares_x == 7
 
 

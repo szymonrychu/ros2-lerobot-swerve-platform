@@ -108,7 +108,7 @@ def centred_pose(board_cfg: BoardConfig, r: np.ndarray, centre: np.ndarray) -> P
 def board_poses(
     count: int,
     camera: SyntheticCamera,
-    board_cfg: BoardConfig | None = None,
+    board_cfg: BoardConfig,
     seed: int = 1,
     distance_m: tuple[float, float] = (0.5, 1.5),
     max_tilt_deg: float = 40.0,
@@ -119,7 +119,7 @@ def board_poses(
     Args:
         count: Number of poses.
         camera: Camera the board must stay in front of.
-        board_cfg: Board definition (default BoardConfig()).
+        board_cfg: Board definition.
         seed: Random seed.
         distance_m: (min, max) distance of the board centre along the optical axis.
         max_tilt_deg: Maximum tilt about each of the board x and y axes.
@@ -128,7 +128,6 @@ def board_poses(
     Returns:
         count board poses (board frame to camera frame).
     """
-    board_cfg = board_cfg or BoardConfig()
     rng = np.random.default_rng(seed)
     poses = []
     for _ in range(count):
@@ -174,9 +173,8 @@ def plane_maps(camera: SyntheticCamera, pose: Pose, scale: int) -> tuple[np.ndar
     return map_x, map_y, depth
 
 
-def render_grey(camera: SyntheticCamera, pose: Pose, board_cfg: BoardConfig | None = None) -> np.ndarray:
+def render_grey(camera: SyntheticCamera, pose: Pose, board_cfg: BoardConfig) -> np.ndarray:
     """Board seen by camera as a float image in [0, 1] (anti-aliased by supersampling)."""
-    board_cfg = board_cfg or BoardConfig()
     map_x, map_y, depth = plane_maps(camera, pose, SUPERSAMPLE)
     texture = board_image(board_cfg).astype(np.float32) / MAX_UINT8
     grey = cv2.remap(
@@ -186,9 +184,7 @@ def render_grey(camera: SyntheticCamera, pose: Pose, board_cfg: BoardConfig | No
     return cv2.resize(grey, camera.size, interpolation=cv2.INTER_AREA)
 
 
-def render_rgb(
-    camera: SyntheticCamera, pose: Pose, board_cfg: BoardConfig | None = None, seed: int = RENDER_SEED
-) -> np.ndarray:
+def render_rgb(camera: SyntheticCamera, pose: Pose, board_cfg: BoardConfig, seed: int = RENDER_SEED) -> np.ndarray:
     """RGB view of the board: uint8 BGR image with gaussian noise."""
     rng = np.random.default_rng(seed)
     grey = render_grey(camera, pose, board_cfg) * MAX_UINT8 + rng.normal(
@@ -198,7 +194,7 @@ def render_rgb(
 
 
 def render_tof_amplitude(
-    camera: SyntheticCamera, pose: Pose, board_cfg: BoardConfig | None = None, seed: int = RENDER_SEED
+    camera: SyntheticCamera, pose: Pose, board_cfg: BoardConfig, seed: int = RENDER_SEED
 ) -> np.ndarray:
     """ToF amplitude view of the board: uint16 with gaussian noise (white squares bright, black dark)."""
     rng = np.random.default_rng(seed)
@@ -208,9 +204,8 @@ def render_tof_amplitude(
     return np.clip(amplitude, 0, MAX_UINT16).astype(np.uint16)
 
 
-def render_depth(camera: SyntheticCamera, pose: Pose, board_cfg: BoardConfig | None = None) -> np.ndarray:
+def render_depth(camera: SyntheticCamera, pose: Pose, board_cfg: BoardConfig) -> np.ndarray:
     """Depth of the board plane as uint16 millimetres (0 outside the board, margin included)."""
-    board_cfg = board_cfg or BoardConfig()
     map_x, map_y, depth = plane_maps(camera, pose, 1)
     inside = (
         (map_x >= 0)

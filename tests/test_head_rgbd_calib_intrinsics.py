@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 import pytest
 from ros2_common.head_rgbd_calibration.charuco import Detection, detect, make_board
-from ros2_common.head_rgbd_calibration.config import BoardConfig
+from ros2_common.head_rgbd_calibration.config import FULL_BOARD
 from ros2_common.head_rgbd_calibration.frames import CameraInfoData
 from ros2_common.head_rgbd_calibration.intrinsics import (
     IntrinsicsResult,
@@ -17,7 +17,7 @@ from ros2_common.head_rgbd_calibration.intrinsics import (
 
 from tests.rgbd_synthetic import board_poses, centred_pose, render_rgb, rgb_camera, rotation
 
-BOARD_CFG = BoardConfig()
+BOARD_CFG = FULL_BOARD
 VIEWS = 20
 RGB_DISTANCE_M = (0.4, 0.9)
 # Real ToF amplitude frames of the printed board at about 0.3 m (2026-10-19 capture, polarity corrected). None of them

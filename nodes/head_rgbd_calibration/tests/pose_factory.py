@@ -9,13 +9,13 @@ from pathlib import Path
 import cv2
 import numpy as np
 from ros2_common.head_rgbd_calibration.charuco import Detection, detect, make_board
-from ros2_common.head_rgbd_calibration.config import BoardConfig
+from ros2_common.head_rgbd_calibration.config import FULL_BOARD
 from ros2_common.head_rgbd_calibration.frames import CameraInfoData, StampedImage
 
 from head_rgbd_calibration.store import ColourDepthStill
 
 SYNTHETIC_FILE = Path(__file__).resolve().parents[3] / "tests" / "rgbd_synthetic.py"
-BOARD_CFG = BoardConfig()
+BOARD_CFG = FULL_BOARD
 STAMP_NS = 1_700_000_000_000_000_000
 RGB_SIZE = (576, 324)
 

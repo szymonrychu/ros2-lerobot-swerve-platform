@@ -20,7 +20,7 @@ from ros2_common.head_rgbd_calibration.chain import UrdfChain, arm_in_robot_base
 from ros2_common.head_rgbd_calibration.charuco import MIN_CORNERS, Detection, board_corners_3d
 from ros2_common.head_rgbd_calibration.config import (
     DEFAULT_JOINT_OFFSETS_RAD,
-    BoardConfig,
+    FULL_BOARD,
     BoardMountConfig,
     HeadArmFitConfig,
     PlateMountConfig,
@@ -124,7 +124,7 @@ DEFAULT_HEAD_OFFSETS_DEG: list[tuple[float, float]] = [(0.0, 0.0), (10.0, 0.0), 
 # Arm offsets scenes (plate_scene, floor_scene).
 DEPTH_FRAME = "d435_depth_optical_frame"
 GRIPPER_FRAME_LINK = "gripper_frame_link"
-PLATE_BOARD = BoardConfig()  # the rigid 6x5 ChArUco board
+PLATE_BOARD = FULL_BOARD  # the rigid 6x5 ChArUco board
 # True offsets minus the current ones (DEFAULT_JOINT_OFFSETS_RAD) of the free joints (rad).
 PLATE_OFFSET_CHANGES = {"shoulder_lift": 0.03, "elbow_flex": -0.04, "wrist_flex": 0.05}
 # The synthetic recorded wrist_roll neutral (rad): the fixed wrist_roll offset of the default (no CAD rotation) mode.

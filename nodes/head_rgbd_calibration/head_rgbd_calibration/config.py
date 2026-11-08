@@ -10,6 +10,7 @@ from pydantic import Field, field_validator, model_validator
 from ros2_common.head_rgbd_calibration.arm_pose_check import PoseCheckConfig
 from ros2_common.head_rgbd_calibration.config import (
     ARM_JOINT_NAMES,
+    FULL_BOARD,
     BoardConfig,
     BoardMountConfig,
     FloorFitConfig,
@@ -431,7 +432,7 @@ class NodeConfig(StrictModel):
     restart_check_s: float = Field(default=DEFAULT_RESTART_CHECK_S, gt=0)
     thumbnail_width_px: int = Field(default=DEFAULT_THUMBNAIL_WIDTH_PX, ge=1)
     coverage: CoverageConfig = Field(default_factory=CoverageConfig)
-    board: BoardConfig = Field(default_factory=BoardConfig)
+    board: BoardConfig = FULL_BOARD
     selection: D435SelectionConfig = Field(default_factory=D435SelectionConfig)
     limits: D435LimitsConfig = Field(default_factory=D435LimitsConfig)
     floor: FloorSweepConfig = Field(default_factory=FloorSweepConfig)

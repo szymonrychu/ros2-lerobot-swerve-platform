@@ -2,6 +2,7 @@
 
 from typing import Self
 
+import cv2
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
@@ -12,20 +13,64 @@ class StrictModel(BaseModel):
 
 
 class BoardConfig(StrictModel):
-    """ChArUco board; must equal the charuco spec of scripts/markers_generate.yaml."""
+    """ChArUco board; FULL_BOARD and ARM_BOARD must equal the boards of scripts/markers_generate.yaml.
 
-    squares_x: int = Field(default=6, ge=2)
-    squares_y: int = Field(default=5, ge=2)
-    square_mm: float = Field(default=40.0, gt=0)
-    marker_mm: float = Field(default=30.0, gt=0)
-    dictionary: str = "DICT_5X5_100"
-    thickness_mm: float = Field(default=4.0, gt=0)  # plate thickness behind the printed face (markers_generate.yaml)
+    name is the board id; ids_offset is the first ArUco marker id (the board uses squares_x * squares_y // 2
+    consecutive ids from it).
+    """
+
+    name: str
+    squares_x: int = Field(ge=2)
+    squares_y: int = Field(ge=2)
+    square_mm: float = Field(gt=0)
+    marker_mm: float = Field(gt=0)
+    dictionary: str
+    ids_offset: int = Field(ge=0)
+    thickness_mm: float = Field(gt=0)  # plate thickness behind the printed face (markers_generate.yaml)
+
+    @property
+    def marker_ids(self) -> range:
+        """The ArUco marker ids of the board."""
+        return range(self.ids_offset, self.ids_offset + self.squares_x * self.squares_y // 2)
 
     @model_validator(mode="after")
     def check_marker(self) -> Self:
         if self.marker_mm >= self.square_mm:
             raise ValueError("board.marker_mm must be smaller than board.square_mm")
         return self
+
+    @model_validator(mode="after")
+    def check_ids(self) -> Self:
+        """The marker ids exist in the dictionary."""
+        available = len(cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, self.dictionary)).bytesList)
+        if self.marker_ids.stop > available:
+            raise ValueError(
+                f"ids_offset {self.ids_offset} + {len(self.marker_ids)} markers exceeds the {available} ids of "
+                f"{self.dictionary}"
+            )
+        return self
+
+
+FULL_BOARD = BoardConfig(
+    name="charuco-6x5-40mm",
+    squares_x=6,
+    squares_y=5,
+    square_mm=40.0,
+    marker_mm=30.0,
+    dictionary="DICT_5X5_100",
+    ids_offset=0,
+    thickness_mm=4.0,
+)
+ARM_BOARD = BoardConfig(
+    name="charuco-arm-6x5-28mm",
+    squares_x=6,
+    squares_y=5,
+    square_mm=28.0,
+    marker_mm=21.0,
+    dictionary="DICT_5X5_100",
+    ids_offset=15,
+    thickness_mm=4.0,
+)
 
 
 class SelectionConfig(StrictModel):
@@ -219,7 +264,7 @@ class HeadArmFitConfig(StrictModel):
     tool point is not fitted), `floor_fit` (its floor views) and `arm_limits`.
     """
 
-    board: BoardConfig = Field(default_factory=BoardConfig)
+    board: BoardConfig = FULL_BOARD
     fit_pan_axis: bool = True
     fit_camera_mount: bool = True
     board_mount: BoardMountConfig = Field(default_factory=BoardMountConfig)
@@ -228,7 +273,7 @@ class HeadArmFitConfig(StrictModel):
     base_in_base_link: BaseInBaseLink = Field(default_factory=BaseInBaseLink)
     joint_offsets_rad: dict[str, float] = Field(default_factory=lambda: dict(DEFAULT_JOINT_OFFSETS_RAD))
     floor_prior_weight: float = Field(default=10.0, ge=0)
-    plate: BoardConfig = Field(default_factory=BoardConfig)
+    plate: BoardConfig = FULL_BOARD
     plate_mount: PlateMountConfig | None = None
     wrist_roll_offset_rad: float | None = None
     tool_offset_m: tuple[float, float, float] = DEFAULT_TOOL_OFFSET_M

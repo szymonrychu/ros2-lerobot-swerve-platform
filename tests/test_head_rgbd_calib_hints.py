@@ -3,10 +3,10 @@
 import numpy as np
 import pytest
 from ros2_common.head_rgbd_calibration.charuco import Detection
-from ros2_common.head_rgbd_calibration.config import BoardConfig
+from ros2_common.head_rgbd_calibration.config import FULL_BOARD
 from ros2_common.head_rgbd_calibration.hints import FEW_CORNERS_FRACTION, MIN_COMMON_CORNERS, capture_hints
 
-BOARD = BoardConfig()
+BOARD = FULL_BOARD
 INNER = 20
 
 
@@ -69,7 +69,7 @@ def test_threshold_follows_board_size() -> None:
 
 @pytest.mark.parametrize(("sx", "sy", "inner", "edge"), [(5, 5, 16, 8), (8, 6, 35, 18)])
 def test_board_size_changes_threshold(sx: int, sy: int, inner: int, edge: int) -> None:
-    board = BoardConfig(squares_x=sx, squares_y=sy)
+    board = FULL_BOARD.model_copy(update={"squares_x": sx, "squares_y": sy})
     ids = list(range(inner))
     assert capture_hints(det(ids[: edge - 1]), det(ids), board)[0].startswith(f"few corners: {edge - 1} RGB")
     assert capture_hints(det(ids[:edge]), det(ids), board) == []
