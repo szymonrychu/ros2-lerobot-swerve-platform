@@ -2,13 +2,14 @@
 
 import io
 import logging
+import math
 import zipfile
 from pathlib import Path
 from xml.etree import ElementTree
 
 import numpy as np
 import trimesh
-from manifold3d import Manifold, OpType
+from manifold3d import Manifold, Mesh, OpType
 
 from scripts.markers.models import StlOptions
 from scripts.markers.symbol import Symbol
@@ -19,6 +20,8 @@ BASE_NAME = "base"
 MODULES_NAME = "modules"
 EXTRUDERS = {BASE_NAME: 1, MODULES_NAME: 2}
 CUT_OVERSHOOT_MM = 1.0
+OVERHANG_LIMIT_DEG = 45.0
+BED_TOL_MM = 0.05
 
 
 def box(x0: float, y0: float, z0: float, x1: float, y1: float, z1: float) -> Manifold:
@@ -34,6 +37,50 @@ def to_trimesh(solid: Manifold) -> trimesh.Trimesh:
         faces=np.asarray(mesh.tri_verts, dtype=np.int64),
         process=False,
     )
+
+
+def printed_solid(base: trimesh.Trimesh, modules: trimesh.Trimesh) -> trimesh.Trimesh:
+    """Union of the base and module bodies, which is what the printer builds.
+
+    Args:
+        base: Base body.
+        modules: Module body in the same coordinates.
+
+    Returns:
+        The watertight union mesh.
+    """
+    solids = [
+        Manifold(
+            Mesh(
+                vert_properties=np.asarray(body.vertices, dtype=np.float32),
+                tri_verts=np.asarray(body.faces, dtype=np.uint32),
+            )
+        )
+        for body in (base, modules)
+    ]
+    return to_trimesh(solids[0] + solids[1])
+
+
+def print_violations(mesh: trimesh.Trimesh) -> list[str]:
+    """List the reasons a mesh cannot be printed bed-down without supports.
+
+    Args:
+        mesh: The printed solid, bed at its lowest z.
+
+    Returns:
+        Empty when printable; "not watertight" and/or "N overhang faces (A mm2) below 45 deg" otherwise. Overhang
+        faces have normal z below -sin(OVERHANG_LIMIT_DEG) and a centre above the bed by more than BED_TOL_MM.
+    """
+    violations: list[str] = []
+    if not mesh.is_watertight:
+        violations.append("not watertight")
+    steep = mesh.face_normals[:, 2] < -math.sin(math.radians(OVERHANG_LIMIT_DEG))
+    raised = mesh.triangles_center[:, 2] > mesh.bounds[0][2] + BED_TOL_MM
+    bad = steep & raised
+    if bad.any():
+        area = float(mesh.area_faces[bad].sum())
+        violations.append(f"{int(bad.sum())} overhang faces ({area:.1f} mm2) below {OVERHANG_LIMIT_DEG:g} deg")
+    return violations
 
 
 def dark_runs(mask: np.ndarray) -> list[tuple[int, int, int]]:

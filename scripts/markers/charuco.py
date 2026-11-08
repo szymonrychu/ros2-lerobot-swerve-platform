@@ -10,7 +10,7 @@ import numpy as np
 from pydantic import Field, field_validator, model_validator
 from ros2_common.head_rgbd_calibration.config import BoardConfig
 
-from scripts.markers.mesh import mask_bodies, write_bodies
+from scripts.markers.mesh import mask_bodies, print_violations, printed_solid, write_bodies
 from scripts.markers.models import OUTPUT_FORMATS, PageSpec, StlOptions, StrictModel
 from scripts.markers.pdf import draw_mask_pdf, page_mm
 
@@ -204,7 +204,8 @@ def write_charuco(spec: CharucoSpec, opts: StlOptions, stem: Path) -> list[Path]
         The written paths.
 
     Raises:
-        ValueError: when the marker cell is below opts.min_module_mm.
+        ValueError: when the marker cell is below opts.min_module_mm, or the printed solid is not watertight or has
+            overhang faces steeper than 45 deg.
     """
     mask, cell_mm = board_mask(spec)
     written: list[Path] = []
@@ -241,6 +242,9 @@ def write_charuco(spec: CharucoSpec, opts: StlOptions, stem: Path) -> list[Path]
             }
         )
         base, modules = mask_bodies(mask, cell_mm, spec.plate_mm, (spec.margin_mm, spec.margin_mm), mesh_opts)
+        violations = print_violations(printed_solid(base, modules))
+        if violations:
+            raise ValueError(f"board {spec.name} is not printable: {'; '.join(violations)}")
         for path in write_bodies(base, modules, stem):
             if any(path.name.endswith(suffix) for suffix in wanted):
                 written.append(path)

@@ -12,7 +12,15 @@ import zxingcpp
 from manifold3d import Manifold, Mesh
 
 from scripts.markers.config import MarkerSpec, StlOptions, SymbolDefaults
-from scripts.markers.mesh import marker_bodies, mask_bodies, write_bodies
+from scripts.markers.mesh import (
+    box,
+    marker_bodies,
+    mask_bodies,
+    print_violations,
+    printed_solid,
+    to_trimesh,
+    write_bodies,
+)
 from scripts.markers.symbol import Symbol, build_symbol, render_raster
 
 TOL = 1e-6
@@ -189,3 +197,30 @@ def test_mask_bodies_unions_adjacent_cells_and_orients_rows() -> None:
     assert modules.bounds[1][:2] == pytest.approx([8.0, 8.0])
     assert modules.contains([[3.0, 7.0, 2.3], [7.0 - 0.5, 3.0, 2.3], [3.0, 3.0, 2.3]]).tolist() == [True, True, False]
     assert base.volume == pytest.approx(10 * 10 * opts.base_thickness_mm)
+
+
+def test_print_violations_pass_a_box() -> None:
+    assert print_violations(to_trimesh(box(0, 0, 0, 10, 10, 4))) == []
+
+
+def test_print_violations_name_a_downward_overhang() -> None:
+    tee = to_trimesh(box(0, 0, 0, 4, 4, 10) + box(-6, 0, 8, 10, 4, 10))  # 6 mm cantilevers both sides
+    assert any("overhang" in v for v in print_violations(tee))
+
+
+def test_print_violations_name_an_open_mesh() -> None:
+    mesh = to_trimesh(box(0, 0, 0, 10, 10, 4))
+    mesh.update_faces(np.arange(len(mesh.faces) - 1))
+    assert "not watertight" in print_violations(mesh)
+
+
+def test_printed_solid_is_the_plate_of_a_flush_inlay() -> None:
+    base, modules = mask_bodies(
+        np.eye(4, dtype=bool),
+        2.0,
+        (12.0, 12.0),
+        (2.0, 2.0),
+        StlOptions(base_thickness_mm=4.0, relief_mm=0.0, inlay_mm=1.2),
+    )
+    solid = printed_solid(base, modules)
+    assert solid.is_watertight and solid.volume == pytest.approx(12.0 * 12.0 * 4.0)
