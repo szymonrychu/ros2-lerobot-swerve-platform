@@ -32,7 +32,7 @@ export interface HeadArmSequence {
   big_joints: string[];
   /** Epoch seconds since the sequence waits for a user confirm; null while it does not wait. */
   waiting_since: number | null;
-  /** A fresh board-clipped record from before a node restart; the user still confirms the board is on. */
+  /** A fresh board-attached record from before a node restart; the user still confirms the board is on. */
   board_record: { session_id: string | null; clipped_at: string } | null;
 }
 

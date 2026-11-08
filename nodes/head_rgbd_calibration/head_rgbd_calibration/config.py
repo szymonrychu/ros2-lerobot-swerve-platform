@@ -87,8 +87,9 @@ CAD_TOOL_IN_BOARD_M = (
     -0.021386,
 )  # jaw-tip tool point in the board frame (handle_in_board.tool_point_m)
 # ARM board handle material beyond its plate, ((min), (max)) boxes in the board frame (mm, pattern at z = 0, back at
-# z = 4) for the pose check: the edge handle's post, its gusset and the tab (user m540, markers/charuco-arm-6x5-28mm.json
-# handle_envelope_mm), on the pattern side up to the post top 42 mm above the pattern face, past the bottom edge.
+# z = 4) for the pose check: the edge handle's post, its gusset and the tab (user m540,
+# markers/charuco-arm-6x5-28mm.json handle_envelope_mm), on the pattern side up to the post top 42 mm above the
+# pattern face, past the bottom edge.
 CAD_HANDLE_BOXES_MM = (
     ((71.5, 175.7, -42.0), (100.05, 200.3, -6.0)),
     ((80.0, 145.7, -42.0), (88.0, 175.7, -6.0)),
@@ -363,13 +364,13 @@ class ArmSequenceConfig(StrictModel):
     `max_big_delta_rad`). `insert_gripper_rad` is sent once with the base pose and is at most the half-open
     `pose_check.max_roll_gripper_rad`. `handle_contact_rad` is the gripper angle at first contact on the ARM board
     handle, `handle_squeeze_rad` the squeeze past it (`grip_rad` is the commanded grip), `board_mass_g` the board mass.
-    `head_offsets_deg` are (pan, tilt) offsets added to the aimed head angles, one view each. `provisional_margin_m` is added to `pose_check.margin_m` for the board points while the board
-    mount is the shipped CAD seed (not fit-solved). `park_pose` is the parked arm a park with the board on
-    drives to (path-checked first); `park_board_sag_margin_m` is added to the board floor, body and head clearances
-    of that check, because the board sags below FK under its weight (about 4 mm measured with a heavier board; `board_mass_g` is
-    lighter, so the same margin is conservative).
-    `board_record_max_age_s` is the oldest board-clipped record a node start still offers to the user (older ones are
-    ignored and logged).
+    `head_offsets_deg` are (pan, tilt) offsets added to the aimed head angles, one view each. `provisional_margin_m`
+    is added to `pose_check.margin_m` for the board points while the board mount is the shipped CAD seed (not
+    fit-solved). `park_pose` is the parked arm a park with the board on drives to (path-checked first);
+    `park_board_sag_margin_m` is added to the board floor, body and head clearances of that check, because the board
+    sags below FK under its weight (about 4 mm measured with the 214 g stick-mounted board; the ARM board's
+    `board_mass_g` is lighter, so the same margin is conservative). `board_record_max_age_s` is the oldest
+    board-attached record a node start still offers to the user (older ones are ignored and logged).
     """
 
     base_pose: dict[str, float] = Field(default_factory=lambda: arm_pose(DEFAULT_BASE_POSE))

@@ -2,6 +2,8 @@
 
 Run: uv run --group render python -m scripts.markers_render [config]   (default scripts/markers_render.yaml)
 Needs the OSMesa libs: eval "$(bash scripts/markers/setup_render_libs.sh | grep '^export')"
+The module imports pyvista (scripts.markers.render), so it needs the render dependency group; the config model lives
+in scripts.markers.config and loads without it.
 """
 
 import argparse
@@ -10,46 +12,17 @@ import sys
 from pathlib import Path
 
 import trimesh
-import yaml
 from pydantic import ValidationError
 
+from scripts.markers.config import RenderConfig, load_render_config
 from scripts.markers.jaw_fit import load_gripper
-from scripts.markers.models import StrictModel
+from scripts.markers.render import render_views
 from scripts.markers.views import GRIP_VIEW, VIEW_DIRECTIONS, grip_scene
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG = REPO_ROOT / "scripts" / "markers_render.yaml"
 GRIP_VIEW_DIRECTION = (0.0, 1.0, 0.0)  # along the finger width: the jaw gap and the stacked handle side on
 BOARD_COLOURS = ("base", "modules")
-
-
-class RenderConfig(StrictModel):
-    """Render options. Relative paths resolve against the repo root.
-
-    markers_dir: directory with the written board STLs and JSON. board: board name (file stem). arm_urdf_file: the
-    SO-101 arm URDF. out_dir: PNG output directory. size: image (width, height) in pixels.
-    """
-
-    markers_dir: str = "markers"
-    board: str = "charuco-arm-6x5-28mm"
-    arm_urdf_file: str
-    out_dir: str = ".logs/arm-calib-board/renders"
-    size: tuple[int, int] = (1200, 900)
-
-
-def load_render_config(path: Path) -> RenderConfig:
-    """Load and validate the render YAML.
-
-    Args:
-        path (Path): YAML file.
-
-    Returns:
-        RenderConfig: The config.
-
-    Raises:
-        ValidationError: On unknown keys or invalid values.
-    """
-    return RenderConfig.model_validate(yaml.safe_load(path.read_text()))
 
 
 def repo_path(value: str) -> Path:
@@ -74,10 +47,6 @@ def render_all(config: RenderConfig) -> list[Path]:
     Returns:
         list[Path]: Nine PNG paths: eight "<board>-<view>.png" and "<board>-grip_fit.png".
     """
-    # pyvista is only in the opt-in render dependency group, so the import stays here and the rest of the module
-    # (config, tests of the pure parts) loads without it.
-    from scripts.markers.render import render_views
-
     markers = repo_path(config.markers_dir)
     base = trimesh.load(markers / f"{config.board}-base.stl")
     modules = trimesh.load(markers / f"{config.board}-modules.stl")
