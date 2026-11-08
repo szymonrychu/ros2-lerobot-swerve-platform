@@ -84,7 +84,7 @@ def test_mcp_server_points_equal_the_node_board_points_at_the_configured_mount()
     calib = NodeConfig()
     settings = CalibrationBoardSettings()
     expected = np.vstack([board_points_local(calib.fit, GRID), back_box_points_local(calib.fit)])
-    assert len(back_box_points_local(calib.fit)) > 0  # the handle and its ribs are checked too
+    assert len(back_box_points_local(calib.fit)) > 0  # the grip post and its gussets are checked too
     park = BoardPark.from_mount(settings, list(settings.mount_xyz_m), list(settings.mount_rpy_rad))
     assert np.allclose(np.sort(park.points, axis=0), np.sort(expected, axis=0), atol=1e-9)
     assert np.allclose(park.points, expected, atol=1e-9)

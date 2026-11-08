@@ -136,7 +136,7 @@ def test_the_board_geometry_is_mcp_servers_own_and_the_request_only_moves_the_mo
     plate = park.points[:plate_count]
     reach = max(float(np.linalg.norm(a - b)) for a in plate for b in plate)
     assert reach == pytest.approx(diagonal)
-    # Then a 3 x 3 x 3 lattice per back box (the ribs and the handle), the same rigid pose: its diagonal is kept.
+    # Then a 3 x 3 x 3 lattice per back box (the grip post and its gussets), the same rigid pose: its diagonal is kept.
     for index, (low, high) in enumerate(settings.back_boxes_mm):
         box = park.points[plate_count + 27 * index : plate_count + 27 * (index + 1)]
         span = max(float(np.linalg.norm(a - b)) for a in box for b in box)
