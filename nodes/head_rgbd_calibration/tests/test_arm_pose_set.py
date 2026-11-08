@@ -8,8 +8,9 @@ with `fit.joint_offsets_rad`.
 
 The home pose the sequence starts from is `HOME_POSE`: `scripts/gen_nav_footprint.yaml` `parked_arm_joints`, the
 repo record of the home that mcp_server's `arm.home_file` (/var/lib/ros2/arm/home.yaml) holds and `arm_home` parks
-at. The board is the ARM board on its paddle handle, mounted at the handle CAD seed (markers/charuco-arm-6x5-28mm.json),
-not yet fit-solved (design D47): the safety tests check the plate plus its ribs and handle (`board_mount.back_boxes_mm`)
+at. The board is the ARM board on its right-angle grip post, mounted at the handle CAD seed
+(markers/charuco-arm-6x5-28mm.json), not yet fit-solved (design D47): the safety tests check the plate plus its post and
+gussets (`board_mount.back_boxes_mm`)
 with the board margin `margin_m + provisional_margin_m` and the mount shifted by +-1 cm and turned by +-5 deg about each
 gripper axis. The camera is the head D435 colour camera (`d435_color_optical_frame`) with the nominal 640x360
 intrinsics (69 deg across, the datasheet colour FOV); the factory camera_info replaces them at run time.
@@ -236,14 +237,17 @@ def test_home_pose_is_the_parked_arm() -> None:
 
 
 def test_board_mount_is_the_handle_cad_mount() -> None:
-    """The ARM board on its paddle handle in the closed gripper: the CAD seed of the handle metadata, the board normal
-    along the jaw opening axis and board y against the tool direction; both yamls name the handle CAD."""
+    """The ARM board on its right-angle grip post in the closed gripper (decision 296): the CAD seed of the handle
+    metadata, the board normal along the tool axis (the pattern faces where the gripper points) and the jaws closing
+    along board y; both yamls name the handle CAD."""
     meta = json.loads((REPO_ROOT / "markers" / "charuco-arm-6x5-28mm.json").read_text())
     assert FIT.board == ARM_BOARD
     assert FIT.board_mount.xyz_init == pytest.approx(meta["board_mount"]["xyz_init"], abs=1e-6)
+    assert FIT.board_mount.rpy_init == pytest.approx(meta["board_mount"]["rpy_init"], abs=1e-6)
     mount = pose_from_xyz_rpy(FIT.board_mount.xyz_init, FIT.board_mount.rpy_init)
-    assert mount[:3, 2] == pytest.approx([1.0, 0.0, 0.0], abs=1e-6)  # board z along the jaw opening axis
-    assert mount[:3, 1] == pytest.approx([0.0, 0.0, 1.0], abs=1e-6)  # board y against the tool direction
+    assert mount[:3, 2] == pytest.approx([0.0, 0.0, 1.0], abs=1e-6)  # board z against the tool direction
+    assert mount[:3, :3] @ meta["handle_in_board"]["tool_axis"] == pytest.approx([0.0, 0.0, -1.0], abs=1e-6)
+    assert mount[:3, :3] @ meta["handle_in_board"]["open_axis"] == pytest.approx([1.0, 0.0, 0.0], abs=1e-6)
     for path in (SHIPPED_YAML, CLIENT_YML):
         text = path.read_text()
         block = text[text.index("  board_mount:") : text.index("  limits: # acceptance limits of the fit")]

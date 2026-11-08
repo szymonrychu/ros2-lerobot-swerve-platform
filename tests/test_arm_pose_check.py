@@ -20,7 +20,9 @@ from ros2_common.head_rgbd_calibration.arm_pose_check import (
     back_box_points_local,
     board_points_local,
     head_envelope,
+    point_segment_distances,
 )
+from ros2_common.head_rgbd_calibration.board_lattice import box_lattice
 from ros2_common.head_rgbd_calibration.chain import (
     UrdfChain,
     arm_in_robot_base,
@@ -62,6 +64,9 @@ COLOR_FRAME = "d435_color_optical_frame"
 # across, the datasheet colour FOV, as nodes/marker_detector/marker_detector/synthetic.py) for the FOV cases.
 WIDE_CAMERA = CameraIntrinsics(width=640, height=360, fx=100.0, fy=100.0, cx=320.0, cy=180.0)
 D435_COLOR = CameraIntrinsics.from_hfov(640, 360, 69.0)
+SPACING_M = PoseCheckConfig().board_spacing_m
+OLD_GRID = 5  # the former fixed board lattice: 5 points per plate edge, about 47 x 40 mm cells
+CLOSE_M = 0.002  # an obstacle this close to the plate, well inside the 5 mm margin
 
 
 def fit_with(mount: BoardMountConfig = TEST_MOUNT, offsets: dict[str, float] | None = None) -> HeadArmFitConfig:
@@ -412,11 +417,14 @@ def test_board_outside_the_colour_fov() -> None:
 def test_board_points_span_the_board_thickness_behind_the_printed_face() -> None:
     fit = fit_with(BoardMountConfig(xyz_init=(0.0, 0.0, 0.0), rpy_init=(0.0, 0.0, 0.0), outline_margin_m=0.01))
     assert fit.board.thickness_mm == 4.0
-    local = board_points_local(fit, 5)
-    assert len(local) == 2 * (4 + 25)
+    local = board_points_local(fit, SPACING_M)
     assert local[:, 2].min() == 0.0 and local[:, 2].max() == pytest.approx(0.004)
-    front, back = local[: len(local) // 2], local[len(local) // 2 :]
-    assert np.allclose(back[:, :2], front[:, :2]) and np.allclose(back[:, 2], 0.004)
+    front, back = local[np.isclose(local[:, 2], 0.0)], local[np.isclose(local[:, 2], 0.004)]
+    assert len(front) == len(back) == len(local) // 2
+    assert np.allclose(back[:, :2], front[:, :2])
+    outline = board_outline(fit.board, 0.01)
+    assert front[:, :2].min(axis=0) == pytest.approx(outline.min(axis=0)[:2])
+    assert front[:, :2].max(axis=0) == pytest.approx(outline.max(axis=0)[:2])
 
 
 def test_thicker_board_has_less_clearance_than_a_thin_one() -> None:
@@ -436,15 +444,16 @@ BACK_BOXES_MM = [((70.0, 70.0, 4.0), (76.0, 150.0, 25.0)), ((70.0, 150.0, 0.0), 
 def test_back_boxes_are_board_points_of_the_checker() -> None:
     flat = BoardMountConfig(xyz_init=(0.0, 0.0, 0.0), rpy_init=(0.0, 0.0, 0.0), back_boxes_mm=BACK_BOXES_MM)
     fit = fit_with(flat)
-    local = back_box_points_local(fit)
-    assert len(local) == 27 * len(BACK_BOXES_MM)
+    local = back_box_points_local(fit, SPACING_M)
+    per_box = [len(box_lattice(np.array(low) / 1000.0, np.array(high) / 1000.0, SPACING_M)) for low, high in BACK_BOXES_MM]
+    assert len(local) == sum(per_box)
     for low, high in BACK_BOXES_MM:  # every box corner is a checked point
         for corner in np.array(np.meshgrid(*zip(low, high, strict=True))).reshape(3, -1).T / 1000.0:
             assert np.isclose(local, corner).all(axis=1).any(), corner
-    assert len(back_box_points_local(fit_with(flat.model_copy(update={"back_boxes_mm": []})))) == 0
+    assert len(back_box_points_local(fit_with(flat.model_copy(update={"back_boxes_mm": []})), SPACING_M)) == 0
     boxed_mount = TEST_MOUNT.model_copy(update={"back_boxes_mm": BACK_BOXES_MM})
     plain, boxed = checker(fit_with()), checker(fit_with(boxed_mount))
-    assert len(boxed.board_points(ZERO)) == len(plain.board_points(ZERO)) + 27 * len(BACK_BOXES_MM)
+    assert len(boxed.board_points(ZERO)) == len(plain.board_points(ZERO)) + sum(per_box)
     assert np.allclose(boxed.board_points(ZERO)[: len(plain.board_points(ZERO))], plain.board_points(ZERO))
 
 
@@ -464,3 +473,106 @@ def test_a_back_box_near_the_floor_fails_the_board_height() -> None:
 def test_back_boxes_need_min_below_max() -> None:
     with pytest.raises(ValidationError, match="back_boxes_mm"):
         BoardMountConfig(back_boxes_mm=[((0.0, 0.0, 4.0), (10.0, 10.0, 4.0))])
+
+
+def old_grid_points(fit: HeadArmFitConfig) -> np.ndarray:
+    """The former board lattice (outline corners plus OLD_GRID x OLD_GRID points on both faces), board frame (m)."""
+    outline = board_outline(fit.board, fit.board_mount.outline_margin_m)
+    xs = np.linspace(outline[:, 0].min(), outline[:, 0].max(), OLD_GRID)
+    ys = np.linspace(outline[:, 1].min(), outline[:, 1].max(), OLD_GRID)
+    front = np.vstack([outline, [[x, y, 0.0] for y in ys for x in xs]])
+    return np.vstack([front, front + [0.0, 0.0, fit.board.thickness_mm / 1000.0]])
+
+
+def old_cell_centre(fit: HeadArmFitConfig) -> np.ndarray:
+    """Board-frame (m) centre of a middle cell of the former lattice, on the plate back."""
+    outline = board_outline(fit.board, fit.board_mount.outline_margin_m)
+    low, high = outline.min(axis=0), outline.max(axis=0)
+    cell = (high[:2] - low[:2]) / (OLD_GRID - 1)
+    return np.array([*(low[:2] + 1.5 * cell), fit.board.thickness_mm / 1000.0])
+
+
+def board_in_base(fit: HeadArmFitConfig, joints: dict[str, float]) -> np.ndarray:
+    """4x4 board pose in base_link (FK straight from the URDF)."""
+    mount = fit.board_mount
+    return arm_pose("gripper_link", joints, fit) @ pose_from_xyz_rpy(mount.xyz_init, mount.rpy_init)
+
+
+def test_board_spacing_never_exceeds_the_margin() -> None:
+    """The lattice spacing bounds the clearance a point check can miss (half a cell diagonal), so it may not exceed
+    the smallest board margin, margin_m (the margin once the mount is fit-solved)."""
+    cfg = PoseCheckConfig()
+    assert cfg.board_spacing_m <= cfg.margin_m
+    with pytest.raises(ValidationError, match="board_spacing_m"):
+        PoseCheckConfig(margin_m=0.004, board_spacing_m=0.005)
+    with pytest.raises(ValidationError, match="board_spacing_m"):
+        PoseCheckConfig(board_spacing_m=0.0005)
+
+
+def test_a_body_box_between_the_old_lattice_points_is_caught() -> None:
+    """A 4 mm body box 2 mm behind the plate back, at the centre of a cell of the former 5 x 5 lattice: every former
+    point keeps more than the margin from it, the margin-spaced lattice does not."""
+    joints, fit = ZERO, fit_with(mount_with_corner_at(ZERO, np.array([0.40, -0.05, 0.35])))
+    board = board_in_base(fit, joints)
+    centre_local = old_cell_centre(fit) + [0.0, 0.0, CLOSE_M + 0.002]
+    centre = (board @ np.append(centre_local, 1.0))[:3]
+    probe = BoxObstacle(name="probe", center=tuple(centre), size=(0.004, 0.004, 0.004))
+    base = PoseCheckConfig().body
+    cfg = PoseCheckConfig(body=base.model_copy(update={"boxes": [*base.boxes, probe]}))
+    old = old_grid_points(fit) @ board[:3, :3].T + board[:3, 3]
+    assert np.abs(old - centre).max(axis=1).min() - 0.002 > cfg.margin_m  # the former lattice kept the margin
+    entries = checker(fit, cfg).check_pose(joints, 0.3, rolling=False)
+    assert [e for e in entries if e.startswith("board_clearance: board to probe")], entries
+
+
+def test_a_forearm_passing_between_the_old_lattice_points_is_caught() -> None:
+    """The forearm axis parallel to the plate back, link_radius_m + 2 mm behind it, along a row between two former
+    lattice rows: the former points keep more than the margin, the margin-spaced lattice reports it."""
+    joints = ZERO
+    fit = fit_with()
+    elbow = arm_pose("lower_arm_link", joints, fit)[:3, 3]
+    wrist = arm_pose("wrist_link", joints, fit)[:3, 3]
+    along = (wrist - elbow) / np.linalg.norm(wrist - elbow)
+    normal = np.cross(along, [0.0, 0.0, 1.0])
+    normal /= np.linalg.norm(normal)
+    rotation = np.column_stack([along, np.cross(normal, along), normal])
+    cfg = PoseCheckConfig()
+    centre_local = old_cell_centre(fit) + [0.0, 0.0, cfg.link_radius_m + CLOSE_M]
+    centre_local[0] = float(np.mean(board_outline(fit.board, 0.01)[:, 0]))  # the forearm stays over the plate
+    board = np.eye(4)
+    board[:3, :3] = rotation
+    board[:3, 3] = (elbow + wrist) / 2.0 - rotation @ centre_local
+    mount = np.linalg.solve(arm_pose("gripper_link", joints, fit), board)
+    xyz, rpy = xyz_rpy_from_pose(mount)
+    placed = fit_with(BoardMountConfig(xyz_init=xyz, rpy_init=rpy, outline_margin_m=0.01))
+    old = old_grid_points(placed) @ board[:3, :3].T + board[:3, 3]
+    assert point_segment_distances(old, elbow, wrist).min() - cfg.link_radius_m > cfg.margin_m
+    entries = checker(placed, cfg).check_pose(joints, 0.3, rolling=False)
+    assert [e for e in entries if e.startswith("board_link_clearance: board to forearm")], entries
+
+
+def back_box_at(fit: HeadArmFitConfig, joints: dict[str, float], point: np.ndarray) -> BoardMountConfig:
+    """The fit's mount with one 10 mm back box centred on a base_link point."""
+    board = board_in_base(fit, joints)
+    centre_mm = np.linalg.solve(board, np.append(point, 1.0))[:3] * 1000.0
+    box = (tuple(float(v) - 5.0 for v in centre_mm), tuple(float(v) + 5.0 for v in centre_mm))
+    return fit.board_mount.model_copy(update={"back_boxes_mm": [box]})
+
+
+def test_a_back_box_inside_a_body_part_is_refused() -> None:
+    fit = fit_with(mount_with_corner_at(ZERO, np.array([0.40, -0.05, 0.35])))
+    assert not [e for e in checker(fit).check_pose(ZERO, 0.3, rolling=False) if e.startswith("board_")]
+    lidar = next(c for c in PoseCheckConfig().body.cylinders if c.name == "lidar")
+    centre = np.array([lidar.x, lidar.y, (lidar.z_min + lidar.z_max) / 2])
+    entries = checker(fit_with(back_box_at(fit, ZERO, centre))).check_pose(ZERO, 0.3, rolling=False)
+    assert [e for e in entries if e.startswith("board_clearance: board to lidar")], entries
+
+
+def test_a_back_box_inside_the_head_envelope_is_refused() -> None:
+    fit = fit_with(mount_with_corner_at(ZERO, np.array([0.40, -0.05, 0.35])))
+    plain = checker(fit)
+    assert not [e for e in plain.check_pose(ZERO, 0.3, rolling=False) if e.startswith("board_")]
+    head = plain.envelope
+    centre = np.array([head.x, head.y, (head.z_min + head.z_max) / 2])
+    entries = checker(fit_with(back_box_at(fit, ZERO, centre))).check_pose(ZERO, 0.3, rolling=False)
+    assert [e for e in entries if e.startswith(f"board_clearance: board to {head.name}")], entries
