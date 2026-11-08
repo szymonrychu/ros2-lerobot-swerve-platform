@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from scripts.markers.charuco import write_charuco
 from scripts.markers.config import GeneratorConfig, load_generator_config
+from scripts.markers.jaw_fit import Gripper, load_gripper
 from scripts.markers.mesh import marker_bodies, write_bodies
 from scripts.markers.models import MarkerSpec
 from scripts.markers.pdf import write_marker_pdf
@@ -75,6 +76,19 @@ def write_marker(spec: MarkerSpec, config: GeneratorConfig, out_dir: Path) -> li
     return written
 
 
+def repo_path(value: str) -> Path:
+    """A config path, relative ones resolved against the repo root.
+
+    Args:
+        value (str): Path from the config.
+
+    Returns:
+        Path: The absolute path.
+    """
+    path = Path(value)
+    return path if path.is_absolute() else REPO_ROOT / path
+
+
 def main(argv: list[str] | None = None) -> int:
     """Generate every marker and the board of the config.
 
@@ -92,9 +106,10 @@ def main(argv: list[str] | None = None) -> int:
     except ValidationError as exc:
         print(f"invalid config {args.config}:\n{exc}", file=sys.stderr)
         return 1
-    out_dir = Path(config.output_dir)
-    if not out_dir.is_absolute():
-        out_dir = REPO_ROOT / out_dir
+    out_dir = repo_path(config.output_dir)
+    gripper: Gripper | None = None
+    if any(board.handle is not None for board in config.boards):
+        gripper = load_gripper(repo_path(config.arm_urdf_file))
     failures: list[str] = []
     files = 0
     for spec in config.markers:
@@ -109,7 +124,7 @@ def main(argv: list[str] | None = None) -> int:
             print(path)
     for board in config.boards:
         try:
-            written = write_charuco(board, config.stl, out_dir / board.name)
+            written = write_charuco(board, config.stl, out_dir / board.name, gripper)
         except ValueError as exc:
             failures.append(f"board {board.name}")
             print(f"FAILED board {board.name}: {exc}", file=sys.stderr)

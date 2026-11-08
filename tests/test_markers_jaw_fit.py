@@ -1,6 +1,7 @@
 """Tests for scripts/markers/jaw_fit.py: the URDF-posed SO-101 gripper meshes, jaw gap, contact angle, penetration."""
 
 import math
+import tracemalloc
 from pathlib import Path
 
 import numpy as np
@@ -20,6 +21,7 @@ from scripts.markers.jaw_fit import (
     load_gripper,
     moving_jaw,
     moving_tip_mm,
+    nearest_distance_mm,
     penetration_mm,
 )
 from scripts.markers.mesh import box, to_trimesh
@@ -28,6 +30,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 ARM_URDF = REPO_ROOT / "nodes" / "web_ui" / "urdf" / "so101_arm.urdf"
 SLAB_DEPTH_MM = 30.0
 SLAB_HALF_WIDTH_MM = 15.0
+MAX_QUERY_PEAK_MB = 256.0  # the unpruned trimesh closest-point queries took > 3 GiB here (Task 6 seat test OOM)
+MB = 2**20
 
 GRIPPER = load_gripper(ARM_URDF)
 
@@ -147,3 +151,30 @@ def test_moving_tip_is_the_finger_extreme_on_the_mid_plane() -> None:
 def test_moving_jaw_opens_along_the_open_axis() -> None:
     closed, opened = moving_tip_mm(GRIPPER, 0.0), moving_tip_mm(GRIPPER, 0.2)
     assert float((opened - closed) @ np.asarray(OPEN_AXIS)) > 0.0
+
+
+def test_nearest_distance_is_the_closest_point_minimum() -> None:
+    target = moving_jaw(GRIPPER, 0.2)
+    points = trimesh.sample.sample_surface(slab_between_jaws(GRIPPER, 16.0), 300, seed=1)[0]
+    _, distances, _ = trimesh.proximity.closest_point(target, points)
+    assert nearest_distance_mm(target, points) == pytest.approx(float(distances.min()), abs=1e-9)
+
+
+def test_penetration_refuses_an_open_mesh() -> None:
+    closed = to_trimesh(box(0, 0, 0, 10, 10, 10))
+    opened = trimesh.Trimesh(closed.vertices, closed.faces[1:], process=False)
+    with pytest.raises(ValueError, match="closed"):
+        penetration_mm(closed, opened)
+
+
+def test_jaw_queries_stay_small_in_memory() -> None:
+    """The fixed jaw bounds (servo housing included) hold open space; points there must not fan out to every face."""
+    slab = slab_between_jaws(GRIPPER, 16.0)
+    tracemalloc.start()
+    try:
+        assert penetration_mm(GRIPPER.fixed, slab) == pytest.approx(0.0, abs=0.05)
+        assert clearance_mm(slab, GRIPPER.fixed) == pytest.approx(0.0, abs=0.05)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert peak / MB < MAX_QUERY_PEAK_MB

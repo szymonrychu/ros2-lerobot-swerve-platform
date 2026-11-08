@@ -20,12 +20,16 @@ __all__ = [
     "load_generator_config",
 ]
 DEFAULT_OUTPUT_DIR = ".logs/markers"
+DEFAULT_ARM_URDF = "nodes/web_ui/urdf/so101_arm.urdf"
 
 
 class GeneratorConfig(StrictModel):
-    """Whole generator config. boards: named ChArUco calibration boards (unique names, disjoint marker ids)."""
+    """Whole generator config. boards: named ChArUco calibration boards (unique names, disjoint marker ids).
+    arm_urdf_file: SO-101 arm URDF whose gripper meshes seat board handles (relative paths resolve against the repo
+    root)."""
 
     output_dir: str = DEFAULT_OUTPUT_DIR
+    arm_urdf_file: str = DEFAULT_ARM_URDF
     defaults: SymbolDefaults = Field(default_factory=SymbolDefaults)
     stl: StlOptions = Field(default_factory=StlOptions)
     markers: list[MarkerSpec] = Field(default_factory=list)

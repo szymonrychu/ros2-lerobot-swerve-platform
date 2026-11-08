@@ -1,16 +1,22 @@
-"""ChArUco calibration board: spec, OpenCV board, exact-pixel dark mask, PDF and two-colour STL/3MF output."""
+"""ChArUco calibration board: spec, OpenCV board, exact-pixel dark mask, PDF, two-colour STL/3MF output and, for a
+board with a handle, the metadata JSON (mass, seat in the gripper, grip angles)."""
 
+import json
 import logging
 from math import isclose
 from pathlib import Path
-from typing import Literal, Self
+from typing import Any, Literal, Self
 
 import cv2
 import numpy as np
+import trimesh
 from pydantic import Field, field_validator, model_validator
+from ros2_common.head_rgbd_calibration.chain import xyz_rpy_from_pose
 from ros2_common.head_rgbd_calibration.config import BoardConfig
 
-from scripts.markers.mesh import mask_bodies, print_violations, printed_solid, write_bodies
+from scripts.markers.handle import HandleSpec, board_in_mesh, face_down, handle_solid, seat
+from scripts.markers.jaw_fit import Gripper
+from scripts.markers.mesh import mask_bodies, print_violations, printed_solid, to_manifold, to_trimesh, write_bodies
 from scripts.markers.models import OUTPUT_FORMATS, PageSpec, StlOptions, StrictModel
 from scripts.markers.pdf import draw_mask_pdf, page_mm
 
@@ -25,6 +31,8 @@ PDF_TOP_MM = 2.5
 LABEL_BELOW_BOARD_MM = 5.0
 NAME_PATTERN = r"^[a-z0-9][a-z0-9-]*$"
 MESH_SUFFIX = {"stl": ("-base.stl", "-modules.stl"), "3mf": (".3mf",)}
+MM3_PER_CM3 = 1000.0
+JSON_INDENT = 2
 
 
 def board_config(spec: "CharucoSpec") -> BoardConfig:
@@ -47,8 +55,10 @@ class CharucoSpec(StrictModel):
     squares_x / squares_y: chessboard squares (squares_y odd). square_mm / marker_mm: square and ArUco marker edge.
     dictionary: any cv2.aruco.DICT_* name. margin_mm: plate border around the board. thickness_mm: STL base
     thickness (>= 4). relief_mm: module height above the base. inlay_mm: module depth sunk into the base (flush
-    inlay when relief_mm is 0). bed_mm: print bed edge the plate must fit. page: PDF media. outputs: subset of
-    pdf/stl/3mf.
+    inlay when relief_mm is 0). bed_mm: print bed edge the plate (with the handle) must fit. page: PDF media.
+    outputs: subset of pdf/stl/3mf. pattern_face: "top" prints the pattern face up, "bottom" face down on the bed (the
+    smooth bed face carries the pattern, the handle rises from the back). handle: optional paddle handle for the
+    gripper (off the plate edge at mesh y = 0); a board with a handle also writes <stem>.json.
     """
 
     name: str = Field(pattern=NAME_PATTERN)
@@ -65,6 +75,8 @@ class CharucoSpec(StrictModel):
     bed_mm: float = Field(default=256.0, gt=0)
     page: PageSpec = Field(default_factory=lambda: PageSpec(size="A4", orientation="landscape"))
     outputs: list[Literal["pdf", "stl", "3mf"]] = Field(default_factory=lambda: list(OUTPUT_FORMATS), min_length=1)
+    pattern_face: Literal["top", "bottom"]
+    handle: HandleSpec | None = None
 
     @field_validator("dictionary")
     @classmethod
@@ -95,7 +107,7 @@ class CharucoSpec(StrictModel):
 
     @model_validator(mode="after")
     def check_geometry(self) -> Self:
-        """marker_mm < square_mm, modules have height, inlay < thickness, plate fits bed_mm in both directions."""
+        """marker_mm < square_mm, modules have height, inlay < thickness, plate (and handle) fit bed_mm."""
         if self.relief_mm + self.inlay_mm <= 0:
             raise ValueError("relief_mm + inlay_mm must be positive")
         if self.inlay_mm >= self.thickness_mm:
@@ -106,6 +118,13 @@ class CharucoSpec(StrictModel):
             plate = squares * self.square_mm + 2 * self.margin_mm
             if plate > self.bed_mm:
                 raise ValueError(f"{field} {squares}: plate {plate:g} mm exceeds bed_mm {self.bed_mm:g}")
+        if self.pattern_face == "bottom" and self.relief_mm > 0:
+            raise ValueError(f"relief_mm {self.relief_mm} must be 0 for pattern_face bottom (modules flush on the bed)")
+        if self.handle is not None and self.plate_mm[1] + self.handle.extent_mm > self.bed_mm:
+            raise ValueError(
+                f"plate {self.plate_mm[1]:g} mm plus handle extent {self.handle.extent_mm:g} mm exceeds bed_mm "
+                f"{self.bed_mm:g}"
+            )
         return self
 
     @property
@@ -190,27 +209,146 @@ def board_mask(spec: CharucoSpec) -> tuple[np.ndarray, float]:
     return image < DARK_BELOW, 1.0 / ppm
 
 
-def write_charuco(spec: CharucoSpec, opts: StlOptions, stem: Path) -> list[Path]:
-    """Write the requested outputs for the board.
-
-    PDF: <stem>.pdf at 100 % scale. Meshes: <stem>-base.stl, <stem>-modules.stl, <stem>.3mf.
+def board_metadata(
+    spec: CharucoSpec, base: trimesh.Trimesh, modules: trimesh.Trimesh, gripper: Gripper
+) -> dict[str, Any]:
+    """Mass, seat and grip of a board with a handle, from its print bodies and the gripper meshes.
 
     Args:
-        spec: The board definition.
-        opts: 3D print options (min_module_mm and warn_module_mm are checked against the marker cell).
-        stem: Output path without suffix.
+        spec (CharucoSpec): The board (with a handle).
+        base (trimesh.Trimesh): Base body in print coordinates (handle included).
+        modules (trimesh.Trimesh): Module body in print coordinates.
+        gripper (Gripper): Loaded SO-101 gripper.
 
     Returns:
-        The written paths.
+        dict[str, Any]: name, board (BoardConfig dump), plate_mm, volume_cm3, mass_g; handle_in_board
+        (gripper_link_xyz_m and gripper_link_rpy_rad: gripper_link in the board frame; tool_point_m: the handle
+        tool_offset_m point in the board frame); board_mount (xyz_init, rpy_init: the board frame in gripper_link,
+        m and rad); grip (contact_rad, squeeze_rad, grip_rad = contact_rad - squeeze_rad).
 
     Raises:
-        ValueError: when the marker cell is below opts.min_module_mm, or the printed solid is not watertight or has
-            overhang faces steeper than 45 deg.
+        ValueError: When the spec has no handle or the seat fails.
+    """
+    if spec.handle is None:
+        raise ValueError(f"board {spec.name} has no handle")
+    mesh_pose, contact = seat(gripper, printed_solid(base, modules), spec.handle, spec.plate_mm)
+    board_pose = mesh_pose @ board_in_mesh(spec.plate_mm, spec.margin_mm, spec.pattern_face, spec.thickness_mm)
+    board_pose[:3, 3] /= MM_PER_M
+    gripper_in_board = np.linalg.inv(board_pose)
+    tool = gripper.tool.copy()
+    tool[:3, 3] /= MM_PER_M
+    tool_point = gripper_in_board @ tool @ np.array([*spec.handle.tool_offset_m, 1.0])
+    gripper_xyz, gripper_rpy = xyz_rpy_from_pose(gripper_in_board)
+    board_xyz, board_rpy = xyz_rpy_from_pose(board_pose)
+    volume = (base.volume + modules.volume) / MM3_PER_CM3
+    return {
+        "name": spec.name,
+        "board": board_config(spec).model_dump(),
+        "plate_mm": list(spec.plate_mm),
+        "volume_cm3": float(volume),
+        "mass_g": float(volume * spec.handle.density_g_per_cm3),
+        "handle_in_board": {
+            "gripper_link_xyz_m": list(gripper_xyz),
+            "gripper_link_rpy_rad": list(gripper_rpy),
+            "tool_point_m": [float(v) for v in tool_point[:3]],
+        },
+        "board_mount": {"xyz_init": list(board_xyz), "rpy_init": list(board_rpy)},
+        "grip": {
+            "contact_rad": float(contact),
+            "squeeze_rad": spec.handle.squeeze_rad,
+            "grip_rad": float(contact - spec.handle.squeeze_rad),
+        },
+    }
+
+
+def write_board_metadata(meta: dict[str, Any], stem: Path) -> Path:
+    """Write the board metadata as <stem>.json (sorted keys, indent 2, trailing newline).
+
+    Args:
+        meta (dict[str, Any]): The metadata (`board_metadata`).
+        stem (Path): Output path without suffix.
+
+    Returns:
+        Path: The written file.
+    """
+    path = stem.parent / f"{stem.name}.json"
+    path.write_text(json.dumps(meta, sort_keys=True, indent=JSON_INDENT) + "\n")
+    return path
+
+
+def print_bodies(spec: CharucoSpec, opts: StlOptions) -> tuple[trimesh.Trimesh, trimesh.Trimesh]:
+    """The print bodies of a board: mask bodies built face up, turned face down for pattern_face "bottom", the
+    handle unioned into the base.
+
+    Args:
+        spec (CharucoSpec): The board.
+        opts (StlOptions): 3D print options (min_module_mm and warn_module_mm are checked against the marker cell).
+
+    Returns:
+        tuple[trimesh.Trimesh, trimesh.Trimesh]: (base, modules) in print coordinates, bed at z = 0.
+
+    Raises:
+        ValueError: When the marker cell is below opts.min_module_mm.
     """
     mask, cell_mm = board_mask(spec)
+    if spec.marker_cell_mm < opts.min_module_mm:
+        raise ValueError(f"marker cell {spec.marker_cell_mm:.2f} mm is below min_module_mm {opts.min_module_mm}")
+    mesh_opts = opts.model_copy(
+        update={
+            "base_thickness_mm": spec.thickness_mm,
+            "relief_mm": spec.relief_mm,
+            "inlay_mm": spec.inlay_mm,
+            "min_module_mm": min(opts.min_module_mm, cell_mm),
+            "warn_module_mm": min(opts.warn_module_mm, cell_mm),
+        }
+    )
+    base, modules = mask_bodies(mask, cell_mm, spec.plate_mm, (spec.margin_mm, spec.margin_mm), mesh_opts)
+    if spec.pattern_face == "top" and spec.handle is None:
+        return base, modules
+    solids = [to_manifold(base), to_manifold(modules)]
+    if spec.pattern_face == "bottom":
+        solids = [face_down(solid, spec.plate_mm, spec.thickness_mm) for solid in solids]
+    if spec.handle is not None:
+        solids[0] = solids[0] + handle_solid(spec.handle, spec.plate_mm)
+    return to_trimesh(solids[0]), to_trimesh(solids[1])
+
+
+def write_charuco(spec: CharucoSpec, opts: StlOptions, stem: Path, gripper: Gripper | None) -> list[Path]:
+    """Write the requested outputs for the board; nothing is written when any check fails.
+
+    PDF: <stem>.pdf at 100 % scale. Meshes: <stem>-base.stl, <stem>-modules.stl, <stem>.3mf. A board with a handle
+    also writes <stem>.json (`board_metadata`), whatever its outputs.
+
+    Args:
+        spec (CharucoSpec): The board definition.
+        opts (StlOptions): 3D print options (min_module_mm and warn_module_mm are checked against the marker cell).
+        stem (Path): Output path without suffix.
+        gripper (Gripper | None): Loaded SO-101 gripper; needed when the spec has a handle.
+
+    Returns:
+        list[Path]: The written paths.
+
+    Raises:
+        ValueError: when the spec has a handle and no gripper is given, the marker cell is below opts.min_module_mm,
+            the printed solid is not watertight or has overhang faces steeper than 45 deg, or the handle cannot be
+            seated.
+    """
+    if spec.handle is not None and gripper is None:
+        raise ValueError(f"board {spec.name} has a handle: the gripper is needed to seat it")
+    wanted = [suffix for fmt in ("stl", "3mf") if fmt in spec.outputs for suffix in MESH_SUFFIX[fmt]]
+    bodies = None
+    meta = None
+    if wanted or spec.handle is not None:
+        bodies = print_bodies(spec, opts)
+        violations = print_violations(printed_solid(*bodies))
+        if violations:
+            raise ValueError(f"board {spec.name} is not printable: {'; '.join(violations)}")
+        if spec.handle is not None and gripper is not None:
+            meta = board_metadata(spec, bodies[0], bodies[1], gripper)
     written: list[Path] = []
     stem.parent.mkdir(parents=True, exist_ok=True)
     if "pdf" in spec.outputs:
+        mask, cell_mm = board_mask(spec)
         width_mm, height_mm = spec.squares_x * spec.square_mm, spec.squares_y * spec.square_mm
         label = (
             f"ChArUco {spec.squares_x}x{spec.squares_y} {spec.dictionary} square {spec.square_mm:g} mm "
@@ -228,26 +366,12 @@ def write_charuco(spec: CharucoSpec, opts: StlOptions, stem: Path) -> list[Path]
             label_y_mm=PDF_TOP_MM + height_mm + LABEL_BELOW_BOARD_MM,
         )
         written.append(pdf_path)
-    wanted = [suffix for fmt in ("stl", "3mf") if fmt in spec.outputs for suffix in MESH_SUFFIX[fmt]]
-    if wanted:
-        if spec.marker_cell_mm < opts.min_module_mm:
-            raise ValueError(f"marker cell {spec.marker_cell_mm:.2f} mm is below min_module_mm {opts.min_module_mm}")
-        mesh_opts = opts.model_copy(
-            update={
-                "base_thickness_mm": spec.thickness_mm,
-                "relief_mm": spec.relief_mm,
-                "inlay_mm": spec.inlay_mm,
-                "min_module_mm": min(opts.min_module_mm, cell_mm),
-                "warn_module_mm": min(opts.warn_module_mm, cell_mm),
-            }
-        )
-        base, modules = mask_bodies(mask, cell_mm, spec.plate_mm, (spec.margin_mm, spec.margin_mm), mesh_opts)
-        violations = print_violations(printed_solid(base, modules))
-        if violations:
-            raise ValueError(f"board {spec.name} is not printable: {'; '.join(violations)}")
-        for path in write_bodies(base, modules, stem):
+    if wanted and bodies is not None:
+        for path in write_bodies(bodies[0], bodies[1], stem):
             if any(path.name.endswith(suffix) for suffix in wanted):
                 written.append(path)
             else:
                 path.unlink()
+    if meta is not None:
+        written.append(write_board_metadata(meta, stem))
     return written

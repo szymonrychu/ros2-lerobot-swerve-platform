@@ -40,6 +40,23 @@ def to_trimesh(solid: Manifold) -> trimesh.Trimesh:
     )
 
 
+def to_manifold(mesh: trimesh.Trimesh) -> Manifold:
+    """Convert a watertight trimesh to a manifold3d solid (float32 vertices).
+
+    Args:
+        mesh: Watertight mesh.
+
+    Returns:
+        The manifold3d solid.
+    """
+    return Manifold(
+        Mesh(
+            vert_properties=np.asarray(mesh.vertices, dtype=np.float32),
+            tri_verts=np.asarray(mesh.faces, dtype=np.uint32),
+        )
+    )
+
+
 def printed_solid(base: trimesh.Trimesh, modules: trimesh.Trimesh) -> trimesh.Trimesh:
     """Union of the base and module bodies, which is what the printer builds.
 
@@ -50,16 +67,7 @@ def printed_solid(base: trimesh.Trimesh, modules: trimesh.Trimesh) -> trimesh.Tr
     Returns:
         The watertight union mesh.
     """
-    solids = [
-        Manifold(
-            Mesh(
-                vert_properties=np.asarray(body.vertices, dtype=np.float32),
-                tri_verts=np.asarray(body.faces, dtype=np.uint32),
-            )
-        )
-        for body in (base, modules)
-    ]
-    return to_trimesh(solids[0] + solids[1])
+    return to_trimesh(to_manifold(base) + to_manifold(modules))
 
 
 def print_violations(mesh: trimesh.Trimesh) -> list[str]:

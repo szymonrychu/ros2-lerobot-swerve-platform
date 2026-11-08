@@ -25,6 +25,7 @@ FULL_SPEC = CharucoSpec(
     marker_mm=30.0,
     dictionary="DICT_5X5_100",
     ids_offset=0,
+    pattern_face="top",
 )
 ARM_SPEC = FULL_SPEC.model_copy(
     update={"name": "charuco-arm-6x5-28mm", "square_mm": 28.0, "marker_mm": 21.0, "ids_offset": 15}
@@ -83,7 +84,7 @@ def rasterise_pdf(path: Path) -> np.ndarray:
 
 def test_pdf_detects_all_corners_at_40_mm(tmp_path: Path) -> None:
     spec = FULL_SPEC
-    paths = write_charuco(spec, StlOptions(), tmp_path / "board")
+    paths = write_charuco(spec, StlOptions(), tmp_path / "board", None)
     pdf = next(p for p in paths if p.suffix == ".pdf")
     corners, ids = detect(rasterise_pdf(pdf), spec)
     assert len(ids) == INNER_CORNERS
@@ -110,7 +111,7 @@ def top_view(modules: trimesh.Trimesh, spec: CharucoSpec) -> np.ndarray:
 
 def test_mesh_footprint_matches_board_corners(tmp_path: Path) -> None:
     spec = FULL_SPEC
-    paths = write_charuco(spec, StlOptions(), tmp_path / "board")
+    paths = write_charuco(spec, StlOptions(), tmp_path / "board", None)
     modules = trimesh.load(next(p for p in paths if p.name.endswith("-modules.stl")))
     corners, ids = detect(top_view(modules, spec), spec)
     assert len(ids) == INNER_CORNERS
@@ -121,7 +122,7 @@ def test_mesh_footprint_matches_board_corners(tmp_path: Path) -> None:
 
 
 def test_stl_base_is_4_mm_thick_and_plate_sized(tmp_path: Path) -> None:
-    paths = write_charuco(FULL_SPEC, StlOptions(), tmp_path / "board")
+    paths = write_charuco(FULL_SPEC, StlOptions(), tmp_path / "board", None)
     assert sorted(p.suffix for p in paths) == [".3mf", ".pdf", ".stl", ".stl"]
     base = trimesh.load(next(p for p in paths if p.name.endswith("-base.stl")))
     assert base.extents == pytest.approx([250.0, 210.0, 4.0], abs=1e-3)
@@ -130,13 +131,13 @@ def test_stl_base_is_4_mm_thick_and_plate_sized(tmp_path: Path) -> None:
 
 
 def test_outputs_subset(tmp_path: Path) -> None:
-    paths = write_charuco(FULL_SPEC.model_copy(update={"outputs": ["pdf"]}), StlOptions(), tmp_path / "b")
+    paths = write_charuco(FULL_SPEC.model_copy(update={"outputs": ["pdf"]}), StlOptions(), tmp_path / "b", None)
     assert [p.suffix for p in paths] == [".pdf"]
 
 
 def test_flush_inlay_board_is_flat_and_watertight(tmp_path: Path) -> None:
     spec = FULL_SPEC.model_copy(update={"relief_mm": 0.0, "inlay_mm": 1.2})
-    paths = write_charuco(spec, StlOptions(), tmp_path / "board")
+    paths = write_charuco(spec, StlOptions(), tmp_path / "board", None)
     base = trimesh.load(next(p for p in paths if p.name.endswith("-base.stl")))
     modules = trimesh.load(next(p for p in paths if p.name.endswith("-modules.stl")))
     # Checkerboard cells touch diagonally, so the merged STL has shared edges; volumes prove the parts tile the plate.
@@ -180,7 +181,7 @@ def test_duplicate_board_names_are_refused() -> None:
 
 
 def test_pdf_detects_all_arm_corners_at_28_mm(tmp_path: Path) -> None:
-    pdf = next(p for p in write_charuco(ARM_SPEC, StlOptions(), tmp_path / "arm") if p.suffix == ".pdf")
+    pdf = next(p for p in write_charuco(ARM_SPEC, StlOptions(), tmp_path / "arm", None) if p.suffix == ".pdf")
     corners, ids = detect(rasterise_pdf(pdf), ARM_SPEC)
     assert len(ids) == INNER_CORNERS
     grid = {int(i): c for i, c in zip(ids, corners, strict=True)}
@@ -195,5 +196,5 @@ def test_write_charuco_refuses_unprintable_solid(tmp_path: Path, monkeypatch: py
         "scripts.markers.charuco.print_violations", lambda mesh: ["3 overhang faces (1.0 mm2) below 45 deg"]
     )
     with pytest.raises(ValueError, match=f"board {FULL_SPEC.name} is not printable: 3 overhang faces"):
-        write_charuco(FULL_SPEC, StlOptions(), tmp_path / "board")
-    assert not list(tmp_path.glob("*.stl"))
+        write_charuco(FULL_SPEC, StlOptions(), tmp_path / "board", None)
+    assert not list(tmp_path.iterdir())

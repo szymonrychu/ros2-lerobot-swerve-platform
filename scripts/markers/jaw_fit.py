@@ -12,8 +12,12 @@ from xml.etree import ElementTree
 
 import numpy as np
 import trimesh
+from manifold3d import Error
 from ros2_common.head_rgbd_calibration.chain import pose_from_xyz_rpy
+from scipy.spatial import cKDTree
 from scipy.spatial.transform import Rotation
+
+from scripts.markers.mesh import to_manifold, to_trimesh
 
 GRIPPER_LINK = "gripper_link"
 MOVING_JAW_LINK = "moving_jaw_so101_v1_link"
@@ -32,6 +36,9 @@ RAY_REACH_MM = 1000.0  # ray start distance along -OPEN_AXIS, well outside the g
 CLEARANCE_SAMPLES = 20000
 PENETRATION_SAMPLES = 5000
 SURFACE_SEED = 0
+PAIR_CHUNK = 50_000  # point-triangle pairs per closest-point batch (each pair costs ~1 kB of numpy temporaries)
+SIGNED_CHUNK = 256  # points per trimesh signed_distance batch
+BOUNDS_PAD_MM = 1e-3  # covers the float32 rounding of to_manifold (~1e-5 mm at gripper scale)
 FACE_RAYS = 11  # rays spread over TIP_BAND_MM behind the sample depth, so depth 0 still meets the rounded tip
 ZERO_VEC = "0 0 0"
 UNIT_SCALE = "1 1 1"
@@ -282,24 +289,72 @@ def surface_points(mesh: trimesh.Trimesh, count: int) -> np.ndarray:
     return np.vstack([mesh.vertices, samples])
 
 
+def nearest_distance_mm(target: trimesh.Trimesh, points: np.ndarray) -> float:
+    """Smallest distance from any of the points to the target surface, with bounded memory.
+
+    trimesh.proximity.closest_point boxes each point by its nearest-vertex distance, so points in open space inside
+    a large mesh's bounds (the fixed jaw carries the servo housing) fan out to thousands of faces each and the
+    vectorised query needs GBs. Here the nearest target vertex gives an upper bound `reach` on the answer, and only
+    the triangles whose bounding box meets a point's box of half-size `reach` can lie within it, so the minimum over
+    those pairs is the exact minimum over all pairs. The pairs are evaluated in PAIR_CHUNK batches.
+
+    Args:
+        target (trimesh.Trimesh): Mesh (mm).
+        points (np.ndarray): (N, 3) query points (mm), N > 0.
+
+    Returns:
+        float: The smallest point-to-surface distance (mm).
+    """
+    points = np.asarray(points, dtype=np.float64)
+    vertices = target.vertices[target.referenced_vertices]
+    reach = float(cKDTree(vertices).query(points)[0].min())
+    pad = reach + BOUNDS_PAD_MM
+    face_ids, counts = target.triangles_tree.intersection_v(points - pad, points + pad)
+    face_ids = face_ids.astype(np.int64)
+    owners = np.repeat(np.arange(len(points)), counts.astype(np.int64))
+    best = reach
+    for start in range(0, len(face_ids), PAIR_CHUNK):
+        faces, query = face_ids[start : start + PAIR_CHUNK], points[owners[start : start + PAIR_CHUNK]]
+        closest = trimesh.triangles.closest_point(target.triangles[faces], query)
+        best = min(best, float(np.linalg.norm(closest - query, axis=1).min()))
+    return best
+
+
 def penetration_mm(solid: trimesh.Trimesh, other: trimesh.Trimesh) -> float:
     """Largest depth of `other` vertices and sampled surface points inside `solid`.
 
     Surface samples (PENETRATION_SAMPLES) catch faces that cross `solid` while their vertices sit on its surface.
+    A point of `other` inside `solid` lies in their manifold3d intersection, so only the points within its bounds
+    get a signed distance (in SIGNED_CHUNK batches); disjoint or touching meshes return 0.0 without one. Testing
+    every point within `solid`'s bounds instead fans out over the whole fixed jaw and runs out of memory.
 
     Args:
-        solid (trimesh.Trimesh): Watertight mesh (mm).
-        other (trimesh.Trimesh): Mesh whose vertices are tested (mm).
+        solid (trimesh.Trimesh): Closed manifold mesh (mm).
+        other (trimesh.Trimesh): Closed manifold mesh whose surface is tested (mm).
 
     Returns:
-        float: Deepest vertex depth inside `solid` (mm); 0.0 when none is inside.
+        float: Deepest point depth inside `solid` (mm); 0.0 when none is inside.
+
+    Raises:
+        ValueError: When either mesh is not a closed manifold.
     """
-    lo, hi = solid.bounds
-    points = surface_points(other, PENETRATION_SAMPLES)
-    points = points[np.all((points >= lo) & (points <= hi), axis=1)]
-    if len(points) == 0:
+    solids = []
+    for name, mesh in (("solid", solid), ("other", other)):
+        converted = to_manifold(mesh)
+        if converted.status() != Error.NoError:
+            raise ValueError(f"penetration_mm needs closed manifold meshes: {name} is not ({converted.status()})")
+        solids.append(converted)
+    overlap = solids[0] ^ solids[1]
+    if overlap.is_empty():
         return 0.0
-    return max(float(trimesh.proximity.signed_distance(solid, points).max()), 0.0)
+    lo, hi = to_trimesh(overlap).bounds
+    points = surface_points(other, PENETRATION_SAMPLES)
+    points = points[np.all((points >= lo - BOUNDS_PAD_MM) & (points <= hi + BOUNDS_PAD_MM), axis=1)]
+    depth = 0.0
+    for start in range(0, len(points), SIGNED_CHUNK):
+        chunk = points[start : start + SIGNED_CHUNK]
+        depth = max(depth, float(trimesh.proximity.signed_distance(solid, chunk).max()))
+    return depth
 
 
 def clearance_mm(a: trimesh.Trimesh, b: trimesh.Trimesh) -> float:
@@ -310,13 +365,11 @@ def clearance_mm(a: trimesh.Trimesh, b: trimesh.Trimesh) -> float:
         b (trimesh.Trimesh): Second mesh (mm).
 
     Returns:
-        float: The smallest closest-point distance (mm).
+        float: The smallest closest-point distance (mm), via `nearest_distance_mm`.
     """
-    best = np.inf
-    for source, target in ((a, b), (b, a)):
-        _, distances, _ = trimesh.proximity.closest_point(target, surface_points(source, CLEARANCE_SAMPLES))
-        best = min(best, float(distances.min()))
-    return best
+    return min(
+        nearest_distance_mm(target, surface_points(source, CLEARANCE_SAMPLES)) for source, target in ((a, b), (b, a))
+    )
 
 
 def contact_angle_rad(gripper: Gripper, solid: trimesh.Trimesh) -> float:

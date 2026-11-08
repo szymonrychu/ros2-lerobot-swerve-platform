@@ -23,5 +23,6 @@ def test_models_dir_holds_a_pdf_and_3mf_per_model() -> None:
     pdfs = {p.stem for p in MODELS_DIR.glob("*.pdf")}
     three_mfs = {p.stem for p in MODELS_DIR.glob("*.3mf")}
     assert "charuco-6x5-40mm" in pdfs
+    assert "charuco-arm-6x5-28mm" in pdfs
     assert pdfs == three_mfs
     assert {p.suffix for p in MODELS_DIR.iterdir()} == {".pdf", ".3mf"}

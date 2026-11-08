@@ -59,6 +59,7 @@ def test_boards_slot_is_a_list_of_validated_specs(tmp_path: Path) -> None:
         "marker_mm": 30.0,
         "dictionary": "DICT_5X5_100",
         "ids_offset": 0,
+        "pattern_face": "top",
     }
     config = load_generator_config(write_config(tmp_path, boards=[board]))
     assert isinstance(config, GeneratorConfig)
