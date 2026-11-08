@@ -354,23 +354,34 @@ uv run python scripts/gen_reach_map.py --check  # exit 1 when stale
 
 ## markers_generate.py
 
-Writes the QR metadata markers (payload `P1/K:<kind>/N:<name>/S:<mm>`, see `shared/ros2_common/marker_payload.py`) and the ChArUco calibration board of the head RGB-D calibration as print-ready files. Libraries: segno (QR), reportlab (PDF), trimesh + manifold3d (meshes), OpenCV (board).
+Writes the QR metadata markers (payload `P1/K:<kind>/N:<name>/S:<mm>`, see `shared/ros2_common/marker_payload.py`) and the ChArUco calibration boards (FULL for the intrinsics checks, ARM with its gripper handle for the head-from-arm and arm offsets fits; `docs/markers.md`, "Calibration boards") as print-ready files. Libraries: segno (QR), reportlab (PDF), trimesh + manifold3d (meshes), OpenCV (board). Code: `scripts/markers/` (`charuco.py` board, PDF, meshes and JSON; `handle.py` the edge handle; `jaw_fit.py` the SO-101 jaw geometry from the URDF meshes; `mesh.py` the print check).
 
 ```bash
 uv run python -m scripts.markers_generate [config]   # default scripts/markers_generate.yaml
 ```
 
-The only argument is an optional config path. Exit 1 on an invalid config (pydantic error naming the key, nothing written) or when a marker cannot be produced (named in the error, its files are not written, the others are still produced).
+The only argument is an optional config path. Exit 1 on an invalid config (pydantic error naming the key, nothing written) or when a marker or board cannot be produced (`FAILED marker ...` / `FAILED board <name>: ...`, its files are not written, the others are still produced; the last line is `wrote <n> files to <dir>; <k> failed`). A board whose printed solid is not watertight or has a face overhanging more than 45 deg (`mesh.print_violations`) fails with `board <name> is not printable: ...` before any of its files is written.
 
 Config keys (`scripts/markers_generate.yaml`):
 
-- `output_dir`: relative paths resolve against the repo root (default `.logs/markers`, gitignored; never commit print files).
+- `output_dir`: relative paths resolve against the repo root (default `.logs/markers`, gitignored). The calibration board files are the exception that is committed: copy a changed board to `markers/` (all outputs and the JSON) and `models/` (PDF and 3MF, served by web_ui for download).
+- `arm_urdf_file`: the SO-101 arm URDF whose gripper meshes seat a board handle (default `nodes/web_ui/urdf/so101_arm.urdf`).
 - `defaults`: `ecc` (m/q), `min_version`/`max_version` (2..4), `quiet_zone_modules` (>= 2), `page` (`size` A4/A3/LETTER or `width_mm`+`height_mm`, `orientation`).
 - `stl`: `base_thickness_mm`, `relief_mm`, `inlay_mm` (0 = raised modules, > 0 = flush inlay), `margin_mm`, `min_module_mm` (refuse below, default 1.5), `warn_module_mm` (warn below, default 2.0).
 - `markers[]`: `kind_code`, `name`, `size_mm`, optional `params`, `outputs` (subset of `pdf`, `stl`, `3mf`), `page` override.
-- `charuco`: `squares_x`, `squares_y` (odd), `square_mm`, `marker_mm`, `dictionary`, `margin_mm`, `thickness_mm` (>= 4), `relief_mm`, `inlay_mm` (same meaning as in `stl`; shipped config: 4 mm plate, 1.2 mm flush black inlay), `bed_mm`, `page`, `outputs`. Omit to skip the board.
+- `boards[]`: the ChArUco boards (`CharucoSpec`): `name` (file stem and board id, lower case, digits, hyphens; unique), `squares_x`, `squares_y` (odd), `square_mm`, `marker_mm`, `dictionary`, `ids_offset` (first marker id; boards sharing a dictionary must use disjoint ids), `margin_mm`, `thickness_mm` (>= 4), `relief_mm`, `inlay_mm` (same meaning as in `stl`; shipped: 4 mm plate, 1.2 mm flush black inlay), `bed_mm` (the plate, with the handle, must fit), `page`, `outputs`, `pattern_face` (`top`: printed back down with the inlays in the top layers; `bottom`: face down on the bed), optional `handle`. Empty: no boards. Shipped: `charuco-6x5-40mm` (FULL, ids 0-14) and `charuco-arm-6x5-28mm` (ARM, ids 15-29, with the handle). `scripts.markers.charuco.board_config(spec)` gives the calibration-side `BoardConfig`.
+- `boards[].handle` (`HandleSpec`, `scripts/markers/handle.py`; mm unless noted): the edge grip handle. Grip post: `length_mm` (grip behind the shoulder, 25..40), `neck_mm` (shoulder block from the tab top to the shoulder face), `thickness_tip_mm` / `thickness_end_mm` (nominal grip at the shoulder and at the free end), `channel_tip_mm` / `channel_end_mm` (finger channel widths), `clearance_mm` (channel side walls, 0.2..0.4), `clamp_clearance_mm` (print allowance taken off each clamp face, the bed face and the channel floor, 0..0.3, default 0.15; `thickness_*` are the nominal surfaces), `rail_width_mm`, `rail_height_mm`, `squeeze_rad` (grip = contact - squeeze, < 0.03 rad). Tab: `tab_width_mm` (far end, at least the post footprint), `tab_root_width_mm` (at the plate edge, at least `tab_width_mm`, at most the plate width), `tab_thickness_mm` (thicker than the plate), `post_offset_mm` (plate edge to the post axis). Gusset: `gusset_height_mm` (at most the post length), `gusset_reach_mm` (at most the height: top face within 45 deg; ends on the tab), `gusset_thickness_mm`. Mass and tool: `density_g_per_cm3`, `tool_offset_m` (the mcp_server `arm.tool_offset_m`). A board with a handle needs `pattern_face: top` and the plate plus tab within `bed_mm`.
 
-Outputs per marker, stem `<kind>-<name>` in lower case: `charger-dock-1.pdf`, `charger-dock-1-base.stl`, `charger-dock-1-modules.stl`, `charger-dock-1.3mf`. The board uses the stem `charuco-6x5-40mm` with the same four suffixes (6x5 squares of 40 mm with 30 mm markers, plate 250 x 210 mm, fits a 256 mm bed).
+Outputs per marker, stem `<kind>-<name>` in lower case: `charger-dock-1.pdf`, `charger-dock-1-base.stl`, `charger-dock-1-modules.stl`, `charger-dock-1.3mf`. Each board uses its `name` as the stem with the same four suffixes (`charuco-6x5-40mm`: 6x5 squares of 40 mm with 30 mm markers, plate 250 x 210 mm; `charuco-arm-6x5-28mm`: 28 mm squares with 21 mm markers, plate 178 x 150 mm plus the handle). The PDF is drawn at an exact raster (every square, marker, marker cell and gap a whole number of pixels: 1.4 px/mm FULL, 2.0 px/mm ARM). A board with a handle is printed in one piece (the handle unioned into the base body) and also writes `<name>.json`, whatever its `outputs`:
+
+- `name`, `board` (the `BoardConfig` fields), `plate_mm`, `volume_cm3`, `mass_g` (volume x density), `centre_of_mass_m` (board frame, m).
+- `board_mount` (`xyz_init`, `rpy_init`): the board frame in `gripper_link` with the handle seated (m, rad), the CAD seed of head_rgbd_calibration's `fit.board_mount`.
+- `handle_in_board`: `gripper_link_xyz_m`, `gripper_link_rpy_rad` (gripper_link in the board frame), `tool_point_m` (the `tool_offset_m` point in the board frame, the `plate_mount.tool_in_board_m` seed), `tool_axis` and `open_axis` (gripper_link TOOL_AXIS and OPEN_AXIS in the board frame: the post axis and the jaw-closing direction).
+- `grip`: `contact_rad` (both jaws touch the NOMINAL grip; not a measured contact), `squeeze_rad`, `grip_rad` (= contact - squeeze, the commanded grip), `clearance_clamp_mm` (the print allowance), `modelled_contact_rad` (the contact on the printed, thinner solid pressed on the fixed jaw; `grip_rad` < `modelled_contact_rad` < `contact_rad`).
+- `handle_envelope_mm`: `height_mm` (post top above the pattern face) and the `post`, `gusset` and `tab` boxes, `[[x, y, z] min, [x, y, z] max]` mm in the board frame (pattern at z = 0, back at z = 4; the handle lies at z < 0 past the plate's bottom edge): the collision boxes (`handle_boxes_mm`) of the head_rgbd_calibration pose check and the mcp_server board park.
+- `stiffness`: `modulus_mpa`, `tab_deflection_mm`, `plate_deflection_mm`, `centre_deflection_mm` (board centre sag under 1 g normal to the plate) and `root_stress_mpa` (tab root under a 10 g jerk).
+
+The JSON values are copied (6 decimals) into head_rgbd_calibration (`config.py` CAD constants, node yaml), mcp_server (`calibration_board` defaults) and `ansible/group_vars/client.yml`; tests pin each copy to the JSON.
 
 Size definition: `size_mm` is the symbol edge, finder outer edge to outer edge, quiet zone excluded. The module edge is `size_mm / (17 + 4 * version)`; the STL path refuses a module under `min_module_mm` (1.5 mm) and warns under `warn_module_mm` (2 mm). A 20 mm marker is therefore too small for STL, 100 mm marker modules are 3.4-4 mm.
 
@@ -378,6 +389,22 @@ Printing:
 
 - PDF: print at 100 % (actual size, no fit to page) on the media in the config; the page carries a 100 mm ruler to check the scale with calipers. Mount on a rigid plate and keep the white quiet zone.
 - STL: load both STLs together (base and modules) or the 3MF, which holds the two parts as separate objects. In Bambu Studio assign white filament to the base and black to the modules (3MF extruders 1 and 2); the modules are raised by `relief_mm` (shipped config: `relief_mm: 0`, `inlay_mm: 1.2`, so the black sits flush in a 4 mm white plate).
+- ARM board: one piece, back down (pattern face up, the handle tab flat on the bed, the post rising from it), no supports. See `docs/runbooks/printable-markers.md`, "Printing the ARM calibration board".
+
+## markers_render.py
+
+Offscreen renders of a board with a handle: eight views of the print bodies (`+x`, `-x`, `+y`, `-y`, `+z`, `-z`, `iso_front`, `iso_back`; base white, modules black, in print coordinates) and `grip_fit`, the board seated in the posed SO-101 gripper at `grip_rad` (fixed jaw grey, moving jaw orange), seen along the finger width. It reads the written STLs and JSON, never regenerates them. pyvista/VTK render through OSMesa (no display, no root).
+
+```bash
+eval "$(bash scripts/markers/setup_render_libs.sh | grep '^export')"   # once per shell
+uv sync --group render
+uv run --group render python -m scripts.markers_render [config]       # default scripts/markers_render.yaml
+```
+
+- `scripts/markers/setup_render_libs.sh`: downloads the pinned Debian bookworm OSMesa/LLVM debs into `.cache/render-libs` (gitignored) with curl and `dpkg-deb -x` (no apt, no root; idempotent), exits 1 naming any package missing from the index or whose version differs from its pin, and prints the two exports (`LD_LIBRARY_PATH`, `VTK_DEFAULT_OPENGL_WINDOW=vtkOSOpenGLRenderWindow`).
+- The `render` dependency group of the root `pyproject.toml` holds pyvista (and VTK); it is opt-in. `scripts/markers_render.py` imports pyvista at the top (through `scripts/markers/render.py`), so it runs only with the group; the config model (`RenderConfig`, `load_render_config`) lives in `scripts/markers/config.py` and the view maths in `scripts/markers/views.py` (no pyvista), so their tests run in the default environment.
+- Config keys (`scripts/markers_render.yaml`, `RenderConfig`, unknown keys rejected, relative paths against the repo root): `markers_dir` (written board files, default `markers`), `board` (the stem, default `charuco-arm-6x5-28mm`), `arm_urdf_file`, `out_dir` (default `.logs/arm-calib-board/renders`), `size` (width, height px, default 1200 x 900).
+- Output: nine PNGs `<board>-<view>.png` in `out_dir`, their paths printed one per line; exit 1 on an invalid config.
 
 ## marker_bench.sh
 

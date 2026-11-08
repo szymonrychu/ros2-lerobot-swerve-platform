@@ -41,6 +41,30 @@ user doc: `docs/markers.md`. The detector reads the D435 colour `/head/d435/colo
 9. Fill `## Range and fallback` in `docs/markers.md` with the measured decode ranges per marker size. If QR range is
    insufficient for docking, record it with numbers as a finding (AprilTag fallback named, not built).
 
+## Printing the ARM calibration board
+
+The calibration boards are not part of the steps above (they are not POI markers); this is how to print the ARM board
+(`charuco-arm-6x5-28mm`, the one with the edge grip handle, `docs/markers.md` "Calibration boards") and check it.
+
+- Generate: `uv run python -m scripts.markers_generate 2>&1 | tee .logs/markers-generate.log`. The generator checks
+  every board's printed solid before it writes anything: a solid that is not watertight or has a face that overhangs
+  more than 45 deg gives `FAILED board <name>: board <name> is not printable: ...` and exit 1, and no file of that
+  board is written. Check the log ends with `wrote <n> files to .logs/markers; 0 failed`. Copy the ARM files to
+  `markers/` and `models/` only when the geometry changed.
+- Print in one piece, BACK DOWN: the plate back and the flat underside of the handle tab on the bed, the pattern face
+  up, the grip post rising from the tab. No supports (every face is vertical, up-facing or within about 7 deg of
+  vertical). Two colours: the black modules are inlays in the top 1.2 mm; load the `-base.stl` (white) and
+  `-modules.stl` (black) as one object with a filament each, or open the `.3mf` (extruders 1 and 2 assigned). The
+  plate plus handle is 178 x 205.3 mm.
+- After printing: check a square with a caliper (28.0 mm), the plate flat, and the grip post slides between the half
+  open jaws with the moving finger in the channel until its tip stops at the shoulder.
+- Optional render check (needs the render group and the OSMesa libraries, no root):
+  `eval "$(bash scripts/markers/setup_render_libs.sh | grep '^export')"`, then
+  `uv run --group render python -m scripts.markers_render`. It writes nine PNGs to
+  `.logs/arm-calib-board/renders/`: eight views of the board in print coordinates and `grip_fit`, the board seated in
+  the posed gripper at `grip_rad`. Check the pattern faces up and the gripper sits on the post at the tab, nothing over
+  the squares.
+
 ## Results
 
 Re-based on the D435 2026-10-31; the 2026-10-19 status (blocked on the CM3 head calibration) is retired by the D435

@@ -40,7 +40,10 @@ URDF forward-kinematics chain (`shared/ros2_common/head_rgbd_calibration/chain.p
 
 Head-from-arm fit (`shared/ros2_common/head_rgbd_calibration/head_arm_fit.py`, design D31-D35) on synthetic scenes from
 `tests/head_arm_synthetic.py`: the applied floor-fit chain of 2026-10-22 moved by known amounts, 24 arm poses, four
-head offsets, 0.3 px noise, the board seen in the D435 colour camera (`d435_color_optical_frame`).
+head offsets, 0.3 px noise, the board seen in the D435 colour camera (`d435_color_optical_frame`). The synthetic scenes
+use the 40 mm `FULL_BOARD`, pinned explicitly (`synth_fit_config`, `nominal_board_mount`) because the default fit board
+is now the ARM board; the stick-mount helpers `measured_board_mount` and `park_up_in_gripper` were removed with the
+stick mount.
 
 | Test | Description |
 |------|-------------|
@@ -48,7 +51,7 @@ head offsets, 0.3 px noise, the board seen in the D435 colour camera (`d435_colo
 | `test_recovers_the_d435_mount_from_board_views` | The D435 moved on the head (d435_joint x +6 mm, z -4 mm, roll +0.5 deg, yaw -0.8 deg) with the pan axis moved, 2.5 px noise (the real session): camera x, z, roll, yaw within 3 sigma of the truth, the d435_joint y and pitch exactly the URDF values, the largest correlation below `max_correlation`, the default `camera_frame` gives the same fit. |
 | `test_d435_mount_is_exact_without_noise` | The same scene without noise: every parameter exact, the fit passes. |
 | `test_fit_reports_coverage_and_holdout` | Hold-out of every fifth arm pose, view counts, spans, floor deltas, the largest correlation below `max_correlation`, JSON origins (mount, pan, tilt) and `offset_rms_px` per head offset. |
-| `test_noiseless_recovery_exact` | Without noise every parameter and the board mount are exact. |
+| `test_noiseless_recovery_exact` | Without noise every parameter and the board mount are exact (the mount compared with `nominal_board_mount(synth_fit_config())`, the scene's board, not the ARM default). |
 | `test_pan_zero_folds_into_mount_yaw` | A 1 deg head_pan yaw lands in `mount_yaw_deg` (D33). |
 | `test_narrow_pan_span_fails` | Views within 5 deg of pan fail `min_pan_span_deg`. |
 | `test_floor_cross_check_limits` | A floor value 2 deg off fails its `floor_delta`; no floor fails `floor_cross_check`. |
@@ -100,8 +103,9 @@ mount start) and the floor sweep floor-20261022-064337 (`tests/fixtures/head_arm
 per-cloud floor planes and the applied tof_joint). The session was recorded with the retired head RGB camera and ToF, so
 the fits run on `tests/fixtures/head_arm/head_tof_rgb.urdf` (head.urdf as recorded, with the frames the D435 switchover
 removed) with `camera_frame=head_camera_optical_frame` and `sensor_frame=tof_optical_frame`, and with
-`fit_camera_mount: false` (the model the evidence was taken with) except where named. Pins the diagnosis and the
-evidence behind the `fit.limits` values.
+`fit_camera_mount: false` (the model the evidence was taken with) except where named. The session's board is the 40 mm
+`FULL_BOARD` on the retired stick mount, pinned in the fit config (`node_fit_config`) since the default fit board is now
+the ARM board. Pins the diagnosis and the evidence behind the `fit.limits` values.
 
 | Test | Description |
 |------|-------------|
@@ -119,8 +123,10 @@ Head-from-arm fit config, board corner geometry and view types (`shared/ros2_com
 
 | Test | Description |
 |------|-------------|
-| `test_head_arm_fit_config_defaults` | `HeadArmFitConfig` defaults: board mount, `fit_pan_axis` and `fit_camera_mount` on, every `HeadArmFitLimits` value (the evidence-based rms 3.0 px, held-out 4.0 px / 4.5 mm, `max_correlation` 0.99, `max_pan_axis_delta_mm` 50), Huber scale, floor prior weight (10, user decision 2026-10-23) and the `base_in_base_link` gauge (0.0592, -0.05, 0.100). |
-| `test_board_is_the_existing_charuco_board` | The default board equals the `charuco` spec in the markers YAML. |
+| `test_head_arm_fit_config_defaults` | `HeadArmFitConfig` defaults: board mount (zero, no handle boxes), `fit_pan_axis` and `fit_camera_mount` on, every `HeadArmFitLimits` value (the evidence-based rms 3.0 px, held-out 4.0 px / 4.5 mm, `max_correlation` 0.99, `max_pan_axis_delta_mm` 50), Huber scale, floor prior weight (10, user decision 2026-10-23) and the `base_in_base_link` gauge (0.0592, -0.05, 0.100). |
+| `test_boards_equal_their_generator_specs` | `FULL_BOARD` and `ARM_BOARD` equal `board_config` of the two `boards:` entries of `scripts/markers_generate.yaml` (replaces `test_board_is_the_existing_charuco_board`: the single `charuco` block is gone). |
+| `test_make_board_uses_the_id_offset` | `make_board` gives the ARM board ids 15-29 and the FULL board ids 0-14. |
+| `test_board_config_requires_identity_and_bounds_ids` | `BoardConfig` without `name` is refused, and an `ids_offset` whose ids run past the dictionary (86 + 15 > 100) is refused naming `ids_offset`. |
 | `test_unknown_keys_and_bad_joint_set_rejected` | Unknown keys, a joint-offset set missing `wrist_roll` or containing `gripper`, and `holdout_every=1` raise `ValidationError`. |
 | `test_arm_gauge_matches_client_yml` | Default joint offsets and `base_in_base_link` equal the arm config in `client.yml`. |
 | `test_board_corners_3d_geometry` | `board_corners_3d` gives 20 corners in the z = 0 plane spaced one square apart along x and y. |
@@ -155,7 +161,10 @@ FK pose check of the arm with the board on the gripper (`shared/ros2_common/head
 | `test_path_check_catches_mid_path_contact` | `check_path` finds contact in the middle of a move whose start and target poses are both clear. |
 | `test_board_margin_applies_to_board_rules_only` | The board margin applies to `board_*` rules only; the base rules keep `margin_m`. |
 | `test_board_beyond_d435_min_z` | `check_view` names `inside D435 min-Z` (nearest corner depth, 150 mm min-Z + 50 mm margin) for a board fronto-parallel to the D435 colour camera at 0.19 m and 0.199 m, not at 0.201 m or 0.45 m; the depth is taken at the view's head pose; a board behind the camera is inside min-Z and outside the FOV; the margin is the config. |
-| `test_board_outside_the_colour_fov` | `check_view` names `outside colour FOV` with the count of ChArUco corners outside the nominal 640x360 D435 colour image for a board 0.25 m to the side or with the head turned 30 deg away, whatever the arm pose; another camera frame is honoured. |
+| `test_board_outside_the_colour_fov` | `check_view` names `outside colour FOV` with the count of ChArUco corners outside the nominal 640x360 D435 colour image for a board 0.27 m to the side (0.25 m before the default fit board became the 28 mm ARM board) or with the head turned 30 deg away, whatever the arm pose; another camera frame is honoured. |
+| `test_handle_boxes_are_board_points_of_the_checker` | `handle_box_points_local` gives a lattice per `board_mount.handle_boxes_mm` box (every box corner is a point) and the checker's board points are the plate points plus them. |
+| `test_a_handle_box_near_the_floor_fails_the_board_height` | The plate alone keeps `min_board_height_m`; a 10 mm handle box 0.25 m below the board origin fails it. |
+| `test_handle_boxes_need_min_below_max` | A handle box whose min is not below its max on every axis is refused naming `handle_boxes_mm`. |
 
 ### `test_head_floor_fit.py`
 
@@ -1192,7 +1201,7 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   `ctl arm=H@away base=H`; the `any` need is satisfied by either lease; a queued gripper step fails at dispatch when
   the arm lease is not held
 - park with the calibration board on (`nodes/mcp_server/tests/test_control_board_park.py`, `control.py` / `arm.py` / `tools.py`): the agent-facing `release_control` schema has no board argument and still refuses the holding load; `ControlManager.park_calibration_board` (behind `POST /admin/park_calibration_board`, its own board-park token: the shared MCP token answers 401, a missing token file 503; the request names only a mount within 30 mm / 10 deg of the configured one, outline and margins are config) parks through a holding-load refusal at speed_scale 0.1, still refuses a last grasp held and a carried radius (naming only those reasons), refuses an offset or tiny mount, a stale or missing measurement and a drifted arm (measured far from commanded or from home), refuses when a home leg puts the board under the floor height or inside the body margin, or when the arm is not at its rest pose, always leaving the arm holding
-- calibration board park config (`tests/test_board_park_config.py`): mcp_server's `calibration_board` block equals head_rgbd_calibration's board, mount, margins and floor height (and its code defaults), the generated points equal the node's `board_points_local`, and the board-park token is its own file/group (`board-park`) held by the calibration service and not by claude_agent
+- calibration board park config (`tests/test_board_park_config.py`): mcp_server's `calibration_board` block equals head_rgbd_calibration's ARM fit board, mount, margins and floor height (and its code defaults), the mcp_server board is the ARM board (6x5, 28 mm; `test_mcp_server_board_is_the_arm_board`), the generated points equal the node's `board_points_local` plus `handle_box_points_local` (the handle post, gusset and tab), the grip squeeze stays below the mcp_server gripper converge tolerance (`test_grip_squeeze_stays_inside_the_mcp_converge_tolerance`), and the board-park token is its own file/group (`board-park`) held by the calibration service and not by claude_agent; `nodes/mcp_server/tests/test_control_board_park.py::test_box_lattice_spans_the_box_in_metres` pins `box_lattice` (mm in, m out, 27 points)
 - control leases and the carrying signal (`test_control_carrying.py`, `control.py` / `arm.py` / `carry.py`): lease
   generation (H1): a `grasp_object` whose planning is interrupted by the web UI Home (`/arm/home`) ends `aborted` with
   `arm control not held (released by the /arm/home service ...)` and the arm is not re-taken (the next arm tool is
@@ -1924,7 +1933,7 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_web_ui_reads_no_master2master_relay_topics` (`test_web_ui_overlays_config.py`) | No part of the client web_ui config (tabs, overlays, map) contains a `/controller/*` topic: those exist only through the master2master proxy. |
 | `test_overlays_use_no_relay_only_topics`, `test_lat_lon_come_from_the_client_gps_fix`, `test_vel_comes_from_the_swerve_odometry`, `test_fl_steer_is_selected_by_joint_name` (`test_web_ui_overlays_config.py`) | web_ui status bar overlays read live client topics: no `/controller/*`, Lat/Lon from the gps_rtk_rover `/client/gps/fix`, Vel from the swerve_controller `odom_topic`, FL Steer from its `joint_states_topic` as `position[name=fl_steer]`. |
 | `test_web_ui_enables_the_imu_calibration_section`, `test_bno055_keeps_the_default_calibration_names` (`test_web_ui_calibration_config.py`) | The client web_ui config has a `calibration` block naming `/imu/calibration` and the `/imu/calibration/save` and `/imu/calibration/reset` services (otherwise the Calibrate page answers "not configured"), and bno055_imu does not rename them. |
-| `test_web_ui_serves_the_repo_models_dir`, `test_models_dir_holds_a_pdf_and_3mf_per_model` (`test_web_ui_models_config.py`) | The client web_ui `models_dir` is the repo checkout's `models/`; that dir holds only PDF and 3MF files, one of each per model, including the ChArUco board. |
+| `test_web_ui_serves_the_repo_models_dir`, `test_models_dir_holds_a_pdf_and_3mf_per_model` (`test_web_ui_models_config.py`) | The client web_ui `models_dir` is the repo checkout's `models/`; that dir holds only PDF and 3MF files, one of each per model, including both ChArUco boards (`charuco-6x5-40mm`, `charuco-arm-6x5-28mm`). |
 | `test_web_ui_has_map_nav_tab` | web_ui config has the `map` tab of type `map_nav` with exactly the expected fields, including the POI topics (`/poi/list`, `/poi/command`, `/poi/result`), the grasp topics (`/grasp/command`, `/grasp/result`), the arm mount `arm_offset` `[0.0592, -0.05, 0.104]` (measured 2026-10-10) and the merged 3D view contract fields (`local_costmap_topic`, `base_urdf`, `base_joint_states_topic`, `arm_urdf`, `arm_joint_states_topic`, arm command topic `/filter/web_ui_joint_commands`) and the arm Trigger services `/arm/home` / `/arm/set_home`, the Head RGB-D layer topic `rgbd_cloud_topic: /head_rgbd/points`, and the keyed CARTO `tile_url` (`?key={api_key}`) with `tile_api_key_env: WEB_UI_TILE_API_KEY` and the `tile_sources` list (Esri satellite max zoom 20 in `{z}/{y}/{x}` order, keyed CARTO street max zoom 18) with `default_tile_source: satellite` and `tile_display_zoom: 19`. |
 | `test_web_ui_arm_offset_matches_mcp_server_arm_mount` | The web_ui map tab `arm_offset` equals the mcp_server `arm.base_in_base_link` x, y, z, so the drawn arm and the grasp planner agree. |
 | `test_web_ui_loads_the_tile_api_key_env_file_and_never_stores_the_key` | web_ui's unit loads `/etc/ros2/web_ui/env` via `environment_file`; `web_ui_tile_key.yml` reads `CARTO_API_KEY` from the controller, writes `WEB_UI_TILE_API_KEY=` with mode `0600`, `no_log: true` and queues a web_ui restart, and is included by `deploy_nodes_client.yml`. |
@@ -2953,18 +2962,24 @@ Exact-size marker PDF from `scripts/markers/pdf.py`. Each test renders page 0 wi
 
 ### test_markers_charuco.py
 
-ChArUco calibration board from `scripts/markers/charuco.py`; the PDF raster and the module footprint are fed to `cv2.aruco.CharucoDetector`.
+ChArUco calibration boards from `scripts/markers/charuco.py` (`FULL_SPEC` / `ARM_SPEC` are the two shipped boards, also imported by the CLI test); the PDF raster and the module footprint are fed to `cv2.aruco.CharucoDetector`.
 
 | Test | What it covers |
 |------|----------------|
-| `test_shipped_spec_is_6x5_and_fits_bed` | Defaults are 6x5, 40/30 mm, DICT_5X5_100 and the plate is 250 x 210 mm (within the 256 mm bed). |
-| `test_yaml_carries_charuco_section` | `scripts/markers_generate.yaml` loads with the default `charuco` spec. |
+| `test_shipped_yaml_has_full_and_arm_boards` | The shipped `boards:` list is exactly `charuco-6x5-40mm` (40/30 mm, ids from 0, 250 x 210 mm) and `charuco-arm-6x5-28mm` (28/21 mm, ids from 15, 178 x 150 mm); replaces `test_shipped_spec_is_6x5_and_fits_bed` and `test_yaml_carries_charuco_section` (the single `charuco` block and the spec defaults are gone). |
 | `test_invalid_specs_name_the_field` | 7 columns (too wide), even rows, `marker_mm >= square_mm`, thin base and unknown keys are refused, naming the field. |
 | `test_board_mask_is_exact_pixels` | Mask is 336 x 280 px at 1.4 px/mm (whole-pixel squares, marker cells and gaps). |
 | `test_pdf_detects_all_corners_at_40_mm` | The 600 dpi PDF raster yields all 20 inner corners, 40 mm pitch within 0.1 mm, and `Print at 100 %` text. |
 | `test_mesh_footprint_matches_board_corners` | Top view of the module body detects 20 corners within 0.2 mm of `getChessboardCorners()`. |
 | `test_stl_base_is_4_mm_thick_and_plate_sized` | Base STL is 250 x 210 x 4 mm, modules rise 0.6 mm; pdf, two STLs and 3MF are written. |
 | `test_outputs_subset` | `outputs: [pdf]` writes only the PDF. |
+| `test_arm_board_mask_is_exact_pixels` | The ARM mask is 336 x 280 px at 2.0 px/mm (cell 0.5 mm), marker cell 3.0 mm. |
+| `test_board_ids_follow_ids_offset` | The ARM board's OpenCV board uses ids 15-29. |
+| `test_ids_beyond_the_dictionary_are_refused` | An `ids_offset` whose ids run past the dictionary is refused naming `ids_offset`. |
+| `test_overlapping_board_ids_are_refused` | Two boards of one dictionary with overlapping ids are refused (`overlap`). |
+| `test_duplicate_board_names_are_refused` | Two boards with one name are refused (`unique`). |
+| `test_pdf_detects_all_arm_corners_at_28_mm` | The ARM PDF raster yields all 20 inner corners at a 28 mm pitch. |
+| `test_write_charuco_refuses_unprintable_solid` | With `print_violations` patched to report an overhang, `write_charuco` raises `board <name> is not printable: ...` and writes no file. |
 
 ### `test_shared_marker_payload.py`
 
@@ -2991,7 +3006,7 @@ Generator config loading (`scripts/markers/config.py`) and the QR symbol builder
 |------|----------------|
 | `test_shipped_yaml_covers_known_kinds` | `scripts/markers_generate.yaml` loads and has a marker per known kind. |
 | `test_unknown_key_names_it` / `test_invalid_marker_name_names_it` / `test_defaults_are_validated` | Invalid config raises a pydantic error naming the key or marker. |
-| `test_charuco_slot_is_a_validated_spec` | The `charuco` section is validated as a `CharucoSpec`. |
+| `test_boards_slot_is_a_list_of_validated_specs` | The `boards` section is a list validated as `CharucoSpec`s (replaces `test_charuco_slot_is_a_validated_spec`). |
 | `test_charger_builds_v2_q_6mm_modules` | A 150 mm CHARGER marker is version 2-Q with 6 mm modules. |
 | `test_longer_payload_picks_v3` / `test_over_capacity_raises_naming_capacity` / `test_ecc_m` | Version selection, over-capacity error and error-correction level are honoured (no silent EC boost). |
 | `test_raster_decodes_to_payload` | A rendered raster decodes with zxing-cpp to the payload. |
@@ -3012,6 +3027,12 @@ Two-body marker meshes and the Bambu 3MF from `scripts/markers/mesh.py`.
 | `test_write_bodies_3mf_structure` | The 3MF holds two named objects with extruders 1 and 2; both STLs are written. |
 | `test_render_then_decode` | The module body rendered from above decodes to the payload. |
 | `test_mask_bodies_unions_adjacent_cells_and_orients_rows` | Adjacent cells merge and mask row 0 is the top. |
+| `test_print_violations_pass_a_box` / `test_print_violations_name_a_downward_overhang` / `test_print_violations_name_an_open_mesh` | The print check (`print_violations`): a box passes; a T with 6 mm cantilevers names an overhang; a mesh with a face removed is `not watertight`. |
+| `test_printed_solid_is_the_plate_of_a_flush_inlay` | `printed_solid` of a flush-inlay base and modules is the full plate. |
+| `test_print_violations_pass_exact_45_degree_chamfer` / `test_print_violations_flag_44_degree_underside` | An exact 45 deg chamfer passes at several sizes (float tolerance `NORMAL_TOL`), a 44 deg underside is flagged. |
+| `test_print_violations_pass_exact_45_degree_chamfer_at_board_coordinates` / `test_print_violations_flag_44_degree_underside_at_board_coordinates` | The same at board-sized offsets (float32 vertices from manifold3d). |
+| `test_print_violations_flag_raised_feature_bottom` | A wide slab carried on a stem above the bed is an overhang. |
+| `test_print_violations_use_bed_relative_to_bounds` | The bed is the mesh's lowest z: a block at z = 7.3 passes, a ledge on it is flagged. |
 
 ### `test_markers_generate_cli.py`
 
@@ -3019,11 +3040,112 @@ The `scripts/markers_generate.py` command end to end, with tmp configs and outpu
 
 | Test | What it covers |
 |------|----------------|
-| `test_two_markers_and_charuco_write_expected_files` | Two markers plus the `charuco` section write exactly the expected file set (`<kind>-<name>` stems, `charuco-6x5-40mm`), print each file and return 0. |
+| `test_two_markers_and_boards_write_expected_files` | Two markers plus the FULL and ARM boards write exactly the expected file set (`<kind>-<name>` stems, `charuco-6x5-40mm`, `charuco-arm-6x5-28mm`; the test boards carry no handle, so no JSON), print each file and return 0 (replaces `test_two_markers_and_charuco_write_expected_files`). |
 | `test_unknown_key_returns_1_and_writes_nothing` | An unknown config key returns 1, the error names the key, nothing is written. |
 | `test_too_small_stl_marker_fails_others_written` | A marker too small for FDM returns 1, is named in the error, writes none of its files, and the other marker's files exist. |
 | `test_relative_output_dir_resolves_against_repo_root` | A relative `output_dir` lands under the repo root. |
 | `test_shipped_config_runs_and_pdfs_decode` | The shipped `markers_generate.yaml` (output redirected) runs; every marker PDF, rasterised, decodes to its own payload; STL and 3MF exist. |
+
+### `test_markers_jaw_fit.py`
+
+The SO-101 gripper geometry from `scripts/markers/jaw_fit.py`: the URDF-posed jaw meshes of `nodes/web_ui/urdf/so101_arm.urdf` (mm, `gripper_link`), the jaw gap, the contact angle on a solid, penetration and clearance. The meshes are the source of truth for the handle.
+
+| Test | What it covers |
+|------|----------------|
+| `test_load_gripper_places_the_tool_frame` | The tool frame (`gripper_frame_joint`) sits at (-7.9, -0.218, -98.13) mm in `gripper_link`. |
+| `test_load_gripper_reads_both_gripper_limits` | The gripper joint's lower and upper URDF limits are read (the lower bounds the contact search, the upper is fully open). |
+| `test_load_gripper_names_a_missing_urdf_element` | A URDF joint without its `child` raises `ValueError` naming the joint and the tag. |
+| `test_moving_jaw_turns_about_the_gripper_joint` | The moving jaw rotates about the gripper joint axis (distances to the pivot kept). |
+| `test_moving_jaw_opens_along_the_open_axis` / `test_moving_tip_is_the_finger_extreme_on_the_mid_plane` | Opening moves the moving tip along `OPEN_AXIS`; the tip is the finger's extreme point along `TOOL_AXIS` on the mid-plane. |
+| `test_fixed_jaw_face_is_the_tool_point_plane_at_the_tip` | Near the tip the fixed jaw face lies on the tool point plane (x = -7.9 mm). |
+| `test_fixed_jaw_face_refuses_depths_past_the_finger` | Depths past `MAX_FINGER_DEPTH_MM` (60, the servo housing starts at 68) raise for `fixed_jaw_face_mm` and `jaw_gap_mm`. |
+| `test_jaw_gap_matches_the_repo_meshes` | The gap at 0 deg is 15.8 mm at the tip and 17.8 mm 20 mm in, 2.0 mm at -10 deg, monotonic over 0..10 deg (the earlier research figures 18 / 23.5 mm disagree with the URDF pivot and are not used). |
+| `test_contact_angle_grows_with_thickness` / `test_contact_angle_closes_the_tip_on_a_thin_slab` | A thicker slab contacts at a larger angle; a 10 mm slab contacts where the tip gap is 10 mm. |
+| `test_contact_angle_refuses_an_oversized_slab` / `test_contact_angle_refuses_a_slab_thinner_than_the_closed_gap` | A slab still penetrating at the upper search bound, or thinner than the closed jaw gap, raises. |
+| `test_penetration_and_clearance_of_boxes` / `test_penetration_is_zero_for_disjoint_meshes` | Two boxes overlapping 2 mm give 2.0 mm penetration, 3 mm apart 3.0 mm clearance; disjoint meshes give 0. |
+| `test_penetration_refuses_an_open_mesh` | `penetration_mm` raises on a mesh that is not closed. |
+| `test_nearest_distance_is_the_closest_point_minimum` | `nearest_distance_mm` (pruned, batched) equals the trimesh closest-point minimum. |
+| `test_jaw_queries_stay_small_in_memory` | Points in the open space of the fixed jaw's bounds (servo housing) do not fan out to every face: the query stays small in memory (the cause of the 8 GiB OOM of Task 6). |
+
+### `test_markers_handle.py`
+
+The ARM board's edge grip handle (`scripts/markers/handle.py`) and the board flow of `write_charuco` for a board with a handle (user m540, decision 297): a 10 mm tab off the middle of the long bottom edge, the grip post on the tab on the pattern side, one gusset, printed back down (pattern up), seated in the SO-101 jaws. Module fixtures generate the ARM bodies and JSON once; seat checks use the memory-safe `nearest_distance_mm` / `penetration_mm`.
+
+| Test | What it covers |
+|------|----------------|
+| `test_handle_spec_refuses_out_of_range` | `HandleSpec` refuses each out-of-range field (grip length, profile, clearances, squeeze, clamp clearance, gusset height/reach/thickness, tab widths and thickness, post offset; the retired `rib_width_mm` as an unknown key), naming it. |
+| `test_handle_spec_extent_and_width` / `test_shoulder_top_follows_the_spec` | `extent_mm` = neck + length, `width_mm` = channel end + 2 rails, the shoulder top = tip thickness + rail height. |
+| `test_pattern_face_is_required_and_arm_prints_back_down` | `pattern_face` is required; both shipped boards print `top` (the ARM board back down, pattern up). |
+| `test_charuco_spec_needs_the_pattern_face_up_for_an_edge_handle` | A handle with `pattern_face: bottom` is refused. |
+| `test_charuco_spec_refuses_a_tab_off_the_plate_or_bed` | A tab no thicker than the plate, wider than the plate edge, or a plate plus tab past `bed_mm` is refused, naming the field. |
+| `test_face_down_turns_about_the_plate_y_axis` / `test_board_in_mesh_bottom_is_the_face_down_top` | The face-down turn (kept for boards without a handle) and the board frame in mesh coordinates for both faces. |
+| `test_handle_solid_is_the_grip_in_the_handle_frame` / `test_handle_solid_is_a_manifold` | The grip solid's bounds in the handle frame; the grip, post and handle body are manifolds. |
+| `test_post_in_mesh_stands_the_handle_on_the_tab` | The post transform: handle y along mesh -z (free end up from the tab top), x along mesh -y, z (OPEN_AXIS) along mesh +x, the footprint centre `post_offset_mm` off the middle of the plate edge. |
+| `test_post_solid_alone_is_printable_and_stands_on_the_tab` | The post prints standing on the tab top, its tapered walls never past 45 deg. |
+| `test_tab_solid_is_a_trapezoid_off_the_middle_of_the_plate_edge` | The tab spans the root width at the plate edge, the far width at its end, `tab_thickness_mm` from the bed. |
+| `test_arm_board_union_is_watertight_and_overhang_free` / `test_arm_board_is_one_piece` | The ARM print passes `print_violations` and its base is one body. |
+| `test_pattern_reads_from_above_in_the_top_layers` | The inlays sit in the top layers (T - inlay to T) and the pattern reads from above at the top board frame's corners. |
+| `test_bed_side_is_flat` | The plate back and the tab underside are one flat face on the bed. |
+| `test_handle_dimensions_follow_the_spec` | The plate keeps its outline with the tab off its edge; the post rises neck plus grip above the tab top, perpendicular to the plate, `post_offset_mm` out; the plate is bare up to the pattern face. |
+| `test_gusset_braces_the_post_toward_the_plate_within_45_deg` / `test_gusset_sits_on_the_plate_side_the_jaws_do_not_occupy` / `test_gusset_and_tab_join_the_post_and_plate_into_one_print` | One triangular gusset off the rail wall facing the plate (vertical side walls, top face within 45 deg, ending before the plate edge), on the side away from the jaw-closing axis; gusset, tab and post lie inside the printed base. |
+| `test_seated_handle_touches_both_jaws_without_penetration` | At the seat and `contact_rad` both jaws touch the NOMINAL grip within 0.05 mm and penetrate neither way. |
+| `test_contact_angle_is_near_parallel` | 0 < `contact_rad` < 10 deg. |
+| `test_top_plane_bears_on_the_moving_jaw_lands` | The sloped top plane touches the moving jaw's 2 mm stepped lands at grip depths at least 15 mm apart and never digs in (replaces the brief's thickness-profile test; the finger has a mid-plane hole at 28.3-29.4 mm). |
+| `test_insert_opening_clears_the_handle` | At the insert opening (0.4 rad) the moving jaw clears the post by at least the minimum. |
+| `test_jaws_clear_the_tab_and_gusset_at_insert_and_over_the_whole_gripper_range` | At the insert opening, the grip and every angle from the contact to the URDF upper limit, and for the fixed jaw: no jaw within the minimum of the tab top, no penetration into the gusset, at least the minimum distance from it. |
+| `test_seat_crop_keeps_the_post_and_gusset_only` | `seat_crop` keeps the solid above the tab top (post and gusset), watertight. |
+| `test_shipped_clamp_clearance_is_the_user_allowance` | The shipped and default `clamp_clearance_mm` is 0.15 (decisions 282, 283). |
+| `test_printed_grip_is_thinner_at_the_clamp_faces_only` / `test_nominal_solid_adds_the_clamp_allowance` | The printed grip loses the allowance at the bed face and the channel floor only; `nominal_solid` adds exactly the allowance back. |
+| `test_printed_handle_clears_both_jaws_at_the_nominal_contact` | At the nominal seat and contact the printed handle stands 0.15 mm off the fixed jaw and between c - 0.05 and c off the moving jaw. |
+| `test_squeeze_closes_past_the_modelled_contact_on_an_exact_print` / `test_printed_contact_rad_seats_the_print_on_the_fixed_jaw` / `test_grip_angles_are_the_in_line_handle_ones` | `grip_rad` < `modelled_contact_rad` < `contact_rad`; `printed_contact_rad` reproduces the JSON `modelled_contact_rad`; the angles equal the earlier in-line grip's (the grip is reused unchanged, only turned). |
+| `test_post_axis_is_the_tool_axis_and_jaws_close_along_board_x` | `handle_in_board.tool_axis` is board +z, `open_axis` board +x (along the plate edge); the tool point lies on the post. |
+| `test_pattern_faces_back_toward_the_wrist` | The pattern normal points back against the tool approach axis (n . t = -1): the pattern faces the wrist (user m540; RED was +1 on the right-angle post). |
+| `test_gripper_does_not_cover_the_squares_seen_along_the_pattern_normal` | Along the pattern normal the fixed jaw (servo housing included) and the moving jaw at grip, insert and the upper limit stay at least 10 mm beyond the square area (measured about 24 mm). |
+| `test_board_mount_is_near_the_measured_stick_mount` | The board plane equals main's measured stick mount plane, the centre about 0.12 m off the tool axis on +y, the centre within 36 mm and the turn within 11 deg of it (34.7 mm, 10.65 deg). |
+| `test_board_mass_and_centre_of_mass` / `test_metadata_mass_and_mount` | Mass equals the plate plus tab, post and gusset at the density; the centre of mass lies on the board x centre line between the plate centre and the post; the JSON name, plate, volume, mass and mount. |
+| `test_tool_point_is_the_tool_offset_in_the_board_frame` / `test_tool_offset_is_the_mcp_server_tool_point` | `tool_point_m` is the handle `tool_offset_m` mapped through the seat; that offset equals the client.yml mcp_server `arm.tool_offset_m`. |
+| `test_handle_envelope_boxes_hold_the_tab_post_and_gusset` | `handle_envelope_mm`: the post (nominal bed face included), gusset and tab boxes lie on the pattern side (z < 0) past the plate outline and hold all material outside the plate slab. |
+| `test_stiffness_tab_share_is_the_closed_form_cantilever` / `test_tab_holds_the_board_centre_within_the_deflection_limit` | The moment-area integration equals the closed-form cantilever for a rectangular tab; the tab share of the centre sag under 1 g is at most 0.1 mm and recorded in the JSON. |
+| `test_write_board_metadata_sorted_and_indented` / `test_write_charuco_needs_the_gripper_for_a_handle` | The JSON is written sorted with indent 2 and a newline; a handle board without a gripper raises and writes nothing. |
+| `test_board_metadata_seat_is_reproducible` / `test_shipped_arm_outputs_are_current` | `board_metadata` again gives the written JSON; the committed `markers/charuco-arm-6x5-28mm.json` equals a fresh generation (within 1e-6). |
+
+### `test_markers_render.py`
+
+The board renders: `scripts/markers/views.py` (view directions, camera, grip scene; no pyvista), the render config (`scripts/markers/config.py` `RenderConfig`) and `scripts/markers_render.py`. Runs in the default environment; the PNG test runs only with the `render` group and the OSMesa libraries (`scripts/markers/setup_render_libs.sh`) and is skipped otherwise.
+
+| Test | What it covers |
+|------|----------------|
+| `test_eight_views_cover_axes_and_two_isometric` | `VIEW_DIRECTIONS` holds +-x, +-y, +-z and two isometric views. |
+| `test_camera_looks_at_the_bounds_centre_from_the_direction` / `test_camera_view_up_is_not_parallel_to_the_viewing_direction` | The camera looks at the bounds centre from the view direction; its view-up is never parallel to the look direction (the +z/-z case). |
+| `test_grip_scene_poses_both_jaws_at_the_grip_angle` | The grip scene is base, modules, fixed jaw and the moving jaw at the JSON `grip_rad`. |
+| `test_grip_scene_puts_the_post_between_the_jaws_and_the_plate_past_the_tips` | The plate lies past both jaw tips along TOOL_AXIS and the post material behind the tips stands on the fixed jaw side (replaces `test_grip_scene_puts_the_handle_between_the_jaws` of the in-line paddle). |
+| `test_render_config_rejects_unknown_keys` / `test_shipped_render_config_loads` | Unknown keys are refused; the shipped `scripts/markers_render.yaml` loads (board `charuco-arm-6x5-28mm`, 1200 x 900). |
+| `test_render_writes_nine_pngs` | With pyvista (`pytest.importorskip("scripts.markers_render")`): eight views and `grip_fit`, each PNG over 1000 bytes. |
+
+### `test_arm_board_detection.py`
+
+Detection margin of the ARM board (`ARM_BOARD`, 28 mm squares, ids 15-29) on synthetic D435 frames (`tests/rgbd_synthetic.py`, 640x360, fx 423), and both boards in one image.
+
+| Test | What it covers |
+|------|----------------|
+| `test_arm_board_detected_at_0_34_m` | The ARM board facing the camera at 0.34 m (the base pose distance) gives at least 12 ChArUco corners. |
+| `test_arm_board_detection_at_0_6_m_is_reported` | At 0.6 m the corner count is logged and recorded as a property (20 corners when written), not asserted: 0.34 m is the working distance (decision 259). |
+| `test_both_boards_in_one_image_are_detected_separately` | FULL and ARM boards side by side at 0.6 m in a 1280x720 image: all marker ids 0-29 are found, each board gives at least 12 corners and its corners lie inside its own projected outline. |
+
+### ARM calibration board: node, frontend and removed tests (arm-calib-board)
+
+Tests of the ARM board work outside `tests/` (run in their own projects) and the tests the branch removed or renamed.
+
+- `nodes/head_rgbd_calibration/tests/test_config.py`: `test_board_roles_default_full_and_arm` (`board` is `FULL_BOARD`, `fit.board` and `fit.plate` `ARM_BOARD`), `test_board_id_ranges_must_not_overlap` (an ARM board with ids overlapping the FULL board is refused for `fit.board` and `fit.plate`, naming both boards), `test_fit_mounts_are_the_cad_seed` (`fit.board_mount` and `fit.plate_mount` equal the JSON `board_mount` and `tool_point_m`), `test_board_handle_boxes_are_the_handle_cad` (the default, shipped and JSON handle boxes are the post, gusset and tab on the pattern side), `test_arm_sequence_grip_defaults_come_from_the_handle` (contact, grip, squeeze 0.02, mass and insert opening from the JSON); `test_arm_sequence_defaults` and the arm-sequence validation read `insert_gripper_rad` and refuse `handle_squeeze_rad >= handle_contact_rad`.
+- `nodes/head_rgbd_calibration/tests/test_sequencer.py`: `test_gripper_opens_at_base_and_closes_on_the_handle` (the base move sends `insert_gripper_rad`, the next move only the gripper at `grip_rad`, no later move the gripper), `test_unseated_handle_stops_the_sequence` (a jaw at `grip_rad` after the close stops with `MESSAGE_UNSEATED` and the measured angle, holding the arm, no still session), `test_handle_close_at_the_unseated_threshold` (just above `contact - squeeze / 2` the capture runs), `test_handle_close_without_a_measured_gripper_stops`; `test_every_exit_holds_position` covers the grip close (tool error, not converged) as well as the tier moves; `test_poses_inside_min_z_are_skipped` raises `d435_min_z_m` to 0.22 m for its near pose (no reachable pose brings the handle-held board inside the shipped 0.20 m) and uses a nearby tier-2 `NEAR_POSE`.
+- `nodes/head_rgbd_calibration/tests/test_board_facing.py` (new): `test_cad_mount_pattern_faces_back_toward_the_wrist` (the CAD mount's pattern normal points against TOOL_AXIS) and `test_pattern_faces_the_aimed_head_camera_at_the_base_pose` (FK at the shipped base pose with the head aimed at the board: the pattern faces the D435, facing cos above `MIN_FACING_COS`, 0.971). Lesson of the right-angle post (decision 296, user m540): the physical facing is pinned from the user's intent, not from frame signs.
+- `nodes/head_rgbd_calibration/tests/test_app.py`: `test_state_lists_both_boards` (`GET /api/state` `boards.full` / `boards.arm` with names, ids offsets and roles), `test_board_roles_names_each_board_with_its_role`; the contract fixtures `state.json`, `capture_start.json` and `capture_stop.json` gained `boards`.
+- `nodes/head_rgbd_calibration/tests/test_capture.py`, `test_compute_arm.py`: the synthetic harness renders the ARM board for the still capture and gives the node board ids 30-44 where the FULL board is the fit board (harness only).
+- `nodes/head_rgbd_calibration/tests/test_arm_pose_set.py`: `test_board_mount_is_the_measured_mount` became `test_board_mount_is_the_handle_cad_mount`; `test_measured_mount_refuses_a_low_pose_rolled_toward_the_floor` was removed with the stick mount (the floor refusal stays covered by `test_safety_check_refuses_a_pose_the_tier_rules_allow`). The pose set proof for the edge handle mount is its own task.
+- `nodes/mcp_server/tests/test_control_board_park.py`: `test_box_lattice_spans_the_box_in_metres`; the board point sets include the handle boxes.
+- web_ui vitest (`nodes/web_ui/frontend/src/calibrate/`): `boardsApi.test.ts` and `BoardNeeded.test.tsx` (new), "names the ... board it needs with its PDF and 3MF downloads" in `HeadArmCalibration.test.tsx`, `ArmCalibration.test.tsx`, `CsiIntrinsics.test.tsx` and `RgbdCapture.test.tsx`, `rgbdApi.test.ts` refuses a state without valid `boards`; `HeadArmCalibration.test.tsx` "says the D435 watches the ARM board held by its handle" replaces "... the board on the fixed jaw", and its idle Park test reads "attached in session" (was "clipped in session").
+- Removed with the designs they tested (in-line paddle, twin ribs, right-angle back post), all in `tests/test_markers_handle.py` unless named: the rib tests `test_rib_solid_tapers_from_the_shoulder_top_to_the_end_height`, `test_ribs_continue_the_handle_side_walls_as_two_full_height_webs`, `test_ribs_lie_inside_the_plate_and_off_the_pattern_face`, `test_jaw_region_is_unchanged_by_the_ribs`, `test_ribs_clear_the_jaws_at_insert_and_over_the_seat_sweep`, `test_ribs_add_about_eight_grams`, `test_back_envelope_is_the_rib_height_and_footprint_in_the_board_frame`, `test_charuco_spec_refuses_ribs_off_the_plate_back`, `test_shoulder_top_and_rib_ranges_follow_the_spec` (now `test_shoulder_top_follows_the_spec`); the paddle tests `test_handle_solid_alone_is_printable_and_sized` (split into the handle-frame grip and the printable post tests), `test_bed_check_includes_the_handle_extent`; the back-post tests `test_post_in_mesh_stands_the_handle_on_the_plate_centre`, `test_post_solid_alone_is_printable_and_stands_on_the_back`, `test_gussets_brace_the_post_rail_walls_within_45_deg`, `test_gussets_sit_on_the_sides_the_jaws_do_not_occupy`, `test_gussets_join_the_post_and_plate_into_one_print`, `test_jaws_clear_the_plate_and_gussets_at_insert_and_over_the_seat_sweep`, `test_seat_crop_keeps_the_post_and_gussets_only`, `test_post_axis_is_the_tool_axis_and_jaws_close_along_board_y`, `test_back_envelope_boxes_hold_the_post_and_gussets`, `test_charuco_spec_refuses_gussets_off_the_plate`, `test_charuco_spec_needs_the_pattern_face_down_for_a_post`, `test_pattern_face_is_required_and_arm_prints_face_down`, `test_face_down_pattern_reads_from_below` (each replaced by its edge-handle counterpart above).
+- Renamed with the back boxes becoming handle boxes (Task 6e): `test_board_back_boxes_are_the_handle_cad` to `test_board_handle_boxes_are_the_handle_cad` (node `test_config.py`); `test_back_boxes_are_board_points_of_the_checker`, `test_a_back_box_near_the_floor_fails_the_board_height`, `test_back_boxes_need_min_below_max` to the `handle_box` names in `tests/test_arm_pose_check.py`.
 
 ### test_map_manager_config.py
 
@@ -3405,7 +3527,7 @@ Static invariants of the `head_rgbd_calibration` deploy (node type and `ros2_nod
 | `test_fit_base_in_base_link_equals_mcp_server_arm` | `fit.base_in_base_link` equals mcp_server's `arm.base_in_base_link`. |
 | `test_pose_check_body_equals_mcp_server_body` | `arm_sequence.pose_check.body` boxes and cylinders equal mcp_server's `body` block. |
 | `test_arm_urdf_file_is_the_mcp_server_arm_urdf` | The node's `arm_urdf_file` is the arm URDF mcp_server loads. |
-| `test_fit_board_equals_board` | `fit.board` equals `board` in the node config. |
+| `test_boards_are_the_full_and_the_arm_board_with_disjoint_ids` | The client block's `board` is `charuco-6x5-40mm` (ids from 0), `fit.board` equals `fit.plate` and is `charuco-arm-6x5-28mm` (ids from 15) (replaces `test_fit_board_equals_board`: the board roles split). |
 | `test_service_joins_mcp_token_group_created_by_mcp_server_setup` | The node type's `supplementary_groups` has `mcp-token`, and `mcp_server_setup.yml` creates that group. |
 | `test_setup_creates_mcp_token_group_before_the_service_starts` | `head_rgbd_calibration_setup.yml` creates the system group `mcp-token` itself (it runs before mcp_server_setup). |
 
@@ -3616,7 +3738,9 @@ through a distorted pinhole at a known pose in base_link (`tests/rgbd_synthetic.
 | `test_moving_board_rejected` | A board 1 cm away in some frames fails: no truth from a moving or occluded board. |
 | `test_too_few_detections_rejected` | Fewer than 5 accepted detections (or a frame without a board) fail. |
 | `test_scene_sheet_validates` | `SceneSheet` fills the path defaults, requires the measured fields and rejects unknown keys. |
-| `test_run_writes_truth_yaml` | The script reads an npz recording and a sheet from `tmp_path` and writes the truth YAML with provenance. |
+| `test_run_writes_truth_yaml` | The script reads an npz recording and a sheet from `tmp_path` and writes the truth YAML with provenance (its board dicts carry the now-required `pattern_face`). |
+| `test_load_board_picks_the_named_board` | `load_board(path, name)` returns the named board of a two-board generator YAML; an unknown name raises `ValueError` naming it. |
+| `test_load_board_reads_the_shipped_generator_yaml` | The default sheet board name exists in `scripts/markers_generate.yaml` (guards the `charuco` to `boards` rename). |
 
 ### `test_ground_robustness_runbook.py`
 

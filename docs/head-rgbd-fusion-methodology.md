@@ -42,7 +42,7 @@ settles. The run report records the lens position, and changing `lens_position` 
 One ChArUco board (doi:10.1016/j.patcog.2014.01.005) serves RGB intrinsics, ToF intrinsics and the extrinsic: 6x5
 squares, 40 mm squares, 30 mm markers, `DICT_5X5_100` (240x200 mm, fits A4 landscape; the two-colour plate of 250x210 mm
 fits the 256x256 mm print bed). Generate it with `uv run python -m scripts.markers_generate`; the tool's `board` config
-must equal the generator's `charuco` spec (pinned by a test). Print it laser-printed and matte: toner absorbs infrared,
+must equal the generator's `charuco-6x5-40mm` entry of `boards:` (the FULL board, pinned by a test). Print it laser-printed and matte: toner absorbs infrared,
 so the ToF amplitude image shows the pattern, and gloss would cause specular saturation. Keep it flat on a rigid backing.
 
 ### Capture protocol
