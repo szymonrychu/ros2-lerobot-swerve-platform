@@ -22,8 +22,8 @@ colour camera_info after the still session starts. The gripper opens to `insert_
 the user's Board attached confirm it closes on the handle to `grip_rad` (handle contact minus the squeeze, below the
 mcp converge tolerance so the target stays commanded), and the servo `Torque_Limit` (the default grip profile) is the
 effort limit, as `move_arm_joints` has no per-call one. A jaw that ends below `handle_contact_rad - handle_squeeze_rad /
-2` closed past the handle (unseated), and the sequence stops holding the arm. Every exit of the sequence (end, stop, tool error, exception, confirm timeout)
-stops the still capture and releases the arm with `keep_position=True`: the arm holds a checked pose and mcp_server
+2` closed past the handle (unseated), and the sequence stops holding the arm. Every exit of the sequence (end, stop,
+tool error, exception, confirm timeout) stops the still capture and releases the arm with `keep_position=True`: the arm holds a checked pose and mcp_server
 keeps the head where it is. The sequence never parks on its own and never sends `carried_object_radius_m`.
 
 Threads (as floor_sweep.py): `move_to_base`, `board_attached`, `allow_big_joints`, `stop`, `park` and `state` run on

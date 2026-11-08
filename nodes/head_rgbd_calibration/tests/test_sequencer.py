@@ -80,10 +80,9 @@ COLOR_FRAME = "d435_color_optical_frame"
 MIN_Z_REASON = "inside D435 min-Z"
 FOV_REASON = "outside colour FOV"
 MIN_DEPTH_M = 0.20  # D435 min-Z at 640x360 (0.15 m) plus the 0.05 m margin
-MIN_Z_M = (
-    0.22  # d435_min_z_m of the near-pose test (shipped 0.15 m): the CAD handle mount keeps the board 0.25 m or more
-)
-# from the D435 at every pose within the tier bounds and the head tilt limit, so that test raises the min-Z instead
+# d435_min_z_m of the near-pose test (shipped 0.15 m): the CAD handle mount keeps the board 0.25 m or more from the D435
+# at every pose within the tier bounds and the head tilt limit, so that test raises the min-Z instead
+MIN_Z_M = 0.22
 NEAR_MIN_DEPTH_M = MIN_Z_M + 0.05
 # A tier-2 pose (within the tier bounds) that puts the board 0.25 m in front of the D435 at every head offset, the head
 # within its limits: inside the NEAR_MIN_DEPTH_M limit above.
@@ -130,7 +129,7 @@ class FakeRobot:
             not reported after it).
     """
 
-    def __init__(self, log: list[tuple[str, str, dict[str, Any]]]) -> None:
+    def __init__(self, log: list[tuple[str, str, dict[str, Any]]], jaw_after_close: float | None) -> None:
         self.log = log
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.positions: dict[str, float] = {**HOME_POSE, GRIPPER: 0.05}
@@ -140,7 +139,7 @@ class FakeRobot:
         self.measured: dict[str, float] | None = None
         self.carrying: list[str] = []
         self.reset_arm = "homed"
-        self.jaw_after_close: float | None = NodeConfig().arm_sequence.handle_contact_rad  # the jaw stops on the handle
+        self.jaw_after_close = jaw_after_close
 
     def count(self, name: str) -> int:
         return sum(1 for called, _ in self.calls if called == name)
@@ -259,7 +258,7 @@ class Rig:
         robot_cfg = base.robot.model_copy(update={"token_file": str(token), "board_park_token_file": str(board_token)})
         self.cfg = base.model_copy(update={"robot": robot_cfg})
         self.log: list[tuple[str, str, dict[str, Any]]] = []
-        self.robot = FakeRobot(self.log)
+        self.robot = FakeRobot(self.log, self.cfg.arm_sequence.handle_contact_rad)  # the jaw stops on the handle
         self.capture = FakeCapture(self.log)
         self.clock = FakeClock()
         self.blocked_reason = blocked
@@ -560,8 +559,10 @@ EXITS = [
     "stop-in-tier",
     "stop-waiting-big-joints",
     "tool-error",
+    "grip-tool-error",
     "head-tool-error",
     "not-converged",
+    "grip-not-converged",
     "exception",
     "timeout-waiting-board",
     "timeout-waiting-big-joints",
@@ -574,11 +575,16 @@ def test_every_exit_holds_position(tmp_path: Path, exit_kind: str) -> None:
     rig = Rig(tmp_path, cfg)
     seq = rig.seq
     expected_phase = HOLDING
+    # move_arm_joints calls: 1 open to the base pose, 2 the gripper close on the handle, 3 and up the tier moves
     if exit_kind == "tool-error":
-        rig.robot.errors["move_arm_joints"] = 3
+        rig.robot.errors["move_arm_joints"] = 4
+    if exit_kind == "grip-tool-error":
+        rig.robot.errors["move_arm_joints"] = 2
     if exit_kind == "head-tool-error":
         rig.robot.errors["set_head_angles"] = 2
     if exit_kind == "not-converged":
+        rig.robot.move_status[3] = "timeout"
+    if exit_kind == "grip-not-converged":
         rig.robot.move_status[2] = "timeout"
     if exit_kind == "exception":
         rig.capture.raise_at = 3
@@ -610,11 +616,11 @@ def test_every_exit_holds_position(tmp_path: Path, exit_kind: str) -> None:
         assert state["error"] is None
     elif exit_kind.startswith("stop"):
         assert "stopped" in state["status"]
-    elif exit_kind == "tool-error":
+    elif exit_kind in ("tool-error", "grip-tool-error"):
         assert "injected tool error" in state["error"]
     elif exit_kind == "head-tool-error":
         assert "set_head_angles" in state["error"] and "injected tool error" in state["error"]
-    elif exit_kind == "not-converged":
+    elif exit_kind in ("not-converged", "grip-not-converged"):
         assert "timeout" in state["error"] and "not converged" in state["error"]
         assert rig.capture.stills == []
     elif exit_kind == "exception":
@@ -1158,7 +1164,8 @@ def test_poses_inside_min_z_are_skipped(tmp_path: Path) -> None:
     assert {tier for _, tier, _ in rig.capture.stills} == {0, 1, 2}
 
     # The nominal D435 colour camera (69 deg across 640 px): views with a corner outside the image are skipped, the
-    # others of the same pose are captured. A +30 deg pan offset pushes the (smaller) CAD handle board out of the 640 px image width.
+    # others of the same pose are captured. A +30 deg pan offset pushes the (smaller) CAD handle board out of the 640 px
+    # image width.
     rig = Rig(tmp_path, small_cfg(head_offsets_deg=[*seq.head_offsets_deg, (30.0, 0.0)]))
     rig.capture.camera_info = camera_info(D435_K)
     views = expected_views(rig.cfg, HEAD_URDF, D435_K)
