@@ -1,0 +1,8 @@
+# Offscreen renders of the ARM board (eight views) and the grip fit. Needs the render group and the OSMesa libs:
+#   eval "$(bash scripts/markers/setup_render_libs.sh | grep '^export')"
+#   uv sync --group render && uv run --group render python -m scripts.markers_render
+markers_dir: markers
+board: charuco-arm-6x5-28mm
+arm_urdf_file: nodes/web_ui/urdf/so101_arm.urdf
+out_dir: .logs/arm-calib-board/renders
+size: [1200, 900]

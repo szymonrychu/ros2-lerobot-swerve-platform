@@ -58,3 +58,4 @@ graphify-out/
 
 # Per-improvement plans (superpowers flow), local only
 docs/plans/
+.cache/

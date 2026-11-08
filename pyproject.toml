@@ -37,6 +37,7 @@ dev = [
     "ros2-common",
     "websockets>=17.3",
 ]
+render = ["pyvista>=0.44,<1"]
 
 [tool.uv]
 package = false
