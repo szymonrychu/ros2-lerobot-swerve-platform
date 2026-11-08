@@ -26,6 +26,7 @@ WIDTH_AXIS = (0.0, 1.0, 0.0)
 CONTACT_TOL_MM = 0.05
 CONTACT_HI_RAD = 1.0
 BISECTION_STEPS = 60
+MAX_FINGER_DEPTH_MM = 60.0  # the fixed finger face is clean to ~67 mm behind its tip; past that the servo housing
 TIP_BAND_MM = 1.0  # depth band behind a tip that counts as the tip (finger centre, minimum fixed face band)
 RAY_REACH_MM = 1000.0  # ray start distance along -OPEN_AXIS, well outside the gripper
 CLEARANCE_SAMPLES = 20000
@@ -115,6 +116,22 @@ def find_joint(root: ElementTree.Element, name: str) -> ElementTree.Element:
     return joint
 
 
+def urdf_child(element: ElementTree.Element, tag: str) -> ElementTree.Element:
+    """The child element of a URDF element with that tag.
+
+    Args:
+        element (ElementTree.Element): Parent element (a joint).
+        tag (str): Child tag, e.g. "parent", "child", "axis", "limit".
+
+    Returns:
+        ElementTree.Element: The child element.
+    """
+    found = element.find(tag)
+    if found is None:
+        raise ValueError(f"joint {element.get('name')} has no <{tag}> element")
+    return found
+
+
 def load_gripper(urdf_path: Path) -> Gripper:
     """Load the gripper meshes and frames from the arm URDF.
 
@@ -128,18 +145,18 @@ def load_gripper(urdf_path: Path) -> Gripper:
     joint = find_joint(root, GRIPPER_JOINT)
     tool = find_joint(root, TOOL_JOINT)
     for element, parent in ((joint, GRIPPER_LINK), (tool, GRIPPER_LINK)):
-        if element.find("parent").get("link") != parent:  # type: ignore[union-attr]
+        if urdf_child(element, "parent").get("link") != parent:
             raise ValueError(f"joint {element.get('name')} is not a child of {parent}")
-    if joint.find("child").get("link") != MOVING_JAW_LINK:  # type: ignore[union-attr]
+    if urdf_child(joint, "child").get("link") != MOVING_JAW_LINK:
         raise ValueError(f"joint {GRIPPER_JOINT} does not move {MOVING_JAW_LINK}")
-    axis = np.array([float(v) for v in joint.find("axis").get("xyz", ZERO_VEC).split()])  # type: ignore[union-attr]
+    axis = np.array([float(v) for v in urdf_child(joint, "axis").get("xyz", ZERO_VEC).split()])
     return Gripper(
         fixed=link_visuals_mm(root, GRIPPER_LINK, urdf_path.parent),
         moving=link_visuals_mm(root, MOVING_JAW_LINK, urdf_path.parent),
         joint=origin_mm(joint.find("origin")),
         tool=origin_mm(tool.find("origin")),
         axis=axis / np.linalg.norm(axis),
-        lower_rad=float(joint.find("limit").get("lower", "0")),  # type: ignore[union-attr]
+        lower_rad=float(urdf_child(joint, "limit").get("lower", "0")),  # type: ignore[union-attr]
     )
 
 
@@ -185,7 +202,12 @@ def fixed_jaw_face_mm(gripper: Gripper, depth_mm: tuple[float, float]) -> float:
 
     Returns:
         float: The face coordinate along OPEN_AXIS (mm).
+
+    Raises:
+        ValueError: When the far depth is past MAX_FINGER_DEPTH_MM or the band holds no fixed jaw material.
     """
+    if depth_mm[1] > MAX_FINGER_DEPTH_MM:
+        raise ValueError(f"depth {depth_mm[1]} mm is past the finger (limit {MAX_FINGER_DEPTH_MM} mm)")
     clipped = band(gripper.fixed, depth_mm)
     if len(clipped.vertices) == 0:
         raise ValueError(f"no fixed jaw material in the depth band {depth_mm}")
@@ -229,6 +251,8 @@ def jaw_gap_mm(gripper: Gripper, angle_rad: float, depth_mm: float) -> float:
     Returns:
         float: Moving face minus fixed face along OPEN_AXIS (mm); negative when the jaws overlap.
     """
+    if depth_mm > MAX_FINGER_DEPTH_MM:
+        raise ValueError(f"depth {depth_mm} mm is past the finger (limit {MAX_FINGER_DEPTH_MM} mm)")
     tool, opening = np.asarray(TOOL_AXIS), np.asarray(OPEN_AXIS)
     tip = moving_tip_mm(gripper, angle_rad)
     line = tip - tool * depth_mm
@@ -306,8 +330,17 @@ def contact_angle_rad(gripper: Gripper, solid: trimesh.Trimesh) -> float:
 
     Returns:
         float: The contact angle (rad).
+
+    Raises:
+        ValueError: When the jaw already clears the solid at the lower limit (too thin) or still penetrates it at
+            CONTACT_HI_RAD (too thick).
     """
     lo, hi = gripper.lower_rad, CONTACT_HI_RAD
+    if penetration_mm(solid, moving_jaw(gripper, lo)) <= CONTACT_TOL_MM:
+        raise ValueError("handle thinner than the closed jaw gap: the jaw never touches it")
+    remaining = penetration_mm(solid, moving_jaw(gripper, hi))
+    if remaining > CONTACT_TOL_MM:
+        raise ValueError(f"no contact up to {hi} rad: {remaining:.2f} mm penetration remains, handle too thick")
     for _ in range(BISECTION_STEPS):
         mid = (lo + hi) / 2.0
         if penetration_mm(solid, moving_jaw(gripper, mid)) <= CONTACT_TOL_MM:

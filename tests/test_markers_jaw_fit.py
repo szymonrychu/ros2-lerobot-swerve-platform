@@ -8,6 +8,7 @@ import pytest
 import trimesh
 
 from scripts.markers.jaw_fit import (
+    MAX_FINGER_DEPTH_MM,
     OPEN_AXIS,
     TOOL_AXIS,
     WIDTH_AXIS,
@@ -84,6 +85,40 @@ def test_jaw_gap_matches_the_repo_meshes() -> None:
 def test_contact_angle_grows_with_thickness() -> None:
     thin, thick = (slab_between_jaws(GRIPPER, t) for t in (16.0, 22.0))
     assert contact_angle_rad(GRIPPER, thin) < contact_angle_rad(GRIPPER, thick)
+
+
+def test_contact_angle_closes_the_tip_on_a_thin_slab() -> None:
+    angle = contact_angle_rad(GRIPPER, slab_between_jaws(GRIPPER, 10.0))
+    assert jaw_gap_mm(GRIPPER, angle, 0.0) == pytest.approx(10.0, abs=0.2)
+
+
+def test_contact_angle_refuses_an_oversized_slab() -> None:
+    with pytest.raises(ValueError, match="penetrat"):
+        contact_angle_rad(GRIPPER, slab_between_jaws(GRIPPER, 120.0))
+
+
+def test_contact_angle_refuses_a_slab_thinner_than_the_closed_gap() -> None:
+    with pytest.raises(ValueError, match="thinner than the closed jaw gap"):
+        contact_angle_rad(GRIPPER, slab_between_jaws(GRIPPER, 0.5))
+
+
+def test_fixed_jaw_face_refuses_depths_past_the_finger() -> None:
+    assert fixed_jaw_face_mm(GRIPPER, (0.0, MAX_FINGER_DEPTH_MM)) == pytest.approx(-7.9, abs=0.1)
+    with pytest.raises(ValueError, match="past the finger"):
+        fixed_jaw_face_mm(GRIPPER, (0.0, 70.0))
+    with pytest.raises(ValueError, match="past the finger"):
+        jaw_gap_mm(GRIPPER, 0.0, 70.0)
+
+
+def test_load_gripper_names_a_missing_urdf_element(tmp_path: Path) -> None:
+    urdf = tmp_path / "bad.urdf"
+    urdf.write_text(
+        "<robot name='r'><link name='gripper_link'/>"
+        "<joint name='gripper' type='revolute'><parent link='gripper_link'/></joint>"
+        "<joint name='gripper_frame_joint' type='fixed'><parent link='gripper_link'/></joint></robot>"
+    )
+    with pytest.raises(ValueError, match="child"):
+        load_gripper(urdf)
 
 
 def test_penetration_and_clearance_of_boxes() -> None:
