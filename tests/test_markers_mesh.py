@@ -227,12 +227,22 @@ def test_printed_solid_is_the_plate_of_a_flush_inlay() -> None:
     assert solid.is_watertight and solid.volume == pytest.approx(12.0 * 12.0 * 4.0)
 
 
-def chamfered_block(size: float, run: float | None = None, z0: float = 0.0) -> trimesh.Trimesh:
-    """Block 10 x 10 x 12 mm with its x=0 bottom edge chamfered: rise `size`, run `run` (default `size`, 45 deg)."""
+def chamfered_block(size: float, run: float | None = None, z0: float = 0.0, xy: float = 0.0) -> trimesh.Trimesh:
+    """Block 10 x 10 x 12 mm with its x=0 bottom edge chamfered: rise `size`, run `run` (default `size`, 45 deg).
+
+    Args:
+        size: Chamfer rise in mm.
+        run: Chamfer run in mm, defaults to `size`.
+        z0: Z offset of the block in mm.
+        xy: X and Y offset of the block in mm.
+
+    Returns:
+        The chamfered block mesh.
+    """
     run = size if run is None else run
     xs, zs = [0.0, 10.0], [0.0, 12.0]
-    pts = [(x, y, z0 + z) for x in xs for y in (0.0, 10.0) for z in zs if not (x == 0.0 and z == 0.0)]
-    pts += [(0.0, y, z0 + size) for y in (0.0, 10.0)] + [(run, y, z0) for y in (0.0, 10.0)]
+    pts = [(x + xy, y + xy, z0 + z) for x in xs for y in (0.0, 10.0) for z in zs if not (x == 0.0 and z == 0.0)]
+    pts += [(xy, y + xy, z0 + size) for y in (0.0, 10.0)] + [(run + xy, y + xy, z0) for y in (0.0, 10.0)]
     return to_trimesh(Manifold.hull_points(np.array(pts)))
 
 
@@ -243,6 +253,21 @@ def test_print_violations_pass_exact_45_degree_chamfer(size: float) -> None:
 
 def test_print_violations_flag_44_degree_underside() -> None:
     steep = chamfered_block(5.0, run=5.0 / math.tan(math.radians(44.0)))
+    assert any("overhang" in v for v in print_violations(steep))
+
+
+BOARD_OFFSETS = [(0.0, 200.0), (120.0, 0.0), (120.0, 200.0)]
+
+
+@pytest.mark.parametrize("size", [0.1, 1.1, 3.7])
+@pytest.mark.parametrize(("z0", "xy"), BOARD_OFFSETS)
+def test_print_violations_pass_exact_45_degree_chamfer_at_board_coordinates(size: float, z0: float, xy: float) -> None:
+    assert print_violations(chamfered_block(size, z0=z0, xy=xy)) == []
+
+
+@pytest.mark.parametrize(("z0", "xy"), BOARD_OFFSETS)
+def test_print_violations_flag_44_degree_underside_at_board_coordinates(z0: float, xy: float) -> None:
+    steep = chamfered_block(5.0, run=5.0 / math.tan(math.radians(44.0)), z0=z0, xy=xy)
     assert any("overhang" in v for v in print_violations(steep))
 
 

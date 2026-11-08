@@ -22,7 +22,7 @@ EXTRUDERS = {BASE_NAME: 1, MODULES_NAME: 2}
 CUT_OVERSHOOT_MM = 1.0
 OVERHANG_LIMIT_DEG = 45.0
 BED_TOL_MM = 0.05
-NORMAL_TOL = 1e-6
+NORMAL_TOL = 1e-4  # manifold3d stores float32 vertices, so normals at board coordinates are off by ~1e-5
 
 
 def box(x0: float, y0: float, z0: float, x1: float, y1: float, z1: float) -> Manifold:
