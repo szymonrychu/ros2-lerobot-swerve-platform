@@ -141,8 +141,9 @@ below the contact) and the derived `grip_rad` = contact - squeeze = 0.050279 rad
 Nominal versus printed: the grip faces carry a 0.15 mm print allowance per clamp face (`clamp_clearance_mm`, user
 decisions 282 and 283). `handle_contact_rad` (JSON `contact_rad`) is the contact solved on the NOMINAL surfaces (the
 handle as printed after FDM growth), not a measured contact; the JSON `modelled_contact_rad` (0.066202) is the
-contact on the printed solid, 0.3 mm thinner, pressed on the fixed jaw. A real print lies between the two (its bed face
-cannot grow below the bed, so it is about 0.15 mm under nominal), so the true contact lies between
+contact on the printed solid, 0.3 mm thinner, pressed on the fixed jaw. The board prints back down, so both clamp faces
+(the "bed face" is only the handle-frame name of the fixed-jaw face) are vertical post walls that grow under FDM and a
+real print lands near nominal; the true contact still lies between
 `modelled_contact_rad` and `contact_rad`; `grip_rad` closes past both, so the grip still clamps.
 
 ## Config keys

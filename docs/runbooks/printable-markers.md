@@ -49,7 +49,7 @@ The calibration boards are not part of the steps above (they are not POI markers
 - Generate: `uv run python -m scripts.markers_generate 2>&1 | tee .logs/markers-generate.log`. The generator checks
   every board's printed solid before it writes anything: a solid that is not watertight or has a face that overhangs
   more than 45 deg gives `FAILED board <name>: board <name> is not printable: ...` and exit 1, and no file of that
-  board is written. Check the log ends with `wrote <n> files to .logs/markers; 0 failed`. Copy the ARM files to
+  board is written. Check the log ends with `wrote <n> files to <repo>/.logs/markers; 0 failed` (the generator prints the resolved absolute path). Copy the ARM files to
   `markers/` and `models/` only when the geometry changed.
 - Print in one piece, BACK DOWN: the plate back and the flat underside of the handle tab on the bed, the pattern face
   up, the grip post rising from the tab. No supports (every face is vertical, up-facing or within about 7 deg of

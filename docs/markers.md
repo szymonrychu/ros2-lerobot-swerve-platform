@@ -134,12 +134,13 @@ decision 297). Geometry (the `handle:` block of the ARM entry, `scripts/markers/
 - Grip: the numbers come from the repo's gripper meshes (`nodes/web_ui/urdf/so101_arm.urdf`, `scripts/markers/jaw_fit.py`).
   `contact_rad` 0.070279 is the gripper angle where both jaws touch the NOMINAL grip; `grip_rad` = contact -
   `squeeze_rad` 0.02 = 0.050279 is the commanded grip. The insert opening (0.4 rad) clears the post by about 11.9 mm.
-- Print allowance: `clamp_clearance_mm` 0.15 is taken off each clamp face (the grip bed face on the fixed jaw and the
-  channel floor under the moving jaw, user decisions 282 and 283). The `thickness_*` numbers are the nominal grip (the
+- Print allowance: `clamp_clearance_mm` 0.15 is taken off each clamp face (the grip "bed face", the handle-frame name of the fixed-jaw
+  clamp face, and the channel floor under the moving jaw, user decisions 282 and 283). The `thickness_*` numbers are the nominal grip (the
   part as printed after FDM growth); the printed solid is 0.3 mm thinner across the clamp faces. `contact_rad` is solved
   on the nominal surfaces and is not a measured contact; `modelled_contact_rad` 0.066202 is the contact on the printed
-  solid pressed on the fixed jaw. A real print is about 0.15 mm under nominal (the bed face cannot grow below the
-  bed), so the true contact lies between the two; `grip_rad` closes past both.
+  solid pressed on the fixed jaw. The board prints back down, so both clamp faces are vertical
+  walls of the post (not faces on the bed) and FDM growth brings a real print toward nominal; the true contact still
+  lies between `modelled_contact_rad` and `contact_rad`; `grip_rad` closes past both.
 - Mass and stiffness: 211.7 g (170.75 cm3 of PLA at 1.24 g/cm3), centre of mass toward the tab on the pattern side.
   Under 1 g normal to the plate (whole mass lumped at the centre, E 2000 MPa, conservative) the board centre sags
   0.039 mm in the tab and 0.209 mm in the plate, 0.248 mm in total; the tab root sees about 2 MPa under a 10 g jerk.
