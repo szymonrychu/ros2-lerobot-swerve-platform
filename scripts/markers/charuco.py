@@ -22,23 +22,28 @@ EXACT_TOL = 1e-6
 DARK_BELOW = 128
 PDF_TOP_MM = 2.5
 LABEL_BELOW_BOARD_MM = 5.0
+NAME_PATTERN = r"^[a-z0-9][a-z0-9-]*$"
 MESH_SUFFIX = {"stl": ("-base.stl", "-modules.stl"), "3mf": (".3mf",)}
 
 
 class CharucoSpec(StrictModel):
     """ChArUco board definition shared by the generator and the calibration tool.
 
+    name: file stem and board id (lower case, digits, hyphens). ids_offset: first ArUco marker id; the board uses
+    squares_x * squares_y // 2 consecutive ids from it, so boards sharing a dictionary can have disjoint ids.
     squares_x / squares_y: chessboard squares (squares_y odd). square_mm / marker_mm: square and ArUco marker
     edge. dictionary: any cv2.aruco.DICT_* name. margin_mm: plate border around the board. thickness_mm: STL base
     thickness (>= 4). relief_mm: module height above the base. inlay_mm: module depth sunk into the base (flush inlay when relief_mm is 0). bed_mm: print bed edge the plate must fit. page: PDF
     media. outputs: subset of pdf/stl/3mf.
     """
 
-    squares_x: int = Field(default=6, ge=2)
-    squares_y: int = Field(default=5, ge=2)
-    square_mm: float = Field(default=40.0, gt=0)
-    marker_mm: float = Field(default=30.0, gt=0)
-    dictionary: str = "DICT_5X5_100"
+    name: str = Field(pattern=NAME_PATTERN)
+    squares_x: int = Field(ge=2)
+    squares_y: int = Field(ge=2)
+    square_mm: float = Field(gt=0)
+    marker_mm: float = Field(gt=0)
+    dictionary: str
+    ids_offset: int = Field(ge=0)
     margin_mm: float = Field(default=5.0, ge=0)
     thickness_mm: float = Field(default=MIN_THICKNESS_MM, ge=MIN_THICKNESS_MM)
     relief_mm: float = Field(default=0.0, ge=0)
@@ -64,6 +69,17 @@ class CharucoSpec(StrictModel):
         return value
 
     @model_validator(mode="after")
+    def check_ids(self) -> Self:
+        """The marker ids ids_offset .. ids_offset + squares_x * squares_y // 2 - 1 exist in the dictionary."""
+        available = len(cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, self.dictionary)).bytesList)
+        if self.ids_offset + self.squares_x * self.squares_y // 2 > available:
+            raise ValueError(
+                f"ids_offset {self.ids_offset} + {self.squares_x * self.squares_y // 2} markers "
+                f"exceeds the {available} ids of {self.dictionary}"
+            )
+        return self
+
+    @model_validator(mode="after")
     def check_geometry(self) -> Self:
         """marker_mm < square_mm, modules have height, inlay < thickness, plate fits bed_mm in both directions."""
         if self.relief_mm + self.inlay_mm <= 0:
@@ -87,6 +103,11 @@ class CharucoSpec(StrictModel):
         )
 
     @property
+    def marker_ids(self) -> range:
+        """ArUco marker ids used by the board."""
+        return range(self.ids_offset, self.ids_offset + self.squares_x * self.squares_y // 2)
+
+    @property
     def marker_cell_mm(self) -> float:
         """Edge of one ArUco marker cell (marker bits plus the 1-cell border) in mm."""
         size = cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, self.dictionary)).markerSize
@@ -104,7 +125,11 @@ def make_charuco_board(spec: CharucoSpec) -> cv2.aruco.CharucoBoard:
     """
     dictionary = cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, spec.dictionary))
     return cv2.aruco.CharucoBoard(
-        (spec.squares_x, spec.squares_y), spec.square_mm / MM_PER_M, spec.marker_mm / MM_PER_M, dictionary
+        (spec.squares_x, spec.squares_y),
+        spec.square_mm / MM_PER_M,
+        spec.marker_mm / MM_PER_M,
+        dictionary,
+        np.arange(spec.marker_ids.start, spec.marker_ids.stop, dtype=np.int32),
     )
 
 

@@ -10,7 +10,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from scripts.markers.charuco import CharucoSpec, write_charuco
+from scripts.markers.charuco import write_charuco
 from scripts.markers.config import GeneratorConfig, load_generator_config
 from scripts.markers.mesh import marker_bodies, write_bodies
 from scripts.markers.models import MarkerSpec
@@ -34,18 +34,6 @@ def marker_stem(spec: MarkerSpec) -> str:
         "<kind>-<name>" in lower case.
     """
     return f"{spec.kind_code}-{spec.name}".lower()
-
-
-def charuco_stem(spec: CharucoSpec) -> str:
-    """File stem of the board.
-
-    Args:
-        spec: The board.
-
-    Returns:
-        "charuco-<x>x<y>-<square>mm".
-    """
-    return f"charuco-{spec.squares_x}x{spec.squares_y}-{spec.square_mm:g}mm"
 
 
 def write_marker(spec: MarkerSpec, config: GeneratorConfig, out_dir: Path) -> list[Path]:
@@ -119,16 +107,16 @@ def main(argv: list[str] | None = None) -> int:
         files += len(written)
         for path in written:
             print(path)
-    if config.charuco is not None:
+    for board in config.boards:
         try:
-            written = write_charuco(config.charuco, config.stl, out_dir / charuco_stem(config.charuco))
+            written = write_charuco(board, config.stl, out_dir / board.name)
         except ValueError as exc:
-            failures.append("charuco")
-            print(f"FAILED charuco board: {exc}", file=sys.stderr)
-        else:
-            files += len(written)
-            for path in written:
-                print(path)
+            failures.append(f"board {board.name}")
+            print(f"FAILED board {board.name}: {exc}", file=sys.stderr)
+            continue
+        files += len(written)
+        for path in written:
+            print(path)
     failed = f": {', '.join(failures)}" if failures else ""
     print(f"wrote {files} files to {out_dir}; {len(failures)} failed{failed}")
     return 1 if failures else 0

@@ -10,6 +10,7 @@ import zxingcpp
 
 from scripts.markers_generate import main
 from shared.ros2_common.marker_payload import decode_payload
+from tests.test_markers_charuco import ARM_SPEC, FULL_SPEC
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SHIPPED_YAML = REPO_ROOT / "scripts" / "markers_generate.yaml"
@@ -29,7 +30,7 @@ def names(directory: Path) -> set[str]:
     return {p.name for p in directory.iterdir()}
 
 
-def test_two_markers_and_charuco_write_expected_files(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_two_markers_and_boards_write_expected_files(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     out = tmp_path / "out"
     config = {
         "output_dir": str(out),
@@ -37,11 +38,12 @@ def test_two_markers_and_charuco_write_expected_files(tmp_path: Path, capsys: py
             {"kind_code": "CHARGER", "name": "DOCK-1", "size_mm": 100},
             {"kind_code": "BASE", "name": "HOME", "size_mm": 100, "outputs": ["pdf"]},
         ],
-        "charuco": {},
+        "boards": [FULL_SPEC.model_dump(), ARM_SPEC.model_dump()],
     }
     assert main([str(write_config(tmp_path, config))]) == 0
     expected = {f"charger-dock-1{s}" for s in MARKER_SUFFIXES} | {"base-home.pdf"}
     expected |= {f"charuco-6x5-40mm{s}" for s in MARKER_SUFFIXES}
+    expected |= {f"charuco-arm-6x5-28mm{s}" for s in MARKER_SUFFIXES}
     assert names(out) == expected
     printed = capsys.readouterr().out
     assert "charger-dock-1.pdf" in printed and "charuco-6x5-40mm.3mf" in printed
@@ -99,3 +101,4 @@ def test_shipped_config_runs_and_pdfs_decode(tmp_path: Path) -> None:
         stem = pdf_path.stem
         assert (out / f"{stem}-base.stl").exists() and (out / f"{stem}.3mf").exists()
     assert (out / "charuco-6x5-40mm.pdf").exists()
+    assert (out / "charuco-arm-6x5-28mm.pdf").exists()
