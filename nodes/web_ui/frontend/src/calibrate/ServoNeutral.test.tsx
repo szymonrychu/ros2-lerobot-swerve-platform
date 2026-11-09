@@ -6,7 +6,16 @@ import type { ServoGroup, TorqueState } from './servoApi'
 
 function state(joints: Record<string, number>, capture: TorqueState['neutral_capture'] = null): TorqueState {
   const released = Object.values(joints).some((v) => v === 0)
-  return { namespace: 'x', released, joints, stamp_ns: 1, neutral_enabled: true, neutral_capture: capture, last_save: null }
+  return {
+    namespace: 'x',
+    released,
+    joints,
+    stamp_ns: 1,
+    neutral_enabled: true,
+    neutral_capture: capture,
+    last_save: null,
+    neutral_max_shift_deg: 15,
+  }
 }
 
 function group(id: string, over: Partial<ServoGroup> = {}): ServoGroup {
@@ -138,7 +147,7 @@ describe('ServoNeutral', () => {
   it('shows each captured joint shift in degrees', async () => {
     groups = [
       group('head', {
-        state: state({ pan: 0, tilt: 0 }, { pan: { steps: 2048 + 100, delta_steps: 100 }, tilt: { steps: 2048 - 51, delta_steps: -51 } }),
+        state: state({ pan: 0, tilt: 0 }, { pan: { steps: 2048 + 100, delta_steps: 100, exceeds_max_shift: false }, tilt: { steps: 2048 - 51, delta_steps: -51, exceeds_max_shift: false } }),
       }),
     ]
     mockFetch()
@@ -164,7 +173,7 @@ describe('ServoNeutral', () => {
     await inCard('Head')
     expect((btn('Head', 'Re-enable torque + save') as HTMLButtonElement).disabled).toBe(true)
     cleanup()
-    groups = [group('head', { state: state({ pan: 0 }, { pan: { steps: 2050, delta_steps: 2 } }) })]
+    groups = [group('head', { state: state({ pan: 0 }, { pan: { steps: 2050, delta_steps: 2, exceeds_max_shift: false } }) })]
     mockFetch()
     render(<ServoNeutral />)
     await inCard('Head')
@@ -176,8 +185,67 @@ describe('ServoNeutral', () => {
     await waitFor(() => expect(posts).toEqual(['/api/calibration/servos/head/save']))
   })
 
+  it('save confirm lists the recorded shift of every joint', async () => {
+    const capture = {
+      pan: { steps: 2148, delta_steps: 100, exceeds_max_shift: false },
+      tilt: { steps: 1997, delta_steps: -51, exceeds_max_shift: false },
+    }
+    groups = [group('head', { state: state({ pan: 0, tilt: 0 }, capture) })]
+    mockFetch()
+    render(<ServoNeutral />)
+    await inCard('Head')
+    fireEvent.click(btn('Head', 'Re-enable torque + save'))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText('pan: +8.8 deg')).toBeTruthy()
+    expect(within(dialog).getByText('tilt: -4.5 deg')).toBeTruthy()
+    expect(within(dialog).queryByRole('checkbox')).toBeNull()
+  })
+
+  it('a shift above the limit is flagged on the card and needs the explicit confirm, then posts save_confirmed', async () => {
+    const capture = {
+      shoulder_lift: { steps: 2048 - 933, delta_steps: -933, exceeds_max_shift: true },
+      elbow_flex: { steps: 2048 + 1030, delta_steps: 1030, exceeds_max_shift: true },
+      wrist_flex: { steps: 2058, delta_steps: 10, exceeds_max_shift: false },
+    }
+    groups = [group('arm', { state: state({ shoulder_lift: 0, elbow_flex: 0, wrist_flex: 0 }, capture) })]
+    mockFetch()
+    render(<ServoNeutral />)
+    await inCard('Arm')
+    expect(within(card('Arm')).getByText('elbow_flex: +90.5 (above 15 deg)')).toBeTruthy()
+    expect(within(card('Arm')).getByText('wrist_flex: +0.9')).toBeTruthy()
+    fireEvent.click(btn('Arm', 'Re-enable torque + save'))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText(/shoulder_lift, elbow_flex shift more than 15 deg/)).toBeTruthy()
+    expect(within(dialog).getByText('elbow_flex: +90.5 deg (above 15 deg)')).toBeTruthy()
+    const confirm = within(dialog).getByRole('button', { name: 'Save large shift' }) as HTMLButtonElement
+    expect(confirm.disabled).toBe(true)
+    fireEvent.click(confirm)
+    expect(posts).toEqual([])
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: /The large shift is intended/ }))
+    expect(confirm.disabled).toBe(false)
+    fireEvent.click(confirm)
+    await waitFor(() => expect(posts).toEqual(['/api/calibration/servos/arm/save_confirmed']))
+  })
+
+  it('cancelling the large-shift confirm posts nothing and resets the checkbox', async () => {
+    const capture = { elbow_flex: { steps: 3078, delta_steps: 1030, exceeds_max_shift: true } }
+    groups = [group('arm', { state: state({ elbow_flex: 0 }, capture) })]
+    mockFetch()
+    render(<ServoNeutral />)
+    await inCard('Arm')
+    fireEvent.click(btn('Arm', 'Re-enable torque + save'))
+    let dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: /The large shift is intended/ }))
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    fireEvent.click(btn('Arm', 'Re-enable torque + save'))
+    dialog = await screen.findByRole('dialog')
+    expect((within(dialog).getByRole('checkbox', { name: /The large shift is intended/ }) as HTMLInputElement).checked).toBe(false)
+    expect(posts).toEqual([])
+  })
+
   it('arm save confirm carries the stale and leader warnings', async () => {
-    groups = [group('arm', { state: state({ a: 0 }, { a: { steps: 2050, delta_steps: 2 } }) })]
+    groups = [group('arm', { state: state({ a: 0 }, { a: { steps: 2050, delta_steps: 2, exceeds_max_shift: false } }) })]
     mockFetch()
     render(<ServoNeutral />)
     await inCard('Arm')
