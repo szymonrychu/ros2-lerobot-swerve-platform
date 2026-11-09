@@ -174,6 +174,38 @@ def test_refused_while_the_arm_lease_is_held(tmp_path: Path, open_gripper: bool)
     assert arm.control_held is True and be.releases == 0
 
 
+def test_a_lease_taken_during_the_motion_is_never_released(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    arm, be = make(tmp_path)
+    real = arm.set_gripper
+
+    def taken_over(**kwargs: Any) -> Any:
+        result = real(**kwargs)
+        arm.drop_lease("agent")  # the service's lease ended meanwhile ...
+        arm.acquire()  # ... and a calibration sequence or the agent took a new one
+        return result
+
+    monkeypatch.setattr(arm, "set_gripper", taken_over)
+    releases = be.releases
+    arm.gripper_service_call(open_gripper=True)
+    assert arm.control_held is True
+    assert be.releases == releases
+
+
+def test_the_service_claims_the_lease_before_moving(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    arm, _ = make(tmp_path)
+    held: list[bool] = []
+    real = arm.set_gripper
+
+    def check(**kwargs: Any) -> Any:
+        held.append(arm.control_held)
+        return real(**kwargs)
+
+    monkeypatch.setattr(arm, "set_gripper", check)
+    arm.gripper_service_call(open_gripper=True)
+    assert held == [True]
+    assert arm.control_held is False
+
+
 def test_refused_while_the_arm_torque_is_off(tmp_path: Path) -> None:
     arm, be = make(tmp_path)
     be.released = True
