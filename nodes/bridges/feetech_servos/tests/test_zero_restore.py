@@ -183,7 +183,7 @@ def make_rig(
     )
     group = JointGroup(
         "follower",
-        ARM,
+        list(ARM),
         neutral_enabled=True,
         neutral_exclude_joints=["gripper"],
         neutral_stale_marker=str(marker),
@@ -403,6 +403,36 @@ def test_dry_run_plans_the_inverse_of_the_incident_shift_and_writes_nothing(tmp_
     assert "confirm" in result.message and "shoulder_lift" in result.message
     assert rig.port.servos[GRIPPER_ID][STS_TORQUE_ENABLE] == 0
     assert not [p for p in rig.port.packets if p.servo_id == GRIPPER_ID and p.params[:1] == [STS_OFS_L]]
+
+
+def test_dry_run_refused_when_torque_cannot_be_read(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path)
+    original_apply = rig.port.apply
+
+    def drop_torque_reads(packet: StsPacket) -> None:
+        if packet.instruction == INST_READ and packet.params[0] == STS_TORQUE_ENABLE and packet.servo_id == 4:
+            return
+        original_apply(packet)
+
+    rig.port.apply = drop_torque_reads  # type: ignore[method-assign]
+    result = rig.zero.dry_run("follower")
+    assert result.success is False
+    assert "wrist_flex (torque read failed)" in result.message
+
+
+def test_inverted_joint_target_follows_the_bridge_mapping(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path, shift=SMALL_SHIFT)
+    group = rig.torque.groups["follower"]
+    group.joints[2] = JointEntry("elbow_flex", 3, inverted=True)
+    target = position_to_raw_steps(SEED["elbow_flex"], inverted=True)
+    rig.port.encoder[3] = target + 25 + rig.offset(3)
+    rig.port.refresh_present(3)
+    assert rig.zero.dry_run("follower").success
+    joint = plan_of(rig)["joints"]["elbow_flex"]
+    assert joint["target_steps"] == target
+    assert joint["target_rad"] == pytest.approx(SEED["elbow_flex"], abs=STEP_RAD)
+    assert joint["offset_change_steps"] == 25
+    assert joint["present_rad"] == pytest.approx(steps_to_radians(target + 25, inverted=True))
 
 
 def test_dry_run_small_change_needs_no_confirm(tmp_path: Path) -> None:
