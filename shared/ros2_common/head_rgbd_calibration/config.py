@@ -259,6 +259,77 @@ class BaseInBaseLink(StrictModel):
     yaw: float = 0.0
 
 
+class ArmCameraBounds(StrictModel):
+    """Physical plausibility bounds of the arm to camera fit (user decision 324): a result past any of them is refused
+    outright (it cannot be accepted), unlike the advisory limits, which only warn.
+
+    `max_offset_change_deg` bounds every arm joint offset change against the applied value, `max_base_move_mm` the arm
+    base translation and `max_base_turn_deg` its yaw change, `max_skew_mm` / `max_skew_deg` the board seat against the
+    CAD mount, `max_sag_deg` the board turn about the grip axis at the reference torque and `max_droop_mm` the droop
+    along gravity at the reference torque.
+    """
+
+    max_offset_change_deg: float = Field(default=15.0, gt=0)
+    max_base_move_mm: float = Field(default=100.0, gt=0)
+    max_base_turn_deg: float = Field(default=10.0, gt=0)
+    max_skew_mm: float = Field(default=10.0, gt=0)
+    max_skew_deg: float = Field(default=10.0, gt=0)
+    max_sag_deg: float = Field(default=5.0, gt=0)
+    max_droop_mm: float = Field(default=5.0, gt=0)
+
+
+# ARM board mass model (markers/charuco-arm-6x5-28mm.json, pinned by tests/test_arm_camera_fit.py): mass, centre of
+# mass and grip point (the handle tool point) in the board frame, grip axis (the jaw closing axis, board x).
+ARM_BOARD_MASS_KG = 0.211728
+ARM_BOARD_COM_M = (0.08395, 0.109253, -0.002385)
+ARM_BOARD_GRIP_POINT_M = (0.0705, 0.193767, -0.021386)
+ARM_BOARD_GRIP_AXIS = (1.0, 0.0, 0.0)
+
+
+class ArmCameraFitConfig(StrictModel):
+    """Arm to camera fit (arm_camera_fit, user decisions 315, 324-326): the head chain is fixed to the applied one;
+    the arm joint offsets, the arm base x, y (z with `fit_base_z`), the 6-DOF board seat in the gripper and a gravity
+    sag are fitted.
+
+    Gauges: the arm base yaw stays at the applied value (a yaw turn is exactly a shoulder_pan offset change plus a base
+    x, y shift); the wrist_roll offset stays at the applied value unless `fit_wrist_roll` (it is exactly a board turn
+    about the wrist_roll axis, so only the board prior pins it). Priors (one sigma): the board seat against the CAD
+    `board_mount` (`board_prior_mm`, `board_prior_deg`), the sag (`sag_prior_deg` at the reference torque) and the droop
+    (`droop_prior_mm` at the reference torque, only with `fit_droop`). Corner residuals are divided by
+    `pixel_sigma_px` so the priors weigh in sigma units.
+
+    Board mass model: `board_mass_kg`, `board_com_m` (centre of mass in the board frame), `grip_point_m` (where the
+    jaws hold it, board frame) and `grip_axis` (the jaw closing axis, board frame). The reference torque is the board
+    weight times the centre of mass distance from the grip axis.
+
+    Accuracy examples: the tool point at `reach_m` horizontal reach and at full reach, and the gripper at
+    `camera_distance_m` in front of the head camera.
+    """
+
+    fit_base_z: bool = True
+    fit_wrist_roll: bool = False
+    fit_droop: bool = False
+    pixel_sigma_px: float = Field(default=1.0, gt=0)
+    board_prior_mm: float = Field(default=3.0, gt=0)
+    board_prior_deg: float = Field(default=2.0, gt=0)
+    sag_prior_deg: float = Field(default=1.0, gt=0)
+    droop_prior_mm: float = Field(default=1.0, gt=0)
+    board_mass_kg: float = Field(default=ARM_BOARD_MASS_KG, gt=0)
+    board_com_m: tuple[float, float, float] = ARM_BOARD_COM_M
+    grip_point_m: tuple[float, float, float] = ARM_BOARD_GRIP_POINT_M
+    grip_axis: tuple[float, float, float] = ARM_BOARD_GRIP_AXIS
+    reach_m: float = Field(default=0.30, gt=0)
+    camera_distance_m: float = Field(default=0.50, gt=0)
+    bounds: ArmCameraBounds = Field(default_factory=ArmCameraBounds)
+
+    @model_validator(mode="after")
+    def check_axis(self) -> Self:
+        """The grip axis has a length."""
+        if sum(v * v for v in self.grip_axis) <= 0.0:
+            raise ValueError("arm_camera.grip_axis must not be zero")
+        return self
+
+
 class HeadArmFitConfig(StrictModel):
     """Head-from-arm fit: board and its mount on the gripper, limits, the trusted arm gauge and the floor prior.
 
@@ -292,6 +363,7 @@ class HeadArmFitConfig(StrictModel):
     tool_offset_m: tuple[float, float, float] = DEFAULT_TOOL_OFFSET_M
     floor_fit: FloorFitConfig = Field(default_factory=FloorFitConfig)
     arm_limits: ArmFitLimits = Field(default_factory=ArmFitLimits)
+    arm_camera: ArmCameraFitConfig = Field(default_factory=ArmCameraFitConfig)
 
     @model_validator(mode="after")
     def check_joints(self) -> Self:

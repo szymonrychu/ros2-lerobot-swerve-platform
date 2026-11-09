@@ -11,6 +11,7 @@ and floor planes in the D435 depth frame (`DEPTH_FRAME`), for the joint head and
 """
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -21,6 +22,8 @@ from ros2_common.head_rgbd_calibration.charuco import MIN_CORNERS, Detection, bo
 from ros2_common.head_rgbd_calibration.config import (
     DEFAULT_JOINT_OFFSETS_RAD,
     FULL_BOARD,
+    ArmCameraFitConfig,
+    BaseInBaseLink,
     BoardMountConfig,
     HeadArmFitConfig,
     PlateMountConfig,
@@ -396,6 +399,7 @@ def arm_board_scene(
     seed: int,
     cfg: HeadArmFitConfig,
     tiers: list[int] | None = None,
+    board_in_gripper: Callable[[np.ndarray], np.ndarray] | None = None,
 ) -> list[ArmBoardView]:
     """Views of the gripper board through the truth chain.
 
@@ -413,6 +417,8 @@ def arm_board_scene(
         seed: Random seed of the noise.
         cfg: Fit config (board, gauge, joint offsets).
         tiers: Tier of each arm pose; 0 for every pose when None.
+        board_in_gripper: Board pose in gripper_link as a function of the gripper_link pose in base_link (a pose
+            dependent mount, e.g. gravity sag); the fixed `truth.board_pose()` when None.
 
     Returns:
         list[ArmBoardView]: Views, id `p<pose>-h<offset>`, `arm_pose` the index into `arm_poses`, `head_offset` the
@@ -429,7 +435,8 @@ def arm_board_scene(
     tilt_limits = head.limits(TILT_JOINT) or (-math.pi, math.pi)
     views = []
     for pose_index, joints in enumerate(arm_poses):
-        board_in_base = base @ arm.transform(GRIPPER_LINK, joints, offsets=cfg.joint_offsets_rad) @ truth.board_pose()
+        gripper = base @ arm.transform(GRIPPER_LINK, joints, offsets=cfg.joint_offsets_rad)
+        board_in_base = gripper @ (truth.board_pose() if board_in_gripper is None else board_in_gripper(gripper))
         centre = (board_in_base @ np.append(board_centre(cfg.board), 1.0))[:3]
         pan0, tilt0 = aim_head(truth_head, centre, CAMERA_FRAME)
         for k, (dpan, dtilt) in enumerate(head_offsets_deg):
@@ -627,3 +634,163 @@ def floor_scene(
             plane = PlaneFit(turn @ normal, height + rng.normal(0.0, noise_mm) / 1000.0, 1000, 1000, 0.0)
             observations.append(FloorObservation(pose, pan, tilt, plane))
     return observations
+
+
+# Arm to camera scenes (arm_camera_fit): the head chain is the applied one and exact, the arm offsets, the arm base,
+# the board seat in the gripper and a gravity sag differ from the current values.
+GRAVITY_M_PER_S2 = 9.80665
+SYNTH_BOARD_MASS_KG = 0.2117
+# True minus current arm joint offsets (rad); wrist_roll stays (the gauge of the board rotation about its axis).
+ARM_CAMERA_OFFSET_CHANGES = {"shoulder_pan": 0.02, "shoulder_lift": 0.03, "elbow_flex": -0.04, "wrist_flex": 0.05}
+# True minus current arm base (m); yaw stays (the gauge of the shoulder_pan offset).
+ARM_CAMERA_BASE_CHANGES = {"x": 0.006, "y": -0.004}
+# Board seat skew of the truth against the CAD (nominal) mount: shift (m) and turn (deg), `perturbed_board_mount`.
+ARM_CAMERA_SKEW_SHIFT_M = 0.004
+ARM_CAMERA_SKEW_TURN_DEG = 3.0
+# True sag: board turn about the grip axis per unit gravity torque about it (rad per N m), about 1.5 deg at the
+# reference torque of the synthetic board (centre 20 mm off the grip point).
+ARM_CAMERA_SAG_RAD_PER_NM = 0.64
+
+
+@dataclass(frozen=True)
+class ArmCameraTruth:
+    """Truth of an arm to camera scene.
+
+    Attributes:
+        joint_offsets_rad: True arm joint offsets (rad), urdf = measured + offset.
+        base: True arm base in base_link {x, y, z (m), yaw (rad)}.
+        board_xyz: True board frame origin in gripper_link (m), without sag.
+        board_rpy: True board frame fixed-axis rotation in gripper_link (rad), without sag.
+        sag_rad_per_nm: Board turn about the grip axis per gravity torque about it (rad / (N m)).
+    """
+
+    joint_offsets_rad: dict[str, float]
+    base: dict[str, float]
+    board_xyz: tuple[float, float, float]
+    board_rpy: tuple[float, float, float]
+    sag_rad_per_nm: float
+
+
+def arm_camera_config(**overrides: object) -> HeadArmFitConfig:
+    """Fit config of the arm to camera scenes: the 40 mm FULL_BOARD on its nominal (CAD) mount, the current offsets
+    and base, the board mass model of the synthetic board (centre of mass at the board centre, grip point the tool
+    point `TOOL_POINT` of gripper_frame_link in the board frame, grip axis board x = gripper_link x).
+
+    Args:
+        **overrides: Fields of `arm_camera` (ArmCameraFitConfig).
+
+    Returns:
+        HeadArmFitConfig: The config.
+    """
+    cfg = HeadArmFitConfig(board=FULL_BOARD)
+    xyz, rpy = nominal_board_mount(cfg)
+    mount = pose_from_xyz_rpy(xyz, rpy)
+    tool_gripper = gripper_frame_in_gripper(synth_arm_urdf()) @ np.array([0.0, 0.0, 0.0, 1.0])
+    grip = np.linalg.solve(mount, tool_gripper)[:3]
+    model = ArmCameraFitConfig(
+        board_mass_kg=SYNTH_BOARD_MASS_KG,
+        board_com_m=tuple(float(v) for v in board_centre(FULL_BOARD)),
+        grip_point_m=tuple(float(v) for v in grip),
+        grip_axis=(1.0, 0.0, 0.0),
+    )
+    return HeadArmFitConfig(
+        board=FULL_BOARD,
+        board_mount=BoardMountConfig(xyz_init=xyz, rpy_init=rpy),
+        tool_offset_m=(0.0, 0.0, 0.0),
+        arm_camera=model.model_copy(update=overrides),
+    )
+
+
+def arm_camera_truth(
+    offset_changes: dict[str, float] | None = None,
+    base_changes: dict[str, float] | None = None,
+    sag_rad_per_nm: float = ARM_CAMERA_SAG_RAD_PER_NM,
+    skew: tuple[float, float] = (ARM_CAMERA_SKEW_SHIFT_M, ARM_CAMERA_SKEW_TURN_DEG),
+) -> ArmCameraTruth:
+    """Truth of the standard arm to camera scene: current offsets and base (the config defaults) moved by the changes,
+    the CAD board mount skewed by `skew`, the sag.
+
+    Args:
+        offset_changes: True minus current offset per joint (rad); `ARM_CAMERA_OFFSET_CHANGES` when None.
+        base_changes: True minus current base per key (m, rad); `ARM_CAMERA_BASE_CHANGES` when None.
+        sag_rad_per_nm: True sag (rad per N m).
+        skew: Board seat (shift m, turn deg) against the CAD mount.
+
+    Returns:
+        ArmCameraTruth: The truth.
+    """
+    cfg = arm_camera_config()
+    offsets = offset_changes if offset_changes is not None else ARM_CAMERA_OFFSET_CHANGES
+    moves = base_changes if base_changes is not None else ARM_CAMERA_BASE_CHANGES
+    base = cfg.base_in_base_link.model_dump()
+    xyz, rpy = perturbed_board_mount(cfg.board_mount.xyz_init, cfg.board_mount.rpy_init, *skew)
+    return ArmCameraTruth(
+        joint_offsets_rad={name: value + offsets.get(name, 0.0) for name, value in cfg.joint_offsets_rad.items()},
+        base={name: value + moves.get(name, 0.0) for name, value in base.items()},
+        board_xyz=xyz,
+        board_rpy=rpy,
+        sag_rad_per_nm=sag_rad_per_nm,
+    )
+
+
+def sagged_board(truth: ArmCameraTruth, cfg: HeadArmFitConfig, gripper_in_base: np.ndarray) -> np.ndarray:
+    """The true board pose in gripper_link at one arm pose: the seated board turned about the grip axis (through the
+    grip point) by the sag times the gravity torque of the board about that axis (gravity -z in base_link).
+
+    Args:
+        truth: Scene truth.
+        cfg: Fit config (`arm_camera` board mass model).
+        gripper_in_base: 4x4 gripper_link pose in base_link.
+
+    Returns:
+        np.ndarray: 4x4 board pose in gripper_link.
+    """
+    model = cfg.arm_camera
+    seat = pose_from_xyz_rpy(truth.board_xyz, truth.board_rpy)
+    grip = np.asarray(model.grip_point_m, dtype=float)
+    axis = np.asarray(model.grip_axis, dtype=float) / np.linalg.norm(model.grip_axis)
+    weight = gripper_in_base[:3, :3].T @ np.array([0.0, 0.0, -model.board_mass_kg * GRAVITY_M_PER_S2])
+    lever = seat[:3, :3] @ (np.asarray(model.board_com_m, dtype=float) - grip)
+    torque = float(np.cross(lever, weight) @ (seat[:3, :3] @ axis))
+    turn = np.eye(4)
+    turn[:3, :3] = Rotation.from_rotvec(axis * truth.sag_rad_per_nm * torque).as_matrix()
+    turn[:3, 3] = grip - turn[:3, :3] @ grip
+    return seat @ turn
+
+
+def arm_camera_scene(
+    truth: ArmCameraTruth,
+    arm_poses: list[dict[str, float]],
+    noise_px: float,
+    seed: int,
+    head_offsets_deg: list[tuple[float, float]] | None = None,
+) -> list[ArmBoardView]:
+    """Views of the gripper board through the applied head chain (exact), the true offsets, base and sagged board.
+
+    Args:
+        truth: Scene truth.
+        arm_poses: Measured arm joints (rad) per pose.
+        noise_px: Standard deviation of the Gaussian pixel noise.
+        seed: Random seed of the noise.
+        head_offsets_deg: (pan, tilt) head offsets (deg) per arm pose; `DEFAULT_HEAD_OFFSETS_DEG` when None.
+
+    Returns:
+        list[ArmBoardView]: Views, id `p<pose>-h<offset>`.
+    """
+    fit_cfg = arm_camera_config()
+    cfg = fit_cfg.model_copy(
+        update={"joint_offsets_rad": truth.joint_offsets_rad, "base_in_base_link": BaseInBaseLink(**truth.base)}
+    )
+    head = HeadArmTruth(origins={}, board_xyz=truth.board_xyz, board_rpy=truth.board_rpy)
+    offsets = DEFAULT_HEAD_OFFSETS_DEG if head_offsets_deg is None else head_offsets_deg
+    return arm_board_scene(
+        head,
+        synth_head_urdf(),
+        synth_arm_urdf(),
+        arm_poses,
+        offsets,
+        noise_px,
+        seed,
+        cfg,
+        board_in_gripper=lambda gripper: sagged_board(truth, fit_cfg, gripper),
+    )
