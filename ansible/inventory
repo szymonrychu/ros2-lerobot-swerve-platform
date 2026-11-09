@@ -13,9 +13,6 @@ client-rpi5 ansible_host=client.ros2.lan
 [controller]
 controller-steamdeck ansible_host=controller.ros2.lan
 
-[jetson]
-jetson-nano ansible_host=192.168.1.32
-
 [all:vars]
 ansible_user=szymonri
 ansible_python_interpreter=/usr/bin/python3

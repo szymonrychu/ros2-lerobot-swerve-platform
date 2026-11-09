@@ -19,7 +19,6 @@ EXPECTED_HOSTS = {
     "server": "server-rpi4",
     "client": "client-rpi5",
     "controller": "controller-steamdeck",
-    "jetson": "jetson-nano",
 }
 WIFI_ENV = {
     "network_wifi_ssid": "{{ lookup('env', 'MIKROTIK_WIFI_SSID') }}",
@@ -56,7 +55,7 @@ def test_inventory_is_tracked_not_ignored_and_example_is_gone() -> None:
 
 
 @pytest.mark.parametrize(("group", "host"), sorted(EXPECTED_HOSTS.items()))
-def test_inventory_parses_with_the_four_groups(group: str, host: str) -> None:
+def test_inventory_parses_with_the_three_groups(group: str, host: str) -> None:
     inventory = load_inventory()
     assert [h.name for h in inventory.groups[group].get_hosts()] == [host]
 

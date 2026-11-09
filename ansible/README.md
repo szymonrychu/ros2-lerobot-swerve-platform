@@ -4,7 +4,7 @@ Ansible layout for provisioning Raspberry Pis (Server and Client) and deploying 
 
 ## Layout
 
-- **`inventory`** - Tracked and secret-free: host groups `server`, `client`, `controller` and `jetson`, and `all:vars` with `ansible_user` and `ansible_python_interpreter` only. Secrets never go in it; they come from controller env vars (see [Secrets from env](#secrets-from-env)). The default inventory uses hostnames `server.ros2.lan` and `client.ros2.lan`; when running Ansible from a dev machine, add to `/etc/hosts`: `192.168.1.33 server.ros2.lan` and `192.168.1.34 client.ros2.lan`.
+- **`inventory`** - Tracked and secret-free: host groups `server`, `client` and `controller`, and `all:vars` with `ansible_user` and `ansible_python_interpreter` only. Secrets never go in it; they come from controller env vars (see [Secrets from env](#secrets-from-env)). The default inventory uses hostnames `server.ros2.lan` and `client.ros2.lan`; when running Ansible from a dev machine, add to `/etc/hosts`: `192.168.1.33 server.ros2.lan` and `192.168.1.34 client.ros2.lan`.
 - **`group_vars/`** — `all.yml`, `server.yml`, `client.yml` for group-specific variables.
 - **`site.yml`** — Full site: provision all hosts, then deploy ROS2 nodes on server and client (includes playbooks below). Run `ansible-playbook -i inventory site.yml`.
 - **`playbooks/`**

@@ -2962,7 +2962,7 @@ Ansible's own `InventoryManager`, nothing connects to a host.
 | Test | Description |
 |---|---|
 | `test_inventory_is_tracked_not_ignored_and_example_is_gone` | `ansible/inventory` exists, `.gitignore` no longer lists it and `ansible/inventory.example` is gone. |
-| `test_inventory_parses_with_the_four_groups` | Parametrized over `server`, `client`, `controller`, `jetson`: each group parses and holds its one host. |
+| `test_inventory_parses_with_the_three_groups` | Parametrized over `server`, `client`, `controller`: each group parses and holds its one host. |
 | `test_inventory_all_vars_are_the_non_secret_ones` | `all:vars` is exactly `ansible_user` and `ansible_python_interpreter`. |
 | `test_inventory_holds_no_wifi_keys` | The inventory text and every host's vars hold no `network_wifi_*` key. |
 | `test_group_vars_all_reads_wifi_from_mikrotik_env` | `group_vars/all.yml` sets `network_wifi_ssid` / `network_wifi_password` to `lookup('env', 'MIKROTIK_WIFI_SSID')` / `lookup('env', 'MIKROTIK_WIFI_PASSWORD')`. |
