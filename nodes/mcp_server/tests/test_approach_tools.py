@@ -55,6 +55,9 @@ class StubReachMap:
     def describe(self) -> dict[str, Any]:
         return {"key": self.key, "created_at": "2026-10-11T00:00:00+00:00", "grid": {"z_step_m": 0.025}}
 
+    def require_current(self, checker: Any, settings: Any) -> None:
+        """The stub map is always current."""
+
     def cells(self, z: float, pitch_deg: float | None) -> CellSet:
         return CellSet(
             z_m=z,
@@ -226,6 +229,26 @@ def test_stale_reach_map_logs_at_registration_and_the_tool_refuses_with_the_comm
         with pytest.raises(ToolError) as info:
             call(server, name, FAR_TARGET)
         assert "expected-key" in str(info.value) and REGENERATE_COMMAND in str(info.value)
+    assert robot.dock_goals == [] and robot.planned_poses == []
+
+
+def test_a_reach_map_made_stale_at_runtime_refuses(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An accepted arm calibration swapped in after start changes the reach map inputs: the tools refuse per call."""
+
+    class StaleAfterSwap(StubReachMap):
+        def require_current(self, checker: Any, settings: Any) -> None:
+            raise ReachMapStale("swapped-key", self.key)
+
+    robot = FakeRobot(tmp_path)
+    robot.costmap = free_grid()
+    monkeypatch.setattr(approach_tools, "load_reach_map", lambda config, checker: StaleAfterSwap())
+    monkeypatch.setattr(approach_tools, "footprint_points", lambda ctx: SMALL_SQUARE)
+    server = build_mcp_server(robot, McpServerConfig(), TOKEN)
+    take(server, "base")
+    for name in ("suggest_approach_pose", "approach_for_grasp"):
+        with pytest.raises(ToolError) as info:
+            call(server, name, FAR_TARGET)
+        assert "swapped-key" in str(info.value) and REGENERATE_COMMAND in str(info.value)
     assert robot.dock_goals == [] and robot.planned_poses == []
 
 

@@ -182,16 +182,33 @@ gauges: `nodes/head_rgbd_calibration/README.md` ("Arm to camera calibration").
    turned over 10 deg, the board seat over 10 mm / 10 deg, the sag over 5 deg): the result cannot be accepted; check
    the board seating and the applied head chain, then capture again. `warnings` are today's limits as advice (RMS,
    held-out RMS, held-out tool error, view and pose counts). Compare `score` with `comparison.current_score` (the
-   configured offsets and base on the same views) and look at `accuracy_examples` (1 sigma and 95 % at 30 cm reach,
+   offsets and base the robot runs with, the accepted calibration or else the configured one, on the same views) and look at `accuracy_examples` (1 sigma and 95 % at 30 cm reach,
    full reach and 50 cm in front of the head camera) and `comparison.shift_examples` (how far the tool point moves).
-5. Accept (`POST .../accept`) or decline (`POST .../decline`). Accept records the calibration in
-   `applied/arm_calibration.json` and applied.json (`arm_calibration`); it restarts nothing and changes nothing
-   mcp_server runs: copy `calibration.snippet` into the client.yml mcp_server `arm:` block (`joint_offsets_rad`,
-   `arm_base_height_m`, `base_in_base_link`), the head_rgbd_calibration `fit.joint_offsets_rad` and
-   `fit.base_in_base_link` (and its shipped YAML) and the web_ui `arm_offset` [x, y, z], run the config tests
+5. Accept (`POST .../accept`) applies the calibration to the robot; decline (`POST .../decline`) keeps the one in use.
+   Accept writes `applied/arm_calibration.json` and then applied.json (`arm_calibration`); mcp_server picks it up on its
+   next monitor tick and swaps the joint offsets, arm base and mount height into the running arm model as soon as no
+   arm motion runs (no restart, no client.yml edit, no redeploy). The accept is refused (409) when the follower stale
+   marker lists `joint_offsets` for an arm re-zero at or after the session's first still (capture a new session after
+   the re-zero) or when that marker is unreadable.
+6. Confirm the runtime picked it up: `get_arm_state` shows `arm_calibration` with the accepted session and result, and
+   the mcp_server journal has a `calib_event` flow `arm_calibration` step `load` ok with `old` and `new` values
+   (`apply` start first if a motion was running; `stale_marker` ok if joint_offsets was cleared; `load` failed means
+   the values in use were kept, the reason says why):
+
+   ```bash
+   journalctl -u ros2-mcp_server -o cat | grep -o 'calib_event {.*' | cut -d' ' -f2- \
+     | jq -c 'select(.flow=="arm_calibration")'
+   ```
+
+7. Verify: a live tool point check as step 5 above (head_look_at on the tool point, pixel offset before and after).
+8. Follow-ups the runtime apply does not cover: the approach tools refuse with "reach map is stale" until the reach map
+   is rebuilt for the new arm, and filter_node's teleop body check and the web_ui arm view still use the client.yml
+   baseline. To make the accepted values the baseline, copy `calibration.snippet` into the client.yml mcp_server `arm:`
+   block (`joint_offsets_rad`, `arm_base_height_m`, `base_in_base_link`), the head_rgbd_calibration
+   `fit.joint_offsets_rad` and `fit.base_in_base_link` (and its shipped YAML) and the web_ui `arm_offset` [x, y, z],
+   rebuild the reach map (`nodes/mcp_server/README.md`, "Reach map"), run the config tests
    (`tests/test_head_arm_calib_config.py`, the node `tests/test_config.py`), commit and redeploy (ansible-deploy skill):
-   `./scripts/deploy-nodes.sh client mcp_server head_rgbd_calibration web_ui 2>&1 | tee .logs/deploy-arm-camera.log`.
-6. Verify: a live tool point check as step 5 above (head_look_at on the tool point, pixel offset before and after).
+   `./scripts/deploy-nodes.sh client mcp_server head_rgbd_calibration web_ui filter_node 2>&1 | tee .logs/deploy-arm-camera.log`.
 
 Journal (through the deploy tooling): the flows `arm_camera_compute` (inputs, solver, one `refusal` / `warning` event
 each with value and threshold, result) and `arm_camera_accept` (accept, decline), with the result id as run id:

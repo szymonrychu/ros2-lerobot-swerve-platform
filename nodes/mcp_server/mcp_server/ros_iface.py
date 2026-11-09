@@ -47,6 +47,7 @@ from tf2_ros import Buffer, TransformException
 
 from .approach import CostGrid, PathInfo
 from .arm import ArmController, ArmError, JointSample
+from .arm_calibration import ArmCalibrationWatcher, in_use
 from .auto_poi import AutoPoiMarker, attach_auto_poi
 from .base_dock import DockGoal, DockResult, run_dock
 from .base_motion import (
@@ -664,6 +665,10 @@ class RosRobot:
             monitor (RobotMonitor | None): Body monitor fed from the sensor topics and publishing /robot_events.
         """
         self.cfg = config
+        # The accepted arm to camera calibration overrides the configured arm offsets and base before anything reads
+        # them; monitor_tick reloads it after each accept (swapped in at an idle point).
+        self.arm_calibration = ArmCalibrationWatcher(config.arm)
+        self.arm_calibration.startup(config.arm)
         t = config.topics
         self.node = Node(NODE_NAME)
         self.log = self.node.get_logger()
@@ -923,6 +928,7 @@ class RosRobot:
             ground_source=lambda: self.ground_state(max_age_s=None),
             head_source=lambda: head_pose(self.head.measured()),
         )
+        self.arm.calibration = in_use(self.arm_calibration.loaded)
         self.monitor.lease_held = lambda: self.arm.control_held
         # Web-UI grasp actions (JSON in on grasp_command, JSON out on grasp_result); 'stop' answers at once, the
         # other actions run in a worker thread so they never block the executor.
@@ -1454,12 +1460,13 @@ class RosRobot:
             rate.tick()
 
     def monitor_tick(self) -> None:
-        """Monitor timer callback: the joint-state rate ticks, feed every raw monitor hook its latest new message, then
-        run the monitor tick."""
+        """Monitor timer callback: the joint-state rate ticks, feed every raw monitor hook its latest new message, run the
+        monitor tick, then reload an accepted arm calibration after an applied.json change (swapped at an idle point)."""
         self.tick_joint_rates()
         for feed in self.feeds:
             feed.flush()
         self.monitor.tick()
+        self.arm_calibration.tick(self.arm.swap_calibration)
 
     def subscribe(
         self, msg_type: type, topic: str, callback: Callable[[Any], None], qos: QoSProfile = SENSOR_QOS

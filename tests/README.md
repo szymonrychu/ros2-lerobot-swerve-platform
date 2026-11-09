@@ -984,6 +984,23 @@ The **claude_agent** node has tests under `nodes/claude_agent/tests/` (no networ
 `conftest.py`, the Agent SDK dataclasses are built directly). Run from `nodes/claude_agent`: `uv run pytest tests -q`.
 Covers:
 
+- accepted arm calibration at runtime (`test_arm_calibration_runtime.py`, `mcp_server/arm_calibration.py`, a real
+  `ArmController` on `FakeArmBackend`): startup without an accepted file keeps the config and logs `load` ok with
+  source `config`; startup applies exactly `joint_offsets_rad`, `base_in_base_link` and `arm_base_height_m` (tool
+  point and every other key unchanged) and logs old and new; an invalid file, or one whose merged block `ArmSettings`
+  refuses, keeps the config and logs `load` failed at ERROR; `applied_dir: null` disables the override; an
+  `applied.json` change swaps the running model (kinematics, sag and floor guard offsets / mount, body checker mount
+  and kernel, config fields, `arm.calibration`) with one `load` ok event; no `applied.json` change reads nothing; a
+  newer accept replaces the previous one; an invalid reload keeps the values in use; a removed record falls back to
+  the config; an `applied.json` change for the head chain only logs `unchanged`; a swap that raises is an `apply`
+  failed event and never raises out of the tick; the swap waits for a running motion
+  (one `apply` start event) and lands on the next idle tick; a motion asked for during the swap is refused as busy;
+  `joint_offsets` is cleared from the stale marker for a re-zero before `captured_from` (the file removed when it was
+  the last item) and kept for a later or unknown re-zero and for the config fallback; `get_arm_state` names the
+  calibration in use; the `get_arm_reach` envelope recomputes after a mount swap, withholds its cells while stale and
+  ignores a stale disk cache; `ReachMap.require_current` refuses after a swap
+- approach tools per call (`test_approach_tools.py::test_a_reach_map_made_stale_at_runtime_refuses`): a reach map
+  that went stale after start (an accepted arm calibration swapped in) refuses both tools with the regenerate command
 - config (`test_config.py`): defaults (opus, hard maxima rw 400 / turns 500, per phase 100 / 100, `max_instruction_time_min` 120, no `max_ro_cap` / `max_phase_ro_cap`, SDK `max_turns` = turn cap + margin, MCP URL/token file, port 18300, history 500, thumbnail 480, `/robot_events` topic, 50 events, 2 s debounce), the removed `max_turns` / `effector_call_cap` keys rejected,
   tool lists disjoint (stop can never be an effector), `get_arm_reach` a sensor tool (free, not effector-capped) in both the code
   defaults and the client.yml config, invalid numbers and unknown keys rejected, YAML loading, the plan tree and retry defaults
@@ -3631,6 +3648,8 @@ Static invariants of the `head_rgbd_calibration` deploy (node type and `ros2_nod
 | `test_http_port_unique_in_client_vars` | The node's HTTP port appears exactly once in `client.yml`. |
 | `test_fit_joint_offsets_equal_mcp_server_arm` | `fit.joint_offsets_rad` of the node config equals mcp_server's `arm.joint_offsets_rad`. |
 | `test_fit_base_in_base_link_equals_mcp_server_arm` | `fit.base_in_base_link` equals mcp_server's `arm.base_in_base_link`. |
+| `test_mcp_server_reads_the_accepted_arm_calibration_from_the_calibration_applied_dir` | mcp_server's `arm.applied_dir` (and `head.applied_dir`) is the node's `state_dir/applied`; the apply restart service names no arm calibration file and no mcp_server unit (the arm calibration is applied without a restart). |
+| `test_arm_camera_accept_reads_the_marker_mcp_server_clears` | The node's `arm_stale_marker` is mcp_server's `arm.calibration_stale_marker`. |
 | `test_pose_check_body_equals_mcp_server_body` | `arm_sequence.pose_check.body` boxes and cylinders equal mcp_server's `body` block. |
 | `test_arm_urdf_file_is_the_mcp_server_arm_urdf` | The node's `arm_urdf_file` is the arm URDF mcp_server loads. |
 | `test_boards_are_the_full_and_the_arm_board_with_disjoint_ids` | The client block's `board` is `charuco-6x5-40mm` (ids from 0), `fit.board` equals `fit.plate` and is `charuco-arm-6x5-28mm` (ids from 15) (replaces `test_fit_board_equals_board`: the board roles split). |

@@ -32,6 +32,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_HOME_FILE = Path("/var/lib/ros2/arm/home.yaml")
 DRIVE_POSE_FILE_NAME = "drive_pose.yaml"  # stored drive pose, next to the home file
 DEFAULT_CALIBRATION_STALE_MARKER = Path("/var/lib/ros2/arm/calibration_stale.json")
+DEFAULT_APPLIED_DIR = Path("/var/lib/ros2/head_rgbd_calibration/applied")  # head_rgbd_calibration applied/
 DEFAULT_CALIBRATION_DIR = Path("/var/lib/ros2/camera_calibration")
 HEAD_CAMERA_PARENT = "d435_color_frame"  # head URDF link (head.urdf_path) the head (D435 colour) camera hangs on
 HEAD_CAMERA_INFO_TOPIC = "/head/d435/color/camera_info"  # D435 factory colour intrinsics of the head camera
@@ -492,6 +493,10 @@ class ArmSettings(ArmModelSettings):
     # Stale marker the follower bridge writes after a runtime neutral save (arm re-zero); while it lists "home",
     # arm_home is refused. null disables the check.
     calibration_stale_marker: Path | None = DEFAULT_CALIBRATION_STALE_MARKER
+    # Applied calibration directory of head_rgbd_calibration: an accepted arm to camera calibration there
+    # (arm_calibration.json, named by applied.json) overrides joint_offsets_rad, base_in_base_link and arm_base_height_m
+    # at startup and at the next idle point after each accept (mcp_server arm_calibration.py). null keeps these values.
+    applied_dir: Path | None = DEFAULT_APPLIED_DIR
     joint_names: tuple[str, ...] = ARM_JOINTS
     # Follower gripper open position (as in /follower/joint_states; the leader-only source range mapping in the
     # follower bridge does not apply to autonomy commands).
@@ -543,7 +548,7 @@ class HeadSettings(StrictModel):
     urdf_path: Path = Field(default=DEFAULT_HEAD_URDF, validate_default=True)
     # Directory of the applied head calibration (head_chain.json, tof_joint.json, applied.json); the same directory
     # head_state_publisher reads. None keeps the repo URDF chain.
-    applied_dir: Path | None = Path("/var/lib/ros2/head_rgbd_calibration/applied")
+    applied_dir: Path | None = DEFAULT_APPLIED_DIR
     joint_names: tuple[str, str] = ("head_pan", "head_tilt")
     command_topic: str = Field(default="/head/joint_commands", pattern=r"^/[A-Za-z0-9_/]+$")
     state_topic: str = Field(default="/head/joint_states", pattern=r"^/[A-Za-z0-9_/]+$")

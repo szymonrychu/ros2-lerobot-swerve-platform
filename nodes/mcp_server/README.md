@@ -283,9 +283,10 @@ the URDF model angles by a constant per joint. `arm.joint_offsets_rad` (`shoulde
   `move_arm_joints` targets are converted to URDF space, clamped, converted back).
 - NOT changed: joint targets of `move_arm_joints`, reported joint positions, `arm_home` poses and every command stay in
   MEASURED space; only kinematics use URDF space.
-- How offsets are obtained: the arm offsets fit of `head_rgbd_calibration` (a gripper-held plate seen by the D435
-  colour camera plus floor planes; see `nodes/head_rgbd_calibration/README.md`). The result is written to
-  `arm.joint_offsets_rad` in `ansible/group_vars/client.yml` and `mcp_server` redeployed. The camera calibration samples
+- How offsets are obtained: the arm to camera calibration of `head_rgbd_calibration` (Calibrate page, the gripper
+  board seen by the D435 with the applied head chain fixed; see `nodes/head_rgbd_calibration/README.md`). Its Accept
+  applies the offsets and the arm base at runtime ("Accepted arm calibration" below); `arm.joint_offsets_rad` in
+  `ansible/group_vars/client.yml` is the baseline used while none is accepted. The camera calibration samples
   of `capture_calibration_sample` carry no arm joints and do not determine the offsets.
 - Grid calibration 2026-10-10 (historical: the arm-mounted UVC camera it used is retired; the arm offsets fit above replaces it): joint offsets, the arm camera mount and intrinsics and the tool point were
   solved jointly on a 50 mm grid sheet (234 camera points from 20 views, 6 tip touch-downs, floor fixed at the measured
@@ -1308,8 +1309,56 @@ stale}`, where `stale` lists `joint_offsets` and/or `home`.
 - `arm_home` (and the `/arm/home` service) is refused while `home` is stale, publishing nothing: "arm home was
   recorded before the arm re-zero at <saved_at>; record a new home with arm_set_home".
 - `/arm/move_to_neutral` is refused while `joint_offsets` is stale (the FK and body check use the zero).
-- `arm_set_home` clears `home` from the marker. `joint_offsets` is only reported here; the offsets re-fit in the
-  head-and-arm-calibration-fro epic clears it. The marker file is deleted once nothing is stale.
+- `arm_set_home` clears `home` from the marker. `joint_offsets` is cleared when an accepted arm to camera
+  calibration captured after the re-zero is applied ("Accepted arm calibration"). The marker file is deleted once
+  nothing is stale.
+
+## Accepted arm calibration
+
+The Calibrate page's arm to camera Accept applies its calibration to the running server; Decline keeps the one in
+use. `mcp_server/arm_calibration.py` (`ArmCalibrationWatcher`) reads `arm.applied_dir` (default
+`/var/lib/ros2/head_rgbd_calibration/applied`, the head_rgbd_calibration `state_dir/applied`, the same directory the
+head chain comes from; `null` disables the override):
+
+- Source: `applied.json`'s `arm_calibration` record names the accepted `arm_calibration.json` (format and reader:
+  ros2_common `head_rgbd_calibration/arm_calibration_file.py`). No `applied.json`, no record or a record removed: the
+  configured `arm:` values (client.yml) are used, the baseline. A file without its record is not in effect.
+- Overridden fields, exactly: `joint_offsets_rad`, `base_in_base_link` and `arm_base_height_m` (= the base z;
+  `floor_z_m` follows). The tool point (`tool_offset_m`, not fitted) and every other `arm:` key stay configured. The
+  merged block is validated as `ArmSettings`.
+- When: at startup before the arm model is built (`RosRobot.__init__`), and on the 0.25 s monitor tick whenever the
+  mtime of `applied.json` changed (the head chain's reload trigger, no thread of its own). A changed applied.json that
+  names the same calibration (a head chain apply) logs `unchanged` and swaps nothing.
+- Idle point: `ArmController.swap_calibration` takes the arm motion lock without waiting. While a motion runs (any
+  caller: tool, queue, grasp, home or neutral service) nothing changes and the swap is retried on the next tick; during
+  the swap no motion can start (`exclusive_motion` refuses as busy). The swap is in place, so every holder of the
+  objects sees it: the body checker's mount (`SelfCollisionChecker.set_mount`, its C++ kernel rebuilt first), the
+  kinematics offsets (`ArmKinematics.set_offsets`, IK caches cleared), the sag model offsets, the floor guard mount
+  and the config's `arm` fields. A lease held between motions keeps its hold and keepalive setpoints (measured space).
+  A plan made before the swap and run after it is body-checked with the new model when it runs. A read-only tool
+  computing during the swap (no motion) may see old and new values in that one answer.
+- Derived data: `get_arm_reach` recomputes its envelope when its inputs (mount, offsets) changed; the approach tools
+  check the reach map key on every call, so after an accepted calibration that moves the arm they refuse with the
+  regenerate command until the map is rebuilt for it (the map is built from client.yml: copy the accepted snippet
+  into the baseline, then rebuild, "Reach map").
+- Invalid or unreadable (`arm_calibration.json` missing, not JSON, failing validation, of another result than the
+  record, or a merged block `ArmSettings` refuses): a `calib_event` `load` failed (ERROR) and the values in use stay;
+  the server never stops for it.
+- Stale marker: after an accepted calibration is applied (startup or reload), `joint_offsets` is cleared from
+  `arm.calibration_stale_marker` when the marker's `saved_at` predates the calibration's `captured_from` (its first
+  still: the offsets were measured in the current zero). A later or unknown re-zero keeps it. mcp_server is the one
+  writer of that clearing (`calibration_marker.clear_stale`, atomic); the head_rgbd_calibration accept only reads the
+  marker and refuses a calibration captured before the re-zero.
+- State: `get_arm_state` reports `arm_calibration` `{session, result, accepted_at}` of the calibration in use, null for
+  the configured values.
+- Telemetry (`calib_event`, flow `arm_calibration`): `load` ok with `source` (`{session, result, accepted_at}` or
+  `config`), `old` and `new` (`joint_offsets_rad`, `arm_base_height_m`, `base_in_base_link`) on every load, `load` ok
+  with `unchanged: true`, `load` failed (reason, `in_use`), `apply` start once while a swap waits for a motion,
+  `apply` failed when the swap raised (the values in use stay, the monitor tick keeps running),
+  `stale_marker` ok (or failed) when joint_offsets was cleared.
+
+Not covered by the swap: filter_node's teleop body check and the web_ui arm view read the arm mount and offsets from
+client.yml (baseline) and do not follow an accepted calibration.
 
 ## Arm mount and floor slow zone
 
@@ -1621,7 +1670,9 @@ margin: the same inputs as the envelope's key, which is unchanged), the tool poi
 axis), the hard and soft margins, the grid fields (everything in `ReachMapSettings` but `file`), the pitches and
 `REACH_MAP_VERSION`. `ReachMap.load(path, checker, settings)` raises `ReachMapMissing` (no file or unreadable) or
 `ReachMapStale(expected, found)` (built for other inputs); both messages name the regenerate command, so a stale map
-is never used silently. The file defaults to the package `mcp_server/data/reach_map.npz` (`reach_map.file`), so it
+is never used silently. The approach tools also call `ReachMap.require_current(checker, settings)` on every request:
+an accepted arm calibration swapped in at runtime changes the mount or offsets in the key, and the map is refused
+until rebuilt. The file defaults to the package `mcp_server/data/reach_map.npz` (`reach_map.file`), so it
 deploys with the git checkout.
 
 Query: `ReachMap.cells(z, pitch_deg | None)` returns the reachable cells of the height slice nearest z (within half a

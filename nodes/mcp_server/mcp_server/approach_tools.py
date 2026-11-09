@@ -368,15 +368,12 @@ def register(ctx: ToolContext) -> None:
     except (ReachMapMissing, ReachMapStale) as exc:
         reach_error = str(exc)
         LOGGER.error("approach tools disabled: reach map unusable: %s", reach_error)
-    pan_axis: list[tuple[float, float]] = []
     nav_max = config.timeouts.nav_max_timeout_s
 
     def pan_axis_xy() -> tuple[float, float]:
-        """Pan axis in base_link (computed on first use)."""
-        if not pan_axis:
-            axis = pan_geometry(checker).axis
-            pan_axis.append((float(axis[0]), float(axis[1])))
-        return pan_axis[0]
+        """Pan axis in base_link of the current arm mount (an accepted arm calibration may move it at runtime)."""
+        axis = pan_geometry(checker).axis
+        return float(axis[0]), float(axis[1])
 
     def ik_seed() -> dict[str, float]:
         """IK seed: the measured arm pose, else the default."""
@@ -422,6 +419,10 @@ def register(ctx: ToolContext) -> None:
         """Ranked approach candidates for a resolved target (refuses without a usable reach map or costmap)."""
         if reach_map is None:
             raise ToolError(f"approach refused: {reach_error}")
+        try:
+            reach_map.require_current(checker, config.reach_map)  # the arm calibration may have changed since start
+        except ReachMapStale as exc:
+            raise ToolError(f"approach refused: {exc}") from exc
         pose = robot.robot_pose()
         seed = ik_seed()
         result = suggest(

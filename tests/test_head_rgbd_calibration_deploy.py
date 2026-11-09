@@ -272,6 +272,22 @@ def test_fit_base_in_base_link_equals_mcp_server_arm() -> None:
     assert calib_config()["fit"]["base_in_base_link"] == mcp_config()["arm"]["base_in_base_link"]
 
 
+def test_mcp_server_reads_the_accepted_arm_calibration_from_the_calibration_applied_dir() -> None:
+    """mcp_server applies applied/arm_calibration.json of the head_rgbd_calibration state_dir at runtime (no restart:
+    the apply restart script names no file of it), from the same applied/ its head chain comes from."""
+    applied = f"{calib_config()['state_dir']}/applied"
+    assert applied == f"{STATE_DIR}/applied"
+    assert mcp_config()["arm"]["applied_dir"] == applied
+    assert mcp_config()["head"].get("applied_dir", applied) == applied
+    service = (TEMPLATES / "ros2-head-rgbd-calibration-apply.service.j2").read_text()
+    assert "arm_calibration" not in service and "mcp_server" not in service
+
+
+def test_arm_camera_accept_reads_the_marker_mcp_server_clears() -> None:
+    """The accept refuses on the arm re-zero stale marker that mcp_server clears joint_offsets from after applying."""
+    assert calib_config()["arm_stale_marker"] == mcp_config()["arm"]["calibration_stale_marker"]
+
+
 def test_pose_check_body_is_the_packaged_robot_body() -> None:
     """The pose check configures no body of its own: PoseCheckConfig loads robot_body.yaml (the full body)."""
     assert "body" not in calib_config()["arm_sequence"]["pose_check"]

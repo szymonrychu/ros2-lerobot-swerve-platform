@@ -29,11 +29,12 @@ from arm_collision.self_collision import (
 )
 from arm_collision.settings import ArmBaseOffset
 
+from .arm_calibration import assign_calibration
 from .calib_event import emit_calib_event, new_run_id
 from .calibration_board import BoardPark
 from .calibration_marker import CalibrationMarker, clear_stale, load_marker
 from .carry import CarryRecord, CarryStore, GraspKind, carry_path
-from .config import LimitSettings, McpServerConfig
+from .config import ArmSettings, LimitSettings, McpServerConfig
 from .floor_guard import (
     GRIPPER_LINK,
     FloorGuard,
@@ -70,6 +71,7 @@ from .metrics import (
     SELF_COLLISION_SLOWDOWNS,
 )
 from .models import (
+    ArmCalibrationInUse,
     ArmMotionResult,
     ArmMotionStatus,
     ArmState,
@@ -668,6 +670,39 @@ class ArmController:
         self._sag_plan: tuple[dict[str, float], dict[str, float], dict[str, str]] | None = None
         # Pending settle record of a trajectory_end motion: (monotonic due time, goal, status).
         self._settle_probe: tuple[float, dict[str, float], str] | None = None
+        # The accepted arm to camera calibration the model runs with; None: the configured arm: values.
+        self.calibration: ArmCalibrationInUse | None = None
+
+    def swap_calibration(self, arm: ArmSettings, calibration: ArmCalibrationInUse | None) -> bool:
+        """Swap a new arm calibration (joint offsets, arm base, mount height) into the running model at an idle point.
+
+        Takes the motion lock without waiting: while a motion runs nothing changes and False is returned (try again
+        later); during the swap no motion can start (exclusive_motion refuses as busy). In place, so every holder of
+        the objects sees it: the body checker's mount (its C++ kernel is rebuilt first, a failure changes nothing),
+        the kinematics offsets (IK caches cleared), the sag model offsets, the floor guard mount and the config's
+        arm fields. A hold or keepalive between motions keeps its measured-space setpoint.
+
+        Args:
+            arm (ArmSettings): Validated arm settings carrying the new calibration.
+            calibration (ArmCalibrationInUse | None): Its identity for the arm state; None for the configured values.
+
+        Returns:
+            bool: True when swapped, False while a motion runs.
+        """
+        if not self._motion_lock.acquire(blocking=False):
+            return False
+        try:
+            mount = arm.base_in_base_link or ArmBaseOffset(z=arm.arm_base_height_m)
+            self.body_check.set_mount(mount)
+            self.kin.set_offsets(arm.joint_offsets_rad.model_dump())
+            if self.sag is not None:
+                self.sag.offsets = dict(self.kin.offsets)
+            self.floor_guard.mount = mount
+            assign_calibration(self.cfg.arm, arm)
+            self.calibration = calibration
+        finally:
+            self._motion_lock.release()
+        return True
 
     @property
     def sag_modes(self) -> dict[str, str]:
@@ -2661,6 +2696,7 @@ class ArmController:
             control_held=self._held,
             home_stored=self.home_stored(),
             floor_z_m=self.cfg.arm.floor_z_m,
+            arm_calibration=self.calibration,
         )
         if sample is not None:
             pose = self.kin.forward(sample.positions)

@@ -462,6 +462,14 @@ class MapSummary(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class ArmCalibrationInUse(BaseModel):
+    """The accepted arm to camera calibration the arm model runs with (Calibrate page, Arm to camera, Accept)."""
+
+    session: str = Field(description="head_arm calibration session id")
+    result: str = Field(description="arm to camera result id")
+    accepted_at: str = Field(description="Accept time (ISO 8601)")
+
+
 class ArmState(BaseModel):
     """Follower arm state; positions/efforts are omitted when /follower/joint_states is stale."""
 
@@ -485,6 +493,10 @@ class ArmState(BaseModel):
     )
     floor_z_m: float | None = Field(
         default=None, description="Floor height (m) in the arm base_link frame (negative: below the arm mount)"
+    )
+    arm_calibration: ArmCalibrationInUse | None = Field(
+        default=None,
+        description="Accepted arm to camera calibration in use (joint offsets, arm base); null: the configured values",
     )
 
 

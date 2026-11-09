@@ -121,6 +121,9 @@ class ReachEnvelope:
         self.cache_file = cache_file
         self.compute_count = 0
         self._result: dict[str, Any] | None = None
+        # cache_key() of the inputs the result (or the running computation) is for: a runtime calibration swap moves
+        # the checker's mount or offsets, which makes them stale (drop_stale).
+        self._key: str | None = None
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
         self._stop = threading.Event()
@@ -180,32 +183,49 @@ class ReachEnvelope:
         envelope = data.get("envelope")
         return envelope if isinstance(envelope, dict) else None
 
-    def save_cache(self, envelope: dict[str, Any]) -> None:
+    def drop_stale(self) -> None:
+        """Forget a result (and stop a running computation) made for other inputs than the checker's current ones (the
+        arm calibration was swapped since); the next start computes or loads the envelope again."""
+        with self._lock:
+            if self._key is None or self._key == self.cache_key():
+                return
+            self._stop.set()  # the old computation stops at its next batch and stores nothing
+            self._stop = threading.Event()
+            self._result, self._key, self._thread = None, None, None
+
+    def save_cache(self, envelope: dict[str, Any], key: str) -> None:
         """Write the envelope to the disk cache atomically; a failure is logged, the in-memory result stays.
 
         Args:
             envelope (dict[str, Any]): Computed envelope.
+            key (str): cache_key() of the inputs it was computed for.
         """
         if self.cache_file is None:
             return
         try:
             self.cache_file.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.cache_file.with_suffix(self.cache_file.suffix + ".tmp")
-            tmp.write_text(json.dumps({"key": self.cache_key(), "envelope": envelope}))
+            tmp.write_text(json.dumps({"key": key, "envelope": envelope}))
             os.replace(tmp, self.cache_file)
         except OSError as exc:
             log.warning("could not write the reach envelope cache %s: %s", self.cache_file, exc)
 
     def start(self) -> None:
-        """Load the envelope from the disk cache, or start computing it in a background thread (idempotent)."""
+        """Load the envelope from the disk cache, or start computing it in a background thread (idempotent while the
+        inputs stay the same; a result for stale inputs is dropped first)."""
+        self.drop_stale()
         with self._lock:
             if self._result is not None or self._thread is not None:
                 return
+            self._key = self.cache_key()
             cached = self.load_cache()
             if cached is not None:
                 self._result = cached
                 return
-            self._thread = threading.Thread(target=self.compute, name="arm-reach-envelope", daemon=True)
+            stop, key = self._stop, self._key
+            self._thread = threading.Thread(
+                target=lambda: self.compute(stop, key), name="arm-reach-envelope", daemon=True
+            )
             RUNNING.add(self)
             self._thread.start()
 
@@ -235,8 +255,13 @@ class ReachEnvelope:
             thread.join(wait_s)
         return self._result
 
-    def compute(self) -> None:
-        """Compute and cache the envelope (runs once)."""
+    def compute(self, stop: threading.Event, key: str) -> None:
+        """Compute and cache the envelope (once per inputs).
+
+        Args:
+            stop (threading.Event): Set to abandon the computation (nothing is stored).
+            key (str): cache_key() of the inputs it computes for.
+        """
         started = time.monotonic()
         checker, cfg = self.checker, self.settings
         grids = [np.linspace(*joint_range(checker, j), ENVELOPE_SAMPLES_PER_JOINT) for j in ENVELOPE_JOINTS]
@@ -258,7 +283,7 @@ class ReachEnvelope:
             ]
             tip_parts, clear_parts = [], []
             for start in range(0, len(samples), ENVELOPE_BATCH_SAMPLES):
-                if self._stop.is_set():
+                if stop.is_set():
                     return
                 batch = samples[start : start + ENVELOPE_BATCH_SAMPLES]
                 geometry = checker.geometry(batch)
@@ -292,9 +317,12 @@ class ReachEnvelope:
             "rows": rows,
             "compute_s": round(time.monotonic() - started, 2),
         }
-        self.compute_count += 1
-        self._result = result
-        self.save_cache(result)
+        with self._lock:
+            if stop.is_set():
+                return
+            self.compute_count += 1
+            self._result = result
+        self.save_cache(result, key)
 
     def cell(self, heading_deg: float, z: float) -> dict[str, Any] | None:
         """Envelope cell nearest a heading and height (None until computed).
@@ -306,6 +334,7 @@ class ReachEnvelope:
         Returns:
             dict[str, Any] | None: The cell with its heading.
         """
+        self.drop_stale()
         if self._result is None:
             return None
         row = min(self._result["rows"], key=lambda r: abs(r["heading_deg"] - heading_deg))
