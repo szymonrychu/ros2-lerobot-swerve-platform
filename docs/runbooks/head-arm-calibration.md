@@ -18,8 +18,10 @@ not be filled in by an agent.
      gusset. The gripper holds the post from the pattern side, the jaws closing along the plate edge; the pattern faces
      the wrist and the head camera.
    - Seat: insert the post between the half open jaws (`insert_gripper_rad` 0.4) with the moving finger in the channel,
-     up to the shoulder (the finger tip stops there). The sequence then closes the gripper to `grip_rad` 0.050279 rad
-     (contact 0.070279 minus squeeze 0.02) and refuses a jaw below 0.060279 rad as unseated.
+     up to the shoulder (the finger tip stops there). The sequence then closes the gripper to `grip_rad` 0.0751 rad
+     (`handle_contact_rad` 0.0951 minus squeeze 0.02), refuses a jaw below 0.0851 rad (contact - squeeze / 2) as
+     unseated and a jaw at or above 0.1051 rad (grip + converge tolerance 0.03) as a slack grip. The contact 0.0951 rad
+     was measured on the robot 2026-11-09 (CAD 0.070279): the printed handle is thicker than the CAD.
    - Mass: 211.7 g (CAD). The arm carries it at `speed_scale` 0.1.
    - Board frame pose in `gripper_link`: the CAD seed `fit.board_mount` xyz (-0.0794, 0.187949, -0.118113) m, rpy
      (pi, 0, 0) from `markers/charuco-arm-6x5-28mm.json`; the fit refines it, and the pose check adds

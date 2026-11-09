@@ -17,6 +17,7 @@ SHIPPED = NODE_DIR / "config" / "head_rgbd_calibration.yaml"
 ARM_JSON = REPO_ROOT / "markers" / "charuco-arm-6x5-28mm.json"
 CLIENT_YML = REPO_ROOT / "ansible" / "group_vars" / "client.yml"
 MARKERS_YAML = REPO_ROOT / "scripts" / "markers_generate.yaml"
+MEASURED_HANDLE_CONTACT_RAD = 0.0951  # ARM board handle contact measured on the robot 2026-11-09 (CAD 0.070279)
 # Keys of the retired ToF calibration, with their last defaults.
 RETIRED_SELECTION_KEYS = {
     "still_tof_mad": 0.01,
@@ -344,7 +345,10 @@ def base(joint: str) -> float:
         ),
         (lambda: sequence_with(insert_gripper_rad=0.81), r"insert_gripper_rad.*max_roll_gripper_rad"),
         (lambda: sequence_with(head_offsets_deg=[]), r"head_offsets_deg"),
-        (lambda: sequence_with(handle_squeeze_rad=0.08), r"handle_squeeze_rad.*below handle_contact_rad"),
+        (
+            lambda: sequence_with(handle_squeeze_rad=MEASURED_HANDLE_CONTACT_RAD + 0.01),
+            r"handle_squeeze_rad.*below handle_contact_rad",
+        ),
         (lambda: sequence_with(handle_squeeze_rad=0.0), r"handle_squeeze_rad"),
         (
             lambda: sequence_with(handle_squeeze_rad=0.03, grip_converge_tolerance_rad=0.03),
@@ -433,10 +437,13 @@ def test_board_handle_boxes_are_the_handle_cad() -> None:
 
 
 def test_arm_sequence_grip_defaults_come_from_the_handle() -> None:
+    # The contact is the one measured on the robot 2026-11-09 (the printed handle is thicker than the CAD contact), so
+    # it opens past the JSON contact; the squeeze, mass and insert opening stay the CAD ones.
     meta, seq = json.loads(ARM_JSON.read_text()), NodeConfig().arm_sequence
-    assert seq.handle_contact_rad == pytest.approx(meta["grip"]["contact_rad"], abs=1e-4)
-    assert seq.grip_rad == pytest.approx(meta["grip"]["grip_rad"], abs=1e-4)
-    assert seq.handle_squeeze_rad == 0.02
+    assert seq.handle_contact_rad == MEASURED_HANDLE_CONTACT_RAD
+    assert seq.handle_contact_rad > meta["grip"]["contact_rad"]
+    assert seq.grip_rad == pytest.approx(MEASURED_HANDLE_CONTACT_RAD - meta["grip"]["squeeze_rad"], abs=1e-9)
+    assert seq.handle_squeeze_rad == meta["grip"]["squeeze_rad"] == 0.02
     assert seq.grip_converge_tolerance_rad == 0.03
     assert seq.board_mass_g == pytest.approx(meta["mass_g"], abs=0.5)
     assert seq.insert_gripper_rad == 0.4
