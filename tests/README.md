@@ -3009,7 +3009,7 @@ Ansible's own `InventoryManager`, nothing connects to a host.
 
 ## test_node_uninstall_purge.py
 
-The `colcon_purge` node type key: the uninstall path removes a retired C++ node's colcon output and stamps.
+The `colcon_purge` node type key: the uninstall path removes a retired C++ node's colcon output and stamps. The behaviour test runs `ansible-playbook -c local` with `ansible_python_interpreter` set to the Python running pytest, so it does not need a `/usr/bin/python3` (the robots keep theirs from the inventory).
 
 | Test | Description |
 |---|---|

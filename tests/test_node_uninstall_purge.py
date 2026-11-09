@@ -5,6 +5,7 @@ The behaviour test runs the real task file through ansible-playbook against a te
 
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import yaml
@@ -13,6 +14,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 ROLE_TASKS = REPO_ROOT / "ansible/roles/ros2_node_deploy/tasks"
 PURGE_TASKS = ROLE_TASKS / "colcon_purge.yml"
 ANSIBLE_PLAYBOOK = REPO_ROOT / ".venv/bin/ansible-playbook"
+# The local run's module interpreter: the venv Python that runs pytest (and ansible), so the harness does not depend on
+# interpreter discovery under its pinned PATH finding a /usr/bin/python3 (the robots' inventory value).
+LOCAL_PYTHON = sys.executable
 STAMP_KEYS = ("aaa111", "bbb222")
 
 
@@ -52,7 +56,16 @@ def run_purge(tmp_path: Path, ws: Path) -> str:
     play_file = tmp_path / "play.yml"
     play_file.write_text(yaml.safe_dump(play))
     result = subprocess.run(
-        [str(ANSIBLE_PLAYBOOK), "-c", "local", "-i", "localhost,", str(play_file)],
+        [
+            str(ANSIBLE_PLAYBOOK),
+            "-c",
+            "local",
+            "-i",
+            "localhost,",
+            "-e",
+            f"ansible_python_interpreter={LOCAL_PYTHON}",
+            str(play_file),
+        ],
         capture_output=True,
         text=True,
         cwd=tmp_path,
