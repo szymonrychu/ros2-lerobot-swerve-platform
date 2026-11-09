@@ -5,6 +5,7 @@ import { HeadArmCalibration, ARM_POLL_MS } from './HeadArmCalibration'
 import stateFx from '../../../../head_rgbd_calibration/tests/fixtures/api/head_arm_state.json'
 import resultFx from '../../../../head_rgbd_calibration/tests/fixtures/api/head_arm_result.json'
 import applyFx from '../../../../head_rgbd_calibration/tests/fixtures/api/floor_apply.json'
+import rgbdStateFx from '../../../../head_rgbd_calibration/tests/fixtures/api/state.json'
 import * as api from './headArmApi'
 import type { HeadArmSequence } from './headArmApi'
 
@@ -19,6 +20,22 @@ const seq = (over: Partial<HeadArmSequence>): HeadArmSequence => ({
   ...over,
 })
 const ok = <T,>(value: T) => ({ ok: true as const, value })
+const MODELS = {
+  files: [
+    { name: 'charuco-6x5-40mm.pdf', size: 1, url: '/models/charuco-6x5-40mm.pdf' },
+    { name: 'charuco-arm-6x5-28mm.3mf', size: 1, url: '/models/charuco-arm-6x5-28mm.3mf' },
+    { name: 'charuco-arm-6x5-28mm.pdf', size: 1, url: '/models/charuco-arm-6x5-28mm.pdf' },
+  ],
+}
+/** BoardNeeded fetches the node state (with its boards) and the served model files. */
+function stubBoardFetch(): void {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) =>
+      new Response(JSON.stringify(url === '/api/models' ? MODELS : rgbdStateFx), { status: url === '/api/models' || url === '/api/calibration/rgbd/state' ? 200 : 404 }),
+    ),
+  )
+}
 const SESSION = { id: 'calib-20261022-140000', created: 'x', views: 80, arm_poses: 24, results: [] }
 
 function setState(s: HeadArmSequence, sessions = [SESSION]): void {
@@ -28,10 +45,12 @@ function setState(s: HeadArmSequence, sessions = [SESSION]): void {
 
 beforeEach(() => {
   vi.resetAllMocks()
+  stubBoardFetch()
 })
 afterEach(() => {
   cleanup()
   vi.useRealTimers()
+  vi.unstubAllGlobals()
 })
 
 const click = async (name: string | RegExp) => {
@@ -41,12 +60,19 @@ const click = async (name: string | RegExp) => {
 }
 
 describe('HeadArmCalibration', () => {
-  it('says the D435 watches the board on the fixed jaw (D435 wording)', async () => {
+  it('says the D435 watches the ARM board held by its handle (D435 wording)', async () => {
     setState(seq({}))
     const { container } = render(<HeadArmCalibration />)
     await screen.findByText(/without the board/)
-    expect(screen.getByText(/the head D435 watches the ChArUco board on the fixed jaw/)).toBeTruthy()
+    expect(screen.getByText(/the head D435 watches the ARM board held by its handle in the jaws/)).toBeTruthy()
     expect(container.textContent).not.toMatch(/ToF/)
+  })
+
+  it('names the ARM board it needs with its PDF and 3MF downloads', async () => {
+    setState(seq({}))
+    render(<HeadArmCalibration />)
+    expect(await screen.findByText(/ARM board: charuco-arm-6x5-28mm, 6x5 squares of 28 mm/)).toBeTruthy()
+    expect(screen.getByRole('link', { name: /PDF/ }).getAttribute('href')).toBe('/models/charuco-arm-6x5-28mm.pdf')
   })
 
   it('names the sequencer skip reasons with their counts', async () => {
@@ -100,7 +126,7 @@ describe('HeadArmCalibration', () => {
     setState(seq({ phase: 'waiting_board', running: true }))
     m.boardAttached.mockResolvedValue(ok(seq({ running: true, phase: 'capturing' })))
     render(<HeadArmCalibration />)
-    await screen.findByText(/Clip the ChArUco board to the fixed jaw/)
+    await screen.findByText(/Seat the arm board handle in the gripper jaws up to the shoulder/)
     await click('Board attached')
     expect(m.boardAttached).toHaveBeenCalled()
   })
@@ -163,7 +189,7 @@ describe('HeadArmCalibration', () => {
     setState(seq({ board_record: { session_id: 'calib-20261023-074418', clipped_at: '2026-10-23T07:50:00+00:00' } }))
     render(<HeadArmCalibration />)
     await click('Park (board is on the gripper)')
-    expect(screen.getByText(/clipped in session calib-20261023-074418/)).toBeTruthy()
+    expect(screen.getByText(/attached in session calib-20261023-074418/)).toBeTruthy()
   })
 
   it('Compute shows the result table and Apply posts', async () => {

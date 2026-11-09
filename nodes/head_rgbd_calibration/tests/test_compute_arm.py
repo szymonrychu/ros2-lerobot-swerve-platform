@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 import yaml
 from ros2_common.head_rgbd_calibration.arm_offsets_fit import TOOL_NOT_MEASURED_NOTE
-from ros2_common.head_rgbd_calibration.config import ARM_JOINT_NAMES, ArmFitLimits, HeadArmFitConfig
+from ros2_common.head_rgbd_calibration.config import ARM_JOINT_NAMES, FULL_BOARD, ArmFitLimits, HeadArmFitConfig
 from ros2_common.head_rgbd_calibration.floor_fit import FloorObservation
 
 from head_rgbd_calibration.apply import NotApplicable
@@ -40,6 +40,10 @@ FLOOR_SEED = 5
 OFFSET_TOLERANCE_RAD = 0.004
 PASSED_FILES = {"result.json", "report.md", "head_chain.json", "head.urdf", SNIPPET_FILE}
 FAILED_FILES = {"result.json", "report.md"}
+# The node's intrinsics board: the synthetic plate is the 40 mm FULL_BOARD (ids 0-14) and the fit board the ARM board
+# (ids 15-29), so the node board takes ids 30-44 (NodeConfig.check_board_ids needs disjoint ids; the arm compute does
+# not read it).
+INTRINSICS_BOARD = FULL_BOARD.model_copy(update={"name": "test-intrinsics-6x5-40mm", "ids_offset": 30})
 RESULT_KEYS = {
     "id", "session", "kind", "floor_session", "floor", "created", "passed", "failed_limits", "error", "rms_px",
     "holdout_rms_px", "holdout_tool_mm", "wrist_roll_fitted", "tool_fitted", "tool_offset_m",
@@ -88,6 +92,7 @@ def node_config(tmp_path: Path, fit: HeadArmFitConfig) -> NodeConfig:
         head_urdf_file=str(head),
         arm_urdf_file=str(arm),
         restart_units=["unit-a.service"],
+        board=INTRINSICS_BOARD,
         fit=fit,
     )
 

@@ -12,7 +12,7 @@ from ros2_common.head_rgbd_calibration.calibrate import (
     intrinsics_report_markdown,
 )
 from ros2_common.head_rgbd_calibration.charuco import Detection, detect, make_board
-from ros2_common.head_rgbd_calibration.config import BoardConfig, LimitsConfig, SelectionConfig
+from ros2_common.head_rgbd_calibration.config import FULL_BOARD, LimitsConfig, SelectionConfig
 from ros2_common.head_rgbd_calibration.frames import CameraInfoData
 from ros2_common.head_rgbd_calibration.intrinsics import IntrinsicsResult
 
@@ -22,7 +22,7 @@ VIEWS = 20
 DISTANCE_M = (0.4, 0.9)
 PLANE_OFFSET_MM = 15.0
 FOCAL_ERROR = 1.03
-BOARD_CFG = BoardConfig()
+BOARD_CFG = FULL_BOARD
 CAMERA = rgb_camera()
 BOARD = make_board(BOARD_CFG)
 POSES = board_poses(VIEWS, CAMERA, BOARD_CFG, seed=3, distance_m=DISTANCE_M)

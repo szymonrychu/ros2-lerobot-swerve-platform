@@ -17,6 +17,7 @@ const state = {
   capture: { running: true, session_id: 's1', status: 'moving', pose_count: 2, started_at: '2026-01-01T00:00:00+00:00', stops_at: '2026-01-01T00:01:00+00:00' },
   compute: { running: false, session_id: null, result_id: null, started_at: null, error: null },
   applied: null,
+  boards: stateFx.boards,
 }
 const coverage = { cols: 2, rows: 2, counts: [[1, 0], [0, 3]] }
 const check = { ...resultFx, kind: 'intrinsics' as const, id: 'r1', created: 'c' }
@@ -134,6 +135,12 @@ describe('rgbdApi calls', () => {
   })
   it('malformed 200 bodies are errors', async () => {
     stub(200, { capture: {} })
+    expect((await getState()).ok).toBe(false)
+    const { boards: _boards, ...withoutBoards } = state
+    void _boards
+    stub(200, withoutBoards)
+    expect((await getState()).ok).toBe(false)
+    stub(200, { ...state, boards: { full: state.boards.full, arm: { ...state.boards.arm, ids_offset: '15' } } })
     expect((await getState()).ok).toBe(false)
     stub(200, [{ id: 1 }])
     expect((await listSessions()).ok).toBe(false)

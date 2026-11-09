@@ -10,7 +10,7 @@ import cv2
 import numpy as np
 import pytest
 from ros2_common.head_rgbd_calibration import charuco as core_charuco
-from ros2_common.head_rgbd_calibration.config import BoardConfig
+from ros2_common.head_rgbd_calibration.config import FULL_BOARD
 from ros2_common.head_rgbd_calibration.frames import (
     decode_camera_info,
     decode_compressed,
@@ -47,7 +47,7 @@ def test_core_imports_no_scripts_rosbags_or_subprocess() -> None:
 
 
 def test_core_detect_finds_synthetic_board() -> None:
-    cfg = BoardConfig()
+    cfg = FULL_BOARD
     camera = rgb_camera()
     image = render_rgb(camera, board_poses(1, camera, cfg)[0], cfg)
     detection = core_charuco.detect(image, core_charuco.make_board(cfg))
@@ -81,7 +81,7 @@ def test_core_rgb_difference_ignores_flicker_bands() -> None:
 
 
 def test_core_intrinsics_recover_synthetic_camera() -> None:
-    cfg = BoardConfig()
+    cfg = FULL_BOARD
     camera = rgb_camera()
     board = core_charuco.make_board(cfg)
     poses = board_poses(INTRINSICS_VIEWS, camera, cfg, seed=3, distance_m=INTRINSICS_DISTANCE_M)

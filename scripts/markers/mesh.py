@@ -2,13 +2,14 @@
 
 import io
 import logging
+import math
 import zipfile
 from pathlib import Path
 from xml.etree import ElementTree
 
 import numpy as np
 import trimesh
-from manifold3d import Manifold, OpType
+from manifold3d import Manifold, Mesh, OpType
 
 from scripts.markers.models import StlOptions
 from scripts.markers.symbol import Symbol
@@ -19,6 +20,14 @@ BASE_NAME = "base"
 MODULES_NAME = "modules"
 EXTRUDERS = {BASE_NAME: 1, MODULES_NAME: 2}
 CUT_OVERSHOOT_MM = 1.0
+# Half width of the square column joining two dark cells that touch only at a corner (see pinch_corners): far below
+# the print resolution, far above the float32 resolution of STL/3MF coordinates (about 1.5e-5 mm at 250 mm). A power
+# of two, so the column sides land exactly on x +- half (box() builds a cube and translates it: a non-dyadic width
+# leaves 1-ulp slivers that collapse into coincident vertices in float32).
+PINCH_BRIDGE_HALF_MM = 2.0**-7
+OVERHANG_LIMIT_DEG = 45.0
+BED_TOL_MM = 0.05
+NORMAL_TOL = 1e-4  # manifold3d stores float32 vertices, so normals at board coordinates are off by ~1e-5
 
 
 def box(x0: float, y0: float, z0: float, x1: float, y1: float, z1: float) -> Manifold:
@@ -34,6 +43,59 @@ def to_trimesh(solid: Manifold) -> trimesh.Trimesh:
         faces=np.asarray(mesh.tri_verts, dtype=np.int64),
         process=False,
     )
+
+
+def to_manifold(mesh: trimesh.Trimesh) -> Manifold:
+    """Convert a watertight trimesh to a manifold3d solid (float32 vertices).
+
+    Args:
+        mesh: Watertight mesh.
+
+    Returns:
+        The manifold3d solid.
+    """
+    return Manifold(
+        Mesh(
+            vert_properties=np.asarray(mesh.vertices, dtype=np.float32),
+            tri_verts=np.asarray(mesh.faces, dtype=np.uint32),
+        )
+    )
+
+
+def printed_solid(base: trimesh.Trimesh, modules: trimesh.Trimesh) -> trimesh.Trimesh:
+    """Union of the base and module bodies, which is what the printer builds.
+
+    Args:
+        base: Base body.
+        modules: Module body in the same coordinates.
+
+    Returns:
+        The watertight union mesh.
+    """
+    return to_trimesh(to_manifold(base) + to_manifold(modules))
+
+
+def print_violations(mesh: trimesh.Trimesh) -> list[str]:
+    """List the reasons a mesh cannot be printed bed-down without supports.
+
+    Args:
+        mesh: The printed solid, bed at its lowest z.
+
+    Returns:
+        Empty when printable; "not watertight" and/or "N overhang faces (A mm2) below 45 deg" otherwise. Overhang
+        faces have normal z below -(sin(OVERHANG_LIMIT_DEG) + NORMAL_TOL) and a centre above the bed by more than
+        BED_TOL_MM.
+    """
+    violations: list[str] = []
+    if not mesh.is_watertight:
+        violations.append("not watertight")
+    steep = mesh.face_normals[:, 2] < -(math.sin(math.radians(OVERHANG_LIMIT_DEG)) + NORMAL_TOL)
+    raised = mesh.triangles_center[:, 2] > mesh.bounds[0][2] + BED_TOL_MM
+    bad = steep & raised
+    if bad.any():
+        area = float(mesh.area_faces[bad].sum())
+        violations.append(f"{int(bad.sum())} overhang faces ({area:.1f} mm2) below {OVERHANG_LIMIT_DEG:g} deg")
+    return violations
 
 
 def dark_runs(mask: np.ndarray) -> list[tuple[int, int, int]]:
@@ -64,6 +126,10 @@ def mask_bodies(
 
     The plate spans (0, 0) to plate_mm in x, y and z from 0 to base_thickness_mm. mask row 0 is the top (highest y)
     row, as in an image viewed from above; origin_mm is the plate position of the mask's lower-left corner.
+
+    Two dark cells that touch only at a corner (`pinch_corners`) are joined by a PINCH_BRIDGE_HALF_MM square column
+    in the modules, cut from the base the same way, so neither body pinches along that edge: the written STL and 3MF
+    bodies stay watertight after a reader merges coincident vertices.
 
     Args:
         mask: 2D bool array, True = dark cell (printed as a module).
@@ -98,6 +164,10 @@ def mask_bodies(
             box(ox + c0 * cell_mm, oy + (rows - 1 - r) * cell_mm, z0, ox + c1 * cell_mm, oy + (rows - r) * cell_mm, z1)
             for r, c0, c1 in dark_runs(mask)
         ]
+        bridge = PINCH_BRIDGE_HALF_MM
+        for r, c in pinch_corners(mask):
+            x, y = ox + c * cell_mm, oy + (rows - r) * cell_mm
+            boxes.append(box(x - bridge, y - bridge, z0, x + bridge, y + bridge, z1))
         return Manifold.batch_boolean(boxes, OpType.Add)
 
     modules = footprint(z_low, top + opts.relief_mm)
@@ -140,8 +210,54 @@ def settings_xml(ids: dict[str, int]) -> str:
     return ElementTree.tostring(root, encoding="unicode", xml_declaration=False)
 
 
+def pinch_corners(mask: np.ndarray) -> list[tuple[int, int]]:
+    """Grid corners where two dark cells touch only along the corner edge (a diagonal pair in a 2x2 block).
+
+    Both bodies pinch there: the modules of the two cells and the base around them share that edge only. The bodies are
+    still manifold in memory (the coincident vertices are separate), but STL and 3MF readers merge coincident
+    vertices, which leaves the edge in four faces and the written body not watertight.
+
+    Args:
+        mask (np.ndarray): 2D bool array, True = dark cell; row 0 is the top row.
+
+    Returns:
+        list[tuple[int, int]]: (row, col) of each pinch corner, where corner (r, c) is the top-left corner of cell
+            (r, c), in row-major order.
+    """
+    padded = np.pad(np.asarray(mask, dtype=bool), 1, constant_values=False)
+    top_left, top_right = padded[:-1, :-1], padded[:-1, 1:]
+    bottom_left, bottom_right = padded[1:, :-1], padded[1:, 1:]
+    diagonal = (top_left == bottom_right) & (top_right == bottom_left) & (top_left != top_right)
+    return [(int(r), int(c)) for r, c in np.argwhere(diagonal)]
+
+
+def weld(mesh: trimesh.Trimesh) -> trimesh.Trimesh:
+    """The mesh as STL and 3MF readers see it: float32 vertices, coincident ones merged, collapsed faces dropped.
+
+    manifold3d booleans can leave two vertices that coincide in float32 joined by zero-area faces: closed by index in
+    memory, but a reader merging coincident vertices gets degenerate faces and 3-face edges. Welding before the export
+    writes the closed mesh a reader rebuilds. Only faces with a repeated vertex are dropped (zero area, so the volume
+    and the bounds stay).
+
+    Args:
+        mesh (trimesh.Trimesh): A body, closed by index.
+
+    Returns:
+        trimesh.Trimesh: The welded body (float64 vertices holding float32 values).
+    """
+    vertices = np.asarray(mesh.vertices, dtype=np.float32)
+    unique, inverse = np.unique(vertices, axis=0, return_inverse=True)
+    faces = inverse.reshape(-1)[np.asarray(mesh.faces)]
+    kept = (faces[:, 0] != faces[:, 1]) & (faces[:, 1] != faces[:, 2]) & (faces[:, 0] != faces[:, 2])
+    welded = trimesh.Trimesh(vertices=unique.astype(np.float64), faces=faces[kept], process=False)
+    welded.remove_unreferenced_vertices()
+    return welded
+
+
 def write_bodies(base: trimesh.Trimesh, modules: trimesh.Trimesh, stem: Path) -> list[Path]:
     """Write <stem>-base.stl, <stem>-modules.stl and <stem>.3mf (two objects, extruders 1 and 2).
+
+    Both bodies are welded first (`weld`), so each written body reads back closed.
 
     Args:
         base: Base body.
@@ -151,6 +267,7 @@ def write_bodies(base: trimesh.Trimesh, modules: trimesh.Trimesh, stem: Path) ->
     Returns:
         The three written paths in that order.
     """
+    base, modules = weld(base), weld(modules)
     stem.parent.mkdir(parents=True, exist_ok=True)
     base_path = stem.parent / f"{stem.name}-base.stl"
     modules_path = stem.parent / f"{stem.name}-modules.stl"
@@ -173,3 +290,23 @@ def write_bodies(base: trimesh.Trimesh, modules: trimesh.Trimesh, stem: Path) ->
                 dst.writestr(item, src.read(item.filename))
             dst.writestr(SETTINGS_PATH, settings_xml(ids))
     return [base_path, modules_path, threemf_path]
+
+
+def read_bodies(stem: Path) -> dict[str, tuple[trimesh.Trimesh, trimesh.Trimesh]]:
+    """Read back the bodies `write_bodies` wrote, as a slicer reads them (coincident vertices merged).
+
+    Args:
+        stem (Path): Output path without suffix, as given to `write_bodies`.
+
+    Returns:
+        dict[str, tuple[trimesh.Trimesh, trimesh.Trimesh]]: "stl": (base, modules) from <stem>-base.stl and
+            <stem>-modules.stl; "3mf": (base, modules) objects of <stem>.3mf.
+    """
+    scene = trimesh.load(stem.parent / f"{stem.name}.3mf", file_type="3mf")
+    return {
+        "stl": (
+            trimesh.load_mesh(stem.parent / f"{stem.name}-base.stl"),
+            trimesh.load_mesh(stem.parent / f"{stem.name}-modules.stl"),
+        ),
+        "3mf": (scene.geometry[BASE_NAME], scene.geometry[MODULES_NAME]),
+    }

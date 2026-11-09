@@ -32,7 +32,11 @@ def make_board(cfg: BoardConfig) -> cv2.aruco.CharucoBoard:
     """
     dictionary = cv2.aruco.getPredefinedDictionary(getattr(cv2.aruco, cfg.dictionary))
     return cv2.aruco.CharucoBoard(
-        (cfg.squares_x, cfg.squares_y), cfg.square_mm / MM_PER_M, cfg.marker_mm / MM_PER_M, dictionary
+        (cfg.squares_x, cfg.squares_y),
+        cfg.square_mm / MM_PER_M,
+        cfg.marker_mm / MM_PER_M,
+        dictionary,
+        np.arange(cfg.ids_offset, cfg.marker_ids.stop, dtype=np.int32),
     )
 
 

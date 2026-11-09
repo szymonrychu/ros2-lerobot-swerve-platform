@@ -28,8 +28,11 @@ import numpy as np
 import yaml
 from pydantic import BaseModel, ConfigDict
 from ros2_common.head_rgbd_calibration.charuco import detect, make_board
-from ros2_common.head_rgbd_calibration.config import BoardConfig
+from ros2_common.head_rgbd_calibration.config import FULL_BOARD
 from scipy.spatial.transform import Rotation
+
+from scripts.markers.charuco import board_config
+from scripts.markers.config import load_generator_config
 
 STRICT = ConfigDict(extra="forbid")
 LOG = logging.getLogger("ground_scene_truth")
@@ -40,7 +43,6 @@ MIN_CORNERS = 12
 MAX_SPREAD_MM = 5.0
 MM_PER_M = 1000.0
 ROUND_DIGITS = 4
-BOARD_KEYS = ("squares_x", "squares_y", "square_mm", "marker_mm", "dictionary")
 KEY_JPEG = "pair_jpeg"
 KEY_JPEG_OFFSETS = "pair_jpeg_offsets"
 KEY_BASE_T_RGB = "pair_base_T_rgb"
@@ -101,6 +103,7 @@ class SceneSheet(BaseModel):
     recording: Path = Path(".logs/ground_recordings/home.npz")
     truth_out: Path = Path("nodes/ground_estimator_cpp/test/data/replay_rgbd/truth.yaml")
     board_config: Path = Path("scripts/markers_generate.yaml")
+    board_name: str = FULL_BOARD.name
     box: Box
     ramp: Ramp
     empty: EmptyRect
@@ -289,18 +292,28 @@ def build_truth(sheet: SceneSheet, corners: np.ndarray, detections: int, spread_
     }
 
 
-def load_board(path: Path) -> tuple[cv2.aruco.CharucoBoard, dict[str, float]]:
-    """Board and outline from the charuco block of a markers_generate-style YAML.
+def load_board(path: Path, name: str) -> tuple[cv2.aruco.CharucoBoard, dict[str, float]]:
+    """Board and outline of the named board in a markers_generate-style YAML.
 
-    :param path: YAML file (Path).
-    :return: (board, outline) as for solve_board (tuple).
+    Args:
+        path: YAML file with a `boards:` list (Path).
+        name: Board name, e.g. charuco-6x5-40mm (str).
+
+    Returns:
+        (board, outline) as for solve_board (tuple).
+
+    Raises:
+        ValueError: when no board of the YAML has that name.
     """
-    block = yaml.safe_load(path.read_text())["charuco"]
-    cfg = BoardConfig(**{key: block[key] for key in BOARD_KEYS})
+    specs = load_generator_config(path).boards
+    spec = next((s for s in specs if s.name == name), None)
+    if spec is None:
+        raise ValueError(f"board {name!r} not in {path}; boards: {[s.name for s in specs]}")
+    cfg = board_config(spec)
     outline = {
         "width_m": cfg.squares_x * cfg.square_mm / MM_PER_M,
         "height_m": cfg.squares_y * cfg.square_mm / MM_PER_M,
-        "margin_m": float(block.get("margin_mm", 0.0)) / MM_PER_M,
+        "margin_m": spec.margin_mm / MM_PER_M,
     }
     return make_board(cfg), outline
 
@@ -313,7 +326,7 @@ def run(sheet_path: Path = DEFAULT_SHEET) -> Path:
     :raises TruthError: see solve_board.
     """
     sheet = SceneSheet.model_validate(yaml.safe_load(sheet_path.read_text()))
-    board, outline = load_board(sheet.board_config)
+    board, outline = load_board(sheet.board_config, sheet.board_name)
     with np.load(sheet.recording) as data:
         blob, offsets = data[KEY_JPEG].tobytes(), data[KEY_JPEG_OFFSETS]
         poses, k, d = data[KEY_BASE_T_RGB], data[KEY_RGB_K], data[KEY_RGB_D]

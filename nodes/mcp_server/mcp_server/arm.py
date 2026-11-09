@@ -2393,7 +2393,7 @@ class ArmController:
         Raises:
             ArmError: No fresh /follower/joint_states; the measured arm is further than BOARD_REST_TOLERANCE_RAD from
                 the rest pose or from the commanded pose (a long or unchecked leg); or a leg puts a board point below
-                min_height_m or within margin_m of a body obstacle.
+                min_height_m or within clearance_m (margin_m plus the lattice miss bound) of a body obstacle.
         """
         sample = self.require_sample()
         measured = self.measured(sample)
@@ -2425,10 +2425,11 @@ class ArmController:
                     )
                 for obstacle in self.body_check.body.obstacles:
                     clearance = float(obstacle.signed_distance(points).min())
-                    if clearance < board.margin_m:
+                    if clearance < board.clearance_m:
                         raise ArmError(
                             f"board park refused: board to {obstacle.name} clearance {clearance * 1000:.1f} mm < "
-                            f"{board.margin_m * 1000:.1f} mm on the way home"
+                            f"{board.clearance_m * 1000:.1f} mm (margin {board.margin_m * 1000:.1f} mm + lattice "
+                            "miss bound) on the way home"
                         )
             prev = {j: leg[j] for j in goal}
 

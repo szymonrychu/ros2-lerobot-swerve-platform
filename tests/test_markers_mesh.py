@@ -1,6 +1,7 @@
 """Tests for scripts/markers/mesh.py: watertight two-body meshes, footprint, heights, plate size, 3MF structure."""
 
 import logging
+import math
 import zipfile
 from pathlib import Path
 from xml.etree import ElementTree
@@ -12,7 +13,18 @@ import zxingcpp
 from manifold3d import Manifold, Mesh
 
 from scripts.markers.config import MarkerSpec, StlOptions, SymbolDefaults
-from scripts.markers.mesh import marker_bodies, mask_bodies, write_bodies
+from scripts.markers.mesh import (
+    box,
+    marker_bodies,
+    mask_bodies,
+    pinch_corners,
+    print_violations,
+    printed_solid,
+    read_bodies,
+    to_trimesh,
+    weld,
+    write_bodies,
+)
 from scripts.markers.symbol import Symbol, build_symbol, render_raster
 
 TOL = 1e-6
@@ -189,3 +201,157 @@ def test_mask_bodies_unions_adjacent_cells_and_orients_rows() -> None:
     assert modules.bounds[1][:2] == pytest.approx([8.0, 8.0])
     assert modules.contains([[3.0, 7.0, 2.3], [7.0 - 0.5, 3.0, 2.3], [3.0, 3.0, 2.3]]).tolist() == [True, True, False]
     assert base.volume == pytest.approx(10 * 10 * opts.base_thickness_mm)
+
+
+def test_print_violations_pass_a_box() -> None:
+    assert print_violations(to_trimesh(box(0, 0, 0, 10, 10, 4))) == []
+
+
+def test_print_violations_name_a_downward_overhang() -> None:
+    tee = to_trimesh(box(0, 0, 0, 4, 4, 10) + box(-6, 0, 8, 10, 4, 10))  # 6 mm cantilevers both sides
+    assert any("overhang" in v for v in print_violations(tee))
+
+
+def test_print_violations_name_an_open_mesh() -> None:
+    mesh = to_trimesh(box(0, 0, 0, 10, 10, 4))
+    mesh.update_faces(np.arange(len(mesh.faces) - 1))
+    assert "not watertight" in print_violations(mesh)
+
+
+def test_printed_solid_is_the_plate_of_a_flush_inlay() -> None:
+    base, modules = mask_bodies(
+        np.eye(4, dtype=bool),
+        2.0,
+        (12.0, 12.0),
+        (2.0, 2.0),
+        StlOptions(base_thickness_mm=4.0, relief_mm=0.0, inlay_mm=1.2),
+    )
+    solid = printed_solid(base, modules)
+    assert solid.is_watertight and solid.volume == pytest.approx(12.0 * 12.0 * 4.0)
+
+
+def chamfered_block(size: float, run: float | None = None, z0: float = 0.0, xy: float = 0.0) -> trimesh.Trimesh:
+    """Block 10 x 10 x 12 mm with its x=0 bottom edge chamfered: rise `size`, run `run` (default `size`, 45 deg).
+
+    Args:
+        size: Chamfer rise in mm.
+        run: Chamfer run in mm, defaults to `size`.
+        z0: Z offset of the block in mm.
+        xy: X and Y offset of the block in mm.
+
+    Returns:
+        The chamfered block mesh.
+    """
+    run = size if run is None else run
+    xs, zs = [0.0, 10.0], [0.0, 12.0]
+    pts = [(x + xy, y + xy, z0 + z) for x in xs for y in (0.0, 10.0) for z in zs if not (x == 0.0 and z == 0.0)]
+    pts += [(xy, y + xy, z0 + size) for y in (0.0, 10.0)] + [(run + xy, y + xy, z0) for y in (0.0, 10.0)]
+    return to_trimesh(Manifold.hull_points(np.array(pts)))
+
+
+@pytest.mark.parametrize("size", [0.1, 0.7, 1.1, 2.3, 3.7, 5.3])
+def test_print_violations_pass_exact_45_degree_chamfer(size: float) -> None:
+    assert print_violations(chamfered_block(size)) == []
+
+
+def test_print_violations_flag_44_degree_underside() -> None:
+    steep = chamfered_block(5.0, run=5.0 / math.tan(math.radians(44.0)))
+    assert any("overhang" in v for v in print_violations(steep))
+
+
+BOARD_OFFSETS = [(0.0, 200.0), (120.0, 0.0), (120.0, 200.0)]
+
+
+@pytest.mark.parametrize("size", [0.1, 1.1, 3.7])
+@pytest.mark.parametrize(("z0", "xy"), BOARD_OFFSETS)
+def test_print_violations_pass_exact_45_degree_chamfer_at_board_coordinates(size: float, z0: float, xy: float) -> None:
+    assert print_violations(chamfered_block(size, z0=z0, xy=xy)) == []
+
+
+@pytest.mark.parametrize(("z0", "xy"), BOARD_OFFSETS)
+def test_print_violations_flag_44_degree_underside_at_board_coordinates(z0: float, xy: float) -> None:
+    steep = chamfered_block(5.0, run=5.0 / math.tan(math.radians(44.0)), z0=z0, xy=xy)
+    assert any("overhang" in v for v in print_violations(steep))
+
+
+def test_print_violations_flag_raised_feature_bottom() -> None:
+    plate = box(0, 0, 0, 20, 20, 2)
+    floating_ledge = box(5, 5, 6, 15, 15, 8) + box(9, 9, 2, 11, 11, 6)  # stem carries a wide slab, bottom at z=6
+    assert any("overhang" in v for v in print_violations(to_trimesh(plate + floating_ledge)))
+
+
+def test_print_violations_use_bed_relative_to_bounds() -> None:
+    offset = to_trimesh(box(0, 0, 7.3, 10, 10, 11.3))
+    assert print_violations(offset) == []
+    ledge = to_trimesh(box(0, 0, 7.3, 4, 4, 17.3) + box(-6, 0, 15.3, 10, 4, 17.3))
+    assert any("overhang" in v for v in print_violations(ledge))
+
+
+@pytest.mark.parametrize(
+    ("mask", "corners"),
+    [
+        ([[True, False], [False, True]], [(1, 1)]),
+        ([[False, True], [True, False]], [(1, 1)]),
+        ([[True, True], [False, True]], []),
+        ([[True]], []),
+        (np.eye(3, dtype=bool).tolist(), [(1, 1), (2, 2)]),
+    ],
+    ids=["main-diagonal", "anti-diagonal", "l-shape", "single-cell", "eye3"],
+)
+def test_pinch_corners_are_the_diagonal_cell_contacts(mask: list[list[bool]], corners: list[tuple[int, int]]) -> None:
+    assert pinch_corners(np.array(mask, dtype=bool)) == corners
+
+
+def test_written_bodies_of_diagonal_cells_are_watertight(tmp_path: Path) -> None:
+    # Cells touching only at a corner edge pinch both bodies there; STL and 3MF readers merge coincident vertices,
+    # so the written bodies must have no pinch to stay watertight.
+    opts = StlOptions(base_thickness_mm=4.0, relief_mm=0.0, inlay_mm=1.2)
+    base, modules = mask_bodies(np.eye(4, dtype=bool), 2.0, (12.0, 12.0), (2.0, 2.0), opts)
+    write_bodies(base, modules, tmp_path / "eye")
+    read = read_bodies(tmp_path / "eye")
+    assert sorted(read) == ["3mf", "stl"]
+    for read_base, read_modules in read.values():
+        assert read_base.is_watertight and read_modules.is_watertight
+        assert read_base.body_count == 1 and read_modules.body_count == 1
+        assert np.allclose(read_base.bounds, base.bounds, atol=1e-4)
+        assert np.allclose(read_modules.bounds, modules.bounds, atol=1e-4)
+        solid = printed_solid(read_base, read_modules)
+        assert print_violations(solid) == []
+        assert solid.volume == pytest.approx(12.0 * 12.0 * 4.0)
+    assert modules.volume == pytest.approx(4 * 2.0 * 2.0 * 1.2, abs=1e-3)
+
+
+def test_written_marker_bodies_are_watertight(tmp_path: Path, v2_bodies) -> None:
+    _, _, base, modules = v2_bodies
+    write_bodies(base, modules, tmp_path / "marker")
+    for read_base, read_modules in read_bodies(tmp_path / "marker").values():
+        assert read_base.is_watertight and read_modules.is_watertight
+        assert print_violations(printed_solid(read_base, read_modules)) == []
+
+
+def split_tetrahedron() -> trimesh.Trimesh:
+    """A tetrahedron whose apex is two coincident vertices joined by two collapsed (zero-area) faces.
+
+    This is what a manifold3d boolean can leave: the mesh is closed by index, but a reader that merges coincident
+    vertices turns the two collapsed faces into degenerate ones and the edges at the apex into 3-face edges.
+    """
+    vertices = np.array([[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [0.0, 10.0, 0.0], [0.0, 0.0, 10.0], [0.0, 0.0, 10.0]])
+    faces = np.array([[0, 2, 1], [0, 1, 3], [1, 2, 4], [2, 0, 4], [1, 4, 3], [0, 3, 4]])
+    return trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
+
+
+def test_weld_merges_coincident_vertices_and_drops_collapsed_faces() -> None:
+    split = split_tetrahedron()
+    assert split.is_watertight
+    welded = weld(split)
+    assert welded.is_watertight
+    assert len(welded.vertices) == 4 and len(welded.faces) == 4
+    assert welded.volume == pytest.approx(split.volume) and welded.volume == pytest.approx(1000.0 / 6.0)
+    assert welded.vertices.dtype == np.float64
+
+
+def test_written_split_body_reads_back_watertight(tmp_path: Path) -> None:
+    write_bodies(split_tetrahedron(), to_trimesh(box(20, 0, 0, 22, 2, 2)), tmp_path / "split")
+    for read_base, read_modules in read_bodies(tmp_path / "split").values():
+        assert read_base.is_watertight and read_modules.is_watertight
+        assert read_base.volume == pytest.approx(1000.0 / 6.0)

@@ -17,6 +17,7 @@ from arm_collision.settings import (
 from pydantic import Field, PositiveFloat, field_validator, model_validator
 from ros2_common.battery import BatteryConfig
 from ros2_common.camera_geometry import MountPose
+from ros2_common.head_rgbd_calibration.board_lattice import MIN_SPACING_M
 from ros2_common.maps import COMMAND_TOPIC, RESULT_TOPIC, STATUS_TOPIC
 
 from .guard_rules import GuardRuleSettings
@@ -90,7 +91,9 @@ class ServerSettings(StrictModel):
 
 
 class CalibrationBoardSettings(StrictModel):
-    """The head calibration board on the gripper, for the board park (POST /admin/park_calibration_board).
+    """The ARM calibration board (6x5, 28 mm, with the handle) on the gripper, for the board park.
+
+    The board park is POST /admin/park_calibration_board.
 
     mcp_server owns this geometry: the caller sends only the board mount pose, which must lie within the tolerance of
     `mount_*`; the outline, the clearances and the floor height below are never taken from a request. Kept equal to
@@ -99,17 +102,48 @@ class CalibrationBoardSettings(StrictModel):
 
     squares_x: int = Field(default=6, ge=2)
     squares_y: int = Field(default=5, ge=2)
-    square_mm: float = Field(default=40.0, gt=0)
+    square_mm: float = Field(default=28.0, gt=0)
     thickness_mm: float = Field(default=4.0, gt=0)  # plate thickness behind the printed face
     outline_margin_m: float = Field(default=0.01, ge=0)  # plate margin beyond the outer squares
-    lattice_points: int = Field(default=5, ge=2)  # points per plate edge of the checked lattice
-    mount_xyz_m: tuple[float, float, float] = (-0.1665, 0.1938, -0.1181)  # board frame origin in gripper_link
-    mount_rpy_rad: tuple[float, float, float] = (3.141593, 0.0, 0.185886)  # fixed-axis xyz rotation
+    # Largest gap of the checked board lattice per axis (ros2_common board_lattice), <= margin_m.
+    lattice_spacing_m: float = Field(default=0.005, ge=MIN_SPACING_M)
+    mount_xyz_m: tuple[float, float, float] = (-0.0794, 0.187949, -0.118113)  # board frame origin in gripper_link
+    mount_rpy_rad: tuple[float, float, float] = (3.141593, 0.0, 0.0)  # fixed-axis xyz rotation
+    # Handle material beyond the plate, ((min), (max)) boxes in the board frame (mm): the edge handle's post, gusset
+    # and tab on the pattern side (z < 0) past the plate's bottom edge (markers/charuco-arm-6x5-28mm.json
+    # handle_envelope_mm).
+    handle_boxes_mm: list[tuple[tuple[float, float, float], tuple[float, float, float]]] = Field(
+        default_factory=lambda: [
+            ((71.5, 175.7, -42.0), (100.05, 200.3, -6.0)),
+            ((80.0, 145.7, -42.0), (88.0, 175.7, -6.0)),
+            ((34.0, 145.0, -6.0), (134.0, 200.3, 4.0)),
+        ]
+    )
     mount_tolerance_m: float = Field(default=0.03, gt=0)
     mount_tolerance_deg: float = Field(default=10.0, gt=0)
-    # Clearance of the board from every body obstacle: 0.005 margin + 0.05 hand-measured-mount allowance + 0.01 sag.
+    # Clearance of the board from every body obstacle: 0.005 margin + 0.05 CAD-seed-mount allowance + 0.01 sag.
     margin_m: float = Field(default=0.065, ge=0, le=0.3)
     min_height_m: float = Field(default=0.06, ge=0, le=0.5)  # lowest board point above the floor, sag included
+
+    @model_validator(mode="after")
+    def check_lattice(self) -> "CalibrationBoardSettings":
+        """Refuse a handle box with min not below max on an axis, and a lattice coarser than the margin.
+
+        Returns:
+            CalibrationBoardSettings: self.
+
+        Raises:
+            ValueError: A degenerate or inverted handle box, or lattice_spacing_m above margin_m.
+        """
+        for index, (low, high) in enumerate(self.handle_boxes_mm):
+            if any(lo >= hi for lo, hi in zip(low, high, strict=True)):
+                raise ValueError(f"handle_boxes_mm[{index}]: min {low} must be below max {high} on every axis")
+        if self.lattice_spacing_m > self.margin_m:
+            raise ValueError(
+                f"lattice_spacing_m {self.lattice_spacing_m} must not exceed margin_m {self.margin_m}: a point check "
+                "misses up to half a lattice cell diagonal"
+            )
+        return self
 
 
 class TopicSettings(StrictModel):

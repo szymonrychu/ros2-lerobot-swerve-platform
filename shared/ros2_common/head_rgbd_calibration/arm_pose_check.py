@@ -15,7 +15,10 @@ and obstacle at once. mcp_server keeps its own checks on top of this one.
 ChArUco corner keeps `d435_min_z_m` plus `d435_min_z_margin_m` of depth from the camera's optical frame (the D435
 depth min-Z, design D2) and projects inside the colour image of the camera_info. The corners lie on the printed face,
 the face the camera sees; the board's thickness is behind it, so it does not bring the corners nearer the camera.
-The collision checks use both faces (`board_points_local`).
+The collision checks use a lattice through the plate (`board_points_local`) and over the material beyond it, the edge
+handle's post, gusset and tab (`handle_box_points_local`, from `board_mount.handle_boxes_mm`), no gap wider than
+`board_spacing_m` <= `margin_m` (`board_lattice`): a point check misses at most half a cell diagonal of clearance, so
+the board rules compare against the board margin plus that bound (`lattice_miss_bound`) and keep the full margin.
 """
 
 import math
@@ -30,8 +33,14 @@ import yaml
 from pydantic import Field, model_validator
 
 from ros2_common.camera_geometry import CameraIntrinsics
+from ros2_common.head_rgbd_calibration.board_lattice import (
+    MIN_SPACING_M,
+    handle_box_lattice,
+    lattice_miss_bound,
+    plate_lattice,
+)
 from ros2_common.head_rgbd_calibration.chain import UrdfChain, arm_in_robot_base, parse_vec, pose_from_xyz_rpy
-from ros2_common.head_rgbd_calibration.charuco import board_corners_3d, board_outline
+from ros2_common.head_rgbd_calibration.charuco import board_corners_3d
 from ros2_common.head_rgbd_calibration.config import ARM_JOINT_NAMES, HeadArmFitConfig, StrictModel
 from ros2_common.head_rgbd_calibration.head_arm_fit import D435_COLOR_FRAME
 
@@ -146,7 +155,7 @@ class PoseCheckConfig(StrictModel):
     max_roll_gripper_rad: float = Field(default=0.8, gt=0)
     stretched_shoulder_lift_max_rad: float = 1.85
     path_step_rad: float = Field(default=0.05, gt=0)
-    board_grid: int = Field(default=5, ge=2)
+    board_spacing_m: float = Field(default=0.005, ge=MIN_SPACING_M)  # largest gap of the board lattice, <= margin_m
     d435_min_z_m: float = Field(default=D435_MIN_Z_M, ge=0)
     d435_min_z_margin_m: float = Field(default=D435_MIN_Z_MARGIN_M, ge=0)
 
@@ -154,6 +163,23 @@ class PoseCheckConfig(StrictModel):
     def check_crossbar(self) -> Self:
         if not any(box.name == CROSSBAR for box in self.body.boxes):
             raise ValueError(f"body.boxes must name the {CROSSBAR} (the head envelope stands on it)")
+        return self
+
+    @model_validator(mode="after")
+    def check_board_spacing(self) -> Self:
+        """Refuse a board lattice coarser than the margin (a point check misses up to half a cell diagonal).
+
+        Returns:
+            Self: self.
+
+        Raises:
+            ValueError: board_spacing_m above margin_m.
+        """
+        if self.board_spacing_m > self.margin_m:
+            raise ValueError(
+                f"board_spacing_m {self.board_spacing_m} must not exceed margin_m {self.margin_m}: a point check "
+                "misses up to half a lattice cell diagonal"
+            )
         return self
 
 
@@ -367,26 +393,41 @@ def point_segment_distances(points: np.ndarray, a: np.ndarray, b: np.ndarray) ->
     return np.linalg.norm(points - (a + t[:, None] * d), axis=1)
 
 
-def board_points_local(fit: HeadArmFitConfig, grid: int) -> np.ndarray:
-    """Board outline corners plus a grid x grid lattice over the outline, in gripper_link, on both plate faces.
+def board_points_local(fit: HeadArmFitConfig, max_spacing_m: float) -> np.ndarray:
+    """A lattice over the plate (outline incl. margin, printed face to plate back), in gripper_link.
 
     The printed face is at board z = 0 and the plate's back face `fit.board.thickness_mm` behind it (+z, away from
     the camera), so the points span the real board volume.
 
     Args:
         fit: Fit config (`board` incl. thickness_mm, `board_mount` xyz_init/rpy_init/outline_margin_m).
-        grid: Points per board edge.
+        max_spacing_m: Largest gap between neighbouring points per axis (m).
 
     Returns:
-        np.ndarray: (2 * (4 + grid * grid), 3) points (m): the front face, then the back face.
+        np.ndarray: (N, 3) points (m), `board_lattice.plate_lattice` mounted.
     """
-    outline = board_outline(fit.board, fit.board_mount.outline_margin_m)
-    xs = np.linspace(outline[:, 0].min(), outline[:, 0].max(), grid)
-    ys = np.linspace(outline[:, 1].min(), outline[:, 1].max(), grid)
-    lattice = np.array([[x, y, 0.0] for y in ys for x in xs])
-    front = np.vstack([outline, lattice])
-    back = front + np.array([0.0, 0.0, fit.board.thickness_mm / MM_PER_M])
-    return mounted(fit, np.vstack([front, back]))
+    board = fit.board
+    local = plate_lattice(
+        board.squares_x * board.square_mm / MM_PER_M,
+        board.squares_y * board.square_mm / MM_PER_M,
+        fit.board_mount.outline_margin_m,
+        board.thickness_mm / MM_PER_M,
+        max_spacing_m,
+    )
+    return mounted(fit, local)
+
+
+def handle_box_points_local(fit: HeadArmFitConfig, max_spacing_m: float) -> np.ndarray:
+    """A lattice over each box of `fit.board_mount.handle_boxes_mm`, in gripper_link.
+
+    Args:
+        fit: Fit config (`board_mount` xyz_init/rpy_init/handle_boxes_mm).
+        max_spacing_m: Largest gap between neighbouring points per axis (m).
+
+    Returns:
+        np.ndarray: (N, 3) points (m), box by box; (0, 3) without boxes.
+    """
+    return mounted(fit, handle_box_lattice(fit.board_mount.handle_boxes_mm, max_spacing_m))
 
 
 def mounted(fit: HeadArmFitConfig, points: np.ndarray) -> np.ndarray:
@@ -427,9 +468,11 @@ class PoseChecker:
                 check its camera frames).
             fit: Head-from-arm fit config: joint offsets, arm base in base_link, board and its mount.
             cfg: Pose check settings.
-            board_margin_m: Clearance the board points keep from the obstacles and the arm links (m); None uses
-                `cfg.margin_m`. The arm sequence passes `margin_m + provisional_margin_m` for the estimated
-                board mount (design D47): the mount uncertainty moves the board, not the arm links.
+            board_margin_m: Clearance the board keeps from the obstacles and the arm links (m); None uses
+                `cfg.margin_m`. The arm sequence passes `margin_m + provisional_margin_m` for the estimated board
+                mount (design D47): the mount uncertainty moves the board, not the arm links. The board points are
+                compared against it plus `lattice_miss_bound(cfg.board_spacing_m)` (`board_threshold_m`), so the
+                margin holds for the true board surface, not only for the lattice points.
 
         Raises:
             ValueError: `board_margin_m` is negative.
@@ -441,10 +484,13 @@ class PoseChecker:
         self.fit = fit
         self.cfg = cfg
         self.board_margin_m = cfg.margin_m if board_margin_m is None else board_margin_m
+        self.board_threshold_m = self.board_margin_m + lattice_miss_bound(cfg.board_spacing_m)
         self.base = arm_in_robot_base(fit.base_in_base_link.model_dump())
         self.envelope = head_envelope(head_urdf, cfg)
         self.obstacles = ObstacleSet(list(cfg.body.boxes), [*cfg.body.cylinders, self.envelope])
-        self.board_local = board_points_local(fit, cfg.board_grid)
+        self.board_local = np.vstack(
+            [board_points_local(fit, cfg.board_spacing_m), handle_box_points_local(fit, cfg.board_spacing_m)]
+        )
         self.corners_local = mounted(fit, board_corners_3d(fit.board))
         self.limits = {name: self.chain.limits(name) for name in (*ARM_JOINT_NAMES, GRIPPER_JOINT)}
 
@@ -465,7 +511,7 @@ class PoseChecker:
         return self.link_poses(joints)[TOOL_LINK][:3, 3]
 
     def board_points(self, joints: Mapping[str, float]) -> np.ndarray:
-        """Board outline and grid points of both plate faces in base_link (m), (2 * (4 + board_grid^2), 3)."""
+        """Board plate lattice, then the handle box lattices, in base_link (m)."""
         gripper = self.link_poses(joints)[BOARD_LINK]
         return self.board_local @ gripper[:3, :3].T + gripper[:3, 3]
 
@@ -515,9 +561,10 @@ class PoseChecker:
         if board_z < cfg.min_board_height_m:
             entries.append(f"min_board_height_m: board point height {mm(board_z)} < {mm(cfg.min_board_height_m)}")
         margin = f"margin_m {mm(cfg.margin_m)}"
-        board_margin = f"board_margin_m {mm(self.board_margin_m)}"
+        miss = mm(self.board_threshold_m - self.board_margin_m)
+        board_margin = f"board_margin_m {mm(self.board_margin_m)} + lattice miss bound {miss}"
         for name, clearance in zip(self.obstacles.names, self.obstacles.distances(board).min(axis=0), strict=True):
-            if clearance < self.board_margin_m:
+            if clearance < self.board_threshold_m:
                 entries.append(f"board_clearance: board to {name} clearance {mm(clearance)} < {board_margin}")
         starts = np.array([poses[start][:3, 3] for _, start, _ in CAPSULES])
         ends = np.array([poses[end][:3, 3] for _, _, end in CAPSULES])
@@ -532,7 +579,7 @@ class PoseChecker:
             if part not in BOARD_LINK_PARTS:
                 continue
             clearance = float(point_segment_distances(board, start, end).min()) - cfg.link_radius_m
-            if clearance < self.board_margin_m:
+            if clearance < self.board_threshold_m:
                 entries.append(f"board_link_clearance: board to {part} clearance {mm(clearance)} < {board_margin}")
         return entries
 

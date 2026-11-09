@@ -10,11 +10,13 @@ from pydantic import Field, field_validator, model_validator
 from ros2_common.head_rgbd_calibration.arm_pose_check import PoseCheckConfig
 from ros2_common.head_rgbd_calibration.config import (
     ARM_JOINT_NAMES,
+    FULL_BOARD,
     BoardConfig,
     BoardMountConfig,
     FloorFitConfig,
     HeadArmFitConfig,
     LimitsConfig,
+    PlateMountConfig,
     SelectionConfig,
     StrictModel,
 )
@@ -75,13 +77,24 @@ MAX_FLOOR_TILT_DEG = 45.0
 DEFAULT_ROBOT_MCP_URL = "http://127.0.0.1:18200/mcp"
 DEFAULT_ROBOT_TOKEN_FILE = "/etc/ros2/mcp_server/token"
 DEFAULT_ROBOT_BOARD_PARK_TOKEN_FILE = "/etc/ros2/mcp_server/board_park_token"
-# Board mount on a stick in the closed gripper as measured by the user 2026-10-23, not fit-solved (design D47): the
-# board plane across the tool axis (gripper_link z) 2 cm past the URDF tool point (gripper_frame_joint origin
-# (-0.0079, -0.000218, -0.0981) in gripper_link), the print toward the arm, the centre 0.12 m above the tool axis on
-# the side that is up at the parked arm (gripper_link (-0.185, 0.983, 0)), the long edges level there. The fit
-# solves the real mount from this start value.
-NOMINAL_BOARD_XYZ = (-0.1665, 0.1938, -0.1181)
-NOMINAL_BOARD_RPY = (3.141593, 0.0, 0.185886)
+# ARM board mount in gripper_link from the handle CAD (markers/charuco-arm-6x5-28mm.json board_mount and
+# handle_in_board, 6 decimals): a CAD seed, not fit-solved. The fit refines the real mount from this start value.
+CAD_BOARD_XYZ = (-0.0794, 0.187949, -0.118113)
+CAD_BOARD_RPY = (3.141593, 0.0, 0.0)
+CAD_TOOL_IN_BOARD_M = (
+    0.0705,
+    0.193767,
+    -0.021386,
+)  # jaw-tip tool point in the board frame (handle_in_board.tool_point_m)
+# ARM board handle material beyond its plate, ((min), (max)) boxes in the board frame (mm, pattern at z = 0, back at
+# z = 4) for the pose check: the edge handle's post, its gusset and the tab (user m540,
+# markers/charuco-arm-6x5-28mm.json handle_envelope_mm), on the pattern side up to the post top 42 mm above the
+# pattern face, past the bottom edge.
+CAD_HANDLE_BOXES_MM = (
+    ((71.5, 175.7, -42.0), (100.05, 200.3, -6.0)),
+    ((80.0, 145.7, -42.0), (88.0, 175.7, -6.0)),
+    ((34.0, 145.0, -6.0), (134.0, 200.3, 4.0)),
+)
 WRIST_ROLL = "wrist_roll"
 WRIST_FLEX = "wrist_flex"
 BIG_JOINTS = ("elbow_flex", "shoulder_lift", "shoulder_pan")
@@ -90,7 +103,14 @@ POSE_TOLERANCE_RAD = 1e-9
 # (shoulder_pan, shoulder_lift, elbow_flex, wrist_flex, wrist_roll) rad. The base pose holds the board about 0.34 m in
 # front of the head camera, lifted to the camera height and forward of the body; each tier steps in short transits.
 DEFAULT_BASE_POSE = (-0.12, 0.3, 0.0, -0.5, 0.0)
-DEFAULT_GRIPPER_RAD = 0.4
+DEFAULT_INSERT_GRIPPER_RAD = 0.4  # gripper opening while the handle is inserted (half open)
+# Handle grip (markers/charuco-arm-6x5-28mm.json grip, mass_g): the jaw angle at first contact on the handle, the
+# squeeze past it (inside the mcp_server gripper converge tolerance), and the board mass.
+DEFAULT_HANDLE_CONTACT_RAD = 0.070279
+DEFAULT_HANDLE_SQUEEZE_RAD = 0.02
+# mcp_server limits.converge_tolerance_for("gripper"): a grip residual at or above it is relaxed to the measured pose.
+DEFAULT_GRIP_CONVERGE_TOLERANCE_RAD = 0.03
+DEFAULT_BOARD_MASS_G = 211.72779
 # The parked arm: scripts/gen_nav_footprint.yaml parked_arm_joints (the mcp_server home), the target of a park with the
 # board on (a test pins the two equal).
 DEFAULT_PARK_POSE = (-0.003, -1.35, 1.578, -0.1, -1.637)
@@ -322,8 +342,20 @@ def joint_name_errors(pose: dict[str, float], where: str) -> list[str]:
 
 
 def default_fit() -> HeadArmFitConfig:
-    """Head-from-arm fit defaults with the user-measured board mount (stick in the closed gripper) as the start."""
-    return HeadArmFitConfig(board_mount=BoardMountConfig(xyz_init=NOMINAL_BOARD_XYZ, rpy_init=NOMINAL_BOARD_RPY))
+    """Head-from-arm fit defaults with the ARM board mount from the handle CAD as the start.
+
+    Returns:
+        HeadArmFitConfig: Fit config whose `board_mount` and `plate_mount` start at the CAD mount, the plate rotation
+            fixed to the CAD rotation and `tool_in_board_m` the CAD jaw-tip offset.
+    """
+    return HeadArmFitConfig(
+        board_mount=BoardMountConfig(
+            xyz_init=CAD_BOARD_XYZ, rpy_init=CAD_BOARD_RPY, handle_boxes_mm=list(CAD_HANDLE_BOXES_MM)
+        ),
+        plate_mount=PlateMountConfig(
+            xyz_init=CAD_BOARD_XYZ, rpy_init=CAD_BOARD_RPY, rpy=CAD_BOARD_RPY, tool_in_board_m=CAD_TOOL_IN_BOARD_M
+        ),
+    )
 
 
 class ArmSequenceConfig(StrictModel):
@@ -331,18 +363,27 @@ class ArmSequenceConfig(StrictModel):
 
     Tier 0 poses differ from `base_pose` only in wrist_roll (within `max_roll_delta_rad`), tier 1 also in wrist_flex
     (within `max_flex_delta_rad`), tier 2 also in elbow_flex, shoulder_lift and shoulder_pan (each within
-    `max_big_delta_rad`). `gripper_rad` is sent once with the base pose and is at most the half-open
-    `pose_check.max_roll_gripper_rad`. `head_offsets_deg` are (pan, tilt) offsets added to the aimed head angles,
-    one view each. `provisional_margin_m` is added to `pose_check.margin_m` for the board points while the board
-    mount is the shipped hand-measured start (not fit-solved). `park_pose` is the parked arm a park with the board on
-    drives to (path-checked first); `park_board_sag_margin_m` is added to the board floor, body and head clearances
-    of that check, because the board sags below FK under its weight (about 4 mm measured, 214 g).
-    `board_record_max_age_s` is the oldest board-clipped record a node start still offers to the user (older ones are
-    ignored and logged).
+    `max_big_delta_rad`). `insert_gripper_rad` is sent once with the base pose and is at most the half-open
+    `pose_check.max_roll_gripper_rad`. `handle_contact_rad` is the gripper angle at first contact on the ARM board
+    handle, `handle_squeeze_rad` the squeeze past it (`grip_rad` is the commanded grip), `board_mass_g` the board mass.
+    `grip_converge_tolerance_rad` is the mcp_server gripper converge tolerance: mcp_server holds a residual below it, but
+    relaxes a larger one to the measured pose after `arm_settle_hold_s`, which leaves the clamp slack, so a measured jaw
+    at or above `grip_rad + grip_converge_tolerance_rad` after the close is refused (the squeeze must stay below it).
+    `head_offsets_deg` are (pan, tilt) offsets added to the aimed head angles, one view each. `provisional_margin_m`
+    is added to `pose_check.margin_m` for the board points while the board mount is the shipped CAD seed (not
+    fit-solved). `park_pose` is the parked arm a park with the board on drives to (path-checked first);
+    `park_board_sag_margin_m` is added to the board floor, body and head clearances of that check, because the board
+    sags below FK under its weight (about 4 mm measured with the 214 g stick-mounted board; the ARM board's
+    `board_mass_g` is lighter, so the same margin is conservative). `board_record_max_age_s` is the oldest
+    board-attached record a node start still offers to the user (older ones are ignored and logged).
     """
 
     base_pose: dict[str, float] = Field(default_factory=lambda: arm_pose(DEFAULT_BASE_POSE))
-    gripper_rad: float = DEFAULT_GRIPPER_RAD
+    insert_gripper_rad: float = DEFAULT_INSERT_GRIPPER_RAD
+    handle_contact_rad: float = DEFAULT_HANDLE_CONTACT_RAD
+    handle_squeeze_rad: float = Field(default=DEFAULT_HANDLE_SQUEEZE_RAD, gt=0)
+    grip_converge_tolerance_rad: float = Field(default=DEFAULT_GRIP_CONVERGE_TOLERANCE_RAD, gt=0)
+    board_mass_g: float = Field(default=DEFAULT_BOARD_MASS_G, gt=0)
     tier0_poses: list[dict[str, float]] = Field(default_factory=lambda: [arm_pose(p) for p in DEFAULT_TIER0_POSES])
     tier1_poses: list[dict[str, float]] = Field(default_factory=lambda: [arm_pose(p) for p in DEFAULT_TIER1_POSES])
     tier2_poses: list[dict[str, float]] = Field(default_factory=lambda: [arm_pose(p) for p in DEFAULT_TIER2_POSES])
@@ -361,13 +402,32 @@ class ArmSequenceConfig(StrictModel):
     park_board_sag_margin_m: float = Field(default=DEFAULT_PARK_BOARD_SAG_MARGIN_M, ge=0)
     board_record_max_age_s: float = Field(default=DEFAULT_BOARD_RECORD_MAX_AGE_S, gt=0)
 
+    @property
+    def grip_rad(self) -> float:
+        """Commanded gripper angle on the handle.
+
+        Returns:
+            float: `handle_contact_rad - handle_squeeze_rad`, rad.
+        """
+        return self.handle_contact_rad - self.handle_squeeze_rad
+
     @model_validator(mode="after")
     def check_poses(self) -> Self:
         errors = joint_name_errors(self.base_pose, "base_pose") + joint_name_errors(self.park_pose, "park_pose")
-        if self.gripper_rad > self.pose_check.max_roll_gripper_rad:
+        if self.insert_gripper_rad > self.pose_check.max_roll_gripper_rad:
             errors.append(
-                f"gripper_rad {self.gripper_rad:g} exceeds pose_check.max_roll_gripper_rad "
+                f"insert_gripper_rad {self.insert_gripper_rad:g} exceeds pose_check.max_roll_gripper_rad "
                 f"{self.pose_check.max_roll_gripper_rad:g} (half open)"
+            )
+        if self.handle_squeeze_rad >= self.handle_contact_rad:
+            errors.append(
+                f"handle_squeeze_rad {self.handle_squeeze_rad:g} must be below handle_contact_rad "
+                f"{self.handle_contact_rad:g} (grip_rad must stay positive)"
+            )
+        if self.handle_squeeze_rad >= self.grip_converge_tolerance_rad:
+            errors.append(
+                f"handle_squeeze_rad {self.handle_squeeze_rad:g} must be below grip_converge_tolerance_rad "
+                f"{self.grip_converge_tolerance_rad:g} (a seated handle would be refused as a slack grip)"
             )
         if errors:
             raise ValueError("; ".join(errors))
@@ -400,7 +460,7 @@ class ArmSequenceConfig(StrictModel):
         """Clearance the board points keep (`PoseChecker(board_margin_m=...)`).
 
         Args:
-            nominal_mount: True when `fit.board_mount` is the shipped hand-measured start.
+            nominal_mount: True when `fit.board_mount` is the shipped CAD seed.
 
         Returns:
             float: `pose_check.margin_m`, plus `provisional_margin_m` for the shipped mount (m).
@@ -431,7 +491,7 @@ class NodeConfig(StrictModel):
     restart_check_s: float = Field(default=DEFAULT_RESTART_CHECK_S, gt=0)
     thumbnail_width_px: int = Field(default=DEFAULT_THUMBNAIL_WIDTH_PX, ge=1)
     coverage: CoverageConfig = Field(default_factory=CoverageConfig)
-    board: BoardConfig = Field(default_factory=BoardConfig)
+    board: BoardConfig = FULL_BOARD
     selection: D435SelectionConfig = Field(default_factory=D435SelectionConfig)
     limits: D435LimitsConfig = Field(default_factory=D435LimitsConfig)
     floor: FloorSweepConfig = Field(default_factory=FloorSweepConfig)
@@ -451,12 +511,15 @@ class NodeConfig(StrictModel):
         return cameras
 
     @model_validator(mode="after")
-    def check_fit_board(self) -> Self:
-        if self.fit.board != self.board:
-            raise ValueError(
-                f"fit.board {self.fit.board.model_dump()} differs from board {self.board.model_dump()}: "
-                "the fit must use the printed board"
-            )
+    def check_board_ids(self) -> Self:
+        for role, other in (("fit.board", self.fit.board), ("fit.plate", self.fit.plate)):
+            shared = set(self.board.marker_ids) & set(other.marker_ids)
+            if shared:
+                raise ValueError(
+                    f"board {self.board.name} ids {self.board.marker_ids.start}-{self.board.marker_ids.stop - 1} "
+                    f"overlap {role} {other.name} ids {other.marker_ids.start}-{other.marker_ids.stop - 1}: "
+                    "the boards need disjoint marker ids"
+                )
         return self
 
 

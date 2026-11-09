@@ -9,13 +9,14 @@ from pathlib import Path
 import cv2
 import numpy as np
 from ros2_common.head_rgbd_calibration.charuco import Detection, detect, make_board
-from ros2_common.head_rgbd_calibration.config import BoardConfig
+from ros2_common.head_rgbd_calibration.config import ARM_BOARD, FULL_BOARD
 from ros2_common.head_rgbd_calibration.frames import CameraInfoData, StampedImage
 
 from head_rgbd_calibration.store import ColourDepthStill
 
 SYNTHETIC_FILE = Path(__file__).resolve().parents[3] / "tests" / "rgbd_synthetic.py"
-BOARD_CFG = BoardConfig()
+BOARD_CFG = FULL_BOARD
+BOARDS = {board.name: board for board in (FULL_BOARD, ARM_BOARD)}  # by name: the rendered views are cached
 STAMP_NS = 1_700_000_000_000_000_000
 RGB_SIZE = (576, 324)
 
@@ -33,12 +34,22 @@ def load_synthetic():
 
 
 @cache
-def synthetic_view(distance_m: float, seed: int) -> tuple[np.ndarray, np.ndarray]:
-    """Rendered BGR colour frame and its aligned depth (uint16 mm, 0 off the board) of the board at distance_m."""
+def synthetic_view(distance_m: float, seed: int, board_name: str = BOARD_CFG.name) -> tuple[np.ndarray, np.ndarray]:
+    """Rendered BGR colour frame and its aligned depth (uint16 mm, 0 off the board) of a board at distance_m.
+
+    Args:
+        distance_m: Board centre distance from the camera (m).
+        seed: Render noise seed.
+        board_name: Name of the rendered board (FULL_BOARD or ARM_BOARD); the intrinsics board by default.
+
+    Returns:
+        tuple[np.ndarray, np.ndarray]: BGR colour frame and aligned depth (uint16 mm).
+    """
     syn = load_synthetic()
     camera = syn.rgb_camera()
-    pose = syn.centred_pose(BOARD_CFG, syn.rotation(8, -6, 3), np.array([0.0, 0.0, distance_m]))
-    return syn.render_rgb(camera, pose, BOARD_CFG, seed=seed), syn.render_depth(camera, pose, BOARD_CFG)
+    board = BOARDS[board_name]
+    pose = syn.centred_pose(board, syn.rotation(8, -6, 3), np.array([0.0, 0.0, distance_m]))
+    return syn.render_rgb(camera, pose, board, seed=seed), syn.render_depth(camera, pose, board)
 
 
 def factory_info(k: np.ndarray | None = None) -> CameraInfoData:

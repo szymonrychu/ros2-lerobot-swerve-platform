@@ -6,6 +6,7 @@ import { CalibratePage } from './CalibratePage'
 import { ARM_POLL_MS } from './HeadArmCalibration'
 import stateFx from '../../../../head_rgbd_calibration/tests/fixtures/api/head_arm_state.json'
 import applyFx from '../../../../head_rgbd_calibration/tests/fixtures/api/floor_apply.json'
+import rgbdStateFx from '../../../../head_rgbd_calibration/tests/fixtures/api/state.json'
 import * as api from './headArmApi'
 import type { ArmResult, HeadArmSequence } from './headArmApi'
 import type { AppliedHeadChain } from './headFloorApi'
@@ -22,6 +23,22 @@ const seq = (over: Partial<HeadArmSequence>): HeadArmSequence => ({
   ...over,
 })
 const ok = <T,>(value: T) => ({ ok: true as const, value })
+const MODELS = {
+  files: [
+    { name: 'charuco-6x5-40mm.pdf', size: 1, url: '/models/charuco-6x5-40mm.pdf' },
+    { name: 'charuco-arm-6x5-28mm.3mf', size: 1, url: '/models/charuco-arm-6x5-28mm.3mf' },
+    { name: 'charuco-arm-6x5-28mm.pdf', size: 1, url: '/models/charuco-arm-6x5-28mm.pdf' },
+  ],
+}
+/** BoardNeeded fetches the node state (with its boards) and the served model files. */
+function stubBoardFetch(): void {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string) =>
+      new Response(JSON.stringify(url === '/api/models' ? MODELS : rgbdStateFx), { status: url === '/api/models' || url === '/api/calibration/rgbd/state' ? 200 : 404 }),
+    ),
+  )
+}
 const SESSION = { id: 'calib-20261031-110000', created: 'x', views: 60, arm_poses: 20, results: [] as string[] }
 const APPLIED = stateFx.applied as AppliedHeadChain
 const DEG = Math.PI / 180
@@ -76,10 +93,12 @@ async function open(): Promise<void> {
 
 beforeEach(() => {
   vi.resetAllMocks()
+  stubBoardFetch()
 })
 afterEach(() => {
   cleanup()
   vi.useRealTimers()
+  vi.unstubAllGlobals()
 })
 
 describe('ArmCalibration', () => {
@@ -96,13 +115,20 @@ describe('ArmCalibration', () => {
     expect(screen.getByRole('button', { name: 'Start' })).toBeTruthy()
   })
 
+  it('names the ARM board it needs with its PDF and 3MF downloads', async () => {
+    setState(seq({}))
+    await open()
+    expect(await screen.findByText(/ARM board: charuco-arm-6x5-28mm, 6x5 squares of 28 mm/)).toBeTruthy()
+    expect(screen.getByRole('link', { name: /3MF/ }).getAttribute('href')).toBe('/models/charuco-arm-6x5-28mm.3mf')
+  })
+
   it('start runs wrist and elbow tiers', async () => {
     vi.useFakeTimers()
     setState(seq({}))
     m.moveToBase.mockResolvedValue(ok(seq({ running: true, phase: 'moving_to_base' })))
     m.boardAttached.mockResolvedValue(ok(seq({ running: true, phase: 'capturing', tier: 0 })))
     await open()
-    expect(screen.getByText(/board off the floor, clipped to the fixed jaw/)).toBeTruthy()
+    expect(screen.getByText(/ARM board seated in the jaws up to the shoulder/)).toBeTruthy()
     await click('Start')
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(m.moveToBase).toHaveBeenCalledWith(true)

@@ -20,7 +20,7 @@ from ros2_common.head_rgbd_calibration.chain import UrdfChain, arm_in_robot_base
 from ros2_common.head_rgbd_calibration.charuco import MIN_CORNERS, Detection, board_corners_3d
 from ros2_common.head_rgbd_calibration.config import (
     DEFAULT_JOINT_OFFSETS_RAD,
-    BoardConfig,
+    FULL_BOARD,
     BoardMountConfig,
     HeadArmFitConfig,
     PlateMountConfig,
@@ -68,11 +68,6 @@ SYNTH_CAMERA_MATRIX = np.array([[440.0, 0.0, 288.0], [0.0, 440.0, 162.0], [0.0, 
 SYNTH_DIST = np.zeros(5)
 TOOL_POINT = (-0.0079, -0.000218121, -0.0981274)
 BOARD_STANDOFF_M = 0.02
-TOOL_AXIS = (0.0, 0.0, -1.0)  # tool direction in gripper_link (gripper_frame_joint lies along -z)
-# The user's mount (2026-10-23): the 250 x 210 mm sheet glued at the middle of its lower long edge to a stick held in
-# the closed gripper; the lower edge this far above the tool axis when parked (the stick offset).
-BOARD_OUTER_HEIGHT_M = 0.21
-BOARD_EDGE_ABOVE_AXIS_M = 0.015
 MIN_FACING_COS = 0.2
 # Board centre about 0.37 m in front of the D435 colour camera, lifted to about the camera height, clear of the body.
 BASE_ARM_POSE = {
@@ -124,7 +119,7 @@ DEFAULT_HEAD_OFFSETS_DEG: list[tuple[float, float]] = [(0.0, 0.0), (10.0, 0.0), 
 # Arm offsets scenes (plate_scene, floor_scene).
 DEPTH_FRAME = "d435_depth_optical_frame"
 GRIPPER_FRAME_LINK = "gripper_frame_link"
-PLATE_BOARD = BoardConfig()  # the rigid 6x5 ChArUco board
+PLATE_BOARD = FULL_BOARD  # the rigid 6x5 ChArUco board
 # True offsets minus the current ones (DEFAULT_JOINT_OFFSETS_RAD) of the free joints (rad).
 PLATE_OFFSET_CHANGES = {"shoulder_lift": 0.03, "elbow_flex": -0.04, "wrist_flex": 0.05}
 # The synthetic recorded wrist_roll neutral (rad): the fixed wrist_roll offset of the default (no CAD rotation) mode.
@@ -243,47 +238,6 @@ def nominal_board_mount(cfg: HeadArmFitConfig) -> tuple[tuple[float, float, floa
     return xyz_rpy_from_pose(pose)
 
 
-def park_up_in_gripper(cfg: HeadArmFitConfig, park_pose: dict[str, float]) -> np.ndarray:
-    """Unit vector in gripper_link, normal to the tool axis, that points up (base_link +z) at the parked arm.
-
-    Args:
-        cfg: Fit config (`joint_offsets_rad`; the arm base is only yawed in base_link, so its z is up).
-        park_pose: Measured (follower) joints of the parked arm (rad).
-
-    Returns:
-        np.ndarray: (3,) unit vector in gripper_link.
-    """
-    gripper = UrdfChain.from_text(synth_arm_urdf()).transform(GRIPPER_LINK, park_pose, offsets=cfg.joint_offsets_rad)
-    axis = np.array(TOOL_AXIS)
-    up = gripper[:3, :3].T @ np.array([0.0, 0.0, 1.0])
-    up -= (up @ axis) * axis
-    return up / np.linalg.norm(up)
-
-
-def measured_board_mount(
-    cfg: HeadArmFitConfig, park_pose: dict[str, float]
-) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
-    """The user's board mount: the plane across the tool axis `BOARD_STANDOFF_M` past the gripper_frame_link point,
-    the print (board -z) toward the arm, the long edges level and board y down when parked, the centre
-    `BOARD_EDGE_ABOVE_AXIS_M` plus half `BOARD_OUTER_HEIGHT_M` above the tool axis on the side up when parked.
-
-    Args:
-        cfg: Fit config (board geometry, joint offsets).
-        park_pose: Measured (follower) joints of the parked arm (rad), which define "up".
-
-    Returns:
-        tuple[xyz, rpy]: Board frame origin (m) and fixed-axis rotation (rad) in gripper_link.
-    """
-    axis = np.array(TOOL_AXIS)
-    up = park_up_in_gripper(cfg, park_pose)
-    rotation = np.column_stack([np.cross(-up, axis), -up, axis])
-    centre = np.array(TOOL_POINT) + BOARD_STANDOFF_M * axis + (BOARD_EDGE_ABOVE_AXIS_M + BOARD_OUTER_HEIGHT_M / 2) * up
-    pose = np.eye(4)
-    pose[:3, :3] = rotation
-    pose[:3, 3] = centre - rotation @ board_centre(cfg.board)
-    return xyz_rpy_from_pose(pose)
-
-
 def perturbed_board_mount(
     xyz: tuple[float, float, float], rpy: tuple[float, float, float], shift_m: float, turn_deg: float
 ) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
@@ -378,14 +332,15 @@ def synth_truth(
         deltas: Per head_arm_fit.PARAM_NAMES entry the change from the URDF value (m or deg); `SYNTH_TRUTH_DELTAS`
             when None.
         extra: Further origin overrides (e.g. a head_pan origin), applied after `deltas`.
-        cfg: Fit config whose board geometry places the nominal mount; the default config when None.
+        cfg: Fit config whose board geometry places the nominal mount; a config with the 40 mm FULL_BOARD (the
+            synthetic scenes' board) when None.
         mount: Board mount (xyz m, rpy rad) in gripper_link; `nominal_board_mount` when None.
         pan_axis_m: Pan axis shift (x, y) in head_pan_base (m), the head kept in place at pan 0 (`moved_pan_axis`).
 
     Returns:
         HeadArmTruth: The truth.
     """
-    xyz, rpy = mount or nominal_board_mount(cfg or HeadArmFitConfig())
+    xyz, rpy = mount or nominal_board_mount(cfg or HeadArmFitConfig(board=FULL_BOARD))
     moved = perturbed_origins(head_urdf, SYNTH_TRUTH_DELTAS if deltas is None else deltas)
     axis = moved_pan_axis(head_urdf, *pan_axis_m)
     tilt = moved[TILT_JOINT]
@@ -395,7 +350,8 @@ def synth_truth(
 
 
 def synth_fit_config(**overrides: object) -> HeadArmFitConfig:
-    """Fit config whose board mount start is `MOUNT_INIT_SHIFT_M` / `MOUNT_INIT_TURN_DEG` off the nominal (truth)
+    """Fit config of the 40 mm FULL_BOARD (the synthetic scenes' board, pinned explicitly since the default fit board
+    is the ARM board) whose board mount start is `MOUNT_INIT_SHIFT_M` / `MOUNT_INIT_TURN_DEG` off the nominal (truth)
     mount, the floor prior off (`floor_prior_weight` 0) unless overridden.
 
     Args:
@@ -404,9 +360,11 @@ def synth_fit_config(**overrides: object) -> HeadArmFitConfig:
     Returns:
         HeadArmFitConfig: The config.
     """
-    xyz, rpy = perturbed_board_mount(*nominal_board_mount(HeadArmFitConfig()), MOUNT_INIT_SHIFT_M, MOUNT_INIT_TURN_DEG)
+    xyz, rpy = perturbed_board_mount(
+        *nominal_board_mount(HeadArmFitConfig(board=FULL_BOARD)), MOUNT_INIT_SHIFT_M, MOUNT_INIT_TURN_DEG
+    )
     # The scenes move the truth away from the applied floor values, so the floor prior is off unless asked for.
-    fields: dict[str, object] = {"floor_prior_weight": 0.0, **overrides}
+    fields: dict[str, object] = {"board": FULL_BOARD, "floor_prior_weight": 0.0, **overrides}
     return HeadArmFitConfig(board_mount=BoardMountConfig(xyz_init=xyz, rpy_init=rpy), **fields)
 
 

@@ -40,13 +40,15 @@ thumbnail_width_px: 320
 coverage:
   cols: 4 # 3..6
   rows: 3 # 2..4
-# ChArUco board; must equal the charuco block of scripts/markers_generate.yaml (the printed board).
+# ChArUco board; must equal the charuco-6x5-40mm board of scripts/markers_generate.yaml (the printed board).
 board:
+  name: charuco-6x5-40mm
   squares_x: 6
   squares_y: 5
   square_mm: 40.0
   marker_mm: 30.0
   dictionary: DICT_5X5_100
+  ids_offset: 0
   thickness_mm: 4.0 # plate thickness behind the printed face
 # Still-frame selection of the D435 check: a colour + aligned depth pair is still when every consecutive pair over
 # still_window_s differs by less than both MADs.
@@ -112,26 +114,29 @@ still:
   joint_still_rad: 0.002 # each of the seven joints moves less than this over the window, rad (> 0)
   max_joint_dt_s: 0.1 # joint samples must be this close to the frame stamp, s (> 0)
   timeout_s: 6.0 # give up waiting for stillness after this, s (> 0)
-# Head-from-arm fit (shared core); fit.board must equal board.
+# Head-from-arm fit (shared core); fit.board is the ARM board, board the FULL board (intrinsics).
 fit:
-  board: # the printed ChArUco board, equal to board above
+  board: # the ARM board (the one with the handle), disjoint marker ids from board
+    name: charuco-arm-6x5-28mm
     squares_x: 6
     squares_y: 5
-    square_mm: 40.0
-    marker_mm: 30.0
+    square_mm: 28.0
+    marker_mm: 21.0
     dictionary: DICT_5X5_100
+    ids_offset: 15
     thickness_mm: 4.0 # plate thickness behind the printed face, in the collision checks
-  # Board on a stick held in the closed gripper (rubber band), in gripper_link, as measured by the user
-  # (2026-10-23), not the jaw-geometry estimate: the 250 x 210 mm sheet is glued at the middle of its lower long
-  # edge to the stick, its plane across the tool axis 2 cm past the URDF tool point (gripper_frame_joint), the
-  # print toward the arm. "Up" is base_link +z in gripper_link at the parked arm (scripts/gen_nav_footprint.yaml
-  # parked_arm_joints, FK with joint_offsets_rad) projected normal to the tool axis: (-0.185, 0.983, 0). The
-  # lower edge sits 15 mm above the axis on that side, so the centre is 15 + 105 = 120 mm above it; the long
-  # edges are level and board y points down when parked. The fit solves the real mount from this start value.
-  board_mount: # measured by the user 2026-10-23, not fit-solved (design D47)
-    xyz_init: [-0.1665, 0.1938, -0.1181] # initial mount position, m
-    rpy_init: [3.141593, 0.0, 0.185886] # initial mount roll/pitch/yaw, rad
+  # ARM board mount in gripper_link: CAD seed from the handle (markers/charuco-arm-6x5-28mm.json), not fit-solved.
+  board_mount:
+    xyz_init: [-0.0794, 0.187949, -0.118113] # initial mount position, m
+    rpy_init: [3.141593, 0.0, 0.0] # initial mount roll/pitch/yaw, rad
     outline_margin_m: 0.01 # margin around the board outline, m
+    # Handle material beyond the plate, [min, max] boxes in the board frame (mm), checked as board points by the pose
+    # check: the edge handle's post, gusset and tab on the pattern side (z < 0) past the plate's bottom edge
+    # (markers/charuco-arm-6x5-28mm.json handle_envelope_mm).
+    handle_boxes_mm:
+      - [[71.5, 175.7, -42.0], [100.05, 200.3, -6.0]]
+      - [[80.0, 145.7, -42.0], [88.0, 175.7, -6.0]]
+      - [[34.0, 145.0, -6.0], [134.0, 200.3, 4.0]]
   # Fit the head pan axis position (head_pan origin x, y) relative to the head; the head_tilt origin moves back by
   # the same shift so the head stays put at pan 0. Session calib-20261023-074418: the fixed axis left 13 px at the
   # +-10 deg pan offsets (rms 12.2 px), the free axis sits 38 mm behind and 11 mm right of the URDF value (rms 2.7 px).
@@ -180,12 +185,22 @@ fit:
   floor_prior_weight: 10.0
   # Arm offsets fit (shared core arm_offsets_fit, design D9, Q2): the gripper-held plate in the D435 colour camera
   # plus floor planes give the arm joint offsets (shoulder_pan the gauge), the head chain and the tool point.
-  plate: {squares_x: 6, squares_y: 5, square_mm: 40.0, marker_mm: 30.0, dictionary: DICT_5X5_100, thickness_mm: 4.0} # the 6x5 board
-  # Plate in gripper_link: xyz_init / rpy_init start values, rpy the CAD rotation (null: rotation fitted,
-  # wrist_roll fixed at wrist_roll_offset_rad), tool_in_board_m the CAD board-to-jaw-tip offset (required
-  # key, null until measured: the tool point is not fitted). Required by the arm offsets fit; null until the
-  # clip is measured.
-  plate_mount: null
+  plate: # the ARM board, as fit.board
+    name: charuco-arm-6x5-28mm
+    squares_x: 6
+    squares_y: 5
+    square_mm: 28.0
+    marker_mm: 21.0
+    dictionary: DICT_5X5_100
+    ids_offset: 15
+    thickness_mm: 4.0
+  # Plate in gripper_link: CAD seed from the handle (markers/charuco-arm-6x5-28mm.json), not fit-solved. rpy is the CAD
+  # rotation (wrist_roll fitted); tool_in_board_m the CAD board-to-jaw-tip offset (the tool point is fitted).
+  plate_mount:
+    xyz_init: [-0.0794, 0.187949, -0.118113]
+    rpy_init: [3.141593, 0.0, 0.0]
+    rpy: [3.141593, 0.0, 0.0]
+    tool_in_board_m: [0.0705, 0.193767, -0.021386]
   wrist_roll_offset_rad: null # wrist_roll zero from the recorded servo neutral, rad; required when rpy is null
   tool_offset_m: [0.001, -0.0056, -0.0014] # current tool point in gripper_frame_link (mcp_server arm), m
   floor_fit: # floor views of the arm offsets fit: plane fit, limits and residual scales (as floor.fit)
@@ -219,7 +234,11 @@ robot:
 arm_sequence:
   # Board about 0.34 m in front of the head camera, lifted to the camera height and forward of the body.
   base_pose: {shoulder_pan: -0.12, shoulder_lift: 0.3, elbow_flex: 0.0, wrist_flex: -0.5, wrist_roll: 0.0}
-  gripper_rad: 0.4 # sent once with the base pose; at most pose_check.max_roll_gripper_rad (half open)
+  insert_gripper_rad: 0.4 # sent once with the base pose; at most pose_check.max_roll_gripper_rad (half open)
+  handle_contact_rad: 0.070279 # gripper angle at first contact on the ARM board handle (CAD), rad
+  handle_squeeze_rad: 0.02 # squeeze past contact, rad (> 0); grip = contact - squeeze
+  grip_converge_tolerance_rad: 0.03 # mcp_server gripper converge tolerance, rad; jaw >= grip + it is slack
+  board_mass_g: 211.72779 # ARM board mass from the CAD, g (> 0)
   # Tier 0: wrist_roll only (within max_roll_delta_rad of base_pose).
   tier0_poses:
   - {shoulder_pan: -0.12, shoulder_lift: 0.3, elbow_flex: 0.0, wrist_flex: -0.5, wrist_roll: 0.3}
@@ -269,7 +288,7 @@ arm_sequence:
   settle_s: 1.0 # wait after a move before the still capture, s (>= 0)
   confirm_timeout_s: 600.0 # an unanswered confirm ends the sequence (arm held), s (> 0)
   head_offsets_deg: [[0.0, 0.0], [10.0, 0.0], [-10.0, 0.0], [0.0, -3.0]] # (pan, tilt) added to the aimed head, deg; tilt -3 (up) fits the D435 colour FOV
-  provisional_margin_m: 0.05 # extra board margin while board_mount is the hand-measured start, m (>= 0)
+  provisional_margin_m: 0.05 # extra board margin while board_mount is the CAD seed, m (>= 0)
   # Parked arm (gen_nav_footprint.yaml parked_arm_joints): the target of Park with the board on.
   park_pose: {shoulder_pan: -0.003, shoulder_lift: -1.35, elbow_flex: 1.578, wrist_flex: -0.1, wrist_roll: -1.637}
   park_board_sag_margin_m: 0.01 # added to the board floor, body and head clearances of the Park path check (board sags under its weight), m (>= 0)
@@ -287,7 +306,7 @@ arm_sequence:
     max_roll_gripper_rad: 0.8 # gripper at most this open while wrist_roll changes (half open), rad
     stretched_shoulder_lift_max_rad: 1.85 # refused above this with a negative (stretched) elbow_flex, rad
     path_step_rad: 0.05 # path samples: no joint steps more than this, rad (> 0)
-    board_grid: 5 # board points per edge of the checked lattice (>= 2)
+    board_spacing_m: 0.005 # largest gap of the checked board lattice per axis (<= margin_m), m
     d435_min_z_m: 0.15 # D435 depth min-Z at 640x360 (design D2): every board corner deeper than this..., m
     d435_min_z_margin_m: 0.05 # ...plus this margin from d435_color_optical_frame, else the view is skipped, m
 # CSI camera intrinsics (Calibrate page, CSI section): each Camera Module 3 instance of head_camera_cpp, its

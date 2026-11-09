@@ -3,9 +3,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { CSI_POLL_MS, CsiIntrinsics } from './CsiIntrinsics'
 import type { CsiCapture, CsiResult, CsiSession, CsiState } from './csiApi'
+import rgbdStateFx from '../../../../head_rgbd_calibration/tests/fixtures/api/state.json'
 
 const B = '/api/calibration/rgbd/csi'
 const SID = 'csi-20261031-120000'
+const MODELS = {
+  files: [
+    { name: 'charuco-6x5-40mm.3mf', size: 1, url: '/models/charuco-6x5-40mm.3mf' },
+    { name: 'charuco-6x5-40mm.pdf', size: 1, url: '/models/charuco-6x5-40mm.pdf' },
+  ],
+}
 const RID = 'r-20261031-120500'
 const IDLE: CsiCapture = {
   running: false,
@@ -58,6 +65,8 @@ function install(w: World): void {
     vi.fn(async (url: string, init?: RequestInit) => {
       w.calls.push(`${init?.method ?? 'GET'} ${url}`)
       const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status })
+      if (url === '/api/models') return json(MODELS)
+      if (url === '/api/calibration/rgbd/state') return json(rgbdStateFx)
       const camera = url.slice(B.length + 1).split('/')[0]
       const state = (): CsiState => ({ camera, capture: w.capture, session: w.session, applied: null })
       if (url.endsWith('/state')) return json(state())
@@ -112,6 +121,13 @@ describe('CsiIntrinsics', () => {
     })
     expect(w.calls).toContain(`GET ${B}/back/state`)
     expect(screen.getByRole('button', { name: 'Back' }).getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('names the FULL board it needs with its PDF and 3MF downloads', async () => {
+    install(world())
+    render(<CsiIntrinsics />)
+    expect(await screen.findByText(/FULL board: charuco-6x5-40mm, 6x5 squares of 40 mm/)).toBeTruthy()
+    expect(screen.getByRole('link', { name: /3MF/ }).getAttribute('href')).toBe('/models/charuco-6x5-40mm.3mf')
   })
 
   it('start captures, polls the kept-view count with the coverage grid, stop ends it', async () => {

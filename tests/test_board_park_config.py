@@ -1,4 +1,4 @@
-"""Calibration board park (D63): mcp_server's board geometry equals the calibration node's; the route token is private.
+"""Calibration board park (D63): mcp_server's ARM board (with the handle) equals the calibration fit board.
 
 mcp_server owns the board outline, margins and floor height of POST /admin/park_calibration_board (the
 `calibration_board:` block of its client.yml config). head_rgbd_calibration checks the same board with its own copy.
@@ -22,7 +22,6 @@ MCP_SETUP = REPO_ROOT / "ansible" / "playbooks" / "tasks" / "mcp_server_setup.ym
 CALIB_SETUP = REPO_ROOT / "ansible" / "playbooks" / "tasks" / "head_rgbd_calibration_setup.yml"
 BOARD_GROUP = "board-park"
 BOARD_TOKEN_FILE = "/etc/ros2/mcp_server/board_park_token"
-GRID = 5
 BOARD_THICKNESS_MM = 4.0  # the printed 6x5 ChArUco plate (scripts/markers_generate.yaml thickness_mm)
 
 sys.path[:0] = [
@@ -34,7 +33,7 @@ try:
     from head_rgbd_calibration.config import NodeConfig
     from mcp_server.calibration_board import BoardPark
     from mcp_server.config import CalibrationBoardSettings, McpServerConfig
-    from ros2_common.head_rgbd_calibration.arm_pose_check import board_points_local
+    from ros2_common.head_rgbd_calibration.arm_pose_check import board_points_local, handle_box_points_local
 finally:
     del sys.path[:3]
 
@@ -55,12 +54,35 @@ def test_mcp_server_board_equals_the_calibration_fit_board_and_mount() -> None:
     )
     assert mcp["thickness_mm"] == fit.board.thickness_mm == BOARD_THICKNESS_MM
     assert mcp["outline_margin_m"] == fit.board_mount.outline_margin_m
-    assert mcp["lattice_points"] == GRID == seq.pose_check.board_grid
+    assert mcp["lattice_spacing_m"] == seq.pose_check.board_spacing_m <= seq.pose_check.margin_m
     assert tuple(mcp["mount_xyz_m"]) == fit.board_mount.xyz_init
     assert tuple(mcp["mount_rpy_rad"]) == fit.board_mount.rpy_init
+    assert [tuple(map(tuple, box)) for box in mcp["handle_boxes_mm"]] == fit.board_mount.handle_boxes_mm
     # The strictest clearances the node's park check uses: sequence margin + nominal-mount allowance + sag.
     assert mcp["margin_m"] == pytest.approx(seq.board_margin_m(True) + seq.park_board_sag_margin_m)
     assert mcp["min_height_m"] == pytest.approx(seq.pose_check.min_board_height_m + seq.park_board_sag_margin_m)
+
+
+def test_mcp_server_board_is_the_arm_board() -> None:
+    settings = CalibrationBoardSettings()
+    assert (settings.squares_x, settings.squares_y, settings.square_mm) == (6, 5, 28.0)
+
+
+def test_grip_squeeze_stays_inside_the_mcp_converge_tolerance() -> None:
+    seq = NodeConfig.model_validate(client_node("head_rgbd_calibration")).arm_sequence
+    limits = McpServerConfig.model_validate(client_node("mcp_server")).limits
+    assert seq.handle_squeeze_rad < limits.converge_tolerance_for("gripper")
+
+
+def test_grip_slack_check_uses_the_mcp_gripper_converge_tolerance() -> None:
+    # A grip residual inside this tolerance is held by mcp_server; one at or above it is relaxed to the measured pose
+    # (the clamp goes slack), so the node refuses it after the close with the same value.
+    seq = NodeConfig.model_validate(client_node("head_rgbd_calibration")).arm_sequence
+    limits = McpServerConfig.model_validate(client_node("mcp_server")).limits
+    assert seq.grip_converge_tolerance_rad == limits.converge_tolerance_for("gripper")
+    assert NodeConfig().arm_sequence.grip_converge_tolerance_rad == McpServerConfig().limits.converge_tolerance_for(
+        "gripper"
+    )
 
 
 def test_deployed_block_and_code_defaults_agree() -> None:
@@ -71,7 +93,11 @@ def test_deployed_block_and_code_defaults_agree() -> None:
 def test_mcp_server_points_equal_the_node_board_points_at_the_configured_mount() -> None:
     calib = NodeConfig()
     settings = CalibrationBoardSettings()
-    expected = board_points_local(calib.fit, GRID)
+    spacing = calib.arm_sequence.pose_check.board_spacing_m
+    assert settings.lattice_spacing_m == spacing
+    handle = handle_box_points_local(calib.fit, spacing)
+    expected = np.vstack([board_points_local(calib.fit, spacing), handle])
+    assert len(handle) > 0  # the handle post, gusset and tab are checked too
     park = BoardPark.from_mount(settings, list(settings.mount_xyz_m), list(settings.mount_rpy_rad))
     assert np.allclose(np.sort(park.points, axis=0), np.sort(expected, axis=0), atol=1e-9)
     assert np.allclose(park.points, expected, atol=1e-9)
@@ -83,8 +109,8 @@ def test_both_board_models_span_the_4_mm_thickness_behind_the_printed_face() -> 
     assert calib.fit.board.thickness_mm == settings.thickness_mm == BOARD_THICKNESS_MM
     flat = calib.fit.board_mount.model_copy(update={"xyz_init": (0.0,) * 3, "rpy_init": (0.0,) * 3})
     fit = calib.fit.model_copy(update={"board_mount": flat})
-    local = board_points_local(fit, GRID)
-    assert len(local) == 2 * (4 + GRID**2)
+    local = board_points_local(fit, calib.arm_sequence.pose_check.board_spacing_m)
+    assert len(np.unique(local[:, 2].round(9))) == 2  # the printed face and the plate back
     assert np.ptp(local[:, 2]) == pytest.approx(BOARD_THICKNESS_MM / 1000.0)
     assert local[:, 2].min() == 0.0
 

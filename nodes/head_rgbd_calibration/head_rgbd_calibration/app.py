@@ -40,6 +40,8 @@ HTTP_NOT_FOUND = 404
 HTTP_CONFLICT = 409
 HTTP_ACCEPTED = 202
 HTTP_UNPROCESSABLE = 422
+FULL_BOARD_ROLE = "intrinsics"
+ARM_BOARD_ROLE = "head-arm and arm offsets"
 
 RunFn = Callable[..., subprocess.CompletedProcess]
 
@@ -63,6 +65,21 @@ def error_response(status: int, message: str) -> JSONResponse:
     return JSONResponse(status_code=status, content={"ok": False, "message": message})
 
 
+def board_roles(cfg: NodeConfig) -> dict[str, dict[str, Any]]:
+    """The two printed boards of the node with the steps that need them, for the Calibrate page.
+
+    Args:
+        cfg: Node config; `board` is the FULL board (intrinsics), `fit.board` the ARM board (head-arm and arm fits).
+
+    Returns:
+        dict[str, dict[str, Any]]: {"full": FULL board spec + role, "arm": ARM board spec + role}.
+    """
+    return {
+        "full": {**cfg.board.model_dump(), "role": FULL_BOARD_ROLE},
+        "arm": {**cfg.fit.board.model_dump(), "role": ARM_BOARD_ROLE},
+    }
+
+
 def read_applied_marker(store: SessionStore) -> dict[str, Any] | None:
     """applied.json content, None when nothing but CSI camera records is applied (no systemctl call).
 
@@ -82,7 +99,7 @@ def build_app(capture: CaptureController, job: ComputeJob, store: SessionStore, 
         capture: Capture controller (state, start, stop).
         job: Compute job runner (state, start).
         store: Session store.
-        cfg: Node config (limits.min_views, restart_units).
+        cfg: Node config (limits.min_views, restart_units, the boards of /api/state).
         run: subprocess.run-compatible callable used for systemctl show on GET /api/applied only.
 
     Returns:
@@ -115,7 +132,12 @@ def build_app(capture: CaptureController, job: ComputeJob, store: SessionStore, 
         return error_response(HTTP_UNPROCESSABLE, problems)
 
     def full_state() -> dict[str, Any]:
-        return {"capture": capture.state(), "compute": job.state(), "applied": read_applied_marker(store)}
+        return {
+            "capture": capture.state(),
+            "compute": job.state(),
+            "applied": read_applied_marker(store),
+            "boards": board_roles(cfg),
+        }
 
     @app.get("/api/state")
     def state() -> dict[str, Any]:

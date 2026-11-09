@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from head_rgbd_calibration.app import build_app
+from head_rgbd_calibration.app import board_roles, build_app
 from head_rgbd_calibration.apply import APPLIED_MARKER
 from head_rgbd_calibration.capture import Busy as CaptureBusy
 from head_rgbd_calibration.capture import CaptureError
@@ -149,6 +149,20 @@ def test_state_matches_contract_fixture(client: TestClient, store: SessionStore,
     capture.start("calib-20261019-120000")
     write_applied_marker(store)
     assert_matches_fixture(client.get("/api/state").json(), "state")
+
+
+def test_state_lists_both_boards(client: TestClient) -> None:
+    boards = client.get("/api/state").json()["boards"]
+    assert boards["full"]["name"] == "charuco-6x5-40mm" and boards["full"]["ids_offset"] == 0
+    assert boards["arm"]["name"] == "charuco-arm-6x5-28mm" and boards["arm"]["ids_offset"] == 15
+    assert boards["full"]["role"] == "intrinsics" and boards["arm"]["role"] == "head-arm and arm offsets"
+
+
+def test_board_roles_names_each_board_with_its_role() -> None:
+    cfg = NodeConfig()
+    roles = board_roles(cfg)
+    assert roles["full"] == {**cfg.board.model_dump(), "role": "intrinsics"}
+    assert roles["arm"] == {**cfg.fit.board.model_dump(), "role": "head-arm and arm offsets"}
 
 
 def test_state_carries_applied_json_without_systemctl(client: TestClient, store: SessionStore) -> None:

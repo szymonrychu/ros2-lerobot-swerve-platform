@@ -14,7 +14,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from ros2_common.head_rgbd_calibration.charuco import Detection
-from ros2_common.head_rgbd_calibration.config import BoardMountConfig, FloorFitConfig, HeadArmFitConfig
+from ros2_common.head_rgbd_calibration.config import FULL_BOARD, BoardMountConfig, FloorFitConfig, HeadArmFitConfig
 from ros2_common.head_rgbd_calibration.floor_fit import FloorObservation, PlaneFit, fit_head_chain_floor
 from ros2_common.head_rgbd_calibration.head_arm_fit import FLOOR_PARAMS, HeadArmFit, fit_head_from_arm, limit_checks
 from ros2_common.head_rgbd_calibration.urdf_text import Origin, rewrite_joint_origin
@@ -98,10 +98,10 @@ def floor_observations() -> tuple[dict, list[FloorObservation]]:
 def node_fit_config(doc: dict, **overrides: object) -> HeadArmFitConfig:
     """The node fit config of the session (board mount start); limits and the rest at the defaults (= node config),
     except the camera mount: the evidence below was taken with the head camera mount fixed (the model of 2026-10-23,
-    before `fit_camera_mount`)."""
+    before `fit_camera_mount`), and the board: the session was recorded with the 40 mm FULL_BOARD."""
     mount = doc["board_mount"]
     board_mount = BoardMountConfig(xyz_init=tuple(mount["xyz_init"]), rpy_init=tuple(mount["rpy_init"]))
-    fields: dict[str, object] = {"fit_camera_mount": False, **overrides}
+    fields: dict[str, object] = {"board": FULL_BOARD, "fit_camera_mount": False, **overrides}
     return HeadArmFitConfig(board_mount=board_mount, **fields)
 
 

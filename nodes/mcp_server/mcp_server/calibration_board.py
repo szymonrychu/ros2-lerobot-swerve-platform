@@ -1,4 +1,6 @@
-"""The calibration board on the gripper, for the board park: mcp_server's own geometry, a caller-chosen mount only.
+"""The ARM calibration board (the one with the handle) on the gripper, for the board park.
+
+mcp_server's own geometry, a caller-chosen mount only.
 
 POST /admin/park_calibration_board (head_rgbd_calibration, own token) sends the board mount pose it believes in. The
 outline, the clearances and the floor height come from `config.calibration_board`; a mount further than the configured
@@ -9,6 +11,7 @@ import math
 from dataclasses import dataclass
 
 import numpy as np
+from ros2_common.head_rgbd_calibration.board_lattice import handle_box_lattice, lattice_miss_bound, plate_lattice
 from ros2_common.head_rgbd_calibration.chain import pose_from_xyz_rpy
 
 from .config import CalibrationBoardSettings
@@ -21,14 +24,19 @@ class BoardPark:
     """The calibration board a park is checked with.
 
     Attributes:
-        points: (N, 3) outline corners and lattice points of both plate faces in gripper_link (m).
+        points: (N, 3) a lattice through the plate, then one over each handle box (the post, its gusset and the
+            tab), no gap wider than `lattice_spacing_m`, in gripper_link (m) (ros2_common board_lattice, the points
+            head_rgbd_calibration's pose check uses).
         margin_m: Clearance the board keeps from every body obstacle (m), sag margin included.
         min_height_m: Lowest board point height above the floor (base_link z, m), sag margin included.
+        clearance_m: The threshold the board points are compared against (m): margin_m plus the lattice miss bound
+            (`board_lattice.lattice_miss_bound(lattice_spacing_m)`), so the margin holds for the true board surface.
     """
 
     points: np.ndarray
     margin_m: float
     min_height_m: float
+    clearance_m: float
 
     @classmethod
     def from_mount(cls, settings: CalibrationBoardSettings, xyz: object, rpy: object) -> "BoardPark":
@@ -58,17 +66,20 @@ class BoardPark:
                 f"board mount differs from the configured mount by {shift * MM_PER_M:.1f} mm and {turn:.1f} deg "
                 f"(limit {settings.mount_tolerance_m * MM_PER_M:.0f} mm, {settings.mount_tolerance_deg:g} deg)"
             )
-        width = settings.squares_x * settings.square_mm / MM_PER_M
-        height = settings.squares_y * settings.square_mm / MM_PER_M
-        margin = settings.outline_margin_m
-        x0, y0, x1, y1 = -margin, -margin, width + margin, height + margin
-        corners = np.array([[x0, y0, 0.0], [x1, y0, 0.0], [x1, y1, 0.0], [x0, y1, 0.0]])
-        xs, ys = np.linspace(x0, x1, settings.lattice_points), np.linspace(y0, y1, settings.lattice_points)
-        lattice = np.array([[x, y, 0.0] for y in ys for x in xs])
-        front = np.vstack([corners, lattice])
-        back = front + np.array([0.0, 0.0, settings.thickness_mm / MM_PER_M])
-        board = np.vstack([front, back])
-        return cls(board @ mount[:3, :3].T + mount[:3, 3], settings.margin_m, settings.min_height_m)
+        plate = plate_lattice(
+            settings.squares_x * settings.square_mm / MM_PER_M,
+            settings.squares_y * settings.square_mm / MM_PER_M,
+            settings.outline_margin_m,
+            settings.thickness_mm / MM_PER_M,
+            settings.lattice_spacing_m,
+        )
+        board = np.vstack([plate, handle_box_lattice(settings.handle_boxes_mm, settings.lattice_spacing_m)])
+        return cls(
+            board @ mount[:3, :3].T + mount[:3, 3],
+            settings.margin_m,
+            settings.min_height_m,
+            settings.margin_m + lattice_miss_bound(settings.lattice_spacing_m),
+        )
 
 
 def finite_triple(value: object, name: str) -> tuple[float, float, float]:

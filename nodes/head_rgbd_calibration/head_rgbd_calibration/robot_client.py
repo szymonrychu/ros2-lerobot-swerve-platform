@@ -248,9 +248,10 @@ class RobotClient:
 
         The request names the board mount only; mcp_server owns the board outline, the margins and the floor height,
         refuses a mount further than its tolerance from the configured one, ignores the holding load of the clamped
-        stick only, requires the measured arm at its rest pose, FK-checks the board on every home leg against the
-        floor and the body, and parks at speed_scale 0.1. The route has its own token (`board_park_token_file`), not
-        the shared MCP one, and is not an MCP tool: the agent-facing release_control keeps refusing every carried object.
+        seated handle (the ARM board) only, requires the measured arm at its rest pose, FK-checks the board on every
+        home leg against the floor and the body, and parks at speed_scale 0.1. The route has its own token
+        (`board_park_token_file`), not the shared MCP one, and is not an MCP tool: the agent-facing release_control
+        keeps refusing every carried object.
 
         Args:
             mount: The board mount used by the node's path check, `{"xyz": [m] * 3, "rpy": [rad] * 3}`.

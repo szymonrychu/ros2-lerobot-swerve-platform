@@ -604,9 +604,10 @@ Config keys of the head-from-arm calibration in the `config:` block of the `head
 
 - `topics.head_joint_states` / `topics.arm_joint_states`: the measured joints of the still capture.
 - `still.*`: the still rule (`window_s`, `rgb_mad`, `joint_still_rad`, `max_joint_dt_s`, `timeout_s`).
-- `fit.*`: the printed board (equal to `board`), `board_mount` start, `fit_pan_axis`, `limits`, `huber_f_scale_px`, `base_in_base_link` and `joint_offsets_rad` (equal to the arm config of mcp_server, pinned by a test), `floor_prior_weight`.
+- `board`: the FULL board (`charuco-6x5-40mm`, ids from 0) of the intrinsics checks.
+- `fit.*`: the ARM board `fit.board` and `fit.plate` (`charuco-arm-6x5-28mm`, ids from 15, disjoint from `board`), the `board_mount` CAD seed with `handle_boxes_mm` (the edge handle's post, gusset and tab boxes on the pattern side, mm in the board frame, equal to `handle_envelope_mm` of `markers/charuco-arm-6x5-28mm.json`) and the `plate_mount` CAD seed, `fit_pan_axis`, `limits`, `huber_f_scale_px`, `base_in_base_link` and `joint_offsets_rad` (equal to the arm config of mcp_server, pinned by a test), `floor_prior_weight`.
 - `robot.*`: `mcp_url`, `token_file`, `board_park_token_file`, `call_timeout_s`, `move_timeout_s`.
-- `arm_sequence.*`: `base_pose`, `gripper_rad`, `tier0_poses` / `tier1_poses` / `tier2_poses`, the deltas, `speed_scale`, `settle_s`, `confirm_timeout_s`, `head_offsets_deg`, `pose_check`, `provisional_margin_m`, `park_pose`, `park_board_sag_margin_m`, `board_record_max_age_s`.
+- `arm_sequence.*`: `base_pose`, `insert_gripper_rad`, `handle_contact_rad`, `handle_squeeze_rad`, `grip_converge_tolerance_rad`, `board_mass_g`, `tier0_poses` / `tier1_poses` / `tier2_poses`, the deltas, `speed_scale`, `settle_s`, `confirm_timeout_s`, `head_offsets_deg`, `pose_check`, `provisional_margin_m`, `park_pose`, `park_board_sag_margin_m`, `board_record_max_age_s`.
 
 The head tilt range of the reprinted mount is -30..+45 deg: the `head` group of `base_servos` (tilt steps 1536..2389) and the web_ui head tab (`head_tilt_range_deg: [-30, 45]`) equal the `head.urdf` limits.
 
@@ -649,7 +650,12 @@ reads the token through `EnvironmentFile=`; the token never enters git. Fetch it
 The same task file creates the board-park token `/etc/ros2/mcp_server/board_park_token` once (`force: false`, group
 `board-park`, mode `0640`, `no_log`). It authenticates only `POST /admin/park_calibration_board` (head_rgbd_calibration's
 park with the calibration board on the gripper); the head_rgbd_calibration service joins group `board-park`, claude_agent
-does not, and the shared MCP token is refused on that route (`tests/test_board_park_config.py`).
+does not, and the shared MCP token is refused on that route (`tests/test_board_park_config.py`). The mcp_server
+`calibration_board:` block in `group_vars/client.yml` describes the ARM board (6x5, 28 mm squares, 4 mm plate), its
+CAD seed mount and `handle_boxes_mm` (the post, gusset and tab boxes on the pattern side of the board, the same three
+boxes as head_rgbd_calibration's `fit.board_mount.handle_boxes_mm`); `tests/test_board_park_config.py` pins it equal to
+the mcp_server defaults and the board points equal to head_rgbd_calibration's, and the grip squeeze below the gripper
+converge tolerance.
 
 ### Servo torque off and neutral
 

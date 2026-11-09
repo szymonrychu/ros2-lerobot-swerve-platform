@@ -10,7 +10,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 from ros2_common.head_rgbd_calibration.charuco import make_board
-from ros2_common.head_rgbd_calibration.config import BoardConfig
+from ros2_common.head_rgbd_calibration.config import FULL_BOARD
 from scipy.spatial.transform import Rotation
 
 from scripts.ground_scene_truth import (
@@ -18,13 +18,14 @@ from scripts.ground_scene_truth import (
     TruthError,
     board_frame,
     build_truth,
+    load_board,
     run,
     solve_board,
 )
 from tests.rgbd_synthetic import Pose, SyntheticCamera, make_camera, render_rgb
 
 CORNER_TOLERANCE_M = 0.005
-BOARD_CFG = BoardConfig()
+BOARD_CFG = FULL_BOARD
 BOARD_W_M = BOARD_CFG.squares_x * BOARD_CFG.square_mm / 1000.0
 BOARD_H_M = BOARD_CFG.squares_y * BOARD_CFG.square_mm / 1000.0
 RGB_SIZE = (640, 480)
@@ -209,15 +210,20 @@ def test_run_writes_truth_yaml(tmp_path: Path) -> None:
     board_yaml.write_text(
         yaml.safe_dump(
             {
-                "charuco": {
-                    "squares_x": 6,
-                    "squares_y": 5,
-                    "square_mm": 40.0,
-                    "marker_mm": 30.0,
-                    "dictionary": "DICT_5X5_100",
-                    "margin_mm": 0.0,
-                    "thickness_mm": 4.0,
-                }
+                "boards": [
+                    {
+                        "name": FULL_BOARD.name,
+                        "squares_x": 6,
+                        "squares_y": 5,
+                        "square_mm": 40.0,
+                        "marker_mm": 30.0,
+                        "dictionary": "DICT_5X5_100",
+                        "ids_offset": 0,
+                        "margin_mm": 0.0,
+                        "thickness_mm": 4.0,
+                        "pattern_face": "top",
+                    }
+                ]
             }
         )
     )
@@ -243,3 +249,42 @@ def test_board_frame_off_axis_board_to_the_right() -> None:
     assert np.allclose(origin, [0.4, -0.8])
     assert np.allclose(u, [0.0, 1.0])
     assert np.allclose(v, [1.0, 0.0])
+
+
+def test_load_board_picks_the_named_board(tmp_path: Path) -> None:
+    """The named board of a two-board YAML is returned; an unknown name raises ValueError naming it."""
+    base = {
+        "squares_x": 6,
+        "squares_y": 5,
+        "dictionary": "DICT_5X5_100",
+        "margin_mm": 5.0,
+        "thickness_mm": 4.0,
+        "pattern_face": "top",
+    }
+    path = tmp_path / "boards.yaml"
+    path.write_text(
+        yaml.safe_dump(
+            {
+                "boards": [
+                    {**base, "name": "charuco-6x5-40mm", "square_mm": 40.0, "marker_mm": 30.0, "ids_offset": 0},
+                    {**base, "name": "charuco-arm-6x5-28mm", "square_mm": 28.0, "marker_mm": 21.0, "ids_offset": 15},
+                ]
+            }
+        )
+    )
+    board, outline = load_board(path, "charuco-6x5-40mm")
+    assert board.getIds().ravel().tolist() == list(range(0, 15))
+    assert outline["width_m"] == pytest.approx(0.24) and outline["margin_m"] == pytest.approx(0.005)
+    arm, _ = load_board(path, "charuco-arm-6x5-28mm")
+    assert arm.getIds().ravel().tolist() == list(range(15, 30))
+    with pytest.raises(ValueError, match="charuco-nope"):
+        load_board(path, "charuco-nope")
+
+
+def test_load_board_reads_the_shipped_generator_yaml() -> None:
+    """The default sheet board name exists in scripts/markers_generate.yaml (guards the key rename)."""
+    board, outline = load_board(
+        SceneSheet.model_validate(SHEET).board_config, SceneSheet.model_validate(SHEET).board_name
+    )
+    assert board.getIds().ravel().tolist() == list(range(0, 15))
+    assert outline["height_m"] == pytest.approx(0.2)

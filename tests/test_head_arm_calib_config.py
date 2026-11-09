@@ -9,6 +9,8 @@ import yaml
 from pydantic import ValidationError
 from ros2_common.head_rgbd_calibration.charuco import Detection, board_corners_3d, board_outline, detect, make_board
 from ros2_common.head_rgbd_calibration.config import (
+    ARM_BOARD,
+    FULL_BOARD,
     BaseInBaseLink,
     BoardConfig,
     BoardMountConfig,
@@ -17,6 +19,8 @@ from ros2_common.head_rgbd_calibration.config import (
 )
 from ros2_common.head_rgbd_calibration.views import ARM_JOINTS, HEAD_JOINTS, ArmBoardView, require_joints
 
+from scripts.markers.charuco import board_config
+from scripts.markers.config import load_generator_config
 from tests.rgbd_synthetic import board_poses, render_rgb, rgb_camera
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -61,10 +65,21 @@ def test_head_arm_fit_config_defaults() -> None:
     assert cfg.base_in_base_link == BaseInBaseLink(x=0.0592, y=-0.05, z=0.100, yaw=0.0)
 
 
-def test_board_is_the_existing_charuco_board() -> None:
-    spec = yaml.safe_load(MARKERS_YAML.read_text())["charuco"]
-    board = HeadArmFitConfig().board
-    assert board == BoardConfig(**{k: spec[k] for k in BoardConfig.model_fields})
+def test_boards_equal_their_generator_specs() -> None:
+    specs = load_generator_config(MARKERS_YAML).boards
+    assert {s.name: board_config(s) for s in specs} == {FULL_BOARD.name: FULL_BOARD, ARM_BOARD.name: ARM_BOARD}
+
+
+def test_make_board_uses_the_id_offset() -> None:
+    assert make_board(ARM_BOARD).getIds().ravel().tolist() == list(range(15, 30))
+    assert make_board(FULL_BOARD).getIds().ravel().tolist() == list(range(0, 15))
+
+
+def test_board_config_requires_identity_and_bounds_ids() -> None:
+    with pytest.raises(ValidationError, match="name"):
+        BoardConfig.model_validate({k: v for k, v in FULL_BOARD.model_dump().items() if k != "name"})
+    with pytest.raises(ValidationError, match="ids_offset"):
+        BoardConfig.model_validate({**FULL_BOARD.model_dump(), "ids_offset": 86})
 
 
 def test_unknown_keys_and_bad_joint_set_rejected() -> None:
@@ -88,7 +103,7 @@ def test_arm_gauge_matches_client_yml() -> None:
 
 
 def test_board_corners_3d_geometry() -> None:
-    corners = board_corners_3d(BoardConfig())
+    corners = board_corners_3d(FULL_BOARD)
     assert corners.shape == (20, 3)
     assert np.allclose(corners[:, 2], 0)
     assert np.allclose(corners[1] - corners[0], [SQUARE_M, 0, 0])
@@ -96,7 +111,7 @@ def test_board_corners_3d_geometry() -> None:
 
 
 def test_board_corners_3d_match_detection() -> None:
-    cfg = BoardConfig()
+    cfg = FULL_BOARD
     camera = rgb_camera()
     pose = board_poses(1, camera, cfg, distance_m=(0.4, 0.5), max_tilt_deg=15)[0]
     detection = detect(render_rgb(camera, pose, cfg), make_board(cfg))
@@ -108,7 +123,7 @@ def test_board_corners_3d_match_detection() -> None:
 
 
 def test_board_outline_spans_outer_squares_plus_margin() -> None:
-    cfg = BoardConfig()
+    cfg = FULL_BOARD
     outline = board_outline(cfg, 0.01)
     assert outline.shape == (4, 3)
     assert np.allclose(outline.min(axis=0), [-0.01, -0.01, 0])

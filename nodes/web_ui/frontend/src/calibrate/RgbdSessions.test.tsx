@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { RgbdSessions } from './RgbdSessions'
 import type { CaptureState, ComputeState } from './rgbdApi'
+import stateFx from '../../../../head_rgbd_calibration/tests/fixtures/api/state.json'
 
 const IDLE: CaptureState = { running: false, session_id: null, status: 'idle', pose_count: 0, started_at: null, stops_at: null }
 const NOT_RUNNING: ComputeState = { running: false, session_id: null, result_id: null, started_at: null, error: null }
@@ -28,7 +29,7 @@ function install(o: Opts): void {
       if (url.endsWith('/compute')) {
         return o.computeStatus === 409 ? json({ message: 'capture running' }, 409) : json({ result_id: 'r9' })
       }
-      if (url.endsWith('/capture/start')) return json({ capture: { ...IDLE, running: true, session_id: 's1' }, compute: NOT_RUNNING, applied: null })
+      if (url.endsWith('/capture/start')) return json({ capture: { ...IDLE, running: true, session_id: 's1' }, compute: NOT_RUNNING, applied: null, boards: stateFx.boards })
       return json({ message: 'nope' }, 404)
     }),
   )
