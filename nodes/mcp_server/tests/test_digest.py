@@ -10,13 +10,13 @@ import pytest
 from mcp.server.context import ServerRequestContext
 from mcp.server.mcpserver import Context, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
-from ros2_common.battery import BatteryConfig, BatteryGuard
 
 from mcp_server.config import McpServerConfig, MonitorSettings
 from mcp_server.monitor import RobotMonitor
 from mcp_server.tool_context import ToolContext
 from mcp_server.tools import TOOL_MODULES, TOOL_NAMES, build_mcp_server, register_tools
 
+from .fakes import frozen_battery_guard
 from .test_battery_gate import ALLOWED_ARGS, MOTION_ARGS
 from .test_tools import TOKEN, FakeRobot, call, take
 
@@ -195,7 +195,7 @@ def test_default_monitor_is_created_when_none_given(robot: FakeRobot) -> None:
 
 
 def test_get_body_state_reports_vitals_and_last_10_events(robot: FakeRobot) -> None:
-    guard = BatteryGuard.from_config(BatteryConfig())
+    guard = frozen_battery_guard()
     guard.update(11.1)
     monitor = RobotMonitor(MonitorSettings(), guard, cpu_temp_reader=lambda: 55.5, throttled_reader=lambda: 0x50000)
     monitor.on_battery()
@@ -227,7 +227,7 @@ def test_get_body_state_nulls_instead_of_inventing(robot: FakeRobot) -> None:
 
 
 def test_get_body_state_is_a_sensor_tool_never_refused_in_cutoff(robot: FakeRobot) -> None:
-    guard = BatteryGuard.from_config(BatteryConfig())
+    guard = frozen_battery_guard()
     guard.update(8.0)
     server = build_mcp_server(robot, McpServerConfig(), TOKEN, guard)
     assert call(server, "get_body_state", {}).structured_content["battery"]["cutoff"] is True
