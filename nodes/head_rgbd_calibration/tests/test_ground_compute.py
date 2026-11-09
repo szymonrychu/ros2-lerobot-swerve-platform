@@ -17,4 +17,9 @@ def test_child_writes_the_result_of_its_session_and_result_id(tmp_path: Path) ->
     rid = SessionStore.new_result_id(NOW)
     assert main(["--config", str(config_path), "--session", scene.sid, "--result", rid]) == 0
     result = json.loads((scene.store.result_dir(scene.sid, rid) / "result.json").read_text())
-    assert (result["id"], result["session"], result["kind"], result["state"]) == (rid, scene.sid, "ground_board", "done")
+    assert (result["id"], result["session"], result["kind"], result["state"]) == (
+        rid,
+        scene.sid,
+        "ground_board",
+        "done",
+    )
