@@ -1,0 +1,6 @@
+{
+  "applied": { "session": "calib-20261108-101500", "result": "r-20261108-103000", "applied_at": "2026-11-08T10:31:00+01:00" },
+  "head_chain_source": "floor",
+  "ready": true,
+  "reason": null
+}

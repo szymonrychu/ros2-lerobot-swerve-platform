@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, render, screen, within } from '@testing-library/react'
-import { SequenceActivity } from './SequenceActivity'
+import { SequenceActivity, SkipReasons } from './SequenceActivity'
 import stateFx from '../../../../head_rgbd_calibration/tests/fixtures/api/head_arm_state.json'
 import type { HeadArmEvent, HeadArmSequence } from './headArmApi'
 
@@ -65,5 +65,13 @@ describe('SequenceActivity', () => {
   it('says when there are no events yet', () => {
     render(<SequenceActivity sequence={seq({})} />)
     expect(screen.getByText('No head-arm events yet')).toBeTruthy()
+  })
+})
+
+describe('SkipReasons', () => {
+  it('names each skip reason with its count', () => {
+    render(<SkipReasons skipped={{ 'inside D435 min-Z': 3, 'outside colour FOV': 2 }} />)
+    expect(screen.getByText('inside D435 min-Z: 3')).toBeTruthy()
+    expect(screen.getByText('outside colour FOV: 2')).toBeTruthy()
   })
 })

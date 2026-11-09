@@ -109,6 +109,13 @@ describe('Calibrate routing', () => {
     await screen.findByText('IMU calibration')
   })
 
+  it('loading with a flow deep link opens the page on that flow', async () => {
+    window.location.hash = '#/calibrate/imu'
+    await renderApp()
+    await screen.findByText('IMU calibration')
+    expect(window.location.hash).toBe('#/calibrate/imu')
+  })
+
   it('back clears the hash and a tab selection leaves the page', async () => {
     window.location.hash = '#/calibrate'
     await renderApp()

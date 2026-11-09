@@ -50,21 +50,29 @@ python scripts/topic_scraper_collect.py --source client=http://client.ros2.lan:1
 
 ## UI steps
 
-1. Open the web UI, hamburger menu, Calibrate. The Head floor fit step is below the RGB-D section.
-2. Confirm the precondition text with the floor as it is, then **Start sweep**. Watch "Pose i of N, observations,
+1. Open the web UI, hamburger menu, Calibrate, tab **Camera to ground** (deep link `#/calibrate/camera-ground`). The
+   flow's steps are 1 D435 intrinsics check (optional), 2 Front/back cameras (CSI intrinsics, optional, always open),
+   3 Head floor sweep, 4 Compute, 5 Check and apply (the quality gate), 6 Verify on the ground (coming: the ChArUco
+   ground check replaces the depth floor fit later). The General section on top has **Abort calibration** (stops the
+   sweep) and **Home camera**.
+2. Step 3: confirm the precondition text with the floor as it is, then **Start sweep**. Watch "Pose i of N, observations,
    skipped"; the head moves through the grid, fitting `clouds_per_pose` clouds per pose (10 by default). **Stop** ends
    it early (the poses done so far are kept). A pose with fewer than `min_clouds_per_pose` fitted clouds (default half
    of `clouds_per_pose`, rounded up) is skipped as `partly blocked: k of n clouds`: something is in view there; clear
    it and sweep again rather than computing on a sweep with several such poses.
-3. When the sweep has ended, **Compute**. Read the table: mount z (mm), mount roll, mount pitch, tilt zero (deg) with
-   current, fitted, delta and sigma (the tilt roll is in `params.tilt_roll_deg` of result.json and goes into the
+3. When the sweep has ended, step 4 **Compute**. Step 5 shows the quality gate: Plausible or Not plausible (the
+   failed limits as the reasons), the scores, the expected accuracy (camera height and a ground point 2 m ahead, from
+   the sigmas) and the table: mount z (mm), mount roll, mount pitch, tilt zero (deg) with new, sigma, applied (the
+   URDF value) and change (the tilt roll is in `params.tilt_roll_deg` of result.json and goes into the
    applied `head_tilt` origin with the tilt zero), the height and normal RMS and the per-pose residuals. The height and
    normal RMS and the limits on them (`max_height_rms_mm` 8, `max_normal_rms_deg` 1.0: a room floor sloping 1-2 % to a drain tilts 0.6-1.1 deg) are over pose means (the mean
    of a pose's clouds): one pose's clouds scatter about 1 deg cloud to cloud, so the per-observation RMS
    (`observation_height_rms_mm`, `observation_normal_rms_deg` in result.json) is larger and is not limited. A failed
-   result lists the failed limits and Apply stays disabled: fix the cause (floor, clearance, lighting) and sweep again.
-4. **Apply** a passed result. The step shows the unit restart state (`head_state_publisher` and the head consumers
-   restart); wait until every unit shows restarted, and the applied head chain (session, result, note) is listed.
+   result lists the failed limits and Accept stays disabled: Decline, fix the cause (floor, clearance, lighting) and sweep
+   again.
+4. **Accept** a plausible result and confirm. The step shows the unit restart state (`head_state_publisher` and the
+   head consumers restart); wait until every unit shows restarted; the applied head chain (session, result, source,
+   note) is listed above the steps. **Decline** applies nothing.
 
 ## Acceptance checks
 
@@ -83,7 +91,7 @@ At each of the three poses:
 - plane_vs_base < 0.6 deg (`ground_plane_vs_base_deg` on the metrics port 19119).
 - Fewer than 10 obstacle points on the flat floor.
 
-If a check fails, repeat the sweep (Start sweep again); do not hand-edit `head_chain.json`.
+If a check fails, repeat the sweep (step 3 Start sweep again); do not hand-edit `head_chain.json`.
 
 ## Results
 

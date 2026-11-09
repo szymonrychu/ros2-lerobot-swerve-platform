@@ -326,4 +326,42 @@ describe('ServoNeutral', () => {
     expect((await screen.findByText('No servo groups configured on this robot'))).toBeTruthy()
     expect(screen.queryByText(/HTTP 404/)).toBeNull()
   })
+
+  it('parts limit the card to the move to neutral button', async () => {
+    groups = [group('arm', { move_to_neutral: true, zero_restore: true })]
+    mockFetch()
+    render(<ServoNeutral parts={['move']} />)
+    await inCard('Arm')
+    expect(btn('Arm', 'Move to neutral pose')).toBeTruthy()
+    expect(within(card('Arm')).queryByRole('button', { name: 'Torque off' })).toBeNull()
+    expect(screen.queryByRole('region', { name: 'Arm zero restore' })).toBeNull()
+  })
+
+  it('parts limit the card to the zero restore panel of the groups that have one', async () => {
+    groups = [group('arm', { move_to_neutral: true, zero_restore: true }), group('head')]
+    mockFetch()
+    render(<ServoNeutral parts={['zero']} />)
+    await screen.findByRole('region', { name: 'Arm zero restore' })
+    expect(screen.queryByRole('region', { name: 'Head' })).toBeNull()
+    expect(within(card('Arm')).queryByRole('button', { name: 'Move to neutral pose' })).toBeNull()
+    expect(within(card('Arm')).queryByRole('button', { name: 'Re-enable torque' })).toBeNull()
+  })
+
+  it('reports each action outcome to onResult', async () => {
+    groups = [group('base', { state: state({ a: 0 }) })]
+    mockFetch()
+    const onResult = vi.fn()
+    render(<ServoNeutral onResult={onResult} />)
+    await inCard('Base')
+    fireEvent.click(btn('Base', 'Re-enable torque'))
+    await waitFor(() => expect(onResult).toHaveBeenCalledWith('base', 'enable', true))
+  })
+
+  it('uses the given servo state and does not poll itself', async () => {
+    mockFetch()
+    render(<ServoNeutral heading={false} servo={{ groups: [group('head')], notConfigured: false, error: null, loading: false }} />)
+    await inCard('Head')
+    expect(fetch).not.toHaveBeenCalled()
+    expect(screen.queryByText('Servo torque and neutral')).toBeNull()
+  })
 })

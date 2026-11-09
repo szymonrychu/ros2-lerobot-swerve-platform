@@ -123,6 +123,13 @@ describe('CsiIntrinsics', () => {
     expect(screen.getByRole('button', { name: 'Back' }).getAttribute('aria-pressed')).toBe('true')
   })
 
+  it('heading off leaves the section title out (a flow step names it)', async () => {
+    install(world())
+    render(<CsiIntrinsics heading={false} />)
+    await screen.findByRole('button', { name: 'Front' })
+    expect(screen.queryByText('CSI camera intrinsics')).toBeNull()
+  })
+
   it('names the FULL board it needs with its PDF and 3MF downloads', async () => {
     install(world())
     render(<CsiIntrinsics />)

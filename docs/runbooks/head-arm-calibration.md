@@ -63,22 +63,30 @@ mcp_server kills it; ask first). Telemetry only through topic_scraper_api /
    `cd nodes/head_rgbd_calibration && uv run --frozen pytest tests/test_arm_pose_set.py tests/test_config.py -q`
    and `uv run --frozen pytest tests/test_head_rgbd_calibration_deploy.py -q`; a failing safety test stops
    the run (the pose set needs re-planning for that mount). Commit, redeploy head_rgbd_calibration.
-2b. Dry run without the board: Move to base pose and press Board attached with nothing in the jaws: the grip
+2b. Dry run without the board: Open gripper (step 2) and press Board attached with nothing in the jaws: the grip
    close must stop the sequence with "the gripper closed past the handle contact: seat the handle up to the shoulder
    and start again" (the seat check), holding the arm (phase `holding`). Record the measured angle it quotes. Park.
-2c. Grip close with the board (gripper only, decision 264): Move to base pose, seat the handle up to the shoulder,
+2c. Grip close with the board (gripper only, decision 264): Open gripper (step 2), seat the handle up to the shoulder,
    press Board attached. The gripper closes to `grip_rad`; the sequence must pass the seat check (measured at least
    `handle_contact_rad - handle_squeeze_rad / 2`) and the slack check (measured below `grip_rad +
    grip_converge_tolerance_rad`; a thicker handle stops it, then set `handle_contact_rad` from the measured contact) and
    start the still session. Stop. Record the measured gripper
    angle (from the state or `get_arm_state`) and take detection stills of the board at the base pose. The board must
    not slip or rotate in the jaws.
-3. Calibrate page, robot docked, user watching: Move to base pose, user seats the ARM board handle in the jaws up to
-   the shoulder and presses Board attached, the gripper closes on the handle (seat check), tiers 0 and 1,
-   ask before "Allow elbow and shoulder moves", record views, arm poses, skipped reasons, RMS, held-out
-   RMS, board error, each parameter with sigma and its change from the applied floor chain, and the
-   floor cross-check. The user removes the board and confirms Park.
-4. Apply a passed result; the units restart. Check TF with topic_scraper_api (enable it first) and the
+3. Calibrate page, tab **Arm to camera** (deep link `#/calibrate/arm-camera`), robot docked, user watching. The
+   precondition banner must not show "Not ready" (a camera-to-ground result, i.e. an applied head chain, is needed) or
+   "Arm zero is stale" (restore it in the Servo home flow first). Steps: 1 **Home arm** (confirm), 2 **Open gripper**
+   (confirm naming the joints: base pose, gripper open to `insert_gripper_rad`), 3 the user seats the ARM board handle
+   in the jaws up to the shoulder and presses **Board attached**: the gripper closes on the handle (seat and slack
+   checks in the events log), tiers 0 and 1 start, 4 **Capture**: ask before **Allow shoulder and elbow moves**
+   (confirm) or **Skip them**; record views, arm poses and skipped reasons. The head-from-arm fit of this procedure is
+   in step 5 under **More fits on this session** (**Compute head from arm**): record RMS, held-out RMS, board error,
+   each parameter with sigma and its change from the applied floor chain, and the floor cross-check. **Abort
+   calibration** in the General section stops the sequence at any time and holds the arm where it is (no park).
+4. **Apply head from arm** on a passed result; the units restart. The arm-to-camera fit itself is step 5 **Compute**
+   and step 6 **Check and accept** (Accept confirms and applies, Decline keeps the current calibration; Accept is off
+   with the reasons when the report is not plausible); then step 7 **Park** (confirm), the user removes the board.
+   Check TF with topic_scraper_api (enable it first) and the
    web UI head pose; `/ground/state` at home stays within 0.01 m height.
 5. Live yaw and x/y check: arm at the base pose without the board, `head_look_at` on the tool point;
    the tool point's pixel offset from the image centre in the head camera image (web UI), converted to
@@ -90,10 +98,11 @@ skipped with its reason, not forced. After a long hold (about 4 h) the gripper s
 bus under the board load: park with the board (D63) and take the board out of the jaws between sessions. A seat-check
 refusal ("closed past the handle contact") means the post was not in the jaws up to the shoulder. The sequence ends in
 phase `holding` (the board counts as attached): take the board out of the jaws, press Park (the checked board park),
-then Move to base pose again (it opens the gripper to `insert_gripper_rad`), reseat the handle and retry.
+then Open gripper again (step 2: base pose, gripper at `insert_gripper_rad`), reseat the handle and retry. A page that
+lost the sequence (restart) offers **Park (board is on the gripper)** in step 1.
 
 Where errors show: a sequence or park that ends with an error shows it on the Calibrate page in the red banner
-**Last head-arm error** (Head from arm section, and Arm calibration once opened) with the time and phase it happened
+**Last head-arm error** (Arm to camera flow, above its steps; a refused button shows its message on its own step) with the time and phase it happened
 in, and the **Recent head-arm events** log below it lists the newest 50 events (start, each step and pose outcome,
 errors, stops, park results), newest first. Each of these events is one `calib_event` line in the node journal (errors at
 ERROR, stops at WARNING), next to the step telemetry the page does not show; read it through the deploy tooling, never
