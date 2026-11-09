@@ -51,6 +51,9 @@ BASE_TOLERANCE_M = 0.0015
 SKEW_TOLERANCE_MM = 1.0
 SKEW_TOLERANCE_DEG = 0.3
 SAG_TOLERANCE_RAD_PER_NM = 0.12
+SIGMA_DRAWS = 12
+# Sample std of 12 draws over the reported sigma: chi distribution, about 0.6-1.4 at 95 %; wider for safety.
+SIGMA_RATIO = (0.45, 1.8)
 GAUGE_TOLERANCE_M = 1e-5  # the URDF rpy is pi to 6 digits: the pan axis is vertical to 3e-6 rad
 REPORT_KEYS = {
     "plausible", "refusals", "warnings", "score", "params", "accuracy_examples", "comparison", "skew", "sag", "notes",
@@ -85,6 +88,7 @@ def test_recovers_arm_offsets_and_base(standard: tuple[object, ArmCameraFit]) ->
     for key in ("x", "y", "z"):
         assert abs(fit.base[key] - truth.base[key]) <= BASE_TOLERANCE_M, key
     assert fit.base["yaw"] == fit.current_base["yaw"]  # the shoulder_pan gauge
+    assert abs(truth.base["z"] - fit.current_base["z"]) > 0.002  # the base z change is real
 
 
 def test_recovers_board_skew_and_sag(standard: tuple[object, ArmCameraFit]) -> None:
@@ -126,7 +130,14 @@ def test_report_matches_the_contract(standard: tuple[object, ArmCameraFit]) -> N
     assert report["score"]["poses"] == len(PLATE_ARM_POSES)
     assert all(set(p) == PARAM_KEYS for p in report["params"])
     names = {p["name"] for p in report["params"]}
-    assert {"shoulder_pan_offset", "wrist_roll_offset", "base_x", "base_yaw", "sag"} <= names
+    assert {"shoulder_pan_offset", "wrist_roll_offset", "base_x", "base_yaw", "sag", "board_skew_roll"} <= names
+    skew = {p["name"]: p for p in report["params"] if p["name"].startswith("board_skew_")}
+    for axis, name in enumerate(("board_skew_roll", "board_skew_pitch", "board_skew_yaw")):
+        assert skew[name]["value"] == pytest.approx(report["skew"]["rpy_deg"][axis])
+        assert skew[name]["change"] == pytest.approx(skew[name]["value"]) and skew[name]["applied_value"] == 0.0
+    for axis, name in enumerate(("board_x", "board_y", "board_z")):
+        entry = next(p for p in report["params"] if p["name"] == name)
+        assert entry["change"] == pytest.approx(report["skew"]["xyz_mm"][axis])
     pan = next(p for p in report["params"] if p["name"] == "shoulder_pan_offset")
     assert pan["unit"] == "deg" and pan["change"] == pytest.approx(pan["value"] - pan["applied_value"])
     roll = next(p for p in report["params"] if p["name"] == "wrist_roll_offset")
@@ -310,3 +321,25 @@ def test_solver_summary(standard: tuple[object, ArmCameraFit]) -> None:
     assert set(fit.solver) == {"status", "message", "nfev", "cost", "start_rms_px", "free"}
     assert fit.solver["nfev"] > 0 and fit.solver["status"] > 0 and fit.solver["free"] == list(fit.free)
     assert fit.solver["start_rms_px"] > fit.rms_px
+
+
+def test_sigma_is_the_spread_over_noise_draws() -> None:
+    """The reported sigma of the offsets and the base matches their spread over independent noise draws (the
+    covariance is scaled by the corner residuals only, the priors keep their configured weight)."""
+    truth = arm_camera_truth()
+    cfg = arm_camera_config()
+    fits = [
+        fit_arm_camera(
+            arm_camera_scene(truth, PLATE_ARM_POSES, NOISE_PX, seed),
+            SYNTH_CAMERA_MATRIX,
+            SYNTH_DIST,
+            synth_head_urdf(),
+            synth_arm_urdf(),
+            cfg,
+        )
+        for seed in range(SIGMA_DRAWS)
+    ]
+    for name in ("shoulder_pan_offset", "elbow_flex_offset", "base_x", "base_z"):
+        values = np.array([f.values[name] for f in fits])
+        sigma = float(np.median([f.sigma[name] for f in fits]))
+        assert SIGMA_RATIO[0] < float(np.std(values, ddof=1)) / sigma < SIGMA_RATIO[1], name

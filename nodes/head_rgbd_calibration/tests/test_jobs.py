@@ -146,3 +146,13 @@ def test_job_runs_the_given_module_and_logs_its_flow(
         wait_until(lambda: not job.state()["running"])
     assert "head_rgbd_calibration.arm_camera_compute" in calls[0][0]
     assert {(e["flow"], e["run_id"]) for e in events_in(caplog.records)} == {("arm_camera_compute", rid)}
+
+
+def test_new_result_id_skips_one_being_written(cfg: NodeConfig, store: SessionStore, sid: str) -> None:
+    """A result id whose temp directory exists (another compute writing it this second) is not reused."""
+    taken = store.result_dir(sid, store.new_result_id(NOW))
+    taken.with_name(f".tmp-{taken.name}").mkdir(parents=True)
+    job = ComputeJob(cfg, store, fake_popen("pass"), FakeClock(), CONFIG_PATH)
+    rid = job.start(sid)
+    wait_until(lambda: not job.state()["running"])
+    assert rid != taken.name

@@ -44,40 +44,51 @@ def now() -> datetime:
     return datetime.now().astimezone()
 
 
-def blocked_reason(capture: CaptureController, job: ComputeJob, sequencer: Sequencer | None = None) -> str | None:
+def blocked_reason(
+    capture: CaptureController,
+    job: ComputeJob,
+    sequencer: Sequencer | None = None,
+    arm_camera_job: ComputeJob | None = None,
+) -> str | None:
     """Why a floor sweep may not start now.
 
     Args:
         capture: RGB-D capture controller.
         job: RGB-D compute job.
         sequencer: Head-from-arm sequencer, None to ignore it.
+        arm_camera_job: Arm to camera compute job, None to ignore it.
 
     Returns:
-        A reason while a capture, a compute or a head-arm sequence runs, else None.
+        A reason while a capture, a compute, an arm to camera compute or a head-arm sequence runs, else None.
     """
     if capture.state()["running"]:
         return "an RGB-D capture is running; stop it first"
     if job.state()["running"]:
         return "a compute is running; wait for it to finish"
+    if arm_camera_job is not None and arm_camera_job.state()["running"]:
+        return "an arm to camera compute is running; wait for it to finish"
     if sequencer is not None and sequencer.state()["running"]:
         return "a head-arm sequence is running; stop it first"
     return None
 
 
-def sequence_blocked_reason(capture: CaptureController, job: ComputeJob, sweep: FloorSweep) -> str | None:
+def sequence_blocked_reason(
+    capture: CaptureController, job: ComputeJob, sweep: FloorSweep, arm_camera_job: ComputeJob | None = None
+) -> str | None:
     """Why a head-arm sequence may not start now.
 
     Args:
         capture: RGB-D capture controller.
         job: RGB-D compute job.
         sweep: Floor sweep.
+        arm_camera_job: Arm to camera compute job, None to ignore it.
 
     Returns:
-        A reason while a capture, a compute or a floor sweep runs, else None.
+        A reason while a capture, a compute, an arm to camera compute or a floor sweep runs, else None.
     """
     if sweep.state()["running"]:
         return "a floor sweep is running; stop it first"
-    return blocked_reason(capture, job)
+    return blocked_reason(capture, job, arm_camera_job=arm_camera_job)
 
 
 def main() -> int:
@@ -114,7 +125,7 @@ def main() -> int:
         time.monotonic,
         time.sleep,
         now,
-        lambda: blocked_reason(capture, job, sequencer),
+        lambda: blocked_reason(capture, job, sequencer, arm_camera_job),
     )
     sequencer = Sequencer(
         capture,
@@ -122,7 +133,7 @@ def main() -> int:
         cfg,
         lambda: base_urdf(cfg),
         lambda: Path(cfg.arm_urdf_file).read_text(),
-        lambda: sequence_blocked_reason(capture, job, sweep),
+        lambda: sequence_blocked_reason(capture, job, sweep, arm_camera_job),
         fitted_mount=lambda sid: latest_board_mount(store, sid),
         board_file=Path(cfg.state_dir) / BOARD_RECORD_FILE,
         session_exists=lambda sid: head_arm_session_exists(store, sid),

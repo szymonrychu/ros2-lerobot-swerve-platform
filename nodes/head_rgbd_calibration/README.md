@@ -577,7 +577,8 @@ journalctl -u ros2-head_rgbd_calibration -o cat --since today | grep -o 'calib_e
   a plane bias over the limits fail, an unmeasured plane bias fails, a missing or changing factory camera_info, too few
   poses and a head_arm session are error results, `main`.
 - `tests/test_jobs.py` - command and niceness, busy, timeout, stderr tail, unknown session (fake child commands), a job
-  with its own child module and telemetry flow (the arm to camera job).
+  with its own child module and telemetry flow (the arm to camera job), a result id whose temp directory exists is
+  skipped.
 - `tests/test_arm_camera_results.py` - the arm to camera compute, accept, decline and state on the synthetic arm to
   camera scene (`arm_camera_scene` of `tests/head_arm_synthetic.py`) stored as a head_arm session with an applied
   floor-fit head chain: a done, plausible result recovers the true offsets and writes the snippet; no applied head chain
@@ -587,20 +588,22 @@ journalctl -u ros2-head_rgbd_calibration -o cat --since today | grep -o 'calib_e
   head reader reads), stamps `accepted_at` and refuses a later decline; the next result compares with the accepted
   one; decline records `declined` and changes nothing applied, a declined result cannot be accepted; a failed result
   is refused by both; a running and a crashed compute read from the job state; `/state` without a head chain and the
-  head chain source names; the shipped bounds.
+  head chain source names; the shipped bounds; an accept after another head chain was applied is refused and the
+  accepted calibration reads `head_chain_changed`.
 - `tests/test_arm_camera_compute.py` - the arm to camera child `main` writes the result of its session and result id,
   and a failed result without an applied head chain.
 - `tests/test_arm_camera_api.py` - the `/api/arm-camera/*` routes with an inline job: 202 compute, the result, accept
   and state bodies against the contract fixtures `arm_camera_result.json`, `arm_camera_result_running.json`,
   `arm_camera_accept.json`, `arm_camera_state.json`; 404 for unknown sessions, results and a result of another kind,
   400 for an intrinsics session, 409 while a sequence or a compute runs, when not ready, for accept or decline of a
-  running or failed result, accept of an implausible or declined result and decline of an accepted one.
+  running or failed result, accept of an implausible or declined result and decline of an accepted one; the head-arm
+  routes neither list nor serve arm to camera results.
 - `tests/test_app.py` - every route with a fake capture, a fake job and a tmp store: error body shape, 404/409/400/422
   mapping, capture/compute mutual refusal, min_views refusal, coverage, thumbnails `image/jpeg`, zip headers, apply,
   `/api/state` without systemctl, `/api/applied` units.
 - `tests/test_main.py` - bind host and port from the config (loopback by default), shutdown stops capture, the CSI
   capture, the job and the arm to camera job and destroys the node, the arm to camera router runs its own compute job
-  (`test_arm_camera_router_runs_its_own_compute_job`), the CSI router is built with the CSI controller
+  (`test_arm_camera_router_runs_its_own_compute_job`), a running arm to camera compute blocks a sequence and a sweep, the CSI router is built with the CSI controller
   (`test_csi_router_is_built_and_its_capture_stopped_at_shutdown`), missing config env gives exit 78.
 - `tests/test_csi_intrinsics.py` - the CSI intrinsics over synthetic 1152x648 ChArUco views fed to a fake node: the
   `csi_cameras` defaults and their validation, `view_differs`, the image subscription only while capturing and `Busy`,
@@ -880,11 +883,12 @@ checked with `tests/contract.py`). Errors use the common `{ok: false, message}` 
 |---|---|
 | `POST /sessions/{sid}/compute` | 202 `{result_id}`; 404 unknown session, 400 not a head_arm session, 409 while a head-arm sequence runs, while an arm to camera compute runs, or when not ready (no applied head chain; the message is the `reason` of `/state`) |
 | `GET /sessions/{sid}/results/{rid}` | the result (below); 404 unknown or malformed ids or a result of another kind |
-| `POST /sessions/{sid}/results/{rid}/accept` | `{arm_calibration: {session, result, accepted_at, score}, units: [{name, active_state, restarted}]}`; 409 when the result is not done (running or failed), not plausible (the message lists the refusals) or declined; 404 as above |
+| `POST /sessions/{sid}/results/{rid}/accept` | `{arm_calibration: {session, result, accepted_at, score}, units: [{name, active_state, restarted}]}` (`units`: the `restart_units` states as every apply reports them; no unit reads arm_calibration.json, so they show `restarted: false`); 409 when the result is not done (running or failed), not plausible (the message lists the refusals), declined, or fitted against a head chain that is no longer the applied one; 404 as above |
 | `POST /sessions/{sid}/results/{rid}/decline` | the result with `declined: true`, `declined_at`; nothing applied changes; 409 when not done or already accepted |
-| `GET /state` | `{applied: {session, result, accepted_at, score, accuracy_examples} \| null, head_chain_source, ready, reason}`; `head_chain_source` is `floor_fit`, `head_arm`, `arm_offsets` (the applied.json head_chain record `source` floor, head_arm, arm), null for an applied chain without a matching record, `urdf` without an applied chain (then `ready` false and `reason` "apply a head calibration first ...") |
+| `GET /state` | `{applied: {session, result, accepted_at, score, accuracy_examples, head_chain_changed} \| null, head_chain_source, ready, reason}` (`head_chain_changed`: the applied head chain is no longer the one the accepted calibration was fitted against); `head_chain_source` is `floor_fit`, `head_arm`, `arm_offsets` (the applied.json head_chain record `source` floor, head_arm, arm), null for an applied chain without a matching record, `urdf` without an applied chain (then `ready` false and `reason` "apply a head calibration first ...") |
 
-Result body (result.json; while the job runs and after a child that wrote nothing it is built from the job state):
+Result body (result.json; while the job runs and after a child that wrote nothing it is built from the job state,
+which keeps only the last compute: a crashed result reads 404 once the next compute starts):
 
 ```
 {id, session, kind: "arm_camera", state: "running" | "done" | "failed", error, created_at,
@@ -905,8 +909,10 @@ Report fields (`arm_camera_fit.arm_camera_report`):
 - `score`: `{rms_px, heldout_rms_px, heldout_tool_mm, views, poses}` (held-out: every `fit.limits.holdout_every`-th
   arm pose with all its views; the tool error is the arm FK tool point against the view's solvePnP board pose).
 - `params`: `[{name, value, sigma, unit, applied_value, change}]` in plain units: `<joint>_offset` (deg), `base_x`,
-  `base_y`, `base_z` (mm), `base_yaw` (deg), `board_x`, `board_y`, `board_z` (mm), `board_roll`, `board_pitch`,
-  `board_yaw` (deg; the applied value is the CAD mount), `sag` (deg/(N m)), `droop` (mm/(N m), only with `fit_droop`).
+  `base_y`, `base_z` (mm), `base_yaw` (deg), `board_x`, `board_y`, `board_z` (mm, the seat in gripper_link; the applied
+  value is the CAD mount, the change equals `skew.xyz_mm`), `board_skew_roll`, `board_skew_pitch`, `board_skew_yaw`
+  (deg, the seat turn against the CAD mount in the board frame, equal to `skew.rpy_deg`; applied value 0), `sag`
+  (deg/(N m)), `droop` (mm/(N m), only with `fit_droop`).
   `sigma` is null for a fixed parameter (a gauge).
 - `accuracy_examples`: `[{label, value, unit: "mm"}]`, two per example (`<example>, 1 sigma` and `<example>, 95 %`) for
   "tool point at 30 cm reach", "tool point at full reach" and "gripper position seen by the head camera at 50 cm",
@@ -930,7 +936,9 @@ mcp_server reads the arm calibration from its client.yml `arm:` block, not from 
 `snippet` (`joint_offsets_rad`, `arm_base_height_m`, `base_in_base_link`, validated against arm_collision's
 `ArmModelSettings` in `tests/test_arm_camera_fit.py`) is committed to client.yml by review, together with
 `fit.joint_offsets_rad` / `fit.base_in_base_link` of this node and the web_ui `arm_offset`, as for the arm offsets fit.
-`joint_offsets_snippet.yaml` in the result directory holds the same snippet (in the download zip).
+`joint_offsets_snippet.yaml` in the result directory holds the same snippet. The head-arm routes
+(`/api/head-arm/sessions`, `.../results/{rid}`) neither list nor serve arm to camera results. While an arm to camera
+compute runs, a head-arm sequence and a floor sweep do not start.
 
 Telemetry: see the `arm_camera_compute` and `arm_camera_accept` rows of the Telemetry table.
 

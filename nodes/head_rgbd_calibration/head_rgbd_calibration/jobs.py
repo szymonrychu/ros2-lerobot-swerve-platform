@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from typing import IO, Any
 
 from head_rgbd_calibration.config import NodeConfig
-from head_rgbd_calibration.store import RESULT_FILE, SessionStore
+from head_rgbd_calibration.store import RESULT_FILE, TEMP_PREFIX, SessionStore
 from head_rgbd_calibration.telemetry import calib_event, forward_child_log
 
 LOGGER = logging.getLogger(__name__)
@@ -97,7 +97,10 @@ class ComputeJob:
             self.store.existing_session_dir(sid)
             started = self.clock()
             rid = self.store.new_result_id(started)
-            while (self.store.result_dir(sid, rid)).exists():
+            while (
+                self.store.result_dir(sid, rid).exists()
+                or self.store.result_dir(sid, rid).with_name(f"{TEMP_PREFIX}{rid}").exists()
+            ):
                 started += timedelta(seconds=1)
                 rid = self.store.new_result_id(started)
             command = [

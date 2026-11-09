@@ -211,7 +211,11 @@ def test_accept_writes_the_arm_calibration_and_keeps_the_head_chain(tmp_path: Pa
     with pytest.raises(NotApplicable, match="accepted"):
         decline_arm_camera(scene.store, scene.sid, result["id"], LATER)
     state = arm_camera_state(scene.cfg)
-    assert state["applied"] == {**record, "accuracy_examples": result["report"]["accuracy_examples"]}
+    assert state["applied"] == {
+        **record,
+        "accuracy_examples": result["report"]["accuracy_examples"],
+        "head_chain_changed": False,
+    }
     assert state["head_chain_source"] == "floor_fit" and state["ready"] is True and state["reason"] is None
 
 
@@ -292,3 +296,23 @@ def test_fit_config_defaults_are_shipped(tmp_path: Path) -> None:
     assert (bounds.max_offset_change_deg, bounds.max_base_move_mm, bounds.max_base_turn_deg) == (15.0, 100.0, 10.0)
     assert (bounds.max_skew_mm, bounds.max_skew_deg) == (10.0, 10.0)
     assert math.isclose(cfg.fit.arm_camera.reach_m, 0.30) and math.isclose(cfg.fit.arm_camera.camera_distance_m, 0.5)
+
+
+def test_accept_refuses_a_fit_of_a_head_chain_no_longer_applied(tmp_path: Path) -> None:
+    """The arm calibration holds only against the head chain it was fitted with: after another head chain is applied
+    the accept is refused, and an accepted calibration is reported with head_chain_changed."""
+    scene = Scene(tmp_path)
+    first = compute_arm_camera(scene.cfg, scene.store, scene.sid, SessionStore.new_result_id(NOW), NOW)
+    second = compute_arm_camera(scene.cfg, scene.store, scene.sid, SessionStore.new_result_id(LATER), LATER)
+    accept_arm_camera(scene.cfg, scene.store, scene.sid, first["id"], LATER, fake_run)
+    assert arm_camera_state(scene.cfg)["applied"]["head_chain_changed"] is False
+    apply_head_chain(scene.state, "head_arm")  # same origins, another applied record: another head calibration
+    marker = json.loads((scene.state / "applied" / "applied.json").read_text())
+    marker["head_chain"]["result"] = "r-20261109-130000"
+    (scene.state / "applied" / "head_chain.json").write_text(
+        (scene.state / "applied" / "head_chain.json").read_text().replace(FLOOR_RID, "r-20261109-130000")
+    )
+    (scene.state / "applied" / "applied.json").write_text(json.dumps(marker))
+    with pytest.raises(NotApplicable, match="head chain"):
+        accept_arm_camera(scene.cfg, scene.store, scene.sid, second["id"], LATER, fake_run)
+    assert arm_camera_state(scene.cfg)["applied"]["head_chain_changed"] is True

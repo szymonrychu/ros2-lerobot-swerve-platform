@@ -21,9 +21,10 @@ units, against the corner residuals divided by `pixel_sigma_px`.
 
 Validation is on held-out arm poses (every `limits.holdout_every`-th distinct arm pose with all its views): corner
 RMS and the tool point error (arm FK tool point against the view's solvePnP board pose, mm). Accuracy examples
-propagate the parameter covariance `(J^T J)^-1 * sum(r^2) / (m - n)` to the tool point in base_link at three plain
-arm poses (1 sigma: the RMS 3D error sqrt(trace); 95 %: the 95 % chi-square radius of the largest principal axis, an
-upper bound of the 95 % error radius). numpy, scipy and OpenCV only, no ROS.
+propagate the parameter covariance `(Jc^T Jc / s^2 + Jp^T Jp)^-1` (Jc the corner rows, s^2 their reduced
+chi-square `rc^T rc / (mc - n)`, Jp the prior rows at their configured weight) to the tool point in base_link at three
+plain arm poses (1 sigma: the RMS 3D error sqrt(trace); 95 %: the 95 % chi-square radius of the largest principal
+axis, an upper bound of the 95 % error radius). numpy, scipy and OpenCV only, no ROS.
 """
 
 import math
@@ -62,6 +63,7 @@ from ros2_common.head_rgbd_calibration.views import ArmBoardView, require_joints
 GRAVITY_M_PER_S2 = 9.80665
 GRAVITY_DIRECTION = np.array([0.0, 0.0, -1.0])  # base_link z is up
 MIN_VIEWS = 3
+PRIOR_ROWS = 8  # board seat rotation (3) and translation (3), sag, droop
 PNP_INIT_VIEWS = 10
 WRIST_ROLL = "wrist_roll"
 PAN_GAUGE_JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex")
@@ -69,7 +71,9 @@ OFFSET_SUFFIX = "_offset"
 BASE_KEYS = ("x", "y", "z", "yaw")
 BOARD_ROTATION_PARAMS = ("board_rx", "board_ry", "board_rz")
 BOARD_POSITION_PARAMS = ("board_x", "board_y", "board_z")
-BOARD_REPORT_NAMES = ("board_roll", "board_pitch", "board_yaw")
+# The seat turn against the CAD mount in the board frame (skew.rpy_deg); its sigma is the rotation vector's, equal to
+# first order for the small turns the bounds allow.
+BOARD_REPORT_NAMES = ("board_skew_roll", "board_skew_pitch", "board_skew_yaw")
 SAG_PARAM = "sag"
 DROOP_PARAM = "droop"
 RPY_SEQUENCE = "xyz"
@@ -568,7 +572,7 @@ class ArmCameraProblem:
 
     def holdout_tool_mm(self, p: Mapping[str, float]) -> float:
         """Held-out tool error: RMS over the held-out views of the distance between the arm FK tool point and the tool
-        point of the view's solvePnP board pose (mm); nan without held-out views."""
+        point of the view's solvePnP board pose (mm), over the views solvePnP solves; nan without any."""
         errors = []
         if not self.hold_idx:
             return math.nan
@@ -576,8 +580,7 @@ class ArmCameraProblem:
         for i, predicted, board in zip(self.hold_idx, in_base, in_gripper, strict=True):
             observed = board_pnp(self.objects[i], self.images[i], self.k, self.d, self.inverse_cameras[i] @ predicted)
             if observed is None:
-                errors.append(math.nan)
-                continue
+                continue  # a view solvePnP cannot solve is left out of the tool error
             tool_board = np.linalg.solve(board, self.tool_gripper)
             delta = (self.cameras[i] @ observed @ tool_board - predicted @ tool_board)[:3]
             errors.append(float(np.linalg.norm(delta)) * MM_PER_M)
@@ -739,11 +742,15 @@ def fit_arm_camera(
 
     jac = numeric_jacobian(fun, x)
     residual = fun(x)
-    dof = len(residual) - len(x)
+    corners = len(residual) - PRIOR_ROWS
+    dof = corners - len(x)
     cov = np.full((len(x), len(x)), math.inf)
     if dof > 0:
+        # The corner rows' reduced chi-square scales only the corner information; the priors keep their weight.
+        scale = float(residual[:corners] @ residual[:corners]) / dof
+        corner_jac, prior_jac = jac[:corners], jac[corners:]
         try:
-            cov = np.linalg.inv(jac.T @ jac) * (float(residual @ residual) / dof)
+            cov = np.linalg.inv(corner_jac.T @ corner_jac / scale + prior_jac.T @ prior_jac)
         except np.linalg.LinAlgError:
             pass
     sigma_x = np.sqrt(np.abs(np.diag(cov)))
@@ -931,7 +938,8 @@ def param_entries(fit: ArmCameraFit) -> list[dict]:
     Returns:
         list[dict]: {name, value, sigma, unit, applied_value, change}; sigma None for a fixed parameter (a gauge);
         lengths in mm, angles in deg, the sag in deg/(N m), the droop in mm/(N m); the applied value of the board seat
-        is the CAD mount, of the sag and droop zero.
+        is the CAD mount for board_x, y, z, zero for the seat turn `board_skew_roll`, `board_skew_pitch`,
+        `board_skew_yaw` (the skew rotation, board frame, as `skew.rpy_deg`), the sag and the droop.
     """
 
     def entry(name: str, value: float, sigma: float | None, unit: str, applied: float) -> dict:
@@ -975,15 +983,7 @@ def param_entries(fit: ArmCameraFit) -> list[dict]:
             )
         )
     for axis, (name, free) in enumerate(zip(BOARD_REPORT_NAMES, BOARD_ROTATION_PARAMS, strict=True)):
-        entries.append(
-            entry(
-                name,
-                math.degrees(fit.board_mount["rpy"][axis]),
-                sigma_of(free, DEG_PER_RAD),
-                DEG,
-                math.degrees(fit.cad_mount["rpy"][axis]),
-            )
-        )
+        entries.append(entry(name, fit.skew["rpy_deg"][axis], sigma_of(free, DEG_PER_RAD), DEG, 0.0))
     entries.append(entry(SAG_PARAM, float(fit.sag["deg_per_nm"]), float(fit.sag["sigma_deg_per_nm"]), SAG_UNIT, 0.0))
     if fit.sag.get("droop_mm_per_nm") is not None:
         entries.append(

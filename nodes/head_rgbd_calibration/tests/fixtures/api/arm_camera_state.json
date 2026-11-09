@@ -16,7 +16,8 @@
         "value": 0.13303131516666186,
         "unit": "mm"
       }
-    ]
+    ],
+    "head_chain_changed": false
   },
   "head_chain_source": "floor_fit",
   "ready": true,

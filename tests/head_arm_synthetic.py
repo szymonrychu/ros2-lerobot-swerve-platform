@@ -643,7 +643,7 @@ SYNTH_BOARD_MASS_KG = 0.2117
 # True minus current arm joint offsets (rad); wrist_roll stays (the gauge of the board rotation about its axis).
 ARM_CAMERA_OFFSET_CHANGES = {"shoulder_pan": 0.02, "shoulder_lift": 0.03, "elbow_flex": -0.04, "wrist_flex": 0.05}
 # True minus current arm base (m); yaw stays (the gauge of the shoulder_pan offset).
-ARM_CAMERA_BASE_CHANGES = {"x": 0.006, "y": -0.004}
+ARM_CAMERA_BASE_CHANGES = {"x": 0.006, "y": -0.004, "z": 0.003}
 # Board seat skew of the truth against the CAD (nominal) mount: shift (m) and turn (deg), `perturbed_board_mount`.
 ARM_CAMERA_SKEW_SHIFT_M = 0.004
 ARM_CAMERA_SKEW_TURN_DEG = 3.0

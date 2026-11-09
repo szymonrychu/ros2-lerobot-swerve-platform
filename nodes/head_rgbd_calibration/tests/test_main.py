@@ -80,6 +80,9 @@ def rec(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Recorder:
         def stop(self) -> None:
             rec.events.append("arm_camera_job_stop" if self.kwargs else "job_stop")
 
+        def state(self) -> dict[str, Any]:
+            return {"running": False}
+
     class FakeSweep:
         def __init__(self, node: Any, cfg: Any, urdf_text: Any, clock: Any, sleep: Any, now: Any, blocked: Any) -> None:
             rec.sweep = self
@@ -288,3 +291,15 @@ def test_arm_camera_router_runs_its_own_compute_job(rec: Recorder, tmp_path: Pat
     ((sequencer, job, store, cfg, _run),) = rec.arm_camera_routers
     assert (sequencer, job) == (rec.sequencer, arm_camera)
     assert store.state_dir == Path(cfg.state_dir)
+
+
+def test_sequence_and_sweep_are_blocked_while_an_arm_to_camera_compute_runs(rec: Recorder) -> None:
+    entry.main()
+    running = {"value": False}
+    for part in (rec.capture, rec.job, rec.sweep):
+        part.state = lambda: {"running": False}
+    rec.jobs[1].state = lambda: {"running": running["value"]}
+    assert rec.sequencer.blocked() is None and rec.sweep.blocked() is None
+    running["value"] = True
+    assert "arm to camera compute" in rec.sequencer.blocked()
+    assert "arm to camera compute" in rec.sweep.blocked()

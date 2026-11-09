@@ -474,7 +474,7 @@ camera pose of the applied head chain at the measured pan/tilt -> `cv2.projectPo
   reported with the solver, not a warning.
 - Residuals: fit-view corner errors over `pixel_sigma_px`, then the priors (sigma units); Huber loss with
   `huber_f_scale_px / pixel_sigma_px`. Hold-out: every `limits.holdout_every`-th distinct arm pose with all its views.
-- Covariance `(J^T J)^-1 * sum(r^2) / (m - n)` at the solution; `prediction_error_mm(jac, cov)` propagates it to a
+- Covariance `(Jc^T Jc / s^2 + Jp^T Jp)^-1` at the solution (corner rows scaled by their reduced chi-square s^2, the prior rows at their configured weight); `prediction_error_mm(jac, cov)` propagates it to a
   3D point: (sqrt(trace), the 95 % chi-square radius (3 dof) of the largest principal axis).
 - Accuracy examples (`example_poses`, from a joint grid with the applied calibration): the tool point (the applied
   `tool_offset_m`) at `reach_m` horizontal reach from the pan axis at the pan origin height, at full reach within

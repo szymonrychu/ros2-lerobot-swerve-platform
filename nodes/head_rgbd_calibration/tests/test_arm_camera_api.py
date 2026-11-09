@@ -14,6 +14,7 @@ from ros2_common.head_rgbd_calibration.config import ArmCameraBounds
 from head_rgbd_calibration.app import build_app
 from head_rgbd_calibration.arm_camera_api import arm_camera_router
 from head_rgbd_calibration.arm_camera_results import compute_arm_camera
+from head_rgbd_calibration.head_arm_api import head_arm_router
 from head_rgbd_calibration.jobs import Busy
 from head_rgbd_calibration.store import SessionStore
 from tests.contract import assert_matches_fixture
@@ -214,3 +215,17 @@ def test_failed_result_and_its_accept(tmp_path: Path) -> None:
     body = parts.client.get(f"/api/arm-camera/sessions/{sid}/results/{rid}").json()
     assert (body["state"], body["error"]) == ("failed", "compute exited with code 1 and wrote no result")
     assert parts.client.post(f"/api/arm-camera/sessions/{sid}/results/{rid}/accept").status_code == 409
+
+
+def test_head_arm_routes_do_not_list_or_serve_arm_camera_results(shared: SimpleNamespace) -> None:
+    """The head-arm page picks its result ids from /api/head-arm/sessions: arm to camera results stay out of it."""
+    app = build_app(FakeRunning(), FakeRunning(), shared.scene.store, shared.scene.cfg, fake_run)  # type: ignore[arg-type]
+    app.include_router(
+        head_arm_router(
+            FakeSequencer(), FakeRunning(), FakeRunning(), FakeRunning(), shared.scene.store, shared.scene.cfg, fake_run
+        )  # type: ignore[arg-type]
+    )
+    client = TestClient(app)
+    listed = next(s for s in client.get("/api/head-arm/sessions").json() if s["id"] == shared.scene.sid)
+    assert shared.rid not in listed["results"]
+    assert client.get(f"/api/head-arm/sessions/{shared.scene.sid}/results/{shared.rid}").status_code == 404

@@ -27,6 +27,7 @@ import json
 import logging
 import os
 import shutil
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -79,6 +80,11 @@ NOT_PLAUSIBLE_ERROR = "result {rid} is not plausible and cannot be accepted: {re
 DECLINED_ERROR = "result {rid} was declined and cannot be accepted"
 ACCEPTED_ERROR = "result {rid} was accepted and cannot be declined"
 CRASHED_ERROR = "the compute ended without a result"
+HEAD_CHAIN_CHANGED_ERROR = (
+    "result {rid} was fitted against another head chain ({fitted}); the applied one is {applied}: compute again"
+)
+# Serialises the read-check-write of accept and decline (two tabs or a double click).
+DECISION_LOCK = threading.Lock()
 
 
 def head_chain_source(cfg: NodeConfig) -> dict[str, str | None]:
@@ -126,7 +132,8 @@ def applied_arm_calibration(cfg: NodeConfig) -> dict[str, Any] | None:
 
 
 def applied_summary(cfg: NodeConfig) -> dict[str, Any] | None:
-    """The accepted arm to camera calibration in effect: {session, result, accepted_at, score, accuracy_examples}.
+    """The accepted arm to camera calibration in effect: {session, result, accepted_at, score, accuracy_examples,
+    head_chain_changed} (`head_chain_changed`: the applied head chain is no longer the one it was fitted against).
 
     Args:
         cfg: Node config (state_dir).
@@ -138,7 +145,10 @@ def applied_summary(cfg: NodeConfig) -> dict[str, Any] | None:
     if data is None:
         return None
     keys = ("session", "result", "accepted_at", "score", "accuracy_examples")
-    return {key: data.get(key) for key in keys}
+    return {
+        **{key: data.get(key) for key in keys},
+        "head_chain_changed": data.get("head_chain") != head_chain_source(cfg),
+    }
 
 
 def base_body(rid: str, sid: str, now: datetime, head_chain: dict[str, str | None] | None) -> dict[str, Any]:
@@ -271,7 +281,7 @@ def compute_arm_camera(cfg: NodeConfig, store: SessionStore, sid: str, rid: str,
             refusals=[r["name"] for r in report["refusals"]],
             warnings=[w["name"] for w in report["warnings"]],
         )
-    except (ValueError, OSError, NotFound) as exc:
+    except Exception as exc:  # every failure becomes a failed result.json with its telemetry, never a lost child
         calib_event(
             LOGGER,
             FLOW,
@@ -356,9 +366,18 @@ def accept_arm_camera(
         {arm_calibration: {session, result, accepted_at, score}, units: [{name, active_state, restarted}]}.
 
     Raises:
-        NotApplicable: the result is not done, not plausible or was declined.
+        NotApplicable: the result is not done, not plausible, was declined, or was fitted against a head chain that is
+            no longer applied.
         InvalidId, NotFound: unknown or malformed ids.
     """
+    with DECISION_LOCK:
+        return accept_locked(cfg, store, sid, rid, now, run)
+
+
+def accept_locked(
+    cfg: NodeConfig, store: SessionStore, sid: str, rid: str, now: datetime, run: floor_results.RunFn
+) -> dict[str, Any]:
+    """`accept_arm_camera` under DECISION_LOCK (same arguments, return value and errors)."""
     result = stored_result(store, sid, rid)
     if result is None:
         raise NotFound(NO_RESULT_ERROR.format(rid=rid))
@@ -370,6 +389,8 @@ def accept_arm_camera(
     elif not result["report"]["plausible"]:
         reasons = "; ".join(r["message"] for r in result["report"]["refusals"])
         refusal = NOT_PLAUSIBLE_ERROR.format(rid=rid, reasons=reasons)
+    elif result["head_chain"] != (applied_chain := head_chain_source(cfg)):
+        refusal = HEAD_CHAIN_CHANGED_ERROR.format(rid=rid, fitted=result["head_chain"], applied=applied_chain)
     if refusal is not None:
         calib_event(LOGGER, FLOW_ACCEPT, rid, "accept", "refused", logging.WARNING, refusal, session_id=sid)
         raise NotApplicable(refusal)
@@ -420,6 +441,12 @@ def decline_arm_camera(store: SessionStore, sid: str, rid: str, now: datetime) -
         NotApplicable: the result is not done or was accepted.
         InvalidId, NotFound: unknown or malformed ids.
     """
+    with DECISION_LOCK:
+        return decline_locked(store, sid, rid, now)
+
+
+def decline_locked(store: SessionStore, sid: str, rid: str, now: datetime) -> dict[str, Any]:
+    """`decline_arm_camera` under DECISION_LOCK (same arguments, return value and errors)."""
     result = stored_result(store, sid, rid)
     if result is None:
         raise NotFound(NO_RESULT_ERROR.format(rid=rid))
@@ -453,7 +480,8 @@ def arm_camera_state(cfg: NodeConfig) -> dict[str, Any]:
         cfg: Node config (state_dir).
 
     Returns:
-        {applied: {session, result, accepted_at, score, accuracy_examples} | None, head_chain_source, ready, reason}.
+        {applied: {session, result, accepted_at, score, accuracy_examples, head_chain_changed} | None,
+        head_chain_source, ready, reason}.
     """
     ready, reason = readiness(cfg)
     return {
