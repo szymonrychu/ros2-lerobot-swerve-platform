@@ -80,6 +80,10 @@ BIG_JOINT_TIER = 2
 REASON_STOPPED = "stopped"
 MESSAGE_BOARD = "Seat the arm board handle in the gripper jaws up to the shoulder, then press Board attached"
 MESSAGE_UNSEATED = "the gripper closed past the handle contact: seat the handle up to the shoulder and start again"
+MESSAGE_SLACK_GRIP = (
+    "the gripper stopped short of the commanded grip by the mcp_server converge tolerance or more, so the clamp would"
+    " relax: the handle is thicker than the CAD contact; set arm_sequence.handle_contact_rad from the measured contact"
+)
 MESSAGE_STATE_BOARD = "; if the calibration board is on the gripper, state that the board is on and press Park again"
 MESSAGE_PARK = "Press Park (the board may stay on when its park path is clear)"
 HOLDING_LOAD_PREFIX = "holding load"  # mcp_server carrying reason of a gripper that clamps something (the board handle)
@@ -789,14 +793,15 @@ class Sequencer:
         self.checked_move(plan, base, "the base pose (return)", base)
 
     def close_on_handle(self, plan: Plan) -> None:
-        """Close the gripper on the handle to `grip_rad`, then refuse a jaw that closed past the handle contact.
+        """Close the gripper on the handle to `grip_rad`, then refuse an unseated handle or a slack grip.
 
         Args:
             plan: The sequence plan.
 
         Raises:
-            StepFailed: The grip move fails or does not converge, no gripper angle is reported, or the measured angle
-                is below `handle_contact_rad - handle_squeeze_rad / 2` (the handle is not seated).
+            StepFailed: The grip move fails or does not converge, no gripper angle is reported, the measured angle
+                is below `handle_contact_rad - handle_squeeze_rad / 2` (the handle is not seated), or it is at or
+                above `grip_rad + grip_converge_tolerance_rad` (mcp_server relaxes that residual: the grip goes slack).
         """
         with self.lock:
             self.phase = MOVING_TO_BASE
@@ -811,6 +816,9 @@ class Sequencer:
         limit = self.seq.handle_contact_rad - self.seq.handle_squeeze_rad / 2
         if measured < limit:
             raise StepFailed(f"{MESSAGE_UNSEATED} (measured {measured:.4f} rad, limit {limit:.4f} rad)")
+        slack = self.seq.grip_rad + self.seq.grip_converge_tolerance_rad
+        if measured >= slack:
+            raise StepFailed(f"{MESSAGE_SLACK_GRIP} (measured {measured:.4f} rad, limit {slack:.4f} rad)")
 
     def camera_intrinsics(self) -> CameraIntrinsics:
         """The colour intrinsics of the still session, waiting up to `still.timeout_s` for the first camera_info.

@@ -346,6 +346,11 @@ def base(joint: str) -> float:
         (lambda: sequence_with(head_offsets_deg=[]), r"head_offsets_deg"),
         (lambda: sequence_with(handle_squeeze_rad=0.08), r"handle_squeeze_rad.*below handle_contact_rad"),
         (lambda: sequence_with(handle_squeeze_rad=0.0), r"handle_squeeze_rad"),
+        (
+            lambda: sequence_with(handle_squeeze_rad=0.03, grip_converge_tolerance_rad=0.03),
+            r"handle_squeeze_rad.*below grip_converge_tolerance_rad",
+        ),
+        (lambda: sequence_with(grip_converge_tolerance_rad=0.0), r"grip_converge_tolerance_rad"),
     ],
     ids=[
         "gripper-in-pose",
@@ -367,6 +372,8 @@ def base(joint: str) -> float:
         "no-head-offsets",
         "squeeze-past-contact",
         "squeeze-zero",
+        "squeeze-at-converge-tolerance",
+        "converge-tolerance-zero",
     ],
 )
 def test_arm_sequence_validation_names_pose(data, pattern: str) -> None:
@@ -430,6 +437,7 @@ def test_arm_sequence_grip_defaults_come_from_the_handle() -> None:
     assert seq.handle_contact_rad == pytest.approx(meta["grip"]["contact_rad"], abs=1e-4)
     assert seq.grip_rad == pytest.approx(meta["grip"]["grip_rad"], abs=1e-4)
     assert seq.handle_squeeze_rad == 0.02
+    assert seq.grip_converge_tolerance_rad == 0.03
     assert seq.board_mass_g == pytest.approx(meta["mass_g"], abs=0.5)
     assert seq.insert_gripper_rad == 0.4
 

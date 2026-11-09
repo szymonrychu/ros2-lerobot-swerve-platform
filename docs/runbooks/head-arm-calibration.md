@@ -68,7 +68,9 @@ mcp_server kills it; ask first). Telemetry only through topic_scraper_api /
    and start again" (the seat check), holding the arm (phase `holding`). Record the measured angle it quotes. Park.
 2c. Grip close with the board (gripper only, decision 264): Move to base pose, seat the handle up to the shoulder,
    press Board attached. The gripper closes to `grip_rad`; the sequence must pass the seat check (measured at least
-   `handle_contact_rad - handle_squeeze_rad / 2`) and start the still session. Stop. Record the measured gripper
+   `handle_contact_rad - handle_squeeze_rad / 2`) and the slack check (measured below `grip_rad +
+   grip_converge_tolerance_rad`; a thicker handle stops it, then set `handle_contact_rad` from the measured contact) and
+   start the still session. Stop. Record the measured gripper
    angle (from the state or `get_arm_state`) and take detection stills of the board at the base pose. The board must
    not slip or rotate in the jaws.
 3. Calibrate page, robot docked, user watching: Move to base pose, user seats the ARM board handle in the jaws up to

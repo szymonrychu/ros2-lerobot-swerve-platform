@@ -1906,6 +1906,7 @@ ros2_nodes:
         insert_gripper_rad: 0.4 # sent once with the base pose; at most pose_check.max_roll_gripper_rad (half open)
         handle_contact_rad: 0.070279 # gripper angle at first contact on the ARM board handle (CAD), rad
         handle_squeeze_rad: 0.02 # squeeze past contact, rad (> 0); grip = contact - squeeze
+        grip_converge_tolerance_rad: 0.03 # mcp_server gripper converge tolerance, rad; jaw >= grip + it is slack
         board_mass_g: 211.72779 # ARM board mass from the CAD, g (> 0)
         # Tier 0: wrist_roll only (within max_roll_delta_rad of base_pose).
         tier0_poses:

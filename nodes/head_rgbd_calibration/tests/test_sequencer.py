@@ -34,6 +34,7 @@ from head_rgbd_calibration.robot_client import RawToolResult, RobotClient
 from head_rgbd_calibration.sequencer import (
     HOLDING,
     IDLE,
+    MESSAGE_SLACK_GRIP,
     MESSAGE_UNSEATED,
     WAITING_BIG_JOINTS,
     WAITING_BOARD,
@@ -494,6 +495,31 @@ def test_handle_close_at_the_unseated_threshold(tmp_path: Path) -> None:
     rig = Rig(tmp_path, small_cfg())
     rig.run_to_capture(jaw_after_close=limit - 1e-3)
     assert MESSAGE_UNSEATED in rig.finish()["error"]
+
+
+def test_slack_grip_after_the_handle_close_stops_the_sequence(tmp_path: Path) -> None:
+    # The jaw stopped on a handle thicker than the CAD contact: mcp_server reports the residual as converged, then
+    # relaxes the hold to the measured pose, so the board would hang with no squeeze. The sequence stops holding.
+    seq = small_cfg().arm_sequence
+    for residual in (seq.grip_converge_tolerance_rad, seq.grip_converge_tolerance_rad + 0.005):
+        rig = Rig(tmp_path, small_cfg())
+        rig.run_to_capture(jaw_after_close=seq.grip_rad + residual)
+        state = rig.finish()
+        assert MESSAGE_SLACK_GRIP in state["error"]
+        assert f"{seq.grip_rad + residual:.4f}" in state["error"]
+        assert rig.robot.calls[-1] == ("release_control", {"subsystem": "arm", "keep_position": True})
+        assert rig.capture.sessions == [] and rig.capture.stills == []
+        assert rig.robot.count("move_arm_joints") == 2
+
+
+def test_handle_close_with_a_residual_inside_the_converge_tolerance_holds(tmp_path: Path) -> None:
+    seq = small_cfg().arm_sequence
+    rig = Rig(tmp_path, small_cfg())
+    rig.run_to_capture(jaw_after_close=seq.grip_rad + seq.grip_converge_tolerance_rad - 1e-3)
+    rig.wait_phase(WAITING_BIG_JOINTS)
+    rig.seq.stop()
+    rig.finish()
+    assert rig.capture.sessions == [None]
 
 
 def test_handle_close_without_a_measured_gripper_stops(tmp_path: Path) -> None:

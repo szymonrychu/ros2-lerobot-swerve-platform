@@ -607,7 +607,7 @@ Config keys of the head-from-arm calibration in the `config:` block of the `head
 - `board`: the FULL board (`charuco-6x5-40mm`, ids from 0) of the intrinsics checks.
 - `fit.*`: the ARM board `fit.board` and `fit.plate` (`charuco-arm-6x5-28mm`, ids from 15, disjoint from `board`), the `board_mount` CAD seed with `handle_boxes_mm` (the edge handle's post, gusset and tab boxes on the pattern side, mm in the board frame, equal to `handle_envelope_mm` of `markers/charuco-arm-6x5-28mm.json`) and the `plate_mount` CAD seed, `fit_pan_axis`, `limits`, `huber_f_scale_px`, `base_in_base_link` and `joint_offsets_rad` (equal to the arm config of mcp_server, pinned by a test), `floor_prior_weight`.
 - `robot.*`: `mcp_url`, `token_file`, `board_park_token_file`, `call_timeout_s`, `move_timeout_s`.
-- `arm_sequence.*`: `base_pose`, `insert_gripper_rad`, `handle_contact_rad`, `handle_squeeze_rad`, `board_mass_g`, `tier0_poses` / `tier1_poses` / `tier2_poses`, the deltas, `speed_scale`, `settle_s`, `confirm_timeout_s`, `head_offsets_deg`, `pose_check`, `provisional_margin_m`, `park_pose`, `park_board_sag_margin_m`, `board_record_max_age_s`.
+- `arm_sequence.*`: `base_pose`, `insert_gripper_rad`, `handle_contact_rad`, `handle_squeeze_rad`, `grip_converge_tolerance_rad`, `board_mass_g`, `tier0_poses` / `tier1_poses` / `tier2_poses`, the deltas, `speed_scale`, `settle_s`, `confirm_timeout_s`, `head_offsets_deg`, `pose_check`, `provisional_margin_m`, `park_pose`, `park_board_sag_margin_m`, `board_record_max_age_s`.
 
 The head tilt range of the reprinted mount is -30..+45 deg: the `head` group of `base_servos` (tilt steps 1536..2389) and the web_ui head tab (`head_tilt_range_deg: [-30, 45]`) equal the `head.urdf` limits.
 

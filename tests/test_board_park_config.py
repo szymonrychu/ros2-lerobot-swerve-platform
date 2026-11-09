@@ -74,6 +74,17 @@ def test_grip_squeeze_stays_inside_the_mcp_converge_tolerance() -> None:
     assert seq.handle_squeeze_rad < limits.converge_tolerance_for("gripper")
 
 
+def test_grip_slack_check_uses_the_mcp_gripper_converge_tolerance() -> None:
+    # A grip residual inside this tolerance is held by mcp_server; one at or above it is relaxed to the measured pose
+    # (the clamp goes slack), so the node refuses it after the close with the same value.
+    seq = NodeConfig.model_validate(client_node("head_rgbd_calibration")).arm_sequence
+    limits = McpServerConfig.model_validate(client_node("mcp_server")).limits
+    assert seq.grip_converge_tolerance_rad == limits.converge_tolerance_for("gripper")
+    assert NodeConfig().arm_sequence.grip_converge_tolerance_rad == McpServerConfig().limits.converge_tolerance_for(
+        "gripper"
+    )
+
+
 def test_deployed_block_and_code_defaults_agree() -> None:
     deployed = CalibrationBoardSettings.model_validate(client_node("mcp_server")["calibration_board"])
     assert deployed == CalibrationBoardSettings() == McpServerConfig().calibration_board

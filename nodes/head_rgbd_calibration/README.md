@@ -145,7 +145,9 @@ pinned equal to `board_spacing_m` by `tests/test_board_park_config.py`).
 
 Grip keys (`arm_sequence`, from the JSON `grip` block): `insert_gripper_rad` 0.4 (the jaws half open while the handle
 goes in), `handle_contact_rad` 0.070279 (the nominal contact angle, see below), `handle_squeeze_rad` 0.02 (> 0 and
-below the contact) and the derived `grip_rad` = contact - squeeze = 0.050279 rad, the commanded grip. `board_mass_g`
+below the contact and below `grip_converge_tolerance_rad`) and the derived `grip_rad` = contact - squeeze = 0.050279
+rad, the commanded grip. `grip_converge_tolerance_rad` 0.03 is the mcp_server gripper converge tolerance
+(`limits.converge_tolerance_for("gripper")`, pinned equal by `tests/test_board_park_config.py`). `board_mass_g`
 211.72779 is the ARM board mass from the CAD volume (PLA 1.24 g/cm3).
 
 Nominal versus printed: the grip faces carry a 0.15 mm print allowance per clamp face (`clamp_clearance_mm`, user
@@ -192,6 +194,7 @@ keys are rejected.
 | `fit.floor_fit`, `fit.arm_limits` | floor fit defaults; rms 3.0 px, held-out 4.0 px, tool 5.0 mm, 40 views, every 5th held out over 3 head settings | Arm offsets fit: the floor views' plane fit, limits and residual scales, and the acceptance limits; held-out plate views decide (reprojection px and the FK tool point against the view's solvePnP plate pose), the tool point is fitted only below `max_tool_holdout_mm` |
 | `arm_sequence.base_pose`, `insert_gripper_rad` | board ~0.34 m in front of the head camera, 0.4 rad | Base pose (measured joint angles, the `move_arm_joints` space: `urdf = measured + fit.joint_offsets_rad`) and the gripper opening sent once with it while the handle is inserted (at most `pose_check.max_roll_gripper_rad`) |
 | `arm_sequence.handle_contact_rad`, `handle_squeeze_rad`, `board_mass_g` | 0.070279, 0.02, 211.72779 | ARM board handle grip from the JSON `grip` block: the nominal contact angle, the squeeze past it (> 0, below the contact); `grip_rad` = contact - squeeze (0.050279) is the commanded grip; the board mass from the CAD. See "Board roles" and "The sequence" |
+| `arm_sequence.grip_converge_tolerance_rad` | 0.03 | The mcp_server gripper converge tolerance (pinned equal); a measured jaw at or above `grip_rad` + it after the grip close is a slack grip and stops the sequence. The squeeze must be below it |
 | `arm_sequence.tier0_poses` / `tier1_poses` / `tier2_poses` | 10 / 9 / 14 poses | Tier 0 moves only wrist_roll (within `max_roll_delta_rad` 1.2), tier 1 also wrist_flex (`max_flex_delta_rad` 0.4), tier 2 also elbow_flex, shoulder_lift, shoulder_pan (`max_big_delta_rad` 0.35). Load errors name the tier, pose and joint |
 | `arm_sequence.speed_scale`, `settle_s`, `confirm_timeout_s` | 0.1 (<= 0.3), 1.0, 600 | Arm speed (slow for the fragile board mount; `move_arm_joints` has no acceleration option, its quintic peak acceleration scales with the speed squared), wait after a move, unanswered confirm timeout |
 | `arm_sequence.head_offsets_deg` | `[[0, 0], [10, 0], [-10, 0], [0, -3]]` | (pan, tilt) offsets added to the aimed head angles, one view each. The tilt offset is -3 deg (head up): the board fills 250-340 px of the 360 px D435 colour image height, and the former +6 deg pushed it out on 26 of 33 poses |
@@ -580,8 +583,12 @@ the state): `idle`, `moving_to_base`, `waiting_board`, `capturing`, `waiting_big
    angle must be at least `handle_contact_rad - handle_squeeze_rad / 2` (0.060279 rad); a jaw that closed further
    closed past the handle (not seated up to the shoulder, or no board), and the sequence stops with "the gripper closed
    past the handle contact: seat the handle up to the shoulder and start again" (measured and limit quoted), holding the
-   arm. A grip move that fails or does not converge, or a `get_arm_state` without a gripper angle, stops it the same
-   way.
+   arm. The slack check refuses the other side: mcp_server reports a jaw that stopped short of `grip_rad` by less than
+   its settle tolerance as converged too, holds that target for `arm_settle_hold_s` and then relaxes the hold to the
+   measured pose, which would leave the board hanging with no squeeze. So a measured gripper angle at or above
+   `grip_rad + grip_converge_tolerance_rad` (0.080279 rad) stops the sequence the same way, saying the handle is thicker
+   than the CAD contact and that `arm_sequence.handle_contact_rad` must be set from the measured contact. A grip move
+   that fails or does not converge, or a `get_arm_state` without a gripper angle, stops it the same way.
 4. Phase `capturing`: a still session is started and the sequence waits up to `still.timeout_s` for its first colour
    camera_info (none fails the sequence, holding); tier 0 then tier 1 run.
 5. Phase `waiting_big_joints`: tier 2 moves `elbow_flex`, `shoulder_lift` and `shoulder_pan`, so the user must allow it

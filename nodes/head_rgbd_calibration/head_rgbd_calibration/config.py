@@ -108,6 +108,8 @@ DEFAULT_INSERT_GRIPPER_RAD = 0.4  # gripper opening while the handle is inserted
 # squeeze past it (inside the mcp_server gripper converge tolerance), and the board mass.
 DEFAULT_HANDLE_CONTACT_RAD = 0.070279
 DEFAULT_HANDLE_SQUEEZE_RAD = 0.02
+# mcp_server limits.converge_tolerance_for("gripper"): a grip residual at or above it is relaxed to the measured pose.
+DEFAULT_GRIP_CONVERGE_TOLERANCE_RAD = 0.03
 DEFAULT_BOARD_MASS_G = 211.72779
 # The parked arm: scripts/gen_nav_footprint.yaml parked_arm_joints (the mcp_server home), the target of a park with the
 # board on (a test pins the two equal).
@@ -364,6 +366,9 @@ class ArmSequenceConfig(StrictModel):
     `max_big_delta_rad`). `insert_gripper_rad` is sent once with the base pose and is at most the half-open
     `pose_check.max_roll_gripper_rad`. `handle_contact_rad` is the gripper angle at first contact on the ARM board
     handle, `handle_squeeze_rad` the squeeze past it (`grip_rad` is the commanded grip), `board_mass_g` the board mass.
+    `grip_converge_tolerance_rad` is the mcp_server gripper converge tolerance: mcp_server holds a residual below it, but
+    relaxes a larger one to the measured pose after `arm_settle_hold_s`, which leaves the clamp slack, so a measured jaw
+    at or above `grip_rad + grip_converge_tolerance_rad` after the close is refused (the squeeze must stay below it).
     `head_offsets_deg` are (pan, tilt) offsets added to the aimed head angles, one view each. `provisional_margin_m`
     is added to `pose_check.margin_m` for the board points while the board mount is the shipped CAD seed (not
     fit-solved). `park_pose` is the parked arm a park with the board on drives to (path-checked first);
@@ -377,6 +382,7 @@ class ArmSequenceConfig(StrictModel):
     insert_gripper_rad: float = DEFAULT_INSERT_GRIPPER_RAD
     handle_contact_rad: float = DEFAULT_HANDLE_CONTACT_RAD
     handle_squeeze_rad: float = Field(default=DEFAULT_HANDLE_SQUEEZE_RAD, gt=0)
+    grip_converge_tolerance_rad: float = Field(default=DEFAULT_GRIP_CONVERGE_TOLERANCE_RAD, gt=0)
     board_mass_g: float = Field(default=DEFAULT_BOARD_MASS_G, gt=0)
     tier0_poses: list[dict[str, float]] = Field(default_factory=lambda: [arm_pose(p) for p in DEFAULT_TIER0_POSES])
     tier1_poses: list[dict[str, float]] = Field(default_factory=lambda: [arm_pose(p) for p in DEFAULT_TIER1_POSES])
@@ -417,6 +423,11 @@ class ArmSequenceConfig(StrictModel):
             errors.append(
                 f"handle_squeeze_rad {self.handle_squeeze_rad:g} must be below handle_contact_rad "
                 f"{self.handle_contact_rad:g} (grip_rad must stay positive)"
+            )
+        if self.handle_squeeze_rad >= self.grip_converge_tolerance_rad:
+            errors.append(
+                f"handle_squeeze_rad {self.handle_squeeze_rad:g} must be below grip_converge_tolerance_rad "
+                f"{self.grip_converge_tolerance_rad:g} (a seated handle would be refused as a slack grip)"
             )
         if errors:
             raise ValueError("; ".join(errors))
