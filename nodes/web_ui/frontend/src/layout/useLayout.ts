@@ -2,7 +2,8 @@
  * Layout class of the viewport, built on the theme breakpoints (sm = 600, lg = 1200):
  * width < 600 is 'phone', 600..1199 is 'tablet', >= 1200 is 'desktop'.
  */
-import { useMediaQuery, useTheme } from '@mui/material'
+import useMediaQuery from '@mui/material/useMediaQuery'
+import { useTheme } from '@mui/material/styles'
 
 export type LayoutClass = 'phone' | 'tablet' | 'desktop'
 

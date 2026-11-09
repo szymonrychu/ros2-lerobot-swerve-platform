@@ -1,13 +1,18 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useEffect } from 'react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ThemeProvider } from '@mui/material/styles'
 import type { MapSceneProps, SceneController } from '../map3d/MapScene'
 import type { PhotoLayerData } from '../photos/usePhotoLayer'
 import { theme } from '../theme'
 import type { TabConfig } from '../types'
 import { designViolations, SOURCES } from '../layout/designRules'
+
+// These tests render the whole MapNavTab in jsdom: about 1 s per render and up to 0.7 s per role query on a loaded
+// machine (every accessibility check runs getComputedStyle over MUI's emotion styles), so a test with a dialog and a
+// few queries can pass the 5 s default there. Measured worst case 7 s at load 18 on 12 cores.
+vi.setConfig({ testTimeout: 20_000 })
 
 const servoMock = vi.hoisted(() => ({ groups: [] as unknown[], notConfigured: false }))
 vi.mock('../calibrate/servoApi', async (orig) => ({
@@ -71,6 +76,14 @@ const MAPS_STATUS = {
   load_seq: 1,
   localisation: { state: 'localised', ratio: 0.9, pose: null, message: '', updated_at: 1 },
 }
+
+// The first render would pay the cold import of MapNavTab (MUI and the whole component tree, seconds on a loaded
+// machine) inside a test's 5 s budget; load it once here, with its own timeout.
+beforeAll(async () => {
+  vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => undefined })
+  await import('./MapNavTab')
+  vi.unstubAllGlobals()
+}, 60_000)
 
 beforeEach(() => {
   viewportWidth = 1000
