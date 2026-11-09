@@ -608,7 +608,9 @@ Frontend (`frontend/src/calibrate/`):
 state and plan, the plan table with the `large` chip, plain Apply vs the checkbox confirm posting
 `zero_restore_apply_confirmed`, Cancel posting nothing, the per-joint result, Re-enable torque, Save current pose as rest
 reference with its confirm and disabled reasons, the reference source and error) and the Move to neutral pose button
-(exact confirm text, Cancel, posting `move_to_neutral`, disabled reasons). `ServoNeutral.test.tsx` and
+(exact confirm text, Cancel, posting `move_to_neutral`, disabled reasons, also from the bridge's
+`stale_joint_offsets`), the apply posts carrying `plan_run_id`, a new dry run closing the open confirm with the
+checkbox unticked again, and Apply disabled for an expired dry run or a stale state. `ServoNeutral.test.tsx` and
 `servoApi.test.ts` cover the servo cards and every action call, including the save confirm listing every recorded shift, a shift above `neutral_max_shift_deg` flagged on the card, the large-shift confirm (warning, **Save large shift** disabled until the checkbox, then `save_confirmed` posted; Cancel posts nothing and clears the checkbox).
 - **D435 intrinsics check section** (`RgbdCalibration.tsx`, `RgbdCapture.tsx`, `RgbdSessions.tsx`, `RgbdResults.tsx`, `CoverageGrid.tsx`; shown when the config has `rgbd: true`): `RgbdCalibration` reads `GET /rgbd/state` on mount and polls it every 1 s only while a capture or compute runs and the tab is visible. `RgbdCapture` has Start capture / Stop, a status Alert with pose count and auto-stop time, a thumbnail grid (colour image with corners drawn and the aligned depth image, the colour corner count and the depth pixels on the board, capture hints, and after a compute the per-still colour error and plane bias) with per-pose delete behind a confirm dialog, and the colour coverage grid with the text `N of M image areas without corners`. `RgbdSessions` lists past sessions newest first (id, created, pose and result counts) with Open (selects the session shown by `RgbdCapture` and `RgbdResults`), Resume capture (`POST /rgbd/capture/start` with the session id) and Compute (disabled while a capture or compute runs; a 409 message is shown; the list refreshes when the compute ends and a job error is shown). `RgbdResults` lists the open session's check results newest first: passed/failed chip, the input error when the check could not run, a table of colour RMS, focal difference, principal point difference, plane bias, plane spread and colour views with their limits (read from the `limits` object of the result's `result.json`, plane bias against `plane_max_bias_mm`) and a pass/fail per limit (fail when a `failed_limits` entry names its `limits.<key>`, a dash when not measured), the failed limits, the report as preformatted text in a collapsible, **Accept check** on every result, disabled for a failed check (confirm dialog: the check is recorded, the D435 factory intrinsics stay in use and nothing restarts; the answer shows the accepted result and session, with no restart wait and no `GET /rgbd/applied` poll) and Download (anchor with the `download` attribute to the result zip). The API guards in `rgbdApi.ts` accept only the node's contract shapes (`kind: "intrinsics"` results with every metric, `failed_limits` and `limits`; poses with colour corners, plane bias samples and hints).
 
@@ -652,7 +654,10 @@ latest parsed payload; unparsable payloads are logged and dropped.
   `zero_restore_apply_confirmed` (the large-change confirm: the bridge refuses a plain apply of an offset change above
   its `max_change_deg`) and `save_rest_reference` call the bridge Trigger of the same name and wait
   `zero_restore_timeout_s`. `zero_restore_apply` and `zero_restore_apply_confirmed` are refused under battery cut-off
-  like save; dry run and save_rest_reference are not.
+  like save; dry run and save_rest_reference are not. Both apply actions are bound to the dry run the user was shown:
+  the page sends that plan's `run_id` as `?plan_run_id=`, and the route answers 409 `{ok: false, message: "the dry run
+  changed since it was shown; review the new plan"}` (nothing posted to the bridge) when it is missing, no fresh plan is
+  cached in the group's torque_state, or the cached `zero_restore.plan.run_id` differs (another dry run replaced it).
 - `move_to_neutral` (404 unless `move_to_neutral_service` is set) calls mcp_server `/arm/move_to_neutral` (every arm
   joint to 0, gripper excluded) and waits `move_to_neutral_timeout_s`. Refused under battery cut-off and 409
   `{ok: false, message: "Arm servo torque is off (Calibrate page)"}` while the group's fresh cached state is released;
@@ -670,8 +675,9 @@ then posts `save_confirmed`. Cancel posts nothing and clears the checkbox. A ref
 
 With `move_to_neutral` the arm card has **Move to neutral pose**: a confirm "The arm moves to the neutral pose: all
 joints at 0. Keep the area clear." (button **Move**) posts `move_to_neutral`. It is disabled with the reason shown while
-the torque is not on ("Move to neutral needs torque on.") or while `calibration_stale` lists `joint_offsets` ("Move to
-neutral is off while the arm zero is stale (joint_offsets): restore the zero first.").
+the torque is not on ("Move to neutral needs torque on.") or while the arm zero is stale: `calibration_stale` lists
+`joint_offsets` or the bridge's `zero_restore.stale_joint_offsets` is true ("Move to neutral is off while the arm zero
+is stale (joint_offsets): restore the zero first.").
 
 **Arm zero restore panel** (`ZeroRestorePanel.tsx`, in a card with `zero_restore`; driven by `state.zero_restore`):
 "Puts the arm zero back on the saved folded-rest reference by rewriting each servo offset. The arm does not move." It
@@ -686,14 +692,19 @@ shows the reference (`Reference: seed from the bridge config` or `Reference: sav
 3. **3. Apply** (enabled while released with a plan): without `needs_confirm` a plain confirm (button **Apply**) posts
    `zero_restore_apply`; with it a dialog warns with the large joints and changes, and **Apply large change** stays
    disabled until the checkbox "The arm rests folded on its rest and the large change is intended" is ticked, then
-   posts `zero_restore_apply_confirmed`. Cancel posts nothing and clears the checkbox. "Writes the new offsets: the
+   posts `zero_restore_apply_confirmed`. Cancel posts nothing and clears the checkbox; the checkbox also starts
+   unticked on every opening and for every new plan. The apply posts carry the `run_id` of the plan shown when
+   **3. Apply** was pressed; a new dry run while the confirm is open closes it. **3. Apply** is disabled while the
+   group's state is stale and once the plan is older than its `max_age_s` by the browser clock ("Dry run expired: run
+   it again"). "Writes the new offsets: the
    arm does not move and torque stays off. Each joint is verified and rolled back on a mismatch." The last result
    (`last_result`) shows its message and a table of joint, applied (yes/no), now (rad) and offset after.
 4. **4. Re-enable torque** (posts `enable`): "The arm holds its pose."
 5. "5. Then Park the arm on the head-arm card."
 
 **Save current pose as rest reference** (confirm, button **Save reference**, posts `save_rest_reference`) is disabled
-with the reason shown while `calibration_stale` lists `joint_offsets` ("The arm zero is stale (joint_offsets): restore
+with the reason shown while `calibration_stale` lists `joint_offsets` or the bridge reports `stale_joint_offsets`
+("The arm zero is stale (joint_offsets): restore
 the zero before saving a new reference.") or the arm is not released ("Torque off the arm first."). Every call's bridge
 message is shown in the success / error Alert like the other servo actions.
 

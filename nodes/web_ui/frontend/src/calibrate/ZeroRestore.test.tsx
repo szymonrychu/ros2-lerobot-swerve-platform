@@ -18,6 +18,7 @@ function planJoint(over: Partial<ZeroRestorePlanJoint> = {}): ZeroRestorePlanJoi
     change_deg: 79.2,
     new_offset_steps: 861,
     exceeds_max_change: true,
+    limits: [0, 4095],
     ...over,
   }
 }
@@ -34,10 +35,11 @@ function zero(over: Partial<ZeroRestoreState> = {}): ZeroRestoreState {
   }
 }
 
-function plan(needsConfirm: boolean) {
+// A fresh plan: created now, so it is inside max_age_s (the panel disables Apply for an expired dry run).
+function plan(needsConfirm: boolean, runId = 'r1', createdAt = new Date().toISOString()) {
   return {
-    run_id: 'r1',
-    created_at: '2026-11-09T12:00:00+00:00',
+    run_id: runId,
+    created_at: createdAt,
     max_age_s: 60,
     reference_source: 'seed' as const,
     needs_confirm: needsConfirm,
@@ -104,6 +106,8 @@ const panel = async () => screen.findByRole('region', { name: 'Arm zero restore'
 const button = (root: HTMLElement, name: string | RegExp) => within(root).getByRole('button', { name }) as HTMLButtonElement
 const dialog = () => screen.getByRole('dialog')
 const POST = (action: string) => `/api/calibration/servos/arm/${action}`
+// Apply posts carry the run_id of the plan the user was shown (the backend refuses another plan).
+const APPLY_POST = (action: string, runId = 'r1') => `${POST(action)}?plan_run_id=${runId}`
 
 describe('Arm zero restore panel', () => {
   it('is absent without the zero_restore flag', async () => {
@@ -172,7 +176,7 @@ describe('Arm zero restore panel', () => {
     fireEvent.click(button(await panel(), '3. Apply'))
     expect(within(dialog()).queryByRole('checkbox')).toBeNull()
     fireEvent.click(within(dialog()).getByRole('button', { name: 'Apply' }))
-    await waitFor(() => expect(posts).toEqual([POST('zero_restore_apply')]))
+    await waitFor(() => expect(posts).toEqual([APPLY_POST('zero_restore_apply')]))
   })
 
   it('large plan: Apply needs the checkbox and posts zero_restore_apply_confirmed; Cancel posts nothing', async () => {
@@ -189,7 +193,36 @@ describe('Arm zero restore panel', () => {
     fireEvent.click(button(await panel(), '3. Apply'))
     fireEvent.click(within(dialog()).getByLabelText(DIALOG_LARGE))
     fireEvent.click(within(dialog()).getByRole('button', { name: 'Apply large change' }))
-    await waitFor(() => expect(posts).toEqual([POST('zero_restore_apply_confirmed')]))
+    await waitFor(() => expect(posts).toEqual([APPLY_POST('zero_restore_apply_confirmed')]))
+  })
+
+  it('a new dry run while the large confirm is open closes it and the checkbox starts unticked again', async () => {
+    groups = [arm(true, zero({ plan: plan(true) }))]
+    mockFetch()
+    render(<ServoNeutral />)
+    fireEvent.click(button(await panel(), '3. Apply'))
+    fireEvent.click(within(dialog()).getByLabelText(DIALOG_LARGE))
+    groups = [arm(true, zero({ plan: plan(true, 'r2') }))]
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull(), { timeout: 3000 })
+    fireEvent.click(button(await panel(), '3. Apply'))
+    expect((within(dialog()).getByLabelText(DIALOG_LARGE) as HTMLInputElement).checked).toBe(false)
+    fireEvent.click(within(dialog()).getByLabelText(DIALOG_LARGE))
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Apply large change' }))
+    await waitFor(() => expect(posts).toEqual([APPLY_POST('zero_restore_apply_confirmed', 'r2')]))
+  })
+
+  it('Apply is disabled with the reason for an expired dry run or a stale state', async () => {
+    const old = new Date(Date.now() - 120_000).toISOString()
+    groups = [arm(true, zero({ plan: plan(false, 'r1', old) }))]
+    mockFetch()
+    render(<ServoNeutral />)
+    const p = await panel()
+    expect(button(p, '3. Apply').disabled).toBe(true)
+    expect(within(p).getByText('Dry run expired: run it again')).toBeTruthy()
+    cleanup()
+    groups = [arm(true, zero({ plan: plan(false) }), { stale: true })]
+    render(<ServoNeutral />)
+    expect(button(await panel(), '3. Apply').disabled).toBe(true)
   })
 
   it('shows the per-joint result and Re-enable torque posts enable', async () => {
@@ -245,6 +278,15 @@ describe('Arm zero restore panel', () => {
     expect(within(q).getByText('Torque off the arm first.')).toBeTruthy()
   })
 
+  it('Save rest reference is disabled while the bridge reports joint_offsets stale', async () => {
+    groups = [arm(true, zero({ stale_joint_offsets: true }))]
+    mockFetch()
+    render(<ServoNeutral />)
+    const p = await panel()
+    expect(button(p, 'Save current pose as rest reference').disabled).toBe(true)
+    expect(within(p).getByText(/The arm zero is stale \(joint_offsets\)/)).toBeTruthy()
+  })
+
   it('shows a saved reference and a reference error', async () => {
     groups = [
       arm(true, zero({
@@ -287,6 +329,15 @@ describe('Move to neutral pose', () => {
     groups = [arm(false, zero(), { calibration_stale: ['joint_offsets'] })]
     render(<ServoNeutral />)
     card = await screen.findByRole('region', { name: 'Arm' })
+    expect(button(card, 'Move to neutral pose').disabled).toBe(true)
+    expect(within(card).getByText('Move to neutral is off while the arm zero is stale (joint_offsets): restore the zero first.')).toBeTruthy()
+  })
+
+  it('is disabled while the bridge reports joint_offsets stale', async () => {
+    groups = [arm(false, zero({ stale_joint_offsets: true }))]
+    mockFetch()
+    render(<ServoNeutral />)
+    const card = await screen.findByRole('region', { name: 'Arm' })
     expect(button(card, 'Move to neutral pose').disabled).toBe(true)
     expect(within(card).getByText('Move to neutral is off while the arm zero is stale (joint_offsets): restore the zero first.')).toBeTruthy()
   })

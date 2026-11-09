@@ -50,6 +50,14 @@ describe('servoApi', () => {
     expect(r).toEqual({ ok: true, value: { ok: true, message: 'done' } })
   })
 
+  it('servoAction sends the shown plan run_id as plan_run_id', async () => {
+    respond(200, { ok: true, message: 'done' })
+    await servoAction('arm', 'zero_restore_apply_confirmed', 'a b/1')
+    expect(fetch).toHaveBeenCalledWith('/api/calibration/servos/arm/zero_restore_apply_confirmed?plan_run_id=a%20b%2F1', {
+      method: 'POST',
+    })
+  })
+
   it('a refused action (409) surfaces the backend message', async () => {
     respond(409, { ok: false, message: 'not released' })
     const r = await servoAction('head', 'record')

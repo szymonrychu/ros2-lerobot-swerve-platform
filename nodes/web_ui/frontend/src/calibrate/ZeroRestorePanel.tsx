@@ -3,7 +3,7 @@
  * result, re-enable torque, then Park. The bridge (feetech follower) does the work; this panel only shows its
  * torque_state `zero_restore` and posts one action per step.
  */
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -43,6 +43,7 @@ const REST_REFERENCE_TEXT =
 export const STALE_REFERENCE_REASON =
   'The arm zero is stale (joint_offsets): restore the zero before saving a new reference.'
 export const RELEASE_FIRST_REASON = 'Torque off the arm first.'
+export const PLAN_EXPIRED_REASON = 'Dry run expired: run it again'
 
 type ZeroDialog = 'apply' | 'rest_reference' | null
 
@@ -53,9 +54,18 @@ export function signedDeg(deg: number): string {
 
 const rad = (value: number | null) => (value === null ? '-' : value.toFixed(3))
 
-/** Whether the arm's stale marker lists joint_offsets (the zero itself is suspect). */
+/**
+ * Whether the arm zero itself is suspect: the stale marker read by web_ui lists joint_offsets, or the bridge's
+ * torque_state reports it (zero_restore.stale_joint_offsets; the bridge counts an unreadable marker as stale).
+ */
 export function staleJointOffsets(group: ServoGroup): boolean {
-  return (group.calibration_stale ?? []).includes('joint_offsets')
+  return (group.calibration_stale ?? []).includes('joint_offsets') || group.state?.zero_restore?.stale_joint_offsets === true
+}
+
+/** Whether a dry run is older than its max_age_s (the bridge refuses to apply it), by the browser clock. */
+export function planExpired(plan: ZeroRestorePlan, now: number = Date.now()): boolean {
+  const created = Date.parse(plan.created_at)
+  return Number.isFinite(created) && now - created > plan.max_age_s * 1000
 }
 
 function PlanTable({ plan }: { plan: ZeroRestorePlan }) {
@@ -123,6 +133,9 @@ function ResultTable({ result }: { result: ZeroRestoreResult }) {
 /** Apply confirm of a plan with a change above max_change_deg: the checkbox enables the confirmed apply. */
 function LargeChangeDialog(props: { zero: ZeroRestoreState; open: boolean; onApply: () => void; onCancel: () => void }) {
   const [confirmed, setConfirmed] = useState(false)
+  const runId = props.zero.plan?.run_id
+  // Every opening and every new plan starts unticked: the tick confirms the plan on screen, never an earlier one.
+  useEffect(() => setConfirmed(false), [props.open, runId])
   const large = Object.entries(props.zero.plan?.joints ?? {}).filter(([, j]) => j.exceeds_max_change)
   const cancel = () => {
     setConfirmed(false)
@@ -163,7 +176,7 @@ interface PanelProps {
   /** Torque state is known (fresh). */
   known: boolean
   busy: boolean
-  onRun: (group: ServoGroup, action: ServoAction) => void
+  onRun: (group: ServoGroup, action: ServoAction, planRunId?: string) => void
   /** Opens the card's Torque off confirm. */
   onRelease: (group: ServoGroup) => void
 }
@@ -171,8 +184,16 @@ interface PanelProps {
 /** The Arm zero restore panel; renders nothing without the torque_state zero_restore key. */
 export function ZeroRestorePanel({ group, released, known, busy, onRun, onRelease }: PanelProps) {
   const [dialog, setDialog] = useState<ZeroDialog>(null)
+  // run_id of the plan shown when Apply was pressed: the apply is bound to it (the backend refuses another plan).
+  const [shownRunId, setShownRunId] = useState<string | null>(null)
   const zero = group.state?.zero_restore ?? null
   const plan = zero?.plan ?? null
+  const currentRunId = plan?.run_id ?? null
+  // A new dry run (or none) while the apply confirm is open closes it: the user reviews the new plan first.
+  useEffect(() => {
+    if (dialog === 'apply' && currentRunId !== shownRunId) setDialog(null)
+  }, [dialog, currentRunId, shownRunId])
+  const expired = plan !== null && planExpired(plan)
   const result = zero?.last_result ?? null
   const btn = { minHeight: TOUCH_TARGET_PX }
   const staleOffsets = staleJointOffsets(group)
@@ -185,9 +206,13 @@ export function ZeroRestorePanel({ group, released, known, busy, onRun, onReleas
     </Box>
   )
   const close = () => setDialog(null)
-  const run = (action: ServoAction) => {
+  const run = (action: ServoAction, planRunId?: string) => {
     close()
-    onRun(group, action)
+    onRun(group, action, planRunId)
+  }
+  const openApply = () => {
+    setShownRunId(currentRunId)
+    setDialog('apply')
   }
 
   return (
@@ -227,11 +252,17 @@ export function ZeroRestorePanel({ group, released, known, busy, onRun, onReleas
             </Box>
           )}
           {step(
-            <Button variant="contained" sx={btn} disabled={busy || !released || plan === null} onClick={() => setDialog('apply')}>
+            <Button
+              variant="contained"
+              sx={btn}
+              disabled={busy || !released || plan === null || group.stale || expired}
+              onClick={openApply}
+            >
               3. Apply
             </Button>,
             STEP_EXPECT.apply,
           )}
+          {expired && <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>{PLAN_EXPIRED_REASON}</Typography>}
           {result && <ResultTable result={result} />}
           {step(
             <Button variant="outlined" sx={btn} disabled={busy || !known || !released} onClick={() => onRun(group, 'enable')}>
@@ -249,13 +280,13 @@ export function ZeroRestorePanel({ group, released, known, busy, onRun, onReleas
             title="Apply the zero restore?"
             body={APPLY_TEXT}
             confirmLabel="Apply"
-            onConfirm={() => run('zero_restore_apply')}
+            onConfirm={() => run('zero_restore_apply', shownRunId ?? undefined)}
             onCancel={close}
           />
           <LargeChangeDialog
             zero={zero}
             open={dialog === 'apply' && plan !== null && plan.needs_confirm}
-            onApply={() => run('zero_restore_apply_confirmed')}
+            onApply={() => run('zero_restore_apply_confirmed', shownRunId ?? undefined)}
             onCancel={close}
           />
           <ConfirmDialog

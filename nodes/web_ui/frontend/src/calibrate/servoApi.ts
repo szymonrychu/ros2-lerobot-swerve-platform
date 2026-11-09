@@ -33,6 +33,8 @@ export interface ZeroRestorePlanJoint {
   new_offset_steps: number
   /** |change| above max_change_deg: the apply needs the explicit confirm. */
   exceeds_max_change: boolean
+  /** (min, max) angle limits read by the dry run (restored after the write when they moved). */
+  limits: [number, number]
 }
 
 /** The bridge's last zero restore dry run, applied only while fresh (max_age_s) and unmoved. */
@@ -156,10 +158,16 @@ export const fetchServoGroups = () =>
     return Array.isArray(groups) && groups.every(isGroup) ? groups : null
   })
 
-/** POST /api/calibration/servos/{groupId}/{action}; a refusal (409) comes back as ok:false with the backend message. */
-export const servoAction = (groupId: string, action: ServoAction) =>
-  call<ServoActionResult>(`${BASE}/${groupId}/${action}`, { method: 'POST' }, (b) =>
-    typeof (b as ServoActionResult | null)?.message === 'string' ? (b as ServoActionResult) : null,
+/**
+ * POST /api/calibration/servos/{groupId}/{action}; a refusal (409) comes back as ok:false with the backend message.
+ * planRunId (zero_restore_apply / zero_restore_apply_confirmed): run_id of the plan the user was shown, sent as
+ * plan_run_id; the backend refuses the apply when another dry run replaced it.
+ */
+export const servoAction = (groupId: string, action: ServoAction, planRunId?: string) =>
+  call<ServoActionResult>(
+    `${BASE}/${groupId}/${action}${planRunId === undefined ? '' : `?plan_run_id=${encodeURIComponent(planRunId)}`}`,
+    { method: 'POST' },
+    (b) => (typeof (b as ServoActionResult | null)?.message === 'string' ? (b as ServoActionResult) : null),
   )
 
 export interface ServoGroupsState {

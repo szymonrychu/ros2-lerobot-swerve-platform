@@ -22,6 +22,9 @@ ZERO_RESTORE_ACTIONS = (
     "save_rest_reference",
 )
 STATE = {"namespace": "follower", "released": True, "joints": {"a": 0}, "stamp_ns": 1}
+PLAN_RUN_ID = "1a2b3c4d"
+PLAN_STATE = {**STATE, "zero_restore": {"plan": {"run_id": PLAN_RUN_ID, "needs_confirm": False, "joints": {}}}}
+APPLY_ACTIONS = ("zero_restore_apply", "zero_restore_apply_confirmed")
 
 
 class FakeBridge:
@@ -167,8 +170,11 @@ def test_get_without_bridge(tmp_path: Path) -> None:
     ],
 )
 def test_post_calls_derived_service(tmp_path: Path, action: str, service: str) -> None:
-    bridge = FakeBridge()
-    response = make_client(tmp_path, bridge).post(f"/api/calibration/servos/arm/{action}")
+    # Apply actions are bound to the shown dry run: a fresh cached plan and its run id (see test_apply_plan_binding).
+    bridge = FakeBridge({"follower": (PLAN_STATE, 100.0)} if action in APPLY_ACTIONS else None)
+    query = f"?plan_run_id={PLAN_RUN_ID}" if action in APPLY_ACTIONS else ""
+    with patch("web_ui.servo_calibration.time.monotonic", return_value=100.5):
+        response = make_client(tmp_path, bridge).post(f"/api/calibration/servos/arm/{action}{query}")
     assert response.status_code == 200
     assert response.json() == {"ok": True, "message": "done"}
     assert bridge.services == [service]
@@ -269,9 +275,13 @@ def test_zero_restore_actions_wait_zero_restore_timeout(tmp_path: Path) -> None:
         seen.append((service, timeout_s))
         return SimpleNamespace(success=True, message="ok"), None
 
-    with patch("web_ui.server.call_ros_service", fake_call):
-        client = make_client(tmp_path, FakeBridge())
-        client.post("/api/calibration/servos/arm/zero_restore_apply")
+    with (
+        patch("web_ui.server.call_ros_service", fake_call),
+        patch("web_ui.servo_calibration.time.monotonic", return_value=100.5),
+    ):
+        # torque on in the cached state, so move_to_neutral is not refused as released
+        client = make_client(tmp_path, FakeBridge({"follower": ({**PLAN_STATE, "released": False}, 100.0)}))
+        client.post(f"/api/calibration/servos/arm/zero_restore_apply?plan_run_id={PLAN_RUN_ID}")
         client.post("/api/calibration/servos/arm/release")
         client.post("/api/calibration/servos/arm/move_to_neutral")
     assert seen == [
@@ -309,3 +319,35 @@ def test_move_to_neutral_404_without_service(tmp_path: Path) -> None:
     client = TestClient(app)
     assert client.post("/api/calibration/servos/arm/move_to_neutral").status_code == 404
     assert client.post("/api/calibration/servos/arm/zero_restore_dry_run").status_code == 404
+
+
+PLAN_CHANGED = "the dry run changed since it was shown; review the new plan"
+
+
+@pytest.mark.parametrize("action", APPLY_ACTIONS)
+@pytest.mark.parametrize(
+    ("samples", "query", "now"),
+    [
+        ({"follower": (PLAN_STATE, 100.0)}, "", 100.5),  # no run id sent
+        ({"follower": (PLAN_STATE, 100.0)}, "?plan_run_id=deadbeef", 100.5),  # another plan is current
+        ({"follower": (STATE, 100.0)}, f"?plan_run_id={PLAN_RUN_ID}", 100.5),  # no plan cached
+        ({"follower": (PLAN_STATE, 100.0)}, f"?plan_run_id={PLAN_RUN_ID}", 200.0),  # cached state is stale
+        ({}, f"?plan_run_id={PLAN_RUN_ID}", 100.5),  # no state at all
+    ],
+)
+def test_apply_plan_binding_refuses_a_plan_other_than_the_shown_one(
+    tmp_path: Path, action: str, samples: dict, query: str, now: float
+) -> None:
+    bridge = FakeBridge(samples)
+    with patch("web_ui.servo_calibration.time.monotonic", return_value=now):
+        response = make_client(tmp_path, bridge).post(f"/api/calibration/servos/arm/{action}{query}")
+    assert response.status_code == 409
+    assert response.json() == {"ok": False, "message": PLAN_CHANGED}
+    assert bridge.services == []
+
+
+def test_plan_run_id_is_ignored_by_other_actions(tmp_path: Path) -> None:
+    bridge = FakeBridge()
+    response = make_client(tmp_path, bridge).post("/api/calibration/servos/arm/zero_restore_dry_run?plan_run_id=x")
+    assert response.status_code == 200
+    assert bridge.services == ["/follower/servo/zero_restore_dry_run"]

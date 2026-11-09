@@ -70,7 +70,7 @@ const CHIP: Record<TorqueLevel, { label: string; color: 'success' | 'error' | 'w
 interface CardProps {
   group: ServoGroup
   busy: boolean
-  onRun: (group: ServoGroup, action: ServoAction) => void
+  onRun: (group: ServoGroup, action: ServoAction, planRunId?: string) => void
   onConfirm: (group: ServoGroup, action: ConfirmAction) => void
 }
 
@@ -215,10 +215,10 @@ export function ServoNeutral() {
   const [feedback, setFeedback] = useState<Feedback>(null)
   const [pending, setPending] = useState<Pending>(null)
 
-  const run = useCallback(async (group: ServoGroup, action: ServoAction) => {
+  const run = useCallback(async (group: ServoGroup, action: ServoAction, planRunId?: string) => {
     setPending(null)
     setBusy(true)
-    const r = await servoAction(group.id, action)
+    const r = await servoAction(group.id, action, planRunId)
     setFeedback(r.ok ? { ok: r.value.ok, message: r.value.message } : { ok: false, message: r.message })
     setBusy(false)
   }, [])
@@ -233,7 +233,7 @@ export function ServoNeutral() {
       {feedback && <Alert severity={feedback.ok ? 'success' : 'error'} onClose={() => setFeedback(null)}>{feedback.message}</Alert>}
       <Box sx={{ mt: 1 }}>
         {groups.map((g) => (
-          <ServoCard key={g.id} group={g} busy={busy} onRun={(grp, a) => void run(grp, a)} onConfirm={(grp, a) => setPending({ group: grp, action: a })} />
+          <ServoCard key={g.id} group={g} busy={busy} onRun={(grp, a, id) => void run(grp, a, id)} onConfirm={(grp, a) => setPending({ group: grp, action: a })} />
         ))}
       </Box>
       <ConfirmDialog

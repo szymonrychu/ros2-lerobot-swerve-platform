@@ -534,6 +534,8 @@ SERVO_ZERO_RESTORE_ACTIONS: frozenset[str] = frozenset(
 SERVO_SAVE_ACTIONS: frozenset[str] = frozenset(
     {"save", "save_confirmed", "zero_restore_apply", "zero_restore_apply_confirmed"}
 )
+# Zero restore writes bound to the dry run the user was shown: the request carries that plan's run_id.
+SERVO_PLAN_BOUND_ACTIONS: frozenset[str] = frozenset({"zero_restore_apply", "zero_restore_apply_confirmed"})
 # Calibrate page action served by mcp_server (ServoGroupConfig.move_to_neutral_service), not by the bridge.
 SERVO_MOVE_TO_NEUTRAL_ACTION = "move_to_neutral"
 # A zero restore apply writes, settles and verifies up to 5 joints (about 0.6-2.5 s each): above service_timeout_s.

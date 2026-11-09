@@ -6,7 +6,9 @@ save_neutral, which the bridge refuses (409) when a recorded shift exceeds its n
 calls save_neutral_confirmed after the user confirmed those shifts on the Calibrate page. A group with zero_restore
 offers zero_restore_dry_run / zero_restore_apply / zero_restore_apply_confirmed / save_rest_reference (bridge services of
 the same name; apply waits zero_restore_timeout_s and is battery-blocked like save). move_to_neutral calls the group's
-move_to_neutral_service (mcp_server /arm/move_to_neutral), refused (409) while the group is released.
+move_to_neutral_service (mcp_server /arm/move_to_neutral), refused (409) while the group is released. Both apply
+actions are bound to the dry run the user saw: the request carries `?plan_run_id=` and is refused (409, PLAN_CHANGED)
+unless it equals the run_id of the plan in the group's fresh cached torque_state.
 """
 
 from __future__ import annotations
@@ -20,8 +22,38 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
-from .config import SERVO_MOVE_TO_NEUTRAL_ACTION, SERVO_SAVE_ACTIONS, AppConfig, ServoGroupConfig
+from .config import (
+    SERVO_MOVE_TO_NEUTRAL_ACTION,
+    SERVO_PLAN_BOUND_ACTIONS,
+    SERVO_SAVE_ACTIONS,
+    AppConfig,
+    ServoGroupConfig,
+)
 from .imu_calibration import HTTP_CONFLICT, HTTP_NOT_FOUND, HTTP_UNAVAILABLE, NOT_CONFIGURED_MESSAGE, error
+
+PLAN_CHANGED = "the dry run changed since it was shown; review the new plan"
+
+
+def shown_plan_error(group: ServoGroupConfig, bridge_node: Any, plan_run_id: str | None) -> str | None:
+    """Explain why a zero restore apply does not match the plan the user was shown.
+
+    Args:
+        group (ServoGroupConfig): The group.
+        bridge_node (Any): BridgeNode or None.
+        plan_run_id (str | None): run_id of the plan the Calibrate page showed (query parameter).
+
+    Returns:
+        str | None: PLAN_CHANGED when the id is missing, no fresh plan is cached or the cached plan has another
+            run_id; None when they match.
+    """
+    status = group_status(group, bridge_node)
+    state = status["state"] if not status["stale"] else None
+    zero = state.get("zero_restore") if isinstance(state, dict) else None
+    plan = zero.get("plan") if isinstance(zero, dict) else None
+    cached = plan.get("run_id") if isinstance(plan, dict) else None
+    if plan_run_id is None or cached is None or plan_run_id != cached:
+        return PLAN_CHANGED
+    return None
 
 
 def read_stale_items(marker: str | None) -> list[str] | None:
@@ -131,7 +163,7 @@ def register_servo_calibration_routes(
             return error(NOT_CONFIGURED_MESSAGE, HTTP_NOT_FOUND)
         return JSONResponse({"groups": [group_status(g, bridge_node) for g in groups.values()]})
 
-    async def act(group_id: str, action: str) -> JSONResponse:
+    async def act(group_id: str, action: str, plan_run_id: str | None = None) -> JSONResponse:
         group = groups.get(group_id)
         if group is None or not group.offers(action):
             return error(f"unknown servo group or action: {group_id}/{action}", HTTP_NOT_FOUND)
@@ -142,6 +174,8 @@ def register_servo_calibration_routes(
             return blocked
         if moves and (released := released_error_of(group, bridge_node)) is not None:
             return error(released, HTTP_CONFLICT)
+        if action in SERVO_PLAN_BOUND_ACTIONS and (changed := shown_plan_error(group, bridge_node, plan_run_id)):
+            return error(changed, HTTP_CONFLICT)
         if bridge_node is None:
             return error("ROS bridge unavailable", HTTP_UNAVAILABLE)
         service = group.service(action)
