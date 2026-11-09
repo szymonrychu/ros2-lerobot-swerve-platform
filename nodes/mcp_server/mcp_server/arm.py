@@ -15,7 +15,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 from arm_collision.head import HeadPose
 from arm_collision.ik import ArmKinematics, UnreachableError, grasp_offset
@@ -29,6 +29,7 @@ from arm_collision.self_collision import (
 )
 from arm_collision.settings import ArmBaseOffset
 
+from .calib_event import emit_calib_event, new_run_id
 from .calibration_board import BoardPark
 from .calibration_marker import CalibrationMarker, clear_stale, load_marker
 from .carry import CarryRecord, CarryStore, GraspKind, carry_path
@@ -98,6 +99,12 @@ CHANGED_EPS = 1e-9
 ORPHAN_LEASE_WINDOW_S = 3.0
 # lost_note after the /arm/home service (web UI Home button) released a lease this server held.
 HOME_SERVICE_RELEASE_NOTE = "released by the /arm/home service (web UI Home button)"
+# lost_note after the /arm/move_to_neutral service (web UI Calibrate page) released a lease this server held.
+MOVE_TO_NEUTRAL_RELEASE_NOTE = "released by the /arm/move_to_neutral service (web UI Calibrate page)"
+# The neutral pose: every arm joint (gripper excluded) at this measured angle (rad).
+NEUTRAL_JOINT_RAD = 0.0
+MOVE_TO_NEUTRAL_FLOW = "move_to_neutral"  # calib_event flow of the /arm/move_to_neutral service
+STALE_OFFSETS_ITEM = "joint_offsets"  # stale marker item: the arm zero changed, joint_offsets_rad is suspect
 # lost_note after the startup orphan check released an autonomy lease left behind by a crashed predecessor.
 RESTART_RELEASE_NOTE = "mcp_server restarted (the orphaned autonomy lease was released)"
 # filter_node's active source while no input is active (filter_node.arbitration.SOURCE_NONE), e.g. right after it
@@ -2447,6 +2454,101 @@ class ArmController:
         finally:
             if was_held and not self._held:
                 self.lost_note = HOME_SERVICE_RELEASE_NOTE
+        return result.status == "converged", f"{result.status}: {result.message}"
+
+    def neutral_pose(self) -> dict[str, float]:
+        """The neutral pose: every arm joint except the gripper at NEUTRAL_JOINT_RAD (measured space).
+
+        Returns:
+            dict[str, float]: Joint name -> rad.
+        """
+        return {j: NEUTRAL_JOINT_RAD for j in self.joint_names if j != self.cfg.arm.gripper_joint}
+
+    def move_to_neutral_refusal(self) -> str | None:
+        """Why the arm may not move to the neutral pose now, or None.
+
+        Returns:
+            str | None: Refusal text: the stale marker lists joint_offsets (an unreadable marker counts), or the arm
+                torque is released; None when the move may start.
+        """
+        marker = self.stale_marker()
+        if marker is not None and STALE_OFFSETS_ITEM in marker.stale:
+            when = marker.saved_at or "an unknown time"
+            return (
+                f"move to neutral refused: the calibration stale marker lists {STALE_OFFSETS_ITEM} (arm re-zero at "
+                f"{when}): the FK and the body check would use the old zero; restore the arm zero first"
+            )
+        if self.torque_off():
+            return f"move to neutral refused: {torque_off_message('arm')}"
+        return None
+
+    def move_to_neutral(self, run_id: str | None = None) -> ArmMotionResult:
+        """Move every arm joint (gripper excluded) to 0.0 measured along the home routing, then release control.
+
+        The route and its body checks are those of home (plan_home, home_motion) at the same speed as the /arm/home
+        service. Control is always released afterwards (also after a failed motion), like home. One calib_event line
+        (flow move_to_neutral) is logged per step: request start, refusal, route, result.
+
+        Args:
+            run_id (str | None): calib_event run id; None creates one.
+
+        Returns:
+            ArmMotionResult: Outcome of the motion.
+
+        Raises:
+            ArmError: Refused (stale joint_offsets, torque released), no collision-free route, or the motion failed.
+        """
+        run_id = run_id or new_run_id()
+        started = self.backend.now()
+        pose = self.neutral_pose()
+        sample = self.fresh_sample()
+
+        def event(step: str, outcome: str, reason: str | None = None, data: dict[str, Any] | None = None) -> None:
+            elapsed = self.backend.now() - started
+            emit_calib_event(LOGGER, MOVE_TO_NEUTRAL_FLOW, run_id, step, outcome, reason, data, elapsed)
+
+        event("request", "start", data={"target": pose, "measured": self.measured(sample) if sample else None})
+        refusal = self.move_to_neutral_refusal()
+        if refusal is not None:
+            event("request", "refused", refusal)
+            raise ArmError(refusal)
+        try:
+            note, legs = self.plan_home(pose)
+        except ArmError as exc:
+            event("route", "refused", str(exc))
+            raise
+        event("route", "ok", data={"note": note, "legs": legs})
+        try:
+            result = self.home_motion(pose, None)
+        except ArmError as exc:
+            if self._held:
+                self.release()
+            event("result", "failed", str(exc))
+            raise
+        if self._held:
+            self.release()
+        after = self.fresh_sample()
+        data = {"status": result.status, "measured": self.measured(after) if after else None}
+        if result.status == "converged":
+            event("result", "ok", data=data)
+        else:
+            event("result", "failed", result.message, data)
+        return result
+
+    def move_to_neutral_service_call(self) -> tuple[bool, str]:
+        """/arm/move_to_neutral service body: move to the neutral pose and always release control afterwards.
+
+        Returns:
+            tuple[bool, str]: success (converged) and message.
+        """
+        was_held = self._held
+        try:
+            result = self.move_to_neutral()
+        except ArmError as exc:
+            return False, str(exc)
+        finally:
+            if was_held and not self._held:
+                self.lost_note = MOVE_TO_NEUTRAL_RELEASE_NOTE
         return result.status == "converged", f"{result.status}: {result.message}"
 
     def set_home(self) -> dict[str, float]:

@@ -94,6 +94,26 @@ ROS services (`std_srvs/Trigger`): `/arm/home` (move to the stored home pose, th
 after a failed motion; used by the web UI "Arm home" button) and `/arm/set_home` (store the measured pose). The home pose is YAML (`joints: {name: rad}`) at `arm.home_file` (default `/var/lib/ros2/arm/home.yaml`,
 directory created by Ansible, owned by the node user), written atomically.
 
+`/arm/move_to_neutral` (`std_srvs/Trigger`, `topics.move_to_neutral_service`; web UI Calibrate page "Move to neutral
+pose" button): every arm joint except the gripper (`arm.gripper_joint`) to 0.0 rad measured. It reuses the home
+motion: `plan_home` picks the first route whose every leg clears the robot body (the same safe intermediates as home)
+and `home_motion` drives it at the same speed as `/arm/home`; the gripper keeps its pose. Control is always released
+afterwards (also after a failed motion); a lease this server held then reads "released by the /arm/move_to_neutral
+service (web UI Calibrate page)". Refusals (nothing is published):
+
+- the calibration stale marker lists `joint_offsets` (an unreadable marker counts): "move to neutral refused: the
+  calibration stale marker lists joint_offsets (arm re-zero at <saved_at>): the FK and the body check would use the old
+  zero; restore the arm zero first";
+- the arm torque is released (Calibrate page): "move to neutral refused: " plus the usual torque-off text;
+- no collision-free route: the home `SelfCollisionError` text.
+
+Each step logs one journal line `calib_event {"flow":"move_to_neutral","run_id",...}` (helper `calib_event.py`:
+compact JSON with `flow`, `run_id` (8 hex chars per request), `step`, `outcome`, `reason`, `data`, `duration_s`;
+`start`/`ok` at INFO, `refused` at WARNING, `failed` at ERROR): `request`/`start` (target and measured joints),
+`request`/`refused` (reason), `route`/`ok` (route note and legs) or `route`/`refused`, `result`/`ok` or
+`result`/`failed` (motion status and the measured joints after). Read them with
+`journalctl -u ros2-mcp_server | grep calib_event`.
+
 ### StopBox on backing and turning
 
 Robot agent retrospective 2026-10-22 16:28 ("Explore", near the mirror wardrobe): "StopBox fired immediately on
@@ -1287,6 +1307,7 @@ stale}`, where `stale` lists `joint_offsets` and/or `home`.
   (`saved_at`). A missing marker means `[]` / `null`; an unreadable or invalid marker counts as both items stale.
 - `arm_home` (and the `/arm/home` service) is refused while `home` is stale, publishing nothing: "arm home was
   recorded before the arm re-zero at <saved_at>; record a new home with arm_set_home".
+- `/arm/move_to_neutral` is refused while `joint_offsets` is stale (the FK and body check use the zero).
 - `arm_set_home` clears `home` from the marker. `joint_offsets` is only reported here; the offsets re-fit in the
   head-and-arm-calibration-fro epic clears it. The marker file is deleted once nothing is stale.
 

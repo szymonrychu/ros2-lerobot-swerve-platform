@@ -192,6 +192,9 @@ class TopicSettings(StrictModel):
     map_frame: str = "map"
     base_frame: str = "base_link"
     home_service: str = "/arm/home"
+    # std_srvs/Trigger (web UI Calibrate page): every arm joint but the gripper to 0.0 measured via the home routing;
+    # refused while the stale marker lists joint_offsets or the arm torque is off.
+    move_to_neutral_service: str = "/arm/move_to_neutral"
     swerve_joint_states: str = "/swerve_drive/joint_states"  # steer joints for the release_control base reset
     tf: str = "/tf"  # subscribed on demand (on_demand.linger_s) by the TF lookups of the tools
     tf_static: str = "/tf_static"  # always subscribed (latched, about 0 msg/s)
