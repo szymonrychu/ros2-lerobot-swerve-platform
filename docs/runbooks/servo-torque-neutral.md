@@ -118,7 +118,8 @@ Steps (one button each; the panel says what to expect under every button):
    old offset back, joints before it are restored, later joints untouched; torque stays off.
 4. Press **4. Re-enable torque**. Expect: the arm holds its pose, the card shows torque on.
 5. Park the arm: General section **Home arm** (or the Arm to camera flow's Park when it holds the board). Expect: it
-   parks on its rest without a jump. Mismatch: press **Abort calibration** (it holds the arm) and report.
+   parks on its rest without a jump. Mismatch: stop the motion from the Arm tab or the agent's stop and report
+   (**Abort calibration** stops calibration captures and sequences only, not a Home arm motion).
 
 Optional, once the zero is right: with the arm resting folded and torque off, **Save current pose as rest reference**
 (confirm **Save reference**) stores today's rest readings in `/var/lib/ros2/arm/rest_reference.json`; later restores

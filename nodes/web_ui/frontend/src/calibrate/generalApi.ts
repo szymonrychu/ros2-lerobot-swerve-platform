@@ -11,6 +11,7 @@ import { getState, stopCapture } from './rgbdApi'
 const BASE = '/api/calibration/general'
 /** Sequence phases that wait for the user: the sequence is live and Abort stops it. */
 const WAITING_PHASES = ['waiting_board', 'waiting_big_joints']
+const PARKING_PHASE = 'parking'
 /** Any CSI camera: the state carries the latest capture of every camera. */
 const CSI_STATE_CAMERA = 'front'
 
@@ -83,7 +84,9 @@ const STOPPERS: Stopper[] = [
       const s = await getHeadArmState()
       if (!s.ok) return { error: s.message }
       const seq = s.value.sequence
-      return { live: seq.running || WAITING_PHASES.includes(seq.phase), stop: async () => done(await stopSequence()) }
+      // The node never interrupts a park: a parking sequence is not stopped.
+      const live = (seq.running && seq.phase !== PARKING_PHASE) || WAITING_PHASES.includes(seq.phase)
+      return { live, stop: async () => done(await stopSequence()) }
     },
   },
   {

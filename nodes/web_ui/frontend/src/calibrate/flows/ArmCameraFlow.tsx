@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -38,6 +38,8 @@ import { useServoGroups } from '../servoApi'
 
 /** Result poll period while an arm-camera fit computes: 1 Hz. */
 export const RESULT_POLL_MS = 1000
+/** Consecutive failed result polls before the compute step gives up and shows the error. */
+const RESULT_POLL_FAILURES = 3
 
 const BASE_JOINTS = ['shoulder_pan', 'shoulder_lift', 'elbow_flex', 'wrist_flex', 'wrist_roll', 'gripper']
 /** Tier-2 joints named in the consent when the node has not sent its list. */
@@ -46,6 +48,7 @@ const PHASE_IDLE = 'idle'
 const PHASE_WAITING_BOARD = 'waiting_board'
 const PHASE_WAITING_BIG = 'waiting_big_joints'
 const PHASE_HOLDING = 'holding'
+const PHASE_PARKING = 'parking'
 /** Phases from the base pose on: the gripper is open at the insert width or the board is in. */
 const AT_BASE_PHASES = ['waiting_board', 'capturing', 'waiting_big_joints', 'returning_to_base', 'holding', 'parking']
 /** Phases after Board attached. */
@@ -82,7 +85,12 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
   const [result, setResult] = useState<ArmCameraResult | null>(null)
   const [decision, setDecision] = useState<GateDecision>(null)
   const [decisionMessage, setDecisionMessage] = useState<string | null>(null)
-  const [parked, setParked] = useState(false)
+  const [parkRequested, setParkRequested] = useState(false)
+  // Session of a run the user closed with Start a new run: its capture no longer counts for steps 1-4.
+  const [closedSid, setClosedSid] = useState<string | null>(null)
+  const lastSid = useRef<string | null>(null)
+  const pollFailures = useRef(0)
+  const polling = useRef(false)
 
   const reload = useCallback(async () => {
     const [s, l] = await Promise.all([getHeadArmState(), listHeadArmSessions()])
@@ -109,12 +117,19 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
   }, [running, reload])
 
   const pollResult = useCallback(async (sid: string, rid: string) => {
+    if (polling.current) return // the previous poll still runs: never overlap
+    polling.current = true
     const r = await getArmCameraResult(sid, rid)
+    polling.current = false
     if (!r.ok) {
-      setErrors((e) => ({ ...e, compute: r.message }))
-      setComputing(null)
+      pollFailures.current += 1
+      if (pollFailures.current >= RESULT_POLL_FAILURES) {
+        setErrors((e) => ({ ...e, compute: r.message }))
+        setComputing(null)
+      }
       return
     }
+    pollFailures.current = 0
     if (r.value.state === 'running') return
     setComputing(null)
     if (r.value.state === 'failed') setErrors((e) => ({ ...e, compute: r.value.error ?? 'the fit failed' }))
@@ -153,8 +168,25 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
 
   const phase = sequence?.phase ?? PHASE_IDLE
   const sid = sequence?.session_id ?? null
-  const captured = sid !== null && (sequence?.captured ?? 0) > 0 && !running && !CAPTURE_PHASES.includes(phase)
-  const session = sessions.find((s) => s.id === sid) ?? null
+  const captured =
+    sid !== null && sid !== closedSid && (sequence?.captured ?? 0) > 0 && !running && !CAPTURE_PHASES.includes(phase)
+  // The fits of More fits run on the live session, or on the newest one when the node has none (after a restart).
+  const session = sid !== null ? sessions.find((s) => s.id === sid) ?? null : sessions[sessions.length - 1] ?? null
+  const parked = parkRequested && phase === PHASE_IDLE && !running && !sequence?.error
+
+  // A new capture session starts a new run: the previous result, decision and park no longer apply.
+  useEffect(() => {
+    if (sid === null || sid === lastSid.current) return
+    const first = lastSid.current === null
+    lastSid.current = sid
+    if (first) return
+    setComputing(null)
+    setResult(null)
+    setDecision(null)
+    setDecisionMessage(null)
+    setParkRequested(false)
+    setErrors({})
+  }, [sid])
 
   const compute = async () => {
     if (!sid) return
@@ -183,15 +215,17 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
   }
 
   const parkArm = async (boardOn: boolean) => {
-    if (await step('park', () => (boardOn ? park(true, true) : park(true)))) setParked(true)
+    if (await step('park', () => (boardOn ? park(true, true) : park(true)))) setParkRequested(true)
   }
 
   const restart = () => {
+    setClosedSid(sid)
     setHomed(false)
+    setComputing(null)
     setResult(null)
     setDecision(null)
     setDecisionMessage(null)
-    setParked(false)
+    setParkRequested(false)
     setErrors({})
   }
 
@@ -243,13 +277,18 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
               id: 'home',
               title: 'Home arm',
               optional: !canHomeArm,
-              done: homed || phase !== PHASE_IDLE || captured,
+              done: homed || (phase !== PHASE_IDLE && sid !== closedSid) || captured,
               see: 'The arm folds to its stored home pose and stops; nothing on the gripper.',
               error: errors.home,
               children: (
                 <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                   {canHomeArm ? (
-                    <Button variant="contained" sx={target} disabled={busy || zeroStale} onClick={() => setDialog('home')}>
+                    <Button
+                      variant="contained"
+                      sx={target}
+                      disabled={busy || zeroStale || running || phase !== PHASE_IDLE}
+                      onClick={() => setDialog('home')}
+                    >
                       Home arm
                     </Button>
                   ) : (
@@ -266,7 +305,7 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
             {
               id: 'open',
               title: 'Open gripper',
-              done: AT_BASE_PHASES.includes(phase) || captured,
+              done: (AT_BASE_PHASES.includes(phase) && sid !== closedSid) || captured,
               see: 'The arm stands in the calibration base pose with the gripper open to the insert width. Keep the area clear.',
               error: errors.open,
               children: (
@@ -278,7 +317,7 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
             {
               id: 'grab',
               title: 'Grab board',
-              done: GRABBED_PHASES.includes(phase) || captured,
+              done: (GRABBED_PHASES.includes(phase) && sid !== closedSid) || captured,
               see: 'The jaws close on the handle; the events report the grip seated, without slack. The wrist poses start.',
               error: errors.grab,
               children: (
@@ -332,7 +371,7 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
                     variant="outlined"
                     color="error"
                     sx={target}
-                    disabled={!running && !CAPTURE_PHASES.includes(phase)}
+                    disabled={phase === PHASE_PARKING || (!running && !CAPTURE_PHASES.includes(phase))}
                     onClick={() => void step('capture', stopSequence)}
                   >
                     Stop
@@ -352,7 +391,6 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
                   <Button variant="contained" sx={target} disabled={busy || running || computing !== null || !sid} onClick={() => void compute()}>
                     Compute
                   </Button>
-                  <MoreFits session={session} disabled={running} />
                 </>
               ),
             },
@@ -383,7 +421,8 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
             {
               id: 'park',
               title: 'Park',
-              done: parked && !running,
+              done: parked,
+              alwaysOpen: phase === PHASE_HOLDING || parkRequested,
               see: 'The arm parks with the board (its path is checked with it); remove the board afterwards.',
               error: errors.park,
               children: (
@@ -402,6 +441,7 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
           ]}
         />
       </Box>
+      <MoreFits session={session} disabled={running} />
       <ConfirmDialog
         open={dialog === 'home'}
         title="Home the arm?"

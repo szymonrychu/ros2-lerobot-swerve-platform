@@ -97,7 +97,8 @@ Retry notes: speed_scale stays 0.1 (fragile mount). A pose refused by the path c
 skipped with its reason, not forced. After a long hold (about 4 h) the gripper servo can drop off the
 bus under the board load: park with the board (D63) and take the board out of the jaws between sessions. A seat-check
 refusal ("closed past the handle contact") means the post was not in the jaws up to the shoulder. The sequence ends in
-phase `holding` (the board counts as attached): take the board out of the jaws, press Park (the checked board park),
+phase `holding` (the board counts as attached): take the board out of the jaws, press Park (step 7, open whenever the
+arm holds the board; the checked board park),
 then Open gripper again (step 2: base pose, gripper at `insert_gripper_rad`), reseat the handle and retry. A page that
 lost the sequence (restart) offers **Park (board is on the gripper)** in step 1.
 

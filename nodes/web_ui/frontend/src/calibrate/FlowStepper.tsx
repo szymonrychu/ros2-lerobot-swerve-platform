@@ -13,6 +13,8 @@ export interface FlowStep {
   done: boolean
   /** An optional step never locks the steps after it. */
   optional?: boolean
+  /** Never locked, whatever the steps before it say (e.g. Park while the arm holds the board). */
+  alwaysOpen?: boolean
   /** Live status line of the step. */
   status?: ReactNode
   /** Last error of the step. */
@@ -50,7 +52,7 @@ export function FlowStepper({ label, steps }: { label: string; steps: FlowStep[]
   return (
     <Box component="ol" aria-label={label} sx={{ listStyle: 'none', pl: 0, m: 0 }}>
       {steps.map((s, i) => {
-        const unlocked = i < open
+        const unlocked = i < open || s.alwaysOpen === true
         const chip = chipOf(s, unlocked)
         return (
           <Box component="li" key={s.id} sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 2, mb: 1 }}>

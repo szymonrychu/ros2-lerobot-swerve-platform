@@ -46,6 +46,12 @@ describe('FlowStepper', () => {
     expect(screen.getByText('arm refused')).toBeTruthy()
   })
 
+  it('an always-open step is never locked', () => {
+    render(<FlowStepper label="Flow" steps={[step('a', false), step('b', false), step('c', false, { alwaysOpen: true })]} />)
+    expect(screen.getByRole('button', { name: 'Do c' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Do b' })).toBeNull()
+  })
+
   it('marks an optional step', () => {
     render(<FlowStepper label="Flow" steps={[step('a', false, { optional: true }), step('b', false)]} />)
     expect(screen.getByText('Optional')).toBeTruthy()

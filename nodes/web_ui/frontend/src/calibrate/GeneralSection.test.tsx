@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { GeneralSection } from './GeneralSection'
 import * as generalApi from './generalApi'
 import * as headArmApi from './headArmApi'
+import * as headFloorApi from './headFloorApi'
 import type { HeadArmSequence } from './headArmApi'
 
 const SEQ: HeadArmSequence = {
@@ -24,6 +25,10 @@ const SEQ: HeadArmSequence = {
 }
 
 function stubSequence(seq: Partial<HeadArmSequence> = {}) {
+  vi.spyOn(headFloorApi, 'getFloorState').mockResolvedValue({
+    ok: true,
+    value: { sweep: { running: false, session_id: null, pose: 0, total: 0, observations: 0, skipped: 0, status: 'idle', error: null }, applied: null },
+  })
   return vi.spyOn(headArmApi, 'getHeadArmState').mockResolvedValue({ ok: true, value: { sequence: { ...SEQ, ...seq }, applied: null } })
 }
 
@@ -111,6 +116,28 @@ describe('GeneralSection', () => {
     expect((screen.getByRole('button', { name: 'Home camera' }) as HTMLButtonElement).disabled).toBe(true)
     expect((screen.getByRole('button', { name: 'Home steering servos' }) as HTMLButtonElement).disabled).toBe(false)
     expect(screen.getByText(/Abort the running calibration first/)).toBeTruthy()
+  })
+
+  it('arm moves are off while the arm holds the board or parks', async () => {
+    for (const phase of ['holding', 'parking']) {
+      stubSequence({ running: phase === 'parking', phase })
+      render(<GeneralSection actions={ALL} rgbd />)
+      await waitFor(() => expect((screen.getByRole('button', { name: 'Open gripper' }) as HTMLButtonElement).disabled).toBe(true))
+      expect((screen.getByRole('button', { name: 'Home arm' }) as HTMLButtonElement).disabled).toBe(true)
+      cleanup()
+      vi.restoreAllMocks()
+    }
+  })
+
+  it('Home camera is off while a floor sweep moves the head', async () => {
+    stubSequence()
+    vi.spyOn(headFloorApi, 'getFloorState').mockResolvedValue({
+      ok: true,
+      value: { sweep: { running: true, session_id: 's', pose: 1, total: 9, observations: 3, skipped: 0, status: 'sweeping', error: null }, applied: null },
+    })
+    render(<GeneralSection actions={ALL} rgbd />)
+    await waitFor(() => expect((screen.getByRole('button', { name: 'Home camera' }) as HTMLButtonElement).disabled).toBe(true))
+    expect((screen.getByRole('button', { name: 'Home arm' }) as HTMLButtonElement).disabled).toBe(false)
   })
 
   it('without the RGB-D node it does not read the sequence', async () => {

@@ -106,6 +106,13 @@ describe('abortCalibration', () => {
     }
   })
 
+  it('a park in progress is not stopped (the node never interrupts a park)', async () => {
+    const posts = fakeNode({ headArm: { running: true, phase: 'parking' } })
+    const r = await abortCalibration()
+    expect(posts).toEqual([])
+    expect(r.stopped).toEqual([])
+  })
+
   it('stops the floor sweep, the D435 capture and the CSI capture of its camera', async () => {
     const posts = fakeNode({ sweep: true, d435: true, csi: 'back' })
     const r = await abortCalibration()

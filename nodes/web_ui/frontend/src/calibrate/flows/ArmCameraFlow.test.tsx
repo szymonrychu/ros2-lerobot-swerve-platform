@@ -350,12 +350,12 @@ describe('ArmCameraFlow', () => {
     expect(within(step(5)).getByText('a compute runs already')).toBeTruthy()
   })
 
-  it('the head-from-arm and arm offsets fits stay reachable from the compute step', async () => {
+  it('the head-from-arm and arm offsets fits stay reachable below the steps', async () => {
     setState(HOLDING)
     await renderFlow(false)
-    await click('More fits on this session', step(5))
-    expect(within(step(5)).getByRole('button', { name: 'Compute head from arm' })).toBeTruthy()
-    expect(within(step(5)).getByRole('button', { name: 'Compute arm offsets' })).toBeTruthy()
+    await click('More fits on this session')
+    expect(screen.getByRole('button', { name: 'Compute head from arm' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Compute arm offsets' })).toBeTruthy()
   })
 
   it('Park with the board (lost sequence) states the board is on and shows the remembered record', async () => {
@@ -367,5 +367,92 @@ describe('ArmCameraFlow', () => {
     expect(m.park).not.toHaveBeenCalled()
     await confirmIn('Park with the board')
     expect(m.park).toHaveBeenCalledWith(true, true)
+  })
+
+  it('Home arm is off once the sequence holds or moves the arm', async () => {
+    for (const s of [seq({ running: true, phase: 'capturing', session_id: SID }), seq({ phase: 'holding', session_id: SID, captured: 0 })]) {
+      setState(s)
+      await renderFlow()
+      expect((within(step(1)).getByRole('button', { name: 'Home arm' }) as HTMLButtonElement).disabled).toBe(true)
+      cleanup()
+    }
+  })
+
+  it('Park is reachable whenever the arm holds the board, also with nothing captured', async () => {
+    setState(seq({ phase: 'holding', session_id: SID, captured: 0, error: 'the gripper closed past the handle contact' }))
+    m.park.mockResolvedValue(ok(seq({ running: true, phase: 'parking', session_id: SID })))
+    await renderFlow(false)
+    await click('Park arm', step(7))
+    await confirmIn('Park')
+    expect(m.park).toHaveBeenCalledWith(true)
+  })
+
+  it('a park that fails after it started is not done', async () => {
+    setState(seq({ phase: 'holding', session_id: SID, captured: 0 }))
+    m.park.mockResolvedValue(ok(seq({ running: true, phase: 'parking', session_id: SID })))
+    await renderFlow(false)
+    await click('Park arm', step(7))
+    await confirmIn('Park')
+    setState(seq({ phase: 'holding', session_id: SID, captured: 0, error: 'park refused: board below the floor margin' }))
+    m.park.mockResolvedValue(ok(seq({ phase: 'holding', session_id: SID, error: 'park refused: board below the floor margin' })))
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(ARM_POLL_MS * 2)
+    })
+    expect(within(step(7)).queryByText('Done')).toBeNull()
+    expect(within(step(7)).queryByRole('button', { name: 'Start a new run' })).toBeNull()
+  })
+
+  it('a finished park is done and a new run starts clean', async () => {
+    setState(seq({ phase: 'holding', session_id: SID, captured: 40 }))
+    m.park.mockResolvedValue(ok(seq({ phase: 'idle', session_id: SID, captured: 40 })))
+    await renderFlow(false)
+    await click('Park arm', step(7))
+    await confirmIn('Park')
+    expect(within(step(7)).getByText('Done')).toBeTruthy()
+    await click('Start a new run', step(7))
+    expect(within(step(4)).queryByText('Done')).toBeNull()
+    expect(within(step(2)).getByRole('button', { name: 'Open gripper' })).toBeTruthy()
+  })
+
+  it('a new capture session clears the previous result and decision', async () => {
+    setState(HOLDING)
+    a.computeArmCamera.mockResolvedValue(ok({ result_id: doneFx.id }))
+    a.getArmCameraResult.mockResolvedValue(ok(doneFx as ArmCameraResult))
+    a.declineArmCamera.mockResolvedValue(ok({}))
+    m.park.mockResolvedValue(ok(seq({ phase: 'idle', session_id: SID, captured: 40 })))
+    m.moveToBase.mockResolvedValue(ok(seq({ running: true, phase: 'waiting_board', session_id: 'calib-new' })))
+    await renderFlow(false)
+    await click('Compute', step(5))
+    await waitFor(() => expect(within(step(6)).getByText('Plausible')).toBeTruthy())
+    await click('Decline', step(6))
+    await click('Park arm', step(7))
+    await confirmIn('Park')
+    await click('Open gripper', step(2))
+    await confirmIn('Move')
+    expect(within(step(5)).queryByText('Done')).toBeNull()
+    expect(screen.queryByText('Declined')).toBeNull()
+  })
+
+  it('without a live session the fits of the newest session stay reachable', async () => {
+    setState(seq({}))
+    await renderFlow(false)
+    expect(within(step(5)).getByText('Finish step 2 first.')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'More fits on this session' })).toBeTruthy()
+    await click('More fits on this session')
+    expect((screen.getByRole('button', { name: 'Compute arm offsets' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('one failed result poll does not lose the result', async () => {
+    setState(HOLDING)
+    a.computeArmCamera.mockResolvedValue(ok({ result_id: doneFx.id }))
+    a.getArmCameraResult.mockResolvedValueOnce({ ok: false, status: 503, message: 'calibration node unreachable' }).mockResolvedValue(ok(doneFx as ArmCameraResult))
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    await renderFlow(false)
+    await click('Compute', step(5))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(RESULT_POLL_MS * 2)
+    })
+    expect(within(step(6)).getByText('Plausible')).toBeTruthy()
   })
 })

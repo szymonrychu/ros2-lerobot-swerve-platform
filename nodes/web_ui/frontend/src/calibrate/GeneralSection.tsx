@@ -7,13 +7,19 @@ import { ConfirmDialog } from '../layout/ConfirmDialog'
 import { TOUCH_TARGET_PX } from '../theme'
 import { GENERAL_ACTIONS, type GeneralAction, type GeneralActionId, abortCalibration, runGeneralAction } from './generalApi'
 import { getHeadArmState } from './headArmApi'
+import { getFloorState } from './headFloorApi'
 
-/** Head-arm sequence poll period of the General section: 0.5 Hz (the flows poll faster while they run). */
+/** Head-arm sequence and floor sweep poll period of the General section: 0.5 Hz (the flows poll faster while they run). */
 export const GENERAL_POLL_MS = 2000
-/** Actions that would fight a live calibration sequence (it holds the arm and aims the head). */
+/** Actions that would fight a live calibration sequence (it holds the arm and aims the head) or drop its board. */
 const SEQUENCE_BLOCKED: GeneralActionId[] = ['open_gripper', 'close_gripper', 'home_arm', 'home_head']
-const LIVE_PHASES = ['waiting_board', 'waiting_big_joints']
-const BLOCKED_TEXT = 'Arm and camera moves are off: a calibration sequence runs. Abort the running calibration first.'
+/** Actions that would fight a floor sweep (it moves the head). */
+const SWEEP_BLOCKED: GeneralActionId[] = ['home_head']
+/** Sequence phases in which the arm is the sequence's or holds the board (holding: park it from the Arm to camera flow). */
+const LIVE_PHASES = ['waiting_board', 'waiting_big_joints', 'holding', 'parking']
+const BLOCKED_TEXT =
+  'Arm and camera moves are off: a calibration sequence runs or the arm holds the board. Abort the running calibration first, or park the board from the Arm to camera flow.'
+const SWEEP_TEXT = 'Home camera is off while the floor sweep moves the head.'
 const ABORT_TEXT =
   'Stops the running calibration capture, sweep or sequence. The arm holds where it is (no park); park it from the flow or use Home arm afterwards.'
 
@@ -33,13 +39,16 @@ export function GeneralSection({ actions, rgbd }: { actions: GeneralActionId[]; 
   const [busy, setBusy] = useState(false)
   const [feedback, setFeedback] = useState<Feedback>(null)
   const [sequenceLive, setSequenceLive] = useState(false)
+  const [sweepLive, setSweepLive] = useState(false)
 
   useEffect(() => {
     if (!rgbd) return
     let live = true
     const poll = async () => {
-      const r = await getHeadArmState()
-      if (live && r.ok) setSequenceLive(r.value.sequence.running || LIVE_PHASES.includes(r.value.sequence.phase))
+      const [s, f] = await Promise.all([getHeadArmState(), getFloorState()])
+      if (!live) return
+      if (s.ok) setSequenceLive(s.value.sequence.running || LIVE_PHASES.includes(s.value.sequence.phase))
+      if (f.ok) setSweepLive(f.value.sweep.running)
     }
     void poll()
     const id = setInterval(() => void poll(), GENERAL_POLL_MS)
@@ -86,7 +95,7 @@ export function GeneralSection({ actions, rgbd }: { actions: GeneralActionId[]; 
             key={a.id}
             variant="outlined"
             sx={target}
-            disabled={busy || (sequenceLive && SEQUENCE_BLOCKED.includes(a.id))}
+            disabled={busy || (sequenceLive && SEQUENCE_BLOCKED.includes(a.id)) || (sweepLive && SWEEP_BLOCKED.includes(a.id))}
             onClick={() => setPending(a)}
           >
             {a.label}
@@ -96,6 +105,11 @@ export function GeneralSection({ actions, rgbd }: { actions: GeneralActionId[]; 
       {sequenceLive && (
         <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
           {BLOCKED_TEXT}
+        </Typography>
+      )}
+      {sweepLive && (
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+          {SWEEP_TEXT}
         </Typography>
       )}
       {feedback && (
