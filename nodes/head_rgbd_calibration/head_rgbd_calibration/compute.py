@@ -4,6 +4,10 @@ The colour intrinsics are fitted from the ChArUco board in the stored colour sti
 camera_info recorded with them (design D10); the board-plane depth bias is measured from the aligned depth against
 the PnP board plane. The result passes or fails against the limits and writes no calibration file: the factory
 intrinsics stay authoritative.
+
+Telemetry: calib_event lines of flow `d435_compute` with the result id as run id: `inputs` (stills, limits, board),
+`detections` (corners per still, stills without a board) and `result` (passed or failed with every value and limit, or
+the input error). As a child process main() logs them to stderr in CHILD_LOG_FORMAT; jobs.py forwards them.
 """
 
 import argparse
@@ -38,6 +42,7 @@ from head_rgbd_calibration.store import (
     StoredStill,
     write_json_atomic,
 )
+from head_rgbd_calibration.telemetry import CHILD_LOG_FORMAT, calib_event
 
 LOGGER = logging.getLogger(__name__)
 
@@ -45,6 +50,7 @@ REPORT_FILE = "report.md"
 DATE_TIMESPEC = "seconds"
 PLANE_BIAS_KEY = "limits.plane_max_bias_mm"
 PLANE_SPREAD_KEY = "limits.plane_max_spread_mm"
+FLOW = "d435_compute"
 
 
 def failed_result(base: dict[str, Any], error: str) -> dict[str, Any]:
@@ -182,10 +188,33 @@ def compute_result(store: SessionStore, sid: str, rid: str, cfg: NodeConfig, now
     }
     try:
         stills = store.load_stills(sid)
+        calib_event(
+            LOGGER,
+            FLOW,
+            rid,
+            "inputs",
+            "ok",
+            session_id=sid,
+            stills=len(stills),
+            pose_ids=[still.pose_id for still in stills],
+            limits=cfg.limits,
+            board=cfg.board,
+        )
         factory = session_factory_info(stills)
         board = make_board(cfg.board)
         detections = {still.pose_id: detect(still.rgb, board) for still in stills}
         found = [(pid, d) for pid, d in detections.items() if d is not None]
+        calib_event(
+            LOGGER,
+            FLOW,
+            rid,
+            "detections",
+            "ok",
+            found=len(found),
+            missing=[pid for pid, d in detections.items() if d is None],
+            corners={pid: len(d.ids) for pid, d in found},
+            factory={"width": factory.width, "height": factory.height, "k": factory.k, "d": factory.d},
+        )
         check = check_intrinsics([d for _, d in found], board, factory, cfg.limits)
         errors = dict(zip([pid for pid, _ in found], check.per_view_errors, strict=True))
         biases = {
@@ -222,10 +251,26 @@ def compute_result(store: SessionStore, sid: str, rid: str, cfg: NodeConfig, now
             "views": len(found),
             "poses": poses,
         }
+        calib_event(
+            LOGGER,
+            FLOW,
+            rid,
+            "result",
+            "passed" if check.passed else "failed",
+            logging.INFO if check.passed else logging.WARNING,
+            "; ".join(failures) or None,
+            **{key: result[key] for key in ("rms_px", "focal_diff_pct", "principal_diff_px", "views")},
+            plane_bias_median_mm=median,
+            plane_bias_spread_mm=spread,
+            failed_limits=failures,
+            per_view_error_px=[p["error_px"] for p in poses if p["error_px"] is not None],
+            stills_without_bias=[p["id"] for p in poses if p["plane_bias_mm"] is None],
+            limits=cfg.limits,
+        )
         bias_pair = None if median is None or spread is None else (median, spread)
         (tmp / REPORT_FILE).write_text(intrinsics_report_markdown(check, bias_pair, sid, base["created"]))
     except (ValueError, OSError) as exc:
-        LOGGER.warning("intrinsics check of %s failed: %s", sid, exc)
+        calib_event(LOGGER, FLOW, rid, "result", "error", logging.WARNING, str(exc), session_id=sid)
         for path in tmp.iterdir():
             path.unlink()
         result = failed_result(base, str(exc))
@@ -249,6 +294,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--session", required=True)
     parser.add_argument("--result", required=True)
     args = parser.parse_args(argv)
+    logging.basicConfig(level=logging.INFO, format=CHILD_LOG_FORMAT)
     cfg = load_config(args.config)
     store = SessionStore(Path(cfg.state_dir), cfg)
     compute_result(store, args.session, args.result, cfg, datetime.now().astimezone())
