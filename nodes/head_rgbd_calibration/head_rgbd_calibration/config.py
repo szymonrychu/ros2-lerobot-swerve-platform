@@ -396,6 +396,12 @@ class GroundBoardConfig(StrictModel):
 
     @model_validator(mode="after")
     def check_ranges(self) -> Self:
+        check_head_tilt(self.fit.home_tilt_deg, "ground_board.fit.home_tilt_deg")
+        if abs(self.fit.home_pan_deg) > MAX_FLOOR_PAN_DEG:
+            raise ValueError(
+                f"ground_board.fit.home_pan_deg {self.fit.home_pan_deg:g} is outside "
+                f"-{MAX_FLOOR_PAN_DEG:g}..{MAX_FLOOR_PAN_DEG:g}"
+            )
         check_head_tilt(self.min_tilt_deg, "ground_board.min_tilt_deg")
         check_head_tilt(self.max_tilt_deg, "ground_board.max_tilt_deg")
         if self.min_tilt_deg > self.max_tilt_deg:

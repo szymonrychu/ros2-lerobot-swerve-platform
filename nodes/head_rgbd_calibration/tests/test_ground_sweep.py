@@ -407,3 +407,17 @@ def test_telemetry_names_every_step(
     assert {"located", "aim", "grid", "dropped_poses", "home_corners", "upscale"} <= set(located)
     observed = next(e for e in events if e["step"] == "pose" and e["outcome"] == "observed")["data"]
     assert {"corners", "upscale", "depth_bias_mm", "planes", "reached"} <= set(observed)
+
+
+def test_session_ends_when_no_next_placement_comes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    world = GroundWorld()
+    sweep, node, _detector = make_sweep(tmp_path, world, monkeypatch, placement_wait_s=60.0)
+    sid = sweep.start()
+    wait_status(sweep, AWAITING)
+    world.t += 61.0  # the user never asks for the next placement
+    sweep.wait(30)
+    state = sweep.state()
+    assert state["status"] == "done" and state["running"] is False and state["placements_done"] == 1
+    assert len(observations(tmp_path, sid)["placements"]) == 1
+    assert degrees(world)[-1] == START_DEG
+    assert len(node.destroyed) == len(node.created)

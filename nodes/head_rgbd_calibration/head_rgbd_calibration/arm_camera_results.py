@@ -76,7 +76,7 @@ HEAD_CHAIN_SOURCES = {
     "ground_board": "ground_board",
 }
 NO_HEAD_CHAIN_REASON = (
-    "apply a head calibration first (floor fit or head-from-arm): the arm to camera fit holds the applied head chain "
+    "apply a head calibration first (floor fit, head-from-arm or ground board): the arm to camera fit holds the applied head chain "
     "fixed"
 )
 NO_RESULT_ERROR = "no such arm to camera result: {rid}"

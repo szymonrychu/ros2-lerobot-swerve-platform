@@ -95,6 +95,7 @@ def with_fixed_sigmas_as_numbers(body: dict[str, Any]) -> dict[str, Any]:
 
 def make_parts(scene: Scene) -> SimpleNamespace:
     sweep, verify = FakeMotion("ground_board_sweep_state"), FakeMotion("ground_board_verify_state")
+    sweep.body["running"] = verify.body["running"] = False  # idle unless a test runs them
     job = InlineJob(scene)
     blocked: dict[str, str | None] = {"reason": None}
     app = build_app(FakeRunning(), FakeRunning(), SessionStore(scene.state, scene.cfg), scene.cfg, fake_run)  # type: ignore[arg-type]
@@ -255,3 +256,15 @@ def test_implausible_accept_is_409(tmp_path: Path) -> None:
     rid = parts.client.post(f"/api/ground-board/sessions/{sid}/compute").json()["result_id"]
     response = parts.client.post(f"/api/ground-board/sessions/{sid}/results/{rid}/accept")
     assert response.status_code == 409 and "not plausible" in response.json()["message"]
+
+
+def test_accept_is_409_while_a_verification_or_session_runs(tmp_path: Path) -> None:
+    parts = make_parts(Scene(tmp_path))
+    sid = parts.scene.sid
+    rid = parts.client.post(f"/api/ground-board/sessions/{sid}/compute").json()["result_id"]
+    for motion, word in ((parts.verify, "verification"), (parts.sweep, "session")):
+        motion.body = {**motion.body, "running": True}
+        response = parts.client.post(f"/api/ground-board/sessions/{sid}/results/{rid}/accept")
+        assert response.status_code == 409 and word in response.json()["message"]
+        motion.body = {**motion.body, "running": False}
+    assert parts.client.post(f"/api/ground-board/sessions/{sid}/results/{rid}/accept").status_code == 200

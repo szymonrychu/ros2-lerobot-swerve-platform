@@ -71,12 +71,14 @@ GAUGE_PARAMS = ("mount_x_m", "mount_y_m", "mount_yaw_deg")
 PLACEMENT_KEYS = ("x", "y", "yaw")
 MIN_VIEWS = 3
 SOLVER_TOLERANCE = 1e-10
+# Column-scaled Jacobian condition number above which the covariance (sigmas, accuracy examples) is unknown (inf).
+MAX_CONDITION = 1e8
 P95_1D_FACTOR = float(norm.ppf(0.975))
 DEG = "deg"
 MM = "mm"
 NEAR_HEIGHT_LABEL = "floor height {distance:g} m ahead of the head"
 FAR_HEIGHT_LABEL = "floor height {distance:g} m ahead of the head"
-LATERAL_LABEL = "obstacle position {distance:g} m ahead, lateral"
+LATERAL_LABEL = "obstacle position {distance:g} m ahead, lateral (head heading as applied, not calibrated here)"
 RANGE_LABEL = "obstacle position {distance:g} m ahead, range"
 PITCH_LABEL = "head pitch (optical axis to the floor)"
 ROLL_LABEL = "head roll (image horizon to the floor)"
@@ -97,7 +99,10 @@ GAUGE_NOTE = (
 CAMERA_MOUNT_NOTE = "camera mount x, z, roll, yaw free; its y and pitch kept (degenerate with mount y and tilt zero)"
 PAN_AXIS_NOTE = "pan axis free: head_pan origin x, y moved, head_tilt origin moved back (head unchanged at pan 0)"
 CROSS_CHECK_NOTE = "depth floor planes are a cross-check, not fitted"
-EXAMPLES_NOTE = "accuracy examples at the head home pose, in the depth sensor frame the ground estimate uses"
+EXAMPLES_NOTE = (
+    "accuracy examples at the head home pose, in the depth sensor frame the ground estimate uses; they leave out the "
+    "head x, y and heading, which this fit does not calibrate (kept as applied)"
+)
 
 
 @dataclass(frozen=True)
@@ -360,6 +365,10 @@ class GroundBoardProblem:
         self.placement_ids = sorted({v.placement for v in self.views})
         self.view_placement = [self.placement_ids.index(v.placement) for v in self.views]
         held = set(self.pose_ids[cfg.limits.holdout_every - 1 :: cfg.limits.holdout_every])
+        for placement in self.placement_ids:
+            poses = sorted({v.pose for v in self.views if v.placement == placement})
+            if poses and set(poses) <= held:
+                held.discard(poses[-1])  # a placement keeps a fit pose, else its x, y, yaw are unobserved
         self.held = held
         self.fit_idx = [i for i, v in enumerate(self.views) if v.pose not in held]
         self.hold_idx = [i for i, v in enumerate(self.views) if v.pose in held]
@@ -640,14 +649,15 @@ def fit_ground_board(
     residual = problem.residuals(solution)
     dof = len(residual) - len(solution)
     cov = np.full((len(solution), len(solution)), math.inf)
-    if dof > 0:
-        try:
-            cov = np.linalg.inv(jac.T @ jac) * (float(residual @ residual) / dof)
-        except np.linalg.LinAlgError:
-            pass
-    sigma_x = np.sqrt(np.abs(np.diag(cov)))
     norms = np.linalg.norm(jac, axis=0)
-    condition = float(np.linalg.cond(jac / np.where(norms > 0.0, norms, 1.0)))
+    scales = np.where(norms > 0.0, norms, 1.0)
+    scaled = jac / scales
+    condition = float(np.linalg.cond(scaled))
+    if dof > 0 and condition < MAX_CONDITION:
+        # inverted column scaled and only below MAX_CONDITION: the inverse of a near singular normal matrix can be
+        # huge finite numbers instead of an error; above it the sigmas stay inf (unknown accuracy, refused)
+        cov = np.linalg.inv(scaled.T @ scaled) / np.outer(scales, scales) * (float(residual @ residual) / dof)
+    sigma_x = np.sqrt(np.abs(np.diag(cov)))
 
     count = len(problem.free)
     full, fitted_placements = problem.split(solution)
@@ -743,7 +753,8 @@ def change(fit: GroundBoardFit, name: str) -> float:
 def assess(fit: GroundBoardFit, cfg: GroundBoardFitConfig) -> tuple[list[dict], list[dict]]:
     """Refusals (physically implausible, decision 324: the result cannot be accepted) and warnings (advisory limits).
 
-    Refusals: a non-finite parameter, placement or score (`non_finite`); the head mount z moved over
+    Refusals: a non-finite parameter, placement or score (`non_finite`); a non-finite sigma or accuracy example
+    (`accuracy_unknown`: the Jacobian condition over `MAX_CONDITION` or no dof); the head mount z moved over
     `max_mount_move_mm` (`mount_move_mm`); the mount roll or pitch turned over `max_mount_turn_deg`
     (`mount_turn_deg`); the tilt zero or roll changed over `max_tilt_change_deg` (`tilt_change_deg`); the camera
     mount moved over `max_camera_move_mm` (`camera_move_mm`) or turned over `max_camera_turn_deg`
@@ -770,6 +781,18 @@ def assess(fit: GroundBoardFit, cfg: GroundBoardFitConfig) -> tuple[list[dict], 
     if not all(math.isfinite(v) for v in numbers):
         refusals.append(
             check_entry("non_finite", math.nan, math.nan, "", "the solver gave non-finite values; capture again")
+        )
+    uncertain = [*(fit.sigma.get(name, math.inf) for name in fit.free), *(e.sigma for e in fit.accuracy)]
+    if not all(math.isfinite(v) for v in uncertain):
+        refusals.append(
+            check_entry(
+                "accuracy_unknown",
+                math.nan,
+                math.nan,
+                "",
+                "the estimated accuracy is unknown (the parameters are not all observable from these views); capture "
+                "again with more poses per placement",
+            )
         )
     camera = [name for name in CAMERA_MOUNT_PARAMS if name in fit.params]
     checks = [

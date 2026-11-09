@@ -67,6 +67,7 @@ STATE_QOS_DEPTH = 1
 RESTART_POLL_S = 0.5
 NO_CHAIN = "no head chain is applied: accept a calibration first"
 NOT_RESTARTED = "units not restarted since the apply within {timeout:g} s: {units}"
+CHAIN_CHANGED = "the applied head chain changed during the verification: verify again"
 NOT_REACHED = "did not reach pan/tilt within {timeout:g} s"
 
 
@@ -85,6 +86,20 @@ def median_or_none(values: list[float]) -> float | None:
     return float(statistics.median(values)) if values else None
 
 
+def counts(samples: list[dict[str, Any]], key: str) -> list[int]:
+    """The integer `key` of every sample, or [] when any sample lacks it (a missing count is not a zero).
+
+    Args:
+        samples: /ground/state documents.
+        key: Count field, e.g. "obstacle_points".
+
+    Returns:
+        list[int]: One count per sample, or [] (the check then fails with value None).
+    """
+    values = [s.get(key) for s in samples]
+    return [int(v) for v in values] if all(v is not None for v in values) else []
+
+
 def evaluate_pose(samples: list[dict[str, Any]], cfg: GroundVerifyConfig) -> dict[str, Any]:
     """Judge the /ground/state samples of one pose against the runbook tolerances.
 
@@ -101,8 +116,8 @@ def evaluate_pose(samples: list[dict[str, Any]], cfg: GroundVerifyConfig) -> dic
     planes = [s for s in samples if isinstance(s.get("plane"), dict)]
     heights = [float(s["plane"]["height_m"]) for s in planes if s["plane"].get("height_m") is not None]
     angles = [float(s["plane_vs_base_deg"]) for s in planes if s.get("plane_vs_base_deg") is not None]
-    obstacles = [int(s.get("obstacle_points", 0)) for s in samples]
-    drops = [int(s.get("drop_points", 0)) for s in samples]
+    obstacles = counts(samples, "obstacle_points")
+    drops = counts(samples, "drop_points")
     height = median_or_none(heights)
     angle = median_or_none(angles)
     obstacle = median_or_none(obstacles)
@@ -328,6 +343,9 @@ class GroundVerify(FloorSweep):
         finally:
             self.restore(run)
             self.release(run.subscriptions, run.publisher, run.session_id)
+            if final == DONE and head_chain_source(self.cfg) != self.head_chain:
+                final, error = ERROR, CHAIN_CHANGED
+                calib_event(LOG, FLOW, run.session_id, "head_chain", "changed", logging.WARNING, CHAIN_CHANGED)
             with self.lock:
                 complete = final == DONE and len(self.poses) == len(run.grid)
                 self.passed = all(p["passed"] for p in self.poses) if complete else None
@@ -352,7 +370,7 @@ class GroundVerify(FloorSweep):
     def record(self, run: Run, summary: dict[str, Any]) -> None:
         """Store the summary with the verified ground board result (when the applied chain is one)."""
         ref = summary["result"]
-        if ref is None:
+        if ref is None or summary["error"] == CHAIN_CHANGED:
             return
         try:
             record_verification(self.store, ref["session"], ref["result"], summary)

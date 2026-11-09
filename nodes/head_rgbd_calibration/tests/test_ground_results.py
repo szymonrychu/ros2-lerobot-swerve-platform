@@ -238,6 +238,8 @@ def test_accept_applies_the_head_chain(tmp_path: Path) -> None:
     assert state["accepted"]["accuracy_examples"] == result["report"]["accuracy_examples"]
     with pytest.raises(NotApplicable, match="accepted"):
         decline_ground(scene.store, scene.sid, result["id"], LATER)
+    with pytest.raises(NotApplicable, match="already accepted"):
+        accept_ground(scene.cfg, scene.store, scene.sid, result["id"], LATER, fake_run)
 
 
 def test_accept_is_refused_after_the_applied_chain_changed(tmp_path: Path) -> None:

@@ -522,6 +522,8 @@ def test_ground_board_defaults() -> None:
         "ground_board:\n  verify:\n    poses_deg: [[95, 20]]\n",
         "ground_board:\n  verify:\n    min_samples: 0\n",
         "ground_board:\n  fit:\n    bounds:\n      max_mount_move_mm: 0\n",
+        "ground_board:\n  fit:\n    home_tilt_deg: 50\n",
+        "ground_board:\n  fit:\n    home_pan_deg: 95\n",
         "ground_board:\n  bogus: 1\n",
     ],
 )

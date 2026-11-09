@@ -77,6 +77,7 @@ NOT_DONE_ERROR = "result {rid} is not done (state {state})"
 NOT_PLAUSIBLE_ERROR = "result {rid} is not plausible and cannot be accepted: {reasons}"
 DECLINED_ERROR = "result {rid} was declined and cannot be accepted"
 ACCEPTED_ERROR = "result {rid} was accepted and cannot be declined"
+ALREADY_ACCEPTED_ERROR = "result {rid} was already accepted"
 CRASHED_ERROR = "the compute ended without a result"
 NO_CAMERA_INFO_ERROR = "the session has no colour camera_info: capture again"
 HEAD_CHAIN_CHANGED_ERROR = (
@@ -452,6 +453,8 @@ def accept_locked(
         refusal = NOT_DONE_ERROR.format(rid=rid, state=result["state"])
     elif result["declined"]:
         refusal = DECLINED_ERROR.format(rid=rid)
+    elif result["accepted_at"]:
+        refusal = ALREADY_ACCEPTED_ERROR.format(rid=rid)
     elif not result["report"]["plausible"]:
         reasons = "; ".join(r["message"] for r in result["report"]["refusals"])
         refusal = NOT_PLAUSIBLE_ERROR.format(rid=rid, reasons=reasons)

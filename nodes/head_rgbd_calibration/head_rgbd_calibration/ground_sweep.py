@@ -506,11 +506,11 @@ class GroundSweep(FloorSweep):
             bool: True when the next placement was asked for.
         """
         with self.lock:
+            self.wake.clear()  # under the lock, before AWAITING: a next_placement cannot land between them and be lost
             self.status = AWAITING
             self.placement = len(run.placements)
             if self.message is None:
                 self.message = MSG_AWAITING
-        self.wake.clear()
         calib_event(LOG, FLOW, run.session_id, "placement", "awaiting", placements=len(run.placements))
         began = self.clock()
         while True:

@@ -6,7 +6,8 @@ verification (GroundVerify) runs after an accept. Errors use the common {ok: fal
 NotFound give 404 (unknown ids and results of another kind), a session or verification that cannot start gives 400,
 and a running session, verification, sweep, sequence or compute, a next placement that is not awaited, and an accept
 or decline of a result that is not done, not plausible, declined, accepted or fitted against another head chain give
-409.
+409; so does an accept while a ground verification or ground session runs (the verification would judge, and the
+session capture against, a chain replaced under it).
 """
 
 from collections.abc import Callable
@@ -32,6 +33,9 @@ from head_rgbd_calibration.ground_results import (
 from head_rgbd_calibration.ground_sweep import GroundSweep
 from head_rgbd_calibration.ground_verify import GroundVerify
 from head_rgbd_calibration.jobs import ComputeJob
+
+ACCEPT_DURING_VERIFY = "a ground verification is running: stop it or let it finish before accepting another head chain"
+ACCEPT_DURING_SWEEP = "a ground board session is running: stop it before changing the head chain it captures against"
 
 
 def started(action: Callable[[], Any], state: Callable[[], dict[str, Any]]) -> Any:
@@ -118,8 +122,11 @@ def ground_router(
         return read_ground_result(store, sid, rid, job.state())
 
     @router.post("/sessions/{sid}/results/{rid}/accept")
-    def accept(sid: str, rid: str) -> dict[str, Any]:
+    def accept(sid: str, rid: str) -> Any:
         done_result(sid, rid)
+        for part, reason in ((verify, ACCEPT_DURING_VERIFY), (sweep, ACCEPT_DURING_SWEEP)):
+            if part.state()["running"]:
+                return error_response(HTTP_CONFLICT, reason)
         return accept_ground(cfg, store, sid, rid, datetime.now().astimezone(), run)
 
     @router.post("/sessions/{sid}/results/{rid}/decline")

@@ -63,7 +63,7 @@ Expect `failed=0` and the unit `active`.
    placement is not taken). Without a next placement within `placement_wait_s` (30 min) the session ends.
 4. `curl $API/sessions | jq '.[0]'` gives the session id (`ground-YYYYmmdd-HHMMSS`), its views, planes and skipped poses.
    `curl -X POST $API/sessions/<sid>/compute` answers 202 `{result_id}`; poll
-   `curl $API/sessions/<sid>/results/<rid> | jq .state` until `done` (about 5-30 s).
+   `curl $API/sessions/<sid>/results/<rid> | jq .state` until `done` (a minute or more on the Pi 5 for a full three-placement session).
 5. Read the report (`jq .report`):
    - `plausible` false: the result is refused outright (`refusals`: a mount move over 100 mm, a mount, tilt or camera
      turn over 10 deg, a camera move over 30 mm, a pan axis move over 50 mm, a board over 2.5 m away, a non-finite
@@ -73,7 +73,7 @@ Expect `failed=0` and the unit `active`.
    - `score` (`rms_px`, `heldout_rms_px`, the depth cross-check `floor_height_rms_mm` and `floor_normal_rms_deg`) and
      `comparison.current_score` (the applied chain on the same views): a fit clearly better than the applied chain and
      a hold-out RMS close to the fit RMS are the good signs.
-   - `accuracy_examples`: the floor height 1 m and 2 m ahead (mm), an obstacle 2 m ahead (lateral and range, mm), the
+   - `accuracy_examples`: the floor height 1 m and 2 m ahead (mm), an obstacle 2 m ahead (lateral and range, mm; the lateral one excludes the head heading, which this fit keeps as applied), the
      head pitch and roll to the floor (deg), each at 1 sigma and 95 %; `comparison.shift_examples` says how much the
      new chain moves each of them against the applied one.
 6. Accept: `curl -X POST $API/sessions/<sid>/results/<rid>/accept` (applies the head chain, restarts the

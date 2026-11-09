@@ -519,7 +519,7 @@ journalctl -u ros2-head_rgbd_calibration -o cat --since today | grep -o 'calib_e
   neutral is an error, apply writes the chain with `source: "arm"` and never the snippet.
 - `tests/test_config.py` - config defaults equal the shipped YAML, unknown keys rejected, the `floor` defaults and the
   pan/tilt range checks, the `ground_board` defaults (home equal to mcp_server's head home, the runbook verification
-  tolerances) and its range checks, the `arm_sequence` defaults and its validation errors naming the tier, pose and joint; the
+  tolerances) and its range checks (the home pose included), the `arm_sequence` defaults and its validation errors naming the tier, pose and joint; the
   board roles (`board` FULL, `fit.board` / `fit.plate` ARM) and the id overlap refusal, the CAD seed mounts, handle
   boxes and grip keys equal to `markers/charuco-arm-6x5-28mm.json`, a squeeze at or past the contact refused.
 - `tests/test_board_facing.py` - the ARM board on its edge handle faces the wrist and the head camera: the CAD mount's
@@ -596,7 +596,7 @@ journalctl -u ros2-head_rgbd_calibration -o cat --since today | grep -o 'calib_e
   retries upscaled and gives None without enough corners; a placement goes home first, locates the board within
   2 cm / 2 deg, sweeps the grid, writes views (keys, frames, corners), planes and camera_info, matches the session
   state fixture and awaits; a next placement locates the moved board with unique pose indices; the session ends after
-  `max_placements`; a board not visible at home fails the placement with its message and a later placement works; too
+  `max_placements` or after `placement_wait_s` without a next placement; a board not visible at home fails the placement with its message and a later placement works; too
   few corners skip poses with the reason; the depth bias against the board plane is under 3 mm; a stop during a
   placement keeps the views and restores the head; blocked and double starts are refused; no joint state refuses the
   start; the telemetry steps.
@@ -605,19 +605,21 @@ journalctl -u ros2-head_rgbd_calibration -o cat --since today | grep -o 'calib_e
   head.urdf recovering the true mount z; unknown and malformed ids; too few views and a missing camera_info are failed
   results; the compute telemetry (inputs, solver, refusal, result); running and crashed results from the job state;
   accept applies the head chain (`source: "ground_board"`, `floor: null`), stamps `accepted_at`, shows in the state
-  and refuses a decline; accept after the applied chain changed, of an implausible, declined or unchecked result is
-  refused; accept and decline telemetry; the session list; the arm to camera source name.
+  and refuses a decline; accept after the applied chain changed, of an implausible, declined, unchecked or already accepted
+  result is refused; accept and decline telemetry; the session list; the arm to camera source name.
 - `tests/test_ground_compute.py` - the ground compute child `main` writes the result of its session and result id.
 - `tests/test_ground_verify.py` - `evaluate_pose` against the runbook tolerances (medians, a plane height, a tilted
   plane, clutter, no plane), and the verification against the fake head world plus a fake ground estimator: every pose
   passes and the summary is stored with the ground result (state fixture), a pose off the floor fails, samples while
-  the head moves do not count, units not restarted end it with an error before the head moves, no applied chain and a
+  the head moves do not count, a missing obstacle count fails its check, a head chain applied during the verification
+  ends it with an error and nothing stored, units not restarted end it with an error before the head moves, no applied chain and a
   blocked start are refused, a floor fit chain is verified without a result record, a stop restores the head.
 - `tests/test_ground_api.py` - the `/api/ground-board/*` routes with fake session and verification objects and an
   inline job: the compute, result, sessions, running result, accept and state bodies against the
   `ground_board_*.json` fixtures; the sweep and verify routes and their 409 / 400 refusals; 404 for unknown sessions,
   results and a result of another kind; 409 while blocked or busy, for accept or decline of a running result, accept of
-  a declined or implausible result and decline of an accepted one.
+  a declined or implausible result, accept while a ground verification or session runs and decline of an accepted
+  one.
 - `tests/test_arm_camera_results.py` - the arm to camera compute, accept, decline and state on the synthetic arm to
   camera scene (`arm_camera_scene` of `tests/head_arm_synthetic.py`) stored as a head_arm session with an applied
   floor-fit head chain: a done, plausible result recovers the true offsets and writes the snippet; no applied head chain
@@ -1065,7 +1067,7 @@ planes are a separate cross-check (pose-mean height and normal RMS under the fit
 residuals: the depth carries its own structured bias that would leak into the colour chain.
 
 The compute runs in its own ComputeJob (`python -m head_rgbd_calibration.ground_compute` on a `GroundStore`, niced,
-killed after `compute_timeout_s`; about 5 s on a laptop for 69 views), so the request returns at once and the page
+killed after `compute_timeout_s`; about 5-15 s on a laptop for 69 views; a full session of 3 placements at 3 frames per pose has some 200+ views and takes several times that, more on the Pi 5, under `compute_timeout_s`), so the request returns at once and the page
 polls.
 
 ### Accept, decline and verification
@@ -1085,7 +1087,9 @@ polls.
   TRANSIENT_LOCAL) documents with `head_moving` false for `window_s` (up to `sample_timeout_s` until `min_samples`).
   A pose passes when the median plane height is within `max_height_m` (0.01 m) of 0, the median `plane_vs_base_deg`
   under `max_plane_vs_base_deg` (0.6), the median `obstacle_points` under `max_obstacle_points` (10) and the median
-  `drop_points` at most `max_drop_points` (0) (`docs/runbooks/head-floor-fit.md` acceptance checks). Every exit
+  `drop_points` at most `max_drop_points` (0) (`docs/runbooks/head-floor-fit.md` acceptance checks; a sample without
+  `obstacle_points` or `drop_points` makes that check fail, a missing count is not a zero). When the applied head
+  chain changes during the verification it ends with an error and stores nothing. Every exit
   commands the head back. When the applied chain is a ground board result, the summary is stored with it
   (verification.json and result.json `verification`).
 
@@ -1110,7 +1114,7 @@ the common `{ok: false, message}` body.
 | `GET /sessions` | `[{id, created, placements, views, planes, skipped, results}]`, newest first |
 | `POST /sessions/{sid}/compute` | 202 `{result_id}`; 404 unknown or malformed session, 409 while blocked (message names what runs) or while a ground compute runs |
 | `GET /sessions/{sid}/results/{rid}` | the result (below); 404 unknown or malformed ids or a result of another kind |
-| `POST /sessions/{sid}/results/{rid}/accept` | `{head_chain: {session, result, applied_at, source: "ground_board", floor: null}, units: [{name, active_state, restarted}]}`; 409 when not done, not plausible (the message lists the refusals), declined, fitted against a head chain that is no longer applied, or without an accepted D435 intrinsics check |
+| `POST /sessions/{sid}/results/{rid}/accept` | `{head_chain: {session, result, applied_at, source: "ground_board", floor: null}, units: [{name, active_state, restarted}]}`; 409 when not done, not plausible (the message lists the refusals), declined, already accepted, fitted against a head chain that is no longer applied, without an accepted D435 intrinsics check, or while a ground verification or ground session runs |
 | `POST /sessions/{sid}/results/{rid}/decline` | the result with `declined: true`, `declined_at`; 409 when not done or already accepted |
 | `POST /verify/start` | the verification state; 400 without an applied head chain, 409 while blocked |
 | `POST /verify/stop` | the verification state (the head returns) |
@@ -1148,7 +1152,8 @@ Report fields (`ground_board_fit.ground_board_report`):
   message}`: `mount_move_mm` (head mount z change over `bounds.max_mount_move_mm` 100), `mount_turn_deg` (mount roll or
   pitch over 10), `tilt_change_deg` (tilt zero or roll over 10), `camera_move_mm` (D435 mount x, z over 30),
   `camera_turn_deg` (D435 mount roll or yaw over 10), `pan_axis_move_mm` (50), `board_distance_m:<placement>` (a board
-  farther than 2.5 m from the head mount), `non_finite`.
+  farther than 2.5 m from the head mount), `non_finite`, `accuracy_unknown` (a sigma or accuracy example is not
+  finite: the column-scaled Jacobian condition is over 1e8, the parameters are not all observable from the views).
 - `warnings` (advisory, the user decides), same shape: `rms_px` (2.0), `holdout_rms_px` (3.0), `max_sigma_mm` (2.0),
   `max_sigma_deg` (0.2), `min_views` (30), `min_poses` (12), `min_placements` (2), `min_pan_span_deg` (20),
   `min_tilt_span_deg` (10), `floor_height_rms_mm` (8) and `floor_normal_rms_deg` (1.0) (the depth cross-check under the
@@ -1161,10 +1166,10 @@ Report fields (`ground_board_fit.ground_board_report`):
   reported unit).
 - `placements`: `[{placement, x_m, y_m, yaw_deg, sigma_x_mm, sigma_y_mm, sigma_yaw_deg, views, rms_px}]`.
 - `accuracy_examples`: `[{label, value, unit}]`, two per example (`, 1 sigma` and `, 95 %`, 1.96 sigma): "floor height
-  1 m ahead of the head" (mm), "floor height 2 m ahead of the head" (mm), "obstacle position 2 m ahead, lateral" (mm),
+  1 m ahead of the head" (mm), "floor height 2 m ahead of the head" (mm), "obstacle position 2 m ahead, lateral (head heading as applied, not calibrated here)" (mm),
   "obstacle position 2 m ahead, range" (mm), "head pitch (optical axis to the floor)" (deg), "head roll (image horizon
   to the floor)" (deg): the head parameter covariance propagated to a floor measurement in the depth sensor frame at
-  the home pose. The gauge adds nothing to them (it keeps the last applied head x, y and heading).
+  the home pose. They leave out the gauge: the head x, y and heading are not calibrated by this fit (kept as applied), so an error in the applied heading (0.5 deg is 17 mm lateral at 2 m) is not in the lateral example; its label says so.
 - `comparison`: `{applied, current_score {rms_px, heldout_rms_px}, shift_examples [{label, value, unit}]}`: `applied`
   the head chain the fit started from (`{source, session, result}`, null for the repo URDF), `current_score` that
   chain scored on this session (placements refitted), `shift_examples` how far the new chain moves each example

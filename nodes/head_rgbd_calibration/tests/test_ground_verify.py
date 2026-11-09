@@ -244,3 +244,36 @@ def test_stop_restores_the_head(tmp_path: Path) -> None:
     state = run_verify(verifier)
     assert state["status"] == "stopped" and state["passed"] is None
     assert degrees(world)[-1] == START_DEG
+
+
+def test_evaluate_pose_fails_missing_counts() -> None:
+    cfg = GroundVerifyConfig(min_samples=3)
+    docs = [state_doc(False, **GOOD) for _ in range(4)]
+    del docs[2]["obstacle_points"]
+    result = evaluate_pose(docs, cfg)
+    assert result["passed"] is False
+    assert {c["name"] for c in result["checks"] if not c["ok"]} == {"obstacle_points"}
+    assert (result["obstacle_points"], result["obstacle_points_max"]) == (None, None)
+
+
+def test_a_head_chain_change_during_the_verification_is_an_error_and_not_recorded(tmp_path: Path) -> None:
+    world = World()
+    write_applied(tmp_path)
+    verifier, _node, estimator, _cfg = make_verify(tmp_path, world)
+    applied = tmp_path / "applied" / "applied.json"
+
+    def accept_elsewhere_at_second_pose(t: float) -> None:
+        estimator(t)
+        if len(world.commands) >= 2:
+            info = json.loads(applied.read_text())
+            if info["head_chain"]["result"] == RID:
+                info["head_chain"] = {**info["head_chain"], "result": "r-20261109-050000"}
+                applied.write_text(json.dumps(info))
+
+    world.on_tick = accept_elsewhere_at_second_pose
+    state = run_verify(verifier)
+    assert state["status"] == "error" and "changed" in state["error"]
+    assert state["passed"] is None
+    assert degrees(world)[-1] == START_DEG
+    stored = json.loads((tmp_path / "ground_board" / SID / "results" / RID / "result.json").read_text())
+    assert stored["verification"] is None

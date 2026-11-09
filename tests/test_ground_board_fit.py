@@ -286,3 +286,22 @@ def test_fit_without_depth_planes_warns(scene: object) -> None:
 def test_fit_needs_views(scene: object) -> None:
     with pytest.raises(ValueError, match="at least"):
         run_fit(dataclasses.replace(scene, views=scene.views[:2]))
+
+
+def test_assess_refuses_unknown_accuracy(fit: GroundBoardFit) -> None:
+    sigma = {**fit.sigma, "tilt_zero_deg": math.inf}
+    refusals, _ = assess(dataclasses.replace(fit, sigma=sigma), config())
+    assert "accuracy_unknown" in {entry["name"] for entry in refusals}
+    assert "accuracy_unknown" not in {entry["name"] for entry in assess(fit, config())[0]}
+
+
+def test_holdout_keeps_a_fit_pose_for_every_placement(scene: object) -> None:
+    # placement 1 keeps only its fifth pose (a held-out index): it must stay in the fit, so the placement is observed
+    poses = sorted({v.pose for v in scene.views})
+    held_pose = poses[4]
+    placement = next(v.placement for v in scene.views if v.pose == held_pose)
+    views = [v for v in scene.views if v.placement != placement or v.pose == held_pose]
+    result = run_fit(dataclasses.replace(scene, views=views))
+    entry = next(p for p in result.poses if p["pose"] == held_pose)
+    assert entry["held_out"] is False
+    assert all(math.isfinite(result.sigma[name]) for name in result.free)

@@ -102,6 +102,8 @@ noisy depth floor planes at every head pose.
 | `test_single_placement_fit_warns_but_runs` | One placement fits and warns `min_placements`. |
 | `test_fit_without_depth_planes_warns` | No depth planes: the cross-check is empty and `no_depth_planes` warns. |
 | `test_fit_needs_views` | Fewer than three views raise. |
+| `test_assess_refuses_unknown_accuracy` | A non-finite sigma is refused (`accuracy_unknown`); the normal fit is not. |
+| `test_holdout_keeps_a_fit_pose_for_every_placement` | A placement whose only pose is a held-out index keeps it in the fit; every sigma stays finite. |
 
 ### `ground_board_synthetic.py`
 

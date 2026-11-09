@@ -519,7 +519,8 @@ thickness, its centre at x, y, turned by yaw) -> inverse of the camera pose of t
   free the normal matrix condition number went from about 75 to 1e11 (spike). The placements absorb such a shift
   (pinned by a test).
 - Residuals: corner pixel errors, Huber loss with `huber_f_scale_px`. Hold-out: every `limits.holdout_every`-th head
-  pose with all its views. Covariance `(J^T J)^-1 s^2` at the solution (s^2 the reduced chi-square of the fit views);
+  pose with all its views, except the last fit pose of a placement (its x, y, yaw would be unobserved). Covariance `(J^T J)^-1 s^2` at the solution (s^2 the reduced chi-square of the raw fit residuals, so
+  outliers make the sigmas larger, not smaller);
   the largest parameter correlation and the condition number are reported with the solver (about 0.84 between mount
   pitch and tilt zero on the synthetic scene).
 - `locate_board(camera, detection, K, D, board)`: each corner's ray through a camera pose meets the board plane (z =
@@ -531,7 +532,7 @@ thickness, its centre at x, y, turned by yaw) -> inverse of the camera pose of t
   independently.
 - Accuracy examples (`accuracy_examples`, `ACCURACY_LABELS`): the head parameter covariance propagated (numeric
   Jacobian) to floor measurements in the depth sensor frame at the home pose (`home_pan_deg`, `home_tilt_deg`): the
-  floor height `near_m` and `far_m` ahead of the head (mm), the lateral and range position of an obstacle `far_m` ahead
+  floor height `near_m` and `far_m` ahead of the head (mm), the lateral (head heading as applied: the gauge is not in it) and range position of an obstacle `far_m` ahead
   (mm), the head pitch and roll to the floor (deg). Each has `sigma`, `p95` (`P95_1D_FACTOR` 1.96 sigma) and `shift`
   (how far the fitted chain moves it from the applied one).
 - Comparison: the applied chain scored on the same views with only the placements refitted (`CurrentScore`).
@@ -541,7 +542,8 @@ thickness, its centre at x, y, turned by yaw) -> inverse of the camera pose of t
 `origins` for head_mount_joint, head_tilt, head_pan, d435_joint; `params`, `sigma`, `start_params`, placements, RMS,
 poses, accuracy, current score, cross-check, notes, solver); fewer than three views raise `ValueError`.
 `assess(fit, cfg)` gives (refusals, warnings): `cfg.bounds` (`GroundBoardBounds`) refuse implausible changes and far
-boards, `cfg.limits` (`GroundBoardLimits`) warn; `ground_board_report(fit, cfg, applied)` the JSON report (no NaN);
+boards, a non-finite sigma or accuracy example is refused (`accuracy_unknown`: the column-scaled Jacobian condition
+over `MAX_CONDITION` 1e8 leaves the covariance unknown), `cfg.limits` (`GroundBoardLimits`) warn; `ground_board_report(fit, cfg, applied)` the JSON report (no NaN);
 `fitted_origins_json(fit)` the head_chain.json joints.
 
 Config: `GroundBoardFitConfig` (with `GroundBoardLimits`, `GroundBoardBounds`) in `config.py`, used as
