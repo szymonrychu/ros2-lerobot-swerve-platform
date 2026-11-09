@@ -7,6 +7,11 @@
 # Default false: rely on primary DNS (e.g. 192.168.1.1) or manual /etc/hosts.
 ros2_node_user: "{{ ansible_user }}"
 
+# WiFi credentials of the network role, read on the controller from env (never stored in the repo or inventory):
+# export MIKROTIK_WIFI_SSID=... MIKROTIK_WIFI_PASSWORD=... before running a provisioning playbook.
+network_wifi_ssid: "{{ lookup('env', 'MIKROTIK_WIFI_SSID') }}"
+network_wifi_password: "{{ lookup('env', 'MIKROTIK_WIFI_PASSWORD') }}"
+
 ros2_extend_etc_hosts: false
 ros2_server_hostname: "server.ros2.lan"
 ros2_client_hostname: "client.ros2.lan"

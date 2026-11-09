@@ -2,7 +2,8 @@
 # Configure static IP on primary interface (ethernet or wlan); other interfaces set to DHCP. IPv6 disabled.
 # Requires: network_address (CIDR), network_gateway.
 # Optional: network_interface (default: primary IPv4 interface), network_nameservers.
-# For primary wlan: network_wifi_ssid (required), network_wifi_password (optional).
+# For primary wlan: network_wifi_ssid (required), network_wifi_password (optional); group_vars/all.yml reads them from the
+# controller env vars MIKROTIK_WIFI_SSID and MIKROTIK_WIFI_PASSWORD.
 
 - name: Validate network variables
   ansible.builtin.assert:
@@ -31,7 +32,9 @@
 - name: Require network_wifi_ssid when primary interface is WiFi
   ansible.builtin.assert:
     that: network_wifi_ssid is defined and network_wifi_ssid | length > 0
-    fail_msg: "network role requires network_wifi_ssid when primary interface ({{ _network_interface }}) is WiFi. Set in group_vars or host_vars."
+    fail_msg: >-
+      network role requires network_wifi_ssid when primary interface ({{ _network_interface }}) is WiFi.
+      Export MIKROTIK_WIFI_SSID (and MIKROTIK_WIFI_PASSWORD) on the controller before running the playbook.
   when: _network_interface_is_wlan | bool
 
 - name: Set list of other interfaces (exclude lo and primary)
@@ -62,6 +65,7 @@
     dest: "/etc/netplan/{{ network_netplan_file }}"
     mode: "0600"
   become: true
+  no_log: true # the rendered netplan holds the WiFi password
   register: netplan_config
 
 - name: Apply netplan (when config or cloud-init state changed)

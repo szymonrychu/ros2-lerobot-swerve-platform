@@ -8,4 +8,5 @@ network_netplan_file: 01-ansible-netplan.yaml
 # network_gateway: "192.168.1.1"       # required
 # network_nameservers: ["8.8.8.8", "8.8.4.4"]  # optional
 # network_interface: "eth0"            # optional; default: primary IPv4 interface (ethernet or wlan)
-# When primary is WiFi (wl*): network_wifi_ssid (required), network_wifi_password (optional)
+# When primary is WiFi (wl*): network_wifi_ssid (required), network_wifi_password (optional); both come from the
+# MIKROTIK_WIFI_SSID / MIKROTIK_WIFI_PASSWORD env lookups in group_vars/all.yml

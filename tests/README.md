@@ -2954,6 +2954,21 @@ The network role's netplan rendering after the Jetson link support was dropped, 
 | `test_dhcp_ethernets_still_render` | Other ethernets render with `dhcp4: true` and `optional: true`. |
 | `test_role_names_no_retired_variable` / `test_group_vars_define_no_link_ethernets` | Role defaults, tasks and template, and every group_vars file, name neither `network_link_ethernets` nor `network_netplan_superseded_files`. |
 
+## test_ansible_inventory.py
+
+The tracked `ansible/inventory` is secret-free and the WiFi credentials come from env; the inventory is parsed with
+Ansible's own `InventoryManager`, nothing connects to a host.
+
+| Test | Description |
+|---|---|
+| `test_inventory_is_tracked_not_ignored_and_example_is_gone` | `ansible/inventory` exists, `.gitignore` no longer lists it and `ansible/inventory.example` is gone. |
+| `test_inventory_parses_with_the_four_groups` | Parametrized over `server`, `client`, `controller`, `jetson`: each group parses and holds its one host. |
+| `test_inventory_all_vars_are_the_non_secret_ones` | `all:vars` is exactly `ansible_user` and `ansible_python_interpreter`. |
+| `test_inventory_holds_no_wifi_keys` | The inventory text and every host's vars hold no `network_wifi_*` key. |
+| `test_group_vars_all_reads_wifi_from_mikrotik_env` | `group_vars/all.yml` sets `network_wifi_ssid` / `network_wifi_password` to `lookup('env', 'MIKROTIK_WIFI_SSID')` / `lookup('env', 'MIKROTIK_WIFI_PASSWORD')`. |
+| `test_network_role_fails_naming_the_ssid_env_var` | The network role's WiFi assert requires a non-empty SSID on a WiFi primary and its `fail_msg` names `MIKROTIK_WIFI_SSID`. |
+| `test_netplan_task_with_the_password_is_no_log` | The netplan template task (renders the WiFi password) is `no_log: true`. |
+
 ## test_node_uninstall_purge.py
 
 The `colcon_purge` node type key: the uninstall path removes a retired C++ node's colcon output and stamps.
