@@ -13,7 +13,7 @@ import FormControlLabel from '@mui/material/FormControlLabel'
 import Typography from '@mui/material/Typography'
 import { ConfirmDialog } from '../layout/ConfirmDialog'
 import { TOUCH_TARGET_PX } from '../theme'
-import { NeutralCaptureJoint, ServoAction, ServoGroup, servoAction, useServoGroups } from './servoApi'
+import { NeutralCaptureJoint, ServoAction, ServoGroup, ServoGroupsState, servoAction, useServoGroups } from './servoApi'
 import { ZeroRestorePanel, staleJointOffsets } from './ZeroRestorePanel'
 
 const STEPS_PER_TURN = 4096
@@ -38,6 +38,9 @@ type TorqueLevel = 'on' | 'off' | 'partly' | 'unknown'
 type Feedback = { ok: boolean; message: string } | null
 type ConfirmAction = 'release' | 'save' | 'move_to_neutral'
 type Pending = { group: ServoGroup; action: ConfirmAction } | null
+/** Parts of a group card: torque and neutral controls, the Arm zero restore panel, the Move to neutral pose button. */
+export type ServoPart = 'torque' | 'zero' | 'move'
+export const ALL_SERVO_PARTS: ServoPart[] = ['torque', 'zero', 'move']
 
 /** Torque level of a group: unknown when there is no fresh state or no joint reading. */
 export function torqueLevel(group: ServoGroup): TorqueLevel {
@@ -69,12 +72,13 @@ const CHIP: Record<TorqueLevel, { label: string; color: 'success' | 'error' | 'w
 
 interface CardProps {
   group: ServoGroup
+  parts: ServoPart[]
   busy: boolean
   onRun: (group: ServoGroup, action: ServoAction, planRunId?: string) => void
   onConfirm: (group: ServoGroup, action: ConfirmAction) => void
 }
 
-function ServoCard({ group, busy, onRun, onConfirm }: CardProps) {
+function ServoCard({ group, parts, busy, onRun, onConfirm }: CardProps) {
   const level = torqueLevel(group)
   const chip = CHIP[level]
   const known = level !== 'unknown'
@@ -84,6 +88,8 @@ function ServoCard({ group, busy, onRun, onConfirm }: CardProps) {
   const btn = { minHeight: TOUCH_TARGET_PX }
   const stale = group.id === 'arm' && group.calibration_stale && group.calibration_stale.length > 0
   const moveReason = !known || released ? MOVE_RELEASED_REASON : staleJointOffsets(group) ? MOVE_STALE_REASON : null
+  const torque = parts.includes('torque')
+  const move = parts.includes('move') && group.move_to_neutral
 
   return (
     <Box component="section" aria-label={group.label} sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 2, mb: 1 }}>
@@ -93,7 +99,7 @@ function ServoCard({ group, busy, onRun, onConfirm }: CardProps) {
         </Typography>
         <Chip data-testid="torque-chip" size="small" label={chip.label} color={chip.color} />
       </Box>
-      {known && group.state && (
+      {torque && known && group.state && (
         <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 1 }}>
           {Object.entries(group.state.joints).map(([name, v]) => (
             <Typography key={name} variant="body2" color="text.secondary">{`${name}: ${v === 1 ? 'on' : 'off'}`}</Typography>
@@ -105,7 +111,7 @@ function ServoCard({ group, busy, onRun, onConfirm }: CardProps) {
           {`Calibration is stale: ${group.calibration_stale?.join(', ')}. Re-calibrate the arm.`}
         </Alert>
       )}
-      {hasCapture && capture && (
+      {torque && hasCapture && capture && (
         <Box sx={{ mb: 1 }}>
           <Typography variant="body2">Recorded neutral shift (degrees)</Typography>
           {Object.entries(capture).map(([name, c]) => (
@@ -116,32 +122,34 @@ function ServoCard({ group, busy, onRun, onConfirm }: CardProps) {
         </Box>
       )}
       <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-        <Button variant="outlined" color="error" sx={btn} disabled={busy} onClick={() => onConfirm(group, 'release')}>
-          Torque off
-        </Button>
-        {group.neutral && (
+        {torque && (
+          <Button variant="outlined" color="error" sx={btn} disabled={busy} onClick={() => onConfirm(group, 'release')}>
+            Torque off
+          </Button>
+        )}
+        {torque && group.neutral && (
           <Button variant="outlined" sx={btn} disabled={busy || !released} onClick={() => onRun(group, 'record')}>
             Record neutral
           </Button>
         )}
-        {group.neutral && (
+        {torque && group.neutral && (
           <Button variant="contained" sx={btn} disabled={busy || !hasCapture} onClick={() => onConfirm(group, 'save')}>
             Re-enable torque + save
           </Button>
         )}
-        <Button variant="outlined" sx={btn} disabled={busy || !released} onClick={() => onRun(group, 'enable')}>
-          Re-enable torque
-        </Button>
-        {group.move_to_neutral && (
+        {torque && (
+          <Button variant="outlined" sx={btn} disabled={busy || !released} onClick={() => onRun(group, 'enable')}>
+            Re-enable torque
+          </Button>
+        )}
+        {move && (
           <Button variant="outlined" sx={btn} disabled={busy || moveReason !== null} onClick={() => onConfirm(group, 'move_to_neutral')}>
             Move to neutral pose
           </Button>
         )}
       </Box>
-      {group.move_to_neutral && moveReason && (
-        <Typography variant="body2" color="text.secondary">{moveReason}</Typography>
-      )}
-      {group.zero_restore && (
+      {move && moveReason && <Typography variant="body2" color="text.secondary">{moveReason}</Typography>}
+      {parts.includes('zero') && group.zero_restore && (
         <ZeroRestorePanel
           group={group}
           released={released}
@@ -208,33 +216,76 @@ function SaveNeutralDialog(props: { group: ServoGroup | null; onSave: (group: Se
   )
 }
 
-/** Servo torque and neutral section of the Calibrate page: one card per servo group. */
-export function ServoNeutral() {
-  const { groups, notConfigured, error } = useServoGroups()
+interface ServoNeutralProps {
+  /** Card parts to show; a group without the part's capability is left out when torque is not among them. */
+  parts?: ServoPart[]
+  /** Servo state polled by the caller; without it the section polls itself. */
+  servo?: ServoGroupsState
+  /** Show the section heading (off inside a flow step, which has its own title). */
+  heading?: boolean
+  /** Told the outcome of every action: group id, action, success. */
+  onResult?: (groupId: string, action: ServoAction, ok: boolean) => void
+}
+
+/** Whether a group has anything to show for the parts. */
+function groupShown(group: ServoGroup, parts: ServoPart[]): boolean {
+  return parts.includes('torque') || (parts.includes('zero') && group.zero_restore) || (parts.includes('move') && group.move_to_neutral)
+}
+
+/**
+ * Servo torque and neutral section of the Calibrate page: one card per servo group, limited to `parts`.
+ *
+ * @param props - see ServoNeutralProps
+ */
+export function ServoNeutral(props: ServoNeutralProps) {
+  return props.servo ? <ServoNeutralView {...props} servo={props.servo} /> : <PolledServoNeutral {...props} />
+}
+
+function PolledServoNeutral(props: ServoNeutralProps) {
+  return <ServoNeutralView {...props} servo={useServoGroups()} />
+}
+
+function ServoNeutralView({ parts = ALL_SERVO_PARTS, servo, heading = true, onResult }: ServoNeutralProps & { servo: ServoGroupsState }) {
+  const { groups, notConfigured, error } = servo
   const [busy, setBusy] = useState(false)
   const [feedback, setFeedback] = useState<Feedback>(null)
   const [pending, setPending] = useState<Pending>(null)
 
-  const run = useCallback(async (group: ServoGroup, action: ServoAction, planRunId?: string) => {
-    setPending(null)
-    setBusy(true)
-    const r = await servoAction(group.id, action, planRunId)
-    setFeedback(r.ok ? { ok: r.value.ok, message: r.value.message } : { ok: false, message: r.message })
-    setBusy(false)
-  }, [])
+  const run = useCallback(
+    async (group: ServoGroup, action: ServoAction, planRunId?: string) => {
+      setPending(null)
+      setBusy(true)
+      const r = await servoAction(group.id, action, planRunId)
+      setFeedback(r.ok ? { ok: r.value.ok, message: r.value.message } : { ok: false, message: r.message })
+      setBusy(false)
+      onResult?.(group.id, action, r.ok && r.value.ok)
+    },
+    [onResult],
+  )
 
   return (
     <Box component="section" sx={{ mb: 2 }}>
-      <Typography variant="h6" component="h2">
-        Servo torque and neutral
-      </Typography>
+      {heading && (
+        <Typography variant="h6" component="h2">
+          Servo torque and neutral
+        </Typography>
+      )}
       {notConfigured && <Alert severity="info">No servo groups configured on this robot</Alert>}
       {error && <Alert severity="warning">{error}</Alert>}
       {feedback && <Alert severity={feedback.ok ? 'success' : 'error'} onClose={() => setFeedback(null)}>{feedback.message}</Alert>}
       <Box sx={{ mt: 1 }}>
-        {groups.map((g) => (
-          <ServoCard key={g.id} group={g} busy={busy} onRun={(grp, a, id) => void run(grp, a, id)} onConfirm={(grp, a) => setPending({ group: grp, action: a })} />
-        ))}
+        {groups
+          .filter((g) => groupShown(g, parts))
+          .map((g) => (
+            <ServoCard
+              key={g.id}
+              group={g}
+              parts={parts}
+              busy={busy}
+              onRun={(grp, a, id) => void run(grp, a, id)}
+              onConfirm={(grp, a) => setPending({ group: grp, action: a })}
+            />
+          ))}
       </Box>
       <ConfirmDialog
         open={pending?.action === 'release'}

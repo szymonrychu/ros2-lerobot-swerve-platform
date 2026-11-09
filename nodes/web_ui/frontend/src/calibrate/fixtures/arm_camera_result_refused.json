@@ -1,0 +1,18 @@
+{
+  "id": "r-20261109-121000",
+  "session": "calib-20261109-113000",
+  "state": "done",
+  "error": null,
+  "created_at": "2026-11-09T12:10:00+01:00",
+  "report": {
+    "plausible": false,
+    "refusals": ["held-out tool error 9.4 mm above the 5 mm limit"],
+    "warnings": [],
+    "score": { "rms_px": 2.4, "heldout_rms_px": 3.1, "heldout_tool_mm": 9.4, "views": 30, "poses": 8 },
+    "params": [],
+    "accuracy_examples": [],
+    "comparison": {},
+    "skew": { "xyz_mm": [0, 0, 0], "rpy_deg": [0, 0, 0] },
+    "sag": {}
+  }
+}

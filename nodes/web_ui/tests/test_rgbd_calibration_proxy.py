@@ -39,8 +39,8 @@ def test_config_flag_on_and_off(tmp_path: Path) -> None:
         app = build_app(config=config, urdf_dir=tmp_path, static_dir=tmp_path / "none", bridge_node=None)
         return TestClient(app).get("/api/calibration/config").json()
 
-    assert flag(RGBD_URL) == {"imu": True, "rgbd": True, "arm": "deferred"}
-    assert flag(None) == {"imu": True, "rgbd": False, "arm": "deferred"}
+    assert flag(RGBD_URL) == {"imu": True, "rgbd": True, "arm": "deferred", "general": []}
+    assert flag(None) == {"imu": True, "rgbd": False, "arm": "deferred", "general": []}
 
 
 def test_rgbd_url_must_be_http() -> None:

@@ -4,6 +4,13 @@ Robot-only steps: executed post-merge by the orchestrator with the user, not by 
 
 Every deploy goes through the `ansible-deploy` skill and `scripts/deploy-nodes.sh`, logged to `.logs/`. Least dramatic joint first (CLAUDE.md). Every step lists its pass check as an observable value. On any mismatch: STOP and report, leave the robot as it is (released joints supported), and do not continue. Stop and ask before any step beyond the one described. If the robot is offline, report steps 1-7 as pending on the robot.
 
+Where on the page: web UI, hamburger menu, Calibrate, tab **Servo home** (deep link `#/calibrate/servo-home`). Its
+steps: 1 Record and save neutral (one card per group: Torque off, Record neutral, Re-enable torque + save with the
+large-shift guard, Re-enable torque; optional, only after a servo swap or a moved horn), 2 Arm zero restore (optional),
+3 Move to neutral pose, 4 Check and accept (the quality gate: every group fresh with torque on and nothing stale;
+Accept records the check on the page only, nothing is written). The General section on top has Home arm, Home camera
+and Home steering servos for the poses between the checks below.
+
 ## Preconditions
 
 1. claude_agent state API shows no running session (deploying mcp_server kills it). Pass: state API reports no active session. Mismatch: STOP and report.
@@ -72,7 +79,8 @@ Mismatch: STOP and report.
 Repairs a follower arm re-zero recorded in the wrong pose (2026-11-09: `neutral recorded` logged shoulder_lift about
 -901 steps and elbow_flex about +1029 steps) without moving the arm. The follower bridge rewrites each arm servo's EEPROM
 offset so the arm, resting folded on its rest with torque off, reads its rest reference again. The gripper is never
-touched. The user runs it alone on the web UI Calibrate page, Arm card, panel "Arm zero restore". Details:
+touched. The user runs it alone on the web UI Calibrate page, tab **Servo home** (deep link `#/calibrate/servo-home`),
+step 2 "Arm zero restore", panel "Arm zero restore". Details:
 `nodes/bridges/feetech_servos/README.md` "Arm zero restore" and `nodes/web_ui/README.md`.
 
 Needs `lerobot_follower`, `mcp_server` and `web_ui` deployed from this branch (`scripts/deploy-nodes.sh client
@@ -106,17 +114,19 @@ Steps (one button each; the panel says what to expect under every button):
    elbow_flex, wrist_flex, wrist_roll; torque stays off" and the result table: every joint Applied yes, Now (rad)
    equal to the Target of step 2 within 0.005 rad. The arm does not move. The calibration-stale warning
    disappears (joint_offsets cleared; home cleared too when it was listed, or listed now when home was re-recorded
-   after the wrong re-zero: then store a new home on the head-arm card after Park). Mismatch (a failed joint): STOP and report the message; the failed joint got its
+   after the wrong re-zero: then store a new home from the Arm tab after Park). Mismatch (a failed joint): STOP and report the message; the failed joint got its
    old offset back, joints before it are restored, later joints untouched; torque stays off.
 4. Press **4. Re-enable torque**. Expect: the arm holds its pose, the card shows torque on.
-5. Park the arm on the head-arm card. Expect: it parks on its rest without a jump. Mismatch: press Stop and report.
+5. Park the arm: General section **Home arm** (or the Arm to camera flow's Park when it holds the board). Expect: it
+   parks on its rest without a jump. Mismatch: stop the motion from the Arm tab or the agent's stop and report
+   (**Abort calibration** stops calibration captures and sequences only, not a Home arm motion).
 
 Optional, once the zero is right: with the arm resting folded and torque off, **Save current pose as rest reference**
 (confirm **Save reference**) stores today's rest readings in `/var/lib/ros2/arm/rest_reference.json`; later restores
 use it instead of the seed ("Reference: saved <time>"). It is disabled while the zero is stale (joint_offsets).
 
-**Move to neutral pose** (Arm card, confirm **Move**: "The arm moves to the neutral pose: all joints at 0. Keep the area
-clear.") moves every arm joint except the gripper to 0 rad along the home routing (`/arm/home`) with its body checks and
+**Move to neutral pose** (Servo home flow, step 3, confirm **Move**: "The arm moves to the neutral pose: all joints at 0.
+Keep the area clear.") moves every arm joint except the gripper to 0 rad along the home routing (`/arm/home`) with its body checks and
 speed;
 it needs torque on and a zero that is not stale.
 

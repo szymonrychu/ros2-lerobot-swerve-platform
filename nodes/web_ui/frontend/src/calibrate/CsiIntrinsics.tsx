@@ -61,7 +61,7 @@ function ResultView({ result }: { result: CsiResult }) {
 }
 
 /** CSI camera intrinsics section of the Calibrate page: ChArUco views of the front or back camera, compute, apply. */
-export function CsiIntrinsics() {
+export function CsiIntrinsics({ heading = true }: { heading?: boolean } = {}) {
   const [camera, setCamera] = useState<CsiCamera>(CSI_CAMERAS[0])
   const [state, setState] = useState<CsiState | null>(null)
   const [result, setResult] = useState<CsiResult | null>(null)
@@ -146,9 +146,11 @@ export function CsiIntrinsics() {
   const ownCapture = capture !== undefined && capture.camera === camera && capture.session_id !== null
   return (
     <Box component="section" sx={{ mb: 2 }}>
-      <Typography variant="h6" component="h2">
-        CSI camera intrinsics
-      </Typography>
+      {heading && (
+        <Typography variant="h6" component="h2">
+          CSI camera intrinsics
+        </Typography>
+      )}
       <Typography variant="body2" color="text.secondary">
         Hold the ChArUco board in front of the camera and move it between views: near and far, tilted, into every
         corner of the image. A view is kept when the board is found and it moved from the last kept view.

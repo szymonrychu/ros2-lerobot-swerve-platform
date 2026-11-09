@@ -4,6 +4,8 @@ import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
 import type { HeadArmEvent, HeadArmSequence } from './headArmApi'
 
+/** State poll period of the head-arm sequence while it runs: 1 Hz. */
+export const ARM_POLL_MS = 1000
 /** Height of the events log before it scrolls. */
 const LOG_MAX_HEIGHT_PX = 200
 const LEVEL_ERROR = 'error'
@@ -77,5 +79,22 @@ export function SequenceActivity({ sequence, withStatus = true }: { sequence: He
         </Box>
       )}
     </Box>
+  )
+}
+
+/**
+ * One line per sequencer skip reason with its count (for example "inside D435 min-Z: 3", "outside colour FOV: 2").
+ *
+ * @param skipped - skip reason -> count of the sequence
+ */
+export function SkipReasons({ skipped }: { skipped: Record<string, number> }) {
+  return (
+    <>
+      {Object.entries(skipped).map(([reason, n]) => (
+        <Typography key={reason} variant="body2" color="text.secondary">
+          {`${reason}: ${n}`}
+        </Typography>
+      ))}
+    </>
   )
 }
