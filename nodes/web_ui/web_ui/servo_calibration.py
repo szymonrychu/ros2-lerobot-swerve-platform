@@ -3,7 +3,10 @@
 State comes from the bridge's cached /<namespace>/torque_state sample, never defaulted. The actions call the
 feetech bridge's std_srvs/Trigger services. Routes answer 404 when no servo group is configured. `save` calls
 save_neutral, which the bridge refuses (409) when a recorded shift exceeds its neutral_max_shift_deg; `save_confirmed`
-calls save_neutral_confirmed after the user confirmed those shifts on the Calibrate page.
+calls save_neutral_confirmed after the user confirmed those shifts on the Calibrate page. A group with zero_restore
+offers zero_restore_dry_run / zero_restore_apply / zero_restore_apply_confirmed / save_rest_reference (bridge services of
+the same name; apply waits zero_restore_timeout_s and is battery-blocked like save). move_to_neutral calls the group's
+move_to_neutral_service (mcp_server /arm/move_to_neutral), refused (409) while the group is released.
 """
 
 from __future__ import annotations
@@ -17,7 +20,7 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
-from .config import SERVO_ACTION_SERVICES, SERVO_NEUTRAL_ACTIONS, SERVO_SAVE_ACTIONS, AppConfig, ServoGroupConfig
+from .config import SERVO_MOVE_TO_NEUTRAL_ACTION, SERVO_SAVE_ACTIONS, AppConfig, ServoGroupConfig
 from .imu_calibration import HTTP_CONFLICT, HTTP_NOT_FOUND, HTTP_UNAVAILABLE, NOT_CONFIGURED_MESSAGE, error
 
 
@@ -48,7 +51,7 @@ def group_status(group: ServoGroupConfig, bridge_node: Any) -> dict[str, Any]:
         bridge_node (Any): BridgeNode or None.
 
     Returns:
-        dict[str, Any]: {id, label, neutral, state, age_s, stale, calibration_stale}.
+        dict[str, Any]: {id, label, neutral, state, age_s, stale, calibration_stale, zero_restore, move_to_neutral}.
     """
     sample = bridge_node.servo_torque_sample(group.namespace) if bridge_node is not None else None
     state, age_s = None, None
@@ -63,6 +66,8 @@ def group_status(group: ServoGroupConfig, bridge_node: Any) -> dict[str, Any]:
         "age_s": age_s,
         "stale": age_s is None or age_s > group.state_stale_s,
         "calibration_stale": read_stale_items(group.stale_marker),
+        "zero_restore": group.zero_restore,
+        "move_to_neutral": group.move_to_neutral_service is not None,
     }
 
 
@@ -128,17 +133,20 @@ def register_servo_calibration_routes(
 
     async def act(group_id: str, action: str) -> JSONResponse:
         group = groups.get(group_id)
-        if group is None or action not in SERVO_ACTION_SERVICES:
+        if group is None or not group.offers(action):
             return error(f"unknown servo group or action: {group_id}/{action}", HTTP_NOT_FOUND)
-        if action in SERVO_NEUTRAL_ACTIONS and not group.neutral:
-            return error(f"servo group {group_id} has no neutral", HTTP_NOT_FOUND)
-        if action in SERVO_SAVE_ACTIONS and (blocked := battery_block(f"servo_{group_id}_{action}")) is not None:
+        moves = action == SERVO_MOVE_TO_NEUTRAL_ACTION
+        if (action in SERVO_SAVE_ACTIONS or moves) and (
+            blocked := battery_block(f"servo_{group_id}_{action}")
+        ) is not None:
             return blocked
+        if moves and (released := released_error_of(group, bridge_node)) is not None:
+            return error(released, HTTP_CONFLICT)
         if bridge_node is None:
             return error("ROS bridge unavailable", HTTP_UNAVAILABLE)
         service = group.service(action)
         response, failure = await call_ros_service(
-            f"servo_{group_id}_{action}", bridge_node.trigger_async(service), service, group.service_timeout_s
+            f"servo_{group_id}_{action}", bridge_node.trigger_async(service), service, group.timeout(action)
         )
         if failure is not None:
             return failure

@@ -519,9 +519,25 @@ SERVO_ACTION_SERVICES: dict[str, str] = {
     "save": "save_neutral",
     # The explicit large-shift confirm: save_neutral refuses a recorded shift above the bridge's neutral_max_shift_deg.
     "save_confirmed": "save_neutral_confirmed",
+    # Arm zero restore (STS3215 offset back on the saved folded-rest reference); bridge services of the same name.
+    "zero_restore_dry_run": "zero_restore_dry_run",
+    "zero_restore_apply": "zero_restore_apply",
+    # The explicit large-change confirm: zero_restore_apply refuses an offset change above the bridge's max_change_deg.
+    "zero_restore_apply_confirmed": "zero_restore_apply_confirmed",
+    "save_rest_reference": "save_rest_reference",
 }
 SERVO_NEUTRAL_ACTIONS: frozenset[str] = frozenset({"record", "save", "save_confirmed"})
-SERVO_SAVE_ACTIONS: frozenset[str] = frozenset({"save", "save_confirmed"})
+SERVO_ZERO_RESTORE_ACTIONS: frozenset[str] = frozenset(
+    {"zero_restore_dry_run", "zero_restore_apply", "zero_restore_apply_confirmed", "save_rest_reference"}
+)
+# EEPROM writes and arm motion: refused while the battery is cut off.
+SERVO_SAVE_ACTIONS: frozenset[str] = frozenset(
+    {"save", "save_confirmed", "zero_restore_apply", "zero_restore_apply_confirmed"}
+)
+# Calibrate page action served by mcp_server (ServoGroupConfig.move_to_neutral_service), not by the bridge.
+SERVO_MOVE_TO_NEUTRAL_ACTION = "move_to_neutral"
+# A zero restore apply writes, settles and verifies up to 5 joints (about 0.6-2.5 s each): above service_timeout_s.
+DEFAULT_ZERO_RESTORE_TIMEOUT_S = 30.0
 
 
 class ServoGroupConfig(BaseModel):
@@ -537,6 +553,11 @@ class ServoGroupConfig(BaseModel):
         service_timeout_s: Wait for one Trigger response (a save takes about 4 s on the arm).
         command_topics: web_ui topics that command the group (arm: arm_command_topic, head: head_command_topic,
             base: the map_nav goal_topic); publishes to them are refused while the group is released.
+        zero_restore: Whether the zero restore actions (dry run, apply, apply confirmed, save rest reference) are
+            offered (the bridge group has a zero_restore block).
+        zero_restore_timeout_s: Wait for one zero restore Trigger response (an apply can exceed service_timeout_s).
+        move_to_neutral_service: Arm only: mcp_server std_srvs/Trigger moving every arm joint to 0 (None: no button).
+        move_to_neutral_timeout_s: Wait for the move to neutral response (a motion, like arm home).
     """
 
     id: Literal["arm", "base", "head"]
@@ -547,6 +568,10 @@ class ServoGroupConfig(BaseModel):
     state_stale_s: float = Field(3.0, gt=0)
     service_timeout_s: float = Field(15.0, gt=0)
     command_topics: list[str] = Field(default_factory=list)
+    zero_restore: bool = False
+    zero_restore_timeout_s: float = Field(DEFAULT_ZERO_RESTORE_TIMEOUT_S, gt=0)
+    move_to_neutral_service: str | None = None
+    move_to_neutral_timeout_s: float = Field(DEFAULT_ARM_SERVICE_TIMEOUT_S, gt=0)
 
     @property
     def state_topic(self) -> str:
@@ -557,12 +582,50 @@ class ServoGroupConfig(BaseModel):
         """Return the Trigger service of an action.
 
         Args:
-            action (str): One of release, enable, record, save, save_confirmed.
+            action (str): A SERVO_ACTION_SERVICES key, or move_to_neutral.
 
         Returns:
-            str: The service name, e.g. /follower/servo/release_torque.
+            str: The service name, e.g. /follower/servo/release_torque; move_to_neutral_service ("" when unset) for
+                move_to_neutral.
         """
+        if action == SERVO_MOVE_TO_NEUTRAL_ACTION:
+            return self.move_to_neutral_service or ""
         return f"/{self.namespace}/servo/{SERVO_ACTION_SERVICES[action]}"
+
+    def offers(self, action: str) -> bool:
+        """Whether this group offers an action.
+
+        Args:
+            action (str): Action name from the route.
+
+        Returns:
+            bool: False for an unknown action, a neutral action without neutral, a zero restore action without
+                zero_restore or move_to_neutral without its service.
+        """
+        if action == SERVO_MOVE_TO_NEUTRAL_ACTION:
+            return self.move_to_neutral_service is not None
+        if action not in SERVO_ACTION_SERVICES:
+            return False
+        if action in SERVO_NEUTRAL_ACTIONS:
+            return self.neutral
+        if action in SERVO_ZERO_RESTORE_ACTIONS:
+            return self.zero_restore
+        return True
+
+    def timeout(self, action: str) -> float:
+        """Seconds to wait for an action's Trigger response.
+
+        Args:
+            action (str): Action name.
+
+        Returns:
+            float: zero_restore_timeout_s, move_to_neutral_timeout_s or service_timeout_s.
+        """
+        if action in SERVO_ZERO_RESTORE_ACTIONS:
+            return self.zero_restore_timeout_s
+        if action == SERVO_MOVE_TO_NEUTRAL_ACTION:
+            return self.move_to_neutral_timeout_s
+        return self.service_timeout_s
 
 
 class CalibrationConfig(BaseModel):
@@ -800,7 +863,7 @@ class AppConfig(BaseModel):
             services.update((self.calibration.imu_save_service, self.calibration.imu_reset_service))
             for group in self.calibration.servo_groups:
                 services.update(
-                    group.service(a) for a in SERVO_ACTION_SERVICES if group.neutral or a not in SERVO_NEUTRAL_ACTIONS
+                    group.service(a) for a in (*SERVO_ACTION_SERVICES, SERVO_MOVE_TO_NEUTRAL_ACTION) if group.offers(a)
                 )
         return sorted(services)
 
