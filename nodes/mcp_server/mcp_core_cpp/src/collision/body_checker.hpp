@@ -7,6 +7,7 @@
 // and jaw points in base_link plus the pose of every block link in the arm frame.
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
