@@ -2520,6 +2520,9 @@ class ArmController:
         event("route", "ok", data={"note": note, "legs": legs})
         try:
             result = self.home_motion(pose, None)
+        except ArmBusyError as exc:
+            event("result", "refused", str(exc))  # another motion runs: never release its lease
+            raise
         except ArmError as exc:
             if self._held:
                 self.release()

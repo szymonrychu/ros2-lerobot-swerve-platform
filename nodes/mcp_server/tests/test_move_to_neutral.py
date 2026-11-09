@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 from arm_collision.ik import ArmKinematics, load_joint_limits
 
-from mcp_server.arm import MOVE_TO_NEUTRAL_RELEASE_NOTE, ArmController, ArmError
+from mcp_server.arm import MOVE_TO_NEUTRAL_RELEASE_NOTE, ArmBusyError, ArmController, ArmError
 from mcp_server.calib_event import CALIB_EVENT_PREFIX
 from mcp_server.config import McpServerConfig
 
@@ -152,3 +152,23 @@ def test_logs_a_refusal_at_warning(tmp_path: Path, caplog: pytest.LogCaptureFixt
         (logging.WARNING, "request", "refused"),
     ]
     assert "torque" in logged[-1][1]["reason"]
+
+
+def test_busy_arm_is_refused_without_releasing_the_running_motion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    arm, _ = make(tmp_path)
+    arm._held = True  # another motion holds the lease
+    released: list[bool] = []
+    monkeypatch.setattr(arm, "release", lambda *a, **k: released.append(True))
+
+    def busy(*_args: Any, **_kwargs: Any) -> Any:
+        raise ArmBusyError("another arm motion is running; call stop first")
+
+    monkeypatch.setattr(arm, "home_motion", busy)
+    caplog.set_level(logging.INFO)
+    with pytest.raises(ArmBusyError):
+        arm.move_to_neutral()
+    assert released == []
+    assert arm._held is True
+    assert events(caplog)[-1][1]["outcome"] == "refused"
