@@ -72,6 +72,40 @@ stick mount.
 | `test_view_missing_a_joint_raises` | A view without wrist_flex raises naming it. |
 | `test_fewer_than_three_views_raise` | Fewer than three views raise. |
 
+### `test_arm_camera_fit.py`
+
+Arm to camera fit (`shared/ros2_common/head_rgbd_calibration/arm_camera_fit.py`, T-99) on the synthetic scene
+`arm_camera_scene` of `tests/head_arm_synthetic.py`: the 6x5 board on its nominal (CAD) mount seen through the applied
+floor-fit head chain (exact and fixed), the 36 `PLATE_ARM_POSES` with four head offsets, 0.3 px noise. Truth: the
+current offsets moved by shoulder_pan +0.02, shoulder_lift +0.03, elbow_flex -0.04, wrist_flex +0.05 rad (wrist_roll
+kept, the gauge), the arm base moved by x +6 mm, y -4 mm, z +3 mm (yaw kept, the gauge), the board seated 4 mm / 3 deg off the
+CAD mount and a sag of 0.64 rad per N m about the grip axis (about 1.5 deg at the reference torque). `arm_board_scene`
+takes an optional `board_in_gripper` callback for the pose-dependent (sagged) board.
+
+| Test | Description |
+|------|-------------|
+| `test_recovers_arm_offsets_and_base` | Every offset within 3 mrad, base x, y, z within 1.5 mm (the z change is real); wrist_roll and the base yaw stay at the applied values. |
+| `test_recovers_board_skew_and_sag` | The seat against the CAD mount within 1 mm / 0.3 deg (the skew is over 3 mm, the prior did not hide it), the sag within 0.12 rad per N m; the reported sag range spans both signs. |
+| `test_score_is_the_noise_and_the_fit_is_plausible` | Fit and held-out RMS below twice the noise, held-out tool error below 1 mm, the largest correlation below 0.995, no refusal. |
+| `test_current_calibration_scores_worse` | The applied offsets and base score over three times the fitted RMS; the fit moves the tool point over 1 mm at every example pose. |
+| `test_report_matches_the_contract` | Report keys, score, params entries (plain units, the gauge wrist_roll with sigma null and no change), the board seat params equal to `skew` (`board_skew_*` the rotation, `board_x/y/z` changes the shift), both accuracy entries for the three examples, skew, comparison (no applied calibration) and the gauge notes. |
+| `test_base_yaw_is_a_gauge_of_the_shoulder_pan_offset` | A base yaw turn equals the shoulder_pan offset change (sign from the downward pan axis) plus a base x, y shift, for every pose (1e-5, the URDF pi has 6 digits). |
+| `test_wrist_roll_offset_is_a_gauge_of_the_board_rotation` | A wrist_roll offset change equals the board turned about the wrist_roll axis. |
+| `test_implausible_changes_are_refused` | A 20 deg offset change, a 120 mm base move, an 11 mm / 12 deg seat and a 9 deg sag are refusals with value, limit, unit and message; the report is not plausible. |
+| `test_tight_bounds_refuse_the_standard_fit` | A 1 deg offset bound refuses the standard fit's shoulder_pan and wrist_flex changes. |
+| `test_non_finite_values_are_refused` | A NaN offset is the `non_finite` refusal. |
+| `test_advisory_limits_are_warnings_not_refusals` | Tight `arm_limits` (rms 0.01 px, 10000 views) give warnings with value and limit, no refusal. |
+| `test_prediction_error_grows_with_the_covariance` | 1 sigma below the 95 % radius; both scale with the square root of the covariance factor; an unknown covariance gives inf. |
+| `test_accuracy_examples_follow_the_sigma` | Four times the pixel noise gives larger 1 sigma and 95 % errors at every example; labels in order. |
+| `test_snippet_is_what_the_mcp_server_arm_model_reads` | The client.yml snippet validates as arm_collision `ArmModelSettings` (the mcp_server `arm:` model) with the fitted offsets, base and `arm_base_height_m` equal to the base z; indented 8 spaces. |
+| `test_too_few_views_is_an_error` | Fewer than three views raise. |
+| `test_board_mass_model_defaults_are_the_arm_board_cad` | The default mass, centre of mass, grip point and grip axis equal `markers/charuco-arm-6x5-28mm.json`. |
+| `test_fast_fk_equals_the_urdf_chain` | `ArmFk` equals `UrdfChain.transform` to 1e-12. |
+| `test_without_sag_the_fitted_sag_is_near_zero` | A scene without sag fits a sag below 0.3 deg at the reference torque. |
+| `test_switches_free_wrist_roll_droop_and_fix_base_z` | `fit_wrist_roll`, `fit_droop` and `fit_base_z: false` change the free set, the notes and the params (droop in mm/(N m), wrist_roll with a sigma); base z stays applied, the droop stays below 1 mm. |
+| `test_sigma_is_the_spread_over_noise_draws` | Over 12 noise draws the spread of the pan and elbow offsets and the base x and z over the median reported sigma lies in 0.45-1.8 (the covariance is scaled by the corner rows only). |
+| `test_solver_summary` | The solver summary (status, message, evaluations, cost, start RMS above the end RMS, free names). |
+
 ### `test_arm_offsets_fit.py`
 
 Joint head chain and arm joint offsets fit (`shared/ros2_common/head_rgbd_calibration/arm_offsets_fit.py`, design D9,
@@ -485,6 +519,7 @@ Servo torque-off and neutral keys in `ansible/group_vars/client.yml` and `server
 | `test_follower_zero_restore_block` | lerobot_follower `zero_restore`: the seed names exactly the restore joints (position joints minus the gripper) with the pre-incident rest readings (shoulder_pan -0.018, shoulder_lift -1.542, elbow_flex 1.516, wrist_flex 0.862, wrist_roll -0.072 rad); reference file and record dir under `/var/lib/ros2/arm`; `max_change_deg` 15.0; `verify_tolerance_steps` 3. |
 | `test_web_ui_arm_offers_zero_restore_and_move_to_neutral` | The web_ui arm group sets `zero_restore: true`, `zero_restore_timeout_s` >= 30 and `move_to_neutral_service: /arm/move_to_neutral`; base and head have neither, and only the follower bridge group has a `zero_restore` block. |
 | `test_stale_marker_path_is_identical_everywhere` | The stale marker path is the same in lerobot_follower, mcp_server `arm.calibration_stale_marker` and web_ui, under `/var/lib/ros2/arm`. |
+| `test_board_record_path_is_the_calibration_node_state_dir_file` | mcp_server `arm.calibration_board_record` is head_rgbd_calibration's `<state_dir>/head_arm_board.json` (the board record that refuses `/arm/home`). |
 | `test_torque_state_topics_match_bridge_groups` | filter_node, swerve_controller and mcp_server torque state topics equal `/{namespace}/torque_state` of a configured bridge group; `servo_torque_stale_s` is set; both bridges set `torque_state_interval_s: 1.0`. |
 | `test_leader_bridge_has_no_neutral_keys` | The server.yml lerobot_leader bridge has no `neutral_*` key (the leader keeps its zero). |
 | `test_arm_command_topic_is_on_the_arm_tab` | Exactly one web_ui tab carries `arm_command_topic` and it is the `arm` tab (the Map tab only displays the arm). |

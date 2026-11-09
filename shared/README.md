@@ -446,6 +446,52 @@ config is refused without the key); while it is null the fit runs but keeps the 
 
 Tests: `tests/test_arm_offsets_fit.py` (scenes from `tests/head_arm_synthetic.py`: `plate_scene`, `floor_scene`).
 
+## Arm to camera fit
+
+`ros2_common/head_rgbd_calibration/arm_camera_fit.py` (T-99, user decisions 315, 324-326, m577, m578): the arm
+calibrated in the head camera's frame with the applied head chain held FIXED. numpy, scipy and OpenCV only, no ROS.
+The node's `arm_camera_results.py` runs it; API and report fields: `nodes/head_rgbd_calibration/README.md`
+("Arm to camera calibration").
+
+### Model and parameters
+
+Per view: board corner -> board pose in gripper_link -> arm FK (measured joints plus the offsets, `ArmFk`, the
+precomputed and vectorised equivalent of `UrdfChain.transform`) -> arm base in base_link -> inverse of the fixed
+camera pose of the applied head chain at the measured pan/tilt -> `cv2.projectPoints`.
+
+- Board pose: the CAD `board_mount` moved by a 6-DOF seat (rotation vector change in the board frame, translation in
+  gripper_link; prior `board_prior_mm` / `board_prior_deg`, one sigma), then turned about the grip axis
+  (`grip_axis` through `grip_point_m`, board frame) by `sag * torque`, where `torque` is the gravity torque of the
+  board (`board_mass_kg` at `board_com_m`, gravity -z in base_link) about that axis at the view's arm pose; with
+  `fit_droop` it also moves along gravity by `droop * |torque|`. Priors toward zero at the reference torque (the
+  board weight times the centre of mass distance from the grip axis): `sag_prior_deg`, `droop_prior_mm`.
+- Free (`free_names`): shoulder_pan, shoulder_lift, elbow_flex, wrist_flex offsets (wrist_roll with
+  `fit_wrist_roll`), base x, y (z with `fit_base_z`), the six seat changes, sag (droop).
+- Gauges, fixed at the applied value: the base yaw (exactly a shoulder_pan offset change plus a base x, y shift; the
+  so101 shoulder_pan axis points down in the arm root, so a +yaw is a -offset) and, by default, the wrist_roll offset
+  (exactly a board turn about the wrist_roll axis). Both pinned by tests. With the head fixed the shoulder_pan offset
+  is observable; it correlates with base y at about 0.99 (a pan turn moves the board sideways like a base shift),
+  reported with the solver, not a warning.
+- Residuals: fit-view corner errors over `pixel_sigma_px`, then the priors (sigma units); Huber loss with
+  `huber_f_scale_px / pixel_sigma_px`. Hold-out: every `limits.holdout_every`-th distinct arm pose with all its views.
+- Covariance `(Jc^T Jc / s^2 + Jp^T Jp)^-1` at the solution (corner rows scaled by their reduced chi-square s^2, the prior rows at their configured weight); `prediction_error_mm(jac, cov)` propagates it to a
+  3D point: (sqrt(trace), the 95 % chi-square radius (3 dof) of the largest principal axis).
+- Accuracy examples (`example_poses`, from a joint grid with the applied calibration): the tool point (the applied
+  `tool_offset_m`) at `reach_m` horizontal reach from the pan axis at the pan origin height, at full reach within
+  50 mm of that height, and the pose whose tool point is nearest the point `camera_distance_m` along the optical axis
+  at the views' median head angles.
+- Comparison: the applied offsets and base scored on the same views with only the seat and sag refitted
+  (`CurrentScore`), and the tool point shift between applied and fitted calibration at each example pose.
+
+`fit_arm_camera(views, camera_matrix, dist, head_urdf, arm_urdf, cfg, camera_frame)` returns `ArmCameraFit`;
+`assess(fit, cfg)` gives (refusals, warnings) (`cfg.arm_camera.bounds` refuse, the advisory `arm_limits` /
+`limits` warn); `arm_camera_report(fit, cfg, applied)` the JSON report; `calibration_snippet_yaml(fit, session,
+result, date)` the reviewed client.yml mcp_server `arm:` snippet (`joint_offsets_rad`, `arm_base_height_m`,
+`base_in_base_link`; arm_collision `ArmModelSettings` validates it).
+
+Config: `HeadArmFitConfig.arm_camera` (`ArmCameraFitConfig`, with `ArmCameraBounds`), see the node README. Tests:
+`tests/test_arm_camera_fit.py` (scenes from `tests/head_arm_synthetic.py`: `arm_camera_scene`).
+
 ## ros2_common_cpp (C++)
 
 An ament_cmake package with plain library targets `ros2_common_cpp::config`, `ros2_common_cpp::metrics` and `ros2_common_cpp::depth_mask`. None links rclcpp, so a node's pure-logic library can use them. Headers are in

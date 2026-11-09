@@ -174,6 +174,13 @@ def test_stale_marker_path_is_identical_everywhere() -> None:
     assert STALE_MARKER.startswith(ARM_DIR + "/")
 
 
+def test_board_record_path_is_the_calibration_node_state_dir_file() -> None:
+    """mcp_server refuses /arm/home while head_rgbd_calibration's board record (<state_dir>/head_arm_board.json)
+    exists, so both must name the same file."""
+    state_dir = node_config("head_rgbd_calibration")["state_dir"]
+    assert node_config("mcp_server")["arm"]["calibration_board_record"] == f"{state_dir}/head_arm_board.json"
+
+
 def test_torque_state_topics_match_bridge_groups() -> None:
     namespaces = bridge_groups()
     assert node_config("filter_node")["follower_torque_state_topic"] == "/follower/torque_state"

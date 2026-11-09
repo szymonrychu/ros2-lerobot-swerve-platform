@@ -7,6 +7,7 @@
 // and jaw points in base_link plus the pose of every block link in the arm frame.
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -57,7 +58,7 @@ struct Clearances {
   std::vector<double> soft;
   std::vector<int64_t> soft_parts;
 
-  explicit Clearances(size_t size = 0) : values(size), parts(size), soft(size), soft_parts(size) {}
+  explicit Clearances(std::size_t size = 0) : values(size), parts(size), soft(size), soft_parts(size) {}
 };
 
 // path() result: per sample the smallest soft clearance with its obstacle and part, and the first hard violation.
@@ -77,19 +78,19 @@ class BodyChecker {
   BodyChecker(std::vector<Obstacle> obstacles, std::vector<double> capsule_radii, std::vector<PointGroup> groups,
               Rigid mount, int parts, int jaws, int links, double prune_slack, double escape_tolerance);
 
-  size_t obstacle_count() const { return obstacles_.size(); }
+  std::size_t obstacle_count() const { return obstacles_.size(); }
   int capsule_count() const { return static_cast<int>(radii_.size()); }
   int part_count() const { return parts_; }
   int jaw_count() const { return jaws_; }
   int link_count() const { return links_; }
 
   // clearances_of on placed points: writes M values per output at row offset `row`.
-  void full(const PlacedSample &sample, double hard_margin, Clearances &out, size_t row, Counts &counts) const;
+  void full(const PlacedSample &sample, double hard_margin, Clearances &out, std::size_t row, Counts &counts) const;
   // Place every group point of a sample (geometry) for full().
   PlacedSample place(const SampleView &sample) const;
   // bounded_clearances of one sample; hard_limit (M values) or nullptr for the sample's smallest hard clearance.
   void bounded(const SampleView &sample, double hard_margin, const double *hard_limit, bool soft, Clearances &out,
-               size_t row, Counts &counts) const;
+               std::size_t row, Counts &counts) const;
   // path(): pruned (or full) clearances, the soft band of all parts or only `moving` (indices of jaw parts), the
   // per-sample worst soft clearance and the first sample breaking the hard limit.
   PathResult path(const std::vector<SampleView> &samples, double hard_margin, bool allow_escape, bool prune,
@@ -109,7 +110,7 @@ class BodyChecker {
   int links_;
   double prune_slack_;
   double escape_tolerance_;
-  size_t total_blocks_;
+  std::size_t total_blocks_;
 };
 
 }  // namespace collision

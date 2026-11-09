@@ -21,7 +21,7 @@ interface Live {
 }
 
 /** D435 intrinsics check section of the Calibrate page: owns the capture/compute state and its poll. */
-export function RgbdCalibration() {
+export function RgbdCalibration({ heading = true }: { heading?: boolean } = {}) {
   const [live, setLive] = useState<Live | null>(null)
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -79,9 +79,11 @@ export function RgbdCalibration() {
 
   return (
     <Box component="section" sx={{ mb: 2 }}>
-      <Typography variant="h6" component="h2">
-        D435 intrinsics check
-      </Typography>
+      {heading && (
+        <Typography variant="h6" component="h2">
+          D435 intrinsics check
+        </Typography>
+      )}
       <Typography variant="body2" data-testid="rgbd-help" sx={{ mb: 1 }}>
         {HELP_TEXT}
       </Typography>

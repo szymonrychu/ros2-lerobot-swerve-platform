@@ -104,6 +104,22 @@ MOVE_TO_NEUTRAL_RELEASE_NOTE = "released by the /arm/move_to_neutral service (we
 # The neutral pose: every arm joint (gripper excluded) at this measured angle (rad).
 NEUTRAL_JOINT_RAD = 0.0
 MOVE_TO_NEUTRAL_FLOW = "move_to_neutral"  # calib_event flow of the /arm/move_to_neutral service
+# calib_event flow of the Calibrate page General section services (gripper open/close, head home, steering home).
+CALIB_GENERAL_FLOW = "calib_general"
+# lost_note after the /arm/gripper/open or /arm/gripper/close service (web UI Calibrate page) released its lease.
+GRIPPER_SERVICE_RELEASE_NOTE = "released by the /arm/gripper service (web UI Calibrate page)"
+GRIPPER_OPEN_FRACTION = 1.0  # /arm/gripper/open: fully open
+GRIPPER_CLOSED_FRACTION = 0.0  # /arm/gripper/close: fully closed
+# Statuses of set_gripper(open_fraction=...) that count as a completed open: only a converged jaw.
+GRIPPER_OPEN_DONE = frozenset({"converged"})
+# Statuses of set_gripper(open_fraction=0.0) that count as a completed close: converged (closed, empty jaws), grasped
+# (the jaw stalled on something and holds it) and blocked (contact without a real closure, the jaw holds where it
+# stopped). closed_no_contact comes from close_until_effort only, which this service does not use.
+GRIPPER_CLOSE_DONE = frozenset({"converged", "grasped", "blocked"})
+GRIPPER_LEASE_REFUSAL = (
+    "{action} gripper refused: arm control is held (a running calibration sequence, the agent or the web UI Arm tab) "
+    "- stop the running calibration (Abort) or release control first"
+)
 STALE_OFFSETS_ITEM = "joint_offsets"  # stale marker item: the arm zero changed, joint_offsets_rad is suspect
 # lost_note after the startup orphan check released an autonomy lease left behind by a crashed predecessor.
 RESTART_RELEASE_NOTE = "mcp_server restarted (the orphaned autonomy lease was released)"
@@ -1055,15 +1071,42 @@ class ArmController:
             setpoint (dict[str, float]): Joint name -> rad.
         """
         with self._lock:
-            if not self._held:
-                self._held = True
-                self.lease_generation += 1
-                self._acquired_at = self.backend.now()
-                self.held_since = time.time()
-                self.lost_note = None
-            self.use_hold_modes_locked()  # acquire / hold publish a measured pose
-            self.backend.publish_command(self.commanded(setpoint))
-            self.remember_locked(setpoint)
+            self.take_lease_locked(setpoint)
+
+    def take_lease_locked(self, setpoint: dict[str, float]) -> None:
+        """take_lease body; the caller holds `_lock`.
+
+        Args:
+            setpoint (dict[str, float]): Joint name -> rad.
+        """
+        if not self._held:
+            self._held = True
+            self.lease_generation += 1
+            self._acquired_at = self.backend.now()
+            self.held_since = time.time()
+            self.lost_note = None
+        self.use_hold_modes_locked()  # acquire / hold publish a measured pose
+        self.backend.publish_command(self.commanded(setpoint))
+        self.remember_locked(setpoint)
+
+    def claim_free_lease(self) -> int | None:
+        """Take the lease at the measured pose only when nobody holds it, in one step under `_lock`.
+
+        Returns:
+            int | None: The lease_generation of the lease this call took, None when a lease was already held or an
+                arm motion runs (nothing published).
+
+        Raises:
+            ArmError: When the arm servo torque is released or no fresh joint sample exists.
+        """
+        if self.torque_off():
+            raise ArmError(torque_off_message("arm"))
+        positions = self.measured(self.require_sample())
+        with self._lock:
+            if self._held or self.motion_running:
+                return None
+            self.take_lease_locked(positions)
+            return self.lease_generation
 
     def drop_lease(self, source: str) -> None:
         """Forget the lease without publishing (another source took over) and restore the default gripper torque.
@@ -2443,9 +2486,19 @@ class ArmController:
     def home_service_call(self) -> tuple[bool, str]:
         """/arm/home service body: move home and always release control afterwards.
 
+        Refused (nothing moves, no lease is touched) while the stale marker lists joint_offsets (an unreadable marker
+        counts): the home route and its body checks would use the old arm zero.
+
         Returns:
-            tuple[bool, str]: success (converged) and message.
+            tuple[bool, str]: success (converged) and message (the refusal text when refused).
         """
+        marker = self.stale_marker()
+        if marker is not None and STALE_OFFSETS_ITEM in marker.stale:
+            when = marker.saved_at or "an unknown time"
+            return False, (
+                f"arm home refused: the calibration stale marker lists {STALE_OFFSETS_ITEM} (arm re-zero at {when}): "
+                "the home route and its body check would use the old zero; restore the arm zero first"
+            )
         was_held = self._held
         try:
             result = self.home(keep_prior_control=False)
@@ -2553,6 +2606,103 @@ class ArmController:
             if was_held and not self._held:
                 self.lost_note = MOVE_TO_NEUTRAL_RELEASE_NOTE
         return result.status == "converged", f"{result.status}: {result.message}"
+
+    def gripper_service_refusal(self, action: str) -> str | None:
+        """Why the /arm/gripper/open or /arm/gripper/close service may not move the gripper now, or None.
+
+        Args:
+            action (str): "open" or "close" (named in the refusal).
+
+        Returns:
+            str | None: Refusal text: any arm lease is held (a running calibration sequence, the agent, the web UI
+                Arm tab, an implicit hold) or an arm motion runs, or the arm torque is released; None when it may move.
+        """
+        if self._held or self.motion_running:
+            return GRIPPER_LEASE_REFUSAL.format(action=action)
+        if self.torque_off():
+            return f"{action} gripper refused: {torque_off_message('arm')}"
+        return None
+
+    def gripper_jaw(self) -> float | None:
+        """Measured gripper position from a fresh sample.
+
+        Returns:
+            float | None: rad, None without a fresh complete sample.
+        """
+        sample = self.fresh_sample()
+        return None if sample is None else sample.positions[self.gripper]
+
+    def gripper_service_call(self, open_gripper: bool) -> tuple[bool, str]:
+        """/arm/gripper/open and /arm/gripper/close service body: move only the gripper, then release control.
+
+        Refused (nothing moves, no lease is touched) while any arm lease is held or the arm torque is off. The lease is
+        claimed atomically (claim_free_lease) before the motion, so a lease taken meanwhile refuses the call. Open is
+        set_gripper(open_fraction=1.0) and succeeds when converged; close is set_gripper(open_fraction=0.0) and
+        succeeds for every completed close (GRIPPER_CLOSE_DONE). The claimed lease is released afterwards (also after a
+        failed motion) only while it is still this call's lease (release_own_lease); ArmBusyError releases nothing. One
+        calib_event line (flow calib_general, step gripper_open / gripper_close) per step: start, refused, ok or failed.
+
+        Args:
+            open_gripper (bool): True opens fully, False closes.
+
+        Returns:
+            tuple[bool, str]: success and message ("<status>: <message>", or the refusal / error text).
+        """
+        action = "open" if open_gripper else "close"
+        step = f"gripper_{action}"
+        run_id = new_run_id()
+        started = self.backend.now()
+        before = self.gripper_jaw()
+
+        def event(outcome: str, reason: str | None = None, data: dict[str, Any] | None = None) -> None:
+            elapsed = self.backend.now() - started
+            emit_calib_event(LOGGER, CALIB_GENERAL_FLOW, run_id, step, outcome, reason, data, elapsed)
+
+        event("start", data={"action": action, "gripper": before})
+        refusal = self.gripper_service_refusal(action)
+        if refusal is not None:
+            event("refused", refusal)
+            return False, refusal
+        fraction = GRIPPER_OPEN_FRACTION if open_gripper else GRIPPER_CLOSED_FRACTION
+        try:
+            generation = self.claim_free_lease()
+        except ArmError as exc:
+            event("refused", str(exc))
+            return False, str(exc)
+        if generation is None:  # a lease was taken since the refusal check
+            refusal = GRIPPER_LEASE_REFUSAL.format(action=action)
+            event("refused", refusal)
+            return False, refusal
+        try:
+            result = self.set_gripper(open_fraction=fraction)
+        except ArmBusyError as exc:
+            event("refused", str(exc))  # another motion runs: never release its lease
+            return False, str(exc)
+        except ArmError as exc:
+            self.release_own_lease(generation)
+            event("failed", str(exc), {"action": action, "gripper_before": before, "gripper_after": self.gripper_jaw()})
+            return False, str(exc)
+        self.release_own_lease(generation)
+        done = GRIPPER_OPEN_DONE if open_gripper else GRIPPER_CLOSE_DONE
+        ok = result.status in done
+        data = {
+            "action": action,
+            "status": result.status,
+            "gripper_before": before,
+            "gripper_after": self.gripper_jaw(),
+        }
+        event("ok" if ok else "failed", None if ok else result.message, data)
+        return ok, f"{result.status}: {result.message}"
+
+    def release_own_lease(self, generation: int) -> None:
+        """Release the lease only while it is still the one a service call took (claim_free_lease), never another.
+
+        Args:
+            generation (int): lease_generation returned by claim_free_lease.
+        """
+        if self._held and self.lease_generation == generation:
+            self.release()
+            self.lost_note = GRIPPER_SERVICE_RELEASE_NOTE
 
     def set_home(self) -> dict[str, float]:
         """Store the measured pose as the home pose.

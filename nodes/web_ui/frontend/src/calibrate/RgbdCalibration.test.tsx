@@ -37,6 +37,14 @@ describe('RgbdCalibration', () => {
     expect(help).not.toMatch(/ToF|restart/i)
   })
 
+  it('heading off leaves the section title out (a flow step names it)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(state), { status: 200 })))
+    render(<RgbdCalibration heading={false} />)
+    await act(async () => {})
+    expect(screen.queryByRole('heading', { name: 'D435 intrinsics check' })).toBeNull()
+    expect(screen.getByTestId('rgbd-help')).toBeTruthy()
+  })
+
   it('keeps an opened past session while the capture keeps polling', async () => {
     vi.useFakeTimers()
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(state), { status: 200 })))

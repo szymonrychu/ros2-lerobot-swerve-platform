@@ -64,9 +64,10 @@ from .base_motion import (
     run_translate,
     straight_move,
 )
+from .calib_general import head_home_call, steer_home_call
 from .camera_scene import CameraInfoData
 from .config import McpServerConfig
-from .control import ControlManager, LeaderActivity, NavGoalRegistry
+from .control import HOME_SERVICE_NOT_READY, ControlManager, LeaderActivity, NavGoalRegistry, wait_steering_neutral
 from .depth_source import DepthFrame, DepthSource
 from .drive_pose import DISABLED, LIFTED, SKIPPED_PREFIX, DrivePose
 from .drive_pose_check import check_drive_pose
@@ -944,6 +945,10 @@ class RosRobot:
         self.node.create_service(Trigger, t.home_service, self.on_home, callback_group=self.group)
         self.node.create_service(Trigger, t.set_home_service, self.on_set_home, callback_group=self.group)
         self.node.create_service(Trigger, t.move_to_neutral_service, self.on_move_to_neutral, callback_group=self.group)
+        self.node.create_service(Trigger, t.gripper_open_service, self.on_gripper_open, callback_group=self.group)
+        self.node.create_service(Trigger, t.gripper_close_service, self.on_gripper_close, callback_group=self.group)
+        self.node.create_service(Trigger, t.head_home_service, self.on_head_home, callback_group=self.group)
+        self.node.create_service(Trigger, t.steer_home_service, self.on_steer_home, callback_group=self.group)
         # Web UI Arm tab: take / release the arm lease through the ControlManager (bound by bind_control).
         self.control: ControlManager | None = None
         self.leader = LeaderActivity(config.control.leader_motion_threshold_rad, config.control.leader_motion_window_s)
@@ -1874,16 +1879,20 @@ class RosRobot:
             threading.Thread(target=answer, name="grasp-command", daemon=True).start()
 
     def on_home(self, _request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
-        """/arm/home: move to the stored home pose, then release arm control (also after a failed motion).
+        """/arm/home: move to the stored home pose, then release arm control (also after a failed motion); refused
+        while the agent holds the arm, the gripper carries or the arm zero is stale (ControlManager.home_service_call).
 
         Args:
             _request (Trigger.Request): Empty request.
             response (Trigger.Response): Response to fill.
 
         Returns:
-            Trigger.Response: success and message.
+            Trigger.Response: success and message (the refusal text when refused).
         """
-        response.success, response.message = self.arm.home_service_call()
+        if self.control is None:
+            response.success, response.message = False, HOME_SERVICE_NOT_READY
+            return response
+        response.success, response.message = self.control.home_service_call()
         if response.success and self.footprint_tick is not None:
             self.footprint_tick()  # the arm is parked now: back to the static footprint without waiting for the tick
         return response
@@ -1901,6 +1910,78 @@ class RosRobot:
         response.success, response.message = self.arm.move_to_neutral_service_call()
         if response.success and self.footprint_tick is not None:
             self.footprint_tick()  # the arm ended at the neutral pose: re-evaluate the footprint at once
+        return response
+
+    def on_gripper_open(self, _request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
+        """/arm/gripper/open: open the gripper fully, then release arm control (refused while any arm lease is held).
+
+        Args:
+            _request (Trigger.Request): Empty request.
+            response (Trigger.Response): Response to fill.
+
+        Returns:
+            Trigger.Response: success (converged) and message (the refusal text when refused).
+        """
+        response.success, response.message = self.arm.gripper_service_call(open_gripper=True)
+        return response
+
+    def on_gripper_close(self, _request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
+        """/arm/gripper/close: close the gripper, then release arm control (refused while any arm lease is held).
+
+        Args:
+            _request (Trigger.Request): Empty request.
+            response (Trigger.Response): Response to fill.
+
+        Returns:
+            Trigger.Response: success (a completed close) and message (the refusal text when refused).
+        """
+        response.success, response.message = self.arm.gripper_service_call(open_gripper=False)
+        return response
+
+    def on_head_home(self, _request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
+        """/head/home: move the head to head.home_pan_rad / home_tilt_rad (no lease check, operator command).
+
+        Args:
+            _request (Trigger.Request): Empty request.
+            response (Trigger.Response): Response to fill.
+
+        Returns:
+            Trigger.Response: success (converged) and message.
+        """
+        response.success, response.message = head_home_call(
+            self.head.home, self.head.measured, lambda: self.servo_released("head"), time.monotonic
+        )
+        return response
+
+    def on_steer_home(self, _request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
+        """/base/steer_home: zero the base (own Nav2 / dock goals cancelled, zero twist) and wait for straight steering;
+        refused while the base lease is held.
+
+        Args:
+            _request (Trigger.Request): Empty request.
+            response (Trigger.Response): Response to fill.
+
+        Returns:
+            Trigger.Response: success (every steer joint neutral) and message (the worst joint on failure).
+        """
+        c = self.cfg.control
+        control = self.control
+        response.success, response.message = steer_home_call(
+            lambda: control is not None and control.base_held,
+            lambda: self.servo_released("base"),
+            self.reset_base,
+            lambda: wait_steering_neutral(
+                self.steer_positions,
+                c.steer_joint_names,
+                c.steer_neutral_tolerance_rad,
+                c.base_reset_timeout_s,
+                self.steer_clock,
+                self.steer_sleep,
+                c.steer_poll_s,
+            ),
+            self.steer_positions,
+            time.monotonic,
+        )
         return response
 
     def bind_control(self, control: ControlManager) -> None:

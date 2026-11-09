@@ -12,6 +12,7 @@ import pytest
 from head_rgbd_calibration.config import NodeConfig
 from head_rgbd_calibration.jobs import Busy, ComputeJob
 from head_rgbd_calibration.store import SessionStore
+from head_rgbd_calibration.telemetry import events_in
 
 NOW = datetime(2026, 10, 19, 12, 30, 45)
 WAIT_S = 10.0
@@ -124,3 +125,34 @@ def test_unknown_session_is_not_started(cfg: NodeConfig, store: SessionStore) ->
     with pytest.raises(NotFound):
         job.start("calib-20200101-000000")
     assert job.state()["running"] is False
+
+
+def test_job_runs_the_given_module_and_logs_its_flow(
+    cfg: NodeConfig, store: SessionStore, sid: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The arm to camera compute runs its own child module under its own telemetry flow."""
+    calls: list = []
+    job = ComputeJob(
+        cfg,
+        store,
+        fake_popen("pass", calls),
+        FakeClock(),
+        CONFIG_PATH,
+        module="head_rgbd_calibration.arm_camera_compute",
+        flow="arm_camera_compute",
+    )
+    with caplog.at_level("INFO", logger="head_rgbd_calibration.jobs"):
+        rid = job.start(sid)
+        wait_until(lambda: not job.state()["running"])
+    assert "head_rgbd_calibration.arm_camera_compute" in calls[0][0]
+    assert {(e["flow"], e["run_id"]) for e in events_in(caplog.records)} == {("arm_camera_compute", rid)}
+
+
+def test_new_result_id_skips_one_being_written(cfg: NodeConfig, store: SessionStore, sid: str) -> None:
+    """A result id whose temp directory exists (another compute writing it this second) is not reused."""
+    taken = store.result_dir(sid, store.new_result_id(NOW))
+    taken.with_name(f".tmp-{taken.name}").mkdir(parents=True)
+    job = ComputeJob(cfg, store, fake_popen("pass"), FakeClock(), CONFIG_PATH)
+    rid = job.start(sid)
+    wait_until(lambda: not job.state()["running"])
+    assert rid != taken.name

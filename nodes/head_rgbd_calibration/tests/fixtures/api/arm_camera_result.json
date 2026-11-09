@@ -1,0 +1,126 @@
+{
+  "id": "r-20261109-120000",
+  "session": "calib-20261109-120000",
+  "kind": "arm_camera",
+  "state": "done",
+  "error": null,
+  "created_at": "2026-11-09T12:00:00+00:00",
+  "declined": false,
+  "declined_at": null,
+  "accepted_at": null,
+  "head_chain": {
+    "source": "floor_fit",
+    "session": "floor-20261109-100000",
+    "result": "r-20261109-101000"
+  },
+  "report": {
+    "plausible": false,
+    "refusals": [
+      {
+        "name": "offset_change:elbow_flex",
+        "value": 20.0,
+        "limit": 15.0,
+        "unit": "deg",
+        "message": "elbow_flex offset change 20.0 deg is over the 15 deg plausibility bound"
+      }
+    ],
+    "warnings": [
+      {
+        "name": "rms_px",
+        "value": 3.4,
+        "limit": 3.0,
+        "unit": "px",
+        "message": "fit corner RMS 3.4 px is over the advisory 3 px limit"
+      }
+    ],
+    "score": {
+      "rms_px": 0.4308856003837026,
+      "heldout_rms_px": 0.40892239846384515,
+      "heldout_tool_mm": 0.30373247450987595,
+      "views": 144,
+      "poses": 36
+    },
+    "params": [
+      {
+        "name": "shoulder_pan_offset",
+        "value": 2.181695295823206,
+        "sigma": 0.01774896428749217,
+        "held": false,
+        "unit": "deg",
+        "applied_value": 1.0427831871380984,
+        "change": 1.1389121086851048
+      }
+    ],
+    "accuracy_examples": [
+      {
+        "label": "tool point at 30 cm reach, 1 sigma",
+        "value": 0.13303131516666186,
+        "unit": "mm"
+      }
+    ],
+    "comparison": {
+      "applied": null,
+      "current_score": {
+        "rms_px": 6.7342268047969,
+        "heldout_rms_px": 6.823778633442984,
+        "heldout_tool_mm": 23.467074483083195
+      },
+      "shift_examples": [
+        {
+          "label": "tool point at 30 cm reach",
+          "value": 12.057790284967846,
+          "unit": "mm"
+        }
+      ]
+    },
+    "skew": {
+      "xyz_mm": [
+        2.3056477409049148,
+        2.3044513432593923,
+        2.3120031540300596
+      ],
+      "rpy_deg": [
+        1.7109385324423156,
+        1.7999932266261494,
+        -1.7063848138904119
+      ]
+    },
+    "sag": {
+      "deg_per_nm": 35.76673569762503,
+      "sigma_deg_per_nm": 0.7253141609506026,
+      "reference_torque_nm": 0.04152135609999997,
+      "at_reference_deg": 1.4850833694356698,
+      "range_deg": [
+        -1.4840868148158648,
+        1.465603469198586
+      ],
+      "droop_mm_per_nm": null,
+      "sigma_droop_mm_per_nm": null,
+      "droop_at_reference_mm": null
+    },
+    "notes": [
+      "head chain fixed: the applied calibration, not refitted"
+    ]
+  },
+  "calibration": {
+    "joint_offsets_rad": {
+      "shoulder_pan": 0.03807776618738663,
+      "shoulder_lift": -0.0027615418217573624,
+      "elbow_flex": -0.15006700843986528,
+      "wrist_flex": 0.15086441784170668,
+      "wrist_roll": -0.071
+    },
+    "base_in_base_link": {
+      "x": 0.06509475044988738,
+      "y": -0.05404973595903307,
+      "z": 0.10008909323030656,
+      "yaw": 0.0
+    },
+    "tool_offset_m": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "snippet": "        # arm to camera fit 2026-11-09, session calib-20261109-120000, result r-20261109-120000: rms 0.43 px, held-out tool 0.3 mm\n        joint_offsets_rad:\n          shoulder_pan: 0.0381\n          shoulder_lift: -0.0028\n          elbow_flex: -0.1501\n          wrist_flex: 0.1509\n          wrist_roll: -0.0710\n        arm_base_height_m: 0.1001\n        base_in_base_link: {x: 0.0651, y: -0.0540, z: 0.1001, yaw: 0.0000}\n"
+  }
+}

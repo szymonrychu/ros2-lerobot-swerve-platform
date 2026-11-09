@@ -75,6 +75,7 @@ def register_imu_calibration_routes(app: FastAPI, config: AppConfig, bridge_node
         body: dict[str, Any] = {"imu": True, "rgbd": cal.rgbd_url is not None, "arm": "deferred"}
         if cal.servo_groups:
             body["servos"] = True
+        body["general"] = cal.general.offered() if cal.general is not None else []
         return JSONResponse(body)
 
     async def status() -> JSONResponse:

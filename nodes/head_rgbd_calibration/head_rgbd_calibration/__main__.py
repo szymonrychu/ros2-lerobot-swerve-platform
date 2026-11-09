@@ -15,6 +15,8 @@ from pydantic import ValidationError
 from rclpy.executors import MultiThreadedExecutor
 
 from head_rgbd_calibration.app import build_app
+from head_rgbd_calibration.arm_camera_api import arm_camera_router
+from head_rgbd_calibration.arm_camera_results import FLOW as ARM_CAMERA_FLOW
 from head_rgbd_calibration.capture import CaptureController
 from head_rgbd_calibration.config import CONFIG_ENV, load_config
 from head_rgbd_calibration.csi_intrinsics import CsiCalibration, csi_router
@@ -33,6 +35,7 @@ EXECUTOR_THREADS = 4
 SPIN_JOIN_S = 5.0
 SWEEP_JOIN_S = 15.0
 SEQUENCE_JOIN_S = 15.0
+ARM_CAMERA_MODULE = "head_rgbd_calibration.arm_camera_compute"
 LOGGER = logging.getLogger(NODE_NAME)
 
 
@@ -41,40 +44,51 @@ def now() -> datetime:
     return datetime.now().astimezone()
 
 
-def blocked_reason(capture: CaptureController, job: ComputeJob, sequencer: Sequencer | None = None) -> str | None:
+def blocked_reason(
+    capture: CaptureController,
+    job: ComputeJob,
+    sequencer: Sequencer | None = None,
+    arm_camera_job: ComputeJob | None = None,
+) -> str | None:
     """Why a floor sweep may not start now.
 
     Args:
         capture: RGB-D capture controller.
         job: RGB-D compute job.
         sequencer: Head-from-arm sequencer, None to ignore it.
+        arm_camera_job: Arm to camera compute job, None to ignore it.
 
     Returns:
-        A reason while a capture, a compute or a head-arm sequence runs, else None.
+        A reason while a capture, a compute, an arm to camera compute or a head-arm sequence runs, else None.
     """
     if capture.state()["running"]:
         return "an RGB-D capture is running; stop it first"
     if job.state()["running"]:
         return "a compute is running; wait for it to finish"
+    if arm_camera_job is not None and arm_camera_job.state()["running"]:
+        return "an arm to camera compute is running; wait for it to finish"
     if sequencer is not None and sequencer.state()["running"]:
         return "a head-arm sequence is running; stop it first"
     return None
 
 
-def sequence_blocked_reason(capture: CaptureController, job: ComputeJob, sweep: FloorSweep) -> str | None:
+def sequence_blocked_reason(
+    capture: CaptureController, job: ComputeJob, sweep: FloorSweep, arm_camera_job: ComputeJob | None = None
+) -> str | None:
     """Why a head-arm sequence may not start now.
 
     Args:
         capture: RGB-D capture controller.
         job: RGB-D compute job.
         sweep: Floor sweep.
+        arm_camera_job: Arm to camera compute job, None to ignore it.
 
     Returns:
-        A reason while a capture, a compute or a floor sweep runs, else None.
+        A reason while a capture, a compute, an arm to camera compute or a floor sweep runs, else None.
     """
     if sweep.state()["running"]:
         return "a floor sweep is running; stop it first"
-    return blocked_reason(capture, job)
+    return blocked_reason(capture, job, arm_camera_job=arm_camera_job)
 
 
 def main() -> int:
@@ -103,6 +117,7 @@ def main() -> int:
     capture = CaptureController(node, store, cfg, now)
     csi = CsiCalibration(node, cfg, now)
     job = ComputeJob(cfg, store, subprocess.Popen, now, path)
+    arm_camera_job = ComputeJob(cfg, store, subprocess.Popen, now, path, module=ARM_CAMERA_MODULE, flow=ARM_CAMERA_FLOW)
     sweep = FloorSweep(
         node,
         cfg,
@@ -110,7 +125,7 @@ def main() -> int:
         time.monotonic,
         time.sleep,
         now,
-        lambda: blocked_reason(capture, job, sequencer),
+        lambda: blocked_reason(capture, job, sequencer, arm_camera_job),
     )
     sequencer = Sequencer(
         capture,
@@ -118,7 +133,7 @@ def main() -> int:
         cfg,
         lambda: base_urdf(cfg),
         lambda: Path(cfg.arm_urdf_file).read_text(),
-        lambda: sequence_blocked_reason(capture, job, sweep),
+        lambda: sequence_blocked_reason(capture, job, sweep, arm_camera_job),
         fitted_mount=lambda sid: latest_board_mount(store, sid),
         board_file=Path(cfg.state_dir) / BOARD_RECORD_FILE,
         session_exists=lambda sid: head_arm_session_exists(store, sid),
@@ -127,6 +142,7 @@ def main() -> int:
     app.include_router(floor_router(sweep, capture, job, cfg, subprocess.run))
     app.include_router(head_arm_router(sequencer, capture, sweep, job, store, cfg, subprocess.run))
     app.include_router(csi_router(csi, subprocess.run))
+    app.include_router(arm_camera_router(sequencer, arm_camera_job, store, cfg, subprocess.run))
     LOGGER.info("serving on http://%s:%d", cfg.http_host, cfg.http_port)
     try:
         uvicorn.Server(uvicorn.Config(app, host=cfg.http_host, port=cfg.http_port, log_level="info")).run()
@@ -138,6 +154,7 @@ def main() -> int:
         sweep.stop()
         sweep.wait(SWEEP_JOIN_S)
         job.stop()
+        arm_camera_job.stop()
         node.destroy_node()
         executor.shutdown()
         spinner.join(SPIN_JOIN_S)

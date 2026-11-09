@@ -32,6 +32,9 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_HOME_FILE = Path("/var/lib/ros2/arm/home.yaml")
 DRIVE_POSE_FILE_NAME = "drive_pose.yaml"  # stored drive pose, next to the home file
 DEFAULT_CALIBRATION_STALE_MARKER = Path("/var/lib/ros2/arm/calibration_stale.json")
+# Board record head_rgbd_calibration writes on Board attached and removes on a successful park (<state_dir>/
+# head_arm_board.json): the calibration board is on the gripper.
+DEFAULT_CALIBRATION_BOARD_RECORD = Path("/var/lib/ros2/head_rgbd_calibration/head_arm_board.json")
 DEFAULT_CALIBRATION_DIR = Path("/var/lib/ros2/camera_calibration")
 HEAD_CAMERA_PARENT = "d435_color_frame"  # head URDF link (head.urdf_path) the head (D435 colour) camera hangs on
 HEAD_CAMERA_INFO_TOPIC = "/head/d435/color/camera_info"  # D435 factory colour intrinsics of the head camera
@@ -195,6 +198,17 @@ class TopicSettings(StrictModel):
     # std_srvs/Trigger (web UI Calibrate page): every arm joint but the gripper to 0.0 measured via the home routing;
     # refused while the stale marker lists joint_offsets or the arm torque is off.
     move_to_neutral_service: str = "/arm/move_to_neutral"
+    # std_srvs/Trigger (web UI Calibrate page, General section): open the gripper fully; refused while any arm lease is
+    # held (a running calibration sequence, the agent, the web UI Arm tab) or the arm torque is off; releases after.
+    gripper_open_service: str = "/arm/gripper/open"
+    # std_srvs/Trigger (Calibrate page, General section): close the gripper; same refusals and release as the open.
+    gripper_close_service: str = "/arm/gripper/close"
+    # std_srvs/Trigger (Calibrate page, General section): head to head.home_pan_rad / home_tilt_rad; refused while the
+    # head torque is off; success only when converged.
+    head_home_service: str = "/head/home"
+    # std_srvs/Trigger (Calibrate page, General section): zero the base (only this server's Nav2 / dock goals are
+    # cancelled, zero twist) and wait until every steer joint is straight; refused while the base lease is held.
+    steer_home_service: str = "/base/steer_home"
     swerve_joint_states: str = "/swerve_drive/joint_states"  # steer joints for the release_control base reset
     tf: str = "/tf"  # subscribed on demand (on_demand.linger_s) by the TF lookups of the tools
     tf_static: str = "/tf_static"  # always subscribed (latched, about 0 msg/s)
@@ -492,6 +506,9 @@ class ArmSettings(ArmModelSettings):
     # Stale marker the follower bridge writes after a runtime neutral save (arm re-zero); while it lists "home",
     # arm_home is refused. null disables the check.
     calibration_stale_marker: Path | None = DEFAULT_CALIBRATION_STALE_MARKER
+    # Board record of head_rgbd_calibration (the calibration board is on the gripper, also with no lease held and a
+    # relaxed grip): while the file exists the /arm/home service is refused. null disables the check.
+    calibration_board_record: Path | None = DEFAULT_CALIBRATION_BOARD_RECORD
     joint_names: tuple[str, ...] = ARM_JOINTS
     # Follower gripper open position (as in /follower/joint_states; the leader-only source range mapping in the
     # follower bridge does not apply to autonomy commands).
