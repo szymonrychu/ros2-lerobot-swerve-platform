@@ -104,9 +104,10 @@ POSE_TOLERANCE_RAD = 1e-9
 # front of the head camera, lifted to the camera height and forward of the body; each tier steps in short transits.
 DEFAULT_BASE_POSE = (-0.12, 0.3, 0.0, -0.5, 0.0)
 DEFAULT_INSERT_GRIPPER_RAD = 0.4  # gripper opening while the handle is inserted (half open)
-# Handle grip (markers/charuco-arm-6x5-28mm.json grip, mass_g): the jaw angle at first contact on the handle, the
-# squeeze past it (inside the mcp_server gripper converge tolerance), and the board mass.
-DEFAULT_HANDLE_CONTACT_RAD = 0.070279
+# Handle grip: the jaw angle at first contact on the handle, measured on the robot 2026-11-09 (CAD 0.070279, the
+# markers/charuco-arm-6x5-28mm.json grip contact_rad; the printed handle is thicker), the squeeze past it (inside the
+# mcp_server gripper converge tolerance) and the board mass (JSON mass_g).
+DEFAULT_HANDLE_CONTACT_RAD = 0.0951
 DEFAULT_HANDLE_SQUEEZE_RAD = 0.02
 # mcp_server limits.converge_tolerance_for("gripper"): a grip residual at or above it is relaxed to the measured pose.
 DEFAULT_GRIP_CONVERGE_TOLERANCE_RAD = 0.03
