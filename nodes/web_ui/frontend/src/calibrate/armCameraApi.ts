@@ -61,12 +61,14 @@ export interface ArmCameraCompute {
 
 /**
  * One fitted parameter in deg or mm (the sag in deg/(N m)) with its 1-sigma, the applied value and the change from it.
- * sigma is null for a parameter held by the gauge (not fitted).
+ * `held`: the gauge holds it (not fitted, sigma null); sigma is also null for a fitted parameter whose sigma is not
+ * finite (a singular covariance), then held is false.
  */
 export interface ArmCameraParam {
   name: string
   value: number | null
   sigma: number | null
+  held: boolean
   unit: string
   applied_value: number | null
   change: number | null
@@ -175,6 +177,7 @@ const PARAM: Shape = {
   name: isStr,
   value: isNum0,
   sigma: isNum0,
+  held: isBool,
   unit: isStr,
   applied_value: isNum0,
   change: isNum0,

@@ -21,13 +21,14 @@ const FLOOR_EXAMPLE_MM = 2000
 const DEFAULT_DIGITS = 3
 
 /**
- * One fitted parameter of a gate: value (null: not finite), 1-sigma (null: held by the gauge, not fitted), applied
- * value and the change from it (null: none applied).
+ * One fitted parameter of a gate: value (null: not finite), 1-sigma (null: unknown), applied value and the change
+ * from it (null: none applied); `held`: the gauge holds it (not fitted), shown as held in the sigma column.
  */
 export interface GateParam {
   name: string
   value: number | null
   sigma: number | null
+  held?: boolean
   unit: string
   applied: number | null
   change: number | null
@@ -136,7 +137,7 @@ export function QualityGate({ report, acceptBody, onAccept, onDecline, decision,
                     <TableCell>{p.name}</TableCell>
                     <TableCell>{p.unit}</TableCell>
                     <TableCell>{fixed(p.value, d)}</TableCell>
-                    <TableCell>{p.sigma === null ? HELD_TEXT : p.sigma.toFixed(d)}</TableCell>
+                    <TableCell>{p.held ? HELD_TEXT : fixed(p.sigma, d)}</TableCell>
                     <TableCell>{fixed(p.applied, d)}</TableCell>
                     <TableCell>{p.change === null ? '-' : signed(p.change, d)}</TableCell>
                   </TableRow>
@@ -253,7 +254,7 @@ export function checkText(c: ArmCameraCheck): string {
 
 /**
  * Gate of an arm-camera fit report: refusals and warnings with value against limit, the accuracy examples paired
- * (1 sigma and 95 %), params in deg and mm (gauge-held sigma shown as held), the comparison of the score of the
+ * (1 sigma and 95 %), params in deg and mm (a gauge-held sigma shown as held, an unknown one as a dash), the comparison of the score of the
  * calibration in effect with the new one, the tool shift examples and the fit notes.
  *
  * @param report - the report of a done result
@@ -277,6 +278,7 @@ export function armCameraGate(report: ArmCameraReport): GateReport {
       name: p.name,
       value: p.value,
       sigma: p.sigma,
+      held: p.held,
       unit: p.unit,
       applied: p.applied_value,
       change: p.change,

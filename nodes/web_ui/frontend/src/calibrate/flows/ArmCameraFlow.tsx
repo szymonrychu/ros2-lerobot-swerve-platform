@@ -58,8 +58,9 @@ const GRABBED_PHASES = ['capturing', 'waiting_big_joints', 'returning_to_base', 
 const CAPTURE_PHASES = ['moving_to_base', 'waiting_board', 'capturing', 'waiting_big_joints', 'returning_to_base']
 const STALE_ZERO_TEXT = 'Arm zero is stale (joint_offsets): restore it in Servo home calibration first.'
 const INTRO =
-  'The arm joint offsets and tool point are fitted from the head D435: the head D435 watches the ARM board held by its handle in the jaws while the arm moves it through checked poses. Needs a camera-to-ground result (applied head chain) and a fresh arm zero. Robot not driving.'
-const ACCEPT_BODY = 'Applies the arm-to-camera calibration: the arm joint offsets and tool point. The consumer nodes restart with it.'
+  'The arm joint offsets and arm base are fitted from the head D435: the head D435 watches the ARM board held by its handle in the jaws while the arm moves it through checked poses. Needs a camera-to-ground result (applied head chain) and a fresh arm zero. Robot not driving.'
+const ACCEPT_BODY =
+  'Records the arm-to-camera calibration (the arm joint offsets and arm base) as the applied one and restarts its consumer units. The same calibration as a client.yml snippet is shown below the report for review.'
 const HEAD_CHAIN_CHANGED_TEXT =
   'The head chain changed since the applied arm-to-camera calibration was fitted: it no longer matches the camera. Run this flow again.'
 
@@ -72,17 +73,6 @@ const HEAD_CHAIN_CHANGED_TEXT =
 export function acceptText(answer: ArmCameraAccept): string {
   const units = answer.units.map((u) => `${u.name} ${u.restarted ? 'restarted' : 'not restarted'} (${u.active_state})`)
   return `Applied result ${answer.arm_calibration.result}.${units.length ? ` Units: ${units.join(', ')}.` : ''}`
-}
-
-/**
- * The decision already recorded on a result by the node (accepted or declined), null when there is none.
- *
- * @param result - a done result
- * @returns the decision
- */
-export function recordedDecision(result: ArmCameraResult): GateDecision {
-  if (result.accepted_at !== null) return 'accepted'
-  return result.declined ? 'declined' : null
 }
 
 type Dialog = 'home' | 'base' | 'big' | 'park' | 'parkBoard' | null
@@ -158,10 +148,7 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
     if (r.value.state === 'running') return
     setComputing(null)
     if (r.value.state === 'failed') setErrors((e) => ({ ...e, compute: r.value.error ?? 'the fit failed' }))
-    else {
-      setResult(r.value)
-      setDecision(recordedDecision(r.value))
-    }
+    else setResult(r.value)
   }, [])
 
   useEffect(() => {
@@ -269,6 +256,7 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
   const skipped = Object.values(sequence?.skipped ?? {}).reduce((acc, n) => acc + n, 0)
   const bigJoints = sequence?.big_joints.length ? sequence.big_joints : BIG_JOINTS
   const moveBlocked = busy || zeroStale || notReady !== null
+  const snippet = typeof result?.calibration?.snippet === 'string' ? result.calibration.snippet : null
 
   return (
     <Box>
@@ -452,6 +440,19 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
                     <Typography variant="body2" sx={{ mt: 1 }}>
                       {decisionMessage}
                     </Typography>
+                  )}
+                  {snippet !== null && (
+                    <Box sx={{ mt: 1 }} aria-label="client.yml snippet">
+                      <Typography variant="subtitle2" component="h4">
+                        client.yml snippet
+                      </Typography>
+                      <Box component="pre" sx={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', m: 0 }}>
+                        {snippet}
+                      </Box>
+                      <Button variant="outlined" sx={{ ...target, mt: 1 }} onClick={() => void navigator.clipboard.writeText(snippet)}>
+                        Copy
+                      </Button>
+                    </Box>
                   )}
                 </>
               ) : null,

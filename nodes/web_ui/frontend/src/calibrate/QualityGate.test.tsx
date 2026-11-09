@@ -85,9 +85,16 @@ describe('QualityGate', () => {
     expect(within(screen.getByRole('row', { name: /camera height/ })).getByText('+-0.5 mm')).toBeTruthy()
   })
 
-  it('a gauge-held param (sigma null) shows held', () => {
-    renderGate({ ...REPORT, params: [{ ...REPORT.params[0], sigma: null }] })
+  it('a gauge-held param shows held', () => {
+    renderGate({ ...REPORT, params: [{ ...REPORT.params[0], sigma: null, held: true }] })
     expect(within(screen.getByRole('row', { name: /tilt zero/ })).getByText('held')).toBeTruthy()
+  })
+
+  it('a fitted param with an unknown sigma (null, not held) shows a dash, not held', () => {
+    renderGate({ ...REPORT, params: [{ ...REPORT.params[0], sigma: null, held: false }] })
+    const row = within(screen.getByRole('row', { name: /tilt zero/ }))
+    expect(row.queryByText('held')).toBeNull()
+    expect(row.getByText('-')).toBeTruthy()
   })
 
   it('a param without an applied value shows dashes', () => {
@@ -109,7 +116,8 @@ describe('armCameraGate', () => {
     expect(gate.score.map((s) => s.label)).toEqual(['RMS', 'Held-out RMS', 'Held-out tool error', 'Views', 'Arm poses'])
     expect(gate.score[2].value).toBe(`${score.heldout_tool_mm?.toFixed(1)} mm`)
     expect(gate.params[0]).toMatchObject({ name: 'shoulder_pan_offset', unit: 'deg', value: doneReport.params[0].value })
-    expect(gate.params.find((p) => p.name === 'base_yaw')?.sigma).toBeNull()
+    expect(gate.params.find((p) => p.name === 'base_yaw')).toMatchObject({ sigma: null, held: true })
+    expect(gate.params[0].held).toBe(false)
     expect(gate.accuracy).toEqual([{ label: 'tool point at 30 cm reach', sigma: doneReport.accuracy_examples[0].value, p95: 0.42, unit: 'mm' }])
     expect(gate.notes).toEqual(doneReport.notes)
   })

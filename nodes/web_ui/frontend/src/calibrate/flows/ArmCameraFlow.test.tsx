@@ -355,14 +355,18 @@ describe('ArmCameraFlow', () => {
     expect(m.park).toHaveBeenCalledWith(true)
   })
 
-  it('a result the node already accepted opens the gate decided', async () => {
+  it('the gate shows the client.yml snippet of the result with Copy', async () => {
     setState(HOLDING)
     a.computeArmCamera.mockResolvedValue(ok({ result_id: doneFx.id }))
-    a.getArmCameraResult.mockResolvedValue(ok({ ...doneFx, accepted_at: '2026-11-09T12:30:00+00:00' }))
+    a.getArmCameraResult.mockResolvedValue(ok(doneFx))
+    const writeText = vi.fn(async () => {})
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
     await renderFlow(false)
     await click('Compute', step(5))
-    await waitFor(() => expect(within(step(6)).getByText('Accepted')).toBeTruthy())
-    expect((within(step(6)).getByRole('button', { name: 'Decline' }) as HTMLButtonElement).disabled).toBe(true)
+    await waitFor(() => expect(within(step(6)).getByText('client.yml snippet')).toBeTruthy())
+    expect(within(step(6)).getByText(/joint_offsets_rad:/)).toBeTruthy()
+    await click('Copy', step(6))
+    expect(writeText).toHaveBeenCalledWith(doneFx.calibration?.snippet)
   })
 
   it('an applied calibration fitted against a changed head chain shows a banner', async () => {

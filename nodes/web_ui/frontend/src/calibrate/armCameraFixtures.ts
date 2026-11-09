@@ -25,21 +25,18 @@ export const doneResult: ArmCameraResult = {
   ...nodeResult,
   report: {
     ...nodeReport,
+    plausible: true,
     refusals: [],
     accuracy_examples: [example, { ...example, label: example.label.replace(', 1 sigma', ', 95 %'), value: 0.42 }],
     params: [
       ...nodeReport.params,
-      { name: 'base_yaw', value: 0, sigma: null, unit: 'deg', applied_value: 0, change: 0 },
+      { name: 'base_yaw', value: 0, sigma: null, held: true, unit: 'deg', applied_value: 0, change: 0 },
     ],
   },
 }
 
-/** A done result the node refuses: not plausible, with the node's refusal. */
-export const refusedResult: ArmCameraResult = {
-  ...nodeResult,
-  id: 'r-20261109-121000',
-  report: { ...nodeReport, plausible: false },
-}
+/** A done result the node refuses: not plausible, with the node's refusal (the node fixture as it is). */
+export const refusedResult: ArmCameraResult = { ...nodeResult, id: 'r-20261109-121000' }
 
 /** The state with an applied calibration fitted against a head chain that has changed since. */
 export const headChainChangedState: ArmCameraState = {
