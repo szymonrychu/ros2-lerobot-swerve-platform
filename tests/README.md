@@ -2,6 +2,8 @@
 
 Unit tests for the project. Run with `uv run pytest` or `mise exec -- uv run pytest` from the repo root. Config: [pyproject.toml](../pyproject.toml) (`[tool.pytest.ini_options]`).
 
+External tool: `rsync` must be on `PATH`. `test_cpp_node_deploy.py` runs the role's real rsync command for local colcon sources and fails (never skips) without it; GitHub's `ubuntu-latest` runners ship it, on Debian/Ubuntu install it with `apt install rsync`.
+
 ## Test files and what they cover
 
 ### `test_node_lint_coverage.py`
