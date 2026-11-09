@@ -195,10 +195,20 @@ marker atomically (temp file in the same directory, then `os.replace`; missing p
 ```
 
 An existing marker is merged: its joints are kept and the saved ones updated, `stale` is reset to both items and
-`saved_at` updated (a marker that is not valid JSON is replaced). mcp_server removes `home` on `arm_set_home`, the arm
-calibration removes `joint_offsets`, and an empty list deletes the file. A marker write failure answers
+`saved_at` updated (a marker that is not valid JSON is replaced). mcp_server removes `home` on `arm_set_home` and `joint_offsets`
+when it applies an accepted arm to camera calibration captured after the last zero change, and an empty list deletes the file. A marker write failure answers
 `success=false` with `neutral saved, stale marker not written: <error>` (torque stays enabled) and logs an error.
 The arm zero restore (below) updates the marker after every apply.
+
+Zero change record: every save that sent DefineMiddle to a joint (also a failed one: the zero may have moved) writes
+`zero_changed.json` next to the marker (same directory, atomic: `{"version": 1, "group": "follower", "changed_at":
+"<saved_at>"}`), before the marker; the zero restore writes it, also before its marker update, whenever an apply
+changed the zero (the joint_offsets restore, a change beyond `plan_tolerance_steps`, a failed apply whose offset write
+was sent and not rolled back, a limits failure included). A restore whose changes all stay within
+`plan_tolerance_steps` writes neither (the same zero by definition). A failed record write is named in the answer
+(`zero change record not written: ...`) like a failed marker write. Unlike the marker it is never cleared: it is the time of the last servo zero change. The arm to
+camera calibration accept refuses a session whose first still is not after it, and mcp_server clears `joint_offsets`
+from the marker only for a calibration captured after it (ros2_common `arm_calibration_file.zero_change_refusal`).
 
 ### Arm zero restore (`zero_restore.py`)
 

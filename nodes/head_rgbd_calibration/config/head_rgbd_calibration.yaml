@@ -1,6 +1,9 @@
 # head_rgbd_calibration node config (HEAD_RGBD_CALIBRATION_CONFIG points here). Every key shown at its default.
 # Directory holding sessions, poses and results.
 state_dir: /var/lib/ros2/head_rgbd_calibration
+# Arm re-zero stale marker of the follower bridge; the arm to camera accept is refused while it lists joint_offsets for
+# a re-zero at or after the session's first still (null: no check).
+arm_stale_marker: /var/lib/ros2/arm/calibration_stale.json
 # HTTP API bind address (web_ui proxies to it).
 http_host: 127.0.0.1
 # HTTP API port.

@@ -16,6 +16,12 @@ from typing import Any
 
 import pytest
 import yaml
+from ros2_common.head_rgbd_calibration.arm_calibration_file import (
+    ARM_CALIBRATION_FILE,
+    ArmCalibrationFile,
+    read_arm_calibration,
+    zero_record_path,
+)
 from ros2_common.head_rgbd_calibration.chain import UrdfChain
 from ros2_common.head_rgbd_calibration.config import ARM_JOINT_NAMES, ArmCameraBounds, ArmCameraFitConfig
 from ros2_common.head_rgbd_calibration.head_arm_fit import MOUNT_JOINT, TILT_JOINT
@@ -24,11 +30,11 @@ from ros2_common.head_rgbd_calibration.urdf_text import Origin, head_chain_json
 from head_rgbd_calibration import arm_camera_results
 from head_rgbd_calibration.apply import NotApplicable
 from head_rgbd_calibration.arm_camera_results import (
-    ARM_CALIBRATION_FILE,
     KIND,
     NO_HEAD_CHAIN_REASON,
     accept_arm_camera,
     arm_camera_state,
+    captured_from,
     compute_arm_camera,
     decline_arm_camera,
     read_arm_camera_result,
@@ -36,7 +42,7 @@ from head_rgbd_calibration.arm_camera_results import (
 from head_rgbd_calibration.config import NodeConfig
 from head_rgbd_calibration.store import SessionStore
 from head_rgbd_calibration.telemetry import events_in
-from tests.pose_factory import still_arm_pose
+from tests.pose_factory import STAMP_NS, still_arm_pose
 from tests.test_compute_arm import INTRINSICS_BOARD
 from tests.test_head_arm_results import fake_run, put_marker, synthetic, synthetic_camera_info
 
@@ -54,6 +60,8 @@ RESULT_KEYS = {
     "report", "calibration",
 }  # fmt: skip
 CALIBRATION_KEYS = {"joint_offsets_rad", "base_in_base_link", "tool_offset_m", "snippet"}
+# Capture time of the synthetic stills (pose_factory STAMP_NS, 2023-11-14T22:13:20Z).
+CAPTURED_FROM = datetime.fromtimestamp(STAMP_NS / 1e9, tz=UTC)
 
 
 def node_config(tmp_path: Path, **arm_camera: Any) -> NodeConfig:
@@ -64,6 +72,7 @@ def node_config(tmp_path: Path, **arm_camera: Any) -> NodeConfig:
     arm.write_text(synthetic.synth_arm_urdf())
     return NodeConfig(
         state_dir=str(tmp_path / "state"),
+        arm_stale_marker=str(tmp_path / "arm" / "calibration_stale.json"),
         head_urdf_file=str(head),
         arm_urdf_file=str(arm),
         restart_units=["unit-a.service"],
@@ -233,6 +242,17 @@ def test_accept_writes_the_arm_calibration_and_keeps_the_head_chain(tmp_path: Pa
     assert written["base_in_base_link"] == result["calibration"]["base_in_base_link"]
     assert written["snippet"] == result["calibration"]["snippet"]
     assert written["accuracy_examples"] == result["report"]["accuracy_examples"]
+    assert written["captured_from"] == CAPTURED_FROM.isoformat()
+    # What mcp_server applies: the shared reader returns exactly the accepted offsets and base.
+    applied_cal = read_arm_calibration(applied)
+    assert applied_cal == ArmCalibrationFile.model_validate(written)
+    assert applied_cal.joint_offsets_rad == result["calibration"]["joint_offsets_rad"]
+    assert applied_cal.base_in_base_link.model_dump() == result["calibration"]["base_in_base_link"]
+    assert (applied_cal.session, applied_cal.result, applied_cal.captured_from) == (
+        scene.sid,
+        result["id"],
+        CAPTURED_FROM,
+    )
     stored = read_arm_camera_result(scene.store, scene.sid, result["id"], None)
     assert stored["accepted_at"] == LATER.isoformat()
     with pytest.raises(NotApplicable, match="accepted"):
@@ -254,6 +274,132 @@ def test_next_result_compares_with_the_accepted_one(tmp_path: Path) -> None:
     applied = second["report"]["comparison"]["applied"]
     assert applied["result"] == first["id"]
     assert applied["accuracy_examples"] == first["report"]["accuracy_examples"]
+
+
+def test_next_result_starts_from_the_accepted_calibration(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """After an accept the runtime arm calibration is the accepted one, so the next fit starts from and compares with
+    it, not with the configured fit.joint_offsets_rad / fit.base_in_base_link."""
+    scene = Scene(tmp_path)
+    first = compute_arm_camera(scene.cfg, scene.store, scene.sid, SessionStore.new_result_id(NOW), NOW)
+    accept_arm_camera(scene.cfg, scene.store, scene.sid, first["id"], LATER, fake_run)
+    rid = SessionStore.new_result_id(LATER)
+    with caplog.at_level(logging.INFO, logger=LOGGER):
+        second = compute_arm_camera(scene.cfg, scene.store, scene.sid, rid, LATER)
+    inputs = next(e for e in events_in(caplog.records) if e["step"] == "inputs")["data"]
+    # calib_event rounds floats to 6 decimals
+    assert inputs["applied_offsets_rad"] == pytest.approx(first["calibration"]["joint_offsets_rad"], abs=1e-6)
+    assert inputs["applied_base"] == pytest.approx(first["calibration"]["base_in_base_link"], abs=1e-6)
+    assert inputs["applied_source"] == {"session": scene.sid, "result": first["id"]}
+    for joint in ARM_JOINT_NAMES:  # fitted from the accepted start, the same scene gives the same calibration
+        assert second["calibration"]["joint_offsets_rad"][joint] == pytest.approx(
+            first["calibration"]["joint_offsets_rad"][joint], abs=1e-3
+        )
+    params = {p["name"]: p for p in second["report"]["params"]}
+    assert abs(params["shoulder_pan_offset"]["change"]) < 0.2  # deg against the accepted offset, not the configured one
+
+
+def test_compute_without_an_accepted_calibration_starts_from_the_config(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    scene = Scene(tmp_path)
+    with caplog.at_level(logging.INFO, logger=LOGGER):
+        compute_arm_camera(scene.cfg, scene.store, scene.sid, SessionStore.new_result_id(NOW), NOW)
+    inputs = next(e for e in events_in(caplog.records) if e["step"] == "inputs")["data"]
+    assert inputs["applied_offsets_rad"] == scene.cfg.fit.joint_offsets_rad
+    assert inputs["applied_source"] is None
+
+
+def test_compute_with_an_unreadable_accepted_calibration_fails(tmp_path: Path) -> None:
+    scene = Scene(tmp_path)
+    first = compute_arm_camera(scene.cfg, scene.store, scene.sid, SessionStore.new_result_id(NOW), NOW)
+    accept_arm_camera(scene.cfg, scene.store, scene.sid, first["id"], LATER, fake_run)
+    (scene.state / "applied" / ARM_CALIBRATION_FILE).write_text("{broken")
+    second = compute_arm_camera(scene.cfg, scene.store, scene.sid, SessionStore.new_result_id(LATER), LATER)
+    assert second["state"] == "failed" and ARM_CALIBRATION_FILE in second["error"]
+
+
+def write_stale_marker(cfg: NodeConfig, stale: list[str], saved_at: str | None) -> Path:
+    """The follower bridge's arm re-zero stale marker (feetech_servos neutral.py format)."""
+    path = Path(cfg.arm_stale_marker or "")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    body = {"version": 1, "group": "follower", "saved_at": saved_at, "joints": {}, "stale": stale}
+    path.write_text(json.dumps(body))
+    return path
+
+
+def test_accept_refuses_a_fit_captured_before_an_arm_re_zero(tmp_path: Path) -> None:
+    """Offsets fitted from stills of the old arm zero would be wrong in the new one: refused, nothing applied."""
+    scene = Scene(tmp_path)
+    result = compute_arm_camera(scene.cfg, scene.store, scene.sid, SessionStore.new_result_id(NOW), NOW)
+    after_capture = datetime.fromtimestamp(STAMP_NS / 1e9 + 60, tz=UTC).isoformat()
+    marker = write_stale_marker(scene.cfg, ["joint_offsets", "home"], after_capture)
+    before = marker.read_text()
+    with pytest.raises(NotApplicable, match="re-zero"):
+        accept_arm_camera(scene.cfg, scene.store, scene.sid, result["id"], LATER, fake_run)
+    assert not (scene.state / "applied" / ARM_CALIBRATION_FILE).exists()
+    assert marker.read_text() == before
+
+
+@pytest.mark.parametrize("body", ["{not json", json.dumps({"stale": ["joint_offsets"], "saved_at": None})])
+def test_accept_refuses_while_the_re_zero_time_is_unknown(tmp_path: Path, body: str) -> None:
+    scene = Scene(tmp_path)
+    result = compute_arm_camera(scene.cfg, scene.store, scene.sid, SessionStore.new_result_id(NOW), NOW)
+    marker = write_stale_marker(scene.cfg, [], None)
+    marker.write_text(body)
+    with pytest.raises(NotApplicable, match="arm zero"):
+        accept_arm_camera(scene.cfg, scene.store, scene.sid, result["id"], LATER, fake_run)
+    assert not (scene.state / "applied" / ARM_CALIBRATION_FILE).exists()
+
+
+def test_accept_refuses_a_fit_of_a_zero_restored_since_the_capture(tmp_path: Path) -> None:
+    """A zero restore after the capture deletes the marker but records the zero change: the offsets were measured in
+    the restored-away zero, so the accept is refused."""
+    scene = Scene(tmp_path)
+    result = compute_arm_camera(scene.cfg, scene.store, scene.sid, SessionStore.new_result_id(NOW), NOW)
+    marker = Path(scene.cfg.arm_stale_marker or "")
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    after_capture = datetime.fromtimestamp(STAMP_NS / 1e9 + 60, tz=UTC).isoformat()
+    zero_record_path(marker).write_text(json.dumps({"version": 1, "group": "follower", "changed_at": after_capture}))
+    with pytest.raises(NotApplicable, match="zero changed"):
+        accept_arm_camera(scene.cfg, scene.store, scene.sid, result["id"], LATER, fake_run)
+    assert not (scene.state / "applied" / ARM_CALIBRATION_FILE).exists()
+
+
+def test_accept_refuses_a_session_without_stills(tmp_path: Path) -> None:
+    scene = Scene(tmp_path)
+    result = compute_arm_camera(scene.cfg, scene.store, scene.sid, SessionStore.new_result_id(NOW), NOW)
+    for pid in scene.store.pose_ids(scene.sid):  # a pose without pose.json is not a stored pose
+        (scene.store.pose_dir(scene.sid, pid) / "pose.json").unlink()
+    with pytest.raises(NotApplicable, match="no still poses"):
+        accept_arm_camera(scene.cfg, scene.store, scene.sid, result["id"], LATER, fake_run)
+
+
+def test_captured_from_is_the_earliest_stamp_of_any_source(tmp_path: Path) -> None:
+    """The arm joint stamps come from the follower bridge (the clock of the zero change times): the earliest stamp of
+    any source counts, so a zero change just before a late camera stamp is not missed."""
+    scene = Scene(tmp_path)
+    pid = scene.store.pose_ids(scene.sid)[3]
+    path = scene.store.pose_dir(scene.sid, pid) / "pose.json"
+    meta = json.loads(path.read_text())
+    meta["stamps"]["arm_joints"] = STAMP_NS - 5_000_000_000
+    path.write_text(json.dumps(meta))
+    assert captured_from(scene.store, scene.sid) == datetime.fromtimestamp(STAMP_NS / 1e9 - 5, tz=UTC)
+
+
+@pytest.mark.parametrize(
+    ("stale", "seconds"), [(["joint_offsets", "home"], -60), (["home"], 60)], ids=["re-zero-before", "home-only"]
+)
+def test_accept_with_the_offsets_measured_in_the_current_zero(tmp_path: Path, stale: list[str], seconds: int) -> None:
+    """A re-zero before the capture (or a marker without joint_offsets) does not block the accept; the accept leaves
+    the marker to mcp_server, which clears joint_offsets when it applies the calibration."""
+    scene = Scene(tmp_path)
+    result = compute_arm_camera(scene.cfg, scene.store, scene.sid, SessionStore.new_result_id(NOW), NOW)
+    saved_at = datetime.fromtimestamp(STAMP_NS / 1e9 + seconds, tz=UTC).isoformat()
+    marker = write_stale_marker(scene.cfg, stale, saved_at)
+    before = marker.read_text()
+    accept_arm_camera(scene.cfg, scene.store, scene.sid, result["id"], LATER, fake_run)
+    assert (scene.state / "applied" / ARM_CALIBRATION_FILE).exists()
+    assert marker.read_text() == before
 
 
 def test_decline_records_and_changes_nothing_applied(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:

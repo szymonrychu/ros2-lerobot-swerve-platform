@@ -446,10 +446,22 @@ class ReachMap:
                 rmap = cls(data["pitch_mask"], data["clearance"], json.loads(str(data["meta"])))
         except (OSError, ValueError, KeyError, zipfile.BadZipFile) as exc:
             raise ReachMapMissing(f"unreadable reach map {path} ({exc}); regenerate it: {REGENERATE_COMMAND}") from exc
-        expected = reach_map_key(checker, settings)
-        if rmap.meta.get("key") != expected:
-            raise ReachMapStale(expected, str(rmap.meta.get("key")))
+        rmap.require_current(checker, settings)
         return rmap
+
+    def require_current(self, checker: SelfCollisionChecker, settings: ReachMapSettings) -> None:
+        """Require the map to be built for the checker's current inputs (a runtime arm calibration swap changes them).
+
+        Args:
+            checker (SelfCollisionChecker): Current body checker.
+            settings (ReachMapSettings): Current grid.
+
+        Raises:
+            ReachMapStale: When the stored key differs from reach_map_key(checker, settings).
+        """
+        expected = reach_map_key(checker, settings)
+        if self.meta.get("key") != expected:
+            raise ReachMapStale(expected, str(self.meta.get("key")))
 
     def cells(self, z: float, pitch_deg: float | None) -> CellSet:
         """Reachable cells at a height, optionally for one approach pitch, with their margins.

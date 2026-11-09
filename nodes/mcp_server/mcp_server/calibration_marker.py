@@ -72,20 +72,25 @@ def load_marker(path: Path) -> CalibrationMarker | None:
         return unreadable_marker()
 
 
-def clear_stale(path: Path, items: list[str]) -> None:
+def clear_stale(path: Path, items: list[str], only_if_saved_at: str | None = None) -> bool:
     """Remove items from the marker's stale list, atomically; delete the file when none remain.
 
     Args:
         path (Path): Marker file; absent is a no-op.
         items (list[str]): Items to clear ("joint_offsets", "home").
+        only_if_saved_at (str | None): Clear only while the marker's saved_at is still this (the re-zero the caller
+            checked; a newer re-zero written meanwhile is kept); None clears regardless.
+
+    Returns:
+        bool: True when the marker was rewritten or deleted, False when absent or of another re-zero.
     """
     marker = load_marker(path)
-    if marker is None:
-        return
+    if marker is None or (only_if_saved_at is not None and marker.saved_at != only_if_saved_at):
+        return False
     marker.stale = [item for item in marker.stale if item not in items]
     if not marker.stale:
         path.unlink(missing_ok=True)
-        return
+        return True
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".stale-", suffix=".json")
     try:
         with os.fdopen(fd, "w") as fh:
@@ -94,3 +99,4 @@ def clear_stale(path: Path, items: list[str]) -> None:
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise
+    return True

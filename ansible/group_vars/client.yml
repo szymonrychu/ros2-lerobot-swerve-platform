@@ -1670,6 +1670,9 @@ ros2_nodes:
       # head_rgbd_calibration node config (HEAD_RGBD_CALIBRATION_CONFIG points here). Every key shown at its default.
       # Directory holding sessions, poses and results.
       state_dir: /var/lib/ros2/head_rgbd_calibration
+      # Arm re-zero stale marker of the follower bridge; the arm to camera accept is refused while it lists joint_offsets
+      # for a re-zero at or after the session's first still (null: no check).
+      arm_stale_marker: /var/lib/ros2/arm/calibration_stale.json
       # HTTP API bind address (web_ui proxies to it).
       http_host: 127.0.0.1
       # HTTP API port.
@@ -3143,6 +3146,11 @@ ros2_nodes:
         # head_rgbd_calibration board record (<its state_dir>/head_arm_board.json): written on Board attached, removed by
         # a successful park; /arm/home is refused while it exists (the calibration board is on the gripper).
         calibration_board_record: /var/lib/ros2/head_rgbd_calibration/head_arm_board.json
+        # head_rgbd_calibration applied/ (its state_dir): an accepted arm to camera calibration there
+        # (arm_calibration.json, named by applied.json) overrides joint_offsets_rad, base_in_base_link and
+        # arm_base_height_m below at startup and at the next idle point after each Accept; the values below are the
+        # baseline used while none is accepted. null disables the override.
+        applied_dir: /var/lib/ros2/head_rgbd_calibration/applied
         # Arm mount plane (URDF base_link origin) height above the floor: 10.0 cm (floor_z_m = -0.100). Was 10.4 cm from tip
         # touch-downs, 15 cm before. Corrected 2026-10-10 after the grid calibration was deployed: the fixed-jaw tip
         # commanded 1 cm above base_link (0.30, 0) had FK X/Y confirmed exactly by the user, FK height 6.9 mm, physically

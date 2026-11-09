@@ -72,6 +72,30 @@ stick mount.
 | `test_view_missing_a_joint_raises` | A view without wrist_flex raises naming it. |
 | `test_fewer_than_three_views_raise` | Fewer than three views raise. |
 
+### `test_arm_calibration_file.py`
+
+The accepted arm calibration file (`shared/ros2_common/head_rgbd_calibration/arm_calibration_file.py`): what the
+head_rgbd_calibration accept writes to `applied/arm_calibration.json` and mcp_server applies at runtime.
+
+| Test | Description |
+|------|-------------|
+| `test_the_accept_body_validates_and_ignores_the_report_fields` | The full accept body validates; score, snippet, tool point and report fields are ignored; `captured_from` is timezone aware. |
+| `test_an_invalid_body_is_refused` | A missing or extra joint, a NaN offset, an infinite or missing base key, a naive `captured_from` and an empty session are refused. |
+| `test_arm_settings_update_names_exactly_the_overridden_fields` | `arm_settings_update()` keys are `ARM_SETTINGS_FIELDS` in order; `arm_base_height_m` is the base z. |
+| `test_the_update_validates_as_the_mcp_server_arm_model` | The update applied to arm_collision `ArmModelSettings` validates (mount z equals the mount height). |
+| `test_the_reviewed_snippet_sets_the_same_fields` | `calibration_snippet_yaml` sets exactly the `ARM_SETTINGS_FIELDS` keys. |
+| `test_nothing_accepted_reads_none` | No `applied.json`, or a file without its `arm_calibration` record, reads as None. |
+| `test_the_accepted_calibration_is_read` | A file named by the record is read. |
+| `test_a_record_naming_another_result_is_an_error` | A record of another result raises `ArmCalibrationError` naming the file's result. |
+| `test_a_missing_or_unreadable_file_is_an_error` | A missing or non-JSON file named by the record raises. |
+| `test_an_invalid_file_is_an_error` | A file failing validation raises naming the field. |
+| `test_an_unreadable_marker_is_an_error` | A non-JSON `applied.json` raises. |
+| `test_no_zero_change_since_the_capture` | No marker or record, a marker listing only home, or a re-zero and zero record before the capture: no refusal. |
+| `test_a_zero_change_at_or_after_the_capture_is_refused` | A marker re-zero after the capture or in the same second, a marker without saved_at, a zero record after the capture (marker gone after a restore, or left with home only): refused with the reason. |
+| `test_an_unreadable_marker_or_zero_record_is_refused` | A non-JSON marker or zero record is refused as unreadable. |
+| `test_the_zero_record_sits_next_to_the_marker` | `zero_record_path` is `zero_changed.json` in the marker's directory. |
+| `test_the_bridge_writes_the_zero_record_the_readers_read` | feetech_servos `neutral.py` names the same `ZERO_RECORD_FILE`. |
+
 ### `test_arm_camera_fit.py`
 
 Arm to camera fit (`shared/ros2_common/head_rgbd_calibration/arm_camera_fit.py`, T-99) on the synthetic scene
@@ -800,7 +824,8 @@ Servo torque and neutral (`test_torque_control.py`, `test_torque_services.py`, `
 - Torque release and enable (`test_torque_control.py`): release writes torque 0 even when the cache already holds 0 and verifies it, gates the group before any torque write, drops pending targets, names a joint whose torque-off is not verified, is repeatable on a released group, fails for an unknown group or with no bus; a released group gets no goal across cycles even when a refresh is due; enable writes goal = present before torque 1, retries a `None` present read, leaves a joint released (and names it) when its present read keeps failing or torque-on is not verified, and lifts the gate; the base release stops the wheels, keeps their torque and drops their commands, and enable accepts drive commands again; other groups on the same bus keep receiving commands; a register dump updates joint torque.
 - Torque services and state topic (`test_torque_services.py`): `release_torque` / `enable_torque` services exist per namespace (default and extra groups); the torque state topic is reliable, transient-local, depth 1; release then enable move the published state released -> held; velocity joints are never listed or released; no bus means refusal and nothing published; a joint without a reading is omitted from the payload, any gated position joint makes it released, no reading means nothing published; publishes on change and every interval (interval 0 = on change only); a register dump showing torque 0 changes the state.
 - Torque in the bridge loop (`test_torque_loop.py`): startup torque seeds the first published state, nothing is published before the startup torque sequence, release through the loop publishes released, a register dump shows a servo that dropped torque, and a release mid dump round is not overwritten by older dump readings.
-- Neutral record and save (`test_neutral.py`): record is refused unless the group is released with every neutral joint verified at torque 0 and without `neutral` enabled, captures present positions without writing, retries a failed present read and fails when it never reads; save is refused without a capture, when not released, when a joint moved since record (nothing written) or when the wheel stop is not acknowledged; save unlocks, defines the middle and locks in order, enables torque holding the present position and clears the capture; excluded joints are untouched, wheels stop before the first EEPROM write, verify retries a `None` read and gives up after the center read attempts; limits are rewritten only when define-middle changed them (a transient `None` or mismatching limit read after the centre is settled and re-read first, the restore runs inside unlock/lock, a failed readback names the first limits read) and command limits refresh for EEPROM-limited joints only; the lock is written when define-middle fails or raises; a failed verify or limit restore aborts the rest and leaves torque off; a partial failure keeps the group released and names the joints; the calibration marker is written atomically (parents created, merged with an existing marker, no marker without `neutral_stale_marker`, a failure keeps torque enabled); status and payload carry the capture and last save; neutral services exist only for neutral-enabled groups; record and save publish torque state.
+- Neutral record and save (`test_neutral.py`): record is refused unless the group is released with every neutral joint verified at torque 0 and without `neutral` enabled, captures present positions without writing, retries a failed present read and fails when it never reads; save is refused without a capture, when not released, when a joint moved since record (nothing written) or when the wheel stop is not acknowledged; save unlocks, defines the middle and locks in order, enables torque holding the present position and clears the capture; excluded joints are untouched, wheels stop before the first EEPROM write, verify retries a `None` read and gives up after the center read attempts; limits are rewritten only when define-middle changed them (a transient `None` or mismatching limit read after the centre is settled and re-read first, the restore runs inside unlock/lock, a failed readback names the first limits read) and command limits refresh for EEPROM-limited joints only; the lock is written when define-middle fails or raises; a failed verify or limit restore aborts the rest and leaves torque off; a partial failure keeps the group released and names the joints; the calibration marker is written atomically (parents created, merged with an existing marker, no marker without `neutral_stale_marker`, a failure keeps torque enabled) together with the zero change record `zero_changed.json` (`changed_at` = the save time), written first (a failing marker write still leaves it), also after a save that failed once DefineMiddle was sent (error, raise, centre not verified) and not when it failed before, a failed record write named in the answer; status and payload carry the capture and last save; neutral services exist only for neutral-enabled groups; record and save publish torque state.
+- Zero restore zero change record (`test_zero_restore.py`): a restore that clears joint_offsets (the marker deleted), a change beyond the plan tolerance, a partial apply and an apply failing at the angle limits (offset landed) write `zero_changed.json` with the apply time; the record is written before the marker update (a failing record write leaves the marker); a restore within tolerance writes neither the marker nor the record.
 - `set_register` guard (`test_set_register.py`): `torque_enable` other than 0/1 and out-of-range values are rejected (range edges accepted); a released joint refuses motion and torque enable but accepts torque off and limit writes; an unreleased joint accepts a goal position.
 
 ### Per-node tests (lerobot_teleop)
@@ -966,6 +991,24 @@ The **claude_agent** node has tests under `nodes/claude_agent/tests/` (no networ
 `conftest.py`, the Agent SDK dataclasses are built directly). Run from `nodes/claude_agent`: `uv run pytest tests -q`.
 Covers:
 
+- accepted arm calibration at runtime (`test_arm_calibration_runtime.py`, `mcp_server/arm_calibration.py`, a real
+  `ArmController` on `FakeArmBackend`): startup without an accepted file keeps the config and logs `load` ok with
+  source `config`; startup applies exactly `joint_offsets_rad`, `base_in_base_link` and `arm_base_height_m` (tool
+  point and every other key unchanged) and logs old and new; an invalid file, or one whose merged block `ArmSettings`
+  refuses, keeps the config and logs `load` failed at ERROR; `applied_dir: null` disables the override; an
+  `applied.json` change swaps the running model (kinematics, sag and floor guard offsets / mount, body checker mount
+  and kernel, config fields, `arm.calibration`) with one `load` ok event; no `applied.json` change reads nothing; a
+  newer accept replaces the previous one; an invalid reload keeps the values in use; a removed record falls back to
+  the config; an `applied.json` change for the head chain only logs `unchanged`; a swap that raises is an `apply`
+  failed event and never raises out of the tick; the swap waits for a running motion
+  (one `apply` start event) and lands on the next idle tick; a motion asked for during the swap is refused as busy;
+  `joint_offsets` is cleared from the stale marker for a re-zero before `captured_from` (the file removed when it was
+  the last item) and kept for a later or unknown re-zero, a zero change recorded after the capture, a marker rewritten
+  by a new re-zero between the check and the clear, and the config fallback; `get_arm_state` names the
+  calibration in use; the `get_arm_reach` envelope recomputes after a mount swap, withholds its cells while stale and
+  ignores a stale disk cache; `ReachMap.require_current` refuses after a swap
+- approach tools per call (`test_approach_tools.py::test_a_reach_map_made_stale_at_runtime_refuses`): a reach map
+  that went stale after start (an accepted arm calibration swapped in) refuses both tools with the regenerate command
 - config (`test_config.py`): defaults (opus, hard maxima rw 400 / turns 500, per phase 100 / 100, `max_instruction_time_min` 120, no `max_ro_cap` / `max_phase_ro_cap`, SDK `max_turns` = turn cap + margin, MCP URL/token file, port 18300, history 500, thumbnail 480, `/robot_events` topic, 50 events, 2 s debounce), the removed `max_turns` / `effector_call_cap` keys rejected,
   tool lists disjoint (stop can never be an effector), `get_arm_reach` a sensor tool (free, not effector-capped) in both the code
   defaults and the client.yml config, invalid numbers and unknown keys rejected, YAML loading, the plan tree and retry defaults
@@ -1860,7 +1903,7 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   without a source); navigation goals by result with their duration (errors without a goal not counted); `GET /metrics`
   (200 Prometheus text without a token for 127.0.0.1 and ::1, 403 for other clients, the MCP path stays 401)
 
-- Calibration marker (`nodes/mcp_server/tests/test_calibration_marker.py`): absent marker loads as none, a valid one loads, an invalid one reports everything stale; clearing one item keeps the other, clearing the last deletes the file, clearing an absent file is a no-op, an unreadable marker is deleted when everything is cleared; `arm_home` is refused while home is stale and allowed after set-home (and when only offsets are stale); state reports stale items, with and without a marker; a null path disables the marker.
+- Calibration marker (`nodes/mcp_server/tests/test_calibration_marker.py`): absent marker loads as none, a valid one loads, an invalid one reports everything stale; clearing one item keeps the other, clearing the last deletes the file, clearing an absent file is a no-op (False), `only_if_saved_at` clears only while the marker names that re-zero, an unreadable marker is deleted when everything is cleared; `arm_home` is refused while home is stale and allowed after set-home (and when only offsets are stale); state reports stale items, with and without a marker; a null path disables the marker.
 - Torque gate (`nodes/mcp_server/tests/test_torque_gate.py`): every motion tool is mapped to servo groups; a tool of a released group is refused and publishes nothing while other groups keep working; unknown or enabled state refuses nothing; `enqueue_motions` checks only the groups of its steps; robot and control state list released groups; the arm lease is dropped without publishing when the arm is released; a filter_node released source is torque off, not a takeover; `take_control` arm and the web_ui take are refused while released; torque state config defaults, the ROS robot subscribes to the three torque topics, a servo is not released without a sample or when stale, a malformed payload is ignored, and publish is suppressed for a released arm and head but not for a base release.
 
 ### Per-node tests (gps_rtk)
@@ -3613,6 +3656,8 @@ Static invariants of the `head_rgbd_calibration` deploy (node type and `ros2_nod
 | `test_http_port_unique_in_client_vars` | The node's HTTP port appears exactly once in `client.yml`. |
 | `test_fit_joint_offsets_equal_mcp_server_arm` | `fit.joint_offsets_rad` of the node config equals mcp_server's `arm.joint_offsets_rad`. |
 | `test_fit_base_in_base_link_equals_mcp_server_arm` | `fit.base_in_base_link` equals mcp_server's `arm.base_in_base_link`. |
+| `test_mcp_server_reads_the_accepted_arm_calibration_from_the_calibration_applied_dir` | mcp_server's `arm.applied_dir` (and `head.applied_dir`) is the node's `state_dir/applied`; the apply restart service names no arm calibration file and no mcp_server unit (the arm calibration is applied without a restart). |
+| `test_arm_camera_accept_reads_the_marker_mcp_server_clears` | The node's `arm_stale_marker` is mcp_server's `arm.calibration_stale_marker`. |
 | `test_pose_check_body_equals_mcp_server_body` | `arm_sequence.pose_check.body` boxes and cylinders equal mcp_server's `body` block. |
 | `test_arm_urdf_file_is_the_mcp_server_arm_urdf` | The node's `arm_urdf_file` is the arm URDF mcp_server loads. |
 | `test_boards_are_the_full_and_the_arm_board_with_disjoint_ids` | The client block's `board` is `charuco-6x5-40mm` (ids from 0), `fit.board` equals `fit.plate` and is `charuco-arm-6x5-28mm` (ids from 15) (replaces `test_fit_board_equals_board`: the board roles split). |

@@ -79,7 +79,6 @@ def register(ctx: ToolContext) -> None:
     # for the computation; without one the envelope stays lazy (first call), which keeps test servers cheap.
     if settings.reach_cache_file is not None:
         envelope.start()
-    mount = checker.mount
 
     @ctx.server.tool(
         description=(
@@ -120,7 +119,7 @@ def register(ctx: ToolContext) -> None:
         return ArmReach(
             obstacles=checker.body.describe(),
             arm_mount={
-                "base_in_base_link": mount.model_dump(),
+                "base_in_base_link": checker.mount.model_dump(),  # current: a calibration swap may move it
                 "pan_axis_base_link": result["pan_axis_base_link"] if result is not None else None,
                 "note": "the arm base and shoulder link stand on the crossbar and are not checked against it",
             },

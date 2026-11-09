@@ -3,18 +3,24 @@
 The fit (`arm_camera_fit.fit_arm_camera`) holds the applied head chain fixed (`floor_results.base_urdf`: the floor fit
 or a head-from-arm result, decision 325) and solves the arm joint offsets, the arm base, the board seat and the sag
 from the session's board views; it needs no floor session. The applied arm calibration it starts from and compares
-with is the configured `fit.joint_offsets_rad` / `fit.base_in_base_link` (pinned equal to mcp_server's `arm:` block).
+with is the one mcp_server runs with (`effective_fit`): the accepted applied/arm_calibration.json when there is one,
+else the configured `fit.joint_offsets_rad` / `fit.base_in_base_link` (pinned equal to mcp_server's `arm:` block).
 
 A result lives in the session's results/<rid>/ next to the head-arm results: result.json (`kind: "arm_camera"`,
 `state` done or failed, the quality report, the calibration) and, for a done result, joint_offsets_snippet.yaml (the
 reviewed client.yml mcp_server `arm:` snippet). The compute runs as a niced child (arm_camera_compute.py, through a
 ComputeJob); while it runs the result has no directory and `read_arm_camera_result` reports `running` from the job.
 
-Accept (only a done, plausible, not declined result) writes applied/arm_calibration.json and the `arm_calibration`
-record of applied/applied.json through `apply.update_applied`, the writer every apply uses (the applied.json path unit
-fires as for any apply); the head chain and its record stay as they are. mcp_server reads the arm calibration from
-client.yml, so the accepted snippet still goes into client.yml by review. Decline records `declined: true` in
-result.json and changes nothing applied.
+Accept (only a done, plausible, not declined result of the applied head chain, captured after the last servo zero change)
+writes applied/arm_calibration.json (format: ros2_common `arm_calibration_file.ArmCalibrationFile`, validated before
+the write) and then the `arm_calibration` record of applied/applied.json through `apply.update_applied`, the writer
+every apply uses; the head chain and its record stay as they are. mcp_server sees the applied.json change and applies
+the offsets and the arm base at its next idle point (no restart, no client.yml edit); it also clears joint_offsets from
+the arm re-zero stale marker then (the one writer). The accept itself only reads the follower bridge's stale marker and
+its zero change record (ros2_common `zero_change_refusal`): it refuses when the zero may have changed at or after the
+session's first still (`captured_from`: a re-zero, a zero restore, an unknown time or an unreadable file; the offsets
+were measured in another zero) and when the session has no still. Decline records `declined: true` in result.json and changes nothing
+applied.
 
 Telemetry (calib_event): flow `arm_camera_compute` (run id: the result id): `inputs` (views, intrinsics, the head
 chain source, the applied offsets and base, the fit config), `solver` (status, evaluations, start and end RMS, free
@@ -29,18 +35,27 @@ import os
 import shutil
 import threading
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+from pydantic import ValidationError
 from ros2_common.camera_geometry import PLUMB_BOB_COEFFS
+from ros2_common.head_rgbd_calibration.arm_calibration_file import (
+    ARM_CALIBRATION_FILE,
+    ARM_CALIBRATION_KEY,
+    ArmCalibrationError,
+    ArmCalibrationFile,
+    read_arm_calibration,
+    zero_change_refusal,
+)
 from ros2_common.head_rgbd_calibration.arm_camera_fit import (
     arm_camera_report,
     calibration_snippet_yaml,
     fit_arm_camera,
 )
-from ros2_common.head_rgbd_calibration.config import ARM_JOINT_NAMES
+from ros2_common.head_rgbd_calibration.config import ARM_JOINT_NAMES, BaseInBaseLink, HeadArmFitConfig
 from ros2_common.head_rgbd_calibration.floor_fit import json_float
 
 from head_rgbd_calibration import floor_results
@@ -49,6 +64,7 @@ from head_rgbd_calibration.config import NodeConfig
 from head_rgbd_calibration.head_arm_results import session_intrinsics, views_summary
 from head_rgbd_calibration.store import (
     KIND_HEAD_ARM,
+    POSE_FILE,
     RESULT_FILE,
     TEMP_PREFIX,
     NotFound,
@@ -66,8 +82,7 @@ STATE_RUNNING = "running"
 STATE_DONE = "done"
 STATE_FAILED = "failed"
 DATE_TIMESPEC = "seconds"
-ARM_CALIBRATION_FILE = "arm_calibration.json"
-ARM_CALIBRATION_KEY = "arm_calibration"
+NS_PER_S = 1e9
 URDF_SOURCE = "urdf"
 # applied.json head_chain record `source` -> the head chain source the arm to camera API names.
 HEAD_CHAIN_SOURCES = {"floor": "floor_fit", "head_arm": "head_arm", "arm": "arm_offsets"}
@@ -81,6 +96,9 @@ NOT_PLAUSIBLE_ERROR = "result {rid} is not plausible and cannot be accepted: {re
 DECLINED_ERROR = "result {rid} was declined and cannot be accepted"
 ACCEPTED_ERROR = "result {rid} was accepted and cannot be declined"
 CRASHED_ERROR = "the compute ended without a result"
+ACCEPTED_UNREADABLE_ERROR = "the accepted arm calibration cannot be read ({error}): accept a result again"
+ZERO_CHANGED_ERROR = "result {rid} cannot be accepted: {reason}; capture a new session in the current arm zero"
+NO_STILLS_ERROR = "session {sid} has no still poses"
 HEAD_CHAIN_CHANGED_ERROR = (
     "result {rid} was fitted against another head chain ({fitted}); the applied one is {applied}: compute again"
 )
@@ -152,6 +170,75 @@ def applied_summary(cfg: NodeConfig) -> dict[str, Any] | None:
     }
 
 
+def effective_fit(cfg: NodeConfig) -> tuple[HeadArmFitConfig, dict[str, str] | None]:
+    """The fit config with the arm calibration mcp_server runs with: the accepted one overrides the configured joint
+    offsets and arm base.
+
+    Args:
+        cfg: Node config (state_dir, fit).
+
+    Returns:
+        (fit config, {session, result} of the accepted calibration or None when the configured values are used).
+
+    Raises:
+        ValueError: The applied.json record names an arm calibration that cannot be read (ArmCalibrationError text).
+    """
+    try:
+        accepted = read_arm_calibration(Path(cfg.state_dir) / APPLIED_DIR)
+    except ArmCalibrationError as exc:
+        raise ValueError(ACCEPTED_UNREADABLE_ERROR.format(error=exc)) from exc
+    if accepted is None:
+        return cfg.fit, None
+    update = {
+        "joint_offsets_rad": dict(accepted.joint_offsets_rad),
+        "base_in_base_link": BaseInBaseLink(**accepted.base_in_base_link.model_dump()),
+    }
+    return cfg.fit.model_copy(update=update), {"session": accepted.session, "result": accepted.result}
+
+
+def captured_from(store: SessionStore, sid: str) -> datetime:
+    """Capture time of the session's earliest still: the earliest stamp of any source (colour, head and arm joints) of
+    any still pose, so a zero change just before the first arm joint sample is not missed.
+
+    Args:
+        store: Session store.
+        sid: head_arm session id.
+
+    Returns:
+        datetime: UTC time of the earliest stamp.
+
+    Raises:
+        ValueError: the session has no still pose.
+    """
+    stamps = [
+        int(stamp)
+        for pid in store.pose_ids(sid)
+        for stamp in json.loads((store.pose_dir(sid, pid) / POSE_FILE).read_text())["stamps"].values()
+    ]
+    if not stamps:
+        raise ValueError(NO_STILLS_ERROR.format(sid=sid))
+    return datetime.fromtimestamp(min(stamps) / NS_PER_S, tz=UTC)
+
+
+def zero_refusal(cfg: NodeConfig, rid: str, since: datetime) -> str | None:
+    """Why the offsets of a result captured from `since` may not hold in the current arm zero (the follower bridge's
+    stale marker and zero change record, ros2_common `zero_change_refusal`).
+
+    Args:
+        cfg: Node config (arm_stale_marker).
+        rid: Result id (for the message).
+        since: The session's first still.
+
+    Returns:
+        str | None: The refusal; None without a marker check (`arm_stale_marker` null) or without a zero change at or
+        after `since`.
+    """
+    if cfg.arm_stale_marker is None:
+        return None
+    reason = zero_change_refusal(Path(cfg.arm_stale_marker), since)
+    return None if reason is None else ZERO_CHANGED_ERROR.format(rid=rid, reason=reason)
+
+
 def base_body(rid: str, sid: str, now: datetime, head_chain: dict[str, str | None] | None) -> dict[str, Any]:
     """The result.json fields every result has."""
     return {
@@ -209,6 +296,7 @@ def compute_arm_camera(cfg: NodeConfig, store: SessionStore, sid: str, rid: str,
         ready, reason = readiness(cfg)
         if not ready:
             raise ValueError(reason)
+        fit_cfg, applied_source = effective_fit(cfg)
         views = store.load_arm_board_views(sid)
         intrinsics = session_intrinsics(store, sid)
         calib_event(
@@ -221,10 +309,11 @@ def compute_arm_camera(cfg: NodeConfig, store: SessionStore, sid: str, rid: str,
             **views_summary(views),
             intrinsics=intrinsics,
             head_chain=head_chain,
-            applied_offsets_rad=cfg.fit.joint_offsets_rad,
-            applied_base=cfg.fit.base_in_base_link,
-            tool_offset_m=cfg.fit.tool_offset_m,
-            arm_camera=cfg.fit.arm_camera,
+            applied_offsets_rad=fit_cfg.joint_offsets_rad,
+            applied_base=fit_cfg.base_in_base_link,
+            applied_source=applied_source,
+            tool_offset_m=fit_cfg.tool_offset_m,
+            arm_camera=fit_cfg.arm_camera,
             camera_frame=cfg.camera_frame,
         )
         fit = fit_arm_camera(
@@ -233,7 +322,7 @@ def compute_arm_camera(cfg: NodeConfig, store: SessionStore, sid: str, rid: str,
             np.asarray(intrinsics.distortion or np.zeros(PLUMB_BOB_COEFFS), dtype=float),
             floor_results.base_urdf(cfg),
             Path(cfg.arm_urdf_file).read_text(),
-            cfg.fit,
+            fit_cfg,
             cfg.camera_frame,
         )
         calib_event(
@@ -249,7 +338,7 @@ def compute_arm_camera(cfg: NodeConfig, store: SessionStore, sid: str, rid: str,
             max_correlation={"pair": list(fit.max_correlation.pair), "value": fit.max_correlation.value},
             condition_number=fit.condition_number,
         )
-        report = arm_camera_report(fit, cfg.fit, applied_summary(cfg))
+        report = arm_camera_report(fit, fit_cfg, applied_summary(cfg))
         log_checks(rid, sid, report)
         snippet = calibration_snippet_yaml(fit, sid, rid, now.strftime(floor_results.NOTE_DATE_FORMAT))
         result.update(
@@ -259,7 +348,7 @@ def compute_arm_camera(cfg: NodeConfig, store: SessionStore, sid: str, rid: str,
                 # json_float: a non-finite fit (refused as non_finite) keeps result.json strict JSON (null)
                 "joint_offsets_rad": {name: json_float(fit.offsets[name]) for name in ARM_JOINT_NAMES},
                 "base_in_base_link": {key: json_float(value) for key, value in fit.base.items()},
-                "tool_offset_m": [json_float(v) for v in cfg.fit.tool_offset_m],
+                "tool_offset_m": [json_float(v) for v in fit_cfg.tool_offset_m],
                 "snippet": snippet,
             },
         )
@@ -354,7 +443,8 @@ def read_arm_camera_result(store: SessionStore, sid: str, rid: str, job_state: d
 def accept_arm_camera(
     cfg: NodeConfig, store: SessionStore, sid: str, rid: str, now: datetime, run: floor_results.RunFn
 ) -> dict[str, Any]:
-    """Accept a done, plausible result: write applied/arm_calibration.json and the applied.json record.
+    """Accept a done, plausible result: write applied/arm_calibration.json and the applied.json record (mcp_server
+    applies it at its next idle point).
 
     Args:
         cfg: Node config (state_dir, restart_units).
@@ -368,8 +458,9 @@ def accept_arm_camera(
         {arm_calibration: {session, result, accepted_at, score}, units: [{name, active_state, restarted}]}.
 
     Raises:
-        NotApplicable: the result is not done, not plausible, was declined, or was fitted against a head chain that is
-            no longer applied.
+        NotApplicable: the result is not done, not plausible, was declined, was fitted against a head chain that is
+            no longer applied, was captured before the last arm re-zero (or the re-zero time is unknown), or does not
+            validate as an ArmCalibrationFile.
         InvalidId, NotFound: unknown or malformed ids.
     """
     with DECISION_LOCK:
@@ -393,6 +484,13 @@ def accept_locked(
         refusal = NOT_PLAUSIBLE_ERROR.format(rid=rid, reasons=reasons)
     elif result["head_chain"] != (applied_chain := head_chain_source(cfg)):
         refusal = HEAD_CHAIN_CHANGED_ERROR.format(rid=rid, fitted=result["head_chain"], applied=applied_chain)
+    else:
+        try:
+            since = captured_from(store, sid)
+        except ValueError as exc:
+            refusal = str(exc)
+        else:
+            refusal = zero_refusal(cfg, rid, since)
     if refusal is not None:
         calib_event(LOGGER, FLOW_ACCEPT, rid, "accept", "refused", logging.WARNING, refusal, session_id=sid)
         raise NotApplicable(refusal)
@@ -401,9 +499,16 @@ def accept_locked(
     calibration = {
         **record,
         **result["calibration"],
+        "captured_from": since.isoformat(),
         "head_chain": result["head_chain"],
         "accuracy_examples": report["accuracy_examples"],
     }
+    try:
+        ArmCalibrationFile.model_validate(calibration)  # the format mcp_server applies
+    except ValidationError as exc:
+        reason = f"result {rid} does not give a valid arm calibration: {exc}"
+        calib_event(LOGGER, FLOW_ACCEPT, rid, "accept", "refused", logging.WARNING, reason, session_id=sid)
+        raise NotApplicable(reason) from exc
     text = json.dumps(calibration, indent=2).encode()
     update_applied(
         Path(cfg.state_dir) / APPLIED_DIR,
@@ -422,6 +527,7 @@ def accept_locked(
         record=record,
         joint_offsets_rad=calibration["joint_offsets_rad"],
         base_in_base_link=calibration["base_in_base_link"],
+        captured_from=calibration["captured_from"],
         units=units,
     )
     return {ARM_CALIBRATION_KEY: record, "units": units}

@@ -169,6 +169,7 @@ keys are rejected.
 | Key | Default | Meaning |
 |---|---|---|
 | `state_dir` | `/var/lib/ros2/head_rgbd_calibration` | Sessions, poses, results |
+| `arm_stale_marker` | `/var/lib/ros2/arm/calibration_stale.json` | Follower bridge arm re-zero stale marker: the arm to camera accept is refused while it lists joint_offsets for a re-zero at or after the session's first still; null: no check |
 | `http_host` / `http_port` | `127.0.0.1` / `18110` | HTTP API bind |
 | `topics.rgb` / `depth` / `rgb_info` | `/head/d435/color/image_raw/compressed`, `/head/d435/aligned_depth_to_color/image_raw`, `/head/d435/color/camera_info` | D435 capture topics (`nodes/bridges/realsense_d435/config/topics.yaml`) |
 | `topics.head_joint_states` / `arm_joint_states` | `/head/joint_states`, `/follower/joint_states` | Measured joints of the head_arm still capture |
@@ -451,8 +452,8 @@ Events per flow:
 | `d435_accept` | result id | `accept` accepted or refused (reason, failed limits) |
 | `head_arm_compute` | result id | `inputs` (views per tier and head offset, corners, intrinsics, floor reference), `result` passed, failed or error (params value and sigma, RMS, held-out, every limit check, worst views) |
 | `arm_compute` | result id | `inputs` (plate views, floor reference, current offsets), `result` passed, failed or error (offsets, head params, tool point, limit checks) |
-| `arm_camera_compute` | result id | `child` start and end in the node (the job); in the child: `inputs` (views per tier and head offset, corners, intrinsics, the fixed head chain source, applied offsets and base, tool point, `fit.arm_camera`), `solver` (status, message, evaluations, cost, start and end RMS, free parameters, largest correlation, condition number), one `refusal` (refused, WARNING) per refusal and one `warning` per warning (name, value, limit, unit, message), `result` plausible, implausible or error (score, params, skew, sag, accuracy examples, the applied calibration's score, refusal and warning names) |
-| `arm_camera_accept` | result id | `accept` accepted (record, offsets, base, unit states) or refused (reason); `decline` declined (plausible, score) or refused |
+| `arm_camera_compute` | result id | `child` start and end in the node (the job); in the child: `inputs` (views per tier and head offset, corners, intrinsics, the fixed head chain source, applied offsets and base the fit starts from with `applied_source` ({session, result} of the accepted calibration, null for the configured values), tool point, `fit.arm_camera`), `solver` (status, message, evaluations, cost, start and end RMS, free parameters, largest correlation, condition number), one `refusal` (refused, WARNING) per refusal and one `warning` per warning (name, value, limit, unit, message), `result` plausible, implausible or error (score, params, skew, sag, accuracy examples, the applied calibration's score, refusal and warning names) |
+| `arm_camera_accept` | result id | `accept` accepted (record, offsets, base, `captured_from`, unit states) or refused (reason: not done, implausible, declined, head chain changed, arm re-zero after the capture or unknown, invalid calibration); `decline` declined (plausible, score) or refused |
 | `head_chain_apply` | result id | `apply` applied (record, files written, unit states, units not restarted yet) or refused |
 | `applied` | none | `write` (every applied/ write: files with sizes, applied.json keys before and after) |
 | `csi_capture` | session id | `capture` start, `view` kept (corners), `capture` stopped |
@@ -587,8 +588,13 @@ journalctl -u ros2-head_rgbd_calibration -o cat --since today | grep -o 'calib_e
   is a failed result; tightened bounds give an implausible result whose accept is refused; the compute telemetry
   (inputs, solver, one refusal event per refusal with value and limit, result); accept writes arm_calibration.json and
   the `arm_calibration` record and keeps the head chain, its record and head_chain.json unchanged (what mcp_server's
-  head reader reads), stamps `accepted_at` and refuses a later decline; the next result compares with the accepted
-  one; decline records `declined` and changes nothing applied, a declined result cannot be accepted; a failed result
+  head reader reads), stamps `accepted_at` and refuses a later decline, writes `captured_from` and a body the shared
+  `read_arm_calibration` (what mcp_server applies) returns with the accepted offsets and base; the next result compares
+  with the accepted one and starts from it (`applied_offsets_rad`, `applied_base`, `applied_source` in the inputs
+  event), without one from the config, and an unreadable accepted file fails the compute; the accept is refused for a
+  re-zero after the capture, a zero restore recorded after the capture (marker deleted) or an unreadable / timeless
+  stale marker and goes through for a re-zero before the capture or a marker without joint_offsets, never writing the
+  marker; a session without stills is refused; `captured_from` is the earliest stamp of any source; decline records `declined` and changes nothing applied, a declined result cannot be accepted; a failed result
   is refused by both; a running and a crashed compute read from the job state; `/state` without a head chain and the
   head chain source names; the shipped bounds; an accept after another head chain was applied is refused and the
   accepted calibration reads `head_chain_changed`.
@@ -870,8 +876,10 @@ and z (`fit.arm_camera.fit_base_z`), the seat and the sag (and, with `fit_droop`
 (exact degeneracies, held at the applied value): the arm base yaw (a yaw turn is a shoulder_pan offset change plus a
 base x, y shift: the pan axis is vertical and sits 38.8 mm off the arm root) and the wrist_roll offset unless
 `fit_wrist_roll` (a wrist_roll zero change is a board turn about that axis, only the seat prior can pin it). The
-tool point is the applied `fit.tool_offset_m`. The applied calibration the fit starts from and compares with is
-`fit.joint_offsets_rad` / `fit.base_in_base_link` (pinned equal to mcp_server's `arm:` block).
+tool point is the applied `fit.tool_offset_m`. The applied calibration the fit starts from and compares with is the
+one mcp_server runs with (`effective_fit`): the accepted `applied/arm_calibration.json` when there is one, else
+`fit.joint_offsets_rad` / `fit.base_in_base_link` (pinned equal to mcp_server's `arm:` block, the baseline). An
+accepted file that cannot be read makes the compute a failed result naming it.
 
 The compute runs in its own ComputeJob (`python -m head_rgbd_calibration.arm_camera_compute`, niced, killed after
 `compute_timeout_s`; about 4 s on a laptop for 144 views), so the request returns at once and the page polls.
@@ -885,7 +893,7 @@ checked with `tests/contract.py`). Errors use the common `{ok: false, message}` 
 |---|---|
 | `POST /sessions/{sid}/compute` | 202 `{result_id}`; 404 unknown session, 400 not a head_arm session, 409 while a head-arm sequence runs, while an arm to camera compute runs, or when not ready (no applied head chain; the message is the `reason` of `/state`) |
 | `GET /sessions/{sid}/results/{rid}` | the result (below); 404 unknown or malformed ids or a result of another kind |
-| `POST /sessions/{sid}/results/{rid}/accept` | `{arm_calibration: {session, result, accepted_at, score}, units: [{name, active_state, restarted}]}` (`units`: the `restart_units` states as every apply reports them; no unit reads arm_calibration.json, so they show `restarted: false`); 409 when the result is not done (running or failed), not plausible (the message lists the refusals), declined, or fitted against a head chain that is no longer the applied one; 404 as above |
+| `POST /sessions/{sid}/results/{rid}/accept` | `{arm_calibration: {session, result, accepted_at, score}, units: [{name, active_state, restarted}]}` (`units`: the `restart_units` states as every apply reports them; no unit reads arm_calibration.json, so they show `restarted: false`; mcp_server applies it without a restart); 409 when the result is not done (running or failed), not plausible (the message lists the refusals), declined, fitted against a head chain that is no longer the applied one, captured before the last arm re-zero (or the re-zero time is unknown), or not a valid arm calibration; 404 as above |
 | `POST /sessions/{sid}/results/{rid}/decline` | the result with `declined: true`, `declined_at`; nothing applied changes; 409 when not done or already accepted |
 | `GET /state` | `{applied: {session, result, accepted_at, score, accuracy_examples, head_chain_changed} \| null, head_chain_source, ready, reason}` (`head_chain_changed`: the applied head chain is no longer the one the accepted calibration was fitted against); `head_chain_source` is `floor_fit`, `head_arm`, `arm_offsets` (the applied.json head_chain record `source` floor, head_arm, arm), null for an applied chain without a matching record, `urdf` without an applied chain (then `ready` false and `reason` "apply a head calibration first ...") |
 
@@ -931,16 +939,33 @@ Report fields (`arm_camera_fit.arm_camera_report`):
   sigma_droop_mm_per_nm, droop_at_reference_mm}` (droop keys null without `fit_droop`).
 - `notes`: the gauge and model notes (head fixed, yaw gauge, wrist_roll gauge or prior, base z fixed, tool point).
 
-Accept writes `applied/arm_calibration.json` (`{session, result, accepted_at, score, joint_offsets_rad,
-base_in_base_link, tool_offset_m, snippet, head_chain, accuracy_examples}`) and the `arm_calibration` record of
-`applied/applied.json` through `apply.update_applied`, the writer of every apply (the applied.json path unit fires as
-for any apply; it restarts the head nodes only when a file they read changed, so an arm accept restarts nothing); the
-head chain, its record and the D435 check record stay as they are, and `accepted_at` is stamped into result.json.
-mcp_server reads the arm calibration from its client.yml `arm:` block, not from `applied/`: the accepted
-`snippet` (`joint_offsets_rad`, `arm_base_height_m`, `base_in_base_link`, validated against arm_collision's
-`ArmModelSettings` in `tests/test_arm_camera_fit.py`) is committed to client.yml by review, together with
-`fit.joint_offsets_rad` / `fit.base_in_base_link` of this node and the web_ui `arm_offset`, as for the arm offsets fit.
-`joint_offsets_snippet.yaml` in the result directory holds the same snippet. The head-arm routes
+Accept applies the calibration to the robot; Decline keeps the one in use. Accept writes
+`applied/arm_calibration.json` (`{session, result, accepted_at, score, joint_offsets_rad, base_in_base_link,
+tool_offset_m, snippet, captured_from, head_chain, accuracy_examples}`; `captured_from` is the session's earliest still,
+the body is validated as ros2_common `ArmCalibrationFile` before the write) and then the `arm_calibration` record of
+`applied/applied.json` through `apply.update_applied`, the writer of every apply (the data file first, applied.json
+last: the commit point). The head chain, its record and the D435 check record stay as they are, and `accepted_at` is
+stamped into result.json. mcp_server (`arm.applied_dir`, the same `applied/`) sees the applied.json change on its
+0.25 s monitor tick and swaps the accepted joint offsets, arm base and mount height (`arm_base_height_m` = base z)
+into the running arm model at its next idle point (no arm motion running); no unit restarts (the apply path unit
+restarts the head nodes only when a file they read changed) and no client.yml edit is needed. The client.yml `arm:`
+values stay the baseline mcp_server falls back to when nothing is accepted. The tool point is not fitted and stays
+the configured one. See `nodes/mcp_server/README.md` ("Accepted arm calibration").
+
+Arm zero: the accept is refused (409) when the servo zero may have changed at or after `captured_from` (the earliest
+stamp of any source of any still: colour, head and arm joints), read by ros2_common `zero_change_refusal` from the
+follower bridge's stale marker (`arm_stale_marker`) and its zero change record (`zero_changed.json` next to it, the
+time of the last neutral save or zero restore, never cleared): the marker lists `joint_offsets` for a re-zero at or
+after the capture, the record names a zero change at or after it (a zero restore deletes the marker but not the
+record), either is unreadable, or the marker lists `joint_offsets` without a timezone-aware `saved_at`. Times count
+within one second of the capture as after it (the bridge writes whole seconds). Capture a new session then. The accept
+only reads these files; mcp_server clears `joint_offsets` from the marker when it applies a calibration that passes the
+same check (one writer).
+
+`snippet` / `joint_offsets_snippet.yaml` (`joint_offsets_rad`, `arm_base_height_m`, `base_in_base_link`) stay for
+review and for moving an accepted calibration into the client.yml baseline (with `fit.joint_offsets_rad` /
+`fit.base_in_base_link` of this node and the web_ui `arm_offset`, which still read client.yml); the runtime override
+sets exactly these keys (pinned by `tests/test_arm_calibration_file.py`). The head-arm routes
 (`/api/head-arm/sessions`, `.../results/{rid}`) neither list nor serve arm to camera results. While an arm to camera
 compute runs, a head-arm sequence and a floor sweep do not start.
 

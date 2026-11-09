@@ -24,6 +24,8 @@ from ros2_common.head_rgbd_calibration.config import (
 CONFIG_ENV = "HEAD_RGBD_CALIBRATION_CONFIG"
 
 DEFAULT_STATE_DIR = "/var/lib/ros2/head_rgbd_calibration"
+# The follower bridge's arm re-zero stale marker (feetech_servos neutral_stale_marker), read by the arm to camera accept.
+DEFAULT_ARM_STALE_MARKER = "/var/lib/ros2/arm/calibration_stale.json"
 DEFAULT_HTTP_HOST = "127.0.0.1"
 DEFAULT_HTTP_PORT = 18110
 # The D435 streams (nodes/bridges/realsense_d435/config/topics.yaml): colour, depth registered to the colour frame
@@ -474,10 +476,13 @@ class NodeConfig(StrictModel):
 
     `camera_frame` is the optical frame of the colour stream the head-from-arm fit solves the camera in.
     `csi_cameras` are the CSI cameras whose intrinsics the node calibrates (csi_intrinsics.py), and
-    `csi_min_view_shift_px` the mean corner shift a kept view needs from the last kept one.
+    `csi_min_view_shift_px` the mean corner shift a kept view needs from the last kept one. `arm_stale_marker` is the
+    follower bridge's arm re-zero stale marker: the arm to camera accept is refused while it lists joint_offsets for a
+    re-zero at or after the session's first still (None: no check).
     """
 
     state_dir: str = DEFAULT_STATE_DIR
+    arm_stale_marker: str | None = DEFAULT_ARM_STALE_MARKER
     http_host: str = DEFAULT_HTTP_HOST
     http_port: int = Field(default=DEFAULT_HTTP_PORT, ge=1, le=65535)
     topics: TopicsConfig = Field(default_factory=TopicsConfig)
