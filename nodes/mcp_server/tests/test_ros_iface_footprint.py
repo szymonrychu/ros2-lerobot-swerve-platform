@@ -5,9 +5,9 @@ Covers: the re-send timer runs at the period NavFootprint asks for; parameter se
 no response and a request still unanswered at the next tick is cancelled and reported as a timeout; double values
 for the costmap inflation; `<costmap>/published_footprint` polygons are kept per topic; a parameter service coming
 up (unavailable -> ready edge) calls the consumer-ready callback once; the arm pose accessors; a successful
-/arm/home runs the footprint tick at once (back to static) and a failed one does not; with the real arm and
-NavFootprint a converged home goes from the dynamic to the static footprint (the single home footprint hook);
-bind_control wires the drive pose controller into the footprint (drive mode at the drive pose, static publish).
+/arm/home (and /arm/move_to_neutral) runs the footprint tick at once (back to static) and a failed one does not; with
+the real arm and NavFootprint a converged home goes from the dynamic to the static footprint (the single home
+footprint hook); bind_control wires the drive pose controller into the footprint (drive mode at the drive pose, static publish).
 """
 
 from collections.abc import Callable
@@ -207,6 +207,25 @@ def test_home_service_without_a_footprint_tick_still_answers(ros_iface: ModuleTy
     robot.arm.home_service_call.return_value = (True, "done")
     response = robot.on_home(MagicMock(), SimpleNamespace(success=None, message=None))
     assert response.success is True
+
+
+@pytest.mark.parametrize(("move_ok", "ticks_expected"), [(True, 1), (False, 0)])
+def test_move_to_neutral_service_answers_and_ticks_the_footprint_only_after_success(
+    ros_iface: ModuleType, tmp_path: Path, move_ok: bool, ticks_expected: int
+) -> None:
+    """/arm/move_to_neutral answers with the arm's result; success re-evaluates the footprint like /arm/home."""
+    robot = make_robot(ros_iface, tmp_path, [0.0])
+    ticks: list[int] = []
+    robot.every(5.0, lambda: ticks.append(1))
+    robot.arm = MagicMock()
+    robot.arm.move_to_neutral_service_call.return_value = (move_ok, "converged: ok" if move_ok else "refused")
+    response = robot.on_move_to_neutral(MagicMock(), SimpleNamespace(success=None, message=None))
+    assert (response.success, response.message) == robot.arm.move_to_neutral_service_call.return_value
+    assert len(ticks) == ticks_expected
+
+
+def test_move_to_neutral_service_name_default() -> None:
+    assert McpServerConfig().topics.move_to_neutral_service == "/arm/move_to_neutral"
 
 
 def test_converged_home_service_ends_with_the_static_footprint(ros_iface: ModuleType, tmp_path: Path) -> None:

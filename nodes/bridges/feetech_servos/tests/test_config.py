@@ -4,7 +4,13 @@ from pathlib import Path
 
 import pytest
 
-from feetech_servos.config import DEFAULT_NEUTRAL_MAX_SHIFT_DEG, BridgeConfig, load_config, load_config_from_env
+from feetech_servos.config import (
+    DEFAULT_NEUTRAL_MAX_SHIFT_DEG,
+    BridgeConfig,
+    ZeroRestoreConfig,
+    load_config,
+    load_config_from_env,
+)
 
 
 def test_load_config_nonexistent_path() -> None:
@@ -664,3 +670,100 @@ def test_load_config_set_register_motion_blocked_default_off(tmp_path: Path) -> 
     cfg = load_config(p)
     assert cfg is not None
     assert cfg.set_register_motion_blocked is False
+
+
+ZERO_BASE = (
+    "namespace: follower\n"
+    "neutral_exclude_joints: [gripper]\n"
+    "joint_names:\n"
+    "  - name: shoulder_pan\n    id: 1\n"
+    "  - name: elbow_flex\n    id: 3\n"
+    "  - name: gripper\n    id: 6\n"
+)
+ZERO_BLOCK = (
+    "zero_restore:\n"
+    "  reference_file: /var/lib/ros2/arm/rest_reference.json\n"
+    "  record_dir: /var/lib/ros2/arm\n"
+    "  seed_reference_rad: {shoulder_pan: -0.018, elbow_flex: 1.516}\n"
+)
+
+
+def test_zero_restore_absent_by_default(tmp_path: Path) -> None:
+    """Without a zero_restore block no group has one."""
+    p = tmp_path / "c.yaml"
+    p.write_text(ZERO_BASE + NEUTRAL_EXTRA)
+    cfg = load_config(p)
+    assert cfg is not None
+    assert [g.zero_restore for g in cfg.groups] == [None, None]
+
+
+def test_zero_restore_defaults(tmp_path: Path) -> None:
+    """A minimal block takes the defaults; the primary group carries it."""
+    p = tmp_path / "c.yaml"
+    p.write_text(ZERO_BASE + ZERO_BLOCK)
+    cfg = load_config(p)
+    assert cfg is not None
+    zero = cfg.groups[0].zero_restore
+    assert zero == ZeroRestoreConfig(
+        reference_file="/var/lib/ros2/arm/rest_reference.json",
+        record_dir="/var/lib/ros2/arm",
+        seed_reference_rad={"shoulder_pan": -0.018, "elbow_flex": 1.516},
+    )
+    assert zero.max_change_deg == 15.0
+    assert zero.still_window_s == 1.0
+    assert zero.still_tolerance_steps == 3
+    assert zero.verify_tolerance_steps == 3
+    assert zero.plan_max_age_s == 60.0
+    assert zero.plan_tolerance_steps == 5
+
+
+def test_zero_restore_values(tmp_path: Path) -> None:
+    """Every key is read; an extra group carries its own block."""
+    p = tmp_path / "c.yaml"
+    p.write_text(
+        ZERO_BASE
+        + ZERO_BLOCK
+        + "  max_change_deg: 10\n  still_window_s: 2\n  still_tolerance_steps: 4\n  verify_tolerance_steps: 2\n"
+        + "  plan_max_age_s: 30\n  plan_tolerance_steps: 6\n"
+        + NEUTRAL_EXTRA
+        + "    zero_restore:\n      reference_file: /tmp/r.json\n      record_dir: /tmp\n"
+        + "      seed_reference_rad: {fl_steer: 0.1}\n"
+    )
+    cfg = load_config(p)
+    assert cfg is not None
+    arm, base = (g.zero_restore for g in cfg.groups)
+    assert (arm.max_change_deg, arm.still_window_s, arm.still_tolerance_steps) == (10.0, 2.0, 4)
+    assert (arm.verify_tolerance_steps, arm.plan_max_age_s, arm.plan_tolerance_steps) == (2, 30.0, 6)
+    assert base.seed_reference_rad == {"fl_steer": 0.1}
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        "zero_restore: yes\n",
+        "zero_restore:\n  record_dir: /x\n  seed_reference_rad: {shoulder_pan: 0, elbow_flex: 0}\n",
+        "zero_restore:\n  reference_file: /x\n  seed_reference_rad: {shoulder_pan: 0, elbow_flex: 0}\n",
+        "zero_restore:\n  reference_file: /x\n  record_dir: /y\n",
+        # the seed must name exactly the restore joints (position joints minus neutral_exclude_joints)
+        "zero_restore:\n  reference_file: /x\n  record_dir: /y\n  seed_reference_rad: {shoulder_pan: 0}\n",
+        "zero_restore:\n  reference_file: /x\n  record_dir: /y\n"
+        "  seed_reference_rad: {shoulder_pan: 0, elbow_flex: 0, gripper: 0}\n",
+        "zero_restore:\n  reference_file: /x\n  record_dir: /y\n  seed_reference_rad: {shoulder_pan: 0, elbow_flex: x}\n",
+        "zero_restore:\n  reference_file: /x\n  record_dir: /y\n"
+        "  seed_reference_rad: {shoulder_pan: 0, elbow_flex: .nan}\n",
+        "zero_restore:\n  reference_file: /x\n  record_dir: /y\n"
+        "  seed_reference_rad: {shoulder_pan: 0, elbow_flex: true}\n",
+        ZERO_BLOCK + "  max_change_deg: 0\n",
+        ZERO_BLOCK + "  still_window_s: -1\n",
+        ZERO_BLOCK + "  still_tolerance_steps: 1.5\n",
+        ZERO_BLOCK + "  verify_tolerance_steps: -1\n",
+        ZERO_BLOCK + "  plan_max_age_s: 0\n",
+        ZERO_BLOCK + "  plan_tolerance_steps: true\n",
+        ZERO_BLOCK + "  unknown_key: 1\n",
+    ],
+)
+def test_zero_restore_invalid_rejected(tmp_path: Path, block: str) -> None:
+    """A malformed block makes the whole config invalid (never a half-configured restore)."""
+    p = tmp_path / "c.yaml"
+    p.write_text(ZERO_BASE + block)
+    assert load_config(p) is None

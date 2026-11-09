@@ -37,6 +37,7 @@ from std_srvs.srv import Trigger
 
 from .battery import BatteryMonitor, battery_fields
 from .bridge_cycle import MAX_STEPS, MIN_STEPS, BridgeCycle, drain_callbacks, end_cycle, split_stamp_ns
+from .calib_event import CalibEventLog
 from .config import BridgeConfig, JointGroup, load_config_from_env
 from .joint_updates import get_position_updates
 from .metrics import BUS_UP, init_joints, record_read_cycle, record_register_dump
@@ -68,6 +69,7 @@ from .torque_control import (
     TorqueControl,
     TorqueStatePublisher,
 )
+from .zero_restore import ZeroRestoreControl
 
 DEFAULT_QOS_DEPTH = 10
 SERVO_WAIT_INTERVAL_S = 1.0
@@ -111,15 +113,17 @@ def setup_torque_interfaces(
     callbacks_run: list[int],
     interval_s: float,
     neutral: NeutralControl | None = None,
+    zero: ZeroRestoreControl | None = None,
 ) -> TorqueStatePublisher:
-    """Create the torque and neutral services and /<ns>/torque_state of every group.
+    """Create the torque, neutral and zero restore services and /<ns>/torque_state of every group.
 
     Every group gets /<ns>/servo/release_torque and /<ns>/servo/enable_torque; a group with neutral_enabled also gets
     /<ns>/servo/record_neutral, /<ns>/servo/save_neutral (refused above neutral_max_shift_deg) and
-    /<ns>/servo/save_neutral_confirmed (the explicit large-shift confirm; when neutral is given). Every record/save
-    publishes the
-    group's torque_state at the next step. The service callbacks run inline on the loop thread (the executor is
-    drained there), the sole bus owner.
+    /<ns>/servo/save_neutral_confirmed (the explicit large-shift confirm; when neutral is given). A group with a
+    zero_restore block gets /<ns>/servo/zero_restore_dry_run, zero_restore_apply, zero_restore_apply_confirmed (the
+    explicit large-change confirm) and save_rest_reference (when zero is given). Every neutral / zero restore call
+    publishes the group's torque_state at the next step. The service callbacks run inline on the loop thread (the
+    executor is drained there), the sole bus owner.
 
     Args:
         node (Node): The rclpy node.
@@ -128,6 +132,7 @@ def setup_torque_interfaces(
         callbacks_run (list[int]): One-element counter incremented by every callback (see drain_callbacks).
         interval_s (float): torque_state_interval_s.
         neutral (NeutralControl | None): Neutral control of the bus; None creates no neutral services.
+        zero (ZeroRestoreControl | None): Zero restore control of the bus; None creates no zero restore services.
 
     Returns:
         TorqueStatePublisher: Call step(now, stamp_ns) once per loop iteration with an open bus.
@@ -138,7 +143,13 @@ def setup_torque_interfaces(
     def publish(namespace: str, payload: dict[str, Any]) -> None:
         publishers[namespace].publish(String(data=json.dumps(payload, separators=(",", ":"))))
 
-    reporter = TorqueStatePublisher(control, interval_s, publish, neutral.status if neutral is not None else None)
+    def status(namespace: str) -> dict[str, Any]:
+        fields = neutral.status(namespace) if neutral is not None else {}
+        if zero is not None:
+            fields |= zero.status(namespace)
+        return fields
+
+    reporter = TorqueStatePublisher(control, interval_s, publish, status if neutral or zero else None)
 
     def make_service(namespace: str, action: Any, publish_state: bool = False) -> Any:
         def on_request(_request: Any, response: Any) -> Any:
@@ -162,6 +173,14 @@ def setup_torque_interfaces(
             node.create_service(
                 Trigger, f"/{ns}/servo/save_neutral_confirmed", make_service(ns, confirmed_save(neutral), True)
             )
+        if zero is not None and group.zero_restore is not None:
+            for name, action in (
+                ("zero_restore_dry_run", zero.dry_run),
+                ("zero_restore_apply", zero.apply),
+                ("zero_restore_apply_confirmed", confirmed_apply(zero)),
+                ("save_rest_reference", zero.save_rest_reference),
+            ):
+                node.create_service(Trigger, f"/{ns}/servo/{name}", make_service(ns, action, True))
 
     return reporter
 
@@ -176,6 +195,18 @@ def confirmed_save(neutral: NeutralControl) -> Callable[[str], NeutralResult]:
         Callable[[str], NeutralResult]: namespace -> NeutralControl.save(namespace, confirmed=True).
     """
     return lambda namespace: neutral.save(namespace, confirmed=True)
+
+
+def confirmed_apply(zero: ZeroRestoreControl) -> Callable[[str], NeutralResult]:
+    """The action of zero_restore_apply_confirmed: an apply with the large-change confirm given.
+
+    Args:
+        zero (ZeroRestoreControl): Zero restore control of the bus.
+
+    Returns:
+        Callable[[str], NeutralResult]: namespace -> ZeroRestoreControl.apply(namespace, confirmed=True).
+    """
+    return lambda namespace: zero.apply(namespace, confirmed=True)
 
 
 def make_executor(kind: str) -> Executor:
@@ -402,11 +433,18 @@ def serve_bridge(config: BridgeConfig, node: Node) -> None:
 
     torque_control.joint_torque.update(startup_torque)
     logger = node.get_logger()
+    calib_events = CalibEventLog(logger.info, logger.warning, logger.error)
     neutral = NeutralControl(
-        torque_control, command_limits, log_info=logger.info, log_error=logger.error, log_warning=logger.warning
+        torque_control,
+        command_limits,
+        log_info=logger.info,
+        log_error=logger.error,
+        log_warning=logger.warning,
+        events=calib_events,
     )
+    zero = ZeroRestoreControl(torque_control, command_limits, events=calib_events)
     torque_state = setup_torque_interfaces(
-        node, groups, torque_control, callbacks_run, config.torque_state_interval_s, neutral
+        node, groups, torque_control, callbacks_run, config.torque_state_interval_s, neutral, zero
     )
 
     for group in groups:

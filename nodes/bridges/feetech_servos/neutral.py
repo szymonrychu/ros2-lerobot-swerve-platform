@@ -13,7 +13,11 @@ limits, UnLockEprom, DefineMiddle, settle, LockEprom (always), verify present ~2
 DefineMiddle moved them, refresh the bridge command limits of EEPROM-limited joints. When every joint saved, torque is
 enabled holding the present position (TorqueControl.enable). Any failure aborts the remaining joints and keeps torque
 off on the whole group. A group with neutral_stale_marker gets the stale marker JSON for every joint whose centre
-changed.
+changed. Every record and save logs calib_event lines (flow "neutral": record, save start / refused / done, one
+centre_joint per joint) through calib_event.CalibEventLog.
+
+Shared helpers: write_json_atomic (temp file + os.replace), read_stale_items / set_stale_items on the stale marker and
+stop_bus_wheels, also used by zero_restore.
 
 bridge.py runs both on the loop thread (the sole bus owner); tests drive them over an emulated bus.
 """
@@ -31,6 +35,7 @@ from typing import Any
 
 from feetech_mapping.command_mapping import STEP_CENTER
 
+from .calib_event import OUTCOME_FAILED, OUTCOME_OK, OUTCOME_REFUSED, OUTCOME_START, CalibEventLog, new_run_id
 from .config import JointEntry, JointGroup
 from .registers import get_register_entry_by_name, read_register, write_register
 from .torque_control import PRESENT_REGISTER, TORQUE_OFF, TORQUE_REGISTER, TorqueControl, read_present_position
@@ -52,6 +57,7 @@ SPEED_REGISTER = "goal_speed"
 MARKER_VERSION = 1
 STALE_ITEMS = ("joint_offsets", "home")
 NONE_TEXT = "none"
+FLOW = "neutral"
 
 
 @dataclass
@@ -157,6 +163,120 @@ def merge_marker(
     }
 
 
+def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
+    """Write JSON atomically: temp file in the same directory (fsynced), then os.replace; parents are created.
+
+    Args:
+        path (Path): Destination file.
+        payload (dict[str, Any]): JSON content (indented, trailing newline).
+
+    Raises:
+        OSError: When the directory, the temp file or the replace fails (the temp file is removed).
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    content = json.dumps(payload, indent=2) + "\n"
+    fd, temp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_name, path)
+    except BaseException:
+        Path(temp_name).unlink(missing_ok=True)
+        raise
+
+
+def read_marker_json(path: Path) -> dict[str, Any] | None:
+    """Read the stale marker JSON.
+
+    Args:
+        path (Path): Marker path.
+
+    Returns:
+        dict[str, Any] | None: The parsed marker; None when absent.
+
+    Raises:
+        ValueError: The file exists but is unreadable, not JSON or not an object with a "stale" list.
+    """
+    try:
+        text = path.read_text()
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise ValueError(f"stale marker {path} unreadable: {exc}") from exc
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"stale marker {path} is not valid JSON: {exc}") from exc
+    if not isinstance(data, dict) or not isinstance(data.get("stale"), list):
+        raise ValueError(f"stale marker {path} has no stale list")
+    return data
+
+
+def read_stale_items(path: Path) -> list[str] | None:
+    """Items the stale marker lists (as mcp_server calibration_marker.load_marker reads them).
+
+    Args:
+        path (Path): Marker path.
+
+    Returns:
+        list[str] | None: The "stale" items; None when there is no marker; every STALE_ITEMS entry for an unreadable
+            or invalid marker (a suspect marker is never read as clean).
+    """
+    try:
+        data = read_marker_json(path)
+    except ValueError as exc:
+        LOGGER.error("%s; treating every item as stale", exc)
+        return list(STALE_ITEMS)
+    return None if data is None else [str(item) for item in data["stale"]]
+
+
+def set_stale_items(path: Path, items: list[str], group: str, saved_at: str | None) -> None:
+    """Set the marker's stale list atomically, keeping its other fields; delete the marker when the list is empty.
+
+    An absent marker is created ({version, group, saved_at, joints: {}, stale}); an unreadable one is rewritten.
+
+    Args:
+        path (Path): Marker path.
+        items (list[str]): The new stale items.
+        group (str): Group namespace for a new marker.
+        saved_at (str | None): ISO-8601 UTC time for a new marker (None: unknown).
+
+    Raises:
+        OSError: When the rewrite or the delete fails.
+    """
+    if not items:
+        path.unlink(missing_ok=True)
+        return
+    try:
+        data = read_marker_json(path)
+    except ValueError as exc:
+        LOGGER.error("%s; rewriting it", exc)
+        data = None
+    if data is None:
+        data = {"version": MARKER_VERSION, "group": group, "saved_at": saved_at, "joints": {}}
+    write_json_atomic(path, {**data, "stale": list(items)})
+
+
+def stop_bus_wheels(torque: TorqueControl) -> list[str]:
+    """Stop every velocity joint of the bus with an acknowledged zero goal_speed (cache bypassed).
+
+    An EEPROM sequence stalls the bridge loop, so its velocity watchdog cannot run meanwhile.
+
+    Args:
+        torque (TorqueControl): Torque control of the bus (cycle, register cache).
+
+    Returns:
+        list[str]: Names of wheels whose stop was not acknowledged.
+    """
+    wheels = torque.cycle.velocity_joints
+    for wheel in wheels:
+        torque.last_written.setdefault(wheel.id, {}).pop(SPEED_REGISTER, None)
+    torque.cycle.stop(wheels)
+    return [w.name for w in wheels if SPEED_REGISTER not in torque.last_written[w.id]]
+
+
 def write_stale_marker(path: Path, group: str, saved_at: str, joints: dict[str, tuple[int, int]]) -> None:
     """Write (merge) the stale marker atomically: temp file in the same directory, then os.replace.
 
@@ -171,24 +291,13 @@ def write_stale_marker(path: Path, group: str, saved_at: str, joints: dict[str, 
     Raises:
         OSError: When the directory, the temp file or the replace fails.
     """
-    path.parent.mkdir(parents=True, exist_ok=True)
     existing = None
     if path.exists():
         try:
             existing = json.loads(path.read_text())
         except json.JSONDecodeError:
             LOGGER.warning("stale marker %s is not valid JSON; replacing it", path)
-    content = json.dumps(merge_marker(existing, group, saved_at, joints), indent=2) + "\n"
-    fd, temp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w") as handle:
-            handle.write(content)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temp_name, path)
-    except BaseException:
-        Path(temp_name).unlink(missing_ok=True)
-        raise
+    write_json_atomic(path, merge_marker(existing, group, saved_at, joints))
 
 
 def names_text(names: list[str]) -> str:
@@ -214,6 +323,7 @@ class NeutralControl:
         log_info: Receives a line per record or save result.
         log_error: Receives a line per stale marker write failure.
         log_warning: Receives a line per save refused for a large shift and per confirmed large shift.
+        events: calib_event lines (flow "neutral").
         captures: namespace -> joint name -> recorded present steps (joints not saved yet).
         last_saves: namespace -> {"saved_at", "saved", "failed"} of the last save that reached the EEPROM step.
     """
@@ -227,6 +337,7 @@ class NeutralControl:
         log_info: Callable[[str], Any] = LOGGER.info,
         log_error: Callable[[str], Any] = LOGGER.error,
         log_warning: Callable[[str], Any] = LOGGER.warning,
+        events: CalibEventLog | None = None,
     ) -> None:
         """Create the neutral control for one bus.
 
@@ -238,6 +349,7 @@ class NeutralControl:
             log_info (Callable[[str], Any]): Info logger.
             log_error (Callable[[str], Any]): Error logger.
             log_warning (Callable[[str], Any]): Warning logger.
+            events (CalibEventLog | None): calib_event sink; None logs them on this module's logger.
         """
         self.torque = torque
         self.command_limits = command_limits
@@ -246,6 +358,7 @@ class NeutralControl:
         self.log_info = log_info
         self.log_error = log_error
         self.log_warning = log_warning
+        self.events = events or CalibEventLog(LOGGER.info, LOGGER.warning, LOGGER.error)
         self.captures: dict[str, dict[str, int]] = {}
         self.last_saves: dict[str, dict[str, Any]] = {}
         self.present_entry = get_register_entry_by_name(PRESENT_REGISTER)
@@ -296,17 +409,24 @@ class NeutralControl:
         Returns:
             NeutralResult: success with the per-joint shift (steps and degrees), or the refusal.
         """
+        run_id, started = new_run_id(), time.monotonic()
         group, refusal = self.checked_group(namespace)
         if group is None:
-            return self.logged(NeutralResult(False, f"/{namespace}: {refusal}"))
+            return self.refused(run_id, "record", started, f"/{namespace}: {refusal}")
         joints = group.neutral_joints
         present, unread = self.read_presents(joints)
         if unread:
-            return self.logged(
-                NeutralResult(False, f"/{namespace}: present_position read failed: {names_text(unread)}")
+            return self.refused(
+                run_id, "record", started, f"/{namespace}: present_position read failed: {names_text(unread)}"
             )
         self.captures[namespace] = present
         shifts = ", ".join(shift_text(name, steps) for name, steps in present.items())
+        data = {
+            "group": namespace,
+            "present_steps": dict(present),
+            "shift_deg": {n: round(shift_degrees(v), 2) for n, v in present.items()},
+        }
+        self.events.event(FLOW, run_id, "record", OUTCOME_OK, None, data, time.monotonic() - started)
         return self.logged(NeutralResult(True, f"/{namespace}: neutral recorded: {shifts}"))
 
     def save(self, namespace: str, confirmed: bool = False) -> NeutralResult:
@@ -323,12 +443,13 @@ class NeutralControl:
             NeutralResult: success when every joint saved, torque is back on and the stale marker (if any) is written;
                 otherwise the message names the saved, failed and unattempted joints.
         """
+        run_id, started = new_run_id(), time.monotonic()
         group, refusal = self.checked_group(namespace)
         if group is None:
-            return self.logged(NeutralResult(False, f"/{namespace}: {refusal}"))
+            return self.refused(run_id, "save", started, f"/{namespace}: {refusal}")
         capture = self.captures.get(namespace)
         if not capture:
-            return self.logged(NeutralResult(False, f"/{namespace}: record neutral first"))
+            return self.refused(run_id, "save", started, f"/{namespace}: record neutral first")
         large = large_shifts(capture, group.neutral_max_shift_deg)
         if large:
             shifts = ", ".join(shift_text(name, capture[name]) for name in large)
@@ -337,23 +458,35 @@ class NeutralControl:
                     f"/{namespace}: neutral shift above {group.neutral_max_shift_deg:g} deg: {shifts}; nothing written,"
                     " torque unchanged; confirm the large shift to save (save_neutral_confirmed)"
                 )
+                self.events.event(
+                    FLOW, run_id, "save", OUTCOME_REFUSED, message, {"large": large}, time.monotonic() - started
+                )
                 self.log_warning(message)
                 return NeutralResult(False, message)
             self.log_warning(f"/{namespace}: large neutral shift confirmed: {shifts}")
+            self.events.event(FLOW, run_id, "confirm_large_shift", OUTCOME_OK, shifts, {"large": large})
         joints = [j for j in group.neutral_joints if j.name in capture]
         present, unread = self.read_presents(joints)
         if unread:
             message = f"/{namespace}: present_position read failed: {names_text(unread)}; nothing written"
-            return self.logged(NeutralResult(False, message))
+            return self.refused(run_id, "save", started, message)
         moved = [j.name for j in joints if abs(present[j.name] - capture[j.name]) > NEUTRAL_MOVE_TOLERANCE_STEPS]
         if moved:
-            return self.logged(
-                NeutralResult(False, f"/{namespace}: moved since record: {', '.join(moved)}; record again")
+            return self.refused(
+                run_id, "save", started, f"/{namespace}: moved since record: {', '.join(moved)}; record again"
             )
         unstopped = self.stop_wheels()
         if unstopped:
             message = f"/{namespace}: wheels not stopped: {names_text(unstopped)}; nothing written"
-            return self.logged(NeutralResult(False, message))
+            return self.refused(run_id, "save", started, message)
+        self.events.event(
+            FLOW,
+            run_id,
+            "save",
+            OUTCOME_START,
+            None,
+            {"group": namespace, "present_steps": dict(present), "confirmed": confirmed},
+        )
 
         saved: list[str] = []
         centred: dict[str, tuple[int, int]] = {}
@@ -361,6 +494,21 @@ class NeutralControl:
         not_attempted: list[str] = []
         for index, joint in enumerate(joints):
             outcome = self.centre_joint(joint)
+            self.events.event(
+                FLOW,
+                run_id,
+                "centre_joint",
+                OUTCOME_OK if outcome.reason is None else OUTCOME_FAILED,
+                outcome.reason,
+                {
+                    "joint": joint.name,
+                    "id": joint.id,
+                    "before_steps": present[joint.name],
+                    "after_steps": outcome.after_steps,
+                    "limits": list(outcome.limits) if outcome.limits is not None else None,
+                },
+                time.monotonic() - started,
+            )
             if outcome.after_steps is not None:
                 centred[joint.name] = (present[joint.name], outcome.after_steps)
             if outcome.reason is not None:
@@ -383,7 +531,7 @@ class NeutralControl:
             )
             if marker_error is not None:
                 message += f"; stale marker not written: {marker_error}"
-            return self.logged(NeutralResult(False, message))
+            return self.finished(run_id, started, NeutralResult(False, message), saved, not_attempted)
 
         del self.captures[namespace]
         enabled = self.torque.enable(namespace)
@@ -391,9 +539,9 @@ class NeutralControl:
             message = f"/{namespace}: neutral saved, stale marker not written: {marker_error}"
             if not enabled.success:
                 message += f"; {enabled.message}"
-            return self.logged(NeutralResult(False, message))
+            return self.finished(run_id, started, NeutralResult(False, message), saved, [])
         message = f"/{namespace}: neutral saved for {names_text(saved)}; {enabled.message}"
-        return self.logged(NeutralResult(enabled.success, message))
+        return self.finished(run_id, started, NeutralResult(enabled.success, message), saved, [])
 
     def checked_group(self, namespace: str) -> tuple[JointGroup | None, str]:
         """Return the group for a record/save request, or None and the refusal reason.
@@ -447,11 +595,7 @@ class NeutralControl:
         Returns:
             list[str]: Names of wheels whose stop was not acknowledged.
         """
-        wheels = self.torque.cycle.velocity_joints
-        for wheel in wheels:
-            self.torque.last_written.setdefault(wheel.id, {}).pop(SPEED_REGISTER, None)
-        self.torque.cycle.stop(wheels)
-        return [w.name for w in wheels if SPEED_REGISTER not in self.torque.last_written[w.id]]
+        return stop_bus_wheels(self.torque)
 
     def read_limits(self, servo_id: int) -> tuple[int, int] | None:
         """Read (min_angle_limit, max_angle_limit), each retried.
@@ -605,6 +749,47 @@ class NeutralControl:
             self.log_error(f"/{group.namespace}: neutral saved, stale marker not written: {error}")
             return error
         return None
+
+    def refused(self, run_id: str, step: str, started: float, message: str) -> NeutralResult:
+        """Log a refused record/save (calib_event at WARNING plus the info line) and return it.
+
+        Args:
+            run_id (str): calib_event run id.
+            step (str): "record" or "save".
+            started (float): time.monotonic() at the request.
+            message (str): Refusal message.
+
+        Returns:
+            NeutralResult: The unsuccessful result.
+        """
+        self.events.event(FLOW, run_id, step, OUTCOME_REFUSED, message, None, time.monotonic() - started)
+        return self.logged(NeutralResult(False, message))
+
+    def finished(
+        self, run_id: str, started: float, result: NeutralResult, saved: list[str], not_attempted: list[str]
+    ) -> NeutralResult:
+        """Log the end of a save that reached the EEPROM step (calib_event ok or failed) and return the result.
+
+        Args:
+            run_id (str): calib_event run id.
+            started (float): time.monotonic() at the request.
+            result (NeutralResult): Outcome.
+            saved (list[str]): Joints saved.
+            not_attempted (list[str]): Joints not attempted after a failure.
+
+        Returns:
+            NeutralResult: The same result.
+        """
+        self.events.event(
+            FLOW,
+            run_id,
+            "save",
+            OUTCOME_OK if result.success else OUTCOME_FAILED,
+            None if result.success else result.message,
+            {"saved": saved, "not_attempted": not_attempted},
+            time.monotonic() - started,
+        )
+        return self.logged(result)
 
     def logged(self, result: NeutralResult) -> NeutralResult:
         """Log a result (info) and return it.

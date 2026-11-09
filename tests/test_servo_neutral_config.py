@@ -25,6 +25,16 @@ ARM_DIR = "/var/lib/ros2/arm"
 BASE_NEUTRAL_JOINTS = ["fl_steer", "fr_steer", "rl_steer", "rr_steer"]
 GROUP_IDS = {"arm", "base", "head"}
 FOLLOWER_MAX_SHIFT_DEG = 15.0
+# /follower/joint_states at rest (folded, torque off) before the 2026-11-09 wrong re-zero: the zero restore seed.
+REST_SEED_RAD = {
+    "shoulder_pan": -0.018,
+    "shoulder_lift": -1.542,
+    "elbow_flex": 1.516,
+    "wrist_flex": 0.862,
+    "wrist_roll": -0.072,
+}
+ZERO_RESTORE_TIMEOUT_S = 30
+MOVE_TO_NEUTRAL_SERVICE = "/arm/move_to_neutral"
 
 
 def nodes(path: Path) -> list[dict]:
@@ -127,6 +137,34 @@ def test_follower_neutral_save_guard_is_explicit() -> None:
     cfg = node_config(FOLLOWER)
     assert cfg["neutral_max_shift_deg"] == FOLLOWER_MAX_SHIFT_DEG
     assert not isinstance(cfg["neutral_max_shift_deg"], bool)
+
+
+def test_follower_zero_restore_block() -> None:
+    """The seed names exactly the restore joints (gripper excluded) with the pre-incident rest readings."""
+    cfg = node_config(FOLLOWER)
+    block = cfg["zero_restore"]
+    excluded = set(cfg["neutral_exclude_joints"])
+    restore = [
+        j["name"] for j in cfg["joint_names"] if j.get("mode", "position") == "position" and j["name"] not in excluded
+    ]
+    assert list(block["seed_reference_rad"]) == restore
+    assert block["seed_reference_rad"] == REST_SEED_RAD
+    assert block["reference_file"].startswith(ARM_DIR + "/") and block["record_dir"] == ARM_DIR
+    assert block["max_change_deg"] == FOLLOWER_MAX_SHIFT_DEG
+    assert block["verify_tolerance_steps"] == 3
+    assert block["still_window_s"] > 0 and block["plan_max_age_s"] > 0
+
+
+def test_web_ui_arm_offers_zero_restore_and_move_to_neutral() -> None:
+    arm = web_ui_groups()["arm"]
+    assert arm["zero_restore"] is True
+    assert arm["zero_restore_timeout_s"] >= ZERO_RESTORE_TIMEOUT_S
+    assert arm["move_to_neutral_service"] == MOVE_TO_NEUTRAL_SERVICE
+    for gid in ("base", "head"):
+        assert not web_ui_groups()[gid].get("zero_restore", False)
+        assert "move_to_neutral_service" not in web_ui_groups()[gid]
+    groups = bridge_groups()
+    assert [ns for ns, g in groups.items() if "zero_restore" in g["config"]] == ["follower"]
 
 
 def test_stale_marker_path_is_identical_everywhere() -> None:

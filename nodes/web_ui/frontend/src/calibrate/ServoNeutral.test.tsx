@@ -27,6 +27,8 @@ function group(id: string, over: Partial<ServoGroup> = {}): ServoGroup {
     age_s: 0.1,
     stale: false,
     calibration_stale: null,
+    zero_restore: false,
+    move_to_neutral: false,
     ...over,
   }
 }

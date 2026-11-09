@@ -173,42 +173,6 @@ FK pose check of the arm with the board on the gripper (`shared/ros2_common/head
 | `test_a_handle_box_inside_the_head_envelope_is_refused` | The plate alone clears the head; a handle box in the head envelope is refused. |
 | `test_a_body_box_within_the_margin_of_the_plate_but_beyond_it_from_every_lattice_point_is_refused` | A small body box `PROBE_GAP_M` (4.5 mm) behind the plate, over the middle of a lattice cell: every lattice point is beyond the margin, but within margin plus `lattice_miss_bound` of the threshold, so the pose is refused and the true clearance below `margin_m` is never accepted. |
 
-### `test_arm_zero_restore.py`
-
-`scripts/arm_zero_restore.py` (follower arm zero restore through the STS3215 offset register) on the feetech bridge's emulated STS bus (`nodes/bridges/feetech_servos/tests/sts_bus.py`, imported with `nodes/bridges` on `sys.path`) driven by the real `st3215.ST3215` class. `OffsetPort` extends the emulator so present_position = (encoder - offset) mod 4096; `incident_bus` seeds the post-incident arm: each joint read its reference with `ORIGINAL_OFFSET` before the wrong save, which raised each offset by the logged shift (`INCIDENT_SHIFT`). Root dev dependencies `st3215` and `feetech-mapping` make the bridge modules importable.
-
-| Test | Description |
-|------|-------------|
-| `test_offset_encoding_round_trip` | 0, +-1, 901, -1029, +-2047 encode to sign-magnitude (bit 11 = negative) and decode back. |
-| `test_negative_zero_decodes_to_zero` | 0x800 decodes to 0. |
-| `test_encode_rejects_magnitude_over_2047` | 2048, -2048 and 4095 raise instead of clamping. |
-| `test_decode_rejects_bits_above_sign` | A raw value with any of bits 12-15 set raises. |
-| `test_offset_max_is_2047` | The offset magnitude limit is 2047. |
-| `test_degrees_to_steps` | 5 deg = 56.888 steps. |
-| `test_offset_delta_is_present_minus_target` | The offset change is present - target (+901, -1029 cases). |
-| `test_offset_delta_takes_the_short_way_across_the_wrap` | Readings across 0/4095 give the short delta. |
-| `test_inverted_joint_target_follows_the_bridge_mapping` | An inverted joint targets `position_to_raw_steps(rad, inverted=True)` and the apply restores its original offset. |
-| `test_dry_run_computes_the_inverse_of_the_incident_shift` | Planned delta = minus the logged shift, new offset = the pre-incident offset, per joint, in the JSON record. |
-| `test_refuses_when_a_servo_has_torque_on` | torque_enable 1 on elbow_flex refuses the run even with `--apply`; nothing written, the record names the joint. |
-| `test_refuses_when_torque_cannot_be_read` | A servo that does not answer is refused; nothing written. |
-| `test_cross_check_mismatch_aborts_writing_nothing` | A delta 60 steps (5.3 deg) off the expected one aborts every joint; the record names the joint and deviation. |
-| `test_cross_check_within_tolerance_passes` | 56 steps (4.9 deg) off is accepted. |
-| `test_new_offset_out_of_range_aborts` | A new offset past +2047 refuses the run; nothing written. |
-| `test_dry_run_writes_nothing` | Without `--apply` no write packet reaches the bus. |
-| `test_apply_writes_offsets_and_verifies_reference` | `--apply` restores every offset, every joint reads its target, EEPROM relocked, torque never written, record after-values and limits. |
-| `test_apply_unlocks_before_and_locks_after_each_offset_write` | Each offset write sits between a lock 0 and a lock 1 write. |
-| `test_apply_restores_angle_limits_moved_by_the_offset_write` | Limits that move on the offset write are written back to the pre-write values. |
-| `test_apply_verify_failure_rolls_back_and_stops` | A servo ignoring the write fails the verify: its old offset is rewritten and later joints are not attempted. |
-| `test_apply_on_a_servo_adding_the_offset_rolls_back` | With the opposite sign convention the verify fails and the offset is rolled back. |
-| `test_apply_refuses_a_joint_whose_torque_came_on` | Torque found on right before a joint's write stops the run without writing that joint. |
-| `test_repo_config_matches_the_follower_bridge_config` | Config device, joint names, ids and inverted flags equal the `lerobot_follower` entry of `client.yml` (gripper excluded). |
-| `test_repo_config_values` | Reference readings, expected deltas (minus the logged shifts), 5 deg, 3 steps and the record path. |
-| `test_config_rejects_duplicate_ids` | Two joints on one id are refused. |
-| `test_config_rejects_unknown_keys` | An unknown key is refused. |
-| `test_main_refuses_while_the_follower_bridge_runs` | With the bridge unit active `main` exits 1 without opening the port. |
-| `test_service_active_asks_systemctl` | `systemctl is-active --quiet <unit>` exit 0 is active, any other code not. |
-| `test_repo_config_names_the_follower_service` | The guarded unit is `ros2-lerobot_follower`. |
-
 ### `test_board_lattice.py`
 
 The shared board collision lattice (`shared/ros2_common/head_rgbd_calibration/board_lattice.py`) used by the pose check and the mcp_server board park.
@@ -518,6 +482,8 @@ Servo torque-off and neutral keys in `ansible/group_vars/client.yml` and `server
 | `test_base_neutral_joints_are_the_four_steering_servos` | The base neutral joints are exactly fl/fr/rl/rr_steer; no velocity (wheel) joint. |
 | `test_follower_neutral_excludes_only_the_gripper` | lerobot_follower has `neutral_enabled: true` and `neutral_exclude_joints: [gripper]`. |
 | `test_follower_neutral_save_guard_is_explicit` | lerobot_follower sets the large-shift save guard `neutral_max_shift_deg: 15.0` (a number, not a bool); a larger recorded shift needs `save_neutral_confirmed` (incident 2026-11-09). |
+| `test_follower_zero_restore_block` | lerobot_follower `zero_restore`: the seed names exactly the restore joints (position joints minus the gripper) with the pre-incident rest readings (shoulder_pan -0.018, shoulder_lift -1.542, elbow_flex 1.516, wrist_flex 0.862, wrist_roll -0.072 rad); reference file and record dir under `/var/lib/ros2/arm`; `max_change_deg` 15.0; `verify_tolerance_steps` 3. |
+| `test_web_ui_arm_offers_zero_restore_and_move_to_neutral` | The web_ui arm group sets `zero_restore: true`, `zero_restore_timeout_s` >= 30 and `move_to_neutral_service: /arm/move_to_neutral`; base and head have neither, and only the follower bridge group has a `zero_restore` block. |
 | `test_stale_marker_path_is_identical_everywhere` | The stale marker path is the same in lerobot_follower, mcp_server `arm.calibration_stale_marker` and web_ui, under `/var/lib/ros2/arm`. |
 | `test_torque_state_topics_match_bridge_groups` | filter_node, swerve_controller and mcp_server torque state topics equal `/{namespace}/torque_state` of a configured bridge group; `servo_torque_stale_s` is set; both bridges set `torque_state_interval_s: 1.0`. |
 | `test_leader_bridge_has_no_neutral_keys` | The server.yml lerobot_leader bridge has no `neutral_*` key (the leader keeps its zero). |

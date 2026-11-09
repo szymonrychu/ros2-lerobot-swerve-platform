@@ -53,6 +53,7 @@ def torque_state_payload(
     stamp_ns: int,
     neutral_capture: dict[str, dict[str, Any]] | None = None,
     last_save: dict[str, Any] | None = None,
+    zero_restore: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the /<ns>/torque_state payload of one group (position joints only).
 
@@ -66,14 +67,16 @@ def torque_state_payload(
         neutral_capture (dict[str, dict[str, Any]] | None): Recorded neutral not saved yet, joint name ->
             {"steps", "delta_steps", "exceeds_max_shift"} (NeutralControl.status); None = nothing recorded.
         last_save (dict[str, Any] | None): Last neutral save {"saved_at", "saved", "failed"}; None = none yet.
+        zero_restore (dict[str, Any] | None): Arm zero restore state (ZeroRestoreControl.status); None = the group
+            has no zero_restore block (the key is then left out).
 
     Returns:
         dict[str, Any]: {"namespace", "released" (any joint gated), "joints" (name -> 0|1), "stamp_ns",
             "neutral_enabled", "neutral_capture", "last_save", "neutral_max_shift_deg" (the group's save guard in
-            degrees; None without neutral)}.
+            degrees; None without neutral)}, plus "zero_restore" for a group with a zero_restore block.
     """
     position_joints = [j for j in group.joints if j.mode == "position"]
-    return {
+    payload = {
         "namespace": group.namespace,
         "released": any(j.id in released_ids for j in position_joints),
         "joints": {j.name: joint_torque[j.id] for j in position_joints if j.id in joint_torque},
@@ -83,6 +86,9 @@ def torque_state_payload(
         "last_save": last_save,
         "neutral_max_shift_deg": group.neutral_max_shift_deg if group.neutral_enabled else None,
     }
+    if zero_restore is not None:
+        payload["zero_restore"] = zero_restore
+    return payload
 
 
 def read_present_position(read_once: Callable[[], int | None], attempts: int = PRESENT_READ_ATTEMPTS) -> int | None:
@@ -315,7 +321,8 @@ class TorqueStatePublisher:
         control: Torque control holding the readings and the gate.
         interval_s: Seconds between repeats of an unchanged state; 0 = on change only.
         publish: Called with (namespace, payload).
-        neutral_status: namespace -> {"neutral_capture", "last_save"} (NeutralControl.status); None = no neutral.
+        neutral_status: namespace -> extra payload fields: {"neutral_capture", "last_save"} (NeutralControl.status)
+            and {"zero_restore"} (ZeroRestoreControl.status); None = none.
         requested: Namespaces published at the next step even when unchanged (request()).
     """
 
@@ -332,7 +339,8 @@ class TorqueStatePublisher:
             control (TorqueControl): Torque control of the bus.
             interval_s (float): Seconds between repeats of an unchanged state; 0 = on change only.
             publish (Callable[[str, dict[str, Any]], None]): Sends one payload of a namespace.
-            neutral_status (Callable[[str], dict[str, Any]] | None): Neutral fields of a namespace's payload.
+            neutral_status (Callable[[str], dict[str, Any]] | None): Neutral and zero restore fields of a namespace's
+                payload.
         """
         self.control = control
         self.interval_s = interval_s
@@ -371,7 +379,13 @@ class TorqueStatePublisher:
             payload = torque_state_payload(group, self.control.joint_torque, released_ids, stamp_ns, **neutral)
             if not payload["joints"]:
                 continue
-            state = (payload["released"], payload["joints"], payload["neutral_capture"], payload["last_save"])
+            state = (
+                payload["released"],
+                payload["joints"],
+                payload["neutral_capture"],
+                payload["last_save"],
+                payload.get("zero_restore"),
+            )
             due = namespace not in self.last_time or (
                 self.interval_s > 0 and now - self.last_time[namespace] >= self.interval_s
             )

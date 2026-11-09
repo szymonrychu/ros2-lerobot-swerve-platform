@@ -43,6 +43,24 @@ DEFAULT_EXECUTOR = "single_threaded"
 # save_neutral_confirmed (the UI's explicit large-shift confirm) saves it. Incident 2026-11-09: a neutral recorded in the
 # folded pose shifted elbow_flex by +90.5 deg and Park could no longer converge.
 DEFAULT_NEUTRAL_MAX_SHIFT_DEG = 15.0
+# zero_restore block defaults (see ZeroRestoreConfig). An offset change above max_change_deg needs the explicit confirm
+# (zero_restore_apply_confirmed), as a large neutral shift does.
+DEFAULT_ZERO_MAX_CHANGE_DEG = 15.0
+DEFAULT_ZERO_STILL_WINDOW_S = 1.0
+DEFAULT_ZERO_STILL_TOLERANCE_STEPS = 3
+DEFAULT_ZERO_VERIFY_TOLERANCE_STEPS = 3
+DEFAULT_ZERO_PLAN_MAX_AGE_S = 60.0
+DEFAULT_ZERO_PLAN_TOLERANCE_STEPS = 5
+ZERO_RESTORE_REQUIRED_KEYS = ("reference_file", "record_dir", "seed_reference_rad")
+ZERO_RESTORE_KEYS = (
+    *ZERO_RESTORE_REQUIRED_KEYS,
+    "max_change_deg",
+    "still_window_s",
+    "still_tolerance_steps",
+    "verify_tolerance_steps",
+    "plan_max_age_s",
+    "plan_tolerance_steps",
+)
 
 
 def _parse_optional_steps(value: object) -> int | None:
@@ -97,6 +115,35 @@ class JointEntry:
 
 
 @dataclass
+class ZeroRestoreConfig:
+    """Arm zero restore of a group (the `zero_restore` block): rewrite each servo's EEPROM offset so the resting arm
+    reads its saved rest reference again (feetech_servos.zero_restore).
+
+    Attributes:
+        reference_file: JSON rest reference written by save_rest_reference; wins over the seed when present.
+        record_dir: Directory of the JSON record written by every apply (zero_restore-<UTC time>.json).
+        seed_reference_rad: joint name -> resting reading (rad, joint frame) used while no reference file exists;
+            names exactly the restore joints (position joints minus neutral_exclude_joints).
+        max_change_deg: An offset change above this (degrees) needs zero_restore_apply_confirmed.
+        still_window_s: Dry run and save_rest_reference sample present_position over this window (seconds).
+        still_tolerance_steps: Largest spread of present_position over the still window (steps).
+        verify_tolerance_steps: After a write present_position must read within this many steps of the target.
+        plan_max_age_s: Apply refuses a dry run older than this (seconds).
+        plan_tolerance_steps: Apply refuses when a joint reads more than this many steps from its dry run reading.
+    """
+
+    reference_file: str
+    record_dir: str
+    seed_reference_rad: dict[str, float]
+    max_change_deg: float = DEFAULT_ZERO_MAX_CHANGE_DEG
+    still_window_s: float = DEFAULT_ZERO_STILL_WINDOW_S
+    still_tolerance_steps: int = DEFAULT_ZERO_STILL_TOLERANCE_STEPS
+    verify_tolerance_steps: int = DEFAULT_ZERO_VERIFY_TOLERANCE_STEPS
+    plan_max_age_s: float = DEFAULT_ZERO_PLAN_MAX_AGE_S
+    plan_tolerance_steps: int = DEFAULT_ZERO_PLAN_TOLERANCE_STEPS
+
+
+@dataclass
 class JointGroup:
     """Joints published under one topic namespace.
 
@@ -108,6 +155,7 @@ class JointGroup:
         neutral_stale_marker: Path of the stale marker JSON written after a neutral save; None = no marker.
         neutral_max_shift_deg: save_neutral is refused when a recorded joint shift exceeds this (degrees); only
             save_neutral_confirmed saves it.
+        zero_restore: Arm zero restore services of this group (zero_restore_* and save_rest_reference); None = none.
     """
 
     namespace: str
@@ -116,6 +164,7 @@ class JointGroup:
     neutral_exclude_joints: list[str] = field(default_factory=list)
     neutral_stale_marker: str | None = None
     neutral_max_shift_deg: float = DEFAULT_NEUTRAL_MAX_SHIFT_DEG
+    zero_restore: ZeroRestoreConfig | None = None
 
     @property
     def neutral_joints(self) -> list[JointEntry]:
@@ -186,6 +235,7 @@ class BridgeConfig:
         neutral_exclude_joints: Primary-group position joints left out of the neutral record/save.
         neutral_stale_marker: Stale marker path written after a primary-group neutral save; None = no marker.
         neutral_max_shift_deg: Primary-group recorded shift (degrees) above which save_neutral needs the confirm.
+        zero_restore: Primary-group arm zero restore; None = none.
     """
 
     namespace: str
@@ -221,6 +271,7 @@ class BridgeConfig:
     neutral_exclude_joints: list[str] = field(default_factory=list)
     neutral_stale_marker: str | None = None
     neutral_max_shift_deg: float = DEFAULT_NEUTRAL_MAX_SHIFT_DEG
+    zero_restore: ZeroRestoreConfig | None = None
 
     @property
     def groups(self) -> list[JointGroup]:
@@ -232,6 +283,7 @@ class BridgeConfig:
             neutral_exclude_joints=list(self.neutral_exclude_joints),
             neutral_stale_marker=self.neutral_stale_marker,
             neutral_max_shift_deg=self.neutral_max_shift_deg,
+            zero_restore=self.zero_restore,
         )
         return [primary, *self.extra_groups]
 
@@ -453,6 +505,111 @@ def parse_neutral(
     return enabled, exclude, (marker.strip() or None) if marker is not None else None, float(max_shift)
 
 
+def is_number(value: object) -> bool:
+    """Return True for an int or float that is not a bool.
+
+    Args:
+        value (object): Raw YAML value.
+
+    Returns:
+        bool: True for a real number.
+    """
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
+def parse_zero_restore(raw: object, namespace: str, restore_names: list[str]) -> ZeroRestoreConfig | None:
+    """Parse and validate a group's zero_restore block.
+
+    Args:
+        raw (object): Raw YAML value of zero_restore (a mapping).
+        namespace (str): Group namespace, for the log message.
+        restore_names (list[str]): The group's restore joints (position joints minus neutral_exclude_joints).
+
+    Returns:
+        ZeroRestoreConfig | None: The block, or None (logged) when it is not a mapping, has unknown or missing keys,
+            the seed does not name exactly the restore joints with finite numbers, or a number is out of range.
+    """
+    if not isinstance(raw, dict):
+        LOGGER.warning("/%s: zero_restore must be a mapping, got %r", namespace, raw)
+        return None
+    unknown = sorted(set(raw) - set(ZERO_RESTORE_KEYS))
+    missing = [k for k in ZERO_RESTORE_REQUIRED_KEYS if k not in raw]
+    if unknown or missing:
+        LOGGER.warning("/%s: zero_restore unknown keys %s, missing keys %s", namespace, unknown, missing)
+        return None
+    paths = {k: raw[k] for k in ("reference_file", "record_dir")}
+    if not all(isinstance(v, str) and v.strip() for v in paths.values()):
+        LOGGER.warning("/%s: zero_restore reference_file and record_dir must be paths, got %r", namespace, paths)
+        return None
+    seed = raw["seed_reference_rad"]
+    if (
+        not isinstance(seed, dict)
+        or sorted(seed) != sorted(restore_names)
+        or not all(is_number(v) and math.isfinite(v) for v in seed.values())
+    ):
+        LOGGER.warning(
+            "/%s: zero_restore seed_reference_rad must give a finite rad value for exactly %s, got %r",
+            namespace,
+            restore_names,
+            seed,
+        )
+        return None
+    numbers = {
+        "max_change_deg": raw.get("max_change_deg", DEFAULT_ZERO_MAX_CHANGE_DEG),
+        "still_window_s": raw.get("still_window_s", DEFAULT_ZERO_STILL_WINDOW_S),
+        "plan_max_age_s": raw.get("plan_max_age_s", DEFAULT_ZERO_PLAN_MAX_AGE_S),
+    }
+    counts = {
+        "still_tolerance_steps": raw.get("still_tolerance_steps", DEFAULT_ZERO_STILL_TOLERANCE_STEPS),
+        "verify_tolerance_steps": raw.get("verify_tolerance_steps", DEFAULT_ZERO_VERIFY_TOLERANCE_STEPS),
+        "plan_tolerance_steps": raw.get("plan_tolerance_steps", DEFAULT_ZERO_PLAN_TOLERANCE_STEPS),
+    }
+    bad = [k for k, v in numbers.items() if not (is_number(v) and 0 < v < math.inf)]
+    bad += [k for k, v in counts.items() if not (isinstance(v, int) and not isinstance(v, bool) and v >= 0)]
+    if bad:
+        LOGGER.warning("/%s: zero_restore %s must be positive numbers (steps: integers >= 0)", namespace, bad)
+        return None
+    return ZeroRestoreConfig(
+        reference_file=paths["reference_file"].strip(),
+        record_dir=paths["record_dir"].strip(),
+        seed_reference_rad={name: float(seed[name]) for name in restore_names},
+        **{k: float(v) for k, v in numbers.items()},
+        **counts,
+    )
+
+
+def parse_group_zero_restore(
+    item: dict, namespace: str, restore_names: list[str]
+) -> tuple[bool, ZeroRestoreConfig | None]:
+    """Parse the optional zero_restore block of a group mapping.
+
+    Args:
+        item (dict): Raw group mapping (top level or an extra_groups entry).
+        namespace (str): Group namespace.
+        restore_names (list[str]): The group's restore joints.
+
+    Returns:
+        tuple[bool, ZeroRestoreConfig | None]: (valid, block); (True, None) when absent, (False, None) when invalid.
+    """
+    if "zero_restore" not in item:
+        return True, None
+    block = parse_zero_restore(item["zero_restore"], namespace, restore_names)
+    return block is not None, block
+
+
+def restore_joint_names(joints: list[JointEntry], exclude: list[str]) -> list[str]:
+    """Names of the joints a neutral save or zero restore covers: position joints minus the excluded ones.
+
+    Args:
+        joints (list[JointEntry]): The group's joints.
+        exclude (list[str]): neutral_exclude_joints.
+
+    Returns:
+        list[str]: Joint names in config order.
+    """
+    return [j.name for j in joints if j.mode == "position" and j.name not in exclude]
+
+
 def parse_extra_groups(raw_groups: object, primary_namespace: str, seen_ids: set[int]) -> list[JointGroup] | None:
     """Parse extra_groups: list of { namespace, joint_names } sharing the bus with the primary group.
 
@@ -484,6 +641,9 @@ def parse_extra_groups(raw_groups: object, primary_namespace: str, seen_ids: set
         if neutral is None:
             return None
         enabled, exclude, marker, max_shift = neutral
+        valid, zero_restore = parse_group_zero_restore(item, namespace, restore_joint_names(joints, exclude))
+        if not valid:
+            return None
         groups.append(
             JointGroup(
                 namespace=namespace,
@@ -492,6 +652,7 @@ def parse_extra_groups(raw_groups: object, primary_namespace: str, seen_ids: set
                 neutral_exclude_joints=exclude,
                 neutral_stale_marker=marker,
                 neutral_max_shift_deg=max_shift,
+                zero_restore=zero_restore,
             )
         )
     return groups
@@ -535,6 +696,9 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
     if neutral is None:
         return None
     neutral_enabled, neutral_exclude_joints, neutral_stale_marker, neutral_max_shift_deg = neutral
+    valid, zero_restore = parse_group_zero_restore(data, namespace, restore_joint_names(joints, neutral_exclude_joints))
+    if not valid:
+        return None
     device = data.get("device")
     device = str(device).strip() if device else None
     baudrate = data.get("baudrate")
@@ -680,6 +844,7 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         neutral_exclude_joints=neutral_exclude_joints,
         neutral_stale_marker=neutral_stale_marker,
         neutral_max_shift_deg=neutral_max_shift_deg,
+        zero_restore=zero_restore,
     )
 
 

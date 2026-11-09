@@ -15,7 +15,16 @@ from pydantic import ValidationError
 
 from web_ui.config import AppConfig, CalibrationConfig, ServoGroupConfig
 
+ZERO_RESTORE_ACTIONS = (
+    "zero_restore_dry_run",
+    "zero_restore_apply",
+    "zero_restore_apply_confirmed",
+    "save_rest_reference",
+)
 STATE = {"namespace": "follower", "released": True, "joints": {"a": 0}, "stamp_ns": 1}
+PLAN_RUN_ID = "1a2b3c4d"
+PLAN_STATE = {**STATE, "zero_restore": {"plan": {"run_id": PLAN_RUN_ID, "needs_confirm": False, "joints": {}}}}
+APPLY_ACTIONS = ("zero_restore_apply", "zero_restore_apply_confirmed")
 
 
 class FakeBridge:
@@ -58,6 +67,8 @@ def groups(marker: Path | None = None) -> list[ServoGroupConfig]:
             namespace="follower",
             neutral=True,
             stale_marker=str(marker) if marker else None,
+            zero_restore=True,
+            move_to_neutral_service="/arm/move_to_neutral",
         ),
         ServoGroupConfig(id="head", label="Head", namespace="head"),
     ]
@@ -108,6 +119,10 @@ def test_derived_names() -> None:
     assert "/head/servo/save_neutral" not in config.trigger_services()
     assert "/follower/servo/save_neutral_confirmed" in config.trigger_services()
     assert "/head/servo/save_neutral_confirmed" not in config.trigger_services()
+    for action in ZERO_RESTORE_ACTIONS:
+        assert f"/follower/servo/{action}" in config.trigger_services()
+        assert f"/head/servo/{action}" not in config.trigger_services()
+    assert "/arm/move_to_neutral" in config.trigger_services()
 
 
 def test_get_fresh_stale_missing_and_marker(tmp_path: Path) -> None:
@@ -120,10 +135,11 @@ def test_get_fresh_stale_missing_and_marker(tmp_path: Path) -> None:
     arm, head = response.json()["groups"]
     assert arm == {
         "id": "arm", "label": "Arm", "neutral": True, "state": STATE, "age_s": 1.0, "stale": False,
-        "calibration_stale": ["joint_offsets", "home"],
+        "calibration_stale": ["joint_offsets", "home"], "zero_restore": True, "move_to_neutral": True,
     }  # fmt: skip
     assert head["stale"] is True and head["age_s"] == 11.0 and head["calibration_stale"] is None
     assert head["neutral"] is False
+    assert head["zero_restore"] is False and head["move_to_neutral"] is False
 
 
 def test_get_missing_sample_and_marker_absent(tmp_path: Path) -> None:
@@ -146,11 +162,19 @@ def test_get_without_bridge(tmp_path: Path) -> None:
         ("record", "/follower/servo/record_neutral"),
         ("save", "/follower/servo/save_neutral"),
         ("save_confirmed", "/follower/servo/save_neutral_confirmed"),
+        ("zero_restore_dry_run", "/follower/servo/zero_restore_dry_run"),
+        ("zero_restore_apply", "/follower/servo/zero_restore_apply"),
+        ("zero_restore_apply_confirmed", "/follower/servo/zero_restore_apply_confirmed"),
+        ("save_rest_reference", "/follower/servo/save_rest_reference"),
+        ("move_to_neutral", "/arm/move_to_neutral"),
     ],
 )
 def test_post_calls_derived_service(tmp_path: Path, action: str, service: str) -> None:
-    bridge = FakeBridge()
-    response = make_client(tmp_path, bridge).post(f"/api/calibration/servos/arm/{action}")
+    # Apply actions are bound to the shown dry run: a fresh cached plan and its run id (see test_apply_plan_binding).
+    bridge = FakeBridge({"follower": (PLAN_STATE, 100.0)} if action in APPLY_ACTIONS else None)
+    query = f"?plan_run_id={PLAN_RUN_ID}" if action in APPLY_ACTIONS else ""
+    with patch("web_ui.servo_calibration.time.monotonic", return_value=100.5):
+        response = make_client(tmp_path, bridge).post(f"/api/calibration/servos/arm/{action}{query}")
     assert response.status_code == 200
     assert response.json() == {"ok": True, "message": "done"}
     assert bridge.services == [service]
@@ -170,6 +194,9 @@ def test_post_404_paths(tmp_path: Path) -> None:
     assert client.post("/api/calibration/servos/head/record").status_code == 404
     assert client.post("/api/calibration/servos/head/save").status_code == 404
     assert client.post("/api/calibration/servos/head/save_confirmed").status_code == 404
+    for action in ZERO_RESTORE_ACTIONS:
+        assert client.post(f"/api/calibration/servos/head/{action}").status_code == 404
+    assert client.post("/api/calibration/servos/head/move_to_neutral").status_code == 404
 
 
 def test_post_503_paths(tmp_path: Path) -> None:
@@ -224,3 +251,103 @@ def test_bridge_subscribes_and_caches_servo_state() -> None:
     node.on_servo_torque_state("follower", SimpleNamespace(data=json.dumps(STATE)))
     sample = node.servo_torque_sample("follower")
     assert sample is not None and sample[0] == STATE
+
+
+def test_zero_restore_and_move_timeouts() -> None:
+    group = ServoGroupConfig(id="arm", label="Arm", namespace="follower")
+    assert group.zero_restore is False and group.move_to_neutral_service is None
+    assert group.zero_restore_timeout_s == 30.0
+    assert group.move_to_neutral_timeout_s == 30.0
+    assert group.timeout("zero_restore_apply") == 30.0
+    assert group.timeout("save_rest_reference") == 30.0
+    assert group.timeout("move_to_neutral") == 30.0
+    assert group.timeout("save") == group.service_timeout_s == 15.0
+    with pytest.raises(ValidationError):
+        ServoGroupConfig(id="arm", label="a", namespace="x", zero_restore_timeout_s=0)
+    with pytest.raises(ValidationError):
+        ServoGroupConfig(id="arm", label="a", namespace="x", move_to_neutral_timeout_s=0)
+
+
+def test_zero_restore_actions_wait_zero_restore_timeout(tmp_path: Path) -> None:
+    seen: list[tuple[str, float]] = []
+
+    async def fake_call(action: str, future: Any, service: str, timeout_s: float) -> tuple[Any, None]:
+        seen.append((service, timeout_s))
+        return SimpleNamespace(success=True, message="ok"), None
+
+    with (
+        patch("web_ui.server.call_ros_service", fake_call),
+        patch("web_ui.servo_calibration.time.monotonic", return_value=100.5),
+    ):
+        # torque on in the cached state, so move_to_neutral is not refused as released
+        client = make_client(tmp_path, FakeBridge({"follower": ({**PLAN_STATE, "released": False}, 100.0)}))
+        client.post(f"/api/calibration/servos/arm/zero_restore_apply?plan_run_id={PLAN_RUN_ID}")
+        client.post("/api/calibration/servos/arm/release")
+        client.post("/api/calibration/servos/arm/move_to_neutral")
+    assert seen == [
+        ("/follower/servo/zero_restore_apply", 30.0),
+        ("/follower/servo/release_torque", 15.0),
+        ("/arm/move_to_neutral", 30.0),
+    ]
+
+
+def test_apply_and_move_blocked_under_cutoff_dry_run_is_not(tmp_path: Path) -> None:
+    bridge = FakeBridge()
+    client = make_client(tmp_path, bridge, guard=FakeGuard())
+    for action in ("zero_restore_apply", "zero_restore_apply_confirmed", "move_to_neutral"):
+        assert client.post(f"/api/calibration/servos/arm/{action}").status_code != 200
+    assert bridge.services == []
+    assert client.post("/api/calibration/servos/arm/zero_restore_dry_run").status_code == 200
+    assert client.post("/api/calibration/servos/arm/save_rest_reference").status_code == 200
+
+
+def test_move_to_neutral_refused_while_released(tmp_path: Path) -> None:
+    bridge = FakeBridge({"follower": (STATE, 100.0)})
+    with patch("web_ui.servo_calibration.time.monotonic", return_value=100.5):
+        response = make_client(tmp_path, bridge).post("/api/calibration/servos/arm/move_to_neutral")
+    assert response.status_code == 409
+    assert response.json() == {"ok": False, "message": "Arm servo torque is off (Calibrate page)"}
+    assert bridge.services == []
+
+
+def test_move_to_neutral_404_without_service(tmp_path: Path) -> None:
+    from web_ui.server import build_app
+
+    group = ServoGroupConfig(id="arm", label="Arm", namespace="follower", neutral=True)
+    config = AppConfig(calibration=CalibrationConfig(servo_groups=[group]))
+    app = build_app(config=config, urdf_dir=tmp_path, static_dir=tmp_path / "none", bridge_node=FakeBridge())
+    client = TestClient(app)
+    assert client.post("/api/calibration/servos/arm/move_to_neutral").status_code == 404
+    assert client.post("/api/calibration/servos/arm/zero_restore_dry_run").status_code == 404
+
+
+PLAN_CHANGED = "the dry run changed since it was shown; review the new plan"
+
+
+@pytest.mark.parametrize("action", APPLY_ACTIONS)
+@pytest.mark.parametrize(
+    ("samples", "query", "now"),
+    [
+        ({"follower": (PLAN_STATE, 100.0)}, "", 100.5),  # no run id sent
+        ({"follower": (PLAN_STATE, 100.0)}, "?plan_run_id=deadbeef", 100.5),  # another plan is current
+        ({"follower": (STATE, 100.0)}, f"?plan_run_id={PLAN_RUN_ID}", 100.5),  # no plan cached
+        ({"follower": (PLAN_STATE, 100.0)}, f"?plan_run_id={PLAN_RUN_ID}", 200.0),  # cached state is stale
+        ({}, f"?plan_run_id={PLAN_RUN_ID}", 100.5),  # no state at all
+    ],
+)
+def test_apply_plan_binding_refuses_a_plan_other_than_the_shown_one(
+    tmp_path: Path, action: str, samples: dict, query: str, now: float
+) -> None:
+    bridge = FakeBridge(samples)
+    with patch("web_ui.servo_calibration.time.monotonic", return_value=now):
+        response = make_client(tmp_path, bridge).post(f"/api/calibration/servos/arm/{action}{query}")
+    assert response.status_code == 409
+    assert response.json() == {"ok": False, "message": PLAN_CHANGED}
+    assert bridge.services == []
+
+
+def test_plan_run_id_is_ignored_by_other_actions(tmp_path: Path) -> None:
+    bridge = FakeBridge()
+    response = make_client(tmp_path, bridge).post("/api/calibration/servos/arm/zero_restore_dry_run?plan_run_id=x")
+    assert response.status_code == 200
+    assert bridge.services == ["/follower/servo/zero_restore_dry_run"]

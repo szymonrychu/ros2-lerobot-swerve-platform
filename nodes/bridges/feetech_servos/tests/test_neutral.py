@@ -14,6 +14,7 @@ from st3215.values import INST_READ, INST_WRITE
 
 from feetech_servos import neutral as neutral_module
 from feetech_servos.bridge_cycle import BridgeCycle
+from feetech_servos.calib_event import CalibEventLog
 from feetech_servos.config import DEFAULT_NEUTRAL_MAX_SHIFT_DEG, JointEntry, JointGroup
 from feetech_servos.neutral import (
     CENTER_READ_ATTEMPTS,
@@ -953,3 +954,100 @@ def test_save_services_refuse_then_confirm_a_large_shift(tmp_path: Path, bridge_
     reporter.step(0.2, 2)
     state = json.loads(node.publishers["/follower/torque_state"][-1].data)
     assert state["released"] is False and state["neutral_capture"] is None
+
+
+# --- stale marker read / clear, atomic JSON ---------------------------------------------------------------------------
+
+
+def test_read_stale_items_absent_marker_is_none(tmp_path: Path) -> None:
+    assert neutral_module.read_stale_items(tmp_path / "none.json") is None
+
+
+def test_read_stale_items_lists_the_marker_items(tmp_path: Path) -> None:
+    marker = tmp_path / "m.json"
+    write_stale_marker(marker, "follower", SAVED_AT, {"shoulder_pan": (1500, 2048)})
+    assert neutral_module.read_stale_items(marker) == list(STALE_ITEMS)
+
+
+def test_read_stale_items_unreadable_marker_counts_every_item(tmp_path: Path) -> None:
+    marker = tmp_path / "m.json"
+    marker.write_text("{not json")
+    assert neutral_module.read_stale_items(marker) == list(STALE_ITEMS)
+    marker.write_text('{"stale": "home"}')
+    assert neutral_module.read_stale_items(marker) == list(STALE_ITEMS)
+
+
+def test_set_stale_items_keeps_the_rest_of_the_marker(tmp_path: Path) -> None:
+    marker = tmp_path / "m.json"
+    write_stale_marker(marker, "follower", SAVED_AT, {"shoulder_pan": (1500, 2048)})
+    neutral_module.set_stale_items(marker, ["home"], "follower", SAVED_AT)
+    content = json.loads(marker.read_text())
+    assert content["stale"] == ["home"]
+    assert content["joints"] == {"shoulder_pan": {"before_steps": 1500, "after_steps": 2048}}
+    assert [p.name for p in tmp_path.iterdir()] == ["m.json"]  # no temp file left
+
+
+def test_set_stale_items_deletes_the_marker_when_empty(tmp_path: Path) -> None:
+    marker = tmp_path / "m.json"
+    write_stale_marker(marker, "follower", SAVED_AT, {"shoulder_pan": (1500, 2048)})
+    neutral_module.set_stale_items(marker, [], "follower", SAVED_AT)
+    assert not marker.exists()
+    neutral_module.set_stale_items(marker, [], "follower", SAVED_AT)  # absent: no-op
+
+
+def test_set_stale_items_creates_or_rewrites_a_marker(tmp_path: Path) -> None:
+    marker = tmp_path / "m.json"
+    neutral_module.set_stale_items(marker, ["home"], "follower", SAVED_AT)
+    assert json.loads(marker.read_text()) == {
+        "version": 1,
+        "group": "follower",
+        "saved_at": SAVED_AT,
+        "joints": {},
+        "stale": ["home"],
+    }
+    marker.write_text("{not json")
+    neutral_module.set_stale_items(marker, ["home"], "follower", SAVED_AT)
+    assert json.loads(marker.read_text())["stale"] == ["home"]
+
+
+def test_write_json_atomic_creates_parents_and_leaves_no_temp(tmp_path: Path) -> None:
+    path = tmp_path / "a" / "b.json"
+    neutral_module.write_json_atomic(path, {"x": 1})
+    assert json.loads(path.read_text()) == {"x": 1}
+    assert [p.name for p in path.parent.iterdir()] == ["b.json"]
+
+
+# --- calib_event lines ------------------------------------------------------------------------------------------------
+
+
+def calib_lines(lines: list[str]) -> list[dict[str, Any]]:
+    """Parse the calib_event lines out of logged lines."""
+    return [json.loads(line.split(" ", 1)[1]) for line in lines if line.startswith("calib_event ")]
+
+
+def test_record_and_save_log_calib_events(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path)
+    infos: list[str] = []
+    rig.neutral.events = CalibEventLog(infos.append, infos.append, infos.append)
+    assert rig.torque.release("follower").success
+    assert rig.neutral.record("follower").success
+    assert rig.neutral.save("follower").success
+    events = calib_lines(infos)
+    steps = [(e["flow"], e["step"], e["outcome"]) for e in events]
+    assert steps[0] == ("neutral", "record", "ok")
+    assert events[0]["data"]["present_steps"] == {"shoulder_pan": 1500, "elbow_flex": 2600, "wrist_roll": 2100}
+    assert ("neutral", "save", "start") in steps
+    assert [s for s in steps if s[1] == "centre_joint"] == [("neutral", "centre_joint", "ok")] * 3
+    assert steps[-1] == ("neutral", "save", "ok")
+    save_ids = {e["run_id"] for e in events if e["step"] != "record"}
+    assert len(save_ids) == 1
+
+
+def test_refused_save_logs_a_warning_calib_event(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path)
+    warnings: list[str] = []
+    rig.neutral.events = CalibEventLog(print, warnings.append, print)
+    rig.neutral.save("follower")
+    events = calib_lines(warnings)
+    assert [(e["step"], e["outcome"]) for e in events] == [("save", "refused")]
+    assert "release torque first" in events[0]["reason"]

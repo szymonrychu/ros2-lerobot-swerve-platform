@@ -943,6 +943,7 @@ class RosRobot:
         )
         self.node.create_service(Trigger, t.home_service, self.on_home, callback_group=self.group)
         self.node.create_service(Trigger, t.set_home_service, self.on_set_home, callback_group=self.group)
+        self.node.create_service(Trigger, t.move_to_neutral_service, self.on_move_to_neutral, callback_group=self.group)
         # Web UI Arm tab: take / release the arm lease through the ControlManager (bound by bind_control).
         self.control: ControlManager | None = None
         self.leader = LeaderActivity(config.control.leader_motion_threshold_rad, config.control.leader_motion_window_s)
@@ -1885,6 +1886,21 @@ class RosRobot:
         response.success, response.message = self.arm.home_service_call()
         if response.success and self.footprint_tick is not None:
             self.footprint_tick()  # the arm is parked now: back to the static footprint without waiting for the tick
+        return response
+
+    def on_move_to_neutral(self, _request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
+        """/arm/move_to_neutral: every arm joint but the gripper to 0.0 via the home routing, then release control.
+
+        Args:
+            _request (Trigger.Request): Empty request.
+            response (Trigger.Response): Response to fill.
+
+        Returns:
+            Trigger.Response: success (converged) and message (the refusal text when refused).
+        """
+        response.success, response.message = self.arm.move_to_neutral_service_call()
+        if response.success and self.footprint_tick is not None:
+            self.footprint_tick()  # the arm ended at the neutral pose: re-evaluate the footprint at once
         return response
 
     def bind_control(self, control: ControlManager) -> None:
