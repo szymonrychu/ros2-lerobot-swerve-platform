@@ -92,6 +92,15 @@ refusal ("closed past the handle contact") means the post was not in the jaws up
 phase `holding` (the board counts as attached): take the board out of the jaws, press Park (the checked board park),
 then Move to base pose again (it opens the gripper to `insert_gripper_rad`), reseat the handle and retry.
 
+Where errors show: a sequence or park that ends with an error shows it on the Calibrate page in the red banner
+**Last head-arm error** (Head from arm section, and Arm calibration once opened) with the time and phase it happened
+in, and the **Recent head-arm events** log below it lists the newest 50 events (start, each step and pose outcome,
+errors, stops, park results), newest first. The same lines are in the node journal as `head-arm <message>` (errors at
+ERROR, stops at WARNING): `journalctl -u head_rgbd_calibration` through the deploy tooling, never an ad-hoc probe.
+Read the message before retrying; never re-record the servo neutral to make a failing Park converge (incident
+2026-11-09: a neutral re-recorded in the folded pose shifted elbow_flex by +90.5 deg and Park could no longer converge;
+the bridge now refuses such a save without the explicit large-shift confirm, `docs/runbooks/servo-torque-neutral.md`).
+
 ## Results
 
 Run 2026-10-23 by the orchestrator with the user (session `calib-20261023-074418`), with the retired stick-mounted

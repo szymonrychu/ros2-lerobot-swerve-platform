@@ -664,10 +664,13 @@ EEPROM) inside the running bridge. One client deploy turns it on; the keys in `g
 
 - `lerobot_follower` (arm, namespace `follower`): `neutral_enabled: true`, `neutral_exclude_joints: [gripper]` (the
   gripper is never re-zeroed; torque off still releases it), `neutral_stale_marker:
-  /var/lib/ros2/arm/calibration_stale.json` (written after a save), `torque_state_interval_s: 1.0`. Follower only: the
-  leader bridge in `server.yml` has no neutral keys, so teleop needs the leader re-zeroed in the same pose.
+  /var/lib/ros2/arm/calibration_stale.json` (written after a save), `neutral_max_shift_deg: 15.0` (large-shift save
+  guard: a recorded shift above it is refused by `save_neutral` and saved only through `save_neutral_confirmed` after
+  the Calibrate page's explicit confirm), `torque_state_interval_s: 1.0`. Follower only: the leader bridge in
+  `server.yml` has no neutral keys, so teleop needs the leader re-zeroed in the same pose.
 - `base_servos`: `neutral_enabled: true` on the primary `swerve_drive` group (the 4 steering servos; the wheels are
-  velocity joints and are never released) and on the `head` extra group; `torque_state_interval_s: 1.0`. Offline
+  velocity joints and are never released) and on the `head` extra group, both with the bridge default
+  `neutral_max_shift_deg` (15 deg); `torque_state_interval_s: 1.0`. Offline
   centring stays `nodes/bridges/feetech_servos/scripts/calibrate_servos.py center`.
 - `filter_node.follower_torque_state_topic`, `swerve_controller.torque_state_topic`, `mcp_server.topics.*_torque_state`
   (three), `mcp_server.timeouts.servo_torque_stale_s` and `mcp_server.arm.calibration_stale_marker` (same path as the

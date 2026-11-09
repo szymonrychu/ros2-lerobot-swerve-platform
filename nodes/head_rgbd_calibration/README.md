@@ -418,7 +418,11 @@ stops capture (the D435 and the CSI one), kills a running compute child and dest
   pattern normal points against the tool axis, and at the shipped base pose with the head aimed at the board the
   pattern faces the D435 (facing cos 0.971 > `MIN_FACING_COS`).
 - `tests/test_app.py` - also `GET /api/state` `boards` (both boards with their roles, `board_roles`).
-- `tests/test_sequencer.py` - the sequence over a fake mcp_server: the gripper opens to `insert_gripper_rad` with the base
+- `tests/test_sequencer.py` - the sequence over a fake mcp_server: every step failure logged at WARNING or above with
+  its message (`test_step_failure_is_logged_with_its_message`), the recent events of a full run newest first with
+  start, step outcomes and `sequence done`, a failed sequence's `sequence error` event in the phase it failed in, a
+  stop's warning event, park start / done / failed events (logged) and a refused park or start as error events, the
+  list bounded to `EVENT_LIMIT` (`test_events_are_bounded_to_the_newest`); the gripper opens to `insert_gripper_rad` with the base
   move and closes alone to `grip_rad` after Board attached, a jaw closed past `contact - squeeze / 2` (unseated) or no
   reported gripper angle stops the sequence holding the arm, the threshold boundary passes; views inside the D435 min-Z or outside the colour FOV skipped with the reason and a pose with no usable view not visited (`test_poses_inside_min_z_are_skipped`), the wait for the colour camera_info; including Park with the board on (checked even when no load is reported, then the internal admin park; the board record offered only fresh and for a stored session, the stated-on Park, a stale record plus a non-board load refused): path-checked then moved at speed 0.1 and released with `park_calibration_board`, refused with the named rule when the sag margin eats the clearance, the fitted mount hook, another carried object and a load without this sequence's board still refused, a failed move keeps holding.
 - `tests/test_arm_pose_set.py` - the shipped arm pose set on the shipped and the applied (floor fit 2026-10-22) head
@@ -620,6 +624,17 @@ pose that was path-checked. With the board attached the phase is then `holding` 
 otherwise `idle`. The sequence never parks on its own and never sends a carried object radius. A new base move is
 refused while `holding`: press Park first.
 
+Events and errors: every sequence start, step outcome (base pose reached, board attached, handle gripped with the jaw
+angle, still session started, each pose with its captured and skipped views or "not visited", the big-joint answer,
+back at the base pose), sequence end (`sequence done: <status>`, `sequence stopped`, `sequence error: <error>`), a
+refused start, park start, `park done: <status>`, `park failed: <error>` and a refused park is logged to the node's
+journal with its message (`head-arm <message>`; errors at ERROR, stops and unvisited poses at WARNING, the rest at
+INFO; an unexpected exception also logs its traceback) and kept in the state's `events`: the newest `EVENT_LIMIT = 50`
+`{time (ISO 8601, UTC), phase (the phase the event happened in), level (info, warning, error), message}`, newest first.
+So a `StepFailed` (a tool error, a path check refusal, an unseated handle, a confirm timeout) is never only
+"head-arm sequence error" in the journal: the message names the step and why. The web UI Calibrate page shows the
+`error` in a banner and the events as a scrollable log (`nodes/web_ui/README.md`, "Head from arm section").
+
 ### Pose set and its tests
 
 `tests/test_arm_pose_set.py` proves the shipped set before it can reach the robot: tier rules, short transits between
@@ -700,7 +715,7 @@ wrong kind), 404 for an unknown or malformed id, 409 for a busy or wrong-phase r
 
 | Route | Body |
 |---|---|
-| `GET /state` | `{sequence, applied}`: the sequencer state (`running`, `phase`, `session_id`, `tier`, `arm_pose` (0-based), `total_poses`, `captured`, `skipped`, `status`, `error`, `big_joints`, `waiting_since`, `board_record`) and the applied head chain (`{session, result, note, source, floor, joints}`, null when none) |
+| `GET /state` | `{sequence, applied}`: the sequencer state (`running`, `phase`, `session_id`, `tier`, `arm_pose` (0-based), `total_poses`, `captured`, `skipped`, `status`, `error`, `big_joints`, `waiting_since`, `board_record`, `events` (the newest 50 `{time, phase, level, message}`, newest first)) and the applied head chain (`{session, result, note, source, floor, joints}`, null when none) |
 | `POST /sequence/base {"confirm": true}` | state; 409 while a sequence, an intrinsics capture, a floor sweep or a compute runs |
 | `POST /sequence/board-attached` | state; 409 outside `waiting_board` |
 | `POST /sequence/big-joints {"confirm": bool}` | state; 409 outside `waiting_big_joints` |

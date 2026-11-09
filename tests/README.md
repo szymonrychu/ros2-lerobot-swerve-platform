@@ -517,6 +517,7 @@ Servo torque-off and neutral keys in `ansible/group_vars/client.yml` and `server
 | `test_web_ui_groups_are_bridge_groups_and_neutral_matches` | Every web_ui `calibration.servo_groups` namespace is a group of a client feetech bridge (arm = follower on lerobot_follower, base = swerve_drive and head on base_servos) and its `neutral` equals that group's `neutral_enabled`. |
 | `test_base_neutral_joints_are_the_four_steering_servos` | The base neutral joints are exactly fl/fr/rl/rr_steer; no velocity (wheel) joint. |
 | `test_follower_neutral_excludes_only_the_gripper` | lerobot_follower has `neutral_enabled: true` and `neutral_exclude_joints: [gripper]`. |
+| `test_follower_neutral_save_guard_is_explicit` | lerobot_follower sets the large-shift save guard `neutral_max_shift_deg: 15.0` (a number, not a bool); a larger recorded shift needs `save_neutral_confirmed` (incident 2026-11-09). |
 | `test_stale_marker_path_is_identical_everywhere` | The stale marker path is the same in lerobot_follower, mcp_server `arm.calibration_stale_marker` and web_ui, under `/var/lib/ros2/arm`. |
 | `test_torque_state_topics_match_bridge_groups` | filter_node, swerve_controller and mcp_server torque state topics equal `/{namespace}/torque_state` of a configured bridge group; `servo_torque_stale_s` is set; both bridges set `torque_state_interval_s: 1.0`. |
 | `test_leader_bridge_has_no_neutral_keys` | The server.yml lerobot_leader bridge has no `neutral_*` key (the leader keeps its zero). |
