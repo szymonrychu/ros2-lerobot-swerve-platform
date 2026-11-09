@@ -271,26 +271,6 @@ Prints proposed `MemoryLow`, `MemoryMax`, `CPUWeight` and `IOWeight` for the `ro
 uv run python scripts/propose_unit_limits.py
 ```
 
-## arm_zero_restore.py
-
-One-off repair of the follower arm zero after a neutral save (DefineMiddle) recorded in the wrong pose: with the arm resting folded and torque off, it rewrites each STS3215 offset register (address 31, sign-magnitude, sign bit 11, +-2047) so the present reading, mapped to joint radians exactly as the feetech bridge publishes `/follower/joint_states` (`feetech_mapping.command_mapping.position_to_raw_steps` / `steps_to_radians` with the joint's `inverted` flag), equals the reference reading taken before the incident. Nothing moves and torque is never written.
-
-Sign convention: present = (encoder - offset) mod 4096. A neutral save logged as `neutral recorded: <joint> +N steps` (present - 2048, `neutral.py`) raised that offset by N; the restore changes the offset by present - target, the inverse of the logged shift (shoulder_lift about +901, elbow_flex about -1029).
-
-Flow: refuse while `bridge_service` (`ros2-lerobot_follower`) is active; refuse unless every listed servo reads `torque_enable` 0; read present, offset and angle limits; plan per joint the target, offset change and new offset; refuse with nothing written when any change differs from `expected_offset_delta_steps` by more than `tolerance_deg` (5 deg = 56.9 steps), a new offset exceeds +-2047 or a read fails. Dry run (default) prints the table and stops. `--apply` per joint in config order: re-read torque, `UnLockEprom`, write the offset, `LockEprom` (as `neutral.py`), settle 0.5 s, verify present within `verify_tolerance_steps` (3) of the target (else rewrite the old offset and stop), and write the angle limit registers back if they read differently (as `neutral.py` after DefineMiddle). Every run that reached the bus writes a JSON record (`record_path`, default `/var/lib/ros2/arm/zero_restore-<UTC timestamp>.json`) with the before/after per joint. Exit 0 when the plan is valid (dry run) or every joint is applied and verified, else 1.
-
-Configured by `scripts/arm_zero_restore.yaml` (pydantic, works with Ubuntu's pydantic 1.10 and pydantic 2): `device`, `bridge_service`, `record_path`, `tolerance_deg`, `verify_tolerance_steps`, and per joint `name`, `id`, `inverted`, `reference_rad`, `expected_offset_delta_steps`. Device, names, ids and inverted flags are pinned to the `lerobot_follower` entry of `ansible/group_vars/client.yml` by `tests/test_arm_zero_restore.py`. Flags: `--config <path>` and `--apply`.
-
-Runs on the client RPi in the follower's deployed venv (st3215, feetech_mapping; pydantic and pyyaml from the system site packages), from the repo checkout, with the bridge stopped. Procedure: `docs/runbooks/servo-torque-neutral.md` "Arm zero restore".
-
-```bash
-sudo systemctl stop ros2-lerobot_follower
-cd /opt/ros2-lerobot-swerve-platform
-PYTHONPATH=nodes/bridges /opt/ros2-nodes/lerobot_follower/venv/bin/python3 scripts/arm_zero_restore.py            # dry run
-PYTHONPATH=nodes/bridges /opt/ros2-nodes/lerobot_follower/venv/bin/python3 scripts/arm_zero_restore.py --apply    # write
-sudo systemctl start ros2-lerobot_follower
-```
-
 ## calibrate_retry_threshold.py
 
 Calibrates `retry_success_threshold` (the cut-off the claude_agent runner compares the model's `p_retry_success` with) from the retry ledger. It reads the records from `GET /api/retry_outcomes` (through the web_ui proxy, `source_url`, 10 s timeout) or from the ledger JSONL (`source_file`, exactly one of the two), skips records with an unknown `schema_version` (counted), and optionally filters by `since_ts` and `model`. It prints record counts (total / observed / unobserved, overall and per bin), the Brier score of the observed records next to the base-rate reference Brier, a reliability table (n, mean p, success rate, Wilson CI via `scipy.stats.binomtest(...).proportion_ci(method='wilson')`, low-n flag), ECE and the success rate per `eai_error_type`. A record counts as a success when its next outcome is `done`; `unobserved` records are excluded from every score.
