@@ -5,11 +5,13 @@ before a neutral save in the wrong pose raised each offset by the logged shift (
 now reads reference - shift. The gripper is excluded (neutral_exclude_joints) and must never be touched.
 """
 
+import importlib
 import json
 import math
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
@@ -19,7 +21,7 @@ from st3215.values import INST_READ, INST_WRITE
 from feetech_servos.bridge_cycle import BridgeCycle
 from feetech_servos.calib_event import CalibEventLog
 from feetech_servos.config import JointEntry, JointGroup, ZeroRestoreConfig
-from feetech_servos.neutral import STALE_ITEMS, write_stale_marker
+from feetech_servos.neutral import STALE_ITEMS, NeutralControl, write_stale_marker
 from feetech_servos.registers import (
     STS_LOCK,
     STS_MAX_ANGLE_LIMIT_L,
@@ -29,7 +31,7 @@ from feetech_servos.registers import (
     STS_TORQUE_ENABLE,
     get_register_entry_by_name,
 )
-from feetech_servos.torque_control import TorqueControl
+from feetech_servos.torque_control import TorqueControl, torque_state_payload
 from feetech_servos.zero_restore import (
     OFFSET_MAX_STEPS,
     STILL_SAMPLE_INTERVAL_S,
@@ -41,8 +43,10 @@ from feetech_servos.zero_restore import (
     steps_to_degrees,
 )
 
+from .ros_stubs import install_service_stubs
 from .sts_bus import StsPacket, put_word, register_table
 from .test_neutral import FakeServo, NeutralPort, word
+from .test_torque_services import RecordingNode
 
 SEED = {"shoulder_pan": -0.018, "shoulder_lift": -1.542, "elbow_flex": 1.516, "wrist_flex": 0.862, "wrist_roll": -0.072}
 ARM = [
@@ -749,3 +753,88 @@ def test_status_stale_flag_follows_the_marker_after_its_refresh(tmp_path: Path) 
 def test_status_of_an_unknown_group(tmp_path: Path) -> None:
     rig = make_rig(tmp_path)
     assert rig.zero.status("nope") == {"zero_restore": None}
+
+
+# --- bridge wiring: services and torque_state -------------------------------------------------------------------------
+
+
+ZERO_SERVICES = {
+    "/follower/servo/zero_restore_dry_run",
+    "/follower/servo/zero_restore_apply",
+    "/follower/servo/zero_restore_apply_confirmed",
+    "/follower/servo/save_rest_reference",
+}
+
+
+@pytest.fixture
+def bridge(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+    """Import feetech_servos.bridge with ROS stubbed and String replaced by a plain message class."""
+    install_service_stubs()
+    module = importlib.import_module("feetech_servos.bridge")
+    monkeypatch.setattr(module, "String", lambda data: SimpleNamespace(data=data))
+    return module
+
+
+def wire(bridge: ModuleType, rig: Rig) -> tuple[RecordingNode, Any, list[int]]:
+    """setup_torque_interfaces on the rig's bus with neutral and zero restore controls."""
+    node = RecordingNode()
+    callbacks_run = [0]
+    neutral = NeutralControl(rig.torque, rig.command_limits, sleep=rig.sleeps.append)
+    reporter = bridge.setup_torque_interfaces(
+        node, list(rig.torque.groups.values()), rig.torque, callbacks_run, 1.0, neutral, rig.zero
+    )
+    return node, reporter, callbacks_run
+
+
+def call(node: RecordingNode, service: str) -> Any:
+    """Call a recorded Trigger service callback."""
+    return node.services[service](SimpleNamespace(), SimpleNamespace(success=None, message=None))
+
+
+def test_zero_restore_services_exist_for_a_group_with_the_block(bridge: ModuleType, tmp_path: Path) -> None:
+    node, _, _ = wire(bridge, make_rig(tmp_path))
+    assert ZERO_SERVICES <= set(node.services)
+
+
+def test_no_zero_restore_services_without_the_block(bridge: ModuleType, tmp_path: Path) -> None:
+    node, _, _ = wire(bridge, make_rig(tmp_path, with_block=False))
+    assert not ZERO_SERVICES & set(node.services)
+
+
+def test_dry_run_service_publishes_the_plan_in_torque_state(bridge: ModuleType, tmp_path: Path) -> None:
+    rig = make_rig(tmp_path)
+    node, reporter, callbacks_run = wire(bridge, rig)
+    reporter.step(0.0, 1)
+    first = json.loads(node.publishers["/follower/torque_state"][-1].data)
+    assert first["zero_restore"]["plan"] is None
+    response = call(node, "/follower/servo/zero_restore_dry_run")
+    assert response.success is True and callbacks_run[0] == 1
+    reporter.step(0.01, 2)  # requested: published inside the interval
+    state = json.loads(node.publishers["/follower/torque_state"][-1].data)
+    assert state["zero_restore"]["plan"]["needs_confirm"] is True
+    assert list(state["zero_restore"]["plan"]["joints"]) == list(SEED)
+
+
+def test_apply_services_map_to_the_confirm(bridge: ModuleType, tmp_path: Path) -> None:
+    rig = make_rig(tmp_path)
+    node, _, _ = wire(bridge, rig)
+    assert call(node, "/follower/servo/zero_restore_dry_run").success
+    refused = call(node, "/follower/servo/zero_restore_apply")
+    assert refused.success is False and "zero_restore_apply_confirmed" in refused.message
+    applied = call(node, "/follower/servo/zero_restore_apply_confirmed")
+    assert applied.success is True, applied.message
+    assert rig.offset(3) == ORIGINAL_OFFSET["elbow_flex"]
+
+
+def test_save_rest_reference_service(bridge: ModuleType, tmp_path: Path) -> None:
+    rig = make_rig(tmp_path)
+    node, _, _ = wire(bridge, rig)
+    assert call(node, "/follower/servo/save_rest_reference").success is True
+    assert Path(rig.config.reference_file).exists()
+
+
+def test_payload_without_zero_restore_has_no_key() -> None:
+    group = JointGroup("head", [JointEntry("head_pan", 21)])
+    assert "zero_restore" not in torque_state_payload(group, {21: 1}, set(), 1)
+    payload = torque_state_payload(group, {21: 1}, set(), 1, zero_restore={"plan": None})
+    assert payload["zero_restore"] == {"plan": None}
