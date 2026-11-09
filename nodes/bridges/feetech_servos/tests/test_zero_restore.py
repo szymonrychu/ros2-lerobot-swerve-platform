@@ -21,7 +21,7 @@ from st3215.values import INST_READ, INST_WRITE
 from feetech_servos.bridge_cycle import BridgeCycle
 from feetech_servos.calib_event import CalibEventLog
 from feetech_servos.config import JointEntry, JointGroup, ZeroRestoreConfig
-from feetech_servos.neutral import STALE_ITEMS, NeutralControl, write_stale_marker
+from feetech_servos.neutral import STALE_ITEMS, ZERO_RECORD_FILE, NeutralControl, write_stale_marker
 from feetech_servos.registers import (
     STS_LOCK,
     STS_MAX_ANGLE_LIMIT_L,
@@ -740,7 +740,37 @@ def test_apply_without_a_marker_and_within_tolerance_writes_none(tmp_path: Path)
     rig = make_rig(tmp_path, shift={name: 2 for name in SEED})
     assert rig.zero.dry_run("follower").success
     assert rig.zero.apply("follower").success
+    assert not rig.marker.exists() and not rig.marker.with_name(ZERO_RECORD_FILE).exists()
+
+
+def zero_record(rig: Any) -> dict[str, Any]:
+    """The zero change record next to the rig's marker."""
+    return json.loads(rig.marker.with_name(ZERO_RECORD_FILE).read_text())
+
+
+def test_a_restore_that_clears_joint_offsets_records_the_zero_change(tmp_path: Path) -> None:
+    """The marker may be deleted by the restore, but the zero changed: offsets fitted in between no longer hold."""
+    rig = make_rig(tmp_path)
+    write_marker(rig)
+    assert rig.zero.dry_run("follower").success
+    assert rig.zero.apply("follower", confirmed=True).success
     assert not rig.marker.exists()
+    assert zero_record(rig) == {"version": 1, "group": "follower", "changed_at": NOW.isoformat(timespec="seconds")}
+
+
+def test_a_real_zero_change_records_it(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path, shift=SMALL_SHIFT)
+    assert rig.zero.dry_run("follower").success
+    assert rig.zero.apply("follower").success
+    assert zero_record(rig)["changed_at"] == NOW.isoformat(timespec="seconds")
+
+
+def test_a_partial_apply_records_the_zero_change(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path)
+    rig.port.stuck_offset = {3}
+    assert rig.zero.dry_run("follower").success
+    assert rig.zero.apply("follower", confirmed=True).success is False
+    assert zero_record(rig)["changed_at"] == NOW.isoformat(timespec="seconds")
 
 
 def test_partial_apply_without_a_marker_marks_the_written_joints_stale(tmp_path: Path) -> None:

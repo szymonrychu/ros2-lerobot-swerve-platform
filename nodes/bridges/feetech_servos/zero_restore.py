@@ -49,6 +49,7 @@ from .neutral import (
     NeutralResult,
     names_text,
     read_stale_items,
+    record_zero_change,
     set_stale_items,
     stop_bus_wheels,
     write_json_atomic,
@@ -1054,7 +1055,8 @@ class ZeroRestoreControl:
         recorded before the wrong re-zero and is right again; not listed: it was re-recorded in the wrong zero and is
         wrong now). Full restore without joint_offsets listed: a joint whose offset changed by more than
         plan_tolerance_steps makes joint_offsets and home stale. Failure: every joint whose offset may have changed
-        (applied, or not rolled back) makes them stale.
+        (applied, or not rolled back) makes them stale. Whenever the zero changed (the joint_offsets restore, a change
+        beyond the tolerance, a failure that may have changed offsets) the zero change record is written too.
 
         Args:
             group (JointGroup): The group.
@@ -1089,9 +1091,11 @@ class ZeroRestoreControl:
         try:
             if new_items is not None:
                 set_stale_items(path, new_items, group.namespace, self.now_iso())
+                record_zero_change(path, group.namespace, self.now_iso())
                 data["after"] = new_items
             elif changed:
                 write_stale_marker(path, group.namespace, self.now_iso(), changed)
+                record_zero_change(path, group.namespace, self.now_iso())
                 data["after"] = read_stale_items(path)
             else:
                 data["after"] = items

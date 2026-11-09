@@ -13,11 +13,13 @@ limits, UnLockEprom, DefineMiddle, settle, LockEprom (always), verify present ~2
 DefineMiddle moved them, refresh the bridge command limits of EEPROM-limited joints. When every joint saved, torque is
 enabled holding the present position (TorqueControl.enable). Any failure aborts the remaining joints and keeps torque
 off on the whole group. A group with neutral_stale_marker gets the stale marker JSON for every joint whose centre
-changed. Every record and save logs calib_event lines (flow "neutral": record, save start / refused / done, one
+changed, and the zero change record (`zero_changed.json` next to the marker, {version, group, changed_at}): the time of
+the last servo zero change, kept when the marker is cleared, so the arm to camera calibration can tell whether its
+stills were taken in the current zero (ros2_common arm_calibration_file.zero_change_refusal). Every record and save logs calib_event lines (flow "neutral": record, save start / refused / done, one
 centre_joint per joint) through calib_event.CalibEventLog.
 
-Shared helpers: write_json_atomic (temp file + os.replace), read_stale_items / set_stale_items on the stale marker and
-stop_bus_wheels, also used by zero_restore.
+Shared helpers: write_json_atomic (temp file + os.replace), read_stale_items / set_stale_items on the stale marker,
+record_zero_change and stop_bus_wheels, also used by zero_restore.
 
 bridge.py runs both on the loop thread (the sole bus owner); tests drive them over an emulated bus.
 """
@@ -56,6 +58,8 @@ MAX_LIMIT_REGISTER = "max_angle_limit"
 SPEED_REGISTER = "goal_speed"
 MARKER_VERSION = 1
 STALE_ITEMS = ("joint_offsets", "home")
+ZERO_RECORD_FILE = "zero_changed.json"  # next to the stale marker: the time of the last servo zero change
+ZERO_RECORD_VERSION = 1
 NONE_TEXT = "none"
 FLOW = "neutral"
 
@@ -257,6 +261,21 @@ def set_stale_items(path: Path, items: list[str], group: str, saved_at: str | No
     if data is None:
         data = {"version": MARKER_VERSION, "group": group, "saved_at": saved_at, "joints": {}}
     write_json_atomic(path, {**data, "stale": list(items)})
+
+
+def record_zero_change(marker: Path, group: str, changed_at: str) -> None:
+    """Record a servo zero change atomically in ZERO_RECORD_FILE next to the stale marker (replaced on every change).
+
+    Args:
+        marker (Path): The group's stale marker path (its directory holds the record).
+        group (str): Group namespace.
+        changed_at (str): ISO-8601 UTC time of the change.
+
+    Raises:
+        OSError: When the write fails.
+    """
+    record = {"version": ZERO_RECORD_VERSION, "group": group, "changed_at": changed_at}
+    write_json_atomic(marker.with_name(ZERO_RECORD_FILE), record)
 
 
 def stop_bus_wheels(torque: TorqueControl) -> list[str]:
@@ -730,7 +749,7 @@ class NeutralControl:
             self.log_error(f"/{group.namespace}: torque off not verified after a failed neutral save: {failed}")
 
     def write_marker(self, group: JointGroup, saved_at: str, centred: dict[str, tuple[int, int]]) -> str | None:
-        """Write the group's stale marker for the joints whose centre changed.
+        """Write the group's stale marker for the joints whose centre changed, and record the zero change.
 
         Args:
             group (JointGroup): The saved group.
@@ -744,6 +763,7 @@ class NeutralControl:
             return None
         try:
             write_stale_marker(Path(group.neutral_stale_marker), group.namespace, saved_at, centred)
+            record_zero_change(Path(group.neutral_stale_marker), group.namespace, saved_at)
         except OSError as exc:
             error = f"{type(exc).__name__}: {exc}"
             self.log_error(f"/{group.namespace}: neutral saved, stale marker not written: {error}")

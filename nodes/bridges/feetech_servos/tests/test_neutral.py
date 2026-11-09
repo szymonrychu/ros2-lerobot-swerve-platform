@@ -23,6 +23,7 @@ from feetech_servos.neutral import (
     LIMIT_SETTLE_S,
     NEUTRAL_MOVE_TOLERANCE_STEPS,
     STALE_ITEMS,
+    ZERO_RECORD_FILE,
     NeutralControl,
     write_stale_marker,
 )
@@ -670,6 +671,14 @@ def test_marker_content_after_save(tmp_path: Path) -> None:
         },
         "stale": ["joint_offsets", "home"],
     }
+
+
+def test_save_records_the_zero_change_next_to_the_marker(tmp_path: Path) -> None:
+    """The arm to camera calibration needs the time of every zero change (the marker alone may be cleared later)."""
+    rig = released_and_recorded(tmp_path)
+    assert rig.neutral.save("follower").success
+    record = json.loads(rig.marker.with_name(ZERO_RECORD_FILE).read_text())
+    assert record == {"version": 1, "group": "follower", "changed_at": SAVED_AT}
 
 
 def test_no_marker_without_neutral_stale_marker(tmp_path: Path) -> None:
