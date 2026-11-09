@@ -1,0 +1,104 @@
+{
+  "sweep": {
+    "running": true,
+    "status": "awaiting_placement",
+    "session_id": "ground-20261109-030000",
+    "placement": 1,
+    "placements_done": 1,
+    "max_placements": 3,
+    "awaiting_placement": true,
+    "pose": 10,
+    "total": 10,
+    "views": 27,
+    "planes": 18,
+    "skipped": 0,
+    "board": {
+      "x_m": 0.551,
+      "y_m": 0.049,
+      "yaw_deg": 17.2
+    },
+    "message": "move the board to a new place on the floor (close, fully visible at home), then press Next placement",
+    "error": null
+  },
+  "verify": {
+    "status": "done",
+    "id": "verify-20261109-041500",
+    "head_chain": {
+      "source": "ground_board",
+      "session": "ground-20261109-033000",
+      "result": "r-20261109-040000"
+    },
+    "result": {
+      "session": "ground-20261109-033000",
+      "result": "r-20261109-040000"
+    },
+    "pose": 3,
+    "total": 3,
+    "poses": [
+      {
+        "pose": 0,
+        "pan_deg": 0.0,
+        "tilt_deg": 30.0,
+        "reached": {
+          "pan_deg": 0.02,
+          "tilt_deg": 29.98
+        },
+        "samples": 210,
+        "plane_samples": 210,
+        "height_m": 0.003,
+        "plane_vs_base_deg": 0.2,
+        "obstacle_points": 2.0,
+        "obstacle_points_max": 5,
+        "drop_points": 0.0,
+        "drop_points_max": 0,
+        "checks": [
+          {
+            "name": "height_m",
+            "value": 0.003,
+            "limit": 0.01,
+            "ok": true
+          }
+        ],
+        "passed": true,
+        "error": null
+      }
+    ],
+    "passed": true,
+    "error": null,
+    "running": false
+  },
+  "compute": {
+    "running": false,
+    "session_id": "ground-20261109-033000",
+    "result_id": "r-20261109-040001",
+    "started_at": "2026-11-09T04:00:01+00:00",
+    "error": null
+  },
+  "head_chain": {
+    "source": "ground_board",
+    "session": "ground-20261109-033000",
+    "result": "r-20261109-040000"
+  },
+  "accepted": {
+    "session": "ground-20261109-033000",
+    "result": "r-20261109-040000",
+    "accepted_at": "2026-11-09T21:53:08.008387+00:00",
+    "score": {
+      "rms_px": 0.42037847417625196,
+      "heldout_rms_px": 0.42453318694629977,
+      "views": 69,
+      "poses": 69,
+      "placements": 3,
+      "floor_height_rms_mm": 1.5619152694930682,
+      "floor_normal_rms_deg": 0.2151098544068835
+    },
+    "accuracy_examples": [
+      {
+        "label": "floor height 1 m ahead of the head, 1 sigma",
+        "value": 0.1271632360509129,
+        "unit": "mm"
+      }
+    ],
+    "verification": null
+  }
+}

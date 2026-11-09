@@ -24,6 +24,9 @@ class Recorder:
         self.robot: Any = None
         self.arm_routers: list[Any] = []
         self.arm_camera_routers: list[Any] = []
+        self.ground_routers: list[Any] = []
+        self.ground_sweep: Any = None
+        self.ground_verify: Any = None
         self.jobs: list[Any] = []
         self.routers: list[Any] = []
         self.csi: Any = None
@@ -78,7 +81,11 @@ def rec(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Recorder:
                 rec.config_path = config_path
 
         def stop(self) -> None:
-            rec.events.append("arm_camera_job_stop" if self.kwargs else "job_stop")
+            names = {
+                "head_rgbd_calibration.arm_camera_compute": "arm_camera_job_stop",
+                "head_rgbd_calibration.ground_compute": "ground_job_stop",
+            }
+            rec.events.append(names.get(self.kwargs.get("module"), "job_stop"))
 
         def state(self) -> dict[str, Any]:
             return {"running": False}
@@ -94,6 +101,40 @@ def rec(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Recorder:
 
         def wait(self, timeout: float | None = None) -> None:
             rec.events.append("sweep_wait")
+
+        def state(self) -> dict[str, Any]:
+            return {"running": False}
+
+    class FakeGroundSweep:
+        def __init__(self, node: Any, cfg: Any, urdf_text: Any, clock: Any, sleep: Any, now: Any, blocked: Any) -> None:
+            rec.ground_sweep = self
+            self.urdf_text = urdf_text
+            self.blocked = blocked
+
+        def stop(self) -> None:
+            rec.events.append("ground_sweep_stop")
+
+        def wait(self, timeout: float | None = None) -> None:
+            rec.events.append("ground_sweep_wait")
+
+        def state(self) -> dict[str, Any]:
+            return {"running": False}
+
+    class FakeGroundVerify:
+        def __init__(self, node: Any, cfg: Any, store: Any, clock: Any, sleep: Any, run: Any, blocked: Any) -> None:
+            rec.ground_verify = self
+            self.store = store
+            self.run = run
+            self.blocked = blocked
+
+        def stop(self) -> None:
+            rec.events.append("ground_verify_stop")
+
+        def wait(self, timeout: float | None = None) -> None:
+            rec.events.append("ground_verify_wait")
+
+        def state(self) -> dict[str, Any]:
+            return {"running": False}
 
     class FakeRobot:
         def __init__(self, cfg: Any) -> None:
@@ -158,6 +199,9 @@ def rec(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Recorder:
     monkeypatch.setattr(entry, "CaptureController", FakeCapture)
     monkeypatch.setattr(entry, "ComputeJob", FakeJob)
     monkeypatch.setattr(entry, "FloorSweep", FakeSweep)
+    monkeypatch.setattr(entry, "GroundSweep", FakeGroundSweep)
+    monkeypatch.setattr(entry, "GroundVerify", FakeGroundVerify)
+    monkeypatch.setattr(entry, "ground_router", lambda *args: (rec.ground_routers.append(args), APIRouter())[1])
     monkeypatch.setattr(entry, "RobotClient", FakeRobot)
     monkeypatch.setattr(entry, "Sequencer", FakeSequencer)
     monkeypatch.setattr(entry, "head_arm_router", lambda *args: (rec.arm_routers.append(args), APIRouter())[1])
@@ -192,12 +236,17 @@ def test_shutdown_stops_sequence_first(rec: Recorder) -> None:
     assert tail == [
         "sequencer_stop",
         "sequencer_wait",
+        "ground_sweep_stop",
+        "ground_sweep_wait",
+        "ground_verify_stop",
+        "ground_verify_wait",
         "capture_stop",
         "csi_stop",
         "sweep_stop",
         "sweep_wait",
         "job_stop",
         "arm_camera_job_stop",
+        "ground_job_stop",
         "destroy_node",
         "executor_shutdown",
         "shutdown",
@@ -285,12 +334,13 @@ def test_missing_env_is_a_config_error(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_arm_camera_router_runs_its_own_compute_job(rec: Recorder, tmp_path: Path) -> None:
     entry.main()
-    d435, arm_camera = rec.jobs
+    d435, arm_camera, _ground = rec.jobs
     assert d435 is rec.job
     assert arm_camera.kwargs == {"module": "head_rgbd_calibration.arm_camera_compute", "flow": "arm_camera_compute"}
-    ((sequencer, job, store, cfg, _run),) = rec.arm_camera_routers
+    ((sequencer, job, store, cfg, _run, blocked),) = rec.arm_camera_routers
     assert (sequencer, job) == (rec.sequencer, arm_camera)
     assert store.state_dir == Path(cfg.state_dir)
+    assert blocked() is None
 
 
 def test_sequence_and_sweep_are_blocked_while_an_arm_to_camera_compute_runs(rec: Recorder) -> None:
@@ -303,3 +353,49 @@ def test_sequence_and_sweep_are_blocked_while_an_arm_to_camera_compute_runs(rec:
     running["value"] = True
     assert "arm to camera compute" in rec.sequencer.blocked()
     assert "arm to camera compute" in rec.sweep.blocked()
+
+
+def test_ground_router_runs_its_own_compute_job_on_the_ground_store(rec: Recorder) -> None:
+    entry.main()
+    ground_job = rec.jobs[2]
+    assert ground_job.kwargs == {"module": "head_rgbd_calibration.ground_compute", "flow": "ground_compute"}
+    ((sweep, verify, job, store, cfg, _run, compute_blocked),) = rec.ground_routers
+    assert (sweep, verify, job) == (rec.ground_sweep, rec.ground_verify, ground_job)
+    assert store.root == Path(cfg.state_dir) / "ground_board"
+    assert rec.ground_verify.store is store
+    assert rec.ground_sweep.urdf_text() == entry.base_urdf(cfg)
+    assert compute_blocked() is None
+
+
+def test_ground_parts_and_the_other_head_motions_block_each_other(rec: Recorder) -> None:
+    entry.main()
+    parts = {
+        "capture": rec.capture, "job": rec.job, "arm_camera": rec.jobs[1], "ground_job": rec.jobs[2],
+        "sequencer": rec.sequencer, "sweep": rec.sweep, "ground_sweep": rec.ground_sweep,
+        "ground_verify": rec.ground_verify,
+    }  # fmt: skip
+    running: dict[str, bool] = dict.fromkeys(parts, False)
+    for name, part in parts.items():
+        part.state = lambda name=name: {"running": running[name]}
+    compute_blocked = rec.ground_routers[0][6]
+    arm_camera_blocked = rec.arm_camera_routers[0][5]
+    checks = {
+        "ground_sweep": [rec.sweep.blocked, rec.sequencer.blocked, rec.ground_verify.blocked, compute_blocked,
+                         arm_camera_blocked],
+        "ground_verify": [rec.sweep.blocked, rec.sequencer.blocked, rec.ground_sweep.blocked, compute_blocked,
+                          arm_camera_blocked],
+        "ground_job": [rec.sweep.blocked, rec.sequencer.blocked, rec.ground_sweep.blocked, rec.ground_verify.blocked],
+        "sweep": [rec.ground_sweep.blocked, rec.ground_verify.blocked, compute_blocked],
+        "sequencer": [rec.ground_sweep.blocked, rec.ground_verify.blocked, compute_blocked],
+        "arm_camera": [rec.ground_sweep.blocked, rec.ground_verify.blocked, compute_blocked],
+        "capture": [rec.ground_sweep.blocked, rec.ground_verify.blocked],
+        "job": [rec.ground_sweep.blocked, rec.ground_verify.blocked],
+    }  # fmt: skip
+    for blocker in (rec.sweep.blocked, rec.sequencer.blocked, rec.ground_sweep.blocked, rec.ground_verify.blocked):
+        assert blocker() is None
+    assert compute_blocked() is None and arm_camera_blocked() is None
+    for name, blocked in checks.items():
+        running[name] = True
+        for check in blocked:
+            assert check(), (name, check)
+        running[name] = False

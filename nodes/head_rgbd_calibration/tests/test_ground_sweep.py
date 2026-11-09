@@ -29,6 +29,7 @@ from head_rgbd_calibration.ground_sweep import (
     plan_grid,
 )
 from head_rgbd_calibration.telemetry import events_in
+from tests.contract import assert_matches_fixture
 from tests.test_floor_sweep import CHAIN, START_DEG, URDF_TEXT, FakeNode, World, read_points
 
 WIDTH, HEIGHT = 640, 360
@@ -226,6 +227,7 @@ def test_a_placement_sweeps_around_the_board_then_awaits_the_next(
     wait_status(sweep, AWAITING)
     state = sweep.state()
     assert state["placements_done"] == 1 and state["awaiting_placement"] is True and state["running"] is True
+    assert_matches_fixture(state, "ground_board_sweep_state")
     assert degrees(world)[0] == (0.0, 30.0)  # home first
     assert all(tilt <= 45.0 for _, tilt in degrees(world))
     data = observations(tmp_path, sid)

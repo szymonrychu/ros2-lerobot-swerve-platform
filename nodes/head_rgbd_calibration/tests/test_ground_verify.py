@@ -17,6 +17,7 @@ from head_rgbd_calibration.floor_sweep import Busy, SweepError
 from head_rgbd_calibration.ground_results import GroundStore
 from head_rgbd_calibration.ground_verify import GroundVerify, evaluate_pose
 from head_rgbd_calibration.telemetry import events_in
+from tests.contract import assert_matches_fixture
 from tests.test_floor_sweep import START_DEG, FakeNode, World
 
 STATE_TOPIC = "/ground/state"
@@ -151,6 +152,7 @@ def test_verification_visits_every_pose_and_passes(tmp_path: Path, caplog: pytes
     with caplog.at_level(logging.INFO, logger=LOGGER):
         state = run_verify(verifier)
     assert state["status"] == "done" and state["passed"] is True, state
+    assert_matches_fixture(state, "ground_board_verify_state")
     assert state["head_chain"] == {"source": "ground_board", "session": SID, "result": RID}
     assert state["result"] == {"session": SID, "result": RID}
     assert [(p["pan_deg"], p["tilt_deg"]) for p in state["poses"]] == [(0.0, 30.0), (40.0, 20.0), (-40.0, 25.0)]

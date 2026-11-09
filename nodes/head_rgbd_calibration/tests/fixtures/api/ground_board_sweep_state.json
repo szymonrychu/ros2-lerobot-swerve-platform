@@ -1,0 +1,21 @@
+{
+  "running": true,
+  "status": "awaiting_placement",
+  "session_id": "ground-20261109-030000",
+  "placement": 1,
+  "placements_done": 1,
+  "max_placements": 3,
+  "awaiting_placement": true,
+  "pose": 10,
+  "total": 10,
+  "views": 27,
+  "planes": 18,
+  "skipped": 0,
+  "board": {
+    "x_m": 0.551,
+    "y_m": 0.049,
+    "yaw_deg": 17.2
+  },
+  "message": "move the board to a new place on the floor (close, fully visible at home), then press Next placement",
+  "error": null
+}

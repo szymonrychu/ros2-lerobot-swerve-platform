@@ -3,10 +3,12 @@
 Capture reuses the head-arm sequence (/api/head-arm/sequence/*): a session here is a head_arm session. The compute runs
 in the arm to camera ComputeJob (a niced child) and answers 202 {result_id}; the result is polled. Errors use the
 common {ok: false, message} body: InvalidId and NotFound give 404 (unknown ids and results of another kind), a session
-that is not head_arm gives 400, a running sequence or compute, a node not ready (no applied head chain), and an accept
-or decline of a result that is not done, not plausible, declined or accepted give 409.
+that is not head_arm gives 400, a running sequence, ground board session or verification, or compute, a node not
+ready (no applied head chain), and an accept or decline of a result that is not done, not plausible, declined or
+accepted give 409.
 """
 
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
@@ -33,7 +35,12 @@ MSG_SEQUENCE_RUNNING = "a head-arm sequence is running; stop it first"
 
 
 def arm_camera_router(
-    sequencer: Sequencer, job: ComputeJob, store: SessionStore, cfg: NodeConfig, run: RunFn
+    sequencer: Sequencer,
+    job: ComputeJob,
+    store: SessionStore,
+    cfg: NodeConfig,
+    run: RunFn,
+    blocked: Callable[[], str | None] | None = None,
 ) -> APIRouter:
     """Routes of the arm to camera calibration.
 
@@ -43,6 +50,8 @@ def arm_camera_router(
         store: Session store (head_arm sessions and their results).
         cfg: Node config (state_dir, restart_units, fit).
         run: subprocess.run-compatible callable for the unit states after an accept.
+        blocked: Returns why a compute may not start now besides the sequence (a ground board session or
+            verification moves the head), else None; None checks nothing more.
 
     Returns:
         APIRouter: POST /sessions/{sid}/compute, GET /sessions/{sid}/results/{rid}, POST .../accept, POST .../decline
@@ -65,6 +74,9 @@ def arm_camera_router(
             return error_response(HTTP_BAD_REQUEST, str(exc))
         if sequencer.state()["running"]:
             return error_response(HTTP_CONFLICT, MSG_SEQUENCE_RUNNING)
+        reason = blocked() if blocked is not None else None
+        if reason:
+            return error_response(HTTP_CONFLICT, reason)
         ready, reason = readiness(cfg)
         if not ready:
             return error_response(HTTP_CONFLICT, str(reason))
