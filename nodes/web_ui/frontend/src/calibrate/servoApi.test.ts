@@ -13,7 +13,10 @@ function respond(status: number, body: unknown): void {
 
 describe('servoApi', () => {
   it('fetchServoGroups returns the groups', async () => {
-    const group = { id: 'arm', label: 'Arm', neutral: true, state: null, age_s: null, stale: true, calibration_stale: null }
+    const group = {
+      id: 'arm', label: 'Arm', neutral: true, state: null, age_s: null, stale: true, calibration_stale: null,
+      zero_restore: true, move_to_neutral: true,
+    }
     respond(200, { groups: [group] })
     const r = await fetchServoGroups()
     expect(fetch).toHaveBeenCalledWith('/api/calibration/servos', { cache: 'no-store' })
@@ -37,7 +40,10 @@ describe('servoApi', () => {
     expect(r.ok).toBe(false)
   })
 
-  it.each(['release', 'enable', 'record', 'save', 'save_confirmed'] as const)('servoAction posts %s', async (action) => {
+  it.each([
+    'release', 'enable', 'record', 'save', 'save_confirmed', 'zero_restore_dry_run', 'zero_restore_apply',
+    'zero_restore_apply_confirmed', 'save_rest_reference', 'move_to_neutral',
+  ] as const)('servoAction posts %s', async (action) => {
     respond(200, { ok: true, message: 'done' })
     const r = await servoAction('arm', action)
     expect(fetch).toHaveBeenCalledWith(`/api/calibration/servos/arm/${action}`, { method: 'POST' })

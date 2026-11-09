@@ -4,8 +4,75 @@ import { useEffect, useState } from 'react'
 const BASE = '/api/calibration/servos'
 export const SERVO_POLL_MS = 1000
 
-/** `save_confirmed` saves a recorded shift above neutral_max_shift_deg; the bridge refuses it for plain `save`. */
-export type ServoAction = 'release' | 'enable' | 'record' | 'save' | 'save_confirmed'
+/**
+ * `save_confirmed` saves a recorded shift above neutral_max_shift_deg; the bridge refuses it for plain `save`.
+ * `zero_restore_apply_confirmed` applies an offset change above the zero restore max_change_deg the same way.
+ * `move_to_neutral` is served by mcp_server (/arm/move_to_neutral), the others by the feetech bridge.
+ */
+export type ServoAction =
+  | 'release'
+  | 'enable'
+  | 'record'
+  | 'save'
+  | 'save_confirmed'
+  | 'zero_restore_dry_run'
+  | 'zero_restore_apply'
+  | 'zero_restore_apply_confirmed'
+  | 'save_rest_reference'
+  | 'move_to_neutral'
+
+/** One joint of a zero restore dry run plan (steps and joint radians as /follower/joint_states). */
+export interface ZeroRestorePlanJoint {
+  present_steps: number
+  present_rad: number
+  target_steps: number
+  target_rad: number
+  offset_before_steps: number
+  offset_change_steps: number
+  change_deg: number
+  new_offset_steps: number
+  /** |change| above max_change_deg: the apply needs the explicit confirm. */
+  exceeds_max_change: boolean
+}
+
+/** The bridge's last zero restore dry run, applied only while fresh (max_age_s) and unmoved. */
+export interface ZeroRestorePlan {
+  run_id: string
+  created_at: string
+  max_age_s: number
+  reference_source: 'file' | 'seed'
+  needs_confirm: boolean
+  joints: Record<string, ZeroRestorePlanJoint>
+}
+
+/** Per-joint outcome of the last zero restore apply. */
+export interface ZeroRestoreResultJoint {
+  applied: boolean
+  present_after_steps: number | null
+  present_after_rad: number | null
+  offset_after_steps: number | null
+}
+
+export interface ZeroRestoreResult {
+  run_id: string
+  action: string
+  finished_at: string
+  success: boolean
+  message: string
+  record_path: string | null
+  joints: Record<string, ZeroRestoreResultJoint>
+  not_attempted: string[]
+}
+
+/** torque_state `zero_restore` of a group with a zero_restore block (bridge contract). */
+export interface ZeroRestoreState {
+  max_change_deg: number
+  reference: { source: 'file' | 'seed'; saved_at: string | null; joints: Record<string, number> } | null
+  reference_error: string | null
+  stale_joint_offsets: boolean
+  plan: ZeroRestorePlan | null
+  last_result: ZeroRestoreResult | null
+}
 
 /** Recorded neutral of one joint, not saved yet. */
 export interface NeutralCaptureJoint {
@@ -27,6 +94,8 @@ export interface TorqueState {
   last_save: { saved_at?: unknown; saved?: unknown; failed?: unknown } | null
   /** Largest recorded shift (deg) saved without the large-shift confirm; null for a group without neutral. */
   neutral_max_shift_deg: number | null
+  /** Zero restore state; null or absent for a group without a zero_restore block. */
+  zero_restore?: ZeroRestoreState | null
 }
 
 /** One entry of GET /api/calibration/servos. */
@@ -38,6 +107,10 @@ export interface ServoGroup {
   age_s: number | null
   stale: boolean
   calibration_stale: string[] | null
+  /** The zero restore actions are offered (Arm zero restore panel). */
+  zero_restore: boolean
+  /** The Move to neutral pose button is offered (mcp_server /arm/move_to_neutral). */
+  move_to_neutral: boolean
 }
 
 export interface ServoActionResult {
