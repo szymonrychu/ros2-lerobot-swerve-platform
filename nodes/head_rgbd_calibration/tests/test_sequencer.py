@@ -8,6 +8,7 @@ very wide camera unless a test sets the D435 one, so only the min-Z and FOV test
 """
 
 import json
+import logging
 import math
 import re
 import threading
@@ -32,6 +33,7 @@ from head_rgbd_calibration.capture import StillOutcome
 from head_rgbd_calibration.config import NodeConfig
 from head_rgbd_calibration.robot_client import RawToolResult, RobotClient
 from head_rgbd_calibration.sequencer import (
+    EVENT_LIMIT,
     HOLDING,
     IDLE,
     MESSAGE_SLACK_GRIP,
@@ -70,7 +72,10 @@ STATE_KEYS = {
     "big_joints",
     "waiting_since",
     "board_record",
+    "events",
 }
+EVENT_KEYS = {"time", "phase", "level", "message"}
+SEQUENCER_LOGGER = "head_rgbd_calibration.sequencer"
 BIG_JOINTS = ["elbow_flex", "shoulder_lift", "shoulder_pan"]
 RADIUS_KEY = "carried_object_radius_m"
 WAIT_S = 20.0
@@ -1217,3 +1222,114 @@ def test_sequence_needs_the_colour_camera_info(tmp_path: Path) -> None:
     assert "no colour camera_info" in state["error"] and "6 s" in state["error"]
     assert rig.robot.count("move_arm_joints") == 2 and rig.capture.stills == []  # base pose and handle grip
     assert_held_not_parked(rig)
+
+
+def event_messages(state: dict[str, Any], level: str | None = None) -> list[str]:
+    """Event messages of a state, oldest first, optionally of one level."""
+    return [e["message"] for e in reversed(state["events"]) if level is None or e["level"] == level]
+
+
+def test_step_failure_is_logged_with_its_message(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    rig = Rig(tmp_path, small_cfg())
+    seq = rig.cfg.arm_sequence
+    with caplog.at_level(logging.INFO, logger=SEQUENCER_LOGGER):
+        rig.run_to_capture(jaw_after_close=seq.grip_rad)
+        rig.finish()
+    failures = [r for r in caplog.records if r.name == SEQUENCER_LOGGER and r.levelno >= logging.WARNING]
+    assert any(MESSAGE_UNSEATED in r.getMessage() for r in failures)
+
+
+def test_state_events_cover_a_full_run_newest_first(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, small_cfg())
+    assert rig.seq.state()["events"] == []
+    state = rig.run_to_holding()
+    events = state["events"]
+    assert all(set(e) == EVENT_KEYS for e in events)
+    assert all(e["time"] == NOW.isoformat(timespec="seconds") for e in events)
+    messages = event_messages(state)
+    assert messages[0].startswith("sequence started")
+    assert events[0]["message"].startswith("sequence done")  # newest first
+    assert events[0]["level"] == "info"
+    for text in (
+        "base pose reached",
+        "board attached",
+        "handle gripped",
+        f"still session {SESSION} started",
+        "tier 2 allowed",
+        "back at the base pose",
+    ):
+        assert any(text in m for m in messages), text
+    pose_events = [m for m in messages if m.startswith("tier ") and " captured" in m]
+    assert len(pose_events) == len(tier_poses(rig.cfg))
+    assert event_messages(state, "error") == []
+
+
+def test_failed_sequence_records_the_error_event(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, small_cfg())
+    rig.run_to_capture(jaw_after_close=rig.cfg.arm_sequence.grip_rad)
+    state = rig.finish()
+    newest = state["events"][0]
+    assert newest["level"] == "error"
+    assert newest["message"].startswith("sequence error: ") and MESSAGE_UNSEATED in newest["message"]
+    assert newest["phase"] == "moving_to_base"  # the phase the step failed in
+
+
+def test_stopped_sequence_records_a_warning_event(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, small_cfg())
+    rig.seq.move_to_base(confirmed=True)
+    rig.wait_phase(WAITING_BOARD)
+    rig.seq.stop()
+    state = rig.finish()
+    assert state["events"][0]["level"] == "warning"
+    assert state["events"][0]["message"] == "sequence stopped"
+    assert event_messages(state, "warning")[-1] == "sequence stopped"
+
+
+def test_park_outcomes_are_recorded_as_events(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    rig = Rig(tmp_path, small_cfg())
+    rig.run_to_holding()
+    rig.robot.reset_arm = "failed: timeout"
+    with caplog.at_level(logging.INFO, logger=SEQUENCER_LOGGER):
+        rig.seq.park(confirmed=True)
+        state = rig.finish()
+    assert state["events"][0]["level"] == "error"
+    assert (
+        state["events"][0]["message"].startswith("park failed: ") and "failed: timeout" in state["events"][0]["message"]
+    )
+    assert any(r.levelno >= logging.WARNING and "failed: timeout" in r.getMessage() for r in caplog.records)
+    assert any(m.startswith("park started") for m in event_messages(state))
+    rig.robot.reset_arm = "homed"
+    rig.seq.park(confirmed=True)
+    state = rig.finish()
+    assert state["events"][0]["level"] == "info" and state["events"][0]["message"].startswith("park done: parked")
+
+
+def test_park_refusal_is_recorded_as_an_error_event(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, small_cfg())
+    rig.robot.carrying = ["last grasp held an object"]
+    with pytest.raises(SequenceError, match="mcp_server reports carrying"):
+        rig.seq.park(confirmed=True)
+    newest = rig.seq.state()["events"][0]
+    assert newest["level"] == "error" and "mcp_server reports carrying" in newest["message"]
+
+
+def test_refused_start_is_recorded_as_an_error_event(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, small_cfg())
+    rig.head_urdf = "<robot"
+    with pytest.raises(SequenceError, match="URDF"):
+        rig.seq.move_to_base(confirmed=True)
+    newest = rig.seq.state()["events"][0]
+    assert newest["level"] == "error" and "URDF" in newest["message"]
+
+
+def test_events_are_bounded_to_the_newest(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, small_cfg())
+    rig.robot.carrying = ["last grasp held an object"]
+    for _ in range(EVENT_LIMIT + 5):
+        with pytest.raises(SequenceError):
+            rig.seq.park(confirmed=True)
+    rig.robot.carrying = []
+    rig.seq.park(confirmed=True)
+    state = rig.finish()
+    assert len(state["events"]) == EVENT_LIMIT
+    assert state["events"][0]["message"].startswith("park done")

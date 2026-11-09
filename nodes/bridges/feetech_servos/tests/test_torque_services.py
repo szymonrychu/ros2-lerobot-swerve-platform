@@ -155,6 +155,7 @@ def test_enable_answers_success_and_state_returns_to_held(bridge_module: ModuleT
         "neutral_enabled": False,
         "neutral_capture": None,
         "last_save": None,
+        "neutral_max_shift_deg": None,
     }
 
 
@@ -191,6 +192,7 @@ def test_payload_omits_a_joint_without_a_reading() -> None:
         "neutral_enabled": False,
         "neutral_capture": None,
         "last_save": None,
+        "neutral_max_shift_deg": None,
     }
 
 

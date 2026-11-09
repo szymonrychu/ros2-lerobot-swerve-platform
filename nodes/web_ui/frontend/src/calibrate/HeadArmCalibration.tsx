@@ -16,6 +16,7 @@ import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
 import Typography from '@mui/material/Typography'
 import { TOUCH_TARGET_PX } from '../theme'
+import { SequenceActivity } from './SequenceActivity'
 import { BoardNeeded } from './BoardNeeded'
 import type { AppliedHeadChain, FloorApplied, FloorApiResult } from './headFloorApi'
 import {
@@ -283,7 +284,7 @@ export function HeadArmCalibration({ armRun = false }: { armRun?: boolean }) {
       </Typography>
       <BoardNeeded role="arm" />
       {error && <Alert severity="error">{error}</Alert>}
-      {sequence?.error && <Alert severity="error">{sequence.error}</Alert>}
+      {sequence && <SequenceActivity sequence={sequence} withStatus={!sequence.session_id} />}
 
       {phase === PHASE_IDLE && !running && (
         <Box sx={{ mt: 1 }}>

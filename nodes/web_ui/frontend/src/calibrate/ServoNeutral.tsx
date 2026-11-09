@@ -2,17 +2,27 @@ import { useCallback, useState } from 'react'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
+import Checkbox from '@mui/material/Checkbox'
 import Chip from '@mui/material/Chip'
+import Dialog from '@mui/material/Dialog'
+import DialogActions from '@mui/material/DialogActions'
+import DialogContent from '@mui/material/DialogContent'
+import DialogContentText from '@mui/material/DialogContentText'
+import DialogTitle from '@mui/material/DialogTitle'
+import FormControlLabel from '@mui/material/FormControlLabel'
 import Typography from '@mui/material/Typography'
 import { ConfirmDialog } from '../layout/ConfirmDialog'
 import { TOUCH_TARGET_PX } from '../theme'
-import { ServoAction, ServoGroup, servoAction, useServoGroups } from './servoApi'
+import { NeutralCaptureJoint, ServoAction, ServoGroup, servoAction, useServoGroups } from './servoApi'
 
 const STEPS_PER_TURN = 4096
 const DEGREES_PER_TURN = 360
 const SAVE_TEXT = 'Writes the new neutral into the servo EEPROM.'
 const ARM_SAVE_TEXT =
   'Arm joint offsets and the stored home become stale until re-calibrated. Teleop needs the leader arm re-zeroed in the same pose.'
+const LARGE_SHIFT_TEXT =
+  'A large shift usually means the joints were not in the neutral pose when it was recorded (for example the folded arm). Saving it moves every later pose and Park by that angle. Record again in the neutral pose unless the shift is intended.'
+const LARGE_SHIFT_CONFIRM = 'The large shift is intended: save it'
 const RELEASE_TEXT: Record<string, string> = {
   arm: 'Support the arm: it goes limp and will drop.',
   head: 'Support the head: it goes limp.',
@@ -29,6 +39,13 @@ export function torqueLevel(group: ServoGroup): TorqueLevel {
   if (values.length === 0) return 'unknown'
   if (values.every((v) => v === 1)) return 'on'
   return values.every((v) => v === 0) ? 'off' : 'partly'
+}
+
+/** Names of the recorded joints whose shift exceeds the group's neutral_max_shift_deg. */
+export function largeShiftJoints(capture: Record<string, NeutralCaptureJoint> | null): string[] {
+  return Object.entries(capture ?? {})
+    .filter(([, c]) => c.exceeds_max_shift)
+    .map(([name]) => name)
 }
 
 /** Signed degrees text of a neutral shift in steps, e.g. "+8.8". */
@@ -85,7 +102,9 @@ function ServoCard({ group, busy, onRun, onConfirm }: CardProps) {
         <Box sx={{ mb: 1 }}>
           <Typography variant="body2">Recorded neutral shift (degrees)</Typography>
           {Object.entries(capture).map(([name, c]) => (
-            <Typography key={name} variant="body2" color="text.secondary">{`${name}: ${shiftDegrees(c.delta_steps)}`}</Typography>
+            <Typography key={name} variant="body2" color={c.exceeds_max_shift ? 'error' : 'text.secondary'}>
+              {`${name}: ${shiftDegrees(c.delta_steps)}${c.exceeds_max_shift ? ` (above ${group.state?.neutral_max_shift_deg} deg)` : ''}`}
+            </Typography>
           ))}
         </Box>
       )}
@@ -111,6 +130,59 @@ function ServoCard({ group, busy, onRun, onConfirm }: CardProps) {
   )
 }
 
+/**
+ * Confirm of Re-enable torque + save: lists every recorded shift; a shift above the group's neutral_max_shift_deg
+ * needs the explicit checkbox and then saves through save_confirmed (the bridge refuses a plain save of it).
+ */
+function SaveNeutralDialog(props: { group: ServoGroup | null; onSave: (group: ServoGroup, action: ServoAction) => void; onCancel: () => void }) {
+  const { group } = props
+  const [confirmed, setConfirmed] = useState(false)
+  const capture = group?.state?.neutral_capture ?? null
+  const large = largeShiftJoints(capture)
+  const limit = group?.state?.neutral_max_shift_deg
+  const cancel = () => {
+    setConfirmed(false)
+    props.onCancel()
+  }
+  const save = () => {
+    if (!group || (large.length > 0 && !confirmed)) return
+    setConfirmed(false)
+    props.onSave(group, large.length > 0 ? 'save_confirmed' : 'save')
+  }
+  return (
+    <Dialog open={group !== null} onClose={cancel} aria-labelledby="save-neutral-title">
+      <DialogTitle id="save-neutral-title">{`Re-enable torque + save: ${group?.label ?? ''}?`}</DialogTitle>
+      <DialogContent>
+        <DialogContentText>{group?.id === 'arm' ? `${SAVE_TEXT} ${ARM_SAVE_TEXT}` : SAVE_TEXT}</DialogContentText>
+        <Box sx={{ mt: 1 }}>
+          {Object.entries(capture ?? {}).map(([name, c]) => (
+            <Typography key={name} variant="body2" color={c.exceeds_max_shift ? 'error' : 'text.primary'}>
+              {`${name}: ${shiftDegrees(c.delta_steps)} deg${c.exceeds_max_shift ? ` (above ${limit} deg)` : ''}`}
+            </Typography>
+          ))}
+        </Box>
+        {large.length > 0 && (
+          <>
+            <Alert severity="warning" sx={{ mt: 1 }}>
+              {`${large.join(', ')} shift more than ${limit} deg. ${LARGE_SHIFT_TEXT}`}
+            </Alert>
+            <FormControlLabel
+              control={<Checkbox checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} />}
+              label={LARGE_SHIFT_CONFIRM}
+            />
+          </>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={cancel}>Cancel</Button>
+        <Button color="error" variant="outlined" disabled={large.length > 0 && !confirmed} onClick={save}>
+          {large.length > 0 ? 'Save large shift' : 'Re-enable torque + save'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+  )
+}
+
 /** Servo torque and neutral section of the Calibrate page: one card per servo group. */
 export function ServoNeutral() {
   const { groups, notConfigured, error } = useServoGroups()
@@ -126,8 +198,6 @@ export function ServoNeutral() {
     setBusy(false)
   }, [])
 
-  const saveBody = pending?.group.id === 'arm' ? `${SAVE_TEXT} ${ARM_SAVE_TEXT}` : SAVE_TEXT
-
   return (
     <Box component="section" sx={{ mb: 2 }}>
       <Typography variant="h6" component="h2">
@@ -142,11 +212,16 @@ export function ServoNeutral() {
         ))}
       </Box>
       <ConfirmDialog
-        open={pending !== null}
-        title={pending?.action === 'save' ? `Re-enable torque + save: ${pending.group.label}?` : `Torque off: ${pending?.group.label ?? ''}?`}
-        body={pending?.action === 'save' ? saveBody : pending ? RELEASE_TEXT[pending.group.id] : undefined}
-        confirmLabel={pending?.action === 'save' ? 'Re-enable torque + save' : 'Torque off'}
-        onConfirm={() => pending && void run(pending.group, pending.action)}
+        open={pending?.action === 'release'}
+        title={`Torque off: ${pending?.group.label ?? ''}?`}
+        body={pending?.action === 'release' ? RELEASE_TEXT[pending.group.id] : undefined}
+        confirmLabel="Torque off"
+        onConfirm={() => pending && void run(pending.group, 'release')}
+        onCancel={() => setPending(null)}
+      />
+      <SaveNeutralDialog
+        group={pending?.action === 'save' ? groups.find((g) => g.id === pending.group.id) ?? pending.group : null}
+        onSave={(grp, a) => void run(grp, a)}
         onCancel={() => setPending(null)}
       />
     </Box>

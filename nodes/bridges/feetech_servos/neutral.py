@@ -3,7 +3,9 @@
 record(namespace): the group's neutral joints (position joints minus neutral_exclude_joints) must be released with a
 verified torque 0. Their present_position is read (None retried) and kept as the capture; nothing is written.
 
-save(namespace): refused without a capture, when the group is not released, or when a joint moved more than
+save(namespace): refused without a capture, when the group is not released, when a recorded joint shift exceeds the
+group's neutral_max_shift_deg and the save is not confirmed (save(namespace, confirmed=True), the
+save_neutral_confirmed service; nothing written, torque and capture unchanged), or when a joint moved more than
 NEUTRAL_MOVE_TOLERANCE_STEPS since the record (nothing written). Then every velocity joint of this bus is stopped
 (zero goal_speed acknowledged): the save stalls this bridge's loop (~0.6 s per joint) and its velocity watchdog cannot
 run meanwhile. Per joint, in config order (the sequence of scripts/calibrate_servos.py cmd_center): read the angle
@@ -103,6 +105,31 @@ def shift_text(name: str, steps: int) -> str:
     return f"{name} {delta:+d} steps ({delta * DEGREES_PER_TURN / STEPS_PER_TURN:+.1f} deg)"
 
 
+def shift_degrees(steps: int) -> float:
+    """Neutral shift of a recorded position in degrees: (present - 2048) converted.
+
+    Args:
+        steps (int): Recorded present_position steps.
+
+    Returns:
+        float: Signed shift in degrees.
+    """
+    return (steps - STEP_CENTER) * DEGREES_PER_TURN / STEPS_PER_TURN
+
+
+def large_shifts(capture: dict[str, int], max_shift_deg: float) -> list[str]:
+    """Names of the recorded joints whose neutral shift exceeds the limit, in capture order.
+
+    Args:
+        capture (dict[str, int]): joint name -> recorded present steps.
+        max_shift_deg (float): Largest shift (degrees, either sign) saved without the confirm.
+
+    Returns:
+        list[str]: Joint names with |shift| > max_shift_deg.
+    """
+    return [name for name, steps in capture.items() if abs(shift_degrees(steps)) > max_shift_deg]
+
+
 def merge_marker(
     existing: dict[str, Any] | None, group: str, saved_at: str, joints: dict[str, tuple[int, int]]
 ) -> dict[str, Any]:
@@ -186,6 +213,7 @@ class NeutralControl:
         now_iso: Returns the ISO-8601 UTC save time.
         log_info: Receives a line per record or save result.
         log_error: Receives a line per stale marker write failure.
+        log_warning: Receives a line per save refused for a large shift and per confirmed large shift.
         captures: namespace -> joint name -> recorded present steps (joints not saved yet).
         last_saves: namespace -> {"saved_at", "saved", "failed"} of the last save that reached the EEPROM step.
     """
@@ -198,6 +226,7 @@ class NeutralControl:
         now_iso: Callable[[], str] = utc_now_iso,
         log_info: Callable[[str], Any] = LOGGER.info,
         log_error: Callable[[str], Any] = LOGGER.error,
+        log_warning: Callable[[str], Any] = LOGGER.warning,
     ) -> None:
         """Create the neutral control for one bus.
 
@@ -208,6 +237,7 @@ class NeutralControl:
             now_iso (Callable[[], str]): ISO-8601 UTC clock for saved_at.
             log_info (Callable[[str], Any]): Info logger.
             log_error (Callable[[str], Any]): Error logger.
+            log_warning (Callable[[str], Any]): Warning logger.
         """
         self.torque = torque
         self.command_limits = command_limits
@@ -215,6 +245,7 @@ class NeutralControl:
         self.now_iso = now_iso
         self.log_info = log_info
         self.log_error = log_error
+        self.log_warning = log_warning
         self.captures: dict[str, dict[str, int]] = {}
         self.last_saves: dict[str, dict[str, Any]] = {}
         self.present_entry = get_register_entry_by_name(PRESENT_REGISTER)
@@ -228,13 +259,20 @@ class NeutralControl:
             namespace (str): Group namespace.
 
         Returns:
-            dict[str, Any]: {"neutral_capture": {name: {"steps", "delta_steps"}} | None, "last_save": dict | None}.
+            dict[str, Any]: {"neutral_capture": {name: {"steps", "delta_steps", "exceeds_max_shift"}} | None,
+                "last_save": dict | None}; exceeds_max_shift is True for a joint save_neutral refuses without the
+                confirm (shift above the group's neutral_max_shift_deg).
         """
         capture = self.captures.get(namespace)
         last_save = self.last_saves.get(namespace)
+        group = self.torque.groups.get(namespace)
+        large = set(large_shifts(capture, group.neutral_max_shift_deg)) if capture and group is not None else set()
         return {
             "neutral_capture": (
-                {name: {"steps": steps, "delta_steps": steps - STEP_CENTER} for name, steps in capture.items()}
+                {
+                    name: {"steps": steps, "delta_steps": steps - STEP_CENTER, "exceeds_max_shift": name in large}
+                    for name, steps in capture.items()
+                }
                 if capture
                 else None
             ),
@@ -271,11 +309,15 @@ class NeutralControl:
         shifts = ", ".join(shift_text(name, steps) for name, steps in present.items())
         return self.logged(NeutralResult(True, f"/{namespace}: neutral recorded: {shifts}"))
 
-    def save(self, namespace: str) -> NeutralResult:
+    def save(self, namespace: str, confirmed: bool = False) -> NeutralResult:
         """Write the recorded neutral into each joint's EEPROM centre, then enable torque holding present.
+
+        A recorded shift above the group's neutral_max_shift_deg refuses the save (nothing written, torque and capture
+        unchanged) unless `confirmed`; a confirmed large shift is logged as a warning.
 
         Args:
             namespace (str): Group namespace.
+            confirmed (bool): The user confirmed the large shifts (the save_neutral_confirmed service).
 
         Returns:
             NeutralResult: success when every joint saved, torque is back on and the stale marker (if any) is written;
@@ -287,6 +329,17 @@ class NeutralControl:
         capture = self.captures.get(namespace)
         if not capture:
             return self.logged(NeutralResult(False, f"/{namespace}: record neutral first"))
+        large = large_shifts(capture, group.neutral_max_shift_deg)
+        if large:
+            shifts = ", ".join(shift_text(name, capture[name]) for name in large)
+            if not confirmed:
+                message = (
+                    f"/{namespace}: neutral shift above {group.neutral_max_shift_deg:g} deg: {shifts}; nothing written,"
+                    " torque unchanged; confirm the large shift to save (save_neutral_confirmed)"
+                )
+                self.log_warning(message)
+                return NeutralResult(False, message)
+            self.log_warning(f"/{namespace}: large neutral shift confirmed: {shifts}")
         joints = [j for j in group.neutral_joints if j.name in capture]
         present, unread = self.read_presents(joints)
         if unread:

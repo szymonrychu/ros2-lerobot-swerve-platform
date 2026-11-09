@@ -8,7 +8,7 @@ function servo(group: Partial<ServoGroup> | null, joints: Record<string, number>
     id: 'arm',
     label: 'Arm',
     neutral: true,
-    state: { namespace: 'follower', released: false, joints, stamp_ns: 1, neutral_enabled: true, neutral_capture: null, last_save: null },
+    state: { namespace: 'follower', released: false, joints, stamp_ns: 1, neutral_enabled: true, neutral_capture: null, last_save: null, neutral_max_shift_deg: 15 },
     age_s: 0.1,
     stale: false,
     calibration_stale: null,

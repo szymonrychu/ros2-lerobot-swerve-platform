@@ -14,7 +14,7 @@ from st3215.values import INST_READ, INST_WRITE
 
 from feetech_servos import neutral as neutral_module
 from feetech_servos.bridge_cycle import BridgeCycle
-from feetech_servos.config import JointEntry, JointGroup
+from feetech_servos.config import DEFAULT_NEUTRAL_MAX_SHIFT_DEG, JointEntry, JointGroup
 from feetech_servos.neutral import (
     CENTER_READ_ATTEMPTS,
     CENTER_SETTLE_S,
@@ -58,6 +58,10 @@ PRESENT = {1: 1500, 3: 2600, 5: 2100, 6: 2200, 33: 2148, 34: 1990, 21: 2300, 22:
 LIMITS = {1: (500, 3500), 3: (700, 3300), 5: (0, 4095), 6: (1900, 3400), 33: (1000, 3000), 34: (1200, 2900)}
 STALE_COMMAND_LIMITS = (0, 4095)
 ARM_EEPROM_IDS = (1, 3, 5)
+# The arm PRESENT shifts reach 48.5 deg: the save mechanics tests run with a guard above them; the guard tests set
+# DEFAULT_NEUTRAL_MAX_SHIFT_DEG (or an exact boundary) themselves.
+ARM_MAX_SHIFT_DEG = 60.0
+ELBOW_SHIFT_DEG = 552 * 360 / 4096  # +48.515625 deg, the largest arm shift of PRESENT
 
 
 def to_word(data: list[int]) -> int:
@@ -209,13 +213,19 @@ class Rig:
     marker: Path
     sleeps: list[float]
     errors: list[str]
+    warnings: list[str]
 
     def events(self, sid: int, since: int = 0) -> list[str]:
         """Event names of one servo, in order."""
         return [event for s, event, _ in self.port.events[since:] if s == sid]
 
 
-def make_rig(tmp_path: Path, marker: Path | None = None, arm_neutral: bool = True) -> Rig:
+def make_rig(
+    tmp_path: Path,
+    marker: Path | None = None,
+    arm_neutral: bool = True,
+    arm_max_shift_deg: float = ARM_MAX_SHIFT_DEG,
+) -> Rig:
     """Build the bus (torque on, PRESENT, LIMITS), the cycle with wheels, TorqueControl and NeutralControl."""
     marker = marker if marker is not None else tmp_path / "arm" / "calibration_stale.json"
     arm = JointGroup(
@@ -224,6 +234,7 @@ def make_rig(tmp_path: Path, marker: Path | None = None, arm_neutral: bool = Tru
         neutral_enabled=arm_neutral,
         neutral_exclude_joints=["gripper"],
         neutral_stale_marker=str(marker),
+        neutral_max_shift_deg=arm_max_shift_deg,
     )
     swerve = JointGroup("swerve_drive", STEER + DRIVE, neutral_enabled=True)
     groups = [arm, swerve, HEAD]
@@ -255,10 +266,16 @@ def make_rig(tmp_path: Path, marker: Path | None = None, arm_neutral: bool = Tru
     torque.joint_torque.update({sid: 1 for sid in tables})
     sleeps: list[float] = []
     errors: list[str] = []
+    warnings: list[str] = []
     neutral = NeutralControl(
-        torque, command_limits, sleep=sleeps.append, now_iso=lambda: SAVED_AT, log_error=errors.append
+        torque,
+        command_limits,
+        sleep=sleeps.append,
+        now_iso=lambda: SAVED_AT,
+        log_error=errors.append,
+        log_warning=warnings.append,
     )
-    return Rig(port, servo, cycle, torque, neutral, command_limits, last_written, marker, sleeps, errors)
+    return Rig(port, servo, cycle, torque, neutral, command_limits, last_written, marker, sleeps, errors, warnings)
 
 
 def released_and_recorded(tmp_path: Path, namespace: str = "follower", **kwargs: Any) -> Rig:
@@ -729,9 +746,9 @@ def test_status_reports_capture_and_last_save(tmp_path: Path) -> None:
     assert rig.torque.release("follower").success
     assert rig.neutral.record("follower").success
     assert rig.neutral.status("follower")["neutral_capture"] == {
-        "shoulder_pan": {"steps": 1500, "delta_steps": -548},
-        "elbow_flex": {"steps": 2600, "delta_steps": 552},
-        "wrist_roll": {"steps": 2100, "delta_steps": 52},
+        "shoulder_pan": {"steps": 1500, "delta_steps": -548, "exceeds_max_shift": False},
+        "elbow_flex": {"steps": 2600, "delta_steps": 552, "exceeds_max_shift": False},
+        "wrist_roll": {"steps": 2100, "delta_steps": 52, "exceeds_max_shift": False},
     }
     assert rig.neutral.save("follower").success
     assert rig.neutral.status("follower") == {
@@ -740,9 +757,16 @@ def test_status_reports_capture_and_last_save(tmp_path: Path) -> None:
     }
 
 
+def test_status_flags_the_joints_above_the_max_shift(tmp_path: Path) -> None:
+    rig = released_and_recorded(tmp_path, arm_max_shift_deg=DEFAULT_NEUTRAL_MAX_SHIFT_DEG)
+    status = rig.neutral.status("follower")
+    flags = {name: joint["exceeds_max_shift"] for name, joint in status["neutral_capture"].items()}
+    assert flags == {"shoulder_pan": True, "elbow_flex": True, "wrist_roll": False}
+
+
 def test_payload_carries_neutral_fields() -> None:
     group = JointGroup("head", HEAD.joints, neutral_enabled=True)
-    capture = {"head_pan": {"steps": 2300, "delta_steps": 252}}
+    capture = {"head_pan": {"steps": 2300, "delta_steps": 252, "exceeds_max_shift": True}}
     payload = torque_state_payload(group, {21: 0}, {21}, 7, neutral_capture=capture)
     assert payload == {
         "namespace": "head",
@@ -752,8 +776,10 @@ def test_payload_carries_neutral_fields() -> None:
         "neutral_enabled": True,
         "neutral_capture": capture,
         "last_save": None,
+        "neutral_max_shift_deg": DEFAULT_NEUTRAL_MAX_SHIFT_DEG,
     }
-    assert torque_state_payload(HEAD, {21: 1}, set(), 8)["neutral_enabled"] is False
+    no_neutral = torque_state_payload(HEAD, {21: 1}, set(), 8)
+    assert (no_neutral["neutral_enabled"], no_neutral["neutral_max_shift_deg"]) == (False, None)
 
 
 # --- bridge services ------------------------------------------------------------------------------------------------
@@ -803,8 +829,11 @@ def test_neutral_services_only_for_neutral_enabled_groups(tmp_path: Path, bridge
     assert "/follower/servo/save_neutral" in node.services
     assert "/swerve_drive/servo/record_neutral" in node.services
     assert "/swerve_drive/servo/save_neutral" in node.services
+    assert "/follower/servo/save_neutral_confirmed" in node.services
+    assert "/swerve_drive/servo/save_neutral_confirmed" in node.services
     assert "/head/servo/record_neutral" not in node.services
     assert "/head/servo/save_neutral" not in node.services
+    assert "/head/servo/save_neutral_confirmed" not in node.services
     assert "/head/servo/release_torque" in node.services
 
 
@@ -813,7 +842,7 @@ def test_no_neutral_services_when_disabled_everywhere(tmp_path: Path, bridge_mod
     node = RecordingNode()
     arm = rig.torque.groups["follower"]
     bridge_module.setup_torque_interfaces(node, [arm, HEAD], rig.torque, [0], 1.0, rig.neutral)
-    assert not [name for name in node.services if name.endswith("_neutral")]
+    assert not [name for name in node.services if "neutral" in name]
 
 
 def test_record_and_save_publish_torque_state(tmp_path: Path, bridge_module: ModuleType) -> None:
@@ -835,7 +864,11 @@ def test_record_and_save_publish_torque_state(tmp_path: Path, bridge_module: Mod
     reporter.step(0.2, 3)
     assert len(states()) == published + 1
     assert states()[-1]["neutral_enabled"] is True
-    assert states()[-1]["neutral_capture"]["elbow_flex"] == {"steps": 2600, "delta_steps": 552}
+    assert states()[-1]["neutral_capture"]["elbow_flex"] == {
+        "steps": 2600,
+        "delta_steps": 552,
+        "exceeds_max_shift": False,
+    }
     # Recording the same pose again changes nothing in the payload but is still published.
     assert call(node, "/follower/servo/record_neutral", callbacks_run).success
     reporter.step(0.3, 4)
@@ -850,3 +883,73 @@ def test_record_and_save_publish_torque_state(tmp_path: Path, bridge_module: Mod
     assert state["last_save"]["saved"] == ["shoulder_pan", "elbow_flex", "wrist_roll"]
     head_states = [json.loads(m.data) for m in node.publishers["/head/torque_state"]]
     assert head_states[-1]["neutral_enabled"] is False
+
+
+# --- save: large shift guard ----------------------------------------------------------------------------------------
+
+
+def test_save_refused_above_the_max_shift_writes_nothing(tmp_path: Path) -> None:
+    rig = released_and_recorded(tmp_path, arm_max_shift_deg=DEFAULT_NEUTRAL_MAX_SHIFT_DEG)
+    released = set(rig.torque.released_ids)
+    events_before = len(rig.port.events)
+    result = rig.neutral.save("follower")
+    assert result.success is False
+    assert result.message == (
+        "/follower: neutral shift above 15 deg: shoulder_pan -548 steps (-48.2 deg), elbow_flex +552 steps (+48.5 deg);"
+        " nothing written, torque unchanged; confirm the large shift to save (save_neutral_confirmed)"
+    )
+    assert rig.port.events[events_before:] == []  # no wheel stop, no EEPROM write, no torque write
+    assert rig.torque.released_ids == released
+    assert rig.neutral.captures["follower"] == {"shoulder_pan": 1500, "elbow_flex": 2600, "wrist_roll": 2100}
+    assert rig.neutral.last_saves == {}
+    assert rig.warnings == [result.message]
+
+
+def test_confirmed_save_above_the_max_shift_saves_and_warns(tmp_path: Path) -> None:
+    rig = released_and_recorded(tmp_path, arm_max_shift_deg=DEFAULT_NEUTRAL_MAX_SHIFT_DEG)
+    result = rig.neutral.save("follower", confirmed=True)
+    assert result.success is True, result.message
+    assert rig.neutral.last_saves["follower"]["saved"] == ["shoulder_pan", "elbow_flex", "wrist_roll"]
+    assert rig.warnings == [
+        "/follower: large neutral shift confirmed: shoulder_pan -548 steps (-48.2 deg), elbow_flex +552 steps (+48.5 deg)"
+    ]
+
+
+def test_save_at_the_max_shift_needs_no_confirm(tmp_path: Path) -> None:
+    rig = released_and_recorded(tmp_path, arm_max_shift_deg=ELBOW_SHIFT_DEG)
+    result = rig.neutral.save("follower")
+    assert result.success is True, result.message
+    assert rig.warnings == []
+    rig = released_and_recorded(tmp_path, arm_max_shift_deg=ELBOW_SHIFT_DEG - 0.01)
+    result = rig.neutral.save("follower")
+    assert result.success is False and "elbow_flex +552 steps" in result.message
+    assert "shoulder_pan" not in result.message
+
+
+def test_save_below_the_default_max_shift_needs_no_confirm(tmp_path: Path) -> None:
+    rig = released_and_recorded(tmp_path, namespace="swerve_drive")  # steering shifts +8.8 and -5.1 deg
+    result = rig.neutral.save("swerve_drive")
+    assert result.success is True, result.message
+    assert rig.warnings == []
+
+
+def test_save_services_refuse_then_confirm_a_large_shift(tmp_path: Path, bridge_module: ModuleType) -> None:
+    rig = make_rig(tmp_path, arm_max_shift_deg=DEFAULT_NEUTRAL_MAX_SHIFT_DEG)
+    node = RecordingNode()
+    callbacks_run = [0]
+    groups = list(rig.torque.groups.values())
+    reporter = bridge_module.setup_torque_interfaces(node, groups, rig.torque, callbacks_run, 0.0, rig.neutral)
+    assert call(node, "/follower/servo/release_torque", callbacks_run).success
+    assert call(node, "/follower/servo/record_neutral", callbacks_run).success
+    reporter.step(0.1, 1)
+    state = json.loads(node.publishers["/follower/torque_state"][-1].data)
+    assert state["neutral_max_shift_deg"] == DEFAULT_NEUTRAL_MAX_SHIFT_DEG
+    assert state["neutral_capture"]["elbow_flex"]["exceeds_max_shift"] is True
+    refused = call(node, "/follower/servo/save_neutral", callbacks_run)
+    assert refused.success is False and "save_neutral_confirmed" in refused.message
+    assert "follower" in rig.neutral.captures
+    saved = call(node, "/follower/servo/save_neutral_confirmed", callbacks_run)
+    assert saved.success is True, saved.message
+    reporter.step(0.2, 2)
+    state = json.loads(node.publishers["/follower/torque_state"][-1].data)
+    assert state["released"] is False and state["neutral_capture"] is None

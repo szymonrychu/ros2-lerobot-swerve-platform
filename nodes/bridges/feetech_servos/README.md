@@ -108,32 +108,48 @@ With `set_register_motion_blocked: true` (config key, default false; the followe
 
 ```json
 {"namespace": "follower", "released": false, "joints": {"shoulder_pan": 1, "gripper": 0}, "stamp_ns": 1700000000000000000,
- "neutral_enabled": true, "neutral_capture": {"shoulder_pan": {"steps": 1500, "delta_steps": -548}},
- "last_save": {"saved_at": "2026-10-20T12:00:00+00:00", "saved": ["elbow_flex"], "failed": []}}
+ "neutral_enabled": true,
+ "neutral_capture": {"shoulder_pan": {"steps": 1500, "delta_steps": -548, "exceeds_max_shift": true}},
+ "last_save": {"saved_at": "2026-10-20T12:00:00+00:00", "saved": ["elbow_flex"], "failed": []},
+ "neutral_max_shift_deg": 15.0}
 ```
 
 `released` is true when any position joint of the group is gated; `joints` maps position joint names to the last known `torque_enable` (0 or 1) from a verified readback or a register dump. A joint with no reading is omitted, never defaulted. Published on every change (release, enable, a register dump showing a different `torque_enable`, so a servo that dropped torque by itself shows 0 within one `register_publish_interval_s` round) and every `torque_state_interval_s` (float >= 0, default `1.0`, `0` = on change only; a negative value falls back to the default). Nothing is published before the startup torque sequence finished or while no bus is open.
 
 `neutral_enabled` is the group's config flag; `neutral_capture` is the recorded neutral not saved yet (per joint the
-recorded `steps` and `delta_steps = steps - 2048`), `null` when nothing is recorded; `last_save` is the last save that
-reached the EEPROM step (`saved` and `failed` joint names), `null` before the first one. Every record and save
+recorded `steps`, `delta_steps = steps - 2048` and `exceeds_max_shift`, true when the shift is above the group's
+`neutral_max_shift_deg` so a plain save is refused), `null` when nothing is recorded; `last_save` is the last save that
+reached the EEPROM step (`saved` and `failed` joint names), `null` before the first one; `neutral_max_shift_deg` is the
+group's save guard in degrees (`null` without neutral). Every record and save
 request publishes the group's state at the next loop iteration, even when it did not change.
 
 ### Neutral record and save (`neutral.py`)
 
-A group with `neutral_enabled: true` also gets two `std_srvs/srv/Trigger` services (none otherwise):
+A group with `neutral_enabled: true` also gets three `std_srvs/srv/Trigger` services (none otherwise):
 
 - `/<ns>/servo/record_neutral`: refused (`success=false`, "release torque first") unless every neutral joint of the
   group is released with a verified `torque_enable = 0`. Reads `present_position` of each neutral joint (3 attempts, a
   failed read is retried, never used as a position) and keeps it as the capture. `message` lists per joint the shift
   `present - 2048` in steps and degrees, e.g. `elbow_flex +552 steps (+48.5 deg)`. Nothing is written to the bus.
 - `/<ns>/servo/save_neutral`: writes the capture into each servo's EEPROM centre, then re-enables torque holding the
-  present position (no jump).
+  present position (no jump). Refused when a recorded shift exceeds `neutral_max_shift_deg` (large-shift guard below).
+- `/<ns>/servo/save_neutral_confirmed`: the same save with the large shift confirmed by the user (the web UI Calibrate
+  page calls it only after its explicit large-shift confirm). The confirmed shifts are logged as a warning
+  (`large neutral shift confirmed: <joint> +N steps (+X deg), ...`).
+
+Large-shift guard (incident 2026-11-09: a neutral recorded in the folded pose shifted elbow_flex by +1030 steps,
++90.5 deg, and shoulder_lift by -933 steps; Park could no longer converge): when the capture of any joint is more than
+`neutral_max_shift_deg` (default `DEFAULT_NEUTRAL_MAX_SHIFT_DEG = 15.0`, either sign; exactly the limit saves) from
+2048, `save_neutral` answers `success=false` with
+`/<ns>: neutral shift above 15 deg: elbow_flex +1030 steps (+90.5 deg), ...; nothing written, torque unchanged; confirm
+the large shift to save (save_neutral_confirmed)`, logs it as a warning and touches nothing: no wheel stop, no EEPROM
+write, torque stays as it is (released), and the capture is kept for the confirmed save or a new record.
 
 The neutral joints are the group's position joints minus `neutral_exclude_joints` (velocity joints never). Save
 sequence, all on the loop thread:
 
-1. Refused without a capture ("record neutral first") or when the group is not released. Every captured joint is read;
+1. Refused without a capture ("record neutral first"), when the group is not released, or (plain `save_neutral`) when
+   a recorded shift exceeds `neutral_max_shift_deg`. Every captured joint is read;
    any joint more than `NEUTRAL_MOVE_TOLERANCE_STEPS = 20` from its capture refuses with
    `moved since record: <joints>; record again`, and nothing is written.
 2. Every velocity joint of this bridge's bus is stopped (zero `goal_speed`, cache bypassed, acknowledged; a wheel that
@@ -167,6 +183,7 @@ Config keys (top level for the primary namespace, inside each `extra_groups` ent
 | `neutral_enabled` | `false` | Create the record/save services for the group (must be a bool). |
 | `neutral_exclude_joints` | `[]` | Position joints of the group left out of record/save (e.g. `[gripper]`); torque off still releases them. An unknown or velocity joint makes the config invalid. |
 | `neutral_stale_marker` | none | Path of the stale marker JSON written after a save (e.g. `/var/lib/ros2/arm/calibration_stale.json` for the arm). |
+| `neutral_max_shift_deg` | `15.0` | Large-shift guard: `save_neutral` is refused when a recorded joint shift exceeds this many degrees; only `save_neutral_confirmed` saves it. Must be a positive number (a bool, string, 0, negative or NaN makes the config invalid). |
 
 Stale marker: after a save with at least one joint whose centre changed, a group with `neutral_stale_marker` writes the
 marker atomically (temp file in the same directory, then `os.replace`; missing parents are created):

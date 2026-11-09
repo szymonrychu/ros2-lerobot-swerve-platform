@@ -83,6 +83,24 @@ The script must be on the robot (merged, pushed, and the client repo synced by a
 
 The wrong re-zero left `/var/lib/ros2/arm/calibration_stale.json` (joint_offsets and home stale); the restore does not touch it. Ask the user whether to clear it once step 6 passes.
 
+## Large-shift guard
+
+Re-enable torque + save is refused by the bridge (`save_neutral`, nothing written, torque stays off, the capture is
+kept) when any recorded joint shift is above `neutral_max_shift_deg` (bridge config, default 15 deg; set explicitly to
+15.0 for `lerobot_follower` in `ansible/group_vars/client.yml`, `base_servos` keeps the default for steering and head).
+The Calibrate page shows each recorded shift on the card (a large one in red with `(above 15 deg)`) and in the save
+confirm, which then warns, names the joints and needs the checkbox "The large shift is intended: save it" before
+**Save large shift** calls `save_neutral_confirmed`. The bridge journal logs the refusal and every confirmed large shift
+at WARNING. A large shift almost always means the pose was wrong at Record neutral (incident 2026-11-09: recorded in the
+folded pose, elbow_flex +1030 steps / +90.5 deg, shoulder_lift -933 steps; Park could not converge afterwards): cancel,
+put the joints in the neutral pose, record again.
+
+Bench check (after deploying `lerobot_follower`, `base_servos` and `web_ui`; head pan as the least dramatic joint):
+Torque off head, turn pan by hand about 20 deg, Record neutral. Pass: the card shows `head_pan` in red with
+`(above 15 deg)`; the save confirm warns and **Save large shift** stays disabled until the checkbox is ticked. Cancel,
+turn pan back to straight, Record neutral. Pass: the save confirm shows no warning; save as in "Head pan". Mismatch:
+STOP and report.
+
 ## Findings
 
 Filled in during the head pan single-joint bench (also copied to `nodes/bridges/feetech_servos/README.md` `## Bench findings`).

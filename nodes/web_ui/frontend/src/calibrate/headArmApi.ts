@@ -16,6 +16,15 @@ import {
 
 const BASE = "/api/calibration/rgbd/head-arm";
 
+/** One recent sequence or park event of the node (logged there too); `level` is info, warning or error. */
+export interface HeadArmEvent {
+  /** ISO 8601 time of the event (node clock, UTC). */
+  time: string;
+  phase: string;
+  level: string;
+  message: string;
+}
+
 /** Progress of the guided arm sequence. `skipped` maps each skip reason to its count; `arm_pose` is the 0-based pose index; tier and arm_pose are null while idle. */
 export interface HeadArmSequence {
   running: boolean;
@@ -34,6 +43,8 @@ export interface HeadArmSequence {
   waiting_since: number | null;
   /** A fresh board-attached record from before a node restart; the user still confirms the board is on. */
   board_record: { session_id: string | null; clipped_at: string } | null;
+  /** The newest recent events (start, step outcomes, errors, stops, park results), newest first. */
+  events: HeadArmEvent[];
 }
 
 /** Body of GET /head-arm/state; `applied` is null while no head chain is applied. */
@@ -178,6 +189,11 @@ const SEQUENCE: Record<string, Check> = {
   waiting_since: isNullOr(isNum),
   board_record: isNullOr(
     (r) => isObj(r) && isNullOr(isStr)(r.session_id) && isStr(r.clipped_at),
+  ),
+  events: isArrayOf(
+    (e) =>
+      badKey(e, { time: isStr, phase: isStr, level: isStr, message: isStr }) ===
+      null,
   ),
 };
 const PARAM: Record<string, Check> = {

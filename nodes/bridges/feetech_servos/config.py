@@ -39,6 +39,10 @@ DEFAULT_READ_FAILURE_LIMIT = 3
 DEFAULT_READ_RETRY_INTERVAL_S = 5.0
 EXECUTOR_KINDS = ("events", "single_threaded")
 DEFAULT_EXECUTOR = "single_threaded"
+# A recorded neutral shift (present - 2048) above this many degrees on any joint refuses save_neutral; only
+# save_neutral_confirmed (the UI's explicit large-shift confirm) saves it. Incident 2026-11-09: a neutral recorded in the
+# folded pose shifted elbow_flex by +90.5 deg and Park could no longer converge.
+DEFAULT_NEUTRAL_MAX_SHIFT_DEG = 15.0
 
 
 def _parse_optional_steps(value: object) -> int | None:
@@ -102,6 +106,8 @@ class JointGroup:
         neutral_enabled: True creates /<namespace>/servo/record_neutral and save_neutral for this group.
         neutral_exclude_joints: Position joints of this group left out of the neutral record/save (e.g. gripper).
         neutral_stale_marker: Path of the stale marker JSON written after a neutral save; None = no marker.
+        neutral_max_shift_deg: save_neutral is refused when a recorded joint shift exceeds this (degrees); only
+            save_neutral_confirmed saves it.
     """
 
     namespace: str
@@ -109,6 +115,7 @@ class JointGroup:
     neutral_enabled: bool = False
     neutral_exclude_joints: list[str] = field(default_factory=list)
     neutral_stale_marker: str | None = None
+    neutral_max_shift_deg: float = DEFAULT_NEUTRAL_MAX_SHIFT_DEG
 
     @property
     def neutral_joints(self) -> list[JointEntry]:
@@ -178,6 +185,7 @@ class BridgeConfig:
         neutral_enabled: Neutral record/save services for the primary group (extra groups carry their own).
         neutral_exclude_joints: Primary-group position joints left out of the neutral record/save.
         neutral_stale_marker: Stale marker path written after a primary-group neutral save; None = no marker.
+        neutral_max_shift_deg: Primary-group recorded shift (degrees) above which save_neutral needs the confirm.
     """
 
     namespace: str
@@ -212,6 +220,7 @@ class BridgeConfig:
     neutral_enabled: bool = False
     neutral_exclude_joints: list[str] = field(default_factory=list)
     neutral_stale_marker: str | None = None
+    neutral_max_shift_deg: float = DEFAULT_NEUTRAL_MAX_SHIFT_DEG
 
     @property
     def groups(self) -> list[JointGroup]:
@@ -222,6 +231,7 @@ class BridgeConfig:
             neutral_enabled=self.neutral_enabled,
             neutral_exclude_joints=list(self.neutral_exclude_joints),
             neutral_stale_marker=self.neutral_stale_marker,
+            neutral_max_shift_deg=self.neutral_max_shift_deg,
         )
         return [primary, *self.extra_groups]
 
@@ -402,17 +412,21 @@ def parse_joints(raw_joints: object, seen_ids: set[int]) -> list[JointEntry] | N
     return joints
 
 
-def parse_neutral(item: dict, namespace: str, joints: list[JointEntry]) -> tuple[bool, list[str], str | None] | None:
+def parse_neutral(
+    item: dict, namespace: str, joints: list[JointEntry]
+) -> tuple[bool, list[str], str | None, float] | None:
     """Parse and validate the neutral keys of a group (top level for the primary group, or an extra_groups entry).
 
     Args:
-        item (dict): Raw mapping holding neutral_enabled / neutral_exclude_joints / neutral_stale_marker.
+        item (dict): Raw mapping holding neutral_enabled / neutral_exclude_joints / neutral_stale_marker /
+            neutral_max_shift_deg.
         namespace (str): Group namespace, for the log message.
         joints (list[JointEntry]): The group's joints.
 
     Returns:
-        tuple[bool, list[str], str | None] | None: (neutral_enabled, neutral_exclude_joints, neutral_stale_marker), or
-            None when a value has the wrong type or an excluded name is not a position joint of the group.
+        tuple[bool, list[str], str | None, float] | None: (neutral_enabled, neutral_exclude_joints,
+            neutral_stale_marker, neutral_max_shift_deg), or None when a value has the wrong type, the max shift is not
+            a positive finite number or an excluded name is not a position joint of the group.
     """
     enabled = item.get("neutral_enabled", False)
     if not isinstance(enabled, bool):
@@ -432,7 +446,11 @@ def parse_neutral(item: dict, namespace: str, joints: list[JointEntry]) -> tuple
     if marker is not None and not isinstance(marker, str):
         LOGGER.warning("/%s: neutral_stale_marker must be a path string, got %r", namespace, marker)
         return None
-    return enabled, exclude, (marker.strip() or None) if marker is not None else None
+    max_shift = item.get("neutral_max_shift_deg", DEFAULT_NEUTRAL_MAX_SHIFT_DEG)
+    if isinstance(max_shift, bool) or not isinstance(max_shift, int | float) or not 0 < max_shift < math.inf:
+        LOGGER.warning("/%s: neutral_max_shift_deg must be a positive number of degrees, got %r", namespace, max_shift)
+        return None
+    return enabled, exclude, (marker.strip() or None) if marker is not None else None, float(max_shift)
 
 
 def parse_extra_groups(raw_groups: object, primary_namespace: str, seen_ids: set[int]) -> list[JointGroup] | None:
@@ -465,7 +483,7 @@ def parse_extra_groups(raw_groups: object, primary_namespace: str, seen_ids: set
         neutral = parse_neutral(item, namespace, joints)
         if neutral is None:
             return None
-        enabled, exclude, marker = neutral
+        enabled, exclude, marker, max_shift = neutral
         groups.append(
             JointGroup(
                 namespace=namespace,
@@ -473,6 +491,7 @@ def parse_extra_groups(raw_groups: object, primary_namespace: str, seen_ids: set
                 neutral_enabled=enabled,
                 neutral_exclude_joints=exclude,
                 neutral_stale_marker=marker,
+                neutral_max_shift_deg=max_shift,
             )
         )
     return groups
@@ -515,7 +534,7 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
     neutral = parse_neutral(data, namespace, joints)
     if neutral is None:
         return None
-    neutral_enabled, neutral_exclude_joints, neutral_stale_marker = neutral
+    neutral_enabled, neutral_exclude_joints, neutral_stale_marker, neutral_max_shift_deg = neutral
     device = data.get("device")
     device = str(device).strip() if device else None
     baudrate = data.get("baudrate")
@@ -660,6 +679,7 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         neutral_enabled=neutral_enabled,
         neutral_exclude_joints=neutral_exclude_joints,
         neutral_stale_marker=neutral_stale_marker,
+        neutral_max_shift_deg=neutral_max_shift_deg,
     )
 
 

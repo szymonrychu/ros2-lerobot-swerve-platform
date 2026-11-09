@@ -4,12 +4,15 @@ import { useEffect, useState } from 'react'
 const BASE = '/api/calibration/servos'
 export const SERVO_POLL_MS = 1000
 
-export type ServoAction = 'release' | 'enable' | 'record' | 'save'
+/** `save_confirmed` saves a recorded shift above neutral_max_shift_deg; the bridge refuses it for plain `save`. */
+export type ServoAction = 'release' | 'enable' | 'record' | 'save' | 'save_confirmed'
 
 /** Recorded neutral of one joint, not saved yet. */
 export interface NeutralCaptureJoint {
   steps: number
   delta_steps: number
+  /** The shift exceeds the group's neutral_max_shift_deg: saving it needs the explicit confirm (save_confirmed). */
+  exceeds_max_shift: boolean
 }
 
 /** The bridge's /<ns>/torque_state sample. */
@@ -22,6 +25,8 @@ export interface TorqueState {
   neutral_enabled: boolean
   neutral_capture: Record<string, NeutralCaptureJoint> | null
   last_save: { saved_at?: unknown; saved?: unknown; failed?: unknown } | null
+  /** Largest recorded shift (deg) saved without the large-shift confirm; null for a group without neutral. */
+  neutral_max_shift_deg: number | null
 }
 
 /** One entry of GET /api/calibration/servos. */

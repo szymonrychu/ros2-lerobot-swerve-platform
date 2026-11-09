@@ -18,7 +18,7 @@ function setServo(id: string, kind: 'released' | 'enabled' | 'unknown' | 'none')
   servoMock.notConfigured = kind === 'none'
   servoMock.groups = kind === 'none' ? [] : [{
     id, label: id[0].toUpperCase() + id.slice(1), neutral: true, age_s: 0.1, stale: false, calibration_stale: null,
-    state: kind === 'unknown' ? null : { namespace: 'x', released: kind === 'released', joints: { a: kind === 'released' ? 0 : 1 }, stamp_ns: 1, neutral_enabled: true, neutral_capture: null, last_save: null },
+    state: kind === 'unknown' ? null : { namespace: 'x', released: kind === 'released', joints: { a: kind === 'released' ? 0 : 1 }, stamp_ns: 1, neutral_enabled: true, neutral_capture: null, last_save: null, neutral_max_shift_deg: 15 },
   }]
 }
 

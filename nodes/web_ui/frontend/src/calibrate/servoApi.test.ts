@@ -37,7 +37,7 @@ describe('servoApi', () => {
     expect(r.ok).toBe(false)
   })
 
-  it.each(['release', 'enable', 'record', 'save'] as const)('servoAction posts %s', async (action) => {
+  it.each(['release', 'enable', 'record', 'save', 'save_confirmed'] as const)('servoAction posts %s', async (action) => {
     respond(200, { ok: true, message: 'done' })
     const r = await servoAction('arm', action)
     expect(fetch).toHaveBeenCalledWith(`/api/calibration/servos/arm/${action}`, { method: 'POST' })

@@ -42,6 +42,14 @@ STATE_DOC = {
     "big_joints": ["elbow_flex", "shoulder_lift", "shoulder_pan"],
     "waiting_since": None,
     "board_record": {"session_id": "calib-20261023-074418", "clipped_at": "2026-10-23T07:50:00+00:00"},
+    "events": [
+        {
+            "time": "2026-10-23T07:52:10+00:00",
+            "phase": "capturing",
+            "level": "info",
+            "message": "tier 1 pose 3 (arm pose 7): 3 captured, 0 skipped",
+        }
+    ],
 }
 
 

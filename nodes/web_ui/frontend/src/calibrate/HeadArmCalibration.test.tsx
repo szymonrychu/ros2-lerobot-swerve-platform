@@ -269,6 +269,18 @@ describe('HeadArmCalibration', () => {
     expect((await screen.findByRole('alert')).textContent).toContain('arm busy')
   })
 
+  it('shows the sequence error banner and the recent events', async () => {
+    const events = [
+      { time: '2026-11-09T10:02:00+00:00', phase: 'capturing', level: 'error', message: 'sequence error: tool failed' },
+    ]
+    setState(seq({ session_id: null, error: 'tool failed', status: 'error: tool failed', events }))
+    render(<HeadArmCalibration />)
+    expect(await screen.findByText('Last head-arm error')).toBeTruthy()
+    const log = screen.getByRole('list', { name: 'Recent head-arm events' })
+    expect(within(log).getByText(/sequence error: tool failed/)).toBeTruthy()
+    expect(screen.getByText('Status (idle): error: tool failed')).toBeTruthy()
+  })
+
   it('polls state while a sequence runs', async () => {
     vi.useFakeTimers()
     setState(seq({ running: true, phase: 'capturing' }))

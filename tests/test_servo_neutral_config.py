@@ -24,6 +24,7 @@ STALE_MARKER = "/var/lib/ros2/arm/calibration_stale.json"
 ARM_DIR = "/var/lib/ros2/arm"
 BASE_NEUTRAL_JOINTS = ["fl_steer", "fr_steer", "rl_steer", "rr_steer"]
 GROUP_IDS = {"arm", "base", "head"}
+FOLLOWER_MAX_SHIFT_DEG = 15.0
 
 
 def nodes(path: Path) -> list[dict]:
@@ -119,6 +120,13 @@ def test_follower_neutral_excludes_only_the_gripper() -> None:
     assert cfg["neutral_enabled"] is True
     assert cfg["neutral_exclude_joints"] == ["gripper"]
     assert "gripper" in [j["name"] for j in cfg["joint_names"]]
+
+
+def test_follower_neutral_save_guard_is_explicit() -> None:
+    """The follower arm sets the large-shift save guard (incident 2026-11-09: +90.5 deg elbow_flex re-zero)."""
+    cfg = node_config(FOLLOWER)
+    assert cfg["neutral_max_shift_deg"] == FOLLOWER_MAX_SHIFT_DEG
+    assert not isinstance(cfg["neutral_max_shift_deg"], bool)
 
 
 def test_stale_marker_path_is_identical_everywhere() -> None:
