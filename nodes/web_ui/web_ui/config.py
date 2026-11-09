@@ -540,6 +540,16 @@ SERVO_PLAN_BOUND_ACTIONS: frozenset[str] = frozenset({"zero_restore_apply", "zer
 SERVO_MOVE_TO_NEUTRAL_ACTION = "move_to_neutral"
 # A zero restore apply writes, settles and verifies up to 5 joints (about 0.6-2.5 s each): above service_timeout_s.
 DEFAULT_ZERO_RESTORE_TIMEOUT_S = 30.0
+# Calibrate page General section actions (POST /api/calibration/general/{action}) in display order, each with the
+# servo group it moves: the route refuses (409) while that group's fresh torque state is released.
+GENERAL_ACTION_GROUPS: dict[str, str] = {
+    "home_arm": "arm",
+    "open_gripper": "arm",
+    "close_gripper": "arm",
+    "home_head": "head",
+    "home_steering": "base",
+}
+GENERAL_ACTIONS: tuple[str, ...] = tuple(GENERAL_ACTION_GROUPS)
 
 
 class ServoGroupConfig(BaseModel):
@@ -630,6 +640,51 @@ class ServoGroupConfig(BaseModel):
         return self.service_timeout_s
 
 
+class CalibrationGeneralConfig(BaseModel):
+    """Calibrate page General section: one std_srvs/Trigger (mcp_server) per button; None leaves the button out.
+
+    Attributes:
+        home_arm_service: Arm to its stored home pose, then release control (mcp_server /arm/home).
+        open_gripper_service: Open the gripper fully (refused while any arm lease is held).
+        close_gripper_service: Close the gripper (refused while any arm lease is held).
+        home_head_service: Head to its home angles (pan 0, tilt 30 deg down by default).
+        home_steering_service: Zero the base and wait until every steer joint is straight (refused while the base
+            lease is held).
+        timeout_s: Wait for one Trigger response (the services move hardware, like the arm tab home).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    home_arm_service: str | None = "/arm/home"
+    open_gripper_service: str | None = "/arm/gripper/open"
+    close_gripper_service: str | None = "/arm/gripper/close"
+    home_head_service: str | None = "/head/home"
+    home_steering_service: str | None = "/base/steer_home"
+    timeout_s: float = Field(DEFAULT_ARM_SERVICE_TIMEOUT_S, gt=0)
+
+    def service(self, action: str) -> str | None:
+        """Return the Trigger service of an action.
+
+        Args:
+            action (str): A GENERAL_ACTIONS name.
+
+        Returns:
+            str | None: The service name, None for an unknown or not offered action.
+        """
+        if action not in GENERAL_ACTION_GROUPS:
+            return None
+        service: str | None = getattr(self, f"{action}_service")
+        return service
+
+    def offered(self) -> list[str]:
+        """Return the offered actions in display order.
+
+        Returns:
+            list[str]: GENERAL_ACTIONS whose service is set.
+        """
+        return [a for a in GENERAL_ACTIONS if self.service(a) is not None]
+
+
 class CalibrationConfig(BaseModel):
     """Hidden Calibrate page: the IMU calibration ROS names only."""
 
@@ -641,6 +696,7 @@ class CalibrationConfig(BaseModel):
     rgbd_url: str | None = Field(None, pattern=r"^https?://.+")  # RGB-D calibration node base URL; absent: no section
     rgbd_timeout_s: float = Field(10.0, gt=0)  # wait for one forwarded RGB-D calibration call
     servo_groups: list[ServoGroupConfig] = Field(default_factory=list)  # torque / neutral groups; empty: no section
+    general: CalibrationGeneralConfig | None = None  # General section buttons; absent: no section
 
     @field_validator("servo_groups")
     @classmethod
@@ -844,7 +900,7 @@ class AppConfig(BaseModel):
 
         Returns:
             list[str]: Sorted unique service names (home, set home and, on arm tabs, take / release control and set
-                drive pose).
+                drive pose; the calibration IMU, servo group and General section services).
         """
         services: set[str] = set()
         for tab in self.tabs:
@@ -867,6 +923,9 @@ class AppConfig(BaseModel):
                 services.update(
                     group.service(a) for a in (*SERVO_ACTION_SERVICES, SERVO_MOVE_TO_NEUTRAL_ACTION) if group.offers(a)
                 )
+            general = self.calibration.general
+            if general is not None:
+                services.update(s for s in (general.service(a) for a in general.offered()) if s)
         return sorted(services)
 
     def set_bool_services(self) -> list[str]:

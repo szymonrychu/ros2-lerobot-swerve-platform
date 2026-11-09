@@ -49,98 +49,98 @@ export function CameraGroundFlow() {
         </Typography>
       )}
       <FlowStepper
-      label="Camera to ground calibration steps"
-      steps={[
-        {
-          id: 'd435',
-          title: 'D435 intrinsics check',
-          optional: true,
-          done: false,
-          see: 'Every coverage cell has corners; Compute compares with the D435 factory values and Accept check records a passed check.',
-          children: <RgbdCalibration heading={false} />,
-        },
-        {
-          id: 'csi',
-          title: 'Front/back cameras',
-          optional: true,
-          done: false,
-          see: 'For each of the front and back cameras: views kept over the whole image, a small RMS after Compute, Apply restarts the camera node.',
-          children: <CsiIntrinsics heading={false} />,
-        },
-        {
-          id: 'sweep',
-          title: 'Head floor sweep',
-          done: sweep?.session_id != null && !running,
-          see: 'The head pans and tilts through the poses; the pose count climbs with observations kept and few skipped.',
-          error: floor.error ?? sweep?.error ?? null,
-          status: sweep?.session_id ? (
-            <Box>
-              {running && <LinearProgress variant="determinate" value={sweep.total ? (100 * sweep.pose) / sweep.total : 0} />}
-              <Typography variant="body2">
-                {`Pose ${sweep.pose} of ${sweep.total}, ${sweep.observations} observations, ${sweep.skipped} skipped - ${sweep.status}`}
-              </Typography>
-            </Box>
-          ) : undefined,
-          children: (
-            <>
-              <Typography variant="body2" color="text.secondary">
-                {SWEEP_TEXT}
-              </Typography>
-              <Box sx={{ display: 'flex', gap: 1, mt: 1, flexWrap: 'wrap' }}>
-                <Button variant="contained" sx={target} disabled={busy || running} onClick={() => void start()}>
-                  Start sweep
-                </Button>
-                <Button variant="outlined" sx={target} disabled={!running} onClick={() => void floor.stop()}>
-                  Stop
-                </Button>
+        label="Camera to ground calibration steps"
+        steps={[
+          {
+            id: 'd435',
+            title: 'D435 intrinsics check',
+            optional: true,
+            done: false,
+            see: 'Every coverage cell has corners; Compute compares with the D435 factory values and Accept check records a passed check.',
+            children: <RgbdCalibration heading={false} />,
+          },
+          {
+            id: 'csi',
+            title: 'Front/back cameras',
+            optional: true,
+            done: false,
+            see: 'For each of the front and back cameras: views kept over the whole image, a small RMS after Compute, Apply restarts the camera node.',
+            children: <CsiIntrinsics heading={false} />,
+          },
+          {
+            id: 'sweep',
+            title: 'Head floor sweep',
+            done: sweep?.session_id != null && !running,
+            see: 'The head pans and tilts through the poses; the pose count climbs with observations kept and few skipped.',
+            error: floor.error ?? sweep?.error ?? null,
+            status: sweep?.session_id ? (
+              <Box>
+                {running && <LinearProgress variant="determinate" value={sweep.total ? (100 * sweep.pose) / sweep.total : 0} />}
+                <Typography variant="body2">
+                  {`Pose ${sweep.pose} of ${sweep.total}, ${sweep.observations} observations, ${sweep.skipped} skipped - ${sweep.status}`}
+                </Typography>
               </Box>
-            </>
-          ),
-        },
-        {
-          id: 'compute',
-          title: 'Compute',
-          done: result !== null,
-          see: 'The fit result with its parameters and residuals appears in the next step.',
-          children: (
-            <Button variant="contained" sx={target} disabled={busy || running || !sweep?.session_id} onClick={() => void compute()}>
-              Compute
-            </Button>
-          ),
-        },
-        {
-          id: 'gate',
-          title: 'Check and apply',
-          done: decision !== null,
-          see: 'Plausible with small residuals; Accept applies the head chain and shows the unit restart state.',
-          children: (
-            <>
-              {result && (
-                <>
-                  <QualityGate
-                    report={floorGate(result)}
-                    acceptBody={ACCEPT_BODY}
-                    decision={decision}
-                    busy={busy}
-                    onAccept={() => void accept()}
-                    onDecline={() => setDecision('declined')}
-                  />
-                  <FloorResultDetails result={result} />
-                </>
-              )}
-              {floor.restart && <RestartView restart={floor.restart} />}
-            </>
-          ),
-        },
-        {
-          id: 'verify',
-          title: 'Verify on the ground (coming)',
-          optional: true,
-          done: false,
-          see: 'The ground check result (coming).',
-          children: <Typography variant="body2">{VERIFY_TEXT}</Typography>,
-        },
-      ]}
+            ) : undefined,
+            children: (
+              <>
+                <Typography variant="body2" color="text.secondary">
+                  {SWEEP_TEXT}
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 1, mt: 1, flexWrap: 'wrap' }}>
+                  <Button variant="contained" sx={target} disabled={busy || running} onClick={() => void start()}>
+                    Start sweep
+                  </Button>
+                  <Button variant="outlined" sx={target} disabled={!running} onClick={() => void floor.stop()}>
+                    Stop
+                  </Button>
+                </Box>
+              </>
+            ),
+          },
+          {
+            id: 'compute',
+            title: 'Compute',
+            done: result !== null,
+            see: 'The fit result with its parameters and residuals appears in the next step.',
+            children: (
+              <Button variant="contained" sx={target} disabled={busy || running || !sweep?.session_id} onClick={() => void compute()}>
+                Compute
+              </Button>
+            ),
+          },
+          {
+            id: 'gate',
+            title: 'Check and apply',
+            done: decision !== null,
+            see: 'Plausible with small residuals; Accept applies the head chain and shows the unit restart state.',
+            children: (
+              <>
+                {result && (
+                  <>
+                    <QualityGate
+                      report={floorGate(result)}
+                      acceptBody={ACCEPT_BODY}
+                      decision={decision}
+                      busy={busy}
+                      onAccept={() => void accept()}
+                      onDecline={() => setDecision('declined')}
+                    />
+                    <FloorResultDetails result={result} />
+                  </>
+                )}
+                {floor.restart && <RestartView restart={floor.restart} />}
+              </>
+            ),
+          },
+          {
+            id: 'verify',
+            title: 'Verify on the ground (coming)',
+            optional: true,
+            done: false,
+            see: 'The ground check result (coming).',
+            children: <Typography variant="body2">{VERIFY_TEXT}</Typography>,
+          },
+        ]}
       />
     </Box>
   )

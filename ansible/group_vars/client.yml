@@ -2835,6 +2835,16 @@ ros2_nodes:
             namespace: head
             neutral: true
             command_topics: [/head/joint_commands]
+        # General section buttons (POST /api/calibration/general/{action}): one mcp_server std_srvs/Trigger each; null
+        # leaves a button out. Each is refused (409) while the servo group it moves (arm, head, base) is released.
+        general:
+          home_arm_service: /arm/home  # arm to its stored home pose, then release control
+          open_gripper_service: /arm/gripper/open  # refused while any arm lease is held (Abort or release first)
+          close_gripper_service: /arm/gripper/close  # refused while any arm lease is held (Abort or release first)
+          home_head_service: /head/home  # pan 0, tilt 30 deg down (mcp_server head.home_*_rad)
+          home_steering_service: /base/steer_home  # refused while the base lease is held
+          # Wait for one Trigger response; the motions take seconds, like the arm tab home (arm_service_timeout_s).
+          timeout_s: 30
       # Printable model files (PDF, 3MF) from the repo checkout, served at /models/{name}, listed at /api/models.
       models_dir: "{{ ros2_repo_dest }}/models"
       tabs:
