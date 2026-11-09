@@ -95,13 +95,42 @@ then Move to base pose again (it opens the gripper to `insert_gripper_rad`), res
 Where errors show: a sequence or park that ends with an error shows it on the Calibrate page in the red banner
 **Last head-arm error** (Head from arm section, and Arm calibration once opened) with the time and phase it happened
 in, and the **Recent head-arm events** log below it lists the newest 50 events (start, each step and pose outcome,
-errors, stops, park results), newest first. The same lines are in the node journal as `head-arm <message>` (errors at
-ERROR, stops at WARNING): `journalctl -u head_rgbd_calibration` through the deploy tooling, never an ad-hoc probe.
+errors, stops, park results), newest first. Each of these events is one `calib_event` line in the node journal (errors at
+ERROR, stops at WARNING), next to the step telemetry the page does not show; read it through the deploy tooling, never
+an ad-hoc probe (see "Reading a failed run from the journal" below).
 Read the message before retrying; never re-record the servo neutral to make a failing Park converge (incident
 2026-11-09: a neutral re-recorded in the folded pose shifted elbow_flex by +90.5 deg and Park could no longer converge;
 the bridge now refuses such a save without the explicit large-shift confirm, `docs/runbooks/servo-torque-neutral.md`).
 
-## Results
+### Reading a failed run from the journal
+
+Every calibration flow of the node logs structured `calib_event {json}` lines to the system journal of the unit
+`ros2-head_rgbd_calibration` (keys `flow`, `run_id`, `step`, `outcome`, `reason`, `data`, `duration_s`; the full event
+list per flow is in `nodes/head_rgbd_calibration/README.md`, section Telemetry). To find out where and why a head-arm
+run went wrong:
+
+1. List the runs and their ends: `journalctl -u ros2-head_rgbd_calibration -o cat --since today | grep -o
+   'calib_event {.*' | cut -d' ' -f2- | jq -c 'select(.flow=="head_arm" and .step=="sequence")'`. The `error` event
+   names `failed_step`, the `reason` (the same text as the red banner), the phase it ended in, the session id and the
+   counts; a `park` event does the same for a park (`run_id` `park-...`).
+2. Take that `run_id` and read the whole run in order: `... | jq -c 'select(.run_id=="seq-...")'`. The last `error`
+   event of a timed step (`base_move`, `handle_grip`, `pose`, `return_to_base`, `park_move`, `park_release`, ...) carries
+   the step's inputs and the exception.
+3. Look at the step just before the failure:
+   - `path_check` `refused`: `data.entries` names every violated rule with its value, limit and path fraction,
+     `data.start` the measured joints and `data.target` the commanded pose (nothing moved).
+   - `move_arm_joints` or `set_head_angles` with an outcome other than `converged`: `data.message` and `data.result`
+     are mcp_server's answer (tracking error, positions); `tool_error` is a failed or unreachable tool call.
+   - `gripper_measured` `unseated` or `slack`: `measured_rad` against `unseated_below_rad` and `slack_from_rad`.
+   - `still` `skipped`: `reason` (no board, joints stale, not still) and `data.detail` (corner count, board ids, the
+     window's colour MAD against `rgb_mad_limit`, the moving joint and its range, the joint stamp gaps).
+   - `view` `skipped`: the head command and the violated view rule (min-Z, FOV, head limits).
+   - `park_path_check` `refused`: the mount used (`fitted`, `recorded` or `configured`), the margins and the entries.
+4. A compute that failed: `select(.flow=="head_arm_compute")` (or `arm_compute`, `floor_compute`, `d435_compute`) shows
+   the `inputs` (views per tier and head offset, corner counts, intrinsics, floor reference) and the `result` with every
+   limit check (`value`, `limit`, `ok`) and the worst views; an apply is `head_chain_apply` (files written, unit states).
+5. The `api` flow lists every button press (POST) with its body and the refusal message of a 4xx answer.
+
 
 Run 2026-10-23 by the orchestrator with the user (session `calib-20261023-074418`), with the retired stick-mounted
 6x5 40 mm board (Hardware section, "Earlier mount"); the ARM board has no run recorded yet. This section was
