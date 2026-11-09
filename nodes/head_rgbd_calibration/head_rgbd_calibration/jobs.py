@@ -2,8 +2,8 @@
 
 Telemetry: the child logs to its stderr in CHILD_LOG_FORMAT (compute.py); when it ends, every such line is re-logged in
 this process under its logger and level, so the child's calib_event lines reach the journal with its run id (the
-result id), and the other lines (a traceback) at WARNING. The job logs `child` start and end events of flow
-`d435_compute` (exit code, duration, error).
+result id), and the other lines (a traceback) at WARNING. The job logs `child` start and end events (exit code,
+duration, error) of its flow: `d435_compute` for the D435 check, `arm_camera_compute` for the arm to camera fit.
 """
 
 import logging
@@ -36,7 +36,8 @@ class Busy(RuntimeError):
 
 
 class ComputeJob:
-    """Runs `python -m head_rgbd_calibration.compute` as a niced child, one at a time."""
+    """Runs `python -m <module>` (default the D435 check, head_rgbd_calibration.compute) as a niced child, one at a
+    time per job; the arm to camera fit has its own job (module head_rgbd_calibration.arm_camera_compute)."""
 
     def __init__(
         self,
@@ -45,6 +46,8 @@ class ComputeJob:
         popen: Callable[..., subprocess.Popen],
         clock: Callable[[], datetime],
         config_path: str,
+        module: str = MODULE,
+        flow: str = FLOW,
     ) -> None:
         """Create a job runner.
 
@@ -54,12 +57,16 @@ class ComputeJob:
             popen: subprocess.Popen or a stand-in with the same call signature.
             clock: Returns the current time.
             config_path: Node config path handed to the child (HEAD_RGBD_CALIBRATION_CONFIG).
+            module: Child module, run as `python -m <module> --config --session --result`.
+            flow: Telemetry flow of the job's `child` events.
         """
         self.cfg = cfg
         self.store = store
         self.popen = popen
         self.clock = clock
         self.config_path = config_path
+        self.module = module
+        self.flow = flow
         self.lock = threading.RLock()
         self.child: subprocess.Popen | None = None
         self.stderr_file: IO[bytes] | None = None
@@ -99,7 +106,7 @@ class ComputeJob:
                 str(self.cfg.compute_nice),
                 sys.executable,
                 "-m",
-                MODULE,
+                self.module,
                 "--config",
                 self.config_path,
                 "--session",
@@ -119,10 +126,10 @@ class ComputeJob:
             except Exception as exc:
                 self.stderr_file.close()
                 self.stderr_file = None
-                calib_event(LOGGER, FLOW, rid, CHILD_STEP, "error", logging.ERROR, str(exc), **started_info)
+                calib_event(LOGGER, self.flow, rid, CHILD_STEP, "error", logging.ERROR, str(exc), **started_info)
                 raise
             self.began_s = time.monotonic()
-            calib_event(LOGGER, FLOW, rid, CHILD_STEP, "start", pid=self.child.pid, **started_info)
+            calib_event(LOGGER, self.flow, rid, CHILD_STEP, "start", pid=self.child.pid, **started_info)
             self.session_id, self.result_id, self.started_at, self.error = sid, rid, self.clock(), None
             self.watcher = threading.Thread(target=self.watch, name="compute-watch", daemon=True)
             self.watcher.start()
@@ -178,7 +185,7 @@ class ComputeJob:
         self.stderr_file = None
         calib_event(
             LOGGER,
-            FLOW,
+            self.flow,
             self.result_id,
             CHILD_STEP,
             "error" if error else "ok",

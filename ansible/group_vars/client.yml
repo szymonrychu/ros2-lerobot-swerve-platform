@@ -1889,6 +1889,36 @@ ros2_nodes:
           min_views: 40 # fit plate views
           holdout_every: 5
           min_holdout_head_settings: 3
+        # Arm to camera fit (shared core arm_camera_fit, user decisions 315, 324-326, m577, m578): the applied head chain is
+        # held fixed; the arm joint offsets, the arm base x, y (z with fit_base_z), the board seat in the gripper and a
+        # gravity sag about the grip axis are fitted. Gauges: the base yaw (a yaw turn equals a shoulder_pan offset change plus
+        # a base x, y shift) and the wrist_roll offset unless fit_wrist_roll (a board turn about its axis).
+        arm_camera:
+          fit_base_z: true # fit the arm base z
+          fit_wrist_roll: false # free the wrist_roll offset (only the board seat prior pins it)
+          fit_droop: false # fit a droop along gravity proportional to the gravity torque
+          pixel_sigma_px: 1.0 # corner noise the priors are weighed against, px
+          board_prior_mm: 3.0 # board seat prior against the CAD board_mount, one sigma, mm
+          board_prior_deg: 2.0 # board seat prior, one sigma, deg
+          sag_prior_deg: 1.0 # sag prior at the reference torque, one sigma, deg
+          droop_prior_mm: 1.0 # droop prior at the reference torque, one sigma, mm
+          # ARM board mass model (markers/charuco-arm-6x5-28mm.json): mass, centre of mass and grip point (handle tool point)
+          # in the board frame, grip axis (jaw closing axis, board x).
+          board_mass_kg: 0.211728
+          board_com_m: [0.08395, 0.109253, -0.002385]
+          grip_point_m: [0.0705, 0.193767, -0.021386]
+          grip_axis: [1.0, 0.0, 0.0]
+          reach_m: 0.3 # accuracy example: tool point at this horizontal reach, m
+          camera_distance_m: 0.5 # accuracy example: gripper this far in front of the head camera, m
+          # Plausibility bounds (decision 324): a result past any of them is refused and cannot be accepted.
+          bounds:
+            max_offset_change_deg: 15.0 # any arm joint offset change, deg
+            max_base_move_mm: 100.0 # arm base translation, mm
+            max_base_turn_deg: 10.0 # arm base yaw change, deg
+            max_skew_mm: 10.0 # board seat shift against the CAD mount, mm
+            max_skew_deg: 10.0 # board seat turn against the CAD mount, deg
+            max_sag_deg: 5.0 # sag at the reference torque, deg
+            max_droop_mm: 5.0 # droop at the reference torque, mm
       # mcp_server the node moves the head and arm through (guarded tools only).
       robot:
         mcp_url: http://127.0.0.1:18200/mcp # mcp_server Streamable HTTP URL

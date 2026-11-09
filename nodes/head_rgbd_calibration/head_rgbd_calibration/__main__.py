@@ -15,6 +15,8 @@ from pydantic import ValidationError
 from rclpy.executors import MultiThreadedExecutor
 
 from head_rgbd_calibration.app import build_app
+from head_rgbd_calibration.arm_camera_api import arm_camera_router
+from head_rgbd_calibration.arm_camera_results import FLOW as ARM_CAMERA_FLOW
 from head_rgbd_calibration.capture import CaptureController
 from head_rgbd_calibration.config import CONFIG_ENV, load_config
 from head_rgbd_calibration.csi_intrinsics import CsiCalibration, csi_router
@@ -33,6 +35,7 @@ EXECUTOR_THREADS = 4
 SPIN_JOIN_S = 5.0
 SWEEP_JOIN_S = 15.0
 SEQUENCE_JOIN_S = 15.0
+ARM_CAMERA_MODULE = "head_rgbd_calibration.arm_camera_compute"
 LOGGER = logging.getLogger(NODE_NAME)
 
 
@@ -103,6 +106,7 @@ def main() -> int:
     capture = CaptureController(node, store, cfg, now)
     csi = CsiCalibration(node, cfg, now)
     job = ComputeJob(cfg, store, subprocess.Popen, now, path)
+    arm_camera_job = ComputeJob(cfg, store, subprocess.Popen, now, path, module=ARM_CAMERA_MODULE, flow=ARM_CAMERA_FLOW)
     sweep = FloorSweep(
         node,
         cfg,
@@ -127,6 +131,7 @@ def main() -> int:
     app.include_router(floor_router(sweep, capture, job, cfg, subprocess.run))
     app.include_router(head_arm_router(sequencer, capture, sweep, job, store, cfg, subprocess.run))
     app.include_router(csi_router(csi, subprocess.run))
+    app.include_router(arm_camera_router(sequencer, arm_camera_job, store, cfg, subprocess.run))
     LOGGER.info("serving on http://%s:%d", cfg.http_host, cfg.http_port)
     try:
         uvicorn.Server(uvicorn.Config(app, host=cfg.http_host, port=cfg.http_port, log_level="info")).run()
@@ -138,6 +143,7 @@ def main() -> int:
         sweep.stop()
         sweep.wait(SWEEP_JOIN_S)
         job.stop()
+        arm_camera_job.stop()
         node.destroy_node()
         executor.shutdown()
         spinner.join(SPIN_JOIN_S)

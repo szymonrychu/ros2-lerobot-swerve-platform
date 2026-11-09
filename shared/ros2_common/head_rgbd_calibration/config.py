@@ -346,6 +346,10 @@ class HeadArmFitConfig(StrictModel):
     `wrist_roll_offset_rad` (the wrist_roll zero from the user's recorded servo neutral, rad; required when the plate
     rotation is fitted), `tool_offset_m` (the current tool point in gripper_frame_link, reported unchanged when the
     tool point is not fitted), `floor_fit` (its floor views) and `arm_limits`.
+
+    The arm to camera fit (arm_camera_fit) reads `arm_camera` (ArmCameraFitConfig), `board`, `board_mount` (the CAD
+    seat its prior pulls toward), `joint_offsets_rad` and `base_in_base_link` (the applied calibration it starts from),
+    `tool_offset_m`, `limits.holdout_every`, `limits.min_arm_poses` and `arm_limits` (advisory warnings).
     """
 
     board: BoardConfig = ARM_BOARD

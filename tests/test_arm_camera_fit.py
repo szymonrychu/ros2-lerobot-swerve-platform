@@ -303,3 +303,10 @@ def test_switches_free_wrist_roll_droop_and_fix_base_z() -> None:
     assert any(p["name"] == "droop" and p["unit"] == "mm/(N m)" for p in report["params"])
     roll = next(p for p in report["params"] if p["name"] == "wrist_roll_offset")
     assert roll["sigma"] is not None
+
+
+def test_solver_summary(standard: tuple[object, ArmCameraFit]) -> None:
+    _, fit = standard
+    assert set(fit.solver) == {"status", "message", "nfev", "cost", "start_rms_px", "free"}
+    assert fit.solver["nfev"] > 0 and fit.solver["status"] > 0 and fit.solver["free"] == list(fit.free)
+    assert fit.solver["start_rms_px"] > fit.rms_px

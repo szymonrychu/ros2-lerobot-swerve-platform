@@ -160,6 +160,7 @@ class ArmCameraFit:
         accuracy: The accuracy examples, in `example_poses` order.
         current: The applied calibration scored on this session.
         notes: Gauge and model notes.
+        solver: Solver summary {status, message, nfev, cost, start_rms_px, free}.
     """
 
     offsets: dict[str, float]
@@ -185,6 +186,7 @@ class ArmCameraFit:
     accuracy: list[AccuracyExample]
     current: CurrentScore
     notes: list[str]
+    solver: dict[str, object]
 
     @property
     def shifts(self) -> list[tuple[str, float]]:
@@ -525,7 +527,9 @@ class ArmCameraProblem:
         corners = [e.ravel() / self.model.pixel_sigma_px for e in self.view_errors(p, self.fit_idx)]
         return np.concatenate([*corners, self.priors(p)])
 
-    def solve(self, start: Mapping[str, float], free: tuple[str, ...]) -> tuple[dict[str, float], np.ndarray]:
+    def solve(
+        self, start: Mapping[str, float], free: tuple[str, ...]
+    ) -> tuple[dict[str, float], np.ndarray, dict[str, object]]:
         """Huber least squares over the free parameters, the others held at `start`.
 
         Args:
@@ -533,14 +537,15 @@ class ArmCameraProblem:
             free: Names of the free parameters.
 
         Returns:
-            tuple: (solution of every model parameter, free solution vector).
+            tuple: (solution of every model parameter, free solution vector, solver summary {status, message, nfev,
+            cost, start_rms_px, free}).
         """
 
         def fun(x: np.ndarray) -> np.ndarray:
             return self.residuals({**start, **dict(zip(free, (float(v) for v in x), strict=True))})
 
         x0 = np.array([start[name] for name in free], dtype=float)
-        x = least_squares(
+        outcome = least_squares(
             fun,
             x0,
             loss="huber",
@@ -549,8 +554,17 @@ class ArmCameraProblem:
             ftol=SOLVER_TOLERANCE,
             xtol=SOLVER_TOLERANCE,
             gtol=SOLVER_TOLERANCE,
-        ).x
-        return {**start, **dict(zip(free, (float(v) for v in x), strict=True))}, x
+        )
+        x = outcome.x
+        summary: dict[str, object] = {
+            "status": int(outcome.status),
+            "message": str(outcome.message),
+            "nfev": int(outcome.nfev),
+            "cost": float(outcome.cost),
+            "start_rms_px": rms_px(self.view_errors(start, self.fit_idx)),
+            "free": list(free),
+        }
+        return {**start, **dict(zip(free, (float(v) for v in x), strict=True))}, x, summary
 
     def holdout_tool_mm(self, p: Mapping[str, float]) -> float:
         """Held-out tool error: RMS over the held-out views of the distance between the arm FK tool point and the tool
@@ -718,7 +732,7 @@ def fit_arm_camera(
     problem = ArmCameraProblem(views, camera_matrix, dist, head_urdf, arm_urdf, cfg, camera_frame)
     start = problem.start()
     free = free_names(cfg)
-    solution, x = problem.solve(start, free)
+    solution, x, solver = problem.solve(start, free)
 
     def fun(vector: np.ndarray) -> np.ndarray:
         return problem.residuals({**solution, **dict(zip(free, (float(v) for v in vector), strict=True))})
@@ -739,7 +753,7 @@ def fit_arm_camera(
     current_free = tuple(
         n for n in free if n in (*BOARD_ROTATION_PARAMS, *BOARD_POSITION_PARAMS, SAG_PARAM, DROOP_PARAM)
     )
-    current_solution, _ = problem.solve(start, current_free)
+    current_solution, _, _ = problem.solve(start, current_free)
 
     seat = problem.seat(solution)
     seat_xyz, seat_rpy = xyz_rpy_from_pose(seat)
@@ -796,6 +810,7 @@ def fit_arm_camera(
         accuracy=accuracy_examples(problem, solution, free, cov),
         current=problem.score(current_solution),
         notes=notes,
+        solver=solver,
     )
 
 
@@ -813,8 +828,9 @@ def assess(fit: ArmCameraFit, cfg: HeadArmFitConfig) -> tuple[list[dict], list[d
     `max_base_turn_deg` (`base_turn_deg`); the seat over `max_skew_mm` / `max_skew_deg` (`skew_mm`, `skew_deg`); the
     sag at the reference torque over `max_sag_deg` (`sag_deg`); the droop at the reference torque over `max_droop_mm`
     (`droop_mm`). Warnings: `rms_px`, `holdout_rms_px` (`arm_limits`), `holdout_tool_mm`
-    (`arm_limits.max_tool_holdout_mm`), `min_views` (`arm_limits`), `min_arm_poses` (`limits`), `max_correlation`
-    (`limits`) and `no_holdout` without held-out views.
+    (`arm_limits.max_tool_holdout_mm`), `min_views` (`arm_limits`), `min_arm_poses` (`limits`) and `no_holdout`
+    without held-out views. The largest correlation is not a warning: the shoulder_pan offset and the base y correlate
+    at about 0.99 by geometry (a pan turn moves the board sideways like a base shift); it is logged with the solver.
 
     Args:
         fit: Fit result.
@@ -880,13 +896,6 @@ def assess(fit: ArmCameraFit, cfg: HeadArmFitConfig) -> tuple[list[dict], list[d
         ("rms_px", fit.rms_px, arm.rms_px, "px", "fit corner RMS"),
         ("holdout_rms_px", fit.holdout_rms_px, arm.holdout_rms_px, "px", "held-out corner RMS"),
         ("holdout_tool_mm", fit.holdout_tool_mm, arm.max_tool_holdout_mm, MM, "held-out tool point error"),
-        (
-            "max_correlation",
-            abs(fit.max_correlation.value),
-            limits.max_correlation,
-            "",
-            "largest parameter correlation",
-        ),
     ]
     for name, value, limit, unit, what in upper:
         if math.isfinite(value) and value > limit:
@@ -896,9 +905,7 @@ def assess(fit: ArmCameraFit, cfg: HeadArmFitConfig) -> tuple[list[dict], list[d
                     value,
                     limit,
                     unit,
-                    f"{what} {number(value, '.3g')} {unit} is over the advisory {limit:g} {unit} limit".replace(
-                        "  ", " "
-                    ),
+                    f"{what} {number(value, '.3g')} {unit} is over the advisory {limit:g} {unit} limit",
                 )
             )
     lower = [
