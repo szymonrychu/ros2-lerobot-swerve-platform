@@ -72,6 +72,25 @@ stick mount.
 | `test_view_missing_a_joint_raises` | A view without wrist_flex raises naming it. |
 | `test_fewer_than_three_views_raise` | Fewer than three views raise. |
 
+### `test_arm_calibration_file.py`
+
+The accepted arm calibration file (`shared/ros2_common/head_rgbd_calibration/arm_calibration_file.py`): what the
+head_rgbd_calibration accept writes to `applied/arm_calibration.json` and mcp_server applies at runtime.
+
+| Test | Description |
+|------|-------------|
+| `test_the_accept_body_validates_and_ignores_the_report_fields` | The full accept body validates; score, snippet, tool point and report fields are ignored; `captured_from` is timezone aware. |
+| `test_an_invalid_body_is_refused` | A missing or extra joint, a NaN offset, an infinite or missing base key, a naive `captured_from` and an empty session are refused. |
+| `test_arm_settings_update_names_exactly_the_overridden_fields` | `arm_settings_update()` keys are `ARM_SETTINGS_FIELDS` in order; `arm_base_height_m` is the base z. |
+| `test_the_update_validates_as_the_mcp_server_arm_model` | The update applied to arm_collision `ArmModelSettings` validates (mount z equals the mount height). |
+| `test_the_reviewed_snippet_sets_the_same_fields` | `calibration_snippet_yaml` sets exactly the `ARM_SETTINGS_FIELDS` keys. |
+| `test_nothing_accepted_reads_none` | No `applied.json`, or a file without its `arm_calibration` record, reads as None. |
+| `test_the_accepted_calibration_is_read` | A file named by the record is read. |
+| `test_a_record_naming_another_result_is_an_error` | A record of another result raises `ArmCalibrationError` naming the file's result. |
+| `test_a_missing_or_unreadable_file_is_an_error` | A missing or non-JSON file named by the record raises. |
+| `test_an_invalid_file_is_an_error` | A file failing validation raises naming the field. |
+| `test_an_unreadable_marker_is_an_error` | A non-JSON `applied.json` raises. |
+
 ### `test_arm_camera_fit.py`
 
 Arm to camera fit (`shared/ros2_common/head_rgbd_calibration/arm_camera_fit.py`, T-99) on the synthetic scene

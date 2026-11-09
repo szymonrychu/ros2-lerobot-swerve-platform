@@ -492,6 +492,19 @@ result, date)` the reviewed client.yml mcp_server `arm:` snippet (`joint_offsets
 Config: `HeadArmFitConfig.arm_camera` (`ArmCameraFitConfig`, with `ArmCameraBounds`), see the node README. Tests:
 `tests/test_arm_camera_fit.py` (scenes from `tests/head_arm_synthetic.py`: `arm_camera_scene`).
 
+### Accepted arm calibration file
+
+`ros2_common/head_rgbd_calibration/arm_calibration_file.py`: the format of `applied/arm_calibration.json`, written by
+the head_rgbd_calibration accept and applied at runtime by mcp_server. `ArmCalibrationFile` (pydantic, report fields
+ignored) holds `session`, `result`, `accepted_at`, `captured_from` (the session's earliest still, timezone aware),
+`joint_offsets_rad` (exactly the five arm joints, finite) and `base_in_base_link` (`x`, `y`, `z`, `yaw`, finite).
+`arm_settings_update()` gives the mcp_server `arm:` values it overrides, exactly `ARM_SETTINGS_FIELDS`
+(`joint_offsets_rad`, `arm_base_height_m` = base z, `base_in_base_link`), the same keys as the reviewed snippet.
+`read_arm_calibration(applied_dir)` returns the calibration the `applied.json` `arm_calibration` record names, None when
+nothing is accepted (no `applied.json` or no record; a file without its record is not in effect), and raises
+`ArmCalibrationError` for an unreadable `applied.json` or a named file that is missing, invalid or of another result.
+Tests: `tests/test_arm_calibration_file.py`.
+
 ## ros2_common_cpp (C++)
 
 An ament_cmake package with plain library targets `ros2_common_cpp::config`, `ros2_common_cpp::metrics` and `ros2_common_cpp::depth_mask`. None links rclcpp, so a node's pure-logic library can use them. Headers are in
