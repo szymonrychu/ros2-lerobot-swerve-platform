@@ -2057,6 +2057,27 @@ ros2_nodes:
       # save_neutral_confirmed. Incident 2026-11-09: a neutral recorded in the folded pose shifted elbow_flex by
       # +90.5 deg and Park could not converge. base_servos and the head group keep the bridge default (15 deg).
       neutral_max_shift_deg: 15.0
+      # Arm zero restore (web UI Calibrate page "Arm zero restore"): rewrites each arm servo's EEPROM offset so the
+      # resting folded arm (torque off) reads its rest reference again, without moving it. The reference file
+      # (save_rest_reference) wins over the seed; the seed is /follower/joint_states at rest before the 2026-11-09
+      # wrong re-zero. An offset change above max_change_deg needs the explicit confirm (zero_restore_apply_confirmed).
+      # Every apply writes a JSON record to record_dir; journal lines `calib_event` log each step. The gripper is never
+      # touched (neutral_exclude_joints).
+      zero_restore:
+        reference_file: /var/lib/ros2/arm/rest_reference.json
+        seed_reference_rad:
+          shoulder_pan: -0.018
+          shoulder_lift: -1.542
+          elbow_flex: 1.516
+          wrist_flex: 0.862
+          wrist_roll: -0.072
+        max_change_deg: 15.0
+        still_window_s: 1.0
+        still_tolerance_steps: 3
+        verify_tolerance_steps: 3
+        plan_max_age_s: 60.0
+        plan_tolerance_steps: 5
+        record_dir: /var/lib/ros2/arm
       # /follower/torque_state repeat interval (filter_node, mcp_server and web_ui subscribe).
       torque_state_interval_s: 1.0
       # filter_node tags /follower/joint_commands with its source in header.frame_id. web_ui and autonomy
@@ -2798,6 +2819,12 @@ ros2_nodes:
             neutral: true
             stale_marker: /var/lib/ros2/arm/calibration_stale.json
             command_topics: [/filter/web_ui_joint_commands]
+            # Arm zero restore panel (lerobot_follower zero_restore services); an apply of 5 joints can take longer
+            # than the 15 s default service timeout.
+            zero_restore: true
+            zero_restore_timeout_s: 30
+            # "Move to neutral pose" button: mcp_server /arm/move_to_neutral (home routing, all arm joints at 0).
+            move_to_neutral_service: /arm/move_to_neutral
           - id: base
             label: Base steering
             namespace: swerve_drive
