@@ -7,6 +7,7 @@ points, which call mcp_core_cpp.ik_reach.
 """
 
 import json
+import platform
 import re
 import statistics
 import time
@@ -219,12 +220,25 @@ def reference_call(kernel: str) -> inputs.Call:
     return lambda: reference.point_reach(checker, point, dict(inputs.SEED), envelope)
 
 
+def on_report_machine() -> bool:
+    """Whether this host is the kind of machine bench/report.json was measured on.
+
+    Returns:
+        bool: True when platform.system() and platform.machine() equal the report's (Darwin / arm64, the dev Mac).
+    """
+    return (platform.system(), platform.machine()) == (REPORT["system"], REPORT["machine"])
+
+
 @pytest.mark.parametrize("kernel", sorted(PORTED))
 def test_ported_kernel_is_faster_than_its_python_median(kernel: str) -> None:
-    """The bench call of each ported kernel (bench/inputs.py) beats both the Python median of the report and the
-    Python reference timed now on the same inputs."""
+    """The bench call of each ported kernel (bench/inputs.py) beats the Python reference timed now on the same inputs
+    and, on the machine the report was measured on, the Python median of the report.
+
+    The report's median is a dev Mac wall time: on another host (a CI runner, a shared x86 pod about 5x slower per core)
+    comparing with it measures the host, not the port, so there only the same-host comparison applies."""
     call = {"arm_reach.point_reach": inputs.point_reach_call, "reach_map.build": inputs.reach_map_call}[kernel]()
     cpp_ms = median_ms(call, TIMING_REPETITIONS[kernel])
-    python_ms = next(row["median_ms"] for row in family_rows() if row["kernel"] == kernel)
-    assert cpp_ms < python_ms
     assert cpp_ms < median_ms(reference_call(kernel), TIMING_REPETITIONS[kernel])
+    if on_report_machine():
+        python_ms = next(row["median_ms"] for row in family_rows() if row["kernel"] == kernel)
+        assert cpp_ms < python_ms

@@ -27,6 +27,7 @@ from mcp_server.motion_queue import MotionQueue, MotionStep, QueuedStep, QueueEr
 from mcp_server.tools import build_mcp_server
 
 from .fakes import FakeArmBackend
+from .speed_budget import speed_budget
 from .test_self_collision import (
     HEAD_HOME,
     HOME,
@@ -43,6 +44,12 @@ from .test_self_collision import (
 from .test_tools import TOKEN, FakeRobot, call
 
 CONFIG = McpServerConfig()
+# CPU budget of one envelope computation: about 5.4 s on the dev Mac (README, "Body collision"), so a regression guard
+# with room, not a robot requirement (get_arm_reach reports "computing" until the background computation is done).
+ENVELOPE_CPU_BUDGET_S = 20.0
+# How long a test waits for the background envelope. Not a speed check (ENVELOPE_CPU_BUDGET_S is): the same work takes
+# about 55 s wall on a 4-core-quota pod shared with other suites, so this only bounds a hang.
+ENVELOPE_WAIT_S = 300.0
 STEPS = TypeAdapter(list[MotionStep])
 
 
@@ -306,9 +313,16 @@ def test_executor_refuses_a_step_that_would_hit_the_body(tmp_path: Path) -> None
 
 @pytest.fixture
 def server(tmp_path: Path) -> Any:
-    # The envelope takes ~10 s on a dev machine with the 2.5 mm box points: wait longer than the 10 s default.
-    cfg = McpServerConfig(body_check=BodyCheckSettings(reach_wait_s=60.0))
-    return build_mcp_server(robot_at(tmp_path, clear_pose()), cfg, TOKEN)
+    """A server whose reach envelope is ready: computed into its cache file first, which the server loads as on the robot.
+
+    The tool waits at most reach_wait_s (60 s at most) for a computing envelope, and the computation alone takes about
+    55 s wall on a loaded host, so the tool must not be the one waiting for it.
+    """
+    robot = robot_at(tmp_path, clear_pose())
+    cfg = McpServerConfig()
+    cfg.body_check.reach_cache_file = tmp_path / "reach.json"
+    assert ReachEnvelope(robot.arm.body_check, cfg.body_check, cfg.body_check.reach_cache_file).get(ENVELOPE_WAIT_S)
+    return build_mcp_server(robot, cfg, TOKEN)
 
 
 def test_get_arm_reach_describes_body_mount_margins_and_envelope(server: Any) -> None:
@@ -353,11 +367,28 @@ def test_get_arm_reach_limits_the_number_of_points(server: Any) -> None:
 def test_reach_envelope_is_computed_once_and_cached(tmp_path: Path) -> None:
     arm, _ = make(tmp_path, clear_pose())
     envelope = ReachEnvelope(arm.body_check, CONFIG.body_check)
-    first = envelope.get(30.0)
-    second = envelope.get(30.0)
+    first = envelope.get(ENVELOPE_WAIT_S)
+    second = envelope.get(ENVELOPE_WAIT_S)
     assert first is not None and first is second
     assert envelope.compute_count == 1
-    assert first["compute_s"] < 20.0
+
+
+@speed_budget
+def test_reach_envelope_computation_stays_within_its_cpu_budget(tmp_path: Path) -> None:
+    """The CPU time of the background computation, measured in its own thread (the wall time follows the host load)."""
+    arm, _ = make(tmp_path, clear_pose())
+    envelope = ReachEnvelope(arm.body_check, CONFIG.body_check)
+    cpu_s: list[float] = []
+    compute = envelope.compute
+
+    def timed_compute() -> None:
+        start = time.thread_time()
+        compute()
+        cpu_s.append(time.thread_time() - start)
+
+    envelope.compute = timed_compute  # type: ignore[method-assign]
+    assert envelope.get(ENVELOPE_WAIT_S) is not None
+    assert len(cpu_s) == 1 and cpu_s[0] < ENVELOPE_CPU_BUDGET_S, f"envelope took {cpu_s} s CPU"
 
 
 def test_reach_envelope_starts_in_the_background_and_persists(tmp_path: Path) -> None:
@@ -366,7 +397,7 @@ def test_reach_envelope_starts_in_the_background_and_persists(tmp_path: Path) ->
     cache = tmp_path / "reach.json"
     first = ReachEnvelope(arm.body_check, CONFIG.body_check, cache)
     first.start()
-    result = first.get(30.0)
+    result = first.get(ENVELOPE_WAIT_S)
     assert result is not None and first.compute_count == 1 and cache.exists()
     second = ReachEnvelope(arm.body_check, CONFIG.body_check, cache)
     second.start()
@@ -378,15 +409,15 @@ def test_reach_envelope_cache_is_invalidated_by_changed_inputs(tmp_path: Path) -
     """A changed margin (or a corrupt file) recomputes instead of serving a stale envelope."""
     arm, _ = make(tmp_path, clear_pose())
     cache = tmp_path / "reach.json"
-    ReachEnvelope(arm.body_check, CONFIG.body_check, cache).get(30.0)
+    ReachEnvelope(arm.body_check, CONFIG.body_check, cache).get(ENVELOPE_WAIT_S)
     changed = CONFIG.body_check.model_copy(update={"hard_margin_m": 0.02})
     other = ReachEnvelope(arm.body_check, changed, cache)
     other.start()
-    assert other.get(30.0) is not None and other.compute_count == 1
+    assert other.get(ENVELOPE_WAIT_S) is not None and other.compute_count == 1
     cache.write_text("{not json")
     broken = ReachEnvelope(arm.body_check, CONFIG.body_check, cache)
     broken.start()
-    assert broken.get(30.0) is not None and broken.compute_count == 1
+    assert broken.get(ENVELOPE_WAIT_S) is not None and broken.compute_count == 1
 
 
 def test_reach_envelope_cache_key_covers_the_arm_link_model(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -403,7 +434,7 @@ def test_get_arm_reach_envelope_is_started_when_the_server_is_built(tmp_path: Pa
     cfg = McpServerConfig()
     cfg.body_check.reach_cache_file = tmp_path / "reach.json"
     build_mcp_server(robot_at(tmp_path, clear_pose()), cfg, TOKEN)
-    deadline = time.monotonic() + 30.0
+    deadline = time.monotonic() + ENVELOPE_WAIT_S
     while not cfg.body_check.reach_cache_file.exists() and time.monotonic() < deadline:
         time.sleep(0.05)
     assert cfg.body_check.reach_cache_file.exists()

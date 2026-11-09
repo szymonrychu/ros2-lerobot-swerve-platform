@@ -1505,7 +1505,9 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   `body_collision:lidar` (also a top_down retreat into the lidar) and not without the check, the executor refusing a
   step of an unchecked plan; `get_arm_reach` (obstacles, mount, margins, envelope grid and cells, points: reachable and
   clear, into the lidar with the limiting obstacle, out of reach with a suggestion; more than 20 points refused) and
-  the envelope computed once and cached; with a cache file it starts in the background when the server is built,
+  the envelope computed once and cached, its computation within 20 s of CPU time in its own thread (dev Mac budget,
+  skipped with `MCP_SPEED_SKIP=1`; the tests wait up to 300 s for the background envelope, which only bounds a hang);
+  with a cache file it starts in the background when the server is built,
   is written to disk and loaded by a new envelope without recomputing, and a changed hard margin, a changed arm link
   model (collision boxes) or a corrupt file recomputes; the blend velocity cap and home-start grid stay clear of the
   measured lidar dome
@@ -1738,8 +1740,8 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   stair -0.200 = 10 cm below the configured floor -0.100; the old -0.25 stair became unreachable; regenerated again for the
   2026-10-10 jaw clearance with `python -m tests.regenerate_grasp_golden`) (top_down, angled, scoop, auto; waypoint joints and
   straight-line samples) match the current golden plans within 1e-6 rad and the `baseline` plans (before the faster
-  heading convergence) within 2e-3 rad, with the same feasibility and strategy; timing tests (skipped with
-  `GRASP_SPEED_SKIP=1`): feasible angled and auto golden scenarios and auto on the reference cube under 1 s, scoop 3 s,
+  heading convergence) within 2e-3 rad, with the same feasibility and strategy; timing tests (CPU time of the planning thread, skipped with
+  `MCP_SPEED_SKIP=1`): feasible angled and auto golden scenarios and auto on the reference cube under 1 s, scoop 3 s,
   infeasible angled/auto fail fast with reasons, unreachable object rejected in 0.2 s without an IK search, re-planning
   served from the IK cache; the per-candidate and per-strategy IK budgets stop the search with an "IK budget" reason
 - grasp execution (`test_grasp_tools.py`): tool names and battery classification, grasp with a simulated object

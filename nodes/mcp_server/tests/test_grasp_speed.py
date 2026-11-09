@@ -1,7 +1,8 @@
 """Planner speed and result stability with the deployed client.yml config (the RPi 5 is several times slower than a
 Mac, so plan time on the Mac is budgeted well below the web UI /api/grasp 30 s timeout).
 
-Set GRASP_SPEED_SKIP=1 to skip the timing tests on slow CI; the golden-plan test always runs.
+The budgets are the CPU time of the planning thread (tests/speed_budget.py: a loaded machine stretches only the wall
+time); set MCP_SPEED_SKIP=1 to skip the timing tests on a slower host; the golden-plan test always runs.
 tests/data/grasp_golden.json holds the current plans of feasible scenarios of the 2026-10-09 sim matrix (waypoint joints
 and straight-line samples); they must stay within GOLDEN_TOL_RAD. Their surfaces are fixed arm-frame heights of that
 matrix (floor -0.15, ledges -0.08 and 0.0, stair -0.204, 10 cm below the former floor -0.104), planner regression geometry independent of the floor now
@@ -16,7 +17,6 @@ scoop's 2 cm gap) replace them, baseline = their plan.
 
 import importlib.util
 import json
-import os
 import time
 from pathlib import Path
 from types import ModuleType
@@ -28,6 +28,8 @@ from arm_collision.ik import ArmKinematics
 from mcp_server import grasp
 from mcp_server.floor_guard import FloorGuard, JawModel, SurfaceModel
 from mcp_server.grasp import GraspPlan, GraspPlanner, ObjectSpec, grasp_params
+
+from .speed_budget import speed_budget
 
 SCRIPT = Path(__file__).resolve().parents[3] / "sim" / "grasp_sim" / "scripts" / "plan_matrix.py"
 GOLDEN = Path(__file__).parent / "data" / "grasp_golden.json"
@@ -46,9 +48,7 @@ SCOOP_GAP = {
 # The same raised box 4 cm further out for the angled 45 deg reach-edge plan: at x 0.30 its retreat brings the forearm
 # within the hard margin of the measured lidar dome (diameter 74 mm), at 0.32 the pre-grasp does.
 ANGLED_EDGE = SCOOP_GAP | {"x": 0.34}
-SKIP_TIMING = os.environ.get("GRASP_SPEED_SKIP") == "1"
 SEED = {"shoulder_pan": 0.0, "shoulder_lift": 0.0, "elbow_flex": 1.2, "wrist_flex": 0.3, "wrist_roll": 0.0}
-timing = pytest.mark.skipif(SKIP_TIMING, reason="GRASP_SPEED_SKIP=1")
 
 
 def load_script() -> ModuleType:
@@ -100,9 +100,9 @@ def run(
 
 def timed(strategy: str, pitch: float | None = None, **override: Any) -> tuple[float, GraspPlan]:
     KIN.clear_solutions()  # cold: no IK solved by an earlier test
-    start = time.perf_counter()
+    start = time.thread_time()
     plan = run(**(REFERENCE | override), strategy=strategy, pitch=pitch)
-    return time.perf_counter() - start, plan
+    return time.thread_time() - start, plan
 
 
 def close(a: dict[str, float], b: dict[str, float], tol: float = GOLDEN_TOL_RAD) -> bool:
@@ -147,11 +147,11 @@ def test_feasible_plans_match_the_golden_plans(case: dict[str, Any]) -> None:
 ANGLED_CASES = [c for c in json.loads(GOLDEN.read_text()) if c["strategy"] in ("angled", "auto")]
 
 
-@timing
+@speed_budget
 @pytest.mark.parametrize("case", ANGLED_CASES, ids=lambda c: c["key"])
 def test_feasible_angled_and_auto_golden_scenarios_plan_under_a_second(case: dict[str, Any]) -> None:
     KIN.clear_solutions()
-    start = time.perf_counter()
+    start = time.thread_time()
     plan = run(
         case["x"],
         case["y"],
@@ -162,40 +162,40 @@ def test_feasible_angled_and_auto_golden_scenarios_plan_under_a_second(case: dic
         case["pitch"],
         surface_z=case["surface_z"],
     )
-    elapsed = time.perf_counter() - start
+    elapsed = time.thread_time() - start
     assert plan.feasible, plan.reasons
     assert elapsed < FEASIBLE_ANGLED_BUDGET_S, f"{case['key']} took {elapsed:.2f} s"
 
 
-@timing
+@speed_budget
 def test_auto_on_the_reference_scenario_is_under_a_second() -> None:
     elapsed, plan = timed("auto")
     assert plan.feasible
     assert elapsed < AUTO_BUDGET_S, f"auto took {elapsed:.2f} s"
 
 
-@timing
+@speed_budget
 def test_infeasible_angled_plan_fails_fast() -> None:
     elapsed, plan = timed("angled", 45.0)
     assert not plan.feasible and plan.reasons
     assert elapsed < ANGLED_BUDGET_S, f"angled took {elapsed:.2f} s"
 
 
-@timing
+@speed_budget
 def test_auto_on_an_infeasible_object_fails_fast_with_reasons() -> None:
     elapsed, plan = timed("auto", x=0.30, bottom=-0.25)
     assert not plan.feasible and plan.reasons
     assert elapsed < AUTO_BUDGET_S, f"auto took {elapsed:.2f} s"
 
 
-@timing
+@speed_budget
 def test_unreachable_object_is_rejected_without_an_ik_search() -> None:
     elapsed, plan = timed("auto", x=0.80)
     assert not plan.feasible and plan.reasons
     assert elapsed < UNREACHABLE_BUDGET_S, f"unreachable took {elapsed:.2f} s"
 
 
-@timing
+@speed_budget
 def test_scoop_with_a_gap_under_the_object_plans_under_budget() -> None:
     elapsed, plan = timed("scoop", **SCOOP_GAP)
     # Straight-ahead scoops now run the forearm into the front-right wheel (robot body check): the budget still holds.
@@ -203,7 +203,7 @@ def test_scoop_with_a_gap_under_the_object_plans_under_budget() -> None:
     assert elapsed < SCOOP_BUDGET_S, f"scoop took {elapsed:.2f} s"
 
 
-@timing
+@speed_budget
 def test_feasible_angled_plan_at_the_reach_edge_stays_inside_the_ik_cap() -> None:
     KIN.clear_solutions()
     before = KIN.solve_count
@@ -213,13 +213,13 @@ def test_feasible_angled_plan_at_the_reach_edge_stays_inside_the_ik_cap() -> Non
     assert elapsed < FEASIBLE_ANGLED_BUDGET_S, f"angled took {elapsed:.2f} s"
 
 
-@timing
+@speed_budget
 def test_replanning_the_same_object_is_served_from_the_ik_cache() -> None:
     _, first = timed("angled", 45.0, **ANGLED_EDGE)  # cold
     assert first.feasible, first.reasons
-    start = time.perf_counter()
+    start = time.thread_time()
     second = run(**(REFERENCE | ANGLED_EDGE), strategy="angled", pitch=45.0)
-    assert time.perf_counter() - start < 1.0
+    assert time.thread_time() - start < 1.0
     assert second.waypoints == first.waypoints
 
 

@@ -1947,7 +1947,12 @@ regenerated 2026-10-10 with the grid calibration (the stair case moved from -0.2
 plans) and again for the jaw clearance, which moved every centred plan by design (shoulder_pan 0.03 to 0.05 rad, the
 open angle of every case, scoop arm joints unchanged). Each case keeps its `baseline`, which the current plan must
 match within 2e-3 rad (0.1 deg, far below the arm's backlash). The speed tests (feasible angled and auto golden scenarios and auto on the
-reference 4 cm cube under 1 s, scoop 3 s, unreachable 0.2 s) are skipped with `GRASP_SPEED_SKIP=1`.
+reference 4 cm cube under 1 s, scoop 3 s, unreachable 0.2 s) and the reach envelope's 20 s budget measure the CPU time of
+the working thread (`tests/speed_budget.py`), so a loaded or CPU-throttled host does not fail them; the budgets assume a
+dev Mac or CI runner core, so on a slower host (the RPi 5, a shared x86 pod about 5x slower per core) skip them with
+`MCP_SPEED_SKIP=1`. `test_ported_kernel_is_faster_than_its_python_median` always compares the C++ kernel with the
+Python reference timed on the same host, and with the report's Python median only on the report's machine (Darwin
+arm64).
 
 Regenerating the golden plans after a planner change that moves them by design (check the sim matrix first):
 
