@@ -198,6 +198,103 @@ An existing marker is merged: its joints are kept and the saved ones updated, `s
 `saved_at` updated (a marker that is not valid JSON is replaced). mcp_server removes `home` on `arm_set_home`, the arm
 calibration removes `joint_offsets`, and an empty list deletes the file. A marker write failure answers
 `success=false` with `neutral saved, stale marker not written: <error>` (torque stays enabled) and logs an error.
+The arm zero restore (below) removes `joint_offsets` and `home` after a full restore.
+
+### Arm zero restore (`zero_restore.py`)
+
+Repairs a re-zero recorded in the wrong pose without moving the arm: with the arm resting folded on its rest and
+torque off, each servo's EEPROM offset register is rewritten so its present reading, mapped to joint radians exactly
+as `/<ns>/joint_states` publishes it (`feetech_mapping` `position_to_raw_steps` / `steps_to_radians` with the joint's
+`inverted` flag), equals the rest reference. STS3215 offset: address 31, sign-magnitude (sign bit 11, +-2047),
+`present = (encoder - offset) mod 4096`, so the offset changes by `present - target` (the short way across 0/4095). A
+neutral save logged as `neutral recorded: <joint> +N steps` raised that offset by N; the restore undoes it. The web UI
+Calibrate page runs it as a guided panel ([web_ui README](../../web_ui/README.md)); the procedure with expected values
+is in [docs/runbooks/servo-torque-neutral.md](../../../docs/runbooks/servo-torque-neutral.md) "Arm zero restore".
+
+A group with a `zero_restore` block gets four `std_srvs/srv/Trigger` services (none otherwise). The restore joints are
+the group's position joints minus `neutral_exclude_joints` (the gripper is never read or written):
+
+- `/<ns>/servo/zero_restore_dry_run`: refused unless every restore joint is released (gated, cached torque 0) and
+  reads `torque_enable` 0 on the bus, the arm is still (`present_position` sampled every 0.1 s over `still_window_s`,
+  spread within `still_tolerance_steps`) and the reference is valid. Reads the offset and the angle limits and plans,
+  per joint, target, offset change and new offset (a new offset beyond +-2047 or a failed read refuses). Nothing is
+  written. The plan goes into `torque_state` (below); the message is a short summary per joint in degrees.
+- `/<ns>/servo/zero_restore_apply`: writes the plan. Refused without a dry run ("dry run first"), with a plan older
+  than `plan_max_age_s` or when a joint now reads more than `plan_tolerance_steps` from its dry run reading (both drop
+  the plan: run the dry run again), when torque is no longer off, and when a planned change exceeds `max_change_deg`
+  (`offset change above 15 deg: ...; nothing written; confirm the large change to apply
+  (zero_restore_apply_confirmed)`, the plan is kept). Then the wheels of the bus are stopped and per joint, in config
+  order: torque re-read (must be 0, else stop), cache entries of offset / goal / torque / limits dropped, the offset
+  written (`write_register` wraps it in `UnLockEprom` / `LockEprom`), settle 0.5 s, `present_position` verified within
+  `verify_tolerance_steps` of the target (10 reads 0.1 s apart; on a mismatch the old offset is rewritten and the run
+  stops, later joints are not attempted), the angle limits written back when they read differently, the bridge command
+  range of joints without config steps refreshed from the limits. Torque stays OFF and the group stays released: the
+  next step is `enable_torque`. Every apply that reached the bus writes a JSON audit record
+  `<record_dir>/zero_restore-<UTC YYYYmmddTHHMMSSZ>.json` (plan, per joint before/after offset, present, limits,
+  applied, rollback). After a full restore the stale marker items `joint_offsets` and `home` are cleared (the file is
+  deleted when nothing is left). The plan is consumed by an apply.
+- `/<ns>/servo/zero_restore_apply_confirmed`: the same apply with the large change confirmed by the user (the web UI
+  asks for an explicit checkbox first).
+- `/<ns>/servo/save_rest_reference`: stores the present readings (rad, and the raw steps) of the released, still arm as
+  the reference file (atomic write). Refused while the stale marker lists `joint_offsets` (or is unreadable): the zero
+  is suspect then, so a reference taken now would carry the wrong zero. A saved reference drops any plan.
+
+Reference: the JSON file `reference_file` (`{"version": 1, "group", "saved_at", "joints": {name: rad}, "steps"}`) wins
+over `seed_reference_rad` when present; a file that is unreadable, not JSON or lacks a finite value for a restore
+joint refuses the dry run (never a silent fallback to the seed).
+
+Timing: the dry run blocks the bridge loop for `still_window_s` (1 s) plus a few reads; an apply about 0.6 s per joint
+(0.5 s settle), up to about 2.5 s per joint with verify retries and a limit restore, so 5 joints can exceed the web
+UI's default 15 s service wait (the arm group sets `zero_restore_timeout_s: 30`).
+
+`torque_state` of a group with the block carries `zero_restore` (the key is absent for other groups):
+
+```json
+"zero_restore": {
+  "max_change_deg": 15.0,
+  "reference": {"source": "seed", "saved_at": null, "joints": {"shoulder_pan": -0.018, "elbow_flex": 1.516}},
+  "reference_error": null,
+  "stale_joint_offsets": true,
+  "plan": {"run_id": "1a2b3c4d", "created_at": "2026-11-09T12:00:00+00:00", "max_age_s": 60.0,
+           "reference_source": "seed", "needs_confirm": true,
+           "joints": {"elbow_flex": {"present_steps": 2007, "present_rad": -0.0629, "target_steps": 3036,
+                                     "target_rad": 1.5155, "offset_before_steps": 1479, "offset_change_steps": -1029,
+                                     "change_deg": 90.44, "new_offset_steps": 450, "exceeds_max_change": true,
+                                     "limits": [0, 4095]}}},
+  "last_result": {"run_id": "5e6f7a8b", "action": "apply_confirmed", "finished_at": "...", "success": true,
+                  "message": "...", "record_path": "/var/lib/ros2/arm/zero_restore-20261109T120001Z.json",
+                  "joints": {"elbow_flex": {"applied": true, "present_after_steps": 3036, "present_after_rad": 1.5155,
+                                            "offset_after_steps": 450}},
+                  "not_attempted": []}
+}
+```
+
+`change_deg` is the change of the joint reading (target - present) in degrees; `stale_joint_offsets` mirrors the stale
+marker (re-read at most once a second).
+
+| Key (`zero_restore:`) | Default | Meaning |
+|---|---|---|
+| `reference_file` | required | Rest reference JSON written by `save_rest_reference`. |
+| `record_dir` | required | Directory of the apply audit records. |
+| `seed_reference_rad` | required | joint -> rest reading (rad) used while no reference file exists; must name exactly the restore joints. |
+| `max_change_deg` | `15.0` | A planned reading change above this needs `zero_restore_apply_confirmed`. |
+| `still_window_s` | `1.0` | Still check window of the dry run and `save_rest_reference`. |
+| `still_tolerance_steps` | `3` | Largest `present_position` spread over the window. |
+| `verify_tolerance_steps` | `3` | After a write the reading must be within this of the target. |
+| `plan_max_age_s` | `60.0` | Apply refuses an older dry run. |
+| `plan_tolerance_steps` | `5` | Apply refuses when a joint moved more than this since the dry run. |
+
+A malformed block (unknown or missing key, a seed not naming exactly the restore joints, a non-finite or out-of-range
+number) makes the whole config invalid.
+
+### Calibration journal lines (`calib_event.py`)
+
+Every step of the neutral record/save (flow `neutral`), the zero restore (`zero_restore`: dry_run, apply,
+confirm_large_change, joint_write, joint_verify, rollback, limits, record, marker_clear) and the rest reference
+(`rest_reference`) logs one line `calib_event {"flow", "run_id", "step", "outcome", "reason", "data", "duration_s"}`
+(compact JSON) at INFO (`start`, `ok`), WARNING (`refused`) or ERROR (`failed`); `data` holds the per-joint readings,
+targets, offsets, limits and torque. One `run_id` ties the lines of one service call together. The journal is the
+only sink: `journalctl -u ros2-lerobot_follower | grep calib_event`.
 
 ## Bench findings
 
