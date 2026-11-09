@@ -13,6 +13,7 @@ import { GateDecision, QualityGate, armCameraGate } from '../QualityGate'
 import { ARM_POLL_MS, SequenceActivity, SkipReasons } from '../SequenceActivity'
 import { staleJointOffsets } from '../ZeroRestorePanel'
 import {
+  ArmCameraAccept,
   ArmCameraResult,
   ArmCameraState,
   acceptArmCamera,
@@ -59,6 +60,30 @@ const STALE_ZERO_TEXT = 'Arm zero is stale (joint_offsets): restore it in Servo 
 const INTRO =
   'The arm joint offsets and tool point are fitted from the head D435: the head D435 watches the ARM board held by its handle in the jaws while the arm moves it through checked poses. Needs a camera-to-ground result (applied head chain) and a fresh arm zero. Robot not driving.'
 const ACCEPT_BODY = 'Applies the arm-to-camera calibration: the arm joint offsets and tool point. The consumer nodes restart with it.'
+const HEAD_CHAIN_CHANGED_TEXT =
+  'The head chain changed since the applied arm-to-camera calibration was fitted: it no longer matches the camera. Run this flow again.'
+
+/**
+ * Text of an accept answer: the applied result and the restart state of each consumer unit.
+ *
+ * @param answer - the accept answer
+ * @returns one line for the gate step
+ */
+export function acceptText(answer: ArmCameraAccept): string {
+  const units = answer.units.map((u) => `${u.name} ${u.restarted ? 'restarted' : 'not restarted'} (${u.active_state})`)
+  return `Applied result ${answer.arm_calibration.result}.${units.length ? ` Units: ${units.join(', ')}.` : ''}`
+}
+
+/**
+ * The decision already recorded on a result by the node (accepted or declined), null when there is none.
+ *
+ * @param result - a done result
+ * @returns the decision
+ */
+export function recordedDecision(result: ArmCameraResult): GateDecision {
+  if (result.accepted_at !== null) return 'accepted'
+  return result.declined ? 'declined' : null
+}
 
 type Dialog = 'home' | 'base' | 'big' | 'park' | 'parkBoard' | null
 type StepId = 'home' | 'open' | 'grab' | 'capture' | 'compute' | 'gate' | 'park'
@@ -133,7 +158,10 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
     if (r.value.state === 'running') return
     setComputing(null)
     if (r.value.state === 'failed') setErrors((e) => ({ ...e, compute: r.value.error ?? 'the fit failed' }))
-    else setResult(r.value)
+    else {
+      setResult(r.value)
+      setDecision(recordedDecision(r.value))
+    }
   }, [])
 
   useEffect(() => {
@@ -210,8 +238,13 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
     }
     setErrors((e) => ({ ...e, gate: undefined }))
     setDecision(accept ? 'accepted' : 'declined')
-    setDecisionMessage(r.value.message ?? null)
-    if (accept) void reloadArmState()
+    if ('units' in r.value) {
+      setDecisionMessage(acceptText(r.value))
+      void reloadArmState()
+    } else {
+      setResult(r.value)
+      setDecisionMessage(null)
+    }
   }
 
   const parkArm = async (boardOn: boolean) => {
@@ -258,9 +291,14 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
           {`Arm-to-camera fit state unavailable: ${armState.message}`}
         </Alert>
       )}
+      {armState?.ok && armState.value.applied?.head_chain_changed && (
+        <Alert severity="warning" sx={{ mt: 1 }}>
+          {HEAD_CHAIN_CHANGED_TEXT}
+        </Alert>
+      )}
       {armState?.ok && armState.value.ready && (
         <Typography variant="body2" sx={{ mt: 1 }}>
-          {`Ready: head chain from ${armState.value.head_chain_source ?? 'unknown'}${armState.value.applied ? '; an arm-camera calibration is applied' : ''}.`}
+          {`Ready: head chain from ${armState.value.head_chain_source ?? 'unknown'}${armState.value.applied ? `; arm-camera calibration ${armState.value.applied.result} is applied` : ''}.`}
         </Typography>
       )}
       {loadError && (

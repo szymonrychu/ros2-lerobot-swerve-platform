@@ -5,19 +5,31 @@ import { ArmCameraFlow, RESULT_POLL_MS } from './ArmCameraFlow'
 import { ARM_POLL_MS } from '../SequenceActivity'
 import stateFx from '../../../../../head_rgbd_calibration/tests/fixtures/api/head_arm_state.json'
 import rgbdStateFx from '../../../../../head_rgbd_calibration/tests/fixtures/api/state.json'
-import armStateFx from '../fixtures/arm_camera_state.json'
-import doneFx from '../fixtures/arm_camera_result_done.json'
-import refusedFx from '../fixtures/arm_camera_result_refused.json'
-import runningFx from '../fixtures/arm_camera_result_running.json'
+import {
+  doneResult as doneFx,
+  headChainChangedState,
+  nodeAccept,
+  nodeRunning as runningFx,
+  nodeState as armStateFx,
+  refusedResult as refusedFx,
+} from '../armCameraFixtures'
 import * as api from '../headArmApi'
 import * as armApi from '../armCameraApi'
 import * as generalApi from '../generalApi'
 import type { HeadArmSequence } from '../headArmApi'
-import type { ArmCameraResult, ArmCameraState } from '../armCameraApi'
+import type { ArmCameraState } from '../armCameraApi'
 import type { ServoGroup } from '../servoApi'
 
 vi.mock('../headArmApi')
-vi.mock('../armCameraApi')
+// The fetch calls are mocked; the pure helpers (pairAccuracy) stay real.
+vi.mock('../armCameraApi', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../armCameraApi')>()),
+  getArmCameraState: vi.fn(),
+  computeArmCamera: vi.fn(),
+  getArmCameraResult: vi.fn(),
+  acceptArmCamera: vi.fn(),
+  declineArmCamera: vi.fn(),
+}))
 const m = vi.mocked(api)
 const a = vi.mocked(armApi)
 
@@ -72,7 +84,7 @@ function stubFetch(): void {
   )
 }
 
-function setState(s: HeadArmSequence, armState: ArmCameraState = armStateFx as ArmCameraState): void {
+function setState(s: HeadArmSequence, armState: ArmCameraState = armStateFx): void {
   m.getHeadArmState.mockResolvedValue(ok({ sequence: s, applied: null }))
   m.listHeadArmSessions.mockResolvedValue(ok([SESSION]))
   a.getArmCameraState.mockResolvedValue(ok(armState))
@@ -276,8 +288,8 @@ describe('ArmCameraFlow', () => {
   it('Compute starts the fit, polls the result and opens the gate; Accept confirms and accepts', async () => {
     setState(HOLDING)
     a.computeArmCamera.mockResolvedValue(ok({ result_id: doneFx.id }))
-    a.getArmCameraResult.mockResolvedValueOnce(ok(runningFx as ArmCameraResult)).mockResolvedValue(ok(doneFx as ArmCameraResult))
-    a.acceptArmCamera.mockResolvedValue(ok({ ok: true, message: 'applied' }))
+    a.getArmCameraResult.mockResolvedValueOnce(ok(runningFx)).mockResolvedValue(ok(doneFx))
+    a.acceptArmCamera.mockResolvedValue(ok(nodeAccept))
     vi.useFakeTimers({ shouldAdvanceTime: true })
     await renderFlow(false)
     expect(within(step(4)).getByText('Done')).toBeTruthy()
@@ -289,19 +301,26 @@ describe('ArmCameraFlow', () => {
     })
     expect(a.getArmCameraResult).toHaveBeenCalledWith(SID, doneFx.id)
     expect(within(step(6)).getByText('Plausible')).toBeTruthy()
-    expect(within(step(6)).getByText('tool point at 30 cm reach: +-1.9 mm')).toBeTruthy()
+    const accuracy = within(step(6)).getByRole('row', { name: /^tool point at 30 cm reach/ })
+    expect(within(accuracy).getByText('+-0.1 mm')).toBeTruthy()
+    expect(within(accuracy).getByText('+-0.4 mm')).toBeTruthy()
+    expect(within(within(step(6)).getByRole('row', { name: /base_yaw/ })).getByText('held')).toBeTruthy()
+    expect(within(step(6)).getByText('head chain fixed: the applied calibration, not refitted')).toBeTruthy()
     await click('Accept', step(6))
     expect(a.acceptArmCamera).not.toHaveBeenCalled()
     await confirmIn('Accept')
-    expect(a.acceptArmCamera).toHaveBeenCalledWith(SID, doneFx.id)
+    expect(a.acceptArmCamera).toHaveBeenCalledWith(doneFx.session, doneFx.id)
     expect(within(step(6)).getByText('Accepted')).toBeTruthy()
-    expect(within(step(6)).getByText('applied')).toBeTruthy()
+    expect(
+      within(step(6)).getByText(`Applied result ${nodeAccept.arm_calibration.result}. Units: unit-a.service restarted (active).`),
+    ).toBeTruthy()
+    expect(a.getArmCameraState).toHaveBeenCalledTimes(2)
   })
 
   it('an accept refusal (409) shows the node message and keeps the gate open', async () => {
     setState(HOLDING)
     a.computeArmCamera.mockResolvedValue(ok({ result_id: doneFx.id }))
-    a.getArmCameraResult.mockResolvedValue(ok(doneFx as ArmCameraResult))
+    a.getArmCameraResult.mockResolvedValue(ok(doneFx))
     a.acceptArmCamera.mockResolvedValue({ ok: false, status: 409, message: 'result is not plausible' })
     await renderFlow(false)
     await click('Compute', step(5))
@@ -315,16 +334,20 @@ describe('ArmCameraFlow', () => {
   it('a refused report disables Accept; Decline declines and unlocks Park', async () => {
     setState(HOLDING)
     a.computeArmCamera.mockResolvedValue(ok({ result_id: refusedFx.id }))
-    a.getArmCameraResult.mockResolvedValue(ok(refusedFx as ArmCameraResult))
-    a.declineArmCamera.mockResolvedValue(ok({}))
+    a.getArmCameraResult.mockResolvedValue(ok(refusedFx))
+    a.declineArmCamera.mockResolvedValue(ok({ ...refusedFx, declined: true, declined_at: '2026-11-09T12:20:00+00:00' }))
     m.park.mockResolvedValue(ok(seq({ running: true, phase: 'parking' })))
     await renderFlow(false)
     await click('Compute', step(5))
     await waitFor(() => expect(within(step(6)).getByText('Not plausible')).toBeTruthy())
     expect((within(step(6)).getByRole('button', { name: 'Accept' }) as HTMLButtonElement).disabled).toBe(true)
-    expect(within(step(6)).getByText('held-out tool error 9.4 mm above the 5 mm limit')).toBeTruthy()
+    expect(
+      within(step(6)).getByText(
+        'elbow_flex offset change 20.0 deg is over the 15 deg plausibility bound (value 20 deg, limit 15 deg)',
+      ),
+    ).toBeTruthy()
     await click('Decline', step(6))
-    expect(a.declineArmCamera).toHaveBeenCalledWith(SID, refusedFx.id)
+    expect(a.declineArmCamera).toHaveBeenCalledWith(refusedFx.session, refusedFx.id)
     expect(within(step(6)).getByText('Declined')).toBeTruthy()
     await click('Park arm', step(7))
     expect(m.park).not.toHaveBeenCalled()
@@ -332,10 +355,33 @@ describe('ArmCameraFlow', () => {
     expect(m.park).toHaveBeenCalledWith(true)
   })
 
+  it('a result the node already accepted opens the gate decided', async () => {
+    setState(HOLDING)
+    a.computeArmCamera.mockResolvedValue(ok({ result_id: doneFx.id }))
+    a.getArmCameraResult.mockResolvedValue(ok({ ...doneFx, accepted_at: '2026-11-09T12:30:00+00:00' }))
+    await renderFlow(false)
+    await click('Compute', step(5))
+    await waitFor(() => expect(within(step(6)).getByText('Accepted')).toBeTruthy())
+    expect((within(step(6)).getByRole('button', { name: 'Decline' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('an applied calibration fitted against a changed head chain shows a banner', async () => {
+    setState(seq({}), headChainChangedState)
+    await renderFlow(false)
+    expect(screen.getByText(/The head chain changed since the applied arm-to-camera calibration was fitted/)).toBeTruthy()
+  })
+
+  it('an applied calibration on the current head chain shows no banner', async () => {
+    setState(seq({}))
+    await renderFlow(false)
+    expect(screen.queryByText(/The head chain changed/)).toBeNull()
+    expect(screen.getByText(/arm-camera calibration r-20261109-120000 is applied/)).toBeTruthy()
+  })
+
   it('a failed fit shows its error on the compute step', async () => {
     setState(HOLDING)
     a.computeArmCamera.mockResolvedValue(ok({ result_id: 'r1' }))
-    a.getArmCameraResult.mockResolvedValue(ok({ ...(runningFx as ArmCameraResult), state: 'failed', error: 'too few views' }))
+    a.getArmCameraResult.mockResolvedValue(ok({ ...runningFx, state: 'failed', error: 'too few views' }))
     await renderFlow(false)
     await click('Compute', step(5))
     await waitFor(() => expect(within(step(5)).getByText('too few views')).toBeTruthy())
@@ -418,8 +464,8 @@ describe('ArmCameraFlow', () => {
   it('a new capture session clears the previous result and decision', async () => {
     setState(HOLDING)
     a.computeArmCamera.mockResolvedValue(ok({ result_id: doneFx.id }))
-    a.getArmCameraResult.mockResolvedValue(ok(doneFx as ArmCameraResult))
-    a.declineArmCamera.mockResolvedValue(ok({}))
+    a.getArmCameraResult.mockResolvedValue(ok(doneFx))
+    a.declineArmCamera.mockResolvedValue(ok({ ...doneFx, declined: true, declined_at: '2026-11-09T12:20:00+00:00' }))
     m.park.mockResolvedValue(ok(seq({ phase: 'idle', session_id: SID, captured: 40 })))
     m.moveToBase.mockResolvedValue(ok(seq({ running: true, phase: 'waiting_board', session_id: 'calib-new' })))
     await renderFlow(false)
@@ -446,7 +492,7 @@ describe('ArmCameraFlow', () => {
   it('one failed result poll does not lose the result', async () => {
     setState(HOLDING)
     a.computeArmCamera.mockResolvedValue(ok({ result_id: doneFx.id }))
-    a.getArmCameraResult.mockResolvedValueOnce({ ok: false, status: 503, message: 'calibration node unreachable' }).mockResolvedValue(ok(doneFx as ArmCameraResult))
+    a.getArmCameraResult.mockResolvedValueOnce({ ok: false, status: 503, message: 'calibration node unreachable' }).mockResolvedValue(ok(doneFx))
     vi.useFakeTimers({ shouldAdvanceTime: true })
     await renderFlow(false)
     await click('Compute', step(5))

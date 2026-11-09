@@ -37,6 +37,7 @@ export function servoGate(groups: ServoGroup[]): GateReport {
     params: [],
     accuracy: [],
     comparison: [],
+    notes: [],
   }
 }
 

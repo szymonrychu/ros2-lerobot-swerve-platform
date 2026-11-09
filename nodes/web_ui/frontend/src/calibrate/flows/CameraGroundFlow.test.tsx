@@ -153,7 +153,7 @@ describe('CameraGroundFlow', () => {
     expect(screen.getByText(/Checked against the limits \(pose mean\): Height RMS 2.1 mm, Normal RMS 0.12 deg/)).toBeTruthy()
     expect(screen.getByText(/Per observation \(not limited\): Height RMS 4.3 mm, Normal RMS 0.9 deg/)).toBeTruthy()
     expect(screen.getByText('Plausible')).toBeTruthy()
-    expect(screen.getByText(/camera height: \+-0.4 mm/)).toBeTruthy()
+    expect(within(screen.getByRole('row', { name: /^camera height/ })).getByText('+-0.4 mm')).toBeTruthy()
     // per-pose residual and skipped reason
     expect(screen.getByRole('row', { name: /-60.0.*12.0.*3.*1.9.*0.10/ })).toBeTruthy()
     expect(screen.getByText(/no valid plane/)).toBeTruthy()

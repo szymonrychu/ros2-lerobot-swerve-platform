@@ -37,7 +37,7 @@ type Feedback = { ok: boolean; message: string } | null
  */
 export function imuGate(status: ImuStatus | null): GateReport {
   if (status === null) {
-    return { plausible: false, refusals: ['No IMU calibration status yet'], warnings: [], score: [], params: [], accuracy: [], comparison: [] }
+    return { plausible: false, refusals: ['No IMU calibration status yet'], warnings: [], score: [], params: [], accuracy: [], comparison: [], notes: [] }
   }
   const level = (k: (typeof LEVELS)[number]) => `${status[k]} / ${IMU_LEVEL_MAX}`
   return {
@@ -48,6 +48,7 @@ export function imuGate(status: ImuStatus | null): GateReport {
     params: [],
     accuracy: [],
     comparison: [],
+    notes: [],
   }
 }
 
