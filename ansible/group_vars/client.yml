@@ -3140,6 +3140,9 @@ ros2_nodes:
         home_file: /var/lib/ros2/arm/home.yaml
         # Written by lerobot_follower after an arm re-zero; arm_home is refused while it lists home.
         calibration_stale_marker: /var/lib/ros2/arm/calibration_stale.json
+        # head_rgbd_calibration board record (<its state_dir>/head_arm_board.json): written on Board attached, removed by
+        # a successful park; /arm/home is refused while it exists (the calibration board is on the gripper).
+        calibration_board_record: /var/lib/ros2/head_rgbd_calibration/head_arm_board.json
         # Arm mount plane (URDF base_link origin) height above the floor: 10.0 cm (floor_z_m = -0.100). Was 10.4 cm from tip
         # touch-downs, 15 cm before. Corrected 2026-10-10 after the grid calibration was deployed: the fixed-jaw tip
         # commanded 1 cm above base_link (0.30, 0) had FK X/Y confirmed exactly by the user, FK height 6.9 mm, physically

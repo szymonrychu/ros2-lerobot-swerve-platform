@@ -32,6 +32,9 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_HOME_FILE = Path("/var/lib/ros2/arm/home.yaml")
 DRIVE_POSE_FILE_NAME = "drive_pose.yaml"  # stored drive pose, next to the home file
 DEFAULT_CALIBRATION_STALE_MARKER = Path("/var/lib/ros2/arm/calibration_stale.json")
+# Board record head_rgbd_calibration writes on Board attached and removes on a successful park (<state_dir>/
+# head_arm_board.json): the calibration board is on the gripper.
+DEFAULT_CALIBRATION_BOARD_RECORD = Path("/var/lib/ros2/head_rgbd_calibration/head_arm_board.json")
 DEFAULT_CALIBRATION_DIR = Path("/var/lib/ros2/camera_calibration")
 HEAD_CAMERA_PARENT = "d435_color_frame"  # head URDF link (head.urdf_path) the head (D435 colour) camera hangs on
 HEAD_CAMERA_INFO_TOPIC = "/head/d435/color/camera_info"  # D435 factory colour intrinsics of the head camera
@@ -503,6 +506,9 @@ class ArmSettings(ArmModelSettings):
     # Stale marker the follower bridge writes after a runtime neutral save (arm re-zero); while it lists "home",
     # arm_home is refused. null disables the check.
     calibration_stale_marker: Path | None = DEFAULT_CALIBRATION_STALE_MARKER
+    # Board record of head_rgbd_calibration (the calibration board is on the gripper, also with no lease held and a
+    # relaxed grip): while the file exists the /arm/home service is refused. null disables the check.
+    calibration_board_record: Path | None = DEFAULT_CALIBRATION_BOARD_RECORD
     joint_names: tuple[str, ...] = ARM_JOINTS
     # Follower gripper open position (as in /follower/joint_states; the leader-only source range mapping in the
     # follower bridge does not apply to autonomy commands).

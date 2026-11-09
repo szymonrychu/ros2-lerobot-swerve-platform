@@ -35,11 +35,13 @@ nothing; otherwise (the call released a lease and none remains) the head goes ho
 involuntarily (web UI take, generation change) and the stop tool never move the head.
 """
 
+import json
 import threading
 import time
 from collections import deque
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import AbstractContextManager, contextmanager
+from pathlib import Path
 from typing import Literal, Protocol
 
 from mcp.server.mcpserver.exceptions import ToolError
@@ -118,6 +120,33 @@ HOME_SERVICE_CARRYING_REFUSAL = (
     "first (park the calibration board from its flow)"
 )
 HOME_SERVICE_NOT_READY = "arm home refused: mcp_server is not ready"
+HOME_SERVICE_BOARD_REFUSAL = (
+    "arm home refused: the calibration board is on the gripper ({record}) - the home route is not checked with it; "
+    "park it from the Calibrate page Arm to camera flow (Park arm, or Park (board is on the gripper)) first"
+)
+
+
+def board_record_refusal(path: Path | None) -> str | None:
+    """Refusal text while the head_rgbd_calibration board record exists, or None.
+
+    The record is written on Board attached and removed by a successful park, so its presence (any age; an unreadable
+    file counts) means the calibration board may be in the jaws even with no lease held and a relaxed grip.
+
+    Args:
+        path (Path | None): The board record file (arm.calibration_board_record); None disables the check.
+
+    Returns:
+        str | None: HOME_SERVICE_BOARD_REFUSAL naming the session and the attach time (or that the record is
+            unreadable), None when there is no record.
+    """
+    if path is None or not path.exists():
+        return None
+    try:
+        record = json.loads(path.read_text())
+        detail = f"session {record['session_id']}, attached at {record['clipped_at']}, record {path}"
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        detail = f"record {path} present but unreadable: {exc}"
+    return HOME_SERVICE_BOARD_REFUSAL.format(record=detail)
 
 
 class LeaderActivity:
@@ -367,6 +396,9 @@ class ControlManager:
         self.sleep = sleep
         self.wall = wall
         self.lock = threading.Lock()
+        # Held across the /arm/home guard checks and the home motion, and by take(arm): a take_control landing during
+        # /arm/home waits for it instead of being homed and released by it.
+        self.home_lock = threading.Lock()
         self.base_since: float | None = None  # wall time the base lease was taken, None while not held
         # Lease generation of the agent's arm lease (ArmController.lease_generation at take_control) and when it was
         # taken; None while the agent does not hold the arm.
@@ -430,11 +462,15 @@ class ControlManager:
 
         Returns:
             str | None: Refusal text: the agent holds the arm lease (another holder than the web UI caller; a lease
-                taken by the web UI, or none, passes), or the gripper carries (carrying_state: the carry record or a
-                holding load, e.g. the calibration board in the jaws); None when it may home.
+                taken by the web UI, or an implicit hold, passes), the head_rgbd_calibration board record exists
+                (board_record_refusal), or the gripper carries (carrying_state: the carry record or a holding load);
+                None when it may home.
         """
         if self.arm_held:
             return HOME_SERVICE_AGENT_REFUSAL
+        board = board_record_refusal(self.config.arm.calibration_board_record)
+        if board is not None:
+            return board
         carrying = self.carrying_state()
         if carrying.carrying:
             return HOME_SERVICE_CARRYING_REFUSAL.format(reasons="; ".join(carrying.reasons))
@@ -442,15 +478,17 @@ class ControlManager:
 
     def home_service_call(self) -> tuple[bool, str]:
         """/arm/home service body: refused per home_service_refusal (nothing moves, no lease is touched), else the arm's
-        home_service_call (stale marker checks, home, then always release).
+        home_service_call (stale marker checks, home, then always release). The checks and the motion run under
+        home_lock, so take(arm) cannot slip in between.
 
         Returns:
             tuple[bool, str]: success (converged) and message (the refusal text when refused).
         """
-        refusal = self.home_service_refusal()
-        if refusal is not None:
-            return False, refusal
-        return self.arm.home_service_call()
+        with self.home_lock:
+            refusal = self.home_service_refusal()
+            if refusal is not None:
+                return False, refusal
+            return self.arm.home_service_call()
 
     def release_web_ui(self) -> tuple[bool, str]:
         """/arm/release_control: publish the autonomy release so the follower hands back to the leader (filter_node's
@@ -516,15 +554,8 @@ class ControlManager:
             ControlState: Both leases afterwards.
         """
         if subsystem == "arm":
-            if not self.arm_held:
-                if self.arm.torque_off():
-                    raise ArmError(torque_off_message("arm"))
-                if not self.arm.control_held:
-                    self.arm.acquire()
-                with self.lock:
-                    self.arm_generation = self.arm.lease_generation
-                    self.arm_since = self.wall()
-                    self.web_ui_generation = None  # the agent adopts the lease: the web UI no longer holds it
+            with self.home_lock:  # waits for a running /arm/home service (it releases the arm at its end)
+                self.take_arm()
             if self.footprint is not None:
                 self.footprint.publish_static()
         else:
@@ -532,6 +563,23 @@ class ControlManager:
                 if self.base_since is None:
                     self.base_since = self.wall()
         return self.state()
+
+    def take_arm(self) -> None:
+        """Take the agent's arm lease unless it holds it (commands the measured pose; an implicit hold is adopted).
+
+        Raises:
+            ArmError: The arm torque is off, or the acquire failed.
+        """
+        if self.arm_held:
+            return
+        if self.arm.torque_off():
+            raise ArmError(torque_off_message("arm"))
+        if not self.arm.control_held:
+            self.arm.acquire()
+        with self.lock:
+            self.arm_generation = self.arm.lease_generation
+            self.arm_since = self.wall()
+            self.web_ui_generation = None  # the agent adopts the lease: the web UI no longer holds it
 
     @contextmanager
     def lease_scope(self, need: LeaseNeed | None) -> Iterator[None]:

@@ -94,12 +94,20 @@ ROS services (`std_srvs/Trigger`): `/arm/home` (move to the stored home pose, th
 after a failed motion; used by the web UI "Arm home" button and the Calibrate page General **Home arm**) and
 `/arm/set_home` (store the measured pose).
 
-`/arm/home` guard (`ControlManager.home_service_call`, then `ArmController.home_service_call`): refused, with nothing
-moved and no lease touched, while
+`/arm/home` guard (`ControlManager.home_service_call`, then `ArmController.home_service_call`). Callers: the web UI
+Arm tab Home, the Calibrate page General Home arm (`/api/calibration/general/home_arm`) and the Map tab (map_nav
+`arm_home_service`). Refused, with nothing moved and no lease touched, while
 - the agent holds the arm lease (`take_control(subsystem='arm')`, e.g. a running head_rgbd_calibration sequence):
   "arm home refused: the agent holds the arm lease (take_control, e.g. a running calibration sequence) - stop it or wait
   for its release_control first". A lease the web UI took (`/arm/take_control`, holder `web_ui`) or an implicit hold
   does not refuse: the caller is the web UI, and home still releases it;
+- the head_rgbd_calibration board record exists (`arm.calibration_board_record`, default
+  `/var/lib/ros2/head_rgbd_calibration/head_arm_board.json`, the node's `<state_dir>/head_arm_board.json`; written on
+  Board attached, removed by a successful park; any age, an unreadable file counts; null disables the check). This
+  covers the board in the jaws with no lease held and a relaxed grip (the `holding` phase after a run, a failed park, a
+  node restart): "arm home refused: the calibration board is on the gripper (session <id>, attached at <time>, record
+  <path>) - the home route is not checked with it; park it from the Calibrate page Arm to camera flow (Park arm, or Park
+  (board is on the gripper)) first";
 - the gripper carries (`carrying_state`: the carry record or a live holding load, e.g. the calibration board clamped by
   its handle): "arm home refused: the gripper carries something (<reasons>) - the home route is not checked with it;
   remove it first (park the calibration board from its flow)";
@@ -107,6 +115,9 @@ moved and no lease touched, while
   stale marker lists joint_offsets (arm re-zero at <saved_at>): the home route and its body check would use the old
   zero; restore the arm zero first" (a stale `home` keeps its own refusal, see the stale marker section);
 - the ControlManager is not bound yet (startup): "arm home refused: mcp_server is not ready".
+
+The checks and the home motion run under `ControlManager.home_lock`, which `take(arm)` also takes: a `take_control`
+landing during `/arm/home` waits for the home to end (and its release) instead of being homed and released by it.
 
 The agent's `arm_home` tool is not affected by the lease and carry checks (it needs the agent's own lease). The home pose is YAML (`joints: {name: rad}`) at `arm.home_file` (default `/var/lib/ros2/arm/home.yaml`,
 directory created by Ansible, owned by the node user), written atomically.
@@ -1235,7 +1246,7 @@ it back with one button. Both go through the same `ControlManager` and arm lease
   arm stays put and filter_node's proximity rule (0.15 rad) hands it back to the leader once the leader arm is
   close. Refused when the web UI does not hold the arm (the agent's lease is never released by it).
 - `/arm/home` moves home, then releases (which also clears the `web_ui` holder); it is refused while the agent holds
-  the arm, the gripper carries or the arm zero is stale (see the `/arm/home` guard above).
+  the arm, the calibration board record exists, the gripper carries or the arm zero is stale (see the `/arm/home` guard above).
 - `get_control_state` reports `arm.held_by: "web_ui"` (`arm.held` stays the agent's lease). The startup orphan check
   never drops a `web_ui` lease (this process holds it). An agent `take_control` while the web UI holds the arm adopts
   the lease (the holder becomes `agent`).
