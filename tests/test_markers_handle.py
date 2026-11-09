@@ -54,7 +54,15 @@ from scripts.markers.jaw_fit import (
     penetration_mm,
     surface_points,
 )
-from scripts.markers.mesh import box, print_violations, printed_solid, to_manifold, to_trimesh
+from scripts.markers.mesh import (
+    box,
+    print_violations,
+    printed_solid,
+    read_bodies,
+    to_manifold,
+    to_trimesh,
+    write_bodies,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SHIPPED_YAML = REPO_ROOT / "scripts" / "markers_generate.yaml"
@@ -1030,3 +1038,16 @@ def test_tab_holds_the_board_centre_within_the_deflection_limit(arm_metadata: di
     expected = stiffness(h, ARM.plate_mm, ARM.thickness_mm, arm_metadata["mass_g"])
     assert flatten(arm_metadata["stiffness"]) == pytest.approx(flatten(expected), abs=1e-9)
     assert arm_metadata["stiffness"]["tab_deflection_mm"] <= MAX_TAB_DEFLECTION_MM
+
+
+def test_written_arm_print_bodies_read_back_watertight_and_printable(tmp_path: Path) -> None:
+    # The handle booleans leave collapsed slivers (coincident float32 vertices) and the inlay cells touch diagonally;
+    # read back as a slicer reads them, both bodies must still be watertight and their union printable.
+    base, modules = print_bodies(ARM, CONFIG.stl)
+    write_bodies(base, modules, tmp_path / ARM_NAME)
+    for read_base, read_modules in read_bodies(tmp_path / ARM_NAME).values():
+        assert read_base.is_watertight and read_modules.is_watertight
+        assert read_base.body_count == 1
+        assert read_base.volume == pytest.approx(base.volume, rel=1e-6)
+        assert np.allclose(read_base.bounds, base.bounds, atol=1e-4)
+        assert print_violations(printed_solid(read_base, read_modules)) == []

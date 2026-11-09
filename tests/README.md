@@ -2997,6 +2997,8 @@ ChArUco calibration boards from `scripts/markers/charuco.py` (`FULL_SPEC` / `ARM
 | `test_outputs_subset` | `outputs: [pdf]` writes only the PDF. |
 | `test_arm_board_mask_is_exact_pixels` | The ARM mask is 336 x 280 px at 2.0 px/mm (cell 0.5 mm), marker cell 3.0 mm. |
 | `test_board_ids_follow_ids_offset` | The ARM board's OpenCV board uses ids 15-29. |
+| `test_written_full_board_reads_back_watertight_and_printable` | The FULL board's STL and 3MF, read back (`read_bodies`, coincident vertices merged), are watertight bodies whose union passes `print_violations`. |
+| `test_shipped_board_files_are_watertight_and_printable` | The committed `markers/` STL and 3MF of FULL and ARM read back watertight, the base is one body, and base + modules pass `print_violations` (final review I2: the inlay pinches and handle slivers opened them). |
 | `test_ids_beyond_the_dictionary_are_refused` | An `ids_offset` whose ids run past the dictionary is refused naming `ids_offset`. |
 | `test_overlapping_board_ids_are_refused` | Two boards of one dictionary with overlapping ids are refused (`overlap`). |
 | `test_duplicate_board_names_are_refused` | Two boards with one name are refused (`unique`). |
@@ -3048,6 +3050,11 @@ Two-body marker meshes and the Bambu 3MF from `scripts/markers/mesh.py`.
 | `test_invalid_heights_raise` | Zero module height or an inlay deeper than the base raises. |
 | `test_write_bodies_3mf_structure` | The 3MF holds two named objects with extruders 1 and 2; both STLs are written. |
 | `test_render_then_decode` | The module body rendered from above decodes to the payload. |
+| `test_pinch_corners_are_the_diagonal_cell_contacts` | `pinch_corners` finds the grid corners of diagonal dark-cell pairs (both diagonals, none for an L or a single cell, two for `eye(3)`). |
+| `test_written_bodies_of_diagonal_cells_are_watertight` | An `eye(4)` inlay written and read back: each STL and 3MF body is one watertight body with unchanged bounds, the union is the full plate and printable; the pinch columns add under 1e-3 mm3. |
+| `test_written_marker_bodies_are_watertight` | A 50 mm QR marker's written bodies read back watertight and printable. |
+| `test_weld_merges_coincident_vertices_and_drops_collapsed_faces` | `weld` turns a tetrahedron whose apex is split into two coincident vertices joined by zero-area faces into the closed 4-face tetrahedron, volume unchanged. |
+| `test_written_split_body_reads_back_watertight` | That split tetrahedron, written by `write_bodies` and read back, is watertight (the weld runs before the export). |
 | `test_mask_bodies_unions_adjacent_cells_and_orients_rows` | Adjacent cells merge and mask row 0 is the top. |
 | `test_print_violations_pass_a_box` / `test_print_violations_name_a_downward_overhang` / `test_print_violations_name_an_open_mesh` | The print check (`print_violations`): a box passes; a T with 6 mm cantilevers names an overhang; a mesh with a face removed is `not watertight`. |
 | `test_printed_solid_is_the_plate_of_a_flush_inlay` | `printed_solid` of a flush-inlay base and modules is the full plate. |
@@ -3130,6 +3137,7 @@ The ARM board's edge grip handle (`scripts/markers/handle.py`) and the board flo
 | `test_stiffness_tab_share_is_the_closed_form_cantilever` / `test_tab_holds_the_board_centre_within_the_deflection_limit` | The moment-area integration equals the closed-form cantilever for a rectangular tab; the tab share of the centre sag under 1 g is at most 0.1 mm and recorded in the JSON. |
 | `test_write_board_metadata_sorted_and_indented` / `test_write_charuco_needs_the_gripper_for_a_handle` | The JSON is written sorted with indent 2 and a newline; a handle board without a gripper raises and writes nothing. |
 | `test_board_metadata_seat_is_reproducible` / `test_shipped_arm_outputs_are_current` | `board_metadata` again gives the written JSON; the committed `markers/charuco-arm-6x5-28mm.json` equals a fresh generation (within 1e-6). |
+| `test_written_arm_print_bodies_read_back_watertight_and_printable` | The ARM `print_bodies` written by `write_bodies` and read back (`read_bodies`): each STL and 3MF body is watertight, the base one body with its volume and bounds kept, base + modules pass `print_violations` (the weld removes the handle slivers, the pinch columns the inlay corner contacts). |
 
 ### `test_markers_render.py`
 

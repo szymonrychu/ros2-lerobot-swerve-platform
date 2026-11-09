@@ -11,12 +11,14 @@ from pydantic import ValidationError
 
 from scripts.markers.charuco import CharucoSpec, board_mask, make_charuco_board, write_charuco
 from scripts.markers.config import GeneratorConfig, StlOptions, load_generator_config
+from scripts.markers.mesh import print_violations, printed_solid, read_bodies
 
 DPI = 600
 PX_PER_MM = DPI / 25.4
 MESH_PX_PER_MM = 10.0
 INNER_CORNERS = 20
 SHIPPED_YAML = Path(__file__).resolve().parent.parent / "scripts" / "markers_generate.yaml"
+MARKERS_DIR = Path(__file__).resolve().parent.parent / "markers"
 FULL_SPEC = CharucoSpec(
     name="charuco-6x5-40mm",
     squares_x=6,
@@ -140,11 +142,30 @@ def test_flush_inlay_board_is_flat_and_watertight(tmp_path: Path) -> None:
     paths = write_charuco(spec, StlOptions(), tmp_path / "board", None)
     base = trimesh.load(next(p for p in paths if p.name.endswith("-base.stl")))
     modules = trimesh.load(next(p for p in paths if p.name.endswith("-modules.stl")))
-    # Checkerboard cells touch diagonally, so the merged STL has shared edges; volumes prove the parts tile the plate.
+    # The pinch columns only move material between the bodies, so base and modules still tile the plate.
     assert base.volume + modules.volume == pytest.approx(250.0 * 210.0 * 4.0, rel=1e-6)
     assert base.bounds[1][2] == pytest.approx(4.0, abs=1e-3)
     assert modules.bounds[1][2] == pytest.approx(4.0, abs=1e-3)
     assert modules.bounds[0][2] == pytest.approx(2.8, abs=1e-3)
+
+
+def test_written_full_board_reads_back_watertight_and_printable(tmp_path: Path) -> None:
+    write_charuco(FULL_SPEC.model_copy(update={"outputs": ["stl", "3mf"]}), StlOptions(), tmp_path / "board", None)
+    for base, modules in read_bodies(tmp_path / "board").values():
+        assert base.is_watertight and modules.is_watertight
+        assert print_violations(printed_solid(base, modules)) == []
+
+
+@pytest.mark.parametrize("stem", ["charuco-6x5-40mm", "charuco-arm-6x5-28mm"])
+def test_shipped_board_files_are_watertight_and_printable(stem: str) -> None:
+    # The committed print files (markers/), as a slicer reads them: each STL and 3MF body is watertight and the
+    # base + modules union passes the print check (no raised overhang at the inlay interface).
+    read = read_bodies(MARKERS_DIR / stem)
+    assert sorted(read) == ["3mf", "stl"]
+    for base, modules in read.values():
+        assert base.is_watertight and modules.is_watertight
+        assert base.body_count == 1
+        assert print_violations(printed_solid(base, modules)) == []
 
 
 def test_inlay_must_be_below_thickness() -> None:

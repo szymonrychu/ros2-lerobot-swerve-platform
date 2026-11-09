@@ -148,6 +148,13 @@ decision 297). Geometry (the `handle:` block of the ARM entry, `scripts/markers/
 - Checks before writing: the generator refuses a board whose printed solid is not watertight or has a face steeper
   than 45 deg overhang (`scripts/markers/mesh.py` `print_violations`); nothing is written then. The ARM board passes:
   one body, the bed flat, the post faces lean about 7 deg from vertical, no supports.
+- Written bodies read back closed: the STL and 3MF readers merge coincident vertices, so two things that are closed
+  in memory would open on reading. Dark cells that touch only at a corner (the chessboard squares, marker bits) pinch
+  both bodies along that edge, so `mask_bodies` joins them with a 2^-7 mm (7.8 um) square column in the modules, cut
+  from the base the same way (`pinch_corners`); and the handle booleans leave float32-coincident vertices joined by
+  zero-area faces, so `write_bodies` welds each body first (`weld`: float32 merge, collapsed faces dropped). The
+  committed FULL and ARM files read back watertight, base + modules give one body and pass `print_violations`
+  (`tests/test_markers_charuco.py::test_shipped_board_files_are_watertight_and_printable`).
 
 `<name>.json` (ARM only): `board` (the `BoardConfig` fields), `plate_mm`, `volume_cm3`, `mass_g`, `centre_of_mass_m`
 (board frame), `board_mount` (`xyz_init`, `rpy_init`: the board frame in `gripper_link`, the CAD seed of the fit),
