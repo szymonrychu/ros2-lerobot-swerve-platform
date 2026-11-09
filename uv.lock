@@ -1,5 +1,5 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -823,6 +823,11 @@ sdist = { url = "https://files.pythonhosted.org/packages/e0/4d/f332313098c1de1b2
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a7/5f/ed01f9a3cdffbd5a008556fc7b2a08ddb1cc6ace7effa7340604b1d16699/docstring_parser-0.18.0-py3-none-any.whl", hash = "sha256:b3fcbed555c47d8479be0796ef7e19c2670d428d72e96da63f3a40122860374b", size = 22484, upload-time = "2026-04-14T04:09:18.638Z" },
 ]
+
+[[package]]
+name = "feetech-mapping"
+version = "0.1.0"
+source = { editable = "shared/feetech_mapping" }
 
 [[package]]
 name = "filelock"
@@ -1996,6 +2001,15 @@ wheels = [
 ]
 
 [[package]]
+name = "pyserial"
+version = "3.5"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/1e/7d/ae3f0a63f41e4d2f6cb66a5b57197850f919f59e558159a4dd3a818f5082/pyserial-3.5.tar.gz", hash = "sha256:3c77e014170dfffbd816e6ffc205e9842efb10be9f58ec16d3e8675b4925cddb", size = 159125, upload-time = "2020-11-23T03:59:15.045Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/07/bc/587a445451b253b285629263eb51c2d8e9bcea4fc97826266d186f96f558/pyserial-3.5-py2.py3-none-any.whl", hash = "sha256:c4451db6ba391ca6ca299fb3ec7bae67a5c55dde170964c7a14ceefec02f2cf0", size = 90585, upload-time = "2020-11-23T03:59:13.41Z" },
+]
+
+[[package]]
 name = "pytest"
 version = "9.1.1"
 source = { registry = "https://pypi.org/simple" }
@@ -2277,6 +2291,7 @@ source = { virtual = "." }
 [package.dev-dependencies]
 dev = [
     { name = "ansible-lint" },
+    { name = "feetech-mapping" },
     { name = "httpx" },
     { name = "jinja2" },
     { name = "lxml" },
@@ -2300,6 +2315,7 @@ dev = [
     { name = "scipy" },
     { name = "segno" },
     { name = "shapely" },
+    { name = "st3215" },
     { name = "trimesh" },
     { name = "vulture" },
     { name = "websockets" },
@@ -2314,6 +2330,7 @@ render = [
 [package.metadata.requires-dev]
 dev = [
     { name = "ansible-lint", specifier = ">=26.0" },
+    { name = "feetech-mapping", editable = "shared/feetech_mapping" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "jinja2", specifier = ">=3.1" },
     { name = "lxml", specifier = ">=5" },
@@ -2337,6 +2354,7 @@ dev = [
     { name = "scipy", specifier = ">=1.11.0" },
     { name = "segno", specifier = ">=1.6,<2" },
     { name = "shapely", specifier = ">=2.0" },
+    { name = "st3215", specifier = ">=0.4.0" },
     { name = "trimesh", specifier = ">=4,<5" },
     { name = "vulture", specifier = ">=2.11" },
     { name = "websockets", specifier = ">=17.3" },
@@ -2670,6 +2688,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/5b/00/feaeb392e96063717387ec09e6c8e38b29fe4088ddfe976470255c69792e/shapely-2.2.0-cp315-cp315t-win32.whl", hash = "sha256:778421a19085bef1fb38bc0699db1ee9b08fdd0e30a8768788d601a4371f2de0", size = 1675823, upload-time = "2026-10-07T09:17:55.022Z" },
     { url = "https://files.pythonhosted.org/packages/0e/30/0b77618f33fecbc2209c767cecca58bbf83947fc0018571542bf2b859865/shapely-2.2.0-cp315-cp315t-win_amd64.whl", hash = "sha256:287ec7602f7a114b862ae0123880e57160cebe059843a4c7028aaee9e74287f6", size = 1866197, upload-time = "2026-10-07T09:17:56.991Z" },
     { url = "https://files.pythonhosted.org/packages/06/2b/9837e94408335520f778b09067fced0a5d4b2feffa5ebf7119412eb18b00/shapely-2.2.0-cp315-cp315t-win_arm64.whl", hash = "sha256:e414c78bc81aadd76a429111a350f4ef3d05fc13019805617b524951258468e5", size = 1945749, upload-time = "2026-10-07T09:17:59.116Z" },
+]
+
+[[package]]
+name = "st3215"
+version = "0.4.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyserial" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/61/f5/df84a6433aa837cab24f1b46a8b0a2d43ca03a618fd110f17c4f6939ec1b/st3215-0.4.2.tar.gz", hash = "sha256:71112f0388853e61e47a5caf24b06b43922ababb0a9bcea392f08c97be48f670", size = 35289, upload-time = "2026-05-17T14:31:38.017Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/46/65/a9896f8097dd834f7a48b1ba25c58a4affed92ff56a7cf38f4a7b671aa5d/st3215-0.4.2-py3-none-any.whl", hash = "sha256:c67a89d8adeb31bbd2d401452391b11336db36e39537144d0d0622b2cc7a5725", size = 21441, upload-time = "2026-05-17T14:31:36.528Z" },
 ]
 
 [[package]]

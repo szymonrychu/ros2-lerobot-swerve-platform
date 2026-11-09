@@ -1,0 +1,45 @@
+# Config of scripts/arm_zero_restore.py: restore the SO-101 follower arm zero (STS3215 EEPROM offset) without moving
+# the arm. Runs on the client RPi with ros2-lerobot_follower stopped (the bus must be free); see
+# docs/runbooks/servo-torque-neutral.md "Arm zero restore".
+#
+# Bus and servo IDs: the lerobot_follower entry of ansible/group_vars/client.yml (tests/test_arm_zero_restore.py pins
+# device, names, ids and inverted against it). No arm joint is inverted there.
+device: /dev/serial/by-id/usb-1a86_USB_Single_Serial_5AE6081020-if00
+# The bridge owning that bus; the script refuses while this unit is active.
+bridge_service: ros2-lerobot_follower
+# JSON record of every run (before/after per joint); {timestamp} becomes UTC YYYYmmddTHHMMSSZ.
+record_path: /var/lib/ros2/arm/zero_restore-{timestamp}.json
+# Largest allowed difference between the computed offset change and expected_offset_delta_steps (5 deg = 56.9 steps).
+tolerance_deg: 5.0
+# After a write, present_position must read within this many steps of the target.
+verify_tolerance_steps: 3
+# reference_rad: /follower/joint_states before the incident, arm resting folded with torque off.
+# expected_offset_delta_steps: offset register change (new - current) that undoes the wrong re-zero; the inverse of the
+# "neutral recorded: <joint> +N steps" shift logged by the bad save (present = encoder - offset, so DefineMiddle at a
+# reading of 2048 + N raised the offset by N).
+joints:
+  - name: shoulder_pan
+    id: 1
+    inverted: false
+    reference_rad: -0.018
+    expected_offset_delta_steps: 11
+  - name: shoulder_lift
+    id: 2
+    inverted: false
+    reference_rad: -1.542
+    expected_offset_delta_steps: 901
+  - name: elbow_flex
+    id: 3
+    inverted: false
+    reference_rad: 1.516
+    expected_offset_delta_steps: -1029
+  - name: wrist_flex
+    id: 4
+    inverted: false
+    reference_rad: 0.862
+    expected_offset_delta_steps: 47
+  - name: wrist_roll
+    id: 5
+    inverted: false
+    reference_rad: -0.072
+    expected_offset_delta_steps: -14

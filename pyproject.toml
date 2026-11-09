@@ -36,6 +36,9 @@ dev = [
     "rosbags>=0.10,<1",
     "ros2-common",
     "websockets>=17.3",
+    # scripts/arm_zero_restore.py tests: the feetech bridge register helpers on the emulated STS bus.
+    "st3215>=0.4.0",
+    "feetech-mapping",
 ]
 render = ["pyvista>=0.44,<1"]
 
@@ -44,6 +47,7 @@ package = false
 
 [tool.uv.sources]
 ros2-common = { path = "shared", editable = true }
+feetech-mapping = { path = "shared/feetech_mapping", editable = true }
 
 [tool.pytest.ini_options]
 addopts = "-v -rxXs"
