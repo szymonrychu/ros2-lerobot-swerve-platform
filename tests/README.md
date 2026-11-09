@@ -72,6 +72,47 @@ stick mount.
 | `test_view_missing_a_joint_raises` | A view without wrist_flex raises naming it. |
 | `test_fewer_than_three_views_raise` | Fewer than three views raise. |
 
+### `test_ground_board_fit.py`
+
+Ground board fit (`shared/ros2_common/head_rgbd_calibration/ground_board_fit.py`, T-99 part D) on synthetic scenes from
+`tests/ground_board_synthetic.py`: the FULL board face up on the floor at three placements, seen at 640x360 through a
+truth head chain (the applied floor-fit chain moved by mount z +5 mm, roll +0.4, pitch -0.5, tilt zero +0.6, tilt roll
+-0.4 deg, D435 mount x +4 mm, z -3 mm, roll +0.5, yaw +0.7 deg and the pan axis by (-20, +8) mm), 0.3 px noise, plus
+noisy depth floor planes at every head pose.
+
+| Test | Description |
+|------|-------------|
+| `test_board_on_floor_puts_the_pattern_face_up_at_the_board_thickness` | Board corners at z = thickness, centred on x, y, board z pointing down. |
+| `test_locate_board_on_the_truth_chain_recovers_the_placement` | Ray/floor intersection plus 2D rigid fit locates the board within tolerance and 0.5 deg. |
+| `test_locate_board_gives_none_when_the_rays_miss_the_floor` | A camera looking up gives None. |
+| `test_free_head_names_follow_the_switches` | The free head parameters follow `fit_camera_mount` / `fit_pan_axis`; the gauge is never free. |
+| `test_fit_recovers_the_truth_chain` | Every free head parameter recovered within tolerance; fit and held-out RMS under twice the noise. |
+| `test_fit_recovers_the_board_placements` | Every placement x, y, yaw recovered. |
+| `test_fit_keeps_the_gauge_at_the_applied_values` | Mount x, y, yaw stay exactly at the applied values, no sigma. |
+| `test_gauge_shift_is_absorbed_by_the_placements` | A truth head shifted and turned in the floor plane: the other parameters still recover, the placements take the turn. |
+| `test_sigma_and_correlation_are_reported` | Sigmas positive and below 2 mm / 0.2 deg, largest correlation below 0.99, finite condition number. |
+| `test_holdout_takes_every_fifth_pose` | Every fifth pose held out with all its views. |
+| `test_applied_chain_scores_worse_than_the_fit` | The applied chain (placements refitted) scores over three times the fitted RMS. |
+| `test_depth_cross_check_agrees_with_the_fitted_chain` | Depth floor planes agree with the fitted chain (under 3 mm / 0.3 deg) and disagree more with the applied one. |
+| `test_accuracy_examples_are_plain_and_consistent` | The six examples in order, finite, p95 = 1.96 sigma, the far floor height less certain than the near one. |
+| `test_report_structure_and_json` | Report keys, plausible, two entries per example, gauge sigma null, strict JSON. |
+| `test_assess_refuses_implausible_changes` | Large mount, tilt, camera and pan axis changes are refused with full entries. |
+| `test_assess_refuses_non_finite_and_far_boards` | A NaN score and a board 5 m away are refused. |
+| `test_assess_warns_on_advisory_limits` | Strict limits give the RMS, placements, views and floor height warnings. |
+| `test_single_placement_fit_warns_but_runs` | One placement fits and warns `min_placements`. |
+| `test_fit_without_depth_planes_warns` | No depth planes: the cross-check is empty and `no_depth_planes` warns. |
+| `test_fit_needs_views` | Fewer than three views raise. |
+
+### `ground_board_synthetic.py`
+
+Shared helper module (no tests) for `test_ground_board_fit.py` and the head_rgbd_calibration node tests (which load it
+by path): `ground_scene(deltas, pan_axis_m, placements, noise_px, ...)` returns `GroundScene(views, planes, truth,
+placements, applied_urdf)`: the applied chain is `head_arm_synthetic.synth_head_urdf()`, the truth moves it by
+`GROUND_TRUTH_DELTAS` and `GROUND_PAN_AXIS_M`; per placement the head aims at the board (`aim_head`) and visits a
+5 x 5 pan/tilt grid around it, keeping poses with every corner inside the image; the depth floor plane of each pose
+gets 1.5 mm / 0.15 deg noise. Also exports `GROUND_CAMERA_MATRIX`, `GROUND_DIST`, `GROUND_PLACEMENTS`,
+`CAMERA_FRAME` and `DEPTH_FRAME`.
+
 ### `test_arm_camera_fit.py`
 
 Arm to camera fit (`shared/ros2_common/head_rgbd_calibration/arm_camera_fit.py`, T-99) on the synthetic scene

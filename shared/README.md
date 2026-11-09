@@ -196,7 +196,8 @@ Calibration procedure:
 
 ## head_rgbd_calibration
 
-The head D435 calibration core (the D435 colour intrinsics check, the floor, head-from-arm and arm offsets fits).
+The head D435 calibration core (the D435 colour intrinsics check, the floor, head-from-arm, arm offsets, arm to camera
+and ground board fits).
 The RGB + ToF fits went with the head ToF: `poses`, `extrinsics` and `urdf_handoff` (the ToF-to-RGB extrinsic fit
 and the `tof_joint` hand-off) are deleted, and `calibrate`, `intrinsics` and `frames` keep only the colour check. It never imports `scripts`, `rosbags`, `subprocess` or ssh code, so node venvs can use it.
 
@@ -209,6 +210,7 @@ and the `tof_joint` hand-off) are deleted, and `calibrate`, `intrinsics` and `fr
 - `chain`: `UrdfChain` (numpy forward kinematics over URDF text: `from_text`, `transform(link, positions, origins, offsets)` with urdf_angle = measured + offset, `joint_names`, `origin`, `limits`), `pose_from_xyz_rpy`, `xyz_rpy_from_pose` and `arm_in_robot_base`. Shared by the head fit, the arm fit and the arm pose sequence.
 - `views`: `ArmBoardView` (one still view of the gripper board: view id, arm pose index, tier, the seven measured joints, the board `Detection`, the head offset index) and `require_joints`; see "Head from arm fit" below.
 - `head_arm_fit`: the head-from-arm head chain fit, `aim_head` and the report; see "Head from arm fit" below.
+- `ground_board_fit`: the camera to ground head chain fit from the FULL board lying on the floor, the depth cross-check, the accuracy examples and the report; see "Ground board fit" below.
 - `arm_offsets_fit`: the joint arm joint offsets, head chain and tool point fit from the head D435, the client.yml snippet and the report; see "Arm offsets fit" below.
 - `arm_pose_check`: the FK safety check of arm poses and joint paths with the board on the gripper (numpy, no ROS). `PoseChecker(...)` evaluates `urdf = measured + offset` FK placed in base_link by `arm_in_robot_base`; `check_pose(joints, gripper_rad, rolling)` returns named rule violations (body collisions, head envelope, board margin, roll rules, stretched arm, joint limits) and `check_path(start, target, gripper_rad)` samples the path between two poses. The body is `BodyConfig` (boxes and vertical cylinders, equal to the client.yml mcp_server `body` block), configured through `PoseCheckConfig`; `head_envelope(head_urdf, cfg)` gives the vertical cylinder containing the head at every pan/tilt. Distances are signed (negative = penetration). Tests: `tests/test_arm_pose_check.py`.
 - `floor_fit`: the floor-plane head chain fit (numpy and scipy, no ROS). `predicted_floor(chain, pan, tilt, origins, sensor_frame)` gives the floor (base_link z = 0) in the depth sensor frame (`sensor_frame`, default `d435_depth_optical_frame`, the frame of `/head/d435/points`) as (unit normal toward the sensor, sensor height); `fit_plane(points, prior, cfg, rng)` gates finite points by range and by `candidate_band_m` around the prior plane, runs RANSAC and an SVD refit and returns a `PlaneFit(normal, height_m, inliers, candidates, rms_m)` or None; `fit_head_chain_floor(observations, urdf_text, cfg, sensor_frame)` fits `head_mount_joint` z, roll, pitch and the `head_tilt` origin pitch (tilt zero) and roll from `FloorObservation(pose, pan_rad, tilt_rad, plane)` with a Huber `least_squares`, every other origin component kept at the URDF value (d435_joint and the D435 optical joints included), and returns a `FloorFitResult` (`passed`, `failed_limits`, `params` value/sigma/urdf for `mount_z_m`, `mount_roll_deg`, `mount_pitch_deg`, `tilt_zero_deg`, `tilt_roll_deg`, the pose-mean `height_rms_mm` / `normal_rms_deg` the RMS limits apply to, the per-observation `observation_height_rms_mm` / `observation_normal_rms_deg`, per-pose pose-mean and per-observation residuals, the new `origins`, `to_json()` with non-finite numbers as null). `pose_mean_errors` gives one pose's mean height error and the angle between its mean observed and predicted normals. Fewer than `min_observations` skips the solver.
@@ -491,6 +493,60 @@ result, date)` the reviewed client.yml mcp_server `arm:` snippet (`joint_offsets
 
 Config: `HeadArmFitConfig.arm_camera` (`ArmCameraFitConfig`, with `ArmCameraBounds`), see the node README. Tests:
 `tests/test_arm_camera_fit.py` (scenes from `tests/head_arm_synthetic.py`: `arm_camera_scene`).
+
+## Ground board fit
+
+`ros2_common/head_rgbd_calibration/ground_board_fit.py` (T-99 part D, user decisions 312, 313, 324, 326): the head
+chain (camera to ground) from the 40 mm FULL ChArUco board (`config.FULL_BOARD`) lying face up on the floor, seen by
+the D435 colour camera over a pan/tilt grid at one or more board placements. numpy, scipy and OpenCV only, no ROS.
+The node's `ground_results.py` runs it; capture, API and report fields: `nodes/head_rgbd_calibration/README.md`
+("Ground board calibration").
+
+### Model and parameters
+
+Per view: board corner -> board on the floor (`board_on_floor(board, x, y, yaw)`: face up, the pattern at z = board
+thickness, its centre at x, y, turned by yaw) -> inverse of the camera pose of the head chain at the measured pan/tilt
+(`ArmFk` on `chain_with(chain, origins)`, the vectorised equivalent of `UrdfChain.transform`) -> `cv2.projectPoints`.
+
+- Per placement free: x, y, yaw (nothing about where the board lies is assumed; the start comes from
+  `locate_board`).
+- Free head parameters (`free_head_names(cfg)`, head_arm_fit names): `mount_z_m`, `mount_roll_deg`,
+  `mount_pitch_deg`, `tilt_zero_deg`, `tilt_roll_deg`; with `fit_camera_mount` the D435 mount `camera_x_m`,
+  `camera_z_m`, `camera_roll_deg`, `camera_yaw_deg`; with `fit_pan_axis` `pan_axis_x_m`, `pan_axis_y_m`. The D435 mount
+  y and pitch are not in the model (the same `CAMERA_MOUNT_PARAMS` as the head-from-arm fit).
+- Gauge (`GAUGE_PARAMS`, decision 326): `mount_x_m`, `mount_y_m`, `mount_yaw_deg` held at the applied values. A
+  board free on the floor cannot tell a head shift or turn in the floor plane from a board shift or turn; with them
+  free the normal matrix condition number went from about 75 to 1e11 (spike). The placements absorb such a shift
+  (pinned by a test).
+- Residuals: corner pixel errors, Huber loss with `huber_f_scale_px`. Hold-out: every `limits.holdout_every`-th head
+  pose with all its views. Covariance `(J^T J)^-1 s^2` at the solution (s^2 the reduced chi-square of the fit views);
+  the largest parameter correlation and the condition number are reported with the solver (about 0.84 between mount
+  pitch and tilt zero on the synthetic scene).
+- `locate_board(camera, detection, K, D, board)`: each corner's ray through a camera pose meets the board plane (z =
+  thickness); a 2D rigid fit (Kabsch) of the board corners to those points gives (x, y, yaw), or None when the rays miss
+  the floor. No PnP, so no planar flip ambiguity at oblique views.
+- Depth cross-check (`cross_check`): the pose-mean floor height and normal RMS of the depth floor planes
+  (`floor_fit.FloorObservation`) under the fitted and under the applied chain. It is not in the residuals: the D435
+  depth carries its own structured bias, which would leak into the colour chain; kept separate it validates the fit
+  independently.
+- Accuracy examples (`accuracy_examples`, `ACCURACY_LABELS`): the head parameter covariance propagated (numeric
+  Jacobian) to floor measurements in the depth sensor frame at the home pose (`home_pan_deg`, `home_tilt_deg`): the
+  floor height `near_m` and `far_m` ahead of the head (mm), the lateral and range position of an obstacle `far_m` ahead
+  (mm), the head pitch and roll to the floor (deg). Each has `sigma`, `p95` (`P95_1D_FACTOR` 1.96 sigma) and `shift`
+  (how far the fitted chain moves it from the applied one).
+- Comparison: the applied chain scored on the same views with only the placements refitted (`CurrentScore`).
+
+`fit_ground_board(views, planes, camera_matrix, dist, head_urdf, cfg, camera_frame, sensor_frame)` takes
+`GroundBoardView(view_id, placement, pose, pan_rad, tilt_rad, detection)`s and returns `GroundBoardFit` (fitted
+`origins` for head_mount_joint, head_tilt, head_pan, d435_joint; `params`, `sigma`, `start_params`, placements, RMS,
+poses, accuracy, current score, cross-check, notes, solver); fewer than three views raise `ValueError`.
+`assess(fit, cfg)` gives (refusals, warnings): `cfg.bounds` (`GroundBoardBounds`) refuse implausible changes and far
+boards, `cfg.limits` (`GroundBoardLimits`) warn; `ground_board_report(fit, cfg, applied)` the JSON report (no NaN);
+`fitted_origins_json(fit)` the head_chain.json joints.
+
+Config: `GroundBoardFitConfig` (with `GroundBoardLimits`, `GroundBoardBounds`) in `config.py`, used as
+`ground_board.fit` of the node config. Tests: `tests/test_ground_board_fit.py` (scenes from
+`tests/ground_board_synthetic.py`).
 
 ## ros2_common_cpp (C++)
 
