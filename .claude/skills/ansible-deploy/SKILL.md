@@ -45,6 +45,14 @@ happen for what changed (stamps); a no-change deploy restarts nothing. The log e
 Client deploys first wait (up to 15 min) for an idle robot agent (not busy, quiet 5 min) and fail if it stays in use;
 override with `-e ros2_deploy_ignore_agent=true` (appended to the deploy-nodes.sh command).
 
+**Secrets from env.** `ansible/inventory` is tracked and secret-free; never add secrets to it. Export what the run
+needs on the controller (details: `ansible/README.md`, "Secrets from env"):
+
+- `MIKROTIK_WIFI_SSID`, `MIKROTIK_WIFI_PASSWORD` - network role (provisioning a WiFi-primary host)
+- `CARTO_API_KEY` - web_ui tile key
+- `CLAUDE_CODE_OAUTH_TOKEN` - claude_agent first deploy
+- SSH access is by the controller's SSH key
+
 ---
 
 ## Playbook Structure

@@ -1,4 +1,5 @@
-# Inventory for Client and Server Raspberry Pis (Ubuntu 24.04)
+# Inventory for the robot hosts (Ubuntu 24.04). Tracked and secret-free: secrets come from controller env vars
+# (MIKROTIK_WIFI_SSID, MIKROTIK_WIFI_PASSWORD, CARTO_API_KEY, CLAUDE_CODE_OAUTH_TOKEN), see ansible/README.md.
 # Usage: ansible-playbook -i inventory playbooks/server.yml
 # Hostnames server.ros2.lan and client.ros2.lan are set in /etc/hosts on both Pis.
 # For Ansible from a dev machine, add to /etc/hosts: 192.168.1.33 server.ros2.lan, 192.168.1.34 client.ros2.lan
@@ -9,8 +10,9 @@ server-rpi4 ansible_host=server.ros2.lan
 [client]
 client-rpi5 ansible_host=client.ros2.lan
 
+[controller]
+controller-steamdeck ansible_host=controller.ros2.lan
+
 [all:vars]
 ansible_user=szymonri
 ansible_python_interpreter=/usr/bin/python3
-network_wifi_ssid=something
-network_wifi_password=something

@@ -1,9 +1,9 @@
 """Static invariants of the D435 spatio-temporal voxel layer (STVL) in the Nav2 local and global costmaps (design D6).
 
 The head D435 cloud (/head/d435/points_filtered: d435_obstacle_cloud point_cloud_xyz -> laser_filter self filter) marks
-3D obstacles and below-floor cliff points in a `depth_voxel_layer` of the local (15 s decay) and the global (60 s decay) costmap; the lidar `obstacle_layer`
-keeps its /scan_filtered source in both costmaps (U5). No ROS is available on the dev machine, so the YAML is read
-directly.
+3D obstacles and below-floor cliff points in a `depth_voxel_layer` of the local (15 s decay) and the global (60 s decay)
+costmap; the lidar `obstacle_layer` keeps its /scan_filtered source in both costmaps (U5). No ROS is available on the
+dev machine, so the YAML is read directly.
 
 Re-derived for the D435 (the ToF values are no longer accurate): the clearing frustum starts at the cloud min_depth
 0.15 m (the D435 min-Z at 640x360) and lies inside the D435 depth FOV of 87 x 58 deg minus the datasheet tolerance

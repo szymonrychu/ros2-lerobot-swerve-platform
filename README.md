@@ -273,7 +273,9 @@ ansible-playbook -i inventory playbooks/deploy_nodes_client.yml -l client
 ansible-playbook -i inventory playbooks/optimize.yml
 ```
 
-See [ansible/README.md](ansible/README.md) for full details on roles, node config, and variables.
+`ansible/inventory` is tracked and secret-free; secrets (`MIKROTIK_WIFI_SSID`, `MIKROTIK_WIFI_PASSWORD`, `CARTO_API_KEY`,
+`CLAUDE_CODE_OAUTH_TOKEN`) come from env vars, see "Secrets from env" in [ansible/README.md](ansible/README.md) for full
+details on roles, node config, and variables.
 
 ## Documentation index
 

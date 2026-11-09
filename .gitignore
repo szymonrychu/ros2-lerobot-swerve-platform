@@ -35,7 +35,6 @@ Thumbs.db
 # Misc
 *.log
 
-ansible/inventory
 .claude/worktrees/**
 .superpowers
 nodes/steamdeck_ui/src/main/*.js

@@ -4,8 +4,8 @@ The Intel RealSense D435 on the pan/tilt head replaces the head ToF and the Came
 realsense-d435-head-switchov). This runbook records how it was brought up on the client (Pi 5, `client.ros2.lan`) and
 what the robot reported. Live checks use `scripts/d435_diag.sh` only (no rclpy, no `ros2` CLI on the client); deploys
 go only through `scripts/deploy-nodes.sh` with the output in `.logs/` (invoke the `ansible-deploy` skill first). No
-servo moves in the bring-up. The deploy needs `ansible/inventory` (gitignored, from `ansible/inventory.example`) in the
-tree it runs from.
+servo moves in the bring-up. `ansible/inventory` is tracked; secrets come from env
+vars (see "Secrets from env" in `ansible/README.md`).
 
 Camera identity: device serial 935422070045 (`serial_no:=_935422070045` on the launch line; realsense2_camera matches
 this one), ASIC serial / firmware update id 935723024187 (what `rs-fw-update -l` and `-s` use).

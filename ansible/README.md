@@ -4,7 +4,7 @@ Ansible layout for provisioning Raspberry Pis (Server and Client) and deploying 
 
 ## Layout
 
-- **`inventory`** — Host groups `server`, `client`, and `controller`. Edit with your hostnames or IPs. `all:vars` can set `ansible_user`, `ansible_python_interpreter`. The default inventory uses hostnames `server.ros2.lan` and `client.ros2.lan`; when running Ansible from a dev machine, add to `/etc/hosts`: `192.168.1.33 server.ros2.lan` and `192.168.1.34 client.ros2.lan`.
+- **`inventory`** - Tracked and secret-free: host groups `server`, `client` and `controller`, and `all:vars` with `ansible_user` and `ansible_python_interpreter` only. Secrets never go in it; they come from controller env vars (see [Secrets from env](#secrets-from-env)). The default inventory uses hostnames `server.ros2.lan` and `client.ros2.lan`; when running Ansible from a dev machine, add to `/etc/hosts`: `192.168.1.33 server.ros2.lan` and `192.168.1.34 client.ros2.lan`.
 - **`group_vars/`** — `all.yml`, `server.yml`, `client.yml` for group-specific variables.
 - **`site.yml`** — Full site: provision all hosts, then deploy ROS2 nodes on server and client (includes playbooks below). Run `ansible-playbook -i inventory site.yml`.
 - **`playbooks/`**
@@ -21,7 +21,7 @@ Ansible layout for provisioning Raspberry Pis (Server and Client) and deploying 
   - **`tasks/cgroup_headroom.yml`** — Client deploys: `system.slice` and `user.slice` drop-ins (templates in `playbooks/templates/`) that guarantee robot headroom; see "Node resource model".
 - **`roles/`**
   - **`common`** — Minimal bootstrap: Python3, git, sudo, basic packages.
-  - **`network`** — Netplan: primary interface gets static IP (ethernet or wlan, auto-detected); other interfaces DHCP; IPv6 disabled. Runs when `network_address` and `network_gateway` are set; for primary WiFi set `network_wifi_ssid` (and optionally `network_wifi_password`).
+  - **`network`** - Netplan: primary interface gets static IP (ethernet or wlan, auto-detected); other interfaces DHCP; IPv6 disabled. Runs when `network_address` and `network_gateway` are set; for primary WiFi `group_vars/all.yml` reads `network_wifi_ssid` / `network_wifi_password` from the `MIKROTIK_WIFI_SSID` / `MIKROTIK_WIFI_PASSWORD` env vars.
   - **`hostname`** — Set system hostname (hostnamectl, `/etc/hostname`, `127.0.1.1` in `/etc/hosts`). Runs only when `hostname` is set.
   - **`ros2_node_deploy`** — For each node: create the node venv (`python3 -m venv --system-site-packages`) and `uv sync --frozen --no-dev` from the repo (`build_context` path), create config dir, write config file, systemd unit, enable/start; or uninstall (stop, disable, remove unit and config dir). Handlers reload systemd and restart the node when config or unit changes.
   - **`ros2_node_verify`** — Runs as the last step of the play, after the end-of-play restarts: waits for services to settle, checks each present+enabled node’s systemd unit is active, waits again, then re-checks (stability). Used by `deploy_nodes_server.yml` and `deploy_nodes_client.yml`. Variables: `ros2_node_verify_settle_seconds` (default 10), `ros2_node_verify_stable_seconds` (default 5).
@@ -316,7 +316,7 @@ In **`group_vars/server.yml`** or **`group_vars/client.yml`** (or host_vars), se
 - **`network_gateway`** — Default gateway (e.g. `192.168.1.1`). Required.
 - **`network_nameservers`** — Optional list. By default derived from `primary_dns_server` (e.g. `192.168.1.1`) and `secondary_dns_server` (e.g. `1.1.1.1`).
 - **`network_interface`** — Optional. Default: primary IPv4 interface (ethernet or wlan).
-- When the primary interface is **WiFi** (e.g. `wlan0`): **`network_wifi_ssid`** (required), **`network_wifi_password`** (optional).
+- When the primary interface is **WiFi** (e.g. `wlan0`): **`network_wifi_ssid`** (required), **`network_wifi_password`** (optional). `group_vars/all.yml` sets them from `lookup('env', 'MIKROTIK_WIFI_SSID')` and `lookup('env', 'MIKROTIK_WIFI_PASSWORD')`, so export both on the controller; with the SSID empty on a WiFi primary the role fails naming `MIKROTIK_WIFI_SSID`. The netplan template task is `no_log: true`.
 - **`hostname`** — Short hostname (e.g. `server-rpi4`). Optional; when set, the hostname role runs.
 - **`ros2_extend_etc_hosts`** — (default `false`) When true, hostname role adds `ros2_hosts_entries` (server.ros2.lan, client.ros2.lan) to `/etc/hosts`. Default false: rely on primary DNS.
 
@@ -941,9 +941,26 @@ See [nodes/steamdeck_ui/README.md](../nodes/steamdeck_ui/README.md) for architec
 
 Node names match the `name` field in `group_vars/client.yml` or `group_vars/server.yml` under `ros2_nodes`. The script rejects names that are not `ros2_nodes` entries of the target; each node's steps carry its name as tag (see [Deploy tags](#deploy-tags)).
 
+## Secrets from env
+
+The tracked `inventory` and `group_vars` hold no secrets. Each secret is read on the controller from its own env var
+(`lookup('env', ...)`) only when the task that needs it runs:
+
+- **`MIKROTIK_WIFI_SSID`**, **`MIKROTIK_WIFI_PASSWORD`** - WiFi credentials of the `network` role (provisioning
+  playbooks on a WiFi-primary host); set as `network_wifi_ssid` / `network_wifi_password` in `group_vars/all.yml`.
+- **`CARTO_API_KEY`** - web_ui map tile key (`playbooks/tasks/web_ui_tile_key.yml`, see
+  [web_ui map tile API key](#web_ui-map-tile-api-key)).
+- **`CLAUDE_CODE_OAUTH_TOKEN`** - claude_agent token, needed on its first deploy (`playbooks/tasks/claude_agent_setup.yml`).
+- **SSH access** - by the controller's SSH key for `ansible_user` (no password in the inventory).
+
+```bash
+export MIKROTIK_WIFI_SSID=... MIKROTIK_WIFI_PASSWORD=...
+ansible-playbook -i inventory playbooks/client.yml -l client
+```
+
 ## Running playbooks
 
-From the **`ansible/`** directory (so `ansible.cfg` and `inventory` are used):
+From the **`ansible/`** directory (so `ansible.cfg` and the tracked `inventory` are used):
 
 **Full site (provision + deploy nodes):**
 ```bash
