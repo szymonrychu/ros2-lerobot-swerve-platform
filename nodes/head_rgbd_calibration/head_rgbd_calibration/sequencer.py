@@ -375,7 +375,19 @@ class Sequencer:
             LOG.error("cannot remove the board record %s: %s", self.board_file, exc)
 
     def event(self, level: int, message: str, phase: str | None = None) -> None:
-        """Log one sequence or park event with its message and keep it in the recent events (never under the lock).
+        """Log one sequence or park event with its message and keep it in the recent events (the caller does not hold `lock`).
+
+        Args:
+            level (int): logging.INFO, logging.WARNING or logging.ERROR.
+            message (str): What happened, with the reason of a failure.
+            phase (str | None): The phase the event belongs to; None takes the current phase.
+        """
+        with self.lock:
+            self.append_event(level, message, phase)
+
+    def append_event(self, level: int, message: str, phase: str | None = None) -> None:
+        """Log one event and keep it in the recent events; the caller holds `lock` (an end of the worker records its
+        event in the same update that clears `running`, so a poller that sees the end also sees why).
 
         Args:
             level (int): logging.INFO, logging.WARNING or logging.ERROR.
@@ -384,10 +396,9 @@ class Sequencer:
         """
         LOG.log(level, "head-arm %s", message)
         stamp = self.now().isoformat(timespec="seconds")
-        with self.lock:
-            self.events.append(
-                {"time": stamp, "phase": phase or self.phase, "level": EVENT_LEVELS[level], "message": message}
-            )
+        self.events.append(
+            {"time": stamp, "phase": phase or self.phase, "level": EVENT_LEVELS[level], "message": message}
+        )
 
     def state(self) -> dict[str, Any]:
         """The sequence state for the HTTP API.
@@ -479,12 +490,11 @@ class Sequencer:
             event (str): The event message.
         """
         with self.lock:
-            refused_in = self.phase
+            self.append_event(logging.ERROR, event)
             self.running = False
             self.phase = phase
             self.status = f"refused: {error}"
             self.error = error
-        self.event(logging.ERROR, event, refused_in)
 
     def move_to_base(self, confirmed: bool) -> dict[str, Any]:
         """Start a sequence: take the arm and move it, without the board, to the base pose.
@@ -724,6 +734,10 @@ class Sequencer:
             if held.is_error:
                 error = f"{error}; release_control (hold) failed: {held.text}"
         with self.lock:
+            if error is None:
+                self.append_event(logging.INFO, f"park done: {status}")
+            else:
+                self.append_event(logging.ERROR, f"park failed: {error}")
             self.running = False
             if error is None:
                 self.phase = IDLE
@@ -736,9 +750,6 @@ class Sequencer:
                 self.error = error
         if error is None:
             self.clear_board()
-            self.event(logging.INFO, f"park done: {status}")
-        else:
-            self.event(logging.ERROR, f"park failed: {error}", PARKING)
 
     def park_move(self) -> None:
         """Move to `park_pose` at the sequence speed scale (guarded by mcp_server); the path was checked.
@@ -779,14 +790,14 @@ class Sequencer:
                 follow = f"; {MESSAGE_PARK}" if self.phase == HOLDING else ""
                 note = "; tier 2 skipped" if self.big_joints_allowed is False else ""
                 self.status = f"{outcome}{detail}{note}{follow}"
+                if error is not None:
+                    self.append_event(logging.ERROR, f"sequence error: {error}", ended_in)
+                elif outcome == REASON_STOPPED:
+                    self.append_event(logging.WARNING, "sequence stopped", ended_in)
+                else:
+                    self.append_event(logging.INFO, f"sequence done: {self.status}", ended_in)
         if self.board_on:
             self.record_board()  # now with the capture session id
-        if error is not None:
-            self.event(logging.ERROR, f"sequence error: {error}", ended_in)
-        elif outcome == REASON_STOPPED:
-            self.event(logging.WARNING, "sequence stopped", ended_in)
-        else:
-            self.event(logging.INFO, f"sequence done: {self.state()['status']}", ended_in)
 
     def hold(self, error: str | None) -> str | None:
         """Stop the still capture and release the arm keeping its position; failures are added to the error."""
