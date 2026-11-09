@@ -100,11 +100,14 @@ def test_derived_names() -> None:
     assert group.service("enable") == "/follower/servo/enable_torque"
     assert group.service("record") == "/follower/servo/record_neutral"
     assert group.service("save") == "/follower/servo/save_neutral"
+    assert group.service("save_confirmed") == "/follower/servo/save_neutral_confirmed"
     config = AppConfig(calibration=CalibrationConfig(servo_groups=groups()))
     assert config.servo_state_topics() == {"follower": "/follower/torque_state", "head": "/head/torque_state"}
     assert "/head/servo/release_torque" in config.trigger_services()
     assert "/follower/servo/save_neutral" in config.trigger_services()
     assert "/head/servo/save_neutral" not in config.trigger_services()
+    assert "/follower/servo/save_neutral_confirmed" in config.trigger_services()
+    assert "/head/servo/save_neutral_confirmed" not in config.trigger_services()
 
 
 def test_get_fresh_stale_missing_and_marker(tmp_path: Path) -> None:
@@ -142,6 +145,7 @@ def test_get_without_bridge(tmp_path: Path) -> None:
         ("enable", "/follower/servo/enable_torque"),
         ("record", "/follower/servo/record_neutral"),
         ("save", "/follower/servo/save_neutral"),
+        ("save_confirmed", "/follower/servo/save_neutral_confirmed"),
     ],
 )
 def test_post_calls_derived_service(tmp_path: Path, action: str, service: str) -> None:
@@ -165,6 +169,7 @@ def test_post_404_paths(tmp_path: Path) -> None:
     assert client.post("/api/calibration/servos/arm/explode").status_code == 404
     assert client.post("/api/calibration/servos/head/record").status_code == 404
     assert client.post("/api/calibration/servos/head/save").status_code == 404
+    assert client.post("/api/calibration/servos/head/save_confirmed").status_code == 404
 
 
 def test_post_503_paths(tmp_path: Path) -> None:
@@ -177,6 +182,7 @@ def test_save_blocked_under_cutoff_release_is_not(tmp_path: Path) -> None:
     bridge = FakeBridge()
     client = make_client(tmp_path, bridge, guard=FakeGuard())
     assert client.post("/api/calibration/servos/arm/save").status_code != 200
+    assert client.post("/api/calibration/servos/arm/save_confirmed").status_code != 200
     assert bridge.services == []
     assert client.post("/api/calibration/servos/arm/release").status_code == 200
     assert client.post("/api/calibration/servos/arm/enable").status_code == 200

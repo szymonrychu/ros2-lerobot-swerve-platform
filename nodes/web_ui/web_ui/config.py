@@ -517,8 +517,11 @@ SERVO_ACTION_SERVICES: dict[str, str] = {
     "enable": "enable_torque",
     "record": "record_neutral",
     "save": "save_neutral",
+    # The explicit large-shift confirm: save_neutral refuses a recorded shift above the bridge's neutral_max_shift_deg.
+    "save_confirmed": "save_neutral_confirmed",
 }
-SERVO_NEUTRAL_ACTIONS: frozenset[str] = frozenset({"record", "save"})
+SERVO_NEUTRAL_ACTIONS: frozenset[str] = frozenset({"record", "save", "save_confirmed"})
+SERVO_SAVE_ACTIONS: frozenset[str] = frozenset({"save", "save_confirmed"})
 
 
 class ServoGroupConfig(BaseModel):
@@ -554,7 +557,7 @@ class ServoGroupConfig(BaseModel):
         """Return the Trigger service of an action.
 
         Args:
-            action (str): One of release, enable, record, save.
+            action (str): One of release, enable, record, save, save_confirmed.
 
         Returns:
             str: The service name, e.g. /follower/servo/release_torque.

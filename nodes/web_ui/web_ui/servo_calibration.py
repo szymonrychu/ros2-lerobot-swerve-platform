@@ -1,7 +1,9 @@
 """Servo calibration routes: each group's torque / neutral state and release, enable, record, save.
 
 State comes from the bridge's cached /<namespace>/torque_state sample, never defaulted. The actions call the
-feetech bridge's std_srvs/Trigger services. Routes answer 404 when no servo group is configured.
+feetech bridge's std_srvs/Trigger services. Routes answer 404 when no servo group is configured. `save` calls
+save_neutral, which the bridge refuses (409) when a recorded shift exceeds its neutral_max_shift_deg; `save_confirmed`
+calls save_neutral_confirmed after the user confirmed those shifts on the Calibrate page.
 """
 
 from __future__ import annotations
@@ -15,10 +17,8 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
-from .config import SERVO_ACTION_SERVICES, SERVO_NEUTRAL_ACTIONS, AppConfig, ServoGroupConfig
+from .config import SERVO_ACTION_SERVICES, SERVO_NEUTRAL_ACTIONS, SERVO_SAVE_ACTIONS, AppConfig, ServoGroupConfig
 from .imu_calibration import HTTP_CONFLICT, HTTP_NOT_FOUND, HTTP_UNAVAILABLE, NOT_CONFIGURED_MESSAGE, error
-
-SAVE_ACTION = "save"
 
 
 def read_stale_items(marker: str | None) -> list[str] | None:
@@ -132,7 +132,7 @@ def register_servo_calibration_routes(
             return error(f"unknown servo group or action: {group_id}/{action}", HTTP_NOT_FOUND)
         if action in SERVO_NEUTRAL_ACTIONS and not group.neutral:
             return error(f"servo group {group_id} has no neutral", HTTP_NOT_FOUND)
-        if action == SAVE_ACTION and (blocked := battery_block(f"servo_{group_id}_{action}")) is not None:
+        if action in SERVO_SAVE_ACTIONS and (blocked := battery_block(f"servo_{group_id}_{action}")) is not None:
             return blocked
         if bridge_node is None:
             return error("ROS bridge unavailable", HTTP_UNAVAILABLE)
