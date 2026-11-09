@@ -203,6 +203,17 @@ describe('ArmCalibration', () => {
     expect(m.stopSequence).toHaveBeenCalled()
   })
 
+  it('shows the sequence error banner and the recent events once open', async () => {
+    const events = [
+      { time: '2026-11-09T10:02:00+00:00', phase: 'capturing', level: 'error', message: 'sequence error: tool failed' },
+    ]
+    setState(seq({ error: 'tool failed', status: 'error: tool failed', events }))
+    await open()
+    expect(screen.getByText('Last head-arm error')).toBeTruthy()
+    const log = screen.getByRole('list', { name: 'Recent head-arm events' })
+    expect(within(log).getByText(/sequence error: tool failed/)).toBeTruthy()
+  })
+
   it('compute shows the result card', async () => {
     setState(seq({}))
     m.computeArm.mockResolvedValue(ok(RESULT))

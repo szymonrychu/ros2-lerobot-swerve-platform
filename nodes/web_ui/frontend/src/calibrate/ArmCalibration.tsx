@@ -11,6 +11,7 @@ import TableHead from '@mui/material/TableHead'
 import TableRow from '@mui/material/TableRow'
 import Typography from '@mui/material/Typography'
 import { TOUCH_TARGET_PX } from '../theme'
+import { SequenceActivity } from './SequenceActivity'
 import { BoardNeeded } from './BoardNeeded'
 import type { AppliedHeadChain, FloorApplied, FloorApiResult } from './headFloorApi'
 import {
@@ -300,7 +301,7 @@ export function ArmCalibration({ onRunChange }: { onRunChange?: (running: boolea
       {error && <Alert severity="error">{error}</Alert>}
       {open && applied !== null && (
         <>
-          {sequence?.error && <Alert severity="error">{sequence.error}</Alert>}
+          {sequence && <SequenceActivity sequence={sequence} withStatus={!sequence.session_id} />}
           <Box sx={{ mt: 1 }}>
             <Typography variant="body2">
               Step 1: ARM board seated in the jaws up to the shoulder; the area around the arm clear. Start moves the arm

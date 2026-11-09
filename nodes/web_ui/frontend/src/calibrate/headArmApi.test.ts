@@ -189,6 +189,16 @@ describe("headArmApi", () => {
       method: "POST",
     });
   });
+  it("rejects a state whose events are not {time, phase, level, message}", async () => {
+    const bad = [{ time: "2026-11-09T10:00:00+00:00", phase: "capturing", level: "error" }];
+    stub(200, { sequence: { ...stateFx.sequence, events: bad }, applied: null });
+    const r = await getHeadArmState();
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.message).toContain("sequence.events");
+    const { events: _e, ...noEvents } = stateFx.sequence;
+    stub(200, { sequence: noEvents, applied: null });
+    expect((await getHeadArmState()).ok).toBe(false);
+  });
   it("rejects a body missing a key with an error naming it", async () => {
     const { phase: _p, ...noPhase } = stateFx.sequence;
     stub(200, { sequence: noPhase, applied: null });
