@@ -83,6 +83,22 @@ def test_applied_files_place_the_camera_for_the_mcp_kinematics_within_the_target
     assert worst < ARM_FRAME_TARGET_M, f"worst camera-point error {worst * 1000:.2f} mm"
 
 
+def marker_identity(marker: Path) -> tuple[int, int, int]:
+    """The marker version mcp_server's AppliedHeadKinematics compares to decide on a reload.
+
+    mtime_ns alone is not enough: file timestamps tick with the kernel's coarse clock, so two writes within one tick
+    share it; the atomic replace gives the new marker a new inode.
+
+    Args:
+        marker (Path): applied.json.
+
+    Returns:
+        tuple[int, int, int]: (mtime_ns, size, inode).
+    """
+    st = marker.stat()
+    return (st.st_mtime_ns, st.st_size, st.st_ino)
+
+
 def test_the_chain_file_is_in_place_before_the_marker_changes(
     cfg: NodeConfig, state: Path, store: SessionStore, ready: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -90,7 +106,7 @@ def test_the_chain_file_is_in_place_before_the_marker_changes(
     result = compute_head_arm(cfg, store, ready, NOW)
     marker = state / "applied" / APPLIED_MARKER_FILE
     marker.write_text(json.dumps({"session": "calib-1", "result": "r-1", "files": []}))
-    before = marker.stat().st_mtime_ns
+    before = marker_identity(marker)
     chain_when_marker_written: list[str] = []
     real_write = applied_writer.write_json_atomic
 
@@ -102,7 +118,7 @@ def test_the_chain_file_is_in_place_before_the_marker_changes(
     monkeypatch.setattr(applied_writer, "write_json_atomic", spy)
     apply_head_arm(cfg, store, ready, result["id"], NOW, fake_run)
     assert chain_when_marker_written == [result["id"]]
-    assert marker.stat().st_mtime_ns != before
+    assert marker_identity(marker) != before
     assert json.loads(marker.read_text())["head_chain"]["result"] == result["id"]
 
 
