@@ -4,6 +4,7 @@ the metrics. Poses come from IK and are FK-checked in tests/test_self_collision.
 
 import itertools
 import math
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -357,6 +358,22 @@ def test_get_arm_reach_points(server: Any) -> None:
     assert lidar["limiting"]["obstacle"] == "lidar" and lidar["limiting"]["clearance_m"] < 0.002
     assert lidar["suggestion"]
     assert not far["reachable"] and "reach" in far["suggestion"]
+
+
+def test_get_arm_reach_reports_computing_while_the_envelope_is_not_ready(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The tool waits reach_wait_s for a running computation, then answers "computing" instead of an envelope."""
+    release = threading.Event()
+    monkeypatch.setattr(ReachEnvelope, "compute", lambda self: release.wait(ENVELOPE_WAIT_S))
+    cfg = McpServerConfig(body_check=BodyCheckSettings(reach_wait_s=0.05))
+    server = build_mcp_server(robot_at(tmp_path, clear_pose()), cfg, TOKEN)
+    try:
+        data = call(server, "get_arm_reach", {}).structured_content
+    finally:
+        release.set()
+    assert data["envelope"]["status"] == "computing"
+    assert data["arm_mount"]["pan_axis_base_link"] is None
 
 
 def test_get_arm_reach_limits_the_number_of_points(server: Any) -> None:

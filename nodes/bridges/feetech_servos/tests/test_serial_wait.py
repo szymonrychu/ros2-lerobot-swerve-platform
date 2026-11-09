@@ -211,8 +211,7 @@ def sample_read(lib: dict[str, ModuleType], reply_id: int | None, servo_id: int)
     :param reply_id: servo ID the fake bus answers, or None for a silent bus.
     :param servo_id: servo ID to read.
     :return: the read's outcome, wall time, the reading thread's run-queue wait and CPU time, the library's packet
-        timeout and when
-        (after the request started) the fake bus wrote its reply (None when it did not reply).
+        timeout and when (after the request started) the fake bus wrote its reply (None when it did not reply).
     """
     bus = FakeBus(reply_id=reply_id)
     try:
