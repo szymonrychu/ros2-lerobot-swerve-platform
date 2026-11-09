@@ -5,6 +5,7 @@ delivered as CompressedImage-like messages to the capture's subscription callbac
 """
 
 import json
+import logging
 import os
 import subprocess
 import threading
@@ -38,6 +39,7 @@ from head_rgbd_calibration.csi_intrinsics import (
 )
 from head_rgbd_calibration.floor_results import apply_head_chain_file
 from head_rgbd_calibration.store import KIND_INTRINSICS, RESULT_FILE, NotFound, SessionStore, write_json_atomic
+from head_rgbd_calibration.telemetry import events_in
 from tests.applied_writes import record_applied_writes
 from tests.pose_factory import BOARD_CFG, detection_at, load_synthetic
 
@@ -493,3 +495,39 @@ def test_concurrent_applies_keep_every_record(
     assert data["kind"] == KIND_INTRINSICS
     assert data[APPLIED_KEY]["front"]["result"] == rid
     assert data["head_chain"] == {"session": "floor-1"}
+
+
+CSI_LOGGER = "head_rgbd_calibration.csi_intrinsics"
+
+
+def test_capture_compute_and_apply_are_logged_with_their_run_ids(
+    csi: CsiCalibration, node: FakeNode, caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level(logging.INFO, logger=CSI_LOGGER):
+        sid = captured(csi, node, "front", VIEW_COUNT)
+        result = csi.compute("front", sid)
+        csi.apply("front", sid, result["result"], fake_run)
+    events = events_in(caplog.records)
+    capture = [e for e in events if e["flow"] == "csi_capture"]
+    assert {e["run_id"] for e in capture} == {sid}
+    assert [e["outcome"] for e in capture] == ["start", *["kept"] * VIEW_COUNT, "stopped"]
+    assert capture[1]["data"]["corners"] > 0 and capture[0]["data"]["camera"] == "front"
+    compute = [e for e in events if e["flow"] == "csi_compute"][0]
+    assert (compute["run_id"], compute["outcome"]) == (result["result"], "ok")
+    assert compute["data"]["rms"] == pytest.approx(result["rms"], abs=1e-6) and compute["data"]["views"] == VIEW_COUNT
+    apply = [e for e in events if e["flow"] == "csi_apply"][0]
+    assert apply["data"]["written"] == ["front_camera_calibration.yaml", "applied.json"]
+    assert apply["data"]["units"][0]["restarted"] is True
+    assert not any("intrinsics capture" in line for line in node.logger.lines)  # lifecycle lines left the rclpy logger
+
+
+def test_a_refused_compute_logs_the_view_count(
+    csi: CsiCalibration, node: FakeNode, caplog: pytest.LogCaptureFixture
+) -> None:
+    sid = captured(csi, node, "front", 3)
+    with caplog.at_level(logging.INFO, logger=CSI_LOGGER):
+        with pytest.raises(ValueError, match="got 3 views"):
+            csi.compute("front", sid)
+    refused = events_in(caplog.records)[-1]
+    assert (refused["flow"], refused["run_id"], refused["outcome"]) == ("csi_compute", sid, "refused")
+    assert "got 3 views" in refused["reason"] and refused["data"]["views"] == 3

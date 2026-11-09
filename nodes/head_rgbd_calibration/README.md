@@ -402,9 +402,103 @@ An unknown camera, session or result is 404. web_ui reaches the routes through i
 `head_rgbd_calibration` on a `MultiThreadedExecutor` in a daemon thread and serves the API with uvicorn. On shutdown it
 stops capture (the D435 and the CSI one), kills a running compute child and destroys the node.
 
+## Telemetry
+
+Every calibration flow logs structured telemetry to the system journal, so a debugging agent can reconstruct where and
+why a run went wrong from `journalctl` alone (T-99 decisions 308 and 309: the journal only, no files, routes or UI).
+`head_rgbd_calibration/telemetry.py` writes one stdlib logging line per event:
+
+```
+calib_event {"flow":"head_arm","run_id":"seq-20261109-101500-3fa2c1","step":"path_check","outcome":"refused","reason":"2 violated entries","data":{...}}
+```
+
+- Keys: `ts` (local ISO time the event happened), `flow`, `run_id`, `step`, `outcome`, `reason` (why it failed, was
+  refused or skipped), `data` (inputs and measured values) and, for a timed step, `duration_s`. Errors log at ERROR,
+  refusals, skips and stops at WARNING. `calib_event` never raises: an event it cannot encode is logged with
+  `data.encode_error` and the names of its data keys.
+- `run_id`: the session id (floor sweep, D435 and CSI capture), the result id (computes, applies), else a generated
+  `<prefix>-YYYYmmdd-HHMMSS-<hex>` (`seq-` a head-arm sequence, `park-` a park, `req-` an HTTP request).
+- Values are JSON-safe (numpy, paths, dataclasses, pydantic models, NaN as `"nan"`) and bounded: a numeric list longer
+  than 12 (per-view corner counts, residuals) becomes `{count, head, min, max, mean}`, a numeric array
+  `{shape, count, min, max, mean}`, any other list longer than 40 `{count, head}`, a string is cut at 400 characters,
+  and a line over 16000 characters keeps only the names of its data keys (`truncated_chars`, `keys`; journald splits
+  longer lines). The value of a key naming a token, secret, password or authorization is `<redacted>` (also in a request
+  query and JSON body; a body that is not JSON is logged as its size only); the MCP bearer token and the board park token
+  are never passed to the log.
+- `step_timer` logs a step's `start` and its end with `duration_s`: `ok` (or the outcome the step sets), `stopped`
+  (a Stop), or `error` at ERROR with `error_type`, the exception message and the step's inputs.
+- The compute child (`compute.py`) logs to its stderr in `CHILD_LOG_FORMAT`; when it ends, `jobs.py` re-logs each such
+  line under its own logger and level (`forward_child_log`), so its events reach the journal with its run id; other
+  stderr lines (a traceback) are logged at WARNING and still form the job's error tail. The forwarded lines reach the
+  journal when the child ends, so their journal time is the end; `ts` in the event is when it happened.
+- The CSI flow logs through the same helper (stdlib logging); the rclpy node logger keeps only the throttled frame-drop
+  warnings and the executor-callback errors of the capture and CSI callbacks.
+
+Events per flow:
+
+| Flow | run_id | Steps (outcomes) |
+|---|---|---|
+| `head_arm` | `seq-...` | `sequence` (start with every gating config value; done, stopped or error with `failed_step`, session, counts), timed `take_control`, `base_move`, `wait_board`, `handle_grip`, `still_session`, `camera_info` (intrinsics), `pose` (target, captured, skipped; `not_visited` when every view is skipped), `wait_big_joints` (`allowed`), `return_to_base`; `get_arm_state` (measured joints), `path_check` (ok or refused with start, target, gripper and every violated entry), `move_arm_joints` and `set_head_angles` (MCP status, message, result), `tool_error`, `gripper_measured` (seated, unseated, slack against the limits), `view` skipped (head command, rule), `still` stored or skipped (pose id, corners, board ids, still-window stats, joint stamp gaps), `board_attached`, `big_joints`, `hold`, `board_record` (offered, ignored, written) |
+| `head_arm` | `park-...` | `park` (start with mount, refused, done or error with the MCP `reset`), `control_state` (carry reasons), `park_path_check` (mount source, margins, entries), timed `park_take_control`, `park_move`, `park_release`, `hold` |
+| `head_arm_still` | session id | `still_session` start and stopped |
+| `floor_sweep` | session id | `sweep` start (grid, config, start pan/tilt), refused start (error), `pose` observed (reached pan/tilt, plane heights, RMS, inliers, dropped clouds) or skipped (reason, last measured pan/tilt), `restore`, `release`, `sweep` done, stopped or error with counts |
+| `floor_compute` | result id | `inputs` (observations, poses, skipped, dropped), timed `fit`, `result` passed or failed (params, RMS, residuals per pose, failed limits, limits) |
+| `d435_capture` | session id | `capture` start (selection and board config), `pose` stored (corners), `capture` stopped (reason, pose count, last status) |
+| `d435_compute` | result id | `child` start and end (exit code, duration, error) in the node; `inputs`, `detections` (corners per still, stills without a board), `result` passed, failed or error in the child |
+| `d435_accept` | result id | `accept` accepted or refused (reason, failed limits) |
+| `head_arm_compute` | result id | `inputs` (views per tier and head offset, corners, intrinsics, floor reference), `result` passed, failed or error (params value and sigma, RMS, held-out, every limit check, worst views) |
+| `arm_compute` | result id | `inputs` (plate views, floor reference, current offsets), `result` passed, failed or error (offsets, head params, tool point, limit checks) |
+| `head_chain_apply` | result id | `apply` applied (record, files written, unit states, units not restarted yet) or refused |
+| `applied` | none | `write` (every applied/ write: files with sizes, applied.json keys before and after) |
+| `csi_capture` | session id | `capture` start, `view` kept (corners), `capture` stopped |
+| `csi_compute`, `csi_apply` | result id (session id for a refusal) | `compute` ok (K, D, RMS, per-view errors) or refused; `apply` applied (file, unit state) |
+| `api` | `req-...` | `<METHOD> <path>` for every POST, PUT, PATCH, DELETE: query, body, status; `refused` (4xx) with the reply message, `error` (5xx or exception); a request cancelled by a client disconnect is not logged, and the `req-` id is not the flow's run id (the flow logs its own) |
+
+Reading it on the robot (through the deploy tooling):
+
+```bash
+journalctl -u ros2-head_rgbd_calibration -o cat | grep -o 'calib_event {.*' | cut -d' ' -f2- | jq
+# one run, in order
+journalctl -u ros2-head_rgbd_calibration -o cat | grep -o 'calib_event {.*' | cut -d' ' -f2- \
+  | jq -c 'select(.run_id=="seq-20261109-101500-3fa2c1")'
+# every failure of today
+journalctl -u ros2-head_rgbd_calibration -o cat --since today | grep -o 'calib_event {.*' | cut -d' ' -f2- \
+  | jq -c 'select(.outcome=="error" or .outcome=="refused")'
+```
+
+`docs/runbooks/head-arm-calibration.md` ("Reading a failed run from the journal") walks through a failed head-arm run.
+
 ## Tests
 
 `cd nodes/head_rgbd_calibration && uv run pytest tests/ -v`
+
+- `tests/test_telemetry.py` - the `calib_event` line (prefix, compact JSON, level, reason, rounded duration), JSON-safe
+  conversion of numpy scalars and arrays, paths, dataclasses, pydantic models, datetimes and NaN/inf, the bounds (long
+  numeric lists and arrays summarised, long lists cut to their head, long strings cut), redacted secret keys, odd
+  values never raising, `step_timer` (start and ok with duration and fields, an outcome set by the body, an exception
+  logged at ERROR with the step inputs and re-raised, a quiet exception logged as stopped), `new_run_id`, `events_in`,
+  and `RequestTelemetry` (GET not logged, POST ok with body and query, 4xx refused with the reply message, an exception
+  as error).
+- `tests/test_sequencer_telemetry.py` - the head-arm journal over the sequencer rig: a full run under one `seq-` run id
+  with every timed step, the measured joints, path checks, MCP results, the gripper reading against its limits, still
+  outcomes with their detail and the end counts; each UI event is exactly one journal line; an unseated handle names
+  `handle_grip` and the reason; a missing measured joint in the base move; a path-check refusal logs the start joints,
+  the target and the violated entries; a move that does not converge logs the MCP result; a stop logs `stopped`; a
+  board park logs its `park-` run, the carry reasons, the mount source and the MCP reset; a refused board park logs its
+  entries; no token in any log line.
+- `tests/test_capture_telemetry.py` - an intrinsics capture logs its start, each stored pose with its corner count and
+  its end; a stored still carries its corners, board ids, window stats and joint gaps; a still that never settles names
+  the moving joint; stale joints report the gap; a still session logs its start and stop.
+- `tests/test_compute_telemetry.py` - child stderr lines in `CHILD_LOG_FORMAT` re-logged under their logger and level,
+  other lines at WARNING and kept as the error tail; a failed and a passing child log their end with the exit code; the
+  compute logs inputs, detections and the check, a failing check its failed limits, an input error its reason.
+- `tests/test_floor_telemetry.py` - a sweep logs its config, each observed and skipped pose (reason, last measured
+  pan/tilt), the restore and its end; a refused start and lost joint states log the reason; the floor compute logs its
+  inputs and the fit.
+- `tests/test_head_arm_results.py`, `tests/test_compute_arm.py`, `tests/test_csi_intrinsics.py`, `tests/test_app.py`
+  also check the telemetry of their flow: the compute inputs, values and limit checks of a pass, a failed limit and an
+  input error, the applied files and unit states, the CSI capture, compute and apply events and a refused compute, and
+  the `api` events of mutating requests.
 
 - `tests/test_compute_arm.py` - the arm offsets compute and apply on a synthetic floor session and a head_arm session
   of plate views: result files and snippet, no floor session is an error, the named floor session wins, failed limits
@@ -628,11 +722,13 @@ Events and errors: every sequence start, step outcome (base pose reached, board 
 angle, still session started, each pose with its captured and skipped views or "not visited", the big-joint answer,
 back at the base pose), sequence end (`sequence done: <status>`, `sequence stopped`, `sequence error: <error>`), a
 refused start, park start, `park done: <status>`, `park failed: <error>` and a refused park is logged to the node's
-journal with its message (`head-arm <message>`; errors at ERROR, stops and unvisited poses at WARNING, the rest at
-INFO; an unexpected exception also logs its traceback) and kept in the state's `events`: the newest `EVENT_LIMIT = 50`
-`{time (ISO 8601, UTC), phase (the phase the event happened in), level (info, warning, error), message}`, newest first.
-So a `StepFailed` (a tool error, a path check refusal, an unseated handle, a confirm timeout) is never only
-"head-arm sequence error" in the journal: the message names the step and why. The web UI Calibrate page shows the
+journal as one `calib_event` line of flow `head_arm` carrying its message, step, outcome and phase (section Telemetry;
+errors at ERROR, stops and unvisited poses at WARNING, the rest at INFO; an unexpected exception also logs its
+traceback) and kept in the state's `events`: the newest `EVENT_LIMIT = 50` `{time (ISO 8601, UTC), phase (the phase the
+event happened in), level (info, warning, error), message}`, newest first. One call (`Sequencer.append_event`) writes
+both, so the journal never repeats a UI event. A `StepFailed` (a tool error, a path check refusal, an unseated handle, a
+confirm timeout) is never only "sequence error" in the journal: the end event names the `failed_step` and why, and the
+timed step's own `error` event carries its inputs. The web UI Calibrate page shows the
 `error` in a banner and the events as a scrollable log (`nodes/web_ui/README.md`, "Head from arm section").
 
 ### Pose set and its tests

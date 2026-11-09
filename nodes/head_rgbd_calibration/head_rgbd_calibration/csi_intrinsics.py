@@ -10,9 +10,15 @@ try-restarts the camera's unit only when that file changed.
 
 Threads: the image callback runs on the ROS executor thread, the routes on HTTP threads. `lock` guards the run (the
 applied.json read-modify-write goes through apply.update_applied); `feed_lock` serialises detection and view writes.
+
+Telemetry: calib_event lines (stdlib logging, telemetry.py) of flow `csi_capture` (run id: the session id: start, each
+kept view with its corner count, end), `csi_compute` and `csi_apply` (run id: the result id: inputs and the fitted K, D,
+RMS and per-view errors, or the refusal; the applied file and unit state). Frame drops (throttled) and executor-callback
+errors stay on the rclpy node logger.
 """
 
 import json
+import logging
 import re
 import subprocess
 import threading
@@ -45,6 +51,9 @@ from head_rgbd_calibration.store import (
     write_bytes_atomic,
     write_json_atomic,
 )
+from head_rgbd_calibration.telemetry import calib_event
+
+LOG = logging.getLogger(__name__)
 
 CSI_DIR = "csi"
 SESSION_FILE = "session.json"
@@ -68,6 +77,9 @@ SAME_VIEW = "board found - move it to a new place or angle"
 OTHER_SIZE = "frame size differs from the session's"
 DROP_LOG_THROTTLE_S = 5.0
 DISTORTION_MODEL = "plumb_bob"
+FLOW_CAPTURE = "csi_capture"
+FLOW_COMPUTE = "csi_compute"
+FLOW_APPLY = "csi_apply"
 CAMERA_NAME_SUFFIX = "_camera"
 
 
@@ -401,7 +413,20 @@ class CsiCalibration:
                 self.release(run)
                 raise
             self.run = run
-        self.logger.info(f"{camera} intrinsics capture started on session {sid}")
+        calib_event(
+            LOG,
+            FLOW_CAPTURE,
+            sid,
+            "capture",
+            "start",
+            camera=camera,
+            reopened=session_id is not None,
+            views_before=count,
+            image_size=size,
+            topic=settings.image_topic,
+            max_capture_s=self.cfg.max_capture_s,
+            min_view_shift_px=self.cfg.csi_min_view_shift_px,
+        )
         return self.state(camera)
 
     def stop(self, camera: str | None = None) -> dict[str, Any] | None:
@@ -433,7 +458,16 @@ class CsiCalibration:
             run.running = False
             run.status = reason
         self.release(run)
-        self.logger.info(f"{run.camera} intrinsics capture on session {run.session_id} {reason}")
+        calib_event(
+            LOG,
+            FLOW_CAPTURE,
+            run.session_id,
+            "capture",
+            STOPPED,
+            reason=reason,
+            camera=run.camera,
+            view_count=run.view_count,
+        )
 
     def release(self, run: CsiRun) -> None:
         """Destroy the subscription and the timer of a run; a failing destroy does not stop the other."""
@@ -502,7 +536,18 @@ class CsiCalibration:
         run.last = detection
         with self.lock:
             run.view_count = number
-        self.logger.info(f"{run.camera} session {run.session_id}: view {number} kept")
+        calib_event(
+            LOG,
+            FLOW_CAPTURE,
+            run.session_id,
+            "view",
+            "kept",
+            camera=run.camera,
+            number=number,
+            corners=len(detection.ids),
+            image_size=size,
+            stamp_ns=stamp,
+        )
         return kept_status(number)
 
     # compute
@@ -529,9 +574,21 @@ class CsiCalibration:
                 raise Busy("the session is capturing; stop it before computing")
         doc = json.loads((path / SESSION_FILE).read_text())
         detections = self.detections(camera, sid)
-        if doc["image_size"] is None or not detections:
-            raise ValueError(f"calibration needs at least {self.cfg.limits.min_views} views, got 0 views")
-        fitted = calibrate(detections, self.board, tuple(doc["image_size"]), self.cfg.limits)
+        inputs = {
+            "camera": camera,
+            "session_id": sid,
+            "views": len(detections),
+            "image_size": doc["image_size"],
+            "min_views": self.cfg.limits.min_views,
+            "corners": [len(detection.ids) for detection in detections],
+        }
+        try:
+            if doc["image_size"] is None or not detections:
+                raise ValueError(f"calibration needs at least {self.cfg.limits.min_views} views, got 0 views")
+            fitted = calibrate(detections, self.board, tuple(doc["image_size"]), self.cfg.limits)
+        except ValueError as exc:
+            calib_event(LOG, FLOW_COMPUTE, sid, "compute", "refused", logging.WARNING, str(exc), **inputs)
+            raise
         now = self.clock()
         base = f"{RESULT_PREFIX}{now.strftime(ID_TIME_FORMAT)}"
         rid, attempt = base, 1
@@ -554,7 +611,19 @@ class CsiCalibration:
         target = path / RESULTS_DIR / rid
         target.mkdir(parents=True)
         write_json_atomic(target / RESULT_FILE, result)
-        self.logger.info(f"{camera} session {sid}: result {rid} rms {fitted.rms:.3f} px")
+        calib_event(
+            LOG,
+            FLOW_COMPUTE,
+            rid,
+            "compute",
+            "ok",
+            **inputs,
+            rms=result["rms"],
+            k=result["k"],
+            d=result["d"],
+            per_view_errors=result["per_view_errors"],
+            view_count=result["view_count"],
+        )
         return result
 
     def results(self, camera: str, sid: str) -> list[dict[str, Any]]:
@@ -609,8 +678,19 @@ class CsiCalibration:
             return {**kept, APPLIED_KEY: {**(kept.get(APPLIED_KEY) or {}), camera: record}}
 
         update_applied(target, add_record, [(applied_file_name(camera), calibration_yaml(result, camera).encode())])
-        self.logger.info(f"{camera} intrinsics {sid}/{rid} applied")
-        return {"applied": record, "units": [unit_state(settings.unit, now.timestamp(), run)]}
+        units = [unit_state(settings.unit, now.timestamp(), run)]
+        calib_event(
+            LOG,
+            FLOW_APPLY,
+            rid,
+            "apply",
+            "applied",
+            record=record,
+            written=[applied_file_name(camera), APPLIED_MARKER],
+            rms=result.get("rms"),
+            units=units,
+        )
+        return {"applied": record, "units": units}
 
 
 class CsiStartRequest(BaseModel):

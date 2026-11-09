@@ -6,6 +6,7 @@ URDF, each stored with the colour camera_info of the synthetic camera, as the ca
 
 import importlib.util
 import json
+import logging
 import math
 from datetime import UTC, datetime
 from pathlib import Path
@@ -32,6 +33,7 @@ from head_rgbd_calibration.head_arm_results import (
     latest_board_mount,
 )
 from head_rgbd_calibration.store import SessionStore
+from head_rgbd_calibration.telemetry import events_in
 from tests.applied_writes import record_applied_writes
 from tests.pose_factory import still_arm_pose
 
@@ -470,3 +472,53 @@ def test_head_arm_session_exists_only_for_stored_head_arm_sessions(tmp_path: Pat
     assert head_arm_session_exists(store, None) is False
     assert head_arm_session_exists(store, "head_arm-20200101-000000") is False
     assert head_arm_session_exists(store, "../escape") is False
+
+
+HEAD_ARM_LOGGER = "head_rgbd_calibration.head_arm_results"
+FLOOR_RESULTS_LOGGER = "head_rgbd_calibration.floor_results"
+
+
+def test_compute_and_apply_log_inputs_fit_values_and_the_applied_files(
+    cfg: NodeConfig, state: Path, store: SessionStore, ready: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level(logging.INFO, logger=HEAD_ARM_LOGGER):
+        result = compute_head_arm(cfg, store, ready, NOW)
+    events = {e["step"]: e for e in events_in(caplog.records)}
+    assert {e["flow"] for e in events.values()} == {"head_arm_compute"}
+    assert {e["run_id"] for e in events.values()} == {result["id"]}
+    inputs = events["inputs"]["data"]
+    assert inputs["session_id"] == ready and inputs["views"] == len(store.pose_ids(ready))
+    assert inputs["floor"] == {"session": FLOOR_SID, "result": FLOOR_RID}
+    fit = events["result"]
+    assert fit["outcome"] == "passed" and fit["duration_s"] >= 0
+    assert fit["data"]["rms_px"] == pytest.approx(result["rms_px"], abs=1e-6)
+    assert set(fit["data"]["params"]) == set(result["params"])
+    assert {"value", "sigma"} == set(next(iter(fit["data"]["params"].values())))
+    assert [check["name"] for check in fit["data"]["limits"]] == [check["name"] for check in result["limits"]]
+    assert len(fit["data"]["worst_views"]) == head_arm_results.WORST_VIEWS
+    caplog.clear()
+    with caplog.at_level(logging.INFO):
+        head_arm_results.apply_head_arm(cfg, store, ready, result["id"], NOW, fake_run)
+    applied = [e for e in events_in(caplog.records) if e["flow"] == "head_chain_apply"][0]
+    assert (applied["run_id"], applied["outcome"]) == (result["id"], "applied")
+    assert applied["data"]["written"] == ["head_chain.json", "applied.json"]
+    assert applied["data"]["units"] == [{"name": "unit-a.service", "active_state": "active", "restarted": True}]
+    write = [e for e in events_in(caplog.records) if e["flow"] == "applied"][0]
+    assert "head_chain.json" in write["data"]["files"] and "head_chain" in write["data"]["keys_after"]
+
+
+def test_a_failed_limit_and_an_input_error_are_logged_with_their_reasons(
+    cfg: NodeConfig, state: Path, store: SessionStore, ready: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    strict = cfg.model_copy(update={"fit": HeadArmFitConfig(limits=HeadArmFitLimits(rms_px=0.001))})
+    with caplog.at_level(logging.INFO, logger=HEAD_ARM_LOGGER):
+        compute_head_arm(strict, store, ready, NOW)
+        empty = store.create_session(NOW, kind="head_arm")
+        compute_head_arm(cfg, store, empty, NOW)
+    results = [e for e in events_in(caplog.records) if e["step"] == "result"]
+    failed, error = results
+    assert failed["outcome"] == "failed" and "rms_px" in failed["reason"]
+    rms_check = [check for check in failed["data"]["limits"] if check["name"] == "rms_px"][0]
+    assert rms_check["limit"] == 0.001 and rms_check["ok"] is False
+    assert (error["outcome"], error["reason"]) == ("error", "the session has no stills")
+    assert error["data"]["error_type"] == "ValueError"

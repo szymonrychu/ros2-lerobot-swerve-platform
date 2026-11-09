@@ -7,6 +7,7 @@ config is the synthetic applied chain, so `floor_results.base_urdf` is the chain
 """
 
 import json
+import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,7 @@ from head_rgbd_calibration.arm_results import (
 )
 from head_rgbd_calibration.config import NodeConfig
 from head_rgbd_calibration.store import SessionStore
+from head_rgbd_calibration.telemetry import events_in
 from tests.pose_factory import still_arm_pose
 from tests.test_head_arm_results import fake_run, put_marker, synthetic, synthetic_camera_info
 
@@ -274,3 +276,29 @@ def test_arm_apply_refuses_a_failed_result(tmp_path: Path) -> None:
     result = compute_arm(scene.cfg, scene.store, scene.sid, NOW, None)
     with pytest.raises(NotApplicable):
         apply_arm(scene.cfg, scene.store, scene.sid, result["id"], LATER, fake_run)
+
+
+ARM_LOGGER = "head_rgbd_calibration.arm_results"
+
+
+def test_arm_compute_logs_inputs_offsets_and_limits(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    scene = Scene(tmp_path, arm_limits=ArmFitLimits(rms_px=0.01))
+    with caplog.at_level(logging.INFO, logger=ARM_LOGGER):
+        result = compute_arm(scene.cfg, scene.store, scene.sid, NOW, FLOOR_SID)
+    events = {e["step"]: e for e in events_in(caplog.records)}
+    assert {(e["flow"], e["run_id"]) for e in events.values()} == {("arm_compute", result["id"])}
+    inputs = events["inputs"]["data"]
+    assert inputs["floor"] == {"session": FLOOR_SID, "result": FLOOR_RID} and inputs["floor_observations"] > 0
+    assert inputs["views"] > 0 and set(inputs["current_offsets_rad"]) == set(ARM_JOINT_NAMES)
+    fit = events["result"]
+    assert fit["outcome"] == "failed" and "rms_px" in fit["reason"]
+    assert set(fit["data"]["offsets"]) == set(ARM_JOINT_NAMES)
+    assert [c for c in fit["data"]["limits"] if c["name"] == "rms_px"][0]["limit"] == 0.01
+
+
+def test_arm_compute_logs_an_input_error(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    scene = Scene(tmp_path)
+    with caplog.at_level(logging.INFO, logger=ARM_LOGGER):
+        compute_arm(scene.cfg, scene.store, scene.sid, NOW, None)
+    error = [e for e in events_in(caplog.records) if e["step"] == "result"][0]
+    assert (error["outcome"], error["reason"]) == ("error", NO_HEAD_CALIBRATION_ERROR)

@@ -36,6 +36,14 @@ Events: every sequence start, step outcome (base pose, board attached, handle gr
 big-joint answer, the return), sequence end (done, stopped, error), park start, park result and refusal is logged with
 its message (errors at ERROR, stops and skipped poses at WARNING) and kept in a bounded list of the newest
 EVENT_LIMIT events, `state()["events"]` (newest first), so the Calibrate page shows why a sequence ended.
+
+Telemetry (telemetry.py): the journal lines of this module are `calib_event`s of flow `head_arm` under the run id of the
+sequence (`seq-...`) or park (`park-...`), plus the traceback of an unexpected exception; a UI event is that same line
+(append_event), never a second one. The
+worker steps are timed (start, ok, stopped or error with the exception and the step's inputs), and the measured joints
+(get_arm_state), path checks (start, target, gripper, every violated entry), MCP results (status, message, result),
+the gripper reading against its limits, each view and still outcome and the park's carry reasons, mount and reset are
+logged as they happen. Tokens are never logged.
 """
 
 import json
@@ -62,6 +70,7 @@ from ros2_common.head_rgbd_calibration.head_arm_fit import aim_head, board_centr
 from head_rgbd_calibration.capture import CaptureController, StillOutcome
 from head_rgbd_calibration.config import BIG_JOINTS, CAD_BOARD_RPY, CAD_BOARD_XYZ, NodeConfig
 from head_rgbd_calibration.robot_client import RobotClient, ToolResult
+from head_rgbd_calibration.telemetry import calib_event, new_run_id, step_timer
 
 LOG = logging.getLogger(__name__)
 
@@ -95,6 +104,10 @@ HOLDING_LOAD_PREFIX = "holding load"  # mcp_server carrying reason of a gripper 
 BASE_JOINTS = (*ARM_JOINT_NAMES, GRIPPER_JOINT)
 EVENT_LIMIT = 50  # recent events kept in state()["events"]
 EVENT_LEVELS = {logging.INFO: "info", logging.WARNING: "warning", logging.ERROR: "error"}
+FLOW = "head_arm"
+SEQUENCE_STEP = "sequence"
+PARK_STEP = "park"
+BOARD_RECORD_STEP = "board_record"
 
 
 class SequenceError(RuntimeError):
@@ -305,6 +318,8 @@ class Sequencer:
         self.big_joints_allowed: bool | None = None
         self.recorded_mount: dict[str, list[float]] | None = None
         self.events: deque[dict[str, str]] = deque(maxlen=EVENT_LIMIT)
+        self.run_id: str | None = None
+        self.current_step: str | None = None
         self.restore_board()
 
     def restore_board(self) -> None:
@@ -326,29 +341,41 @@ class Sequencer:
             if clipped_at.tzinfo is None:
                 raise ValueError("clipped_at has no timezone")
         except (OSError, ValueError, AttributeError, KeyError, TypeError) as exc:
-            LOG.warning("board record %s unreadable, ignored: %s", self.board_file, exc)
+            self.log(BOARD_RECORD_STEP, "ignored", logging.WARNING, f"unreadable: {exc}", file=self.board_file)
             return
         age = (self.now() - clipped_at).total_seconds()
         if age > self.seq.board_record_max_age_s or age < 0:
-            LOG.warning(
-                "board record %s ignored: attached %.0f s ago (limit %g s)",
-                self.board_file,
-                age,
-                self.seq.board_record_max_age_s,
+            self.log(
+                BOARD_RECORD_STEP,
+                "ignored",
+                logging.WARNING,
+                "too old",
+                file=self.board_file,
+                age_s=age,
+                max_age_s=self.seq.board_record_max_age_s,
             )
             return
         if not self.session_exists(session):
-            LOG.warning(
-                "board record %s ignored: session %r is not a stored head_arm session", self.board_file, session
+            self.log(
+                BOARD_RECORD_STEP,
+                "ignored",
+                logging.WARNING,
+                "not a stored head_arm session",
+                file=self.board_file,
+                session_id=session,
             )
             return
         self.board_record = {"session_id": session, "clipped_at": record["clipped_at"]}
         self.session_id = session
         self.recorded_mount = recorded
-        LOG.info("board record offered (session %s, attached %s)", session, record["clipped_at"])
+        self.log(BOARD_RECORD_STEP, "offered", session_id=session, clipped_at=record["clipped_at"], mount=recorded)
 
-    def record_board(self) -> None:
-        """Write the board record (atomically); a failed write is logged, the in-memory state stands."""
+    def record_board(self, run_id: str | None = None) -> None:
+        """Write the board record (atomically); a failed write is logged, the in-memory state stands.
+
+        Args:
+            run_id (str | None): The run the log lines belong to (None: the current run).
+        """
         if self.board_file is None:
             return
         mount = self.cfg.fit.board_mount
@@ -363,42 +390,112 @@ class Sequencer:
             temp.write_text(json.dumps(record))
             os.replace(temp, self.board_file)
         except OSError as exc:
-            LOG.error("cannot write the board record %s: %s", self.board_file, exc)
+            self.log(BOARD_RECORD_STEP, "error", logging.ERROR, f"cannot write: {exc}", run_id, file=self.board_file)
+            return
+        self.log(BOARD_RECORD_STEP, "written", run_id=run_id, file=self.board_file, **record)
 
-    def clear_board(self) -> None:
-        """Remove the board record."""
+    def clear_board(self, run_id: str | None = None) -> None:
+        """Remove the board record.
+
+        Args:
+            run_id (str | None): The run the log line belongs to (None: the current run).
+        """
         if self.board_file is None:
             return
         try:
             self.board_file.unlink(missing_ok=True)
         except OSError as exc:
-            LOG.error("cannot remove the board record %s: %s", self.board_file, exc)
+            self.log(BOARD_RECORD_STEP, "error", logging.ERROR, f"cannot remove: {exc}", run_id, file=self.board_file)
 
-    def event(self, level: int, message: str, phase: str | None = None) -> None:
-        """Log one sequence or park event with its message and keep it in the recent events (the caller does not hold `lock`).
+    def log(
+        self,
+        step: str,
+        outcome: str,
+        level: int = logging.INFO,
+        reason: str | None = None,
+        run_id: str | None = None,
+        **data: Any,
+    ) -> dict[str, Any]:
+        """Log one journal-only calib_event of this run (not a UI event).
+
+        Args:
+            step (str): The step.
+            outcome (str): The outcome (ok, refused, converged, ...).
+            level (int): Logging level.
+            reason (str | None): Why it failed or was refused.
+            run_id (str | None): The run the event belongs to; None takes the current `run_id` (a worker that logs
+                after clearing `running` passes its own, as a new claim may have replaced it).
+            **data (Any): Inputs and measured values.
+
+        Returns:
+            dict[str, Any]: The logged event.
+        """
+        return calib_event(LOG, FLOW, run_id or self.run_id, step, outcome, level, reason, **data)
+
+    def timed(self, step: str, **data: Any) -> Any:
+        """A timed worker step of this run (telemetry.step_timer on the injected clock; a stop logs `stopped`).
+
+        Args:
+            step (str): The step; it is also `current_step`, named by the sequence end event of a failure.
+            **data (Any): The step's inputs.
+
+        Returns:
+            Any: The step_timer context manager; it yields the dict of fields logged with the end.
+        """
+        self.current_step = step
+        return step_timer(LOG, FLOW, self.run_id, step, self.clock, (Stopped,), **data)
+
+    def event(
+        self,
+        level: int,
+        message: str,
+        step: str,
+        outcome: str,
+        phase: str | None = None,
+        reason: str | None = None,
+        **data: Any,
+    ) -> None:
+        """Log one sequence or park event and keep it in the recent events (the caller does not hold `lock`).
 
         Args:
             level (int): logging.INFO, logging.WARNING or logging.ERROR.
             message (str): What happened, with the reason of a failure.
+            step (str): The step the event ends or reports.
+            outcome (str): Its outcome (start, done, error, ...).
             phase (str | None): The phase the event belongs to; None takes the current phase.
+            reason (str | None): Why it failed, was refused or stopped.
+            **data (Any): Inputs and measured values for the journal.
         """
         with self.lock:
-            self.append_event(level, message, phase)
+            self.append_event(level, message, step, outcome, phase, reason, **data)
 
-    def append_event(self, level: int, message: str, phase: str | None = None) -> None:
-        """Log one event and keep it in the recent events; the caller holds `lock` (an end of the worker records its
-        event in the same update that clears `running`, so a poller that sees the end also sees why).
+    def append_event(
+        self,
+        level: int,
+        message: str,
+        step: str,
+        outcome: str,
+        phase: str | None = None,
+        reason: str | None = None,
+        **data: Any,
+    ) -> None:
+        """Log one event as a calib_event and keep it in the recent events: one call for the journal and the UI. The
+        caller holds `lock` (an end of the worker records its event in the same update that clears `running`, so a
+        poller that sees the end also sees why).
 
         Args:
             level (int): logging.INFO, logging.WARNING or logging.ERROR.
-            message (str): What happened, with the reason of a failure.
+            message (str): What happened, with the reason of a failure (the UI text; also in the journal line).
+            step (str): The step the event ends or reports.
+            outcome (str): Its outcome (start, done, error, ...).
             phase (str | None): The phase the event belongs to; None takes the current phase.
+            reason (str | None): Why it failed, was refused or stopped.
+            **data (Any): Inputs and measured values for the journal.
         """
-        LOG.log(level, "head-arm %s", message)
+        phase = phase or self.phase
+        calib_event(LOG, FLOW, self.run_id, step, outcome, level, reason, message=message, phase=phase, **data)
         stamp = self.now().isoformat(timespec="seconds")
-        self.events.append(
-            {"time": stamp, "phase": phase or self.phase, "level": EVENT_LEVELS[level], "message": message}
-        )
+        self.events.append({"time": stamp, "phase": phase, "level": EVENT_LEVELS[level], "message": message})
 
     def state(self) -> dict[str, Any]:
         """The sequence state for the HTTP API.
@@ -450,12 +547,14 @@ class Sequencer:
         self.stop_event.set()
         return self.state()
 
-    def claim(self, phase: str, status: str) -> str:
-        """Mark a sequence or park as running, then check `blocked` (outside the lock: it reads other controllers).
+    def claim(self, phase: str, status: str, run_prefix: str) -> str:
+        """Mark a sequence or park as running under a new run id, then check `blocked` (outside the lock: it reads
+        other controllers).
 
         Args:
             phase: Phase to enter.
             status: Status line to show.
+            run_prefix: Prefix of the new run id (seq, park); a refused claim keeps the run id of the running work.
 
         Returns:
             str: The phase before the claim.
@@ -470,10 +569,12 @@ class Sequencer:
                 raise Busy(f"the arm holds the board pose: {MESSAGE_PARK} before a new sequence")
             previous = self.phase
             self.running = True
+            self.run_id = new_run_id(run_prefix, self.now())
         reason = self.blocked()
         with self.lock:
             if reason:
                 self.running = False
+                self.log(phase, "refused", logging.WARNING, reason)
                 raise Busy(reason)
             self.phase = phase
             self.status = status
@@ -481,16 +582,17 @@ class Sequencer:
             self.waiting_since = None
         return previous
 
-    def give_up(self, phase: str, error: str, event: str) -> None:
+    def give_up(self, phase: str, error: str, event: str, step: str) -> None:
         """Undo a claim that failed before the worker started, and record the refusal as an error event.
 
         Args:
             phase (str): The phase to return to.
             error (str): Why the start was refused (the state error).
             event (str): The event message.
+            step (str): The refused step (sequence or park).
         """
         with self.lock:
-            self.append_event(logging.ERROR, event)
+            self.append_event(logging.ERROR, event, step, "refused", reason=error)
             self.running = False
             self.phase = phase
             self.status = f"refused: {error}"
@@ -515,11 +617,11 @@ class Sequencer:
             raise ValueError(
                 "the base move needs confirmed=True: it moves " + ", ".join(BASE_JOINTS) + " (no board attached)"
             )
-        self.claim(MOVING_TO_BASE, "preparing the pose check")
+        self.claim(MOVING_TO_BASE, "preparing the pose check", "seq")
         try:
             plan = self.prepare()
         except SequenceError as exc:
-            self.give_up(IDLE, str(exc), f"sequence start refused: {exc}")
+            self.give_up(IDLE, str(exc), f"sequence start refused: {exc}", SEQUENCE_STEP)
             raise
         with self.lock:
             self.session_id = None
@@ -532,7 +634,31 @@ class Sequencer:
             self.status = "taking the arm"
         self.clear_board()
         self.stop_event.clear()
-        self.event(logging.INFO, f"sequence started: {len(plan.poses)} poses")
+        seq = self.seq
+        self.event(
+            logging.INFO,
+            f"sequence started: {len(plan.poses)} poses",
+            SEQUENCE_STEP,
+            "start",
+            poses=len(plan.poses),
+            tiers=Counter(tier for tier, _ in plan.poses),
+            base_pose=seq.base_pose,
+            insert_gripper_rad=seq.insert_gripper_rad,
+            grip_rad=seq.grip_rad,
+            handle_contact_rad=seq.handle_contact_rad,
+            handle_squeeze_rad=seq.handle_squeeze_rad,
+            grip_converge_tolerance_rad=seq.grip_converge_tolerance_rad,
+            speed_scale=seq.speed_scale,
+            head_offsets_deg=seq.head_offsets_deg,
+            settle_s=seq.settle_s,
+            confirm_timeout_s=seq.confirm_timeout_s,
+            still_timeout_s=self.cfg.still.timeout_s,
+            nominal_mount=nominal_mount(self.cfg),
+            board_margin_m=seq.board_margin_m(nominal_mount(self.cfg)),
+            board_mount={"xyz": self.cfg.fit.board_mount.xyz_init, "rpy": self.cfg.fit.board_mount.rpy_init},
+            pose_check=seq.pose_check,
+            camera_frame=self.cfg.camera_frame,
+        )
         self.thread = threading.Thread(target=self.work, args=(plan,), name="head-arm-sequence", daemon=True)
         self.thread.start()
         return self.state()
@@ -572,7 +698,7 @@ class Sequencer:
             if not self.running or self.phase != WAITING_BOARD:
                 raise Busy(f"Board attached is accepted in phase {WAITING_BOARD} only (phase {self.phase})")
             self.board_on = True
-        self.event(logging.INFO, "board attached")
+        self.event(logging.INFO, "board attached", "board_attached", "confirmed")
         self.record_board()
         return self.state()
 
@@ -592,7 +718,13 @@ class Sequencer:
             if not self.running or self.phase != WAITING_BIG_JOINTS:
                 raise Busy(f"the big-joint answer is accepted in phase {WAITING_BIG_JOINTS} only (phase {self.phase})")
             self.big_joints_allowed = bool(confirmed)
-        self.event(logging.INFO, "tier 2 allowed" if confirmed else "tier 2 skipped by the user")
+        self.event(
+            logging.INFO,
+            "tier 2 allowed" if confirmed else "tier 2 skipped by the user",
+            "big_joints",
+            "allowed" if confirmed else "declined",
+            joints=BIG_JOINTS,
+        )
         return self.state()
 
     def park(self, confirmed: bool, board_on: bool = False) -> dict[str, Any]:
@@ -620,7 +752,7 @@ class Sequencer:
         """
         if not confirmed:
             raise ValueError("Park needs confirmed=True: the arm moves to its park pose")
-        previous = self.claim(PARKING, "checking what the gripper carries")
+        previous = self.claim(PARKING, "checking what the gripper carries", "park")
         if board_on:
             with self.lock:
                 stated = not self.board_on
@@ -629,10 +761,20 @@ class Sequencer:
                 self.record_board()
         params: dict[str, Any] | None = None
         try:
-            reasons = carrying_reasons(self.robot.control_state())
+            control = self.robot.control_state()
+            reasons = carrying_reasons(control)
             with self.lock:
                 board = self.board_on
             others = [r for r in reasons if not r.startswith(HOLDING_LOAD_PREFIX)]
+            self.log(
+                "control_state",
+                "ok",
+                reasons=reasons,
+                other_reasons=others,
+                board_on=board,
+                board_on_stated=board_on,
+                carrying=((control.data or {}).get("arm") or {}).get("carrying"),
+            )
             if others or (reasons and not board):
                 hint = "" if others else MESSAGE_STATE_BOARD
                 raise SequenceError(f"Park refused: mcp_server reports carrying ({'; '.join(reasons)}){hint}")
@@ -641,15 +783,25 @@ class Sequencer:
                     self.status = "checking the board's park path"
                 params = self.check_board_park_path()
         except SequenceError as exc:
-            self.give_up(previous, str(exc), str(exc))
+            self.give_up(previous, str(exc), str(exc), PARK_STEP)
             raise
         except Exception as exc:
             error = f"Park refused: {type(exc).__name__}: {exc}"
-            self.give_up(previous, error, error)
+            self.give_up(previous, error, error, PARK_STEP)
             raise SequenceError(error) from exc
         with self.lock:
             self.status = "parking: homing the arm, then the head"
-        self.event(logging.INFO, f"park started (board {'on' if params is not None else 'off'})")
+        self.event(
+            logging.INFO,
+            f"park started (board {'on' if params is not None else 'off'})",
+            PARK_STEP,
+            "start",
+            board_on=params is not None,
+            mount=params,
+            park_pose=self.seq.park_pose,
+            speed_scale=self.seq.speed_scale,
+            previous_phase=previous,
+        )
         self.stop_event.clear()
         self.thread = threading.Thread(
             target=self.park_work, args=(previous, params), name="head-arm-park", daemon=True
@@ -688,6 +840,21 @@ class Sequencer:
         start = self.measured()
         gripper = max(start.get(GRIPPER_JOINT, seq.grip_rad), seq.grip_rad)
         entries = checker.check_path(start, dict(seq.park_pose), gripper)
+        self.log(
+            "park_path_check",
+            "refused" if entries else "ok",
+            logging.WARNING if entries else logging.INFO,
+            f"{len(entries)} violated entries" if entries else None,
+            start=start,
+            target=seq.park_pose,
+            gripper_rad=gripper,
+            mount_source="fitted" if fitted is not None else ("recorded" if used is not None else "configured"),
+            mount={"xyz": fit.board_mount.xyz_init, "rpy": fit.board_mount.rpy_init},
+            margin_m=margin,
+            sag_margin_m=sag,
+            min_board_height_m=pose_check.min_board_height_m,
+            entries=entries,
+        )
         if entries:
             quoted = "; ".join(entries[:MAX_QUOTED_ENTRIES])
             more = f" (+{len(entries) - MAX_QUOTED_ENTRIES} more)" if len(entries) > MAX_QUOTED_ENTRIES else ""
@@ -707,23 +874,31 @@ class Sequencer:
             board: The board is on the gripper (the mount check_board_park_path returned): move to `park_pose`
                 first (its path was checked), then park through mcp_server's internal board park.
         """
+        run_id = self.run_id  # kept: a claim after the end may replace self.run_id
         error: str | None = None
         status = ""
         lease = False
+        reset: dict[str, Any] = {}
         try:
-            self.call(self.robot.take_arm(), "take_control")
+            with self.timed("park_take_control"):
+                self.call(self.robot.take_arm(), "take_control")
             lease = True
             if board is not None:
-                self.park_move()
-                result = self.call(self.robot.park_with_board(board), "park_calibration_board")
-                data = (result.data or {}).get("result") or {}
-            else:
-                result = self.call(self.robot.release_arm(keep_position=False), "release_control (park)")
-                data = result.data or {}
-            lease = False
-            reset = data.get("reset") or {}
-            if reset.get("arm") != HOMED:
-                raise StepFailed(f"the park did not home the arm: reset.arm {reset.get('arm')!r}")
+                with self.timed("park_move", target=self.seq.park_pose, speed_scale=self.seq.speed_scale):
+                    self.park_move()
+            route = "park_calibration_board" if board is not None else "release_control (park)"
+            with self.timed("park_release", route=route, mount=board) as fields:
+                if board is not None:
+                    result = self.call(self.robot.park_with_board(board), route)
+                    data = (result.data or {}).get("result") or {}
+                else:
+                    result = self.call(self.robot.release_arm(keep_position=False), route)
+                    data = result.data or {}
+                lease = False
+                reset = data.get("reset") or {}
+                fields.update(reset=reset, result=data)
+                if reset.get("arm") != HOMED:
+                    raise StepFailed(f"the park did not home the arm: reset.arm {reset.get('arm')!r}")
             status = f"parked: arm {reset.get('arm')}, head {reset.get('head', 'n/a')}"
         except StepFailed as exc:
             error = str(exc)
@@ -732,12 +907,24 @@ class Sequencer:
         if lease:
             held = self.robot.release_arm(keep_position=True)
             if held.is_error:
+                self.log("hold", "error", logging.ERROR, held.text)
+            else:
+                self.log("hold", "ok", release=held.data)
+            if held.is_error:
                 error = f"{error}; release_control (hold) failed: {held.text}"
         with self.lock:
             if error is None:
-                self.append_event(logging.INFO, f"park done: {status}")
+                self.append_event(logging.INFO, f"park done: {status}", PARK_STEP, "done", reset=reset)
             else:
-                self.append_event(logging.ERROR, f"park failed: {error}")
+                self.append_event(
+                    logging.ERROR,
+                    f"park failed: {error}",
+                    PARK_STEP,
+                    "error",
+                    reason=error,
+                    failed_step=self.current_step,
+                    reset=reset,
+                )
             self.running = False
             if error is None:
                 self.phase = IDLE
@@ -749,7 +936,7 @@ class Sequencer:
                 self.status = f"park failed: {error}"
                 self.error = error
         if error is None:
-            self.clear_board()
+            self.clear_board(run_id)
 
     def park_move(self) -> None:
         """Move to `park_pose` at the sequence speed scale (guarded by mcp_server); the path was checked.
@@ -761,12 +948,13 @@ class Sequencer:
             self.robot.move_arm_joints(dict(self.seq.park_pose), self.seq.speed_scale),
             "move_arm_joints to the park pose",
         )
-        status, message = tool_status(result)
+        status, message = self.log_motion("move_arm_joints", result, label="the park pose", targets=self.seq.park_pose)
         if status != CONVERGED:
             raise StepFailed(f"move_arm_joints to the park pose did not converge: {status}: {message}")
 
     def work(self, plan: Plan) -> None:
         """Worker: run the sequence, then always stop the capture and release the arm holding its position."""
+        run_id = self.run_id  # kept: a claim after the end may replace self.run_id
         error: str | None = None
         outcome = "done"
         try:
@@ -777,11 +965,19 @@ class Sequencer:
             outcome, error = "error", str(exc)
         except Exception as exc:  # reported as the sequence error; the finally block still holds the arm
             outcome, error = "error", f"{type(exc).__name__}: {exc}"
-            LOG.exception("head-arm sequence raised")
+            LOG.exception("head-arm sequence %s raised in step %s", self.run_id, self.current_step)
         finally:
             error = self.hold(error)
             with self.lock:
                 ended_in = self.phase
+                summary = {
+                    "ended_in": ended_in,
+                    "session_id": self.session_id,
+                    "captured": self.captured,
+                    "skipped": dict(self.skipped),
+                    "big_joints_allowed": self.big_joints_allowed,
+                    "board_on": self.board_on,
+                }
                 self.running = False
                 self.phase = HOLDING if self.board_on else IDLE
                 self.waiting_since = None
@@ -791,52 +987,105 @@ class Sequencer:
                 note = "; tier 2 skipped" if self.big_joints_allowed is False else ""
                 self.status = f"{outcome}{detail}{note}{follow}"
                 if error is not None:
-                    self.append_event(logging.ERROR, f"sequence error: {error}", ended_in)
+                    self.append_event(
+                        logging.ERROR,
+                        f"sequence error: {error}",
+                        SEQUENCE_STEP,
+                        "error",
+                        ended_in,
+                        error,
+                        failed_step=self.current_step,
+                        **summary,
+                    )
                 elif outcome == REASON_STOPPED:
-                    self.append_event(logging.WARNING, "sequence stopped", ended_in)
+                    self.append_event(
+                        logging.WARNING,
+                        "sequence stopped",
+                        SEQUENCE_STEP,
+                        REASON_STOPPED,
+                        ended_in,
+                        stopped_in_step=self.current_step,
+                        **summary,
+                    )
                 else:
-                    self.append_event(logging.INFO, f"sequence done: {self.status}", ended_in)
+                    self.append_event(
+                        logging.INFO, f"sequence done: {self.status}", SEQUENCE_STEP, "done", ended_in, **summary
+                    )
         if self.board_on:
-            self.record_board()  # now with the capture session id
+            self.record_board(run_id)  # now with the capture session id
 
     def hold(self, error: str | None) -> str | None:
         """Stop the still capture and release the arm keeping its position; failures are added to the error."""
         problems = [error] if error else []
+        own: list[str] = []
         try:
             self.capture.stop()
         except Exception as exc:  # the arm is still released below
-            problems.append(f"stopping the still capture failed: {type(exc).__name__}: {exc}")
+            own.append(f"stopping the still capture failed: {type(exc).__name__}: {exc}")
         result = self.robot.release_arm(keep_position=True)
         if result.is_error:
-            problems.append(f"release_control (hold) failed: {result.text}")
-        return "; ".join(problems) or None
+            own.append(f"release_control (hold) failed: {result.text}")
+        self.log(
+            "hold",
+            "error" if own else "ok",
+            logging.ERROR if own else logging.INFO,
+            "; ".join(own) or None,
+            release=result.data,
+        )
+        return "; ".join(problems + own) or None
 
     def run_sequence(self, plan: Plan) -> None:
         """Base pose, the board confirm, tiers 0 and 1, the big-joint confirm, tier 2, back to the base pose."""
-        self.call(self.robot.take_arm(), "take_control")
+        with self.timed("take_control"):
+            self.call(self.robot.take_arm(), "take_control")
         self.check_alive()
         with self.lock:
             self.status = "moving to the base pose (no board)"
         base = dict(self.seq.base_pose)
-        self.checked_move(plan, base, "the base pose", {**base, GRIPPER_JOINT: self.seq.insert_gripper_rad})
-        self.event(logging.INFO, "base pose reached")
-        self.wait_confirm(WAITING_BOARD, MESSAGE_BOARD, lambda: self.board_on)
-        self.close_on_handle(plan)
-        session_id = self.capture.start_still_session(None)
+        with self.timed("base_move", target=base, gripper_rad=self.seq.insert_gripper_rad):
+            self.checked_move(plan, base, "the base pose", {**base, GRIPPER_JOINT: self.seq.insert_gripper_rad})
+        self.event(logging.INFO, "base pose reached", "base_move", "reached")
+        with self.timed("wait_board", timeout_s=self.seq.confirm_timeout_s):
+            self.wait_confirm(WAITING_BOARD, MESSAGE_BOARD, lambda: self.board_on)
+        with self.timed(
+            "handle_grip",
+            grip_rad=self.seq.grip_rad,
+            handle_contact_rad=self.seq.handle_contact_rad,
+            handle_squeeze_rad=self.seq.handle_squeeze_rad,
+            grip_converge_tolerance_rad=self.seq.grip_converge_tolerance_rad,
+        ):
+            self.close_on_handle(plan)
+        with self.timed("still_session") as fields:
+            session_id = self.capture.start_still_session(None)
+            fields["session_id"] = session_id
         with self.lock:
             self.session_id = session_id
             self.phase = CAPTURING
             self.status = "waiting for the colour camera_info"
-        self.event(logging.INFO, f"still session {session_id} started")
-        intrinsics = self.camera_intrinsics()
+        self.event(
+            logging.INFO, f"still session {session_id} started", "still_session", "started", session_id=session_id
+        )
+        with self.timed("camera_info", topic=self.cfg.topics.rgb_info, timeout_s=self.cfg.still.timeout_s) as fields:
+            intrinsics = self.camera_intrinsics()
+            fields.update(
+                width=intrinsics.width,
+                height=intrinsics.height,
+                fx=intrinsics.fx,
+                fy=intrinsics.fy,
+                cx=intrinsics.cx,
+                cy=intrinsics.cy,
+                distortion=intrinsics.distortion,
+            )
         for tier in range(BIG_JOINT_TIER):
             self.capture_tier(plan, tier, intrinsics)
         big = ", ".join(BIG_JOINTS)
-        self.wait_confirm(
-            WAITING_BIG_JOINTS,
-            f"Tier 2 moves {big}: allow these moves, or skip tier 2",
-            lambda: self.big_joints_allowed is not None,
-        )
+        with self.timed("wait_big_joints", joints=BIG_JOINTS, timeout_s=self.seq.confirm_timeout_s) as fields:
+            self.wait_confirm(
+                WAITING_BIG_JOINTS,
+                f"Tier 2 moves {big}: allow these moves, or skip tier 2",
+                lambda: self.big_joints_allowed is not None,
+            )
+            fields["allowed"] = self.big_joints_allowed
         with self.lock:
             self.phase = CAPTURING
         if self.big_joints_allowed:
@@ -846,8 +1095,9 @@ class Sequencer:
             self.phase = RETURNING
             self.tier = None
             self.status = "moving back to the base pose"
-        self.checked_move(plan, base, "the base pose (return)", base)
-        self.event(logging.INFO, "back at the base pose")
+        with self.timed("return_to_base", target=base):
+            self.checked_move(plan, base, "the base pose (return)", base)
+        self.event(logging.INFO, "back at the base pose", "return_to_base", "reached")
 
     def close_on_handle(self, plan: Plan) -> None:
         """Close the gripper on the handle to `grip_rad`, then refuse an unseated handle or a slack grip.
@@ -866,17 +1116,34 @@ class Sequencer:
         base = dict(self.seq.base_pose)
         self.checked_move(plan, base, "the handle grip", {GRIPPER_JOINT: self.seq.grip_rad})
         measured = self.measured().get(GRIPPER_JOINT)
+        limit = self.seq.handle_contact_rad - self.seq.handle_squeeze_rad / 2
+        slack = self.seq.grip_rad + self.seq.grip_converge_tolerance_rad
+        if measured is None:
+            verdict = "not reported"
+        elif measured < limit:
+            verdict = "unseated"
+        elif measured >= slack:
+            verdict = "slack"
+        else:
+            verdict = "seated"
+        self.log(
+            "gripper_measured",
+            verdict,
+            logging.INFO if verdict == "seated" else logging.WARNING,
+            measured_rad=measured,
+            unseated_below_rad=limit,
+            slack_from_rad=slack,
+            grip_rad=self.seq.grip_rad,
+        )
         if measured is None:
             raise StepFailed(
                 "get_arm_state reports no gripper angle after the handle grip: cannot tell a seated handle"
             )
-        limit = self.seq.handle_contact_rad - self.seq.handle_squeeze_rad / 2
         if measured < limit:
             raise StepFailed(f"{MESSAGE_UNSEATED} (measured {measured:.4f} rad, limit {limit:.4f} rad)")
-        slack = self.seq.grip_rad + self.seq.grip_converge_tolerance_rad
         if measured >= slack:
             raise StepFailed(f"{MESSAGE_SLACK_GRIP} (measured {measured:.4f} rad, limit {slack:.4f} rad)")
-        self.event(logging.INFO, f"handle gripped: jaw {measured:.4f} rad")
+        self.event(logging.INFO, f"handle gripped: jaw {measured:.4f} rad", "handle_grip", "gripped", jaw_rad=measured)
 
     def camera_intrinsics(self) -> CameraIntrinsics:
         """The colour intrinsics of the still session, waiting up to `still.timeout_s` for the first camera_info.
@@ -909,10 +1176,35 @@ class Sequencer:
             raise Stopped
 
     def call(self, result: ToolResult, what: str) -> ToolResult:
-        """The result of a tool call; a tool error stops the sequence quoting it."""
+        """The result of a tool call; a tool error is logged and stops the sequence quoting it."""
         if result.is_error:
+            self.log("tool_error", "error", logging.ERROR, result.text, tool=what, unreachable=result.unreachable)
             raise StepFailed(f"{what} failed: {result.text}")
         return result
+
+    def log_motion(self, tool: str, result: ToolResult, **inputs: Any) -> tuple[str | None, str]:
+        """Log a motion tool result (move_arm_joints, set_head_angles) with its status, message and data.
+
+        Args:
+            tool (str): The tool name.
+            result (ToolResult): The successful tool result.
+            **inputs (Any): The command (label, targets, angles).
+
+        Returns:
+            tuple[str | None, str]: tool_status(result).
+        """
+        status, message = tool_status(result)
+        converged = status == CONVERGED
+        self.log(
+            tool,
+            status or "no status",
+            logging.INFO if converged else logging.WARNING,
+            None if converged else message,
+            message=message,
+            result=result.data,
+            **inputs,
+        )
+        return status, message
 
     def measured(self) -> dict[str, float]:
         """Measured arm joints from get_arm_state (the gripper too when reported).
@@ -922,6 +1214,7 @@ class Sequencer:
         """
         result = self.call(self.robot.arm_state(), "get_arm_state")
         positions = (result.data or {}).get("positions")
+        self.log("get_arm_state", "ok" if isinstance(positions, dict) else "no positions", positions=positions)
         if not isinstance(positions, dict):
             raise StepFailed("get_arm_state reports no measured joints (stale joint states); nothing was moved")
         missing = [name for name in ARM_JOINT_NAMES if not isinstance(positions.get(name), int | float)]
@@ -945,13 +1238,24 @@ class Sequencer:
         start = self.measured()
         gripper = max(start.get(GRIPPER_JOINT, self.seq.grip_rad), self.seq.grip_rad)
         entries = plan.checker.check_path(start, pose, gripper)
+        self.log(
+            "path_check",
+            "refused" if entries else "ok",
+            logging.WARNING if entries else logging.INFO,
+            f"{len(entries)} violated entries" if entries else None,
+            label=label,
+            start=start,
+            target=pose,
+            gripper_rad=gripper,
+            entries=entries,
+        )
         if entries:
             quoted = "; ".join(entries[:MAX_QUOTED_ENTRIES])
             more = f" (+{len(entries) - MAX_QUOTED_ENTRIES} more)" if len(entries) > MAX_QUOTED_ENTRIES else ""
             raise StepFailed(f"{label} refused by the path check, nothing was moved: {quoted}{more}")
         self.check_alive()
         result = self.call(self.robot.move_arm_joints(targets, self.seq.speed_scale), f"move_arm_joints to {label}")
-        status, message = tool_status(result)
+        status, message = self.log_motion("move_arm_joints", result, label=label, targets=targets)
         if status != CONVERGED:
             raise StepFailed(f"move_arm_joints to {label} did not converge: {status}: {message}")
 
@@ -1023,40 +1327,72 @@ class Sequencer:
                 self.status = (
                     f"tier {tier}: pose {number + 1} of {len(indices)} (arm pose {index + 1} of {len(plan.poses)})"
                 )
+            where_pose = {"tier": tier, "pose": number, "arm_pose": index}
             planned = self.plan_views(plan, pose, intrinsics)
             if all(view.reason is not None for view in planned):
                 for view in planned:
                     where = f"tier {tier} arm pose {index} head offset {view.offset}"
-                    self.count_skipped(view.reason, f"{where} (pose not visited): {view.detail}")
+                    self.count_skipped(view.reason, f"{where} (pose not visited): {view.detail}", view)
                 reasons = ", ".join(sorted({str(view.reason) for view in planned}))
-                self.event(logging.WARNING, f"{label} not visited: every view skipped ({reasons})")
+                self.event(
+                    logging.WARNING,
+                    f"{label} not visited: every view skipped ({reasons})",
+                    "pose",
+                    "not_visited",
+                    reason=reasons,
+                    target=pose,
+                    **where_pose,
+                )
                 continue
-            self.checked_move(plan, pose, label, pose)
-            with self.lock:
-                before = (self.captured, sum(self.skipped.values()))
-            for view in self.plan_views(plan, self.measured(), intrinsics):
-                self.check_alive()
-                where = f"tier {tier} arm pose {index} head offset {view.offset}"
-                if view.reason is not None:
-                    self.count_skipped(view.reason, f"{where}: {view.detail}")
-                    continue
-                self.view(index, tier, view.offset, view.pan_deg, view.tilt_deg)
-            with self.lock:
-                captured, skipped = self.captured - before[0], sum(self.skipped.values()) - before[1]
-            self.event(logging.INFO, f"{label}: {captured} captured, {skipped} skipped")
+            with self.timed("pose", target=pose, **where_pose) as fields:
+                self.checked_move(plan, pose, label, pose)
+                with self.lock:
+                    before = (self.captured, sum(self.skipped.values()))
+                for view in self.plan_views(plan, self.measured(), intrinsics):
+                    self.check_alive()
+                    where = f"tier {tier} arm pose {index} head offset {view.offset}"
+                    if view.reason is not None:
+                        self.count_skipped(view.reason, f"{where}: {view.detail}", view)
+                        continue
+                    self.view(index, tier, view.offset, view.pan_deg, view.tilt_deg)
+                with self.lock:
+                    captured, skipped = self.captured - before[0], sum(self.skipped.values()) - before[1]
+                fields.update(captured=captured, skipped=skipped, **where_pose)
+            self.event(
+                logging.INFO,
+                f"{label}: {captured} captured, {skipped} skipped",
+                "pose",
+                "visited",
+                captured=captured,
+                skipped=skipped,
+                **where_pose,
+            )
 
     def view(self, index: int, tier: int, offset: int, pan_deg: float, tilt_deg: float) -> None:
         """One view that passed the checks: aim, settle and capture a still."""
         where = f"tier {tier} arm pose {index} head offset {offset}"
+        place = {"tier": tier, "arm_pose": index, "head_offset": offset}
         result = self.call(self.robot.set_head_angles(pan_deg, tilt_deg), f"set_head_angles at {where}")
-        status, message = tool_status(result)
+        status, message = self.log_motion("set_head_angles", result, pan_deg=pan_deg, tilt_deg=tilt_deg, **place)
         if status != CONVERGED:
             self.count_skipped(f"head move {status}", f"{where}: {message}")
             return
         self.sleep(self.seq.settle_s)
         self.check_alive()
+        began = self.clock()
         outcome: StillOutcome = self.capture.capture_still(index, tier, offset)
-        if outcome.stored:
+        stored = outcome.stored
+        self.log(
+            "still",
+            "stored" if stored else "skipped",
+            logging.INFO if stored else logging.WARNING,
+            None if stored else outcome.reason,
+            pose_id=outcome.pose_id,
+            waited_s=self.clock() - began,
+            detail=outcome.detail,
+            **place,
+        )
+        if stored:
             with self.lock:
                 self.captured += 1
             return
@@ -1064,8 +1400,15 @@ class Sequencer:
             raise StepFailed(f"the still capture session was stopped at {where}")
         self.count_skipped(outcome.reason, where)
 
-    def count_skipped(self, reason: str, detail: str) -> None:
-        """Count a skipped view by its reason."""
+    def count_skipped(self, reason: str, detail: str, view: View | None = None) -> None:
+        """Count a skipped view by its reason and log it.
+
+        Args:
+            reason (str): The skip reason (the count key).
+            detail (str): Where, and the violated rules.
+            view (View | None): The planned view (its head command is logged), None for a capture or head move skip.
+        """
         with self.lock:
             self.skipped[reason] += 1
-        LOG.warning("head-arm view skipped (%s): %s", reason, detail)
+        head = {} if view is None else {"pan_deg": view.pan_deg, "tilt_deg": view.tilt_deg, "head_offset": view.offset}
+        self.log("view", "skipped", logging.WARNING, reason, detail=detail, **head)

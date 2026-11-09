@@ -1,16 +1,24 @@
-"""One compute child at a time: niced, time limited, with its stderr tail reported on failure."""
+"""One compute child at a time: niced, time limited, with its stderr tail reported on failure.
+
+Telemetry: the child logs to its stderr in CHILD_LOG_FORMAT (compute.py); when it ends, every such line is re-logged in
+this process under its logger and level, so the child's calib_event lines reach the journal with its run id (the
+result id), and the other lines (a traceback) at WARNING. The job logs `child` start and end events of flow
+`d435_compute` (exit code, duration, error).
+"""
 
 import logging
 import subprocess
 import sys
 import tempfile
 import threading
+import time
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import IO, Any
 
 from head_rgbd_calibration.config import NodeConfig
 from head_rgbd_calibration.store import RESULT_FILE, SessionStore
+from head_rgbd_calibration.telemetry import calib_event, forward_child_log
 
 LOGGER = logging.getLogger(__name__)
 
@@ -19,6 +27,8 @@ WATCH_INTERVAL_S = 0.2
 KILL_WAIT_S = 5.0
 STOP_JOIN_S = 10.0
 MODULE = "head_rgbd_calibration.compute"
+FLOW = "d435_compute"
+CHILD_STEP = "child"
 
 
 class Busy(RuntimeError):
@@ -58,6 +68,7 @@ class ComputeJob:
         self.started_at: datetime | None = None
         self.error: str | None = None
         self.watcher: threading.Thread | None = None
+        self.began_s = 0.0
 
     def start(self, sid: str) -> str:
         """Start computing a session.
@@ -97,7 +108,21 @@ class ComputeJob:
                 rid,
             ]
             self.stderr_file = tempfile.TemporaryFile()
-            self.child = self.popen(command, stdout=subprocess.DEVNULL, stderr=self.stderr_file)
+            started_info = {
+                "session_id": sid,
+                "poses": len(self.store.pose_ids(sid)),
+                "command": command,
+                "timeout_s": self.cfg.compute_timeout_s,
+            }
+            try:
+                self.child = self.popen(command, stdout=subprocess.DEVNULL, stderr=self.stderr_file)
+            except Exception as exc:
+                self.stderr_file.close()
+                self.stderr_file = None
+                calib_event(LOGGER, FLOW, rid, CHILD_STEP, "error", logging.ERROR, str(exc), **started_info)
+                raise
+            self.began_s = time.monotonic()
+            calib_event(LOGGER, FLOW, rid, CHILD_STEP, "start", pid=self.child.pid, **started_info)
             self.session_id, self.result_id, self.started_at, self.error = sid, rid, self.clock(), None
             self.watcher = threading.Thread(target=self.watch, name="compute-watch", daemon=True)
             self.watcher.start()
@@ -125,26 +150,44 @@ class ComputeJob:
                     return
                 child.kill()
                 child.wait(KILL_WAIT_S)
-                self.finish(f"timed out after {self.cfg.compute_timeout_s:g} s")
+                self.finish(f"timed out after {self.cfg.compute_timeout_s:g} s", child.returncode)
             elif (self.store.result_dir(self.session_id, self.result_id) / RESULT_FILE).is_file():
-                self.finish(None)
+                self.finish(None, code)
             else:
-                self.finish(self.stderr_tail() or f"compute exited with code {code} and wrote no result")
+                self.finish(None, code, crashed=True)
 
-    def stderr_tail(self) -> str:
-        """The last STDERR_TAIL_LINES lines the child wrote to stderr."""
+    def finish(self, error: str | None, code: int | None, crashed: bool = False) -> None:
+        """Record the end of the child: forward its stderr to the log and log the end event.
+
+        Args:
+            error (str | None): Why it failed (timeout, stop), None when it ended on its own.
+            code (int | None): Its exit code, None when unknown.
+            crashed (bool): It exited without a result.json: the error is the last STDERR_TAIL_LINES stderr lines
+                that are not log lines, else the exit code and the last log line.
+        """
         self.stderr_file.seek(0)
-        lines = self.stderr_file.read().decode(errors="replace").splitlines()
-        return "\n".join(lines[-STDERR_TAIL_LINES:])
-
-    def finish(self, error: str | None) -> None:
-        """Record the end of the child."""
+        text = self.stderr_file.read().decode(errors="replace")
+        other = forward_child_log(text, LOGGER, f"compute {self.result_id}")
+        if crashed:
+            last = text.strip().splitlines()[-1:] if text.strip() else []
+            ended = f"compute exited with code {code} and wrote no result"
+            error = "\n".join(other[-STDERR_TAIL_LINES:]) or "; ".join([ended, *last])
         self.error = error
         self.child = None
         self.stderr_file.close()
         self.stderr_file = None
-        if error:
-            LOGGER.warning("compute of %s failed: %s", self.session_id, error)
+        calib_event(
+            LOGGER,
+            FLOW,
+            self.result_id,
+            CHILD_STEP,
+            "error" if error else "ok",
+            logging.ERROR if error else logging.INFO,
+            error,
+            time.monotonic() - self.began_s,
+            session_id=self.session_id,
+            exit_code=code,
+        )
 
     def state(self) -> dict[str, Any]:
         """{running, session_id, result_id, started_at, error} of the current or last computation."""
@@ -164,6 +207,6 @@ class ComputeJob:
             if self.child is not None:
                 self.child.kill()
                 self.child.wait(KILL_WAIT_S)
-                self.finish("stopped")
+                self.finish("stopped", self.child.returncode)
         if self.watcher is not None:
             self.watcher.join(STOP_JOIN_S)

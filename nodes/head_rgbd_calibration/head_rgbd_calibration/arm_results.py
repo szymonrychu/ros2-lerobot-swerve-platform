@@ -6,12 +6,18 @@ A result lives in the session's results/<rid>/ next to the head-from-arm results
 result.json and report.md always, plus head_chain.json, head.urdf and joint_offsets_snippet.yaml when it passed. Apply
 writes only the head chain, through the floor fit's writer with `source: "arm"`; the offsets snippet is committed to
 client.yml by hand after review and never goes to applied/.
+
+Telemetry: the compute logs calib_event lines of flow `arm_compute` (run id: the result id): `inputs` (plate views,
+floor reference, intrinsics, the offsets it starts from) and `result` (passed or failed with each offset and head
+parameter value and sigma, the RMS and held-out tool error, each limit check with its value and threshold, the worst
+views; or the input error). The apply is logged by floor_results.apply_head_chain_file.
 """
 
 import json
 import logging
 import os
 import shutil
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -36,13 +42,15 @@ from head_rgbd_calibration import floor_results
 from head_rgbd_calibration.apply import APPLIED_DIR, SNIPPET_FILE, NotApplicable
 from head_rgbd_calibration.config import NodeConfig
 from head_rgbd_calibration.floor_sweep import OBSERVATIONS_FILE
-from head_rgbd_calibration.head_arm_results import session_intrinsics
+from head_rgbd_calibration.head_arm_results import session_intrinsics, views_summary
 from head_rgbd_calibration.store import KIND_HEAD_ARM, RESULT_FILE, TEMP_PREFIX, NotFound, SessionStore
+from head_rgbd_calibration.telemetry import calib_event
 
 LOGGER = logging.getLogger(__name__)
 
 KIND = "arm"
 SOURCE_ARM = "arm"
+FLOW = "arm_compute"
 REPORT_FILE = "report.md"
 DATE_TIMESPEC = "seconds"
 NO_HEAD_CALIBRATION_ERROR = "apply a head calibration first"
@@ -182,6 +190,7 @@ def compute_arm(
         "floor": floor if floor is not None and floor["result"] else None,
         "created": now.isoformat(timespec=DATE_TIMESPEC),
     }
+    began = time.monotonic()
     try:
         if floor is None:
             raise ValueError(NO_HEAD_CALIBRATION_ERROR)
@@ -191,9 +200,25 @@ def compute_arm(
         floor_views, _ = floor_results.read_observations(session_dir / OBSERVATIONS_FILE)
         intrinsics = session_intrinsics(store, sid)
         head_urdf = floor_results.base_urdf(cfg)
+        plate_views = store.load_arm_board_views(sid)
+        calib_event(
+            LOGGER,
+            FLOW,
+            rid,
+            "inputs",
+            "ok",
+            session_id=sid,
+            **views_summary(plate_views),
+            floor=floor,
+            floor_observations=len(floor_views),
+            intrinsics=intrinsics,
+            current_offsets_rad=cfg.fit.joint_offsets_rad,
+            tool_offset_m=cfg.fit.tool_offset_m,
+            limits=cfg.fit.arm_limits,
+        )
         fit = fit_head_arm(
             floor_views,
-            store.load_arm_board_views(sid),
+            plate_views,
             intrinsics.matrix(),
             np.asarray(intrinsics.distortion or np.zeros(PLUMB_BOB_COEFFS), dtype=float),
             head_urdf,
@@ -216,8 +241,43 @@ def compute_arm(
                 floor_results.apply_head_chain(head_urdf, fit.origins, note)
             )
             (tmp / SNIPPET_FILE).write_text(snippet)
+        calib_event(
+            LOGGER,
+            FLOW,
+            rid,
+            "result",
+            "passed" if fit.passed else "failed",
+            logging.INFO if fit.passed else logging.WARNING,
+            "; ".join(result["failed_limits"]) or None,
+            time.monotonic() - began,
+            session_id=sid,
+            **{
+                key: result[key]
+                for key in ("rms_px", "holdout_rms_px", "holdout_tool_mm", "wrist_roll_fitted", "tool_fitted")
+            },
+            tool_note=fit.tool_note,
+            offsets=result["offsets"],
+            head=result["head"],
+            tool_offset_m=result["tool_offset_m"],
+            limits=result["limits"],
+            failed_limits=result["failed_limits"],
+            views=fit.views,
+            holdout_views=fit.holdout_views,
+        )
     except (ValueError, OSError, NotFound) as exc:
-        LOGGER.warning("arm offsets fit of %s failed: %s", sid, exc)
+        calib_event(
+            LOGGER,
+            FLOW,
+            rid,
+            "result",
+            "error",
+            logging.WARNING,
+            str(exc),
+            time.monotonic() - began,
+            session_id=sid,
+            floor=floor,
+            error_type=type(exc).__name__,
+        )
         for path in tmp.iterdir():
             path.unlink()
         result = {**base, "passed": False, "failed_limits": [], "error": str(exc)}

@@ -2,6 +2,7 @@
 
 import io
 import json
+import logging
 import subprocess
 import zipfile
 from datetime import datetime
@@ -19,6 +20,7 @@ from head_rgbd_calibration.compute import REPORT_FILE
 from head_rgbd_calibration.config import NodeConfig
 from head_rgbd_calibration.jobs import Busy as JobBusy
 from head_rgbd_calibration.store import RESULT_FILE, NotFound, SessionStore
+from head_rgbd_calibration.telemetry import events_in
 from tests.contract import assert_matches_fixture, load_fixture
 from tests.pose_factory import few_corner_still, make_still
 
@@ -426,3 +428,20 @@ def test_session_matches_contract_fixture(client: TestClient, store: SessionStor
     sid = new_session(store)
     store.add_pose(sid, few_corner_still())
     assert_matches_fixture(client.get(f"/api/sessions/{sid}").json(), "session")
+
+
+def test_mutating_requests_are_logged_with_their_outcome(
+    client: TestClient, store: SessionStore, caplog: pytest.LogCaptureFixture
+) -> None:
+    sid = new_session(store, 3)
+    new_result(store, sid, passed=False)
+    with caplog.at_level(logging.INFO, logger="head_rgbd_calibration.telemetry"):
+        client.get("/api/state")
+        client.post("/api/capture/stop")
+        client.post(f"/api/sessions/{sid}/results/{RID}/apply")
+    events = [e for e in events_in(caplog.records) if e["flow"] == "api"]
+    assert [(e["flow"], e["step"], e["outcome"]) for e in events] == [
+        ("api", "POST /api/capture/stop", "ok"),
+        ("api", f"POST /api/sessions/{sid}/results/{RID}/apply", "refused"),
+    ]
+    assert events[1]["data"]["status"] == 409 and "did not pass" in events[1]["reason"]

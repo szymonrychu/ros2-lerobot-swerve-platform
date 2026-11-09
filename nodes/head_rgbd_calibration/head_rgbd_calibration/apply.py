@@ -5,6 +5,9 @@ intrinsics stay the ones every consumer reads. The records other applies keep in
 left as they are. Every writer of applied.json (this accept, the head chain applies, the CSI applies) goes through
 update_applied, one lock for the read-modify-write. A unit restart is triggered outside this node, which only reads unit state with an unprivileged
 systemctl show.
+
+Telemetry: update_applied logs every applied/ write (flow `applied`: the files with their sizes and the applied.json
+keys before and after) and the accept logs flow `d435_accept` (the record, or the refusal with its reason).
 """
 
 import io
@@ -26,6 +29,7 @@ from head_rgbd_calibration.store import (
     write_bytes_atomic,
     write_json_atomic,
 )
+from head_rgbd_calibration.telemetry import calib_event
 
 LOGGER = logging.getLogger(__name__)
 
@@ -44,6 +48,8 @@ SYSTEMCTL_TIMEOUT_S = 5.0
 RunFn = Callable[..., subprocess.CompletedProcess]
 # The one lock of every applied.json read-modify-write in the process (update_applied).
 APPLIED_LOCK = threading.Lock()
+FLOW_ACCEPT = "d435_accept"
+FLOW_APPLIED = "applied"
 
 
 class NotApplicable(ValueError):
@@ -67,19 +73,35 @@ def apply_result(store: SessionStore, sid: str, rid: str, now: datetime) -> dict
         NotFound, InvalidId: from the store for unknown or malformed ids.
     """
     result_path = store.result_dir(sid, rid) / RESULT_FILE
-    if not result_path.is_file():
-        raise NotApplicable(f"result {rid} has no result.json")
-    result = json.loads(result_path.read_text())
-    if result.get("kind") != KIND_INTRINSICS:
-        raise NotApplicable(f"result {rid} is not a {KIND_INTRINSICS} check result")
-    if result.get("passed") is not True:
-        raise NotApplicable(f"result {rid} did not pass and cannot be applied")
+    result = json.loads(result_path.read_text()) if result_path.is_file() else None
+    refusal = None
+    if result is None:
+        refusal = f"result {rid} has no result.json"
+    elif result.get("kind") != KIND_INTRINSICS:
+        refusal = f"result {rid} is not a {KIND_INTRINSICS} check result"
+    elif result.get("passed") is not True:
+        refusal = f"result {rid} did not pass and cannot be applied"
+    if refusal is not None:
+        failed = None if result is None else result.get("failed_limits")
+        calib_event(
+            LOGGER,
+            FLOW_ACCEPT,
+            rid,
+            "accept",
+            "refused",
+            logging.WARNING,
+            refusal,
+            session_id=sid,
+            failed_limits=failed,
+        )
+        raise NotApplicable(refusal)
     info = {"kind": KIND_INTRINSICS, "session": sid, "result": rid, "applied_at": now.isoformat()}
 
     def keep_others(kept: dict[str, Any]) -> dict[str, Any]:
         return {**info, **{key: value for key, value in kept.items() if key not in CHECK_RECORD_KEYS}}
 
     update_applied(store.state_dir / APPLIED_DIR, keep_others)
+    calib_event(LOGGER, FLOW_ACCEPT, rid, "accept", "accepted", record=info, rms_px=result.get("rms_px"))
     return info
 
 
@@ -100,11 +122,23 @@ def update_applied(
     """
     with APPLIED_LOCK:
         marker = target / APPLIED_MARKER
-        updated = change(json.loads(marker.read_text()) if marker.is_file() else {})
+        current = json.loads(marker.read_text()) if marker.is_file() else {}
+        updated = change(current)
         target.mkdir(parents=True, exist_ok=True)
         for name, data in files:
             write_bytes_atomic(target / name, data)
         write_json_atomic(marker, updated)
+        calib_event(
+            LOGGER,
+            FLOW_APPLIED,
+            None,
+            "write",
+            "ok",
+            directory=target,
+            files={name: len(data) for name, data in files},
+            keys_before=sorted(current),
+            keys_after=sorted(updated),
+        )
         return updated
 
 
