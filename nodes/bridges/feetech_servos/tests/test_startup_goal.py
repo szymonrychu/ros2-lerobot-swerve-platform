@@ -12,10 +12,10 @@ from feetech_servos.bridge_cycle import BridgeCycle
 from feetech_servos.config import JointEntry, load_config
 from feetech_servos.registers import STS_ACC, get_register_entry_by_name
 
-from .ros_stubs import FakeRclpy, context_invalid, install_ros_stubs
+from .ros_stubs import FakeRclpy, context_invalid, install_service_stubs
 from .sts_bus import make_bus, register_table
 
-install_ros_stubs("sensor_msgs", "sensor_msgs.msg", "std_msgs", "std_msgs.msg")
+install_service_stubs()
 
 HOME_RAD = -0.5
 HOME_STEPS = position_to_raw_steps(HOME_RAD)

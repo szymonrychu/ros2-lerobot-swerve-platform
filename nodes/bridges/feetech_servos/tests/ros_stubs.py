@@ -36,7 +36,7 @@ def install_ros_stubs(*extra_modules: str) -> None:
 
 
 def install_service_stubs() -> None:
-    """Stub the std_srvs and std_msgs packages the torque services and torque_state topic use."""
+    """Stub the ROS message and service packages bridge.py imports (std_srvs, std_msgs, sensor_msgs)."""
     install_ros_stubs("std_srvs", "std_srvs.srv", "std_msgs", "std_msgs.msg", "sensor_msgs", "sensor_msgs.msg")
 
 
