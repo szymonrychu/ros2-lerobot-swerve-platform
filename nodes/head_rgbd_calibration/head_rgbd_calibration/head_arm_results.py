@@ -5,6 +5,11 @@ D435 factory colour intrinsics: the camera_info recorded with each still, which 
 result lives in the session's results/<rid>/: result.json, report.md and, only when it passed, head_chain.json (no
 tof_joint.json). Apply goes through the floor fit's writer (`floor_results.apply_head_chain_file`), so both fits share
 one applied path.
+
+Telemetry: the compute logs calib_event lines of flow `head_arm_compute` (run id: the result id): `inputs` (views per
+tier and head offset, corner counts, intrinsics, floor reference) and `result` (passed or failed with every parameter
+value and sigma, the RMS and held-out errors, each limit check with its value and threshold, the worst views; or the
+input error). The apply is logged by floor_results.apply_head_chain_file.
 """
 
 import json
@@ -12,6 +17,9 @@ import logging
 import math
 import os
 import shutil
+import time
+from collections import Counter
+from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -28,6 +36,7 @@ from ros2_common.head_rgbd_calibration.head_arm_fit import (
     limit_checks,
 )
 from ros2_common.head_rgbd_calibration.urdf_text import HEAD_CHAIN_FILE, ChainResidual, head_chain_json
+from ros2_common.head_rgbd_calibration.views import ArmBoardView
 
 from head_rgbd_calibration import floor_results
 from head_rgbd_calibration.apply import APPLIED_DIR, NotApplicable
@@ -38,6 +47,7 @@ from head_rgbd_calibration.store import (
     NotFound,
     SessionStore,
 )
+from head_rgbd_calibration.telemetry import calib_event
 
 LOGGER = logging.getLogger(__name__)
 
@@ -46,6 +56,43 @@ REPORT_FILE = "report.md"
 NO_STILLS_ERROR = "the session has no stills"
 DATE_TIMESPEC = "seconds"
 SOURCE_HEAD_ARM = "head_arm"
+FLOW = "head_arm_compute"
+WORST_VIEWS = 5
+
+
+def views_summary(views: Sequence[ArmBoardView]) -> dict[str, Any]:
+    """What a fit gets from a head_arm session, for the log.
+
+    Args:
+        views (Sequence[ArmBoardView]): The session's board views.
+
+    Returns:
+        dict[str, Any]: {views, arm_poses, per_tier, per_head_offset, corners} (corners per view, summarised when long).
+    """
+    return {
+        "views": len(views),
+        "arm_poses": len({view.arm_pose for view in views}),
+        "per_tier": Counter(view.tier for view in views),
+        "per_head_offset": Counter(view.head_offset for view in views),
+        "corners": [len(view.detection.ids) for view in views],
+    }
+
+
+def worst_views(per_view: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The WORST_VIEWS views with the largest reprojection RMS (a NaN RMS counts as the largest).
+
+    Args:
+        per_view (list[dict[str, Any]]): `per_view` of a fit result ({view_id, rms_px, ...}).
+
+    Returns:
+        list[dict[str, Any]]: Those entries, worst first.
+    """
+
+    def badness(entry: dict[str, Any]) -> float:
+        value = entry.get("rms_px")
+        return math.inf if value is None else float(value)
+
+    return sorted(per_view, key=badness, reverse=True)[:WORST_VIEWS]
 
 
 def same_camera_info(a: CameraInfoData, b: CameraInfoData) -> bool:
@@ -244,9 +291,23 @@ def compute_head_arm(cfg: NodeConfig, store: SessionStore, sid: str, now: dateti
     shutil.rmtree(tmp, ignore_errors=True)
     tmp.mkdir(parents=True)
     applied = Path(cfg.state_dir) / APPLIED_DIR
+    began = time.monotonic()
     try:
         intrinsics = session_intrinsics(store, sid)
         floor, floor_ref = read_floor_values(cfg)
+        calib_event(
+            LOGGER,
+            FLOW,
+            rid,
+            "inputs",
+            "ok",
+            session_id=sid,
+            **views_summary(views),
+            intrinsics=intrinsics,
+            floor=floor_ref,
+            camera_frame=cfg.camera_frame,
+            limits=cfg.fit.limits,
+        )
         fit = fit_head_from_arm(
             views,
             intrinsics.matrix(),
@@ -268,8 +329,40 @@ def compute_head_arm(cfg: NodeConfig, store: SessionStore, sid: str, now: dateti
             measured = (fit.holdout_board_mm, fit.holdout_rms_px, fit.rms_px)
             residual = ChainResidual(KIND, *measured) if all(math.isfinite(v) for v in measured) else None
             (tmp / HEAD_CHAIN_FILE).write_text(head_chain_json(origins, note, sid, rid, residual))
+        calib_event(
+            LOGGER,
+            FLOW,
+            rid,
+            "result",
+            "passed" if fit.passed else "failed",
+            logging.INFO if fit.passed else logging.WARNING,
+            "; ".join(result["failed_limits"]) or None,
+            time.monotonic() - began,
+            session_id=sid,
+            **{
+                key: result[key]
+                for key in ("rms_px", "holdout_rms_px", "holdout_board_mm", "views", "arm_poses", "max_correlation")
+            },
+            params={name: {"value": p["value"], "sigma": p["sigma"]} for name, p in result["params"].items()},
+            limits=result["limits"],
+            failed_limits=result["failed_limits"],
+            board_mount=result["board_mount"],
+            offset_rms_px=result["offset_rms_px"],
+            worst_views=worst_views(result["per_view"]),
+        )
     except (ValueError, OSError) as exc:
-        LOGGER.warning("head-arm fit of %s failed: %s", sid, exc)
+        calib_event(
+            LOGGER,
+            FLOW,
+            rid,
+            "result",
+            "error",
+            logging.WARNING,
+            str(exc),
+            time.monotonic() - began,
+            session_id=sid,
+            error_type=type(exc).__name__,
+        )
         for path in tmp.iterdir():
             path.unlink()
         result = error_body(rid, sid, now, str(exc))
