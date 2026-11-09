@@ -233,6 +233,25 @@ class ArmKinematics:
             self.core = (params, model)
         return self.core[1]
 
+    def set_offsets(self, joint_offsets: dict[str, float]) -> None:
+        """Replace the joint zero offsets in place (a runtime calibration swap) and forget every cached IK answer.
+
+        The offsets dict object is kept (holders of `offsets` see the new values); the C++ model is rebuilt on next
+        use (clear_solutions).
+
+        Args:
+            joint_offsets (dict[str, float]): Joint zero offsets (rad) of the chain joints, urdf = measured + offset;
+                missing joints mean 0.
+
+        Raises:
+            ValueError: For an offset on a joint that is not a chain joint (nothing is changed).
+        """
+        unknown = sorted(set(joint_offsets) - set(ARM_CHAIN_JOINTS))
+        if unknown:
+            raise ValueError(f"joint offsets only apply to {list(ARM_CHAIN_JOINTS)}, not {unknown}")
+        self.offsets.update({j: float(joint_offsets.get(j, 0.0)) for j in ARM_CHAIN_JOINTS})
+        self.clear_solutions()
+
     def clear_solutions(self) -> None:
         """Forget every cached IK answer: the Python solution cache and the C++ model's (rebuilt cold on next use)."""
         self.solutions.clear()
