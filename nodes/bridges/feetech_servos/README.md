@@ -198,7 +198,7 @@ An existing marker is merged: its joints are kept and the saved ones updated, `s
 `saved_at` updated (a marker that is not valid JSON is replaced). mcp_server removes `home` on `arm_set_home`, the arm
 calibration removes `joint_offsets`, and an empty list deletes the file. A marker write failure answers
 `success=false` with `neutral saved, stale marker not written: <error>` (torque stays enabled) and logs an error.
-The arm zero restore (below) removes `joint_offsets` and `home` after a full restore.
+The arm zero restore (below) updates the marker after every apply.
 
 ### Arm zero restore (`zero_restore.py`)
 
@@ -226,18 +226,25 @@ the group's position joints minus `neutral_exclude_joints` (the gripper is never
   (zero_restore_apply_confirmed)`, the plan is kept). Then the wheels of the bus are stopped and per joint, in config
   order: torque re-read (must be 0, else stop), cache entries of offset / goal / torque / limits dropped, the offset
   written (`write_register` wraps it in `UnLockEprom` / `LockEprom`), settle 0.5 s, `present_position` verified within
-  `verify_tolerance_steps` of the target (10 reads 0.1 s apart; on a mismatch the old offset is rewritten and the run
-  stops, later joints are not attempted), the angle limits written back when they read differently, the bridge command
+  `verify_tolerance_steps` of the target (10 reads 0.1 s apart; on a mismatch, or an unacknowledged write, the old
+  offset is rewritten and read back, reported as `rewritten and read back` or `REWRITE NOT VERIFIED (...)`, and the
+  run stops, later joints are not attempted), the angle limits written back when they read differently, the bridge command
   range of joints without config steps refreshed from the limits. Torque stays OFF and the group stays released: the
   next step is `enable_torque`. Every apply that reached the bus writes a JSON audit record
-  `<record_dir>/zero_restore-<UTC YYYYmmddTHHMMSSZ>.json` (plan, per joint before/after offset, present, limits,
-  applied, rollback). After a full restore the stale marker items `joint_offsets` and `home` are cleared (the file is
-  deleted when nothing is left). The plan is consumed by an apply.
+  `<record_dir>/zero_restore-<UTC YYYYmmddTHHMMSSZ>-<run_id>.json` (plan, per joint before/after offset, present,
+  limits, applied, rollback). The plan is consumed by an apply. Stale marker afterwards:
+  - full restore over a marker listing `joint_offsets`: `joint_offsets` is cleared and `home` flipped (listed: home was
+    recorded before the wrong re-zero and is right again, so it is cleared; not listed: home was re-recorded in the
+    wrong zero and is wrong now, so it becomes stale); an empty list deletes the file;
+  - full restore without `joint_offsets` listed: any offset change above `plan_tolerance_steps` is a re-zero of
+    calibrations taken in the old zero, so `joint_offsets` and `home` become stale (marker written with those joints);
+  - failed apply: every joint whose offset may have changed (applied, or rollback not verified) marks both stale.
 - `/<ns>/servo/zero_restore_apply_confirmed`: the same apply with the large change confirmed by the user (the web UI
   asks for an explicit checkbox first).
 - `/<ns>/servo/save_rest_reference`: stores the present readings (rad, and the raw steps) of the released, still arm as
   the reference file (atomic write). Refused while the stale marker lists `joint_offsets` (or is unreadable): the zero
-  is suspect then, so a reference taken now would carry the wrong zero. A saved reference drops any plan.
+  is suspect then, so a reference taken now would carry the wrong zero. A saved reference drops any plan; the
+  previous reference is logged in the `calib_event` line.
 
 Reference: the JSON file `reference_file` (`{"version": 1, "group", "saved_at", "joints": {name: rad}, "steps"}`) wins
 over `seed_reference_rad` when present; a file that is unreadable, not JSON or lacks a finite value for a restore
@@ -245,7 +252,9 @@ joint refuses the dry run (never a silent fallback to the seed).
 
 Timing: the dry run blocks the bridge loop for `still_window_s` (1 s) plus a few reads; an apply about 0.6 s per joint
 (0.5 s settle), up to about 2.5 s per joint with verify retries and a limit restore, so 5 joints can exceed the web
-UI's default 15 s service wait (the arm group sets `zero_restore_timeout_s: 30`).
+UI's default 15 s service wait (the arm group sets `zero_restore_timeout_s: 30`). While a call runs the loop
+publishes nothing: `/follower/joint_states`, `/follower/torque_state` and `/battery_state` (this bridge is its only
+publisher) pause for that time and resume afterwards; consumers see a stale sample, as during a neutral save.
 
 `torque_state` of a group with the block carries `zero_restore` (the key is absent for other groups):
 
@@ -290,7 +299,7 @@ number) makes the whole config invalid.
 ### Calibration journal lines (`calib_event.py`)
 
 Every step of the neutral record/save (flow `neutral`), the zero restore (`zero_restore`: dry_run, apply,
-confirm_large_change, joint_write, joint_verify, rollback, limits, record, marker_clear) and the rest reference
+confirm_large_change, joint_write, joint_verify, rollback, limits, record, marker_update) and the rest reference
 (`rest_reference`) logs one line `calib_event {"flow", "run_id", "step", "outcome", "reason", "data", "duration_s"}`
 (compact JSON) at INFO (`start`, `ok`), WARNING (`refused`) or ERROR (`failed`); `data` holds the per-joint readings,
 targets, offsets, limits and torque. One `run_id` ties the lines of one service call together. The journal is the

@@ -17,8 +17,11 @@ minus neutral_exclude_joints (the gripper is never touched):
   then per joint in config order: re-read torque (must be 0), write the offset (write_register does UnLockEprom /
   LockEprom), settle, verify present within verify_tolerance_steps of the target (else rewrite the old offset and
   stop), restore the angle limits when they moved, refresh the bridge register cache and command limits. Torque stays
-  off. A JSON record goes to record_dir for every apply that reached the bus. On full success the stale marker items
-  joint_offsets and home are cleared (the zero is back on the reference frame).
+  off. A JSON record goes to record_dir for every apply that reached the bus. Stale marker afterwards (update_marker):
+  a full restore over a marker listing joint_offsets clears joint_offsets and flips home (a home recorded after the
+  wrong re-zero is wrong again, one recorded before it is right again); without such a marker a change beyond
+  plan_tolerance_steps marks joint_offsets and home stale (it is a re-zero of calibrations taken in the old zero); a
+  failed apply marks them stale for every joint whose offset may have changed.
 - save_rest_reference(namespace): stores the present readings (rad) of a released, still arm as the reference file;
   refused while the stale marker lists joint_offsets (the zero is suspect then).
 
@@ -44,11 +47,12 @@ from .neutral import (
     MAX_LIMIT_REGISTER,
     MIN_LIMIT_REGISTER,
     NeutralResult,
-    clear_stale_items,
     names_text,
     read_stale_items,
+    set_stale_items,
     stop_bus_wheels,
     write_json_atomic,
+    write_stale_marker,
 )
 from .registers import get_register_entry_by_name, read_register, write_register
 from .torque_control import GOAL_REGISTER, PRESENT_REGISTER, TORQUE_OFF, TORQUE_REGISTER, TorqueControl
@@ -72,7 +76,7 @@ REFERENCE_VERSION = 1
 RECORD_PREFIX = "zero_restore-"
 RECORD_TIME_FORMAT = "%Y%m%dT%H%M%SZ"
 STALE_JOINT_OFFSETS = "joint_offsets"
-CLEARED_ITEMS = ["joint_offsets", "home"]
+STALE_HOME = "home"
 FLOW_RESTORE = "zero_restore"
 FLOW_REFERENCE = "rest_reference"
 SOURCE_SEED = "seed"
@@ -343,7 +347,7 @@ class JointOutcome:
         present_after_steps: present_position after the write (None when unread or not written).
         offset_after_steps: Decoded offset read back after the write.
         limits_after: Angle limits at the end.
-        rolled_back: The old offset was rewritten after a failed verify (None when no rollback was needed).
+        rolled_back: The old offset was rewritten and read back after a failure (None when no rollback was needed).
         reason: Why the joint failed; None on success.
     """
 
@@ -737,7 +741,7 @@ class ZeroRestoreControl:
 
         applied = [n for n, o in outcomes.items() if o.applied]
         notes: list[str] = []
-        record_path, record_error = self.write_record(group, plan, outcomes, not_attempted, confirmed, failure)
+        record_path, record_error = self.write_record(group, plan, outcomes, not_attempted, confirmed, failure, run_id)
         self.events.event(
             FLOW_RESTORE,
             run_id,
@@ -749,10 +753,10 @@ class ZeroRestoreControl:
         )
         if record_error is not None:
             notes.append(f"record not written: {record_error}")
+        marker_error = self.update_marker(group, plan, outcomes, failure, run_id, started)
+        if marker_error is not None:
+            notes.append(f"stale marker not updated: {marker_error}")
         if failure is None:
-            marker_error = self.clear_marker(group, run_id, started)
-            if marker_error is not None:
-                notes.append(f"stale marker not cleared: {marker_error}")
             message = (
                 f"/{namespace}: zero restored for {names_text(applied)}; torque stays off; re-enable torque next; "
                 f"record {record_path}"
@@ -844,8 +848,9 @@ class ZeroRestoreControl:
             torque=TORQUE_OFF,
         )
         if not written:
-            outcome.reason = "offset write failed"
-            outcome.rolled_back = self.write_offset(joint.id, planned.offset_before_steps)
+            outcome.rolled_back, text = self.rollback(joint, planned)
+            outcome.reason = f"offset write failed; {text}"
+            event("rollback", outcome.rolled_back, outcome.reason, offset_steps=planned.offset_before_steps)
             return outcome
         self.sleep(SETTLE_S)
         present = self.verify_present(joint.id, planned.target_steps, tolerance)
@@ -866,13 +871,10 @@ class ZeroRestoreControl:
             tolerance_steps=tolerance,
         )
         if not verified:
-            outcome.rolled_back = self.write_offset(joint.id, planned.offset_before_steps)
+            outcome.rolled_back, text = self.rollback(joint, planned)
             reading = "read failed" if present is None else f"reads {present}"
-            outcome.reason = (
-                f"not verified ({reading}, target {planned.target_steps} +- {tolerance}); old offset "
-                f"{planned.offset_before_steps} {'rewritten' if outcome.rolled_back else 'REWRITE FAILED'}"
-            )
-            event("rollback", bool(outcome.rolled_back), outcome.reason, offset_steps=planned.offset_before_steps)
+            outcome.reason = f"not verified ({reading}, target {planned.target_steps} +- {tolerance}); {text}"
+            event("rollback", outcome.rolled_back, outcome.reason, offset_steps=planned.offset_before_steps)
             return outcome
         outcome.limits_after = self.restore_limits(joint.id, planned.limits)
         limits_ok = outcome.limits_after == planned.limits
@@ -888,6 +890,32 @@ class ZeroRestoreControl:
             return outcome
         outcome.applied = True
         return outcome
+
+    def rollback(self, joint: JointEntry, planned: JointPlan) -> tuple[bool, str]:
+        """Rewrite the old offset and read it back.
+
+        Args:
+            joint (JointEntry): The joint.
+            planned (JointPlan): Its plan (offset_before_steps).
+
+        Returns:
+            tuple[bool, str]: (the offset reads the old value again, text for the message).
+        """
+        old = planned.offset_before_steps
+        acknowledged = self.write_offset(joint.id, old)
+        raw = read_retried(self.torque.servo, joint.id, OFFSET_REGISTER)
+        try:
+            readback = None if raw is None else decode_offset(raw)
+        except ValueError:
+            readback = None
+        if readback == old:
+            return True, f"old offset {old} rewritten and read back"
+        if raw is None:
+            detail = "offset read failed"
+        else:
+            detail = f"reads {readback if readback is not None else hex(raw)}"
+        ack = "" if acknowledged else ", write not acknowledged"
+        return False, f"old offset {old} REWRITE NOT VERIFIED ({detail}{ack})"
 
     def write_offset(self, servo_id: int, steps: int) -> bool:
         """Write the offset register (write_register unlocks and relocks the EEPROM around it).
@@ -955,6 +983,7 @@ class ZeroRestoreControl:
         not_attempted: list[str],
         confirmed: bool,
         failure: tuple[str, str] | None,
+        run_id: str,
     ) -> tuple[Path, str | None]:
         """Write the apply's JSON audit record to record_dir.
 
@@ -965,12 +994,15 @@ class ZeroRestoreControl:
             not_attempted (list[str]): Joints after a failure.
             confirmed (bool): Applied through the large-change confirm.
             failure (tuple[str, str] | None): (joint, reason) of the failed joint.
+            run_id (str): The apply's run id (part of the file name, so two applies in one second never collide).
 
         Returns:
             tuple[Path, str | None]: The record path and the write error (None when written).
         """
         stamp = self.now()
-        path = Path(group.zero_restore.record_dir) / f"{RECORD_PREFIX}{stamp.strftime(RECORD_TIME_FORMAT)}.json"
+        path = (
+            Path(group.zero_restore.record_dir) / f"{RECORD_PREFIX}{stamp.strftime(RECORD_TIME_FORMAT)}-{run_id}.json"
+        )
         joints = {}
         for name, planned in plan.joints.items():
             outcome = outcomes.get(name)
@@ -991,6 +1023,7 @@ class ZeroRestoreControl:
         payload = {
             "created_at": stamp.isoformat(timespec="seconds"),
             "group": group.namespace,
+            "run_id": run_id,
             "plan_run_id": plan.run_id,
             "plan_created_at": plan.created_at,
             "reference_source": plan.reference_source,
@@ -1006,36 +1039,68 @@ class ZeroRestoreControl:
             return path, f"{type(exc).__name__}: {exc}"
         return path, None
 
-    def clear_marker(self, group: JointGroup, run_id: str, started: float) -> str | None:
-        """Clear joint_offsets and home from the group's stale marker after a full restore.
+    def update_marker(
+        self,
+        group: JointGroup,
+        plan: Plan,
+        outcomes: dict[str, JointOutcome],
+        failure: tuple[str, str] | None,
+        run_id: str,
+        started: float,
+    ) -> str | None:
+        """Bring the group's stale marker in line with the zero after an apply.
+
+        Full restore with joint_offsets listed: joint_offsets is cleared and home flipped (home listed: it was
+        recorded before the wrong re-zero and is right again; not listed: it was re-recorded in the wrong zero and is
+        wrong now). Full restore without joint_offsets listed: a joint whose offset changed by more than
+        plan_tolerance_steps makes joint_offsets and home stale. Failure: every joint whose offset may have changed
+        (applied, or not rolled back) makes them stale.
 
         Args:
             group (JointGroup): The group.
+            plan (Plan): The applied plan.
+            outcomes (dict[str, JointOutcome]): Per attempted joint.
+            failure (tuple[str, str] | None): (joint, reason) of the failed joint.
             run_id (str): calib_event run id.
             started (float): Monotonic start of the apply.
 
         Returns:
-            str | None: The error text; None when cleared or the group has no marker.
+            str | None: The error text; None when updated or nothing to do (no marker path).
         """
         if group.neutral_stale_marker is None:
             return None
         path = Path(group.neutral_stale_marker)
+        items = read_stale_items(path)
+        if failure is None and items is not None and STALE_JOINT_OFFSETS in items:
+            changed: dict[str, tuple[int, int]] = {}
+            new_items = [] if STALE_HOME in items else [STALE_HOME]
+        else:
+            if failure is None:
+                names = [
+                    n
+                    for n, j in plan.joints.items()
+                    if abs(j.offset_change_steps) > group.zero_restore.plan_tolerance_steps
+                ]
+            else:
+                names = [n for n, o in outcomes.items() if o.applied or o.rolled_back is False]
+            changed = {n: (plan.joints[n].present_steps, after_steps(outcomes.get(n), plan.joints[n])) for n in names}
+            new_items = None
+        data = {"path": str(path), "before": items, "changed": list(changed)}
         try:
-            clear_stale_items(path, CLEARED_ITEMS)
+            if new_items is not None:
+                set_stale_items(path, new_items, group.namespace, self.now_iso())
+                data["after"] = new_items
+            elif changed:
+                write_stale_marker(path, group.namespace, self.now_iso(), changed)
+                data["after"] = read_stale_items(path)
+            else:
+                data["after"] = items
         except OSError as exc:
             error = f"{type(exc).__name__}: {exc}"
-            self.events.event(FLOW_RESTORE, run_id, "marker_clear", OUTCOME_FAILED, error, {"path": str(path)})
+            self.events.event(FLOW_RESTORE, run_id, "marker_update", OUTCOME_FAILED, error, data)
             return error
-        self.states[group.namespace].marker_checked = None
-        self.events.event(
-            FLOW_RESTORE,
-            run_id,
-            "marker_clear",
-            OUTCOME_OK,
-            None,
-            {"path": str(path), "cleared": CLEARED_ITEMS},
-            self.monotonic() - started,
-        )
+        self.state(group).marker_checked = None
+        self.events.event(FLOW_RESTORE, run_id, "marker_update", OUTCOME_OK, None, data, self.monotonic() - started)
         return None
 
     # --- rest reference -----------------------------------------------------------------------------------------
@@ -1087,6 +1152,7 @@ class ZeroRestoreControl:
             self.events.event(FLOW_REFERENCE, run_id, "save", OUTCOME_FAILED, error, {"path": str(path)})
             return NeutralResult(False, f"/{namespace}: rest reference not written: {error}")
         state = self.state(group)
+        previous = state.reference
         state.plan = None
         self.refresh_reference(group, state)
         self.events.event(
@@ -1095,7 +1161,7 @@ class ZeroRestoreControl:
             "save",
             OUTCOME_OK,
             None,
-            {"path": str(path), "joints": values, "steps": presents},
+            {"path": str(path), "joints": values, "steps": presents, "previous": previous},
             self.monotonic() - started,
         )
         text = ", ".join(f"{n} {v:+.3f}" for n, v in values.items())
@@ -1128,6 +1194,21 @@ class ZeroRestoreControl:
             str: e.g. "2026-11-09T12:00:00+00:00".
         """
         return self.now().isoformat(timespec="seconds")
+
+
+def after_steps(outcome: JointOutcome | None, planned: JointPlan) -> int:
+    """Reading of a joint after an apply for the stale marker: the verified reading, else the target.
+
+    Args:
+        outcome (JointOutcome | None): The joint's outcome; None when not attempted.
+        planned (JointPlan): Its plan.
+
+    Returns:
+        int: present_position steps.
+    """
+    if outcome is not None and outcome.present_after_steps is not None:
+        return outcome.present_after_steps
+    return planned.target_steps
 
 
 def restore_joints(group: JointGroup) -> list[JointEntry]:

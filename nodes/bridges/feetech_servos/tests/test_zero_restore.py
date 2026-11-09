@@ -66,7 +66,7 @@ SMALL_SHIFT = {"shoulder_pan": -11, "shoulder_lift": 20, "elbow_flex": -30, "wri
 LIMITS = {1: (500, 3500), 2: (0, 4095), 3: (0, 4095), 4: (0, 4095), 5: (0, 4095), 6: (1900, 3377)}
 STALE_COMMAND_LIMITS = (0, 4095)
 NOW = datetime(2026, 11, 9, 12, 0, 0, tzinfo=UTC)
-RECORD_NAME = "zero_restore-20261109T120000Z.json"
+RECORD_GLOB = "zero_restore-20261109T120000Z-*.json"
 STEP_RAD = 2 * math.pi / STEPS_PER_REVOLUTION
 
 
@@ -81,6 +81,9 @@ class OffsetPort(NeutralPort):
         limit_shift_on_offset: Steps the angle limit registers move by on an offset write.
         jitter: servo_id -> per-read present_position deltas (popped per read; the arm trembling).
         torque_on_after_offset: servo_id -> servo whose torque turns on after that servo's offset write.
+        unacked_offset: Servos storing an offset write without sending the status reply.
+        drop_offset_reads_after_writes: servo_id -> offset writes after which its offset reads never answer.
+        offset_writes_seen: servo_id -> offset writes received so far.
     """
 
     encoder: dict[int, int] = field(default_factory=dict)
@@ -89,6 +92,9 @@ class OffsetPort(NeutralPort):
     limit_shift_on_offset: int = 0
     jitter: dict[int, list[int]] = field(default_factory=dict)
     torque_on_after_offset: dict[int, int] = field(default_factory=dict)
+    unacked_offset: set[int] = field(default_factory=set)
+    drop_offset_reads_after_writes: dict[int, int] = field(default_factory=dict)
+    offset_writes_seen: dict[int, int] = field(default_factory=dict)
 
     def refresh_present(self, servo_id: int) -> None:
         """Recompute present_position of one servo from its encoder and offset register."""
@@ -107,6 +113,18 @@ class OffsetPort(NeutralPort):
             put_word(table, STS_PRESENT_POSITION_L, true_value)
             return
         is_offset_write = packet.instruction == INST_WRITE and params and params[0] == STS_OFS_L
+        is_offset_read = packet.instruction == INST_READ and params[0] == STS_OFS_L
+        if is_offset_read and self.offset_writes_seen.get(sid, 0) >= self.drop_offset_reads_after_writes.get(
+            sid, 10**9
+        ):
+            return
+        if is_offset_write:
+            self.offset_writes_seen[sid] = self.offset_writes_seen.get(sid, 0) + 1
+        if is_offset_write and sid in self.unacked_offset:
+            self.servos[sid][STS_OFS_L : STS_OFS_L + 2] = bytes(params[1:3])
+            self.events.append((sid, "offset", decode_offset(word(self.servos[sid], STS_OFS_L))))
+            self.refresh_present(sid)
+            return
         if is_offset_write and sid in self.stuck_offset:
             self.events.append((sid, "offset", word(bytearray(params[1:3]), 0)))
             self.reply(sid, [])
@@ -238,6 +256,13 @@ def make_rig(
 def write_marker(rig: Rig) -> None:
     """Write the stale marker the wrong re-zero left (joint_offsets and home stale)."""
     write_stale_marker(rig.marker, "follower", "2026-11-09T10:00:00+00:00", {"elbow_flex": (3077, 2048)})
+
+
+def only_record(rig: Rig) -> Path:
+    """The single apply record in the record dir."""
+    records = list(Path(rig.config.record_dir).glob(RECORD_GLOB))
+    assert len(records) == 1
+    return records[0]
 
 
 def plan_of(rig: Rig) -> dict[str, Any]:
@@ -580,7 +605,9 @@ def test_apply_writes_the_json_record(tmp_path: Path) -> None:
     rig = make_rig(tmp_path)
     assert rig.zero.dry_run("follower").success
     result = rig.zero.apply("follower", confirmed=True)
-    record_path = Path(rig.config.record_dir) / RECORD_NAME
+    record_path = only_record(rig)
+    run_id = rig.zero.status("follower")["zero_restore"]["last_result"]["run_id"]
+    assert record_path.name == f"zero_restore-20261109T120000Z-{run_id}.json"
     assert str(record_path) in result.message
     record = json.loads(record_path.read_text())
     assert record["success"] is True and record["confirmed"] is True
@@ -622,7 +649,7 @@ def test_apply_verify_failure_rolls_back_and_stops(tmp_path: Path) -> None:
     last = rig.zero.status("follower")["zero_restore"]["last_result"]
     assert last["success"] is False
     assert last["not_attempted"] == ["elbow_flex", "wrist_flex", "wrist_roll"]
-    record = json.loads((Path(rig.config.record_dir) / RECORD_NAME).read_text())
+    record = json.loads(only_record(rig).read_text())
     assert record["joints"]["shoulder_pan"]["applied"] is True
     assert record["joints"]["shoulder_lift"]["applied"] is False
     assert any(e["step"] == "rollback" for e in rig.calib_events())
@@ -688,14 +715,62 @@ def test_apply_never_touches_the_gripper(tmp_path: Path) -> None:
     assert not [p for p in rig.port.packets[start:] if p.servo_id == GRIPPER_ID]
 
 
-def test_apply_clears_a_marker_listing_only_joint_offsets(tmp_path: Path) -> None:
+def test_apply_marks_home_stale_when_it_was_recorded_in_the_wrong_zero(tmp_path: Path) -> None:
+    """Only joint_offsets listed: home was re-recorded (arm_set_home) after the wrong re-zero, so it is wrong now."""
     rig = make_rig(tmp_path)
     write_marker(rig)
     content = json.loads(rig.marker.read_text())
     rig.marker.write_text(json.dumps({**content, "stale": ["joint_offsets"]}))
     assert rig.zero.dry_run("follower").success
     assert rig.zero.apply("follower", confirmed=True).success
+    assert json.loads(rig.marker.read_text())["stale"] == ["home"]
+
+
+def test_apply_without_a_marker_marks_a_real_zero_change_stale(tmp_path: Path) -> None:
+    """No marker: the calibrations matched the old zero, so a change beyond plan_tolerance_steps makes them stale."""
+    rig = make_rig(tmp_path, shift=SMALL_SHIFT)
+    assert rig.zero.dry_run("follower").success
+    assert rig.zero.apply("follower").success
+    marker = json.loads(rig.marker.read_text())
+    assert marker["stale"] == list(STALE_ITEMS)
+    assert set(marker["joints"]) == set(SEED)  # every SMALL_SHIFT change is above 5 steps
+
+
+def test_apply_without_a_marker_and_within_tolerance_writes_none(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path, shift={name: 2 for name in SEED})
+    assert rig.zero.dry_run("follower").success
+    assert rig.zero.apply("follower").success
     assert not rig.marker.exists()
+
+
+def test_partial_apply_without_a_marker_marks_the_written_joints_stale(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path)
+    rig.port.stuck_offset = {3}
+    assert rig.zero.dry_run("follower").success
+    assert rig.zero.apply("follower", confirmed=True).success is False
+    marker = json.loads(rig.marker.read_text())
+    assert marker["stale"] == list(STALE_ITEMS)
+    assert set(marker["joints"]) == {"shoulder_pan", "shoulder_lift"}
+
+
+def test_unacknowledged_offset_write_is_rolled_back_and_verified(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path)
+    rig.port.unacked_offset = {1}  # the write lands but no status reply comes back
+    assert rig.zero.dry_run("follower").success
+    result = rig.zero.apply("follower", confirmed=True)
+    assert result.success is False
+    assert "shoulder_pan (offset write failed; old offset 109 rewritten and read back)" in result.message
+    assert rig.offset(1) == ORIGINAL_OFFSET["shoulder_pan"] + INCIDENT_SHIFT["shoulder_pan"]
+    assert rig.offset_writes() == [1, 1]
+
+
+def test_rollback_not_read_back_is_reported(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path)
+    rig.port.stuck_offset = {2}
+    rig.port.drop_offset_reads_after_writes = {2: 2}  # the read back after the rollback never answers
+    assert rig.zero.dry_run("follower").success
+    result = rig.zero.apply("follower", confirmed=True)
+    assert "REWRITE NOT VERIFIED" in result.message
 
 
 def test_apply_logs_a_calib_event_per_step(tmp_path: Path) -> None:
@@ -707,7 +782,7 @@ def test_apply_logs_a_calib_event_per_step(tmp_path: Path) -> None:
     assert steps[0] == ("apply", "start")
     assert steps.count(("joint_write", "ok")) == 5
     assert steps.count(("joint_verify", "ok")) == 5
-    assert ("record", "ok") in steps and ("marker_clear", "ok") in steps
+    assert ("record", "ok") in steps and ("marker_update", "ok") in steps
     assert steps[-1] == ("apply", "ok")
 
 

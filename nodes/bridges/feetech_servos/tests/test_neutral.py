@@ -977,29 +977,37 @@ def test_read_stale_items_unreadable_marker_counts_every_item(tmp_path: Path) ->
     assert neutral_module.read_stale_items(marker) == list(STALE_ITEMS)
 
 
-def test_clear_stale_items_keeps_the_rest_of_the_marker(tmp_path: Path) -> None:
+def test_set_stale_items_keeps_the_rest_of_the_marker(tmp_path: Path) -> None:
     marker = tmp_path / "m.json"
     write_stale_marker(marker, "follower", SAVED_AT, {"shoulder_pan": (1500, 2048)})
-    neutral_module.clear_stale_items(marker, ["joint_offsets"])
+    neutral_module.set_stale_items(marker, ["home"], "follower", SAVED_AT)
     content = json.loads(marker.read_text())
     assert content["stale"] == ["home"]
     assert content["joints"] == {"shoulder_pan": {"before_steps": 1500, "after_steps": 2048}}
     assert [p.name for p in tmp_path.iterdir()] == ["m.json"]  # no temp file left
 
 
-def test_clear_stale_items_deletes_the_marker_when_none_remain(tmp_path: Path) -> None:
+def test_set_stale_items_deletes_the_marker_when_empty(tmp_path: Path) -> None:
     marker = tmp_path / "m.json"
     write_stale_marker(marker, "follower", SAVED_AT, {"shoulder_pan": (1500, 2048)})
-    neutral_module.clear_stale_items(marker, list(STALE_ITEMS))
+    neutral_module.set_stale_items(marker, [], "follower", SAVED_AT)
     assert not marker.exists()
-    neutral_module.clear_stale_items(marker, list(STALE_ITEMS))  # absent: no-op
+    neutral_module.set_stale_items(marker, [], "follower", SAVED_AT)  # absent: no-op
 
 
-def test_clear_stale_items_deletes_an_unreadable_marker(tmp_path: Path) -> None:
+def test_set_stale_items_creates_or_rewrites_a_marker(tmp_path: Path) -> None:
     marker = tmp_path / "m.json"
+    neutral_module.set_stale_items(marker, ["home"], "follower", SAVED_AT)
+    assert json.loads(marker.read_text()) == {
+        "version": 1,
+        "group": "follower",
+        "saved_at": SAVED_AT,
+        "joints": {},
+        "stale": ["home"],
+    }
     marker.write_text("{not json")
-    neutral_module.clear_stale_items(marker, list(STALE_ITEMS))
-    assert not marker.exists()
+    neutral_module.set_stale_items(marker, ["home"], "follower", SAVED_AT)
+    assert json.loads(marker.read_text())["stale"] == ["home"]
 
 
 def test_write_json_atomic_creates_parents_and_leaves_no_temp(tmp_path: Path) -> None:

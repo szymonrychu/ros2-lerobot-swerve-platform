@@ -105,7 +105,8 @@ Steps (one button each; the panel says what to expect under every button):
    "moved since the dry run": run the dry run again). Expect: "zero restored for shoulder_pan, shoulder_lift,
    elbow_flex, wrist_flex, wrist_roll; torque stays off" and the result table: every joint Applied yes, Now (rad)
    equal to the Target of step 2 within 0.005 rad. The arm does not move. The calibration-stale warning
-   (joint_offsets, home) disappears. Mismatch (a failed joint): STOP and report the message; the failed joint got its
+   disappears (joint_offsets cleared; home cleared too when it was listed, or listed now when home was re-recorded
+   after the wrong re-zero: then store a new home on the head-arm card after Park). Mismatch (a failed joint): STOP and report the message; the failed joint got its
    old offset back, joints before it are restored, later joints untouched; torque stays off.
 4. Press **4. Re-enable torque**. Expect: the arm holds its pose, the card shows torque on.
 5. Park the arm on the head-arm card. Expect: it parks on its rest without a jump. Mismatch: press Stop and report.
@@ -115,7 +116,8 @@ Optional, once the zero is right: with the arm resting folded and torque off, **
 use it instead of the seed ("Reference: saved <time>"). It is disabled while the zero is stale (joint_offsets).
 
 **Move to neutral pose** (Arm card, confirm **Move**: "The arm moves to the neutral pose: all joints at 0. Keep the area
-clear.") moves every arm joint except the gripper to 0 rad along the Park routing with its body checks and home speed;
+clear.") moves every arm joint except the gripper to 0 rad along the home routing (`/arm/home`) with its body checks and
+speed;
 it needs torque on and a zero that is not stale.
 
 Audit and logs: every apply writes `/var/lib/ros2/arm/zero_restore-<UTC time>.json` (per joint offset before/after,

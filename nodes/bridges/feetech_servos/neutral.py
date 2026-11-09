@@ -16,7 +16,7 @@ off on the whole group. A group with neutral_stale_marker gets the stale marker 
 changed. Every record and save logs calib_event lines (flow "neutral": record, save start / refused / done, one
 centre_joint per joint) through calib_event.CalibEventLog.
 
-Shared helpers: write_json_atomic (temp file + os.replace), read_stale_items / clear_stale_items on the stale marker and
+Shared helpers: write_json_atomic (temp file + os.replace), read_stale_items / set_stale_items on the stale marker and
 stop_bus_wheels, also used by zero_restore.
 
 bridge.py runs both on the loop thread (the sole bus owner); tests drive them over an emulated bus.
@@ -232,36 +232,31 @@ def read_stale_items(path: Path) -> list[str] | None:
     return None if data is None else [str(item) for item in data["stale"]]
 
 
-def clear_stale_items(path: Path, items: list[str]) -> None:
-    """Remove items from the marker's stale list atomically; delete the marker when none remain.
+def set_stale_items(path: Path, items: list[str], group: str, saved_at: str | None) -> None:
+    """Set the marker's stale list atomically, keeping its other fields; delete the marker when the list is empty.
 
-    Same semantics as mcp_server calibration_marker.clear_stale (an unreadable marker counts as listing every item).
+    An absent marker is created ({version, group, saved_at, joints: {}, stale}); an unreadable one is rewritten.
 
     Args:
-        path (Path): Marker path; absent is a no-op.
-        items (list[str]): Items to clear ("joint_offsets", "home").
+        path (Path): Marker path.
+        items (list[str]): The new stale items.
+        group (str): Group namespace for a new marker.
+        saved_at (str | None): ISO-8601 UTC time for a new marker (None: unknown).
 
     Raises:
         OSError: When the rewrite or the delete fails.
     """
+    if not items:
+        path.unlink(missing_ok=True)
+        return
     try:
         data = read_marker_json(path)
     except ValueError as exc:
-        LOGGER.error("%s; rewriting it with the items still stale", exc)
-        data = {
-            "version": MARKER_VERSION,
-            "group": "unknown",
-            "saved_at": None,
-            "joints": {},
-            "stale": list(STALE_ITEMS),
-        }
+        LOGGER.error("%s; rewriting it", exc)
+        data = None
     if data is None:
-        return
-    remaining = [item for item in data["stale"] if item not in items]
-    if not remaining:
-        path.unlink(missing_ok=True)
-        return
-    write_json_atomic(path, {**data, "stale": remaining})
+        data = {"version": MARKER_VERSION, "group": group, "saved_at": saved_at, "joints": {}}
+    write_json_atomic(path, {**data, "stale": list(items)})
 
 
 def stop_bus_wheels(torque: TorqueControl) -> list[str]:
