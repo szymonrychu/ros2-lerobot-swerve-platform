@@ -31,6 +31,11 @@ Threads (as floor_sweep.py): `move_to_base`, `board_attached`, `allow_big_joints
 HTTP threads; one worker thread runs the sequence or the park. `lock` guards the shared fields and is only held for
 short updates (never across a tool call or `blocked`); the worker waits through the injected `sleep` and measures
 every wait on the injected `clock`.
+
+Events: every sequence start, step outcome (base pose, board attached, handle grip, still session, each pose, the
+big-joint answer, the return), sequence end (done, stopped, error), park start, park result and refusal is logged with
+its message (errors at ERROR, stops and skipped poses at WARNING) and kept in a bounded list of the newest
+EVENT_LIMIT events, `state()["events"]` (newest first), so the Calibrate page shows why a sequence ended.
 """
 
 import json
@@ -39,7 +44,7 @@ import math
 import os
 import threading
 import time
-from collections import Counter
+from collections import Counter, deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -88,6 +93,8 @@ MESSAGE_STATE_BOARD = "; if the calibration board is on the gripper, state that 
 MESSAGE_PARK = "Press Park (the board may stay on when its park path is clear)"
 HOLDING_LOAD_PREFIX = "holding load"  # mcp_server carrying reason of a gripper that clamps something (the board handle)
 BASE_JOINTS = (*ARM_JOINT_NAMES, GRIPPER_JOINT)
+EVENT_LIMIT = 50  # recent events kept in state()["events"]
+EVENT_LEVELS = {logging.INFO: "info", logging.WARNING: "warning", logging.ERROR: "error"}
 
 
 class SequenceError(RuntimeError):
@@ -297,6 +304,7 @@ class Sequencer:
         self.board_on = False
         self.big_joints_allowed: bool | None = None
         self.recorded_mount: dict[str, list[float]] | None = None
+        self.events: deque[dict[str, str]] = deque(maxlen=EVENT_LIMIT)
         self.restore_board()
 
     def restore_board(self) -> None:
@@ -366,15 +374,31 @@ class Sequencer:
         except OSError as exc:
             LOG.error("cannot remove the board record %s: %s", self.board_file, exc)
 
+    def event(self, level: int, message: str, phase: str | None = None) -> None:
+        """Log one sequence or park event with its message and keep it in the recent events (never under the lock).
+
+        Args:
+            level (int): logging.INFO, logging.WARNING or logging.ERROR.
+            message (str): What happened, with the reason of a failure.
+            phase (str | None): The phase the event belongs to; None takes the current phase.
+        """
+        LOG.log(level, "head-arm %s", message)
+        stamp = self.now().isoformat(timespec="seconds")
+        with self.lock:
+            self.events.append(
+                {"time": stamp, "phase": phase or self.phase, "level": EVENT_LEVELS[level], "message": message}
+            )
+
     def state(self) -> dict[str, Any]:
         """The sequence state for the HTTP API.
 
         Returns:
             {running, phase, session_id, tier, arm_pose, total_poses, captured, skipped, status, error, big_joints,
-            waiting_since}: arm_pose is the 0-based index over the whole pose set of the pose worked on (None before
-            the first), skipped maps each skip reason to its count, big_joints names the joints tier 2 moves,
-            waiting_since is the clock time a confirm wait began (None outside a wait), board_record is
-            `{session_id, clipped_at}` of a fresh board record from before a node restart (None without one).
+            waiting_since, board_record, events}: arm_pose is the 0-based index over the whole pose set of the pose
+            worked on (None before the first), skipped maps each skip reason to its count, big_joints names the joints
+            tier 2 moves, waiting_since is the clock time a confirm wait began (None outside a wait), board_record is
+            `{session_id, clipped_at}` of a fresh board record from before a node restart (None without one), events
+            are the newest EVENT_LIMIT `{time (ISO 8601), phase, level (info, warning, error), message}`, newest first.
         """
         with self.lock:
             return {
@@ -391,6 +415,7 @@ class Sequencer:
                 "big_joints": list(BIG_JOINTS),
                 "waiting_since": self.waiting_since,
                 "board_record": self.board_record,
+                "events": [dict(e) for e in reversed(self.events)],
             }
 
     def wait(self, timeout: float | None = None) -> None:
@@ -445,13 +470,21 @@ class Sequencer:
             self.waiting_since = None
         return previous
 
-    def give_up(self, phase: str, error: str) -> None:
-        """Undo a claim that failed before the worker started."""
+    def give_up(self, phase: str, error: str, event: str) -> None:
+        """Undo a claim that failed before the worker started, and record the refusal as an error event.
+
+        Args:
+            phase (str): The phase to return to.
+            error (str): Why the start was refused (the state error).
+            event (str): The event message.
+        """
         with self.lock:
+            refused_in = self.phase
             self.running = False
             self.phase = phase
             self.status = f"refused: {error}"
             self.error = error
+        self.event(logging.ERROR, event, refused_in)
 
     def move_to_base(self, confirmed: bool) -> dict[str, Any]:
         """Start a sequence: take the arm and move it, without the board, to the base pose.
@@ -476,7 +509,7 @@ class Sequencer:
         try:
             plan = self.prepare()
         except SequenceError as exc:
-            self.give_up(IDLE, str(exc))
+            self.give_up(IDLE, str(exc), f"sequence start refused: {exc}")
             raise
         with self.lock:
             self.session_id = None
@@ -489,9 +522,9 @@ class Sequencer:
             self.status = "taking the arm"
         self.clear_board()
         self.stop_event.clear()
+        self.event(logging.INFO, f"sequence started: {len(plan.poses)} poses")
         self.thread = threading.Thread(target=self.work, args=(plan,), name="head-arm-sequence", daemon=True)
         self.thread.start()
-        LOG.info("head-arm sequence started: %d poses", len(plan.poses))
         return self.state()
 
     def prepare(self) -> Plan:
@@ -529,6 +562,7 @@ class Sequencer:
             if not self.running or self.phase != WAITING_BOARD:
                 raise Busy(f"Board attached is accepted in phase {WAITING_BOARD} only (phase {self.phase})")
             self.board_on = True
+        self.event(logging.INFO, "board attached")
         self.record_board()
         return self.state()
 
@@ -548,6 +582,7 @@ class Sequencer:
             if not self.running or self.phase != WAITING_BIG_JOINTS:
                 raise Busy(f"the big-joint answer is accepted in phase {WAITING_BIG_JOINTS} only (phase {self.phase})")
             self.big_joints_allowed = bool(confirmed)
+        self.event(logging.INFO, "tier 2 allowed" if confirmed else "tier 2 skipped by the user")
         return self.state()
 
     def park(self, confirmed: bool, board_on: bool = False) -> dict[str, Any]:
@@ -596,14 +631,15 @@ class Sequencer:
                     self.status = "checking the board's park path"
                 params = self.check_board_park_path()
         except SequenceError as exc:
-            self.give_up(previous, str(exc))
+            self.give_up(previous, str(exc), str(exc))
             raise
         except Exception as exc:
             error = f"Park refused: {type(exc).__name__}: {exc}"
-            self.give_up(previous, error)
+            self.give_up(previous, error, error)
             raise SequenceError(error) from exc
         with self.lock:
             self.status = "parking: homing the arm, then the head"
+        self.event(logging.INFO, f"park started (board {'on' if params is not None else 'off'})")
         self.stop_event.clear()
         self.thread = threading.Thread(
             target=self.park_work, args=(previous, params), name="head-arm-park", daemon=True
@@ -683,7 +719,6 @@ class Sequencer:
             error = str(exc)
         except Exception as exc:  # reported as the park error; the phase stays as it was
             error = f"{type(exc).__name__}: {exc}"
-            LOG.error("head-arm park failed: %s", error)
         if lease:
             held = self.robot.release_arm(keep_position=True)
             if held.is_error:
@@ -701,7 +736,9 @@ class Sequencer:
                 self.error = error
         if error is None:
             self.clear_board()
-        LOG.info("head-arm park %s", "done" if error is None else f"failed: {error}")
+            self.event(logging.INFO, f"park done: {status}")
+        else:
+            self.event(logging.ERROR, f"park failed: {error}", PARKING)
 
     def park_move(self) -> None:
         """Move to `park_pose` at the sequence speed scale (guarded by mcp_server); the path was checked.
@@ -729,10 +766,11 @@ class Sequencer:
             outcome, error = "error", str(exc)
         except Exception as exc:  # reported as the sequence error; the finally block still holds the arm
             outcome, error = "error", f"{type(exc).__name__}: {exc}"
-            LOG.error("head-arm sequence failed: %s", error)
+            LOG.exception("head-arm sequence raised")
         finally:
             error = self.hold(error)
             with self.lock:
+                ended_in = self.phase
                 self.running = False
                 self.phase = HOLDING if self.board_on else IDLE
                 self.waiting_since = None
@@ -743,7 +781,12 @@ class Sequencer:
                 self.status = f"{outcome}{detail}{note}{follow}"
         if self.board_on:
             self.record_board()  # now with the capture session id
-        LOG.info("head-arm sequence %s", outcome)
+        if error is not None:
+            self.event(logging.ERROR, f"sequence error: {error}", ended_in)
+        elif outcome == REASON_STOPPED:
+            self.event(logging.WARNING, "sequence stopped", ended_in)
+        else:
+            self.event(logging.INFO, f"sequence done: {self.state()['status']}", ended_in)
 
     def hold(self, error: str | None) -> str | None:
         """Stop the still capture and release the arm keeping its position; failures are added to the error."""
@@ -765,6 +808,7 @@ class Sequencer:
             self.status = "moving to the base pose (no board)"
         base = dict(self.seq.base_pose)
         self.checked_move(plan, base, "the base pose", {**base, GRIPPER_JOINT: self.seq.insert_gripper_rad})
+        self.event(logging.INFO, "base pose reached")
         self.wait_confirm(WAITING_BOARD, MESSAGE_BOARD, lambda: self.board_on)
         self.close_on_handle(plan)
         session_id = self.capture.start_still_session(None)
@@ -772,6 +816,7 @@ class Sequencer:
             self.session_id = session_id
             self.phase = CAPTURING
             self.status = "waiting for the colour camera_info"
+        self.event(logging.INFO, f"still session {session_id} started")
         intrinsics = self.camera_intrinsics()
         for tier in range(BIG_JOINT_TIER):
             self.capture_tier(plan, tier, intrinsics)
@@ -791,6 +836,7 @@ class Sequencer:
             self.tier = None
             self.status = "moving back to the base pose"
         self.checked_move(plan, base, "the base pose (return)", base)
+        self.event(logging.INFO, "back at the base pose")
 
     def close_on_handle(self, plan: Plan) -> None:
         """Close the gripper on the handle to `grip_rad`, then refuse an unseated handle or a slack grip.
@@ -819,6 +865,7 @@ class Sequencer:
         slack = self.seq.grip_rad + self.seq.grip_converge_tolerance_rad
         if measured >= slack:
             raise StepFailed(f"{MESSAGE_SLACK_GRIP} (measured {measured:.4f} rad, limit {slack:.4f} rad)")
+        self.event(logging.INFO, f"handle gripped: jaw {measured:.4f} rad")
 
     def camera_intrinsics(self) -> CameraIntrinsics:
         """The colour intrinsics of the still session, waiting up to `still.timeout_s` for the first camera_info.
@@ -970,8 +1017,12 @@ class Sequencer:
                 for view in planned:
                     where = f"tier {tier} arm pose {index} head offset {view.offset}"
                     self.count_skipped(view.reason, f"{where} (pose not visited): {view.detail}")
+                reasons = ", ".join(sorted({str(view.reason) for view in planned}))
+                self.event(logging.WARNING, f"{label} not visited: every view skipped ({reasons})")
                 continue
             self.checked_move(plan, pose, label, pose)
+            with self.lock:
+                before = (self.captured, sum(self.skipped.values()))
             for view in self.plan_views(plan, self.measured(), intrinsics):
                 self.check_alive()
                 where = f"tier {tier} arm pose {index} head offset {view.offset}"
@@ -979,6 +1030,9 @@ class Sequencer:
                     self.count_skipped(view.reason, f"{where}: {view.detail}")
                     continue
                 self.view(index, tier, view.offset, view.pan_deg, view.tilt_deg)
+            with self.lock:
+                captured, skipped = self.captured - before[0], sum(self.skipped.values()) - before[1]
+            self.event(logging.INFO, f"{label}: {captured} captured, {skipped} skipped")
 
     def view(self, index: int, tier: int, offset: int, pan_deg: float, tilt_deg: float) -> None:
         """One view that passed the checks: aim, settle and capture a still."""
