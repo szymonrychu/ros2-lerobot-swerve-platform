@@ -160,6 +160,27 @@ def test_applied_marker_change_reloads_kinematics(tmp_path: Path, caplog: pytest
     assert provider.current().look_at(FLOOR_POINT) == pytest.approx(KINEMATICS.look_at(FLOOR_POINT))
 
 
+def test_atomic_marker_replace_within_one_mtime_tick_reloads(tmp_path: Path) -> None:
+    """head_rgbd_calibration replaces applied.json atomically; a rewrite with an equal mtime_ns still reloads.
+
+    File timestamps come from the kernel's coarse clock, so two applies within one tick share mtime_ns.
+    """
+    write_applied(tmp_path, dz=0.05, session="s1")
+    provider = AppliedHeadKinematics(DEFAULT_HEAD_URDF, tmp_path)
+    first = provider.current()
+    marker = tmp_path / "applied.json"
+    old = marker.stat()
+    write_applied(tmp_path, dz=0.10, session="s2")
+    replacement = tmp_path / "applied.json.tmp"
+    replacement.write_text(marker.read_text())
+    os.replace(replacement, marker)
+    os.utime(marker, ns=(old.st_atime_ns, old.st_mtime_ns))
+    assert marker.stat().st_mtime_ns == old.st_mtime_ns
+    second = provider.current()
+    assert second is not first
+    assert second.look_at(FLOOR_POINT) != first.look_at(FLOOR_POINT)
+
+
 def test_broken_head_chain_keeps_urdf_chain_with_warning(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     (tmp_path / "head_chain.json").write_text("{not json")
     (tmp_path / "applied.json").write_text("{}")
