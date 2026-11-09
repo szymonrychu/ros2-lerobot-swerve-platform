@@ -7,8 +7,14 @@ radians), and every exit of the worker (done, stop, error, exception) commands t
 start and destroys the two subscriptions and the publisher. A pose without a valid plane, or with fewer than
 min_clouds_per_pose fitted clouds (partly blocked: an object in view), is skipped with its reason and none of its clouds
 are kept; nothing is filled in.
+
+Telemetry: calib_event lines of flow `floor_sweep` with the session id as run id: the start (grid, config, start
+pan/tilt) or the refused start, each pose (observed with the reached pan/tilt, plane heights, RMS and inliers and the
+dropped clouds by reason; skipped at WARNING with the reason and the last measured pan/tilt), the restore and the end
+(done, stopped or error with the counts).
 """
 
+import logging
 import math
 import threading
 from collections import Counter, deque
@@ -28,6 +34,9 @@ from sensor_msgs_py import point_cloud2
 from head_rgbd_calibration.capture import rgb_qos
 from head_rgbd_calibration.config import NodeConfig
 from head_rgbd_calibration.store import write_json_atomic
+from head_rgbd_calibration.telemetry import calib_event
+
+LOG = logging.getLogger(__name__)
 
 FLOOR_DIR = "floor_fit"
 OBSERVATIONS_FILE = "observations.json"
@@ -50,6 +59,8 @@ REASON_WRONG_FRAME = "cloud not in {frame}"
 REASON_NO_CLOUD = "no cloud within cloud_timeout_s"
 REASON_PARTLY_BLOCKED = "partly blocked: {found} of {clouds} clouds"
 POINT_FIELDS = ("x", "y", "z")
+FLOW = "floor_sweep"
+SWEEP_STEP = "sweep"
 
 
 class SweepError(RuntimeError):
@@ -154,7 +165,6 @@ class FloorSweep:
         self.sleep = sleep
         self.now = now
         self.blocked = blocked
-        self.logger = node.get_logger()
         self.lock = threading.Lock()
         self.stop_event = threading.Event()
         self.samples: deque[JointSample] = deque(maxlen=SAMPLE_HISTORY)
@@ -253,19 +263,32 @@ class FloorSweep:
             start_sample = self.wait_first_sample()
             run = self.open_run(start_sample, handles, publisher)
         except BaseException as exc:
-            self.release(handles, publisher)
+            self.release(handles, publisher, None)
             with self.lock:
                 self.running = False
                 self.status = ERROR
                 self.error = str(exc)
+            calib_event(LOG, FLOW, None, SWEEP_STEP, ERROR, logging.ERROR, str(exc), error_type=type(exc).__name__)
             raise
         with self.lock:
             self.session_id = run.session_id
             self.total = len(run.grid)
             self.status = "running"
+        calib_event(
+            LOG,
+            FLOW,
+            run.session_id,
+            SWEEP_STEP,
+            "start",
+            poses=len(run.grid),
+            grid=run.grid,
+            start_pan_deg=math.degrees(run.start_pan),
+            start_tilt_deg=math.degrees(run.start_tilt),
+            config=self.floor.model_dump(exclude={"fit"}),
+            plane=self.floor.fit.plane,
+        )
         self.thread = threading.Thread(target=self.work, args=(run, chain), name="floor-sweep", daemon=True)
         self.thread.start()
-        self.logger.info(f"floor sweep {run.session_id} started: {len(run.grid)} poses")
         return run.session_id
 
     def wait_first_sample(self) -> JointSample:
@@ -488,20 +511,32 @@ class FloorSweep:
             final, error = ERROR, str(exc)
         except Exception as exc:  # reported as the sweep error, the finally block still restores the head
             final, error = ERROR, f"{type(exc).__name__}: {exc}"
-            self.logger.error(f"floor sweep {run.session_id} failed: {error}")
+            LOG.exception("floor sweep %s raised", run.session_id)
         finally:
             self.restore(run)
             try:
                 self.write(run)
             except OSError as exc:
                 final, error = ERROR, f"cannot write {OBSERVATIONS_FILE}: {exc}"
-                self.logger.error(error)
-            self.release(run.subscriptions, run.publisher)
+            self.release(run.subscriptions, run.publisher, run.session_id)
             with self.lock:
                 self.running = False
                 self.status = final
                 self.error = error
-        self.logger.info(f"floor sweep {run.session_id} {final}")
+        calib_event(
+            LOG,
+            FLOW,
+            run.session_id,
+            SWEEP_STEP,
+            final,
+            logging.ERROR if error else (logging.WARNING if final == STOPPED else logging.INFO),
+            error,
+            observations=len(run.observations),
+            skipped=len(run.skipped),
+            skip_reasons=Counter(skip["reason"] for skip in run.skipped),
+            dropped=run.dropped,
+            directory=run.directory,
+        )
 
     def sweep(self, run: Run, chain: UrdfChain) -> None:
         """Visit every pose; a pose that is not reached, has no valid plane or fewer than min_clouds_per_pose fitted
@@ -512,30 +547,90 @@ class FloorSweep:
                 raise Stopped
             with self.lock:
                 self.pose = pose + 1
+            began = self.clock()
             still = self.move_to(run, pan_deg, tilt_deg)
             if still is None:
                 self.record_skip(
-                    run, pose, pan_deg, tilt_deg, f"did not reach pan/tilt within {self.floor.move_timeout_s:g} s"
+                    run,
+                    pose,
+                    pan_deg,
+                    tilt_deg,
+                    f"did not reach pan/tilt within {self.floor.move_timeout_s:g} s",
+                    last_measured=self.measured_deg(self.latest()),
+                    waited_s=self.clock() - began,
                 )
                 continue
             found, reasons = self.capture_pose(chain, rng, pose, still, (pan_deg, tilt_deg))
             run.dropped.update(reasons)
+            planes = {
+                "reached": self.measured_deg(still),
+                "clouds": len(found),
+                "dropped": reasons,
+                "height_m": [o["height_m"] for o in found],
+                "rms_m": [o["rms_m"] for o in found],
+                "inliers": [o["inliers"] for o in found],
+                "waited_s": self.clock() - began,
+            }
             if len(found) >= self.floor.min_clouds_per_pose:
                 run.observations.extend(found)
                 with self.lock:
                     self.observation_count = len(run.observations)
+                calib_event(
+                    LOG,
+                    FLOW,
+                    run.session_id,
+                    "pose",
+                    "observed",
+                    pose=pose,
+                    target={"pan_deg": pan_deg, "tilt_deg": tilt_deg},
+                    **planes,
+                )
             elif found:
                 reason = REASON_PARTLY_BLOCKED.format(found=len(found), clouds=self.floor.clouds_per_pose)
-                self.record_skip(run, pose, pan_deg, tilt_deg, reason)
+                self.record_skip(run, pose, pan_deg, tilt_deg, reason, **planes)
             else:
                 detail = ", ".join(f"{count} x {reason}" for reason, count in reasons.items())
-                self.record_skip(run, pose, pan_deg, tilt_deg, f"no valid plane: {detail}")
+                self.record_skip(run, pose, pan_deg, tilt_deg, f"no valid plane: {detail}", **planes)
 
-    def record_skip(self, run: Run, pose: int, pan_deg: float, tilt_deg: float, reason: str) -> None:
+    def measured_deg(self, sample: JointSample | None) -> dict[str, float | None]:
+        """A joint sample as {pan_deg, tilt_deg} for the log (None values without a sample).
+
+        Args:
+            sample (JointSample | None): The sample.
+
+        Returns:
+            dict[str, float | None]: The measured head angles in degrees.
+        """
+        if sample is None:
+            return {"pan_deg": None, "tilt_deg": None}
+        return {"pan_deg": math.degrees(sample.pan), "tilt_deg": math.degrees(sample.tilt)}
+
+    def record_skip(self, run: Run, pose: int, pan_deg: float, tilt_deg: float, reason: str, **data: Any) -> None:
+        """Record and log a skipped pose.
+
+        Args:
+            run (Run): The sweep.
+            pose (int): Pose index.
+            pan_deg (float): Target pan (deg).
+            tilt_deg (float): Target tilt (deg).
+            reason (str): Why it is skipped.
+            **data (Any): Measured values for the log (reached angles, planes, dropped clouds).
+        """
         run.skipped.append({"pose": pose, "pan_deg": pan_deg, "tilt_deg": tilt_deg, "reason": reason})
         with self.lock:
             self.skipped_count = len(run.skipped)
-        self.logger.warning(f"floor sweep pose {pose} ({pan_deg:g}, {tilt_deg:g}) skipped: {reason}")
+        calib_event(
+            LOG,
+            FLOW,
+            run.session_id,
+            "pose",
+            "skipped",
+            logging.WARNING,
+            reason,
+            pose=pose,
+            target={"pan_deg": pan_deg, "tilt_deg": tilt_deg},
+            **data,
+        )
 
     def restore(self, run: Run) -> None:
         """Command the start pan/tilt and wait (up to move_timeout_s) for it; failures are logged, never raised."""
@@ -543,13 +638,25 @@ class FloorSweep:
             self.publish(run, run.start_pan, run.start_tilt)
             began = self.clock()
             target = (math.degrees(run.start_pan), math.degrees(run.start_tilt))
+            restored = {"pan_deg": target[0], "tilt_deg": target[1]}
             while self.reached_and_still(target[0], target[1], began) is None:
                 if self.clock() - began >= self.floor.move_timeout_s:
-                    self.logger.warning("the head did not confirm the restored pan/tilt")
+                    calib_event(
+                        LOG,
+                        FLOW,
+                        run.session_id,
+                        "restore",
+                        "unconfirmed",
+                        logging.WARNING,
+                        "the head did not confirm the restored pan/tilt",
+                        target=restored,
+                        last_measured=self.measured_deg(self.latest()),
+                    )
                     return
                 self.sleep(POLL_S)
+            calib_event(LOG, FLOW, run.session_id, "restore", "ok", target=restored)
         except Exception as exc:  # the handles are still released by the caller
-            self.logger.error(f"restoring the head failed: {exc}")
+            calib_event(LOG, FLOW, run.session_id, "restore", ERROR, logging.ERROR, f"{type(exc).__name__}: {exc}")
 
     def write(self, run: Run) -> None:
         """Write observations.json atomically (also after a stop or an error: the poses done so far)."""
@@ -566,15 +673,21 @@ class FloorSweep:
             },
         )
 
-    def release(self, subscriptions: list[Any], publisher: Any) -> None:
-        """Destroy the subscriptions and the publisher; a failing destroy does not stop the others."""
+    def release(self, subscriptions: list[Any], publisher: Any, run_id: str | None) -> None:
+        """Destroy the subscriptions and the publisher; a failing destroy does not stop the others.
+
+        Args:
+            subscriptions (list[Any]): Subscriptions to destroy.
+            publisher (Any): The head command publisher, None when none was created.
+            run_id (str | None): The sweep's session id for the log (None before one exists).
+        """
         for sub in subscriptions:
             try:
                 self.node.destroy_subscription(sub)
             except Exception as exc:  # keep destroying the rest
-                self.logger.error(f"destroying a floor sweep subscription failed: {exc}")
+                calib_event(LOG, FLOW, run_id, "release", ERROR, logging.ERROR, f"subscription: {exc}")
         if publisher is not None:
             try:
                 self.node.destroy_publisher(publisher)
             except Exception as exc:  # logged, the subscriptions are gone already
-                self.logger.error(f"destroying the floor sweep publisher failed: {exc}")
+                calib_event(LOG, FLOW, run_id, "release", ERROR, logging.ERROR, f"publisher: {exc}")

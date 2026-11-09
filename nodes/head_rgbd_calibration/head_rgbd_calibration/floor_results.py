@@ -3,6 +3,11 @@
 Layout under state_dir: floor_fit/<sid>/observations.json (written by the sweep) and
 floor_fit/<sid>/results/<rid>/{result.json, head_chain.json, head.urdf}. Applying copies head_chain.json into applied/ and adds a
 head_chain key to applied/applied.json, which starts the apply path unit (it restarts head_state_publisher).
+
+Telemetry: the floor compute logs calib_event lines of flow `floor_compute` (run id: the result id): `inputs`
+(observations, poses, skipped poses, dropped clouds) and `result` (passed or failed with the params, RMS, failed limits
+and the limits); apply_head_chain_file, the one writer of the applied head chain (floor, head-arm and arm results),
+logs flow `head_chain_apply`: the record, the files written and the unit states, or the refusal.
 """
 
 import json
@@ -46,6 +51,7 @@ from head_rgbd_calibration.store import (
     write_bytes_atomic,
     write_json_atomic,
 )
+from head_rgbd_calibration.telemetry import calib_event, step_timer
 
 LOGGER = logging.getLogger(__name__)
 
@@ -55,6 +61,8 @@ HEAD_URDF_FILE = "head.urdf"
 HEAD_CHAIN_KEY = "head_chain"
 NOTE_DATE_FORMAT = "%Y-%m-%d"
 SOURCE_FLOOR = "floor"
+FLOW_COMPUTE = "floor_compute"
+FLOW_APPLY = "head_chain_apply"
 LOCK = threading.Lock()
 
 RunFn = Callable[..., subprocess.CompletedProcess]
@@ -205,9 +213,23 @@ def compute_floor(cfg: NodeConfig, sid: str, now: datetime) -> dict[str, Any]:
     """
     session = existing_floor_session_dir(cfg, sid)
     observations, doc = read_observations(session / OBSERVATIONS_FILE)
-    urdf = base_urdf(cfg)
-    fit = fit_head_chain_floor(observations, urdf, cfg.floor.fit, sensor_frame=cfg.floor.sensor_frame)
     rid = SessionStore.new_result_id(now)
+    calib_event(
+        LOGGER,
+        FLOW_COMPUTE,
+        rid,
+        "inputs",
+        "ok",
+        session_id=sid,
+        observations=len(observations),
+        poses=len({observation.pose for observation in observations}),
+        skipped=doc.get("skipped", []),
+        dropped=doc.get("dropped", {}),
+        sensor_frame=cfg.floor.sensor_frame,
+    )
+    with step_timer(LOGGER, FLOW_COMPUTE, rid, "fit"):
+        urdf = base_urdf(cfg)
+        fit = fit_head_chain_floor(observations, urdf, cfg.floor.fit, sensor_frame=cfg.floor.sensor_frame)
     body = fit.to_json()
     result = {
         "id": rid,
@@ -240,6 +262,22 @@ def compute_floor(cfg: NodeConfig, sid: str, now: datetime) -> dict[str, Any]:
             os.replace(tmp, chain_path)
             write_bytes_atomic(directory / HEAD_URDF_FILE, apply_head_chain(urdf, fit.origins, note).encode())
         write_json_atomic(directory / RESULT_FILE, result)
+    calib_event(
+        LOGGER,
+        FLOW_COMPUTE,
+        rid,
+        "result",
+        "passed" if fit.passed else "failed",
+        logging.INFO if fit.passed else logging.WARNING,
+        "; ".join(body["failed_limits"]) or None,
+        **{key: result[key] for key in ("failed_limits", "params", "height_rms_mm", "normal_rms_deg")},
+        observation_height_rms_mm=result["observation_height_rms_mm"],
+        observation_normal_rms_deg=result["observation_normal_rms_deg"],
+        pose_height_residual_mm=[pose.get("height_residual_mm") for pose in body["poses"]],
+        pose_normal_residual_deg=[pose.get("normal_residual_deg") for pose in body["poses"]],
+        limits=cfg.floor.fit.limits,
+        directory=directory,
+    )
     return result
 
 
@@ -316,8 +354,25 @@ def apply_head_chain_file(
             )
         return {**info, HEAD_CHAIN_KEY: record}
 
-    update_applied(Path(cfg.state_dir) / APPLIED_DIR, add_record, [(HEAD_CHAIN_FILE, source.read_bytes())])
-    return {HEAD_CHAIN_KEY: record, "units": [unit_state(u, now.timestamp(), run) for u in cfg.restart_units]}
+    try:
+        update_applied(Path(cfg.state_dir) / APPLIED_DIR, add_record, [(HEAD_CHAIN_FILE, source.read_bytes())])
+    except NotApplicable as exc:
+        calib_event(LOGGER, FLOW_APPLY, record.get("result"), "apply", "refused", logging.WARNING, str(exc), **record)
+        raise
+    units = [unit_state(u, now.timestamp(), run) for u in cfg.restart_units]
+    calib_event(
+        LOGGER,
+        FLOW_APPLY,
+        record.get("result"),
+        "apply",
+        "applied",
+        record=record,
+        source_file=source,
+        written=[HEAD_CHAIN_FILE, APPLIED_MARKER],
+        units=units,
+        not_restarted_yet=[unit["name"] for unit in units if not unit["restarted"]],
+    )
+    return {HEAD_CHAIN_KEY: record, "units": units}
 
 
 def apply_floor(cfg: NodeConfig, sid: str, rid: str, now: datetime, run: RunFn) -> dict[str, Any]:
