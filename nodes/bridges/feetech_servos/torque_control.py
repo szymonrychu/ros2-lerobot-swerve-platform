@@ -51,7 +51,7 @@ def torque_state_payload(
     joint_torque: dict[int, int],
     released_ids: set[int],
     stamp_ns: int,
-    neutral_capture: dict[str, dict[str, int]] | None = None,
+    neutral_capture: dict[str, dict[str, Any]] | None = None,
     last_save: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the /<ns>/torque_state payload of one group (position joints only).
@@ -63,13 +63,14 @@ def torque_state_payload(
         joint_torque (dict[int, int]): servo_id -> latest torque_enable reading.
         released_ids (set[int]): Position-mode servo IDs that are gated (TorqueControl.released_ids).
         stamp_ns (int): Payload time, nanoseconds.
-        neutral_capture (dict[str, dict[str, int]] | None): Recorded neutral not saved yet, joint name ->
-            {"steps", "delta_steps"} (NeutralControl.status); None = nothing recorded.
+        neutral_capture (dict[str, dict[str, Any]] | None): Recorded neutral not saved yet, joint name ->
+            {"steps", "delta_steps", "exceeds_max_shift"} (NeutralControl.status); None = nothing recorded.
         last_save (dict[str, Any] | None): Last neutral save {"saved_at", "saved", "failed"}; None = none yet.
 
     Returns:
         dict[str, Any]: {"namespace", "released" (any joint gated), "joints" (name -> 0|1), "stamp_ns",
-            "neutral_enabled", "neutral_capture", "last_save"}.
+            "neutral_enabled", "neutral_capture", "last_save", "neutral_max_shift_deg" (the group's save guard in
+            degrees; None without neutral)}.
     """
     position_joints = [j for j in group.joints if j.mode == "position"]
     return {
@@ -80,6 +81,7 @@ def torque_state_payload(
         "neutral_enabled": group.neutral_enabled,
         "neutral_capture": neutral_capture,
         "last_save": last_save,
+        "neutral_max_shift_deg": group.neutral_max_shift_deg if group.neutral_enabled else None,
     }
 
 

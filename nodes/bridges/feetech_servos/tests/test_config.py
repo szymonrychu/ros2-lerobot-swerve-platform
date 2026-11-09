@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from feetech_servos.config import BridgeConfig, load_config, load_config_from_env
+from feetech_servos.config import DEFAULT_NEUTRAL_MAX_SHIFT_DEG, BridgeConfig, load_config, load_config_from_env
 
 
 def test_load_config_nonexistent_path() -> None:
@@ -621,6 +621,33 @@ def test_neutral_config_bad_types_rejected(tmp_path: Path) -> None:
     ):
         p.write_text(NEUTRAL_BASE + extra)
         assert load_config(p) is None, extra
+
+
+def test_neutral_max_shift_default_and_values(tmp_path: Path) -> None:
+    """neutral_max_shift_deg defaults to DEFAULT_NEUTRAL_MAX_SHIFT_DEG; top level and extra groups set their own."""
+    p = tmp_path / "c.yaml"
+    p.write_text(NEUTRAL_BASE + "neutral_enabled: true\n" + NEUTRAL_EXTRA + "    neutral_enabled: true\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    assert DEFAULT_NEUTRAL_MAX_SHIFT_DEG == 15.0
+    assert [g.neutral_max_shift_deg for g in cfg.groups] == [15.0, 15.0]
+    p.write_text(
+        NEUTRAL_BASE
+        + "neutral_enabled: true\nneutral_max_shift_deg: 20\n"
+        + NEUTRAL_EXTRA
+        + "    neutral_enabled: true\n    neutral_max_shift_deg: 7.5\n"
+    )
+    cfg = load_config(p)
+    assert cfg is not None
+    assert [g.neutral_max_shift_deg for g in cfg.groups] == [20.0, 7.5]
+
+
+def test_neutral_max_shift_invalid_rejected(tmp_path: Path) -> None:
+    """neutral_max_shift_deg must be a positive number (a bool, string, zero or negative makes the config invalid)."""
+    p = tmp_path / "c.yaml"
+    for value in ("0", "-5", "'x'", "true", ".nan"):
+        p.write_text(NEUTRAL_BASE + f"neutral_max_shift_deg: {value}\n")
+        assert load_config(p) is None, value
 
 
 def test_load_config_set_register_motion_blocked(tmp_path: Path) -> None:

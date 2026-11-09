@@ -19,6 +19,7 @@ read_retry_interval_s. Each joint_states header is stamped with the request time
 import json
 import sys
 import time
+from collections.abc import Callable
 from typing import Any
 
 import rclpy
@@ -39,7 +40,7 @@ from .bridge_cycle import MAX_STEPS, MIN_STEPS, BridgeCycle, drain_callbacks, en
 from .config import BridgeConfig, JointGroup, load_config_from_env
 from .joint_updates import get_position_updates
 from .metrics import BUS_UP, init_joints, record_read_cycle, record_register_dump
-from .neutral import NeutralControl
+from .neutral import NeutralControl, NeutralResult
 from .register_dump import RegisterDumpScheduler
 from .registers import (
     get_register_entry_by_name,
@@ -114,7 +115,9 @@ def setup_torque_interfaces(
     """Create the torque and neutral services and /<ns>/torque_state of every group.
 
     Every group gets /<ns>/servo/release_torque and /<ns>/servo/enable_torque; a group with neutral_enabled also gets
-    /<ns>/servo/record_neutral and /<ns>/servo/save_neutral (when neutral is given). Every record/save publishes the
+    /<ns>/servo/record_neutral, /<ns>/servo/save_neutral (refused above neutral_max_shift_deg) and
+    /<ns>/servo/save_neutral_confirmed (the explicit large-shift confirm; when neutral is given). Every record/save
+    publishes the
     group's torque_state at the next step. The service callbacks run inline on the loop thread (the executor is
     drained there), the sole bus owner.
 
@@ -156,8 +159,23 @@ def setup_torque_interfaces(
         if neutral is not None and group.neutral_enabled:
             node.create_service(Trigger, f"/{ns}/servo/record_neutral", make_service(ns, neutral.record, True))
             node.create_service(Trigger, f"/{ns}/servo/save_neutral", make_service(ns, neutral.save, True))
+            node.create_service(
+                Trigger, f"/{ns}/servo/save_neutral_confirmed", make_service(ns, confirmed_save(neutral), True)
+            )
 
     return reporter
+
+
+def confirmed_save(neutral: NeutralControl) -> Callable[[str], NeutralResult]:
+    """The save action of save_neutral_confirmed: a save with the large-shift confirm given.
+
+    Args:
+        neutral (NeutralControl): Neutral control of the bus.
+
+    Returns:
+        Callable[[str], NeutralResult]: namespace -> NeutralControl.save(namespace, confirmed=True).
+    """
+    return lambda namespace: neutral.save(namespace, confirmed=True)
 
 
 def make_executor(kind: str) -> Executor:
@@ -384,7 +402,9 @@ def serve_bridge(config: BridgeConfig, node: Node) -> None:
 
     torque_control.joint_torque.update(startup_torque)
     logger = node.get_logger()
-    neutral = NeutralControl(torque_control, command_limits, log_info=logger.info, log_error=logger.error)
+    neutral = NeutralControl(
+        torque_control, command_limits, log_info=logger.info, log_error=logger.error, log_warning=logger.warning
+    )
     torque_state = setup_torque_interfaces(
         node, groups, torque_control, callbacks_run, config.torque_state_interval_s, neutral
     )
