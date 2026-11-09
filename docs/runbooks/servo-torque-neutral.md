@@ -69,19 +69,58 @@ Mismatch: STOP and report.
 
 ## Arm zero restore
 
-Repairs a follower arm re-zero recorded in the wrong pose (2026-11: shoulder_lift about -901 steps, elbow_flex about +1029 steps logged by `neutral recorded`) without moving the arm: `scripts/arm_zero_restore.py` rewrites each arm servo's EEPROM offset so the resting folded arm reads the pre-incident reference (`scripts/arm_zero_restore.yaml`: shoulder_pan -0.018, shoulder_lift -1.542, elbow_flex 1.516, wrist_flex 0.862, wrist_roll -0.072 rad). It refuses while `ros2-lerobot_follower` runs, refuses unless every arm servo reads torque 0, and refuses (writing nothing) when any offset change differs from the expected one by more than 5 deg. The gripper is not touched. Details: `scripts/README.md` "arm_zero_restore.py".
+Repairs a follower arm re-zero recorded in the wrong pose (2026-11-09: `neutral recorded` logged shoulder_lift about
+-901 steps and elbow_flex about +1029 steps) without moving the arm. The follower bridge rewrites each arm servo's EEPROM
+offset so the arm, resting folded on its rest with torque off, reads its rest reference again. The gripper is never
+touched. The user runs it alone on the web UI Calibrate page, Arm card, panel "Arm zero restore". Details:
+`nodes/bridges/feetech_servos/README.md` "Arm zero restore" and `nodes/web_ui/README.md`.
 
-The script must be on the robot (merged, pushed, and the client repo synced by a deploy) before step 1. Orchestrator commands run on the client in `/opt/ros2-lerobot-swerve-platform`, logged to `.logs/arm-zero-restore/` on the Mac.
+Needs `lerobot_follower`, `mcp_server` and `web_ui` deployed from this branch (`scripts/deploy-nodes.sh client
+lerobot_follower mcp_server web_ui`, through the `ansible-deploy` skill). Reference: until a rest reference is saved
+the bridge uses the seed in `ansible/group_vars/client.yml` (`zero_restore.seed_reference_rad`, the readings at rest
+before the incident): shoulder_pan -0.018, shoulder_lift -1.542, elbow_flex 1.516, wrist_flex 0.862, wrist_roll -0.072
+rad. The panel shows "Reference: seed from the bridge config".
 
-1. User: arm resting folded on its rest, jaws empty, then Torque off arm (web UI Calibrate page). Pass: `/follower/torque_state` `released: true` with every arm joint at 0. Mismatch: STOP and report.
-2. Orchestrator: `sudo systemctl stop ros2-lerobot_follower`. Pass: `systemctl is-active ros2-lerobot_follower` prints `inactive`. The servos keep torque off (the bridge does not enable torque on shutdown).
-3. Orchestrator, dry run: `PYTHONPATH=nodes/bridges /opt/ros2-nodes/lerobot_follower/venv/bin/python3 scripts/arm_zero_restore.py`. Pass: exit 0, `ok: dry run: plan valid`; the table shows `delta` within 57 steps of `expect` per joint (shoulder_lift about +901, elbow_flex about -1029, wrist_flex about +47, shoulder_pan about +11, wrist_roll about -14). Show the table to the user. Mismatch (refused, or a delta far from the expected one): STOP, start the follower again (step 5) and report; nothing was written.
-4. Only on the user's go, orchestrator: the same command with `--apply`. Pass: exit 0, `every joint applied and verified; torque stays off`; each `after` within 3 steps of `target`. The JSON record path is in the last line (`/var/lib/ros2/arm/zero_restore-<timestamp>.json`); copy it to `.logs/arm-zero-restore/`. Mismatch: STOP and report the record; a joint that failed its verify had its old offset rewritten, joints before it are restored, later joints untouched.
-5. Orchestrator: `sudo systemctl start ros2-lerobot_follower`. Pass: `systemctl is-active` prints `active`; `/follower/joint_states` publishes. The bridge starts with `enable_torque_on_start: true`, holding the present (resting) pose.
-6. Verify: `/follower/joint_states` (topic_scraper_collect.py) at rest reads each reference within 0.01 rad (3 steps = 0.005 rad, plus rest noise). Mismatch: STOP and report.
-7. User: re-enable torque on the arm (Calibrate page) if it shows released, then Stop, then Park. Pass: the arm parks on its rest without a jump. Mismatch: user presses Stop; report.
+Steps (one button each; the panel says what to expect under every button):
 
-The wrong re-zero left `/var/lib/ros2/arm/calibration_stale.json` (joint_offsets and home stale); the restore does not touch it. Ask the user whether to clear it once step 6 passes.
+1. Rest the arm folded on its rest, jaws empty. Press **1. Torque off arm** and confirm. Expect: the arm goes limp,
+   the card shows torque off for every joint.
+2. Keep the arm still and press **2. Dry run**. Expect: a success message and the plan table. Today's expected values
+   (Now within about 0.03 rad, Change within about 2 deg; the rest pose varies a little):
+
+   | Joint | Now (rad) | Target (rad) | Change (deg) | Guard |
+   |---|---|---|---|---|
+   | shoulder_pan | about -0.002 | -0.018 | about -1.0 | ok |
+   | shoulder_lift | about -0.160 | -1.542 | about -79.2 | large |
+   | elbow_flex | about -0.063 | 1.516 | about +90.4 | large |
+   | wrist_flex | about 0.934 | 0.862 | about -4.1 | ok |
+   | wrist_roll | about -0.094 | -0.072 | about +1.2 | ok |
+
+   Mismatch (a refusal, a Change far from these, or a "large" guard on another joint): STOP, press **4. Re-enable
+   torque**, report. Nothing was written. Refusals: "release torque first", "torque not off", "arm not still" (hold
+   still and run it again), an invalid rest reference.
+3. Press **3. Apply**. Because shoulder_lift and elbow_flex change by more than 15 deg, the dialog "Apply a large zero
+   change?" lists them; tick "The arm rests folded on its rest and the large change is intended" and press **Apply
+   large change**. Apply within 60 s of the dry run without touching the arm, else it is refused ("dry run is N s old" or
+   "moved since the dry run": run the dry run again). Expect: "zero restored for shoulder_pan, shoulder_lift,
+   elbow_flex, wrist_flex, wrist_roll; torque stays off" and the result table: every joint Applied yes, Now (rad)
+   equal to the Target of step 2 within 0.005 rad. The arm does not move. The calibration-stale warning
+   (joint_offsets, home) disappears. Mismatch (a failed joint): STOP and report the message; the failed joint got its
+   old offset back, joints before it are restored, later joints untouched; torque stays off.
+4. Press **4. Re-enable torque**. Expect: the arm holds its pose, the card shows torque on.
+5. Park the arm on the head-arm card. Expect: it parks on its rest without a jump. Mismatch: press Stop and report.
+
+Optional, once the zero is right: with the arm resting folded and torque off, **Save current pose as rest reference**
+(confirm **Save reference**) stores today's rest readings in `/var/lib/ros2/arm/rest_reference.json`; later restores
+use it instead of the seed ("Reference: saved <time>"). It is disabled while the zero is stale (joint_offsets).
+
+**Move to neutral pose** (Arm card, confirm **Move**: "The arm moves to the neutral pose: all joints at 0. Keep the area
+clear.") moves every arm joint except the gripper to 0 rad along the Park routing with its body checks and home speed;
+it needs torque on and a zero that is not stale.
+
+Audit and logs: every apply writes `/var/lib/ros2/arm/zero_restore-<UTC time>.json` (per joint offset before/after,
+reading before/after, limits). Every step logs `calib_event {...}` in the journal (`journalctl -u
+ros2-lerobot_follower | grep calib_event`; Move to neutral in `ros2-mcp_server`).
 
 ## Large-shift guard
 
