@@ -166,6 +166,43 @@ Calibration session `calib-20261023-074418`: speed_scale 0.1, board mass 214 g, 
 - Incident: after about 4 h holding the board (load 200) gripper servo 6 dropped off the bus and the
   robot was power-cycled; the arm returned to rest. Park with the board (D63) was added and reviewed.
 
+## Arm to camera calibration (T-99)
+
+Calibrates the arm in the head camera's frame with the head chain held fixed: arm joint offsets (shoulder_pan
+included), the arm base x, y, z in base_link, the board seat in the gripper and the board sag. API, report fields and
+gauges: `nodes/head_rgbd_calibration/README.md` ("Arm to camera calibration").
+
+1. Precondition: a head calibration is applied (floor fit or a passed head-from-arm result). `GET
+   /api/arm-camera/state` must say `ready: true`; `head_chain_source` names which chain is held fixed. Without one the
+   compute is refused (409) with "apply a head calibration first".
+2. Capture: the same head-arm sequence as steps 3 above (Move to base pose, seat the ARM board, Board attached, tiers,
+   ask before "Allow elbow and shoulder moves", Park). No extra arm moves: the fit only reads the stored views.
+3. Compute: `POST /api/arm-camera/sessions/{sid}/compute` (202 `{result_id}`), then poll `GET
+   .../results/{rid}` until `state` is `done` or `failed` (a few seconds on a laptop, longer on the Pi 5; the child is
+   killed after `compute_timeout_s`).
+4. Read the report: `plausible` false means a refusal (an offset change over 15 deg, the base moved over 100 mm or
+   turned over 10 deg, the board seat over 10 mm / 10 deg, the sag over 5 deg): the result cannot be accepted; check
+   the board seating and the applied head chain, then capture again. `warnings` are today's limits as advice (RMS,
+   held-out RMS, held-out tool error, view and pose counts). Compare `score` with `comparison.current_score` (the
+   configured offsets and base on the same views) and look at `accuracy_examples` (1 sigma and 95 % at 30 cm reach,
+   full reach and 50 cm in front of the head camera) and `comparison.shift_examples` (how far the tool point moves).
+5. Accept (`POST .../accept`) or decline (`POST .../decline`). Accept records the calibration in
+   `applied/arm_calibration.json` and applied.json (`arm_calibration`); it restarts nothing and changes nothing
+   mcp_server runs: copy `calibration.snippet` into the client.yml mcp_server `arm:` block (`joint_offsets_rad`,
+   `arm_base_height_m`, `base_in_base_link`), the head_rgbd_calibration `fit.joint_offsets_rad` and
+   `fit.base_in_base_link` (and its shipped YAML) and the web_ui `arm_offset` [x, y, z], run the config tests
+   (`tests/test_head_arm_calib_config.py`, the node `tests/test_config.py`), commit and redeploy (ansible-deploy skill):
+   `./scripts/deploy-nodes.sh client mcp_server head_rgbd_calibration web_ui 2>&1 | tee .logs/deploy-arm-camera.log`.
+6. Verify: a live tool point check as step 5 above (head_look_at on the tool point, pixel offset before and after).
+
+Journal (through the deploy tooling): the flows `arm_camera_compute` (inputs, solver, one `refusal` / `warning` event
+each with value and threshold, result) and `arm_camera_accept` (accept, decline), with the result id as run id:
+
+```bash
+journalctl -u ros2-head_rgbd_calibration -o cat | grep -o 'calib_event {.*' | cut -d' ' -f2- \
+  | jq -c 'select(.flow=="arm_camera_compute" or .flow=="arm_camera_accept")'
+```
+
 ## Scene (for the ground tasks, not the arm sequence)
 
 - Box: 5 x 25 x 18 cm.

@@ -34,7 +34,8 @@ sessions/<sid>/poses/<pid>/rgb_thumb.jpg    <= thumbnail_width_px wide, corners 
 sessions/<sid>/poses/<pid>/depth_thumb.jpg  colourised aligned depth (turbo), corners drawn (intrinsics sessions)
 sessions/<sid>/results/<rid>/               result files, result.json last
 floor_fit/<sid>/                            floor sweep sessions ("Head floor fit")
-applied/                                    applied.json and the applied head_chain.json
+applied/                                    applied.json, the applied head_chain.json and the accepted
+                                            arm_calibration.json (arm to camera)
 ```
 
 - Ids: session `calib-YYYYmmdd-HHMMSS` (`-N` when that second is taken), pose `001` (zero-padded from `next_pose`, never
@@ -450,6 +451,8 @@ Events per flow:
 | `d435_accept` | result id | `accept` accepted or refused (reason, failed limits) |
 | `head_arm_compute` | result id | `inputs` (views per tier and head offset, corners, intrinsics, floor reference), `result` passed, failed or error (params value and sigma, RMS, held-out, every limit check, worst views) |
 | `arm_compute` | result id | `inputs` (plate views, floor reference, current offsets), `result` passed, failed or error (offsets, head params, tool point, limit checks) |
+| `arm_camera_compute` | result id | `child` start and end in the node (the job); in the child: `inputs` (views per tier and head offset, corners, intrinsics, the fixed head chain source, applied offsets and base, tool point, `fit.arm_camera`), `solver` (status, message, evaluations, cost, start and end RMS, free parameters, largest correlation, condition number), one `refusal` (refused, WARNING) per refusal and one `warning` per warning (name, value, limit, unit, message), `result` plausible, implausible or error (score, params, skew, sag, accuracy examples, the applied calibration's score, refusal and warning names) |
+| `arm_camera_accept` | result id | `accept` accepted (record, offsets, base, unit states) or refused (reason); `decline` declined (plausible, score) or refused |
 | `head_chain_apply` | result id | `apply` applied (record, files written, unit states, units not restarted yet) or refused |
 | `applied` | none | `write` (every applied/ write: files with sizes, applied.json keys before and after) |
 | `csi_capture` | session id | `capture` start, `view` kept (corners), `capture` stopped |
@@ -575,12 +578,34 @@ journalctl -u ros2-head_rgbd_calibration -o cat --since today | grep -o 'calib_e
 - `tests/test_compute.py` - synthetic D435 session through the store: a passing check and its files, a focal offset and
   a plane bias over the limits fail, an unmeasured plane bias fails, a missing or changing factory camera_info, too few
   poses and a head_arm session are error results, `main`.
-- `tests/test_jobs.py` - command and niceness, busy, timeout, stderr tail, unknown session (fake child commands).
+- `tests/test_jobs.py` - command and niceness, busy, timeout, stderr tail, unknown session (fake child commands), a job
+  with its own child module and telemetry flow (the arm to camera job), a result id whose temp directory exists is
+  skipped.
+- `tests/test_arm_camera_results.py` - the arm to camera compute, accept, decline and state on the synthetic arm to
+  camera scene (`arm_camera_scene` of `tests/head_arm_synthetic.py`) stored as a head_arm session with an applied
+  floor-fit head chain: a done, plausible result recovers the true offsets and writes the snippet; no applied head chain
+  is a failed result; tightened bounds give an implausible result whose accept is refused; the compute telemetry
+  (inputs, solver, one refusal event per refusal with value and limit, result); accept writes arm_calibration.json and
+  the `arm_calibration` record and keeps the head chain, its record and head_chain.json unchanged (what mcp_server's
+  head reader reads), stamps `accepted_at` and refuses a later decline; the next result compares with the accepted
+  one; decline records `declined` and changes nothing applied, a declined result cannot be accepted; a failed result
+  is refused by both; a running and a crashed compute read from the job state; `/state` without a head chain and the
+  head chain source names; the shipped bounds; an accept after another head chain was applied is refused and the
+  accepted calibration reads `head_chain_changed`.
+- `tests/test_arm_camera_compute.py` - the arm to camera child `main` writes the result of its session and result id,
+  and a failed result without an applied head chain.
+- `tests/test_arm_camera_api.py` - the `/api/arm-camera/*` routes with an inline job: 202 compute, the result, accept
+  and state bodies against the contract fixtures `arm_camera_result.json`, `arm_camera_result_running.json`,
+  `arm_camera_accept.json`, `arm_camera_state.json`; 404 for unknown sessions, results and a result of another kind,
+  400 for an intrinsics session, 409 while a sequence or a compute runs, when not ready, for accept or decline of a
+  running or failed result, accept of an implausible or declined result and decline of an accepted one; the head-arm
+  routes neither list nor serve arm to camera results.
 - `tests/test_app.py` - every route with a fake capture, a fake job and a tmp store: error body shape, 404/409/400/422
   mapping, capture/compute mutual refusal, min_views refusal, coverage, thumbnails `image/jpeg`, zip headers, apply,
   `/api/state` without systemctl, `/api/applied` units.
 - `tests/test_main.py` - bind host and port from the config (loopback by default), shutdown stops capture, the CSI
-  capture and job and destroys the node, the CSI router is built with the CSI controller
+  capture, the job and the arm to camera job and destroys the node, the arm to camera router runs its own compute job
+  (`test_arm_camera_router_runs_its_own_compute_job`), a running arm to camera compute blocks a sequence and a sweep, the CSI router is built with the CSI controller
   (`test_csi_router_is_built_and_its_capture_stopped_at_shutdown`), missing config env gives exit 78.
 - `tests/test_csi_intrinsics.py` - the CSI intrinsics over synthetic 1152x648 ChArUco views fed to a fake node: the
   `csi_cameras` defaults and their validation, `view_differs`, the image subscription only while capturing and `Busy`,
@@ -828,6 +853,102 @@ wrong kind), 404 for an unknown or malformed id, 409 for a busy or wrong-phase r
 The bodies are pinned by the contract fixtures `tests/fixtures/api/head_arm_state.json`, `head_arm_sessions.json` and
 `head_arm_result.json` (the web UI validators in `frontend/src/calibrate/headArmApi.ts` are tested against the same
 files), checked in `tests/test_head_arm_api.py` with `tests/contract.py`.
+
+### Arm to camera calibration (T-99)
+
+The arm calibrated in the head camera's frame with the head chain held FIXED (user decisions 315, 324-326, m577,
+m578). The head chain is the applied one (`floor_results.base_urdf`: today the depth floor fit or a head-from-arm
+result, decision 325); no head parameter is fitted and no floor session is read. Capture is the head-arm sequence
+(`/api/head-arm/sequence/*`): a session here is a `head_arm` session, and its results live next to the head-arm
+results in `results/<rid>/` with `kind: "arm_camera"`.
+
+Model (`shared/ros2_common/head_rgbd_calibration/arm_camera_fit.py`, details in `shared/README.md`): board corner ->
+board seat in gripper_link (the CAD `fit.board_mount` moved by a free 6-DOF seat with a soft prior) turned about the
+grip axis by the gravity sag -> arm FK with the fitted offsets -> the fitted arm base in base_link -> the fixed head
+camera -> projectPoints. Free: the shoulder_pan, shoulder_lift, elbow_flex and wrist_flex offsets, the arm base x, y
+and z (`fit.arm_camera.fit_base_z`), the seat and the sag (and, with `fit_droop`, a droop along gravity). Gauges
+(exact degeneracies, held at the applied value): the arm base yaw (a yaw turn is a shoulder_pan offset change plus a
+base x, y shift: the pan axis is vertical and sits 38.8 mm off the arm root) and the wrist_roll offset unless
+`fit_wrist_roll` (a wrist_roll zero change is a board turn about that axis, only the seat prior can pin it). The
+tool point is the applied `fit.tool_offset_m`. The applied calibration the fit starts from and compares with is
+`fit.joint_offsets_rad` / `fit.base_in_base_link` (pinned equal to mcp_server's `arm:` block).
+
+The compute runs in its own ComputeJob (`python -m head_rgbd_calibration.arm_camera_compute`, niced, killed after
+`compute_timeout_s`; about 4 s on a laptop for 144 views), so the request returns at once and the page polls.
+
+#### API contract
+
+All under `/api/arm-camera` (the web UI builds against this contract; fixtures `tests/fixtures/api/arm_camera_*.json`
+checked with `tests/contract.py`). Errors use the common `{ok: false, message}` body.
+
+| Route | Answer |
+|---|---|
+| `POST /sessions/{sid}/compute` | 202 `{result_id}`; 404 unknown session, 400 not a head_arm session, 409 while a head-arm sequence runs, while an arm to camera compute runs, or when not ready (no applied head chain; the message is the `reason` of `/state`) |
+| `GET /sessions/{sid}/results/{rid}` | the result (below); 404 unknown or malformed ids or a result of another kind |
+| `POST /sessions/{sid}/results/{rid}/accept` | `{arm_calibration: {session, result, accepted_at, score}, units: [{name, active_state, restarted}]}` (`units`: the `restart_units` states as every apply reports them; no unit reads arm_calibration.json, so they show `restarted: false`); 409 when the result is not done (running or failed), not plausible (the message lists the refusals), declined, or fitted against a head chain that is no longer the applied one; 404 as above |
+| `POST /sessions/{sid}/results/{rid}/decline` | the result with `declined: true`, `declined_at`; nothing applied changes; 409 when not done or already accepted |
+| `GET /state` | `{applied: {session, result, accepted_at, score, accuracy_examples, head_chain_changed} \| null, head_chain_source, ready, reason}` (`head_chain_changed`: the applied head chain is no longer the one the accepted calibration was fitted against); `head_chain_source` is `floor_fit`, `head_arm`, `arm_offsets` (the applied.json head_chain record `source` floor, head_arm, arm), null for an applied chain without a matching record, `urdf` without an applied chain (then `ready` false and `reason` "apply a head calibration first ...") |
+
+Result body (result.json; while the job runs and after a child that wrote nothing it is built from the job state,
+which keeps only the last compute: a crashed result reads 404 once the next compute starts):
+
+```
+{id, session, kind: "arm_camera", state: "running" | "done" | "failed", error, created_at,
+ declined, declined_at, accepted_at,
+ head_chain: {source, session, result} | null,     # the fixed head chain the fit used
+ report: {...} | null,                              # done results only
+ calibration: {joint_offsets_rad: {5 joints}, base_in_base_link: {x, y, z, yaw}, tool_offset_m, snippet} | null}
+```
+
+Report fields (`arm_camera_fit.arm_camera_report`):
+
+- `plausible` (bool) and `refusals`: physically implausible results are refused outright and cannot be accepted
+  (decision 324). Each entry `{name, value, limit, unit, message}`; names `offset_change:<joint>` (deg, any joint offset
+  change over `bounds.max_offset_change_deg` 15), `base_move_mm` (100), `base_turn_deg` (10), `skew_mm` (10),
+  `skew_deg` (10), `sag_deg` (the sag at the reference torque, 5), `droop_mm` (5, with `fit_droop`), `non_finite`.
+- `warnings`: today's pass/fail limits as advice only (m578), same entry shape: `rms_px`, `holdout_rms_px` and
+  `holdout_tool_mm` (`fit.arm_limits`), `min_views` (`fit.arm_limits`), `min_arm_poses` (`fit.limits`), `no_holdout`.
+- `score`: `{rms_px, heldout_rms_px, heldout_tool_mm, views, poses}` (held-out: every `fit.limits.holdout_every`-th
+  arm pose with all its views; the tool error is the arm FK tool point against the view's solvePnP board pose).
+- `params`: `[{name, value, sigma, unit, applied_value, change}]` in plain units: `<joint>_offset` (deg), `base_x`,
+  `base_y`, `base_z` (mm), `base_yaw` (deg), `board_x`, `board_y`, `board_z` (mm, the seat in gripper_link; the applied
+  value is the CAD mount, the change equals `skew.xyz_mm`), `board_skew_roll`, `board_skew_pitch`, `board_skew_yaw`
+  (deg, the seat turn against the CAD mount in the board frame, equal to `skew.rpy_deg`; applied value 0), `sag`
+  (deg/(N m)), `droop` (mm/(N m), only with `fit_droop`).
+  `sigma` is null for a fixed parameter (a gauge).
+- `accuracy_examples`: `[{label, value, unit: "mm"}]`, two per example (`<example>, 1 sigma` and `<example>, 95 %`) for
+  "tool point at 30 cm reach", "tool point at full reach" and "gripper position seen by the head camera at 50 cm",
+  the parameter covariance propagated to the tool point in base_link (1 sigma: RMS 3D error; 95 %: chi-square radius
+  of the largest principal axis, an upper bound).
+- `comparison`: `{applied, current_score, shift_examples}`: `applied` the accepted arm to camera calibration in effect
+  (`{session, result, accepted_at, score, accuracy_examples}`, null when none), `current_score` the configured
+  (applied) offsets and base scored on this session with only the seat and sag refitted, `shift_examples`
+  `[{label, value, unit}]` how far the new calibration moves the tool point at each example pose (mm).
+- `skew`: `{xyz_mm, rpy_deg}` the fitted board seat against the CAD mount (printing skew, seating tolerance).
+- `sag`: `{deg_per_nm, sigma_deg_per_nm, reference_torque_nm, at_reference_deg, range_deg, droop_mm_per_nm,
+  sigma_droop_mm_per_nm, droop_at_reference_mm}` (droop keys null without `fit_droop`).
+- `notes`: the gauge and model notes (head fixed, yaw gauge, wrist_roll gauge or prior, base z fixed, tool point).
+
+Accept writes `applied/arm_calibration.json` (`{session, result, accepted_at, score, joint_offsets_rad,
+base_in_base_link, tool_offset_m, snippet, head_chain, accuracy_examples}`) and the `arm_calibration` record of
+`applied/applied.json` through `apply.update_applied`, the writer of every apply (the applied.json path unit fires as
+for any apply; it restarts the head nodes only when a file they read changed, so an arm accept restarts nothing); the
+head chain, its record and the D435 check record stay as they are, and `accepted_at` is stamped into result.json.
+mcp_server reads the arm calibration from its client.yml `arm:` block, not from `applied/`: the accepted
+`snippet` (`joint_offsets_rad`, `arm_base_height_m`, `base_in_base_link`, validated against arm_collision's
+`ArmModelSettings` in `tests/test_arm_camera_fit.py`) is committed to client.yml by review, together with
+`fit.joint_offsets_rad` / `fit.base_in_base_link` of this node and the web_ui `arm_offset`, as for the arm offsets fit.
+`joint_offsets_snippet.yaml` in the result directory holds the same snippet. The head-arm routes
+(`/api/head-arm/sessions`, `.../results/{rid}`) neither list nor serve arm to camera results. While an arm to camera
+compute runs, a head-arm sequence and a floor sweep do not start.
+
+Telemetry: see the `arm_camera_compute` and `arm_camera_accept` rows of the Telemetry table.
+
+Config `fit.arm_camera` (`ArmCameraFitConfig`, every key in the shipped YAML): `fit_base_z` (true), `fit_wrist_roll`
+(false), `fit_droop` (false), `pixel_sigma_px` (1.0), priors `board_prior_mm` 3.0, `board_prior_deg` 2.0,
+`sag_prior_deg` 1.0, `droop_prior_mm` 1.0, the ARM board mass model `board_mass_kg`, `board_com_m`, `grip_point_m`,
+`grip_axis` (from `markers/charuco-arm-6x5-28mm.json`, pinned by test), the accuracy example settings `reach_m` 0.3
+and `camera_distance_m` 0.5, and `bounds` (the refusal bounds above).
 
 ### Config keys of the head-from-arm calibration
 

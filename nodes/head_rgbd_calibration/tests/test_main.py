@@ -23,6 +23,8 @@ class Recorder:
         self.sequencer: Any = None
         self.robot: Any = None
         self.arm_routers: list[Any] = []
+        self.arm_camera_routers: list[Any] = []
+        self.jobs: list[Any] = []
         self.routers: list[Any] = []
         self.csi: Any = None
         self.csi_routers: list[Any] = []
@@ -68,12 +70,18 @@ def rec(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Recorder:
             rec.events.append("capture_stop")
 
     class FakeJob:
-        def __init__(self, cfg: Any, store: Any, popen: Any, clock: Any, config_path: str) -> None:
-            rec.job = self
-            rec.config_path = config_path
+        def __init__(self, cfg: Any, store: Any, popen: Any, clock: Any, config_path: str, **kwargs: Any) -> None:
+            rec.jobs.append(self)
+            self.kwargs = kwargs
+            if not kwargs:
+                rec.job = self
+                rec.config_path = config_path
 
         def stop(self) -> None:
-            rec.events.append("job_stop")
+            rec.events.append("arm_camera_job_stop" if self.kwargs else "job_stop")
+
+        def state(self) -> dict[str, Any]:
+            return {"running": False}
 
     class FakeSweep:
         def __init__(self, node: Any, cfg: Any, urdf_text: Any, clock: Any, sleep: Any, now: Any, blocked: Any) -> None:
@@ -154,6 +162,7 @@ def rec(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Recorder:
     monkeypatch.setattr(entry, "Sequencer", FakeSequencer)
     monkeypatch.setattr(entry, "head_arm_router", lambda *args: (rec.arm_routers.append(args), APIRouter())[1])
     monkeypatch.setattr(entry, "floor_router", lambda *args: (rec.routers.append(args), APIRouter())[1])
+    monkeypatch.setattr(entry, "arm_camera_router", lambda *args: (rec.arm_camera_routers.append(args), APIRouter())[1])
     monkeypatch.setattr(entry.uvicorn, "Server", FakeServer)
     monkeypatch.setattr(entry, "CsiCalibration", FakeCsi)
     monkeypatch.setattr(entry, "csi_router", lambda *args: (rec.csi_routers.append(args), APIRouter())[1])
@@ -188,6 +197,7 @@ def test_shutdown_stops_sequence_first(rec: Recorder) -> None:
         "sweep_stop",
         "sweep_wait",
         "job_stop",
+        "arm_camera_job_stop",
         "destroy_node",
         "executor_shutdown",
         "shutdown",
@@ -271,3 +281,25 @@ def test_sweep_is_blocked_while_a_sequence_runs(rec: Recorder) -> None:
 def test_missing_env_is_a_config_error(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(CONFIG_ENV, raising=False)
     assert entry.main() == 78
+
+
+def test_arm_camera_router_runs_its_own_compute_job(rec: Recorder, tmp_path: Path) -> None:
+    entry.main()
+    d435, arm_camera = rec.jobs
+    assert d435 is rec.job
+    assert arm_camera.kwargs == {"module": "head_rgbd_calibration.arm_camera_compute", "flow": "arm_camera_compute"}
+    ((sequencer, job, store, cfg, _run),) = rec.arm_camera_routers
+    assert (sequencer, job) == (rec.sequencer, arm_camera)
+    assert store.state_dir == Path(cfg.state_dir)
+
+
+def test_sequence_and_sweep_are_blocked_while_an_arm_to_camera_compute_runs(rec: Recorder) -> None:
+    entry.main()
+    running = {"value": False}
+    for part in (rec.capture, rec.job, rec.sweep):
+        part.state = lambda: {"running": False}
+    rec.jobs[1].state = lambda: {"running": running["value"]}
+    assert rec.sequencer.blocked() is None and rec.sweep.blocked() is None
+    running["value"] = True
+    assert "arm to camera compute" in rec.sequencer.blocked()
+    assert "arm to camera compute" in rec.sweep.blocked()

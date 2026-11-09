@@ -13,6 +13,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from head_rgbd_calibration.app import HTTP_BAD_REQUEST, HTTP_CONFLICT, RunFn, error_response
+from head_rgbd_calibration.arm_camera_results import KIND as ARM_CAMERA_KIND
 from head_rgbd_calibration.arm_results import KIND as ARM_KIND
 from head_rgbd_calibration.arm_results import apply_arm, compute_arm
 from head_rgbd_calibration.capture import CaptureController
@@ -54,6 +55,19 @@ class ConfirmRequest(BaseModel):
     confirm: bool = False
 
 
+def head_arm_result_ids(store: SessionStore, sid: str) -> list[str]:
+    """Result ids of a session for the head-arm routes, newest first: arm to camera results (/api/arm-camera) left out.
+
+    Args:
+        store: Session store.
+        sid: Session id.
+
+    Returns:
+        list[str]: The ids of the head-arm and arm offsets results.
+    """
+    return [result["id"] for result in store.list_results(sid) if result.get("kind") != ARM_CAMERA_KIND]
+
+
 def list_head_arm_sessions(store: SessionStore) -> list[dict[str, Any]]:
     """Summaries of the stored head_arm sessions, newest first.
 
@@ -61,7 +75,8 @@ def list_head_arm_sessions(store: SessionStore) -> list[dict[str, Any]]:
         store: Session store.
 
     Returns:
-        [{id, created, views, arm_poses, results}]: stored view count, captured arm pose count, result ids.
+        [{id, created, views, arm_poses, results}]: stored view count, captured arm pose count, result ids (no arm to
+        camera results).
     """
     return [
         {
@@ -69,7 +84,7 @@ def list_head_arm_sessions(store: SessionStore) -> list[dict[str, Any]]:
             "created": session["created"],
             "views": session["pose_count"],
             "arm_poses": len(store.captured_arm_poses(session["id"])),
-            "results": store.result_ids(session["id"]),
+            "results": head_arm_result_ids(store, session["id"]),
         }
         for session in store.list_sessions()
         if session["kind"] == KIND_HEAD_ARM
@@ -183,7 +198,10 @@ def head_arm_router(
         path = store.result_dir(sid, rid) / RESULT_FILE
         if not path.is_file():
             raise NotFound(f"no such result: {rid}")
-        return json.loads(path.read_text())
+        body = json.loads(path.read_text())
+        if body.get("kind") == ARM_CAMERA_KIND:
+            raise NotFound(f"no such result: {rid} (an arm to camera result: /api/arm-camera)")
+        return body
 
     @router.post("/sessions/{sid}/results/{rid}/apply")
     def apply(sid: str, rid: str) -> Any:

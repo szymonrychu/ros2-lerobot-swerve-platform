@@ -1,0 +1,21 @@
+{
+  "arm_calibration": {
+    "session": "calib-20261109-120000",
+    "result": "r-20261109-120000",
+    "accepted_at": "2026-11-09T19:00:59.195218+00:00",
+    "score": {
+      "rms_px": 0.4308856003837026,
+      "heldout_rms_px": 0.40892239846384515,
+      "heldout_tool_mm": 0.30373247450987595,
+      "views": 144,
+      "poses": 36
+    }
+  },
+  "units": [
+    {
+      "name": "unit-a.service",
+      "active_state": "active",
+      "restarted": true
+    }
+  ]
+}
