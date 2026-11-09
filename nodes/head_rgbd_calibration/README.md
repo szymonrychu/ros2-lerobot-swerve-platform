@@ -412,20 +412,25 @@ why a run went wrong from `journalctl` alone (T-99 decisions 308 and 309: the jo
 calib_event {"flow":"head_arm","run_id":"seq-20261109-101500-3fa2c1","step":"path_check","outcome":"refused","reason":"2 violated entries","data":{...}}
 ```
 
-- Keys: `flow`, `run_id`, `step`, `outcome`, `reason` (why it failed, was refused or skipped), `data` (inputs and
-  measured values) and, for a timed step, `duration_s`. Errors log at ERROR, refusals, skips and stops at WARNING.
+- Keys: `ts` (local ISO time the event happened), `flow`, `run_id`, `step`, `outcome`, `reason` (why it failed, was
+  refused or skipped), `data` (inputs and measured values) and, for a timed step, `duration_s`. Errors log at ERROR,
+  refusals, skips and stops at WARNING. `calib_event` never raises: an event it cannot encode is logged with
+  `data.encode_error` and the names of its data keys.
 - `run_id`: the session id (floor sweep, D435 and CSI capture), the result id (computes, applies), else a generated
   `<prefix>-YYYYmmdd-HHMMSS-<hex>` (`seq-` a head-arm sequence, `park-` a park, `req-` an HTTP request).
 - Values are JSON-safe (numpy, paths, dataclasses, pydantic models, NaN as `"nan"`) and bounded: a numeric list longer
   than 12 (per-view corner counts, residuals) becomes `{count, head, min, max, mean}`, a numeric array
-  `{shape, count, min, max, mean}`, any other list longer than 40 `{count, head}`, a string is cut at 400 characters.
-  The value of a key naming a token, secret, password or authorization is `<redacted>`; the MCP bearer token and the
-  board park token are never passed to the log.
+  `{shape, count, min, max, mean}`, any other list longer than 40 `{count, head}`, a string is cut at 400 characters,
+  and a line over 16000 characters keeps only the names of its data keys (`truncated_chars`, `keys`; journald splits
+  longer lines). The value of a key naming a token, secret, password or authorization is `<redacted>` (also in a request
+  query and JSON body; a body that is not JSON is logged as its size only); the MCP bearer token and the board park token
+  are never passed to the log.
 - `step_timer` logs a step's `start` and its end with `duration_s`: `ok` (or the outcome the step sets), `stopped`
   (a Stop), or `error` at ERROR with `error_type`, the exception message and the step's inputs.
 - The compute child (`compute.py`) logs to its stderr in `CHILD_LOG_FORMAT`; when it ends, `jobs.py` re-logs each such
   line under its own logger and level (`forward_child_log`), so its events reach the journal with its run id; other
-  stderr lines (a traceback) are logged at WARNING and still form the job's error tail.
+  stderr lines (a traceback) are logged at WARNING and still form the job's error tail. The forwarded lines reach the
+  journal when the child ends, so their journal time is the end; `ts` in the event is when it happened.
 - The CSI flow logs through the same helper (stdlib logging); the rclpy node logger keeps only the throttled frame-drop
   warnings and the executor-callback errors of the capture and CSI callbacks.
 
@@ -447,7 +452,7 @@ Events per flow:
 | `applied` | none | `write` (every applied/ write: files with sizes, applied.json keys before and after) |
 | `csi_capture` | session id | `capture` start, `view` kept (corners), `capture` stopped |
 | `csi_compute`, `csi_apply` | result id (session id for a refusal) | `compute` ok (K, D, RMS, per-view errors) or refused; `apply` applied (file, unit state) |
-| `api` | `req-...` | `<METHOD> <path>` for every POST, PUT, PATCH, DELETE: query, body, status; `refused` (4xx) with the reply message, `error` (5xx or exception) |
+| `api` | `req-...` | `<METHOD> <path>` for every POST, PUT, PATCH, DELETE: query, body, status; `refused` (4xx) with the reply message, `error` (5xx or exception); a request cancelled by a client disconnect is not logged, and the `req-` id is not the flow's run id (the flow logs its own) |
 
 Reading it on the robot (through the deploy tooling):
 

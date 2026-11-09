@@ -108,19 +108,21 @@ class ComputeJob:
                 rid,
             ]
             self.stderr_file = tempfile.TemporaryFile()
-            calib_event(
-                LOGGER,
-                FLOW,
-                rid,
-                CHILD_STEP,
-                "start",
-                session_id=sid,
-                poses=len(self.store.pose_ids(sid)),
-                command=command,
-                timeout_s=self.cfg.compute_timeout_s,
-            )
+            started_info = {
+                "session_id": sid,
+                "poses": len(self.store.pose_ids(sid)),
+                "command": command,
+                "timeout_s": self.cfg.compute_timeout_s,
+            }
+            try:
+                self.child = self.popen(command, stdout=subprocess.DEVNULL, stderr=self.stderr_file)
+            except Exception as exc:
+                self.stderr_file.close()
+                self.stderr_file = None
+                calib_event(LOGGER, FLOW, rid, CHILD_STEP, "error", logging.ERROR, str(exc), **started_info)
+                raise
             self.began_s = time.monotonic()
-            self.child = self.popen(command, stdout=subprocess.DEVNULL, stderr=self.stderr_file)
+            calib_event(LOGGER, FLOW, rid, CHILD_STEP, "start", pid=self.child.pid, **started_info)
             self.session_id, self.result_id, self.started_at, self.error = sid, rid, self.clock(), None
             self.watcher = threading.Thread(target=self.watch, name="compute-watch", daemon=True)
             self.watcher.start()
@@ -161,13 +163,15 @@ class ComputeJob:
             error (str | None): Why it failed (timeout, stop), None when it ended on its own.
             code (int | None): Its exit code, None when unknown.
             crashed (bool): It exited without a result.json: the error is the last STDERR_TAIL_LINES stderr lines
-                that are not log lines, else the exit code.
+                that are not log lines, else the exit code and the last log line.
         """
         self.stderr_file.seek(0)
         text = self.stderr_file.read().decode(errors="replace")
         other = forward_child_log(text, LOGGER, f"compute {self.result_id}")
         if crashed:
-            error = "\n".join(other[-STDERR_TAIL_LINES:]) or f"compute exited with code {code} and wrote no result"
+            last = text.strip().splitlines()[-1:] if text.strip() else []
+            ended = f"compute exited with code {code} and wrote no result"
+            error = "\n".join(other[-STDERR_TAIL_LINES:]) or "; ".join([ended, *last])
         self.error = error
         self.child = None
         self.stderr_file.close()

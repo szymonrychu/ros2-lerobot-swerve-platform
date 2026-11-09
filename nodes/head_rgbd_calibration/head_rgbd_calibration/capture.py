@@ -12,7 +12,7 @@ serialised by `feed_lock`, which no HTTP call takes. Every subscription and the 
 stops, times out or fails to start. Nothing is published.
 
 Telemetry: an intrinsics check capture logs calib_event lines of flow `d435_capture` (run id: the session id) for its
-start (config that gates the stills), every stored pose (corner count), a pose that could not be stored and its end
+start (config that gates the stills), every stored pose (corner count), a pose that could not be stored (error) and its end
 (reason, pose count, last status). A head_arm still session logs its start and end (flow `head_arm_still`); each still
 attempt returns its telemetry in StillOutcome.detail (still-window stats, corner count, board ids, joint stamp gaps),
 which the sequencer logs. Frame drops and executor-callback errors stay on the rclpy logger (throttled).
@@ -902,7 +902,18 @@ class CaptureController:
                     pid = self.store.add_pose(capture.session_id, event.still)
                 except Exception as exc:  # the capture goes on; the operator sees the reason
                     message = f"pose {event.still.number} not stored: {exc}"
-                    self.logger.error(message)
+                    calib_event(
+                        LOG,
+                        FLOW_CAPTURE,
+                        capture.session_id,
+                        "pose",
+                        "error",
+                        logging.ERROR,
+                        message,
+                        number=event.still.number,
+                        corners=len(event.still.detection.ids),
+                        error_type=type(exc).__name__,
+                    )
                     capture.store_error = (capture.counter.status, message)
                     continue
                 stored += 1

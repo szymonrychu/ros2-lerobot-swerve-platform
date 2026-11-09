@@ -11,13 +11,14 @@ from typing import Any
 
 import numpy as np
 import pytest
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
 from head_rgbd_calibration.telemetry import (
     EVENT_PREFIX,
+    MAX_EVENT_CHARS,
     MAX_LIST_ITEMS,
     MAX_NUMBERS,
     MAX_STRING_CHARS,
@@ -62,6 +63,7 @@ def test_calib_event_emits_one_prefixed_compact_json_line(caplog: pytest.LogCapt
     line = caplog.records[0].getMessage()
     assert "\n" not in line and ", " not in line
     assert parse(line) == event
+    assert datetime.fromisoformat(event.pop("ts")).tzinfo is not None
     assert event == {
         "flow": "head_arm",
         "run_id": "seq-1",
@@ -159,6 +161,31 @@ def test_calib_event_bounds_data_and_never_raises_on_odd_values(caplog: pytest.L
     assert len(caplog.records[0].getMessage()) < 2000
 
 
+class Unprintable:
+    """An object whose str() raises."""
+
+    def __str__(self) -> str:
+        raise RuntimeError("no str")
+
+
+def test_calib_event_never_raises(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.INFO, logger=LOGGER_NAME):
+        odd = calib_event(LOGGER, "f", "r", "s", "ok", thing=Unprintable(), gen=(i for i in range(3)))
+        bad = calib_event(LOGGER, "f", "r", "s", "ok", 20, Unprintable())
+    assert odd["data"]["thing"] == "<unprintable Unprintable>"
+    assert odd["data"]["gen"].startswith("<generator object")
+    assert "encode_error" in bad["data"] and bad["reason"] is None
+    assert len(events_in(caplog.records)) == 2
+
+
+def test_calib_event_caps_the_line_length(caplog: pytest.LogCaptureFixture) -> None:
+    huge = {f"key{i}": ["x" * 300] * MAX_LIST_ITEMS for i in range(50)}
+    with caplog.at_level(logging.INFO, logger=LOGGER_NAME):
+        event = calib_event(LOGGER, "f", "r", "s", "ok", **huge)
+    assert len(caplog.records[0].getMessage()) <= MAX_EVENT_CHARS
+    assert event["data"]["truncated_chars"] > MAX_EVENT_CHARS and len(event["data"]["keys"]) == 50
+
+
 def test_step_timer_logs_start_and_ok_with_duration_and_fields(caplog: pytest.LogCaptureFixture) -> None:
     ticks = iter([10.0, 12.5])
     with caplog.at_level(logging.INFO, logger=LOGGER_NAME):
@@ -196,6 +223,17 @@ def test_step_timer_logs_an_exception_at_error_and_reraises(caplog: pytest.LogCa
 
 class Halt(Exception):
     """A control-flow exception (as the sequencer's Stopped)."""
+
+
+def test_step_timer_keeps_the_exception_when_the_body_set_its_outcome(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.INFO, logger=LOGGER_NAME):
+        with pytest.raises(RuntimeError, match="boom"):
+            with step_timer(LOGGER, "f", "r", "pose") as fields:
+                fields.update(outcome="skipped", level=logging.WARNING, reason="every view skipped")
+                raise RuntimeError("boom")
+    end = events_in(caplog.records)[-1]
+    assert (end["outcome"], end["reason"]) == ("error", "RuntimeError: boom")
+    assert end["data"]["body_reason"] == "every view skipped"
 
 
 def test_step_timer_quiet_exceptions_log_stopped_at_warning(caplog: pytest.LogCaptureFixture) -> None:
@@ -236,6 +274,11 @@ def request_app() -> FastAPI:
             return JSONResponse(status_code=400, content={"ok": False, "message": "park needs confirm=true"})
         return {"ok": True}
 
+    @app.post("/api/raw")
+    async def raw(request: Request) -> Any:
+        await request.body()
+        return {"ok": True}
+
     @app.post("/api/crash")
     def crash() -> Any:
         raise RuntimeError("compute exploded")
@@ -247,7 +290,7 @@ def test_request_telemetry_logs_mutating_requests_with_params_and_outcome(caplog
     client = TestClient(request_app(), raise_server_exceptions=False)
     with caplog.at_level(logging.INFO, logger="head_rgbd_calibration.telemetry"):
         client.get("/api/state")
-        client.post("/api/park?x=1", json={"confirm": True, "board_on": True})
+        client.post("/api/park?x=1&token=abc", json={"confirm": True, "board_on": True, "token": "secret"})
         client.post("/api/park", json={"confirm": False})
         client.post("/api/crash")
     events = events_in(caplog.records)
@@ -257,8 +300,8 @@ def test_request_telemetry_logs_mutating_requests_with_params_and_outcome(caplog
         ("POST /api/crash", "error"),
     ]
     assert all(e["flow"] == "api" for e in events)
-    assert events[0]["data"]["body"] == {"confirm": True, "board_on": True}
-    assert events[0]["data"]["query"] == "x=1"
+    assert events[0]["data"]["body"] == {"confirm": True, "board_on": True, "token": REDACTED}
+    assert events[0]["data"]["query"] == {"x": "1", "token": REDACTED}
     assert events[0]["data"]["status"] == 200
     assert events[1]["reason"] == "park needs confirm=true"
     assert events[1]["data"]["status"] == 400
@@ -268,3 +311,12 @@ def test_request_telemetry_logs_mutating_requests_with_params_and_outcome(caplog
         logging.WARNING,
         logging.ERROR,
     ]
+
+
+def test_request_telemetry_logs_only_the_size_of_a_body_that_is_not_json(caplog: pytest.LogCaptureFixture) -> None:
+    client = TestClient(request_app())
+    with caplog.at_level(logging.INFO, logger="head_rgbd_calibration.telemetry"):
+        client.post("/api/raw", content=b"token=abc " * 1000)
+    event = events_in(caplog.records)[-1]
+    assert event["data"]["body"] == {"bytes": 10000}
+    assert "abc" not in caplog.records[-1].getMessage()

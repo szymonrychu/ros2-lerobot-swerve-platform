@@ -357,7 +357,9 @@ def apply_head_chain_file(
     try:
         update_applied(Path(cfg.state_dir) / APPLIED_DIR, add_record, [(HEAD_CHAIN_FILE, source.read_bytes())])
     except NotApplicable as exc:
-        calib_event(LOGGER, FLOW_APPLY, record.get("result"), "apply", "refused", logging.WARNING, str(exc), **record)
+        calib_event(
+            LOGGER, FLOW_APPLY, record.get("result"), "apply", "refused", logging.WARNING, str(exc), record=record
+        )
         raise
     units = [unit_state(u, now.timestamp(), run) for u in cfg.restart_units]
     calib_event(

@@ -1,7 +1,8 @@
 """Structured calibration telemetry for the system journal (T-99 decisions 308, 309).
 
 Every calibration flow logs its step outcomes as one stdlib logging line `calib_event {compact JSON}` with the keys
-`flow`, `run_id`, `step`, `outcome`, `reason`, `data` and, for a timed step, `duration_s`. The node logs to stderr,
+`ts` (local ISO time of the event), `flow`, `run_id`, `step`, `outcome`, `reason`, `data` and, for a timed step,
+`duration_s`. The node logs to stderr,
 which systemd keeps in the journal, so a run can be read back with
 
     journalctl -u ros2-head_rgbd_calibration -o cat | grep -o 'calib_event {.*' | cut -d' ' -f2- | jq
@@ -9,7 +10,9 @@ which systemd keeps in the journal, so a run can be read back with
 Values are made JSON-safe (numpy scalars and arrays, paths, dataclasses, pydantic models, datetimes, NaN and inf as
 strings) and bounded: a numeric list longer than MAX_NUMBERS becomes its count, first items and min/max/mean (per-pose
 corner arrays and residuals are summarised, not dumped), a numeric array its shape, count and min/max/mean, any other
-list longer than MAX_LIST_ITEMS its count and first items; a string is cut at MAX_STRING_CHARS. A mapping key that names a secret
+list longer than MAX_LIST_ITEMS its count and first items; a string is cut at MAX_STRING_CHARS; a line longer than
+MAX_EVENT_CHARS keeps only the names of its data keys. calib_event never raises: an event that cannot be encoded is
+logged with its `encode_error` instead. A mapping key that names a secret
 (SECRET_KEY_MARKERS) has its value replaced by REDACTED: the MCP bearer token and the board park token never reach the
 journal.
 
@@ -26,11 +29,13 @@ import math
 import re
 import time
 import uuid
-from collections.abc import Callable, Iterable, Iterator, Mapping
+from collections import deque
+from collections.abc import Callable, Iterable, Iterator, KeysView, Mapping, ValuesView
 from contextlib import contextmanager
 from datetime import date, datetime
 from pathlib import PurePath
 from typing import Any
+from urllib.parse import parse_qs
 
 import numpy as np
 from pydantic import BaseModel
@@ -45,6 +50,8 @@ MAX_DICT_ITEMS = 60
 MAX_STRING_CHARS = 400
 MAX_DEPTH = 6
 DURATION_DIGITS = 3
+MAX_EVENT_CHARS = 16000  # journald splits longer lines (LineMax 48K); above this `data` is replaced by its keys
+STEP_CONTROL_KEYS = ("outcome", "level", "reason")
 FLOAT_DIGITS = 6
 REDACTED = "<redacted>"
 SECRET_KEY_MARKERS = ("token", "secret", "password", "authorization", "bearer")
@@ -203,14 +210,15 @@ def json_safe(value: Any, depth: int = 0) -> Any:
             name = str(key)
             out[name] = REDACTED if secret_key(name) else json_safe(item, depth + 1)
         return out
-    if isinstance(value, list | tuple | set | frozenset) or (
-        isinstance(value, Iterable) and not isinstance(value, bytes | bytearray)
-    ):
+    if isinstance(value, list | tuple | set | frozenset | deque | KeysView | ValuesView):
         items = sorted(value, key=str) if isinstance(value, set | frozenset) else list(value)
         return bounded_list(items, depth)
     if isinstance(value, BaseException):
         return truncate(f"{type(value).__name__}: {value}")
-    return truncate(str(value))
+    try:
+        return truncate(str(value))
+    except Exception:  # an object whose str() raises still gets a name in the log
+        return f"<unprintable {type(value).__name__}>"
 
 
 def calib_event(
@@ -224,7 +232,8 @@ def calib_event(
     duration_s: float | None = None,
     **data: Any,
 ) -> dict[str, Any]:
-    """Log one calibration event as `calib_event {compact JSON}`; never raises on odd data.
+    """Log one calibration event as `calib_event {compact JSON}`; never raises (a calibration flow must not fail on its
+    telemetry): an event that cannot be encoded is logged with its `encode_error` and the names of its data keys.
 
     Args:
         logger (logging.Logger): The flow's module logger (it reaches the journal through the root handler).
@@ -241,16 +250,29 @@ def calib_event(
         dict[str, Any]: The logged event.
     """
     event: dict[str, Any] = {
+        "ts": datetime.now().astimezone().isoformat(timespec="milliseconds"),
         "flow": flow,
         "run_id": run_id,
         "step": step,
         "outcome": outcome,
-        "reason": None if reason is None else truncate(str(reason)),
-        "data": json_safe(data),
+        "reason": None,
+        "data": {},
     }
-    if duration_s is not None:
-        event["duration_s"] = round(float(duration_s), DURATION_DIGITS)
-    logger.log(level, "%s %s", EVENT_PREFIX, json.dumps(event, separators=(",", ":"), allow_nan=False))
+    try:
+        event["reason"] = None if reason is None else truncate(str(reason))
+        event["data"] = json_safe(data)
+        if duration_s is not None:
+            event["duration_s"] = round(float(duration_s), DURATION_DIGITS)
+        line = json.dumps(event, separators=(",", ":"), allow_nan=False)
+        if len(line) > MAX_EVENT_CHARS:
+            event["data"] = {"truncated_chars": len(line), "keys": sorted(data)}
+            line = json.dumps(event, separators=(",", ":"), allow_nan=False)
+    except Exception as exc:  # never let the telemetry break the flow it reports on
+        event["data"] = {"encode_error": f"{type(exc).__name__}: {exc}", "keys": sorted(map(str, data))}
+        event["reason"] = event["reason"] if isinstance(event["reason"], str) else None
+        event.pop("duration_s", None)
+        line = json.dumps(event, separators=(",", ":"), default=str)
+    logger.log(level, "%s %s", EVENT_PREFIX, line)
     return event
 
 
@@ -267,8 +289,9 @@ def step_timer(
     """Log a step's start and its end with the duration; the body adds measured values to the yielded dict.
 
     The body may set `outcome`, `level` and `reason` in the dict to log a non-`ok` end (a skip). An exception is
-    logged and re-raised: a `quiet` one (control flow, e.g. a stop) as `stopped` at WARNING, any other as `error` at
-    ERROR with `error_type` and the start data, so one line names the failing step and why.
+    logged and re-raised unchanged: a `quiet` one (control flow, e.g. a stop) as `stopped` at WARNING, any other as
+    `error` at ERROR with `error_type` and the start data, so one line names the failing step and why (the body's
+    `outcome`, `level` and `reason` are then dropped; the body's `reason` is kept as `body_reason`).
 
     Args:
         logger (logging.Logger): The flow's module logger.
@@ -289,7 +312,9 @@ def step_timer(
         yield fields
     except quiet as exc:
         reason = str(exc) or type(exc).__name__
-        calib_event(logger, flow, run_id, step, OUTCOME_STOPPED, logging.WARNING, reason, clock() - began, **fields)
+        calib_event(
+            logger, flow, run_id, step, OUTCOME_STOPPED, logging.WARNING, reason, clock() - began, **end_fields(fields)
+        )
         raise
     except Exception as exc:
         calib_event(
@@ -301,13 +326,28 @@ def step_timer(
             logging.ERROR,
             f"{type(exc).__name__}: {exc}",
             clock() - began,
-            **{**data, **fields, "error_type": type(exc).__name__},
+            **{**data, **end_fields(fields), "error_type": type(exc).__name__},
         )
         raise
     outcome = fields.pop("outcome", OUTCOME_OK)
     level = fields.pop("level", logging.INFO)
     reason = fields.pop("reason", None)
     calib_event(logger, flow, run_id, step, outcome, level, reason, clock() - began, **fields)
+
+
+def end_fields(fields: dict[str, Any]) -> dict[str, Any]:
+    """The body fields of a step that ended in an exception, without the step-control keys (outcome, level, reason).
+
+    Args:
+        fields (dict[str, Any]): What the step body put into the step_timer dict.
+
+    Returns:
+        dict[str, Any]: The other fields, plus the body's reason as `body_reason` when it set one.
+    """
+    kept = {key: value for key, value in fields.items() if key not in STEP_CONTROL_KEYS}
+    if fields.get("reason") is not None:
+        kept["body_reason"] = fields["reason"]
+    return kept
 
 
 def new_run_id(prefix: str, now: datetime | None = None) -> str:
@@ -366,22 +406,37 @@ def forward_child_log(text: str, fallback: logging.Logger, label: str) -> list[s
     return other
 
 
-def parse_body(raw: bytes) -> Any:
-    """A request body for the log: its JSON when it parses, else its truncated text (None when empty).
+def parse_body(raw: bytes, total: int) -> Any:
+    """A request body for the log: its JSON (secret keys redacted by json_safe), else only its size.
 
     Args:
-        raw (bytes): The body bytes (at most MAX_BODY_BYTES).
+        raw (bytes): The first MAX_BODY_BYTES of the body.
+        total (int): The body size in bytes.
 
     Returns:
-        Any: Parsed JSON, the text, or None.
+        Any: Parsed JSON; {"bytes": total} for a body that is not JSON or was cut; None when empty.
     """
     if not raw:
         return None
-    text = raw.decode(errors="replace")
     try:
-        return json.loads(text)
+        return json.loads(raw.decode())
     except ValueError:
-        return text
+        return {"bytes": total}
+
+
+def parse_query(query: bytes) -> dict[str, Any] | None:
+    """A query string for the log as {name: value or [values]} (secret names redacted by json_safe).
+
+    Args:
+        query (bytes): The raw query string.
+
+    Returns:
+        dict[str, Any] | None: The parameters, None without any.
+    """
+    params = parse_qs(query.decode(errors="replace"), keep_blank_values=True)
+    if not params:
+        return None
+    return {name: values[0] if len(values) == 1 else values for name, values in params.items()}
 
 
 def reply_message(raw: bytes) -> str | None:
@@ -393,11 +448,17 @@ def reply_message(raw: bytes) -> str | None:
     Returns:
         str | None: The message, the raw text when it is not such JSON, None when empty.
     """
-    parsed = parse_body(raw)
+    if not raw:
+        return None
+    text = raw.decode(errors="replace")
+    try:
+        parsed = json.loads(text)
+    except ValueError:
+        return truncate(text)
     if isinstance(parsed, dict):
         message = parsed.get("message", parsed.get("detail"))
         return None if message is None else str(message)
-    return None if parsed is None else str(parsed)
+    return truncate(text)
 
 
 class RequestTelemetry:
@@ -429,12 +490,14 @@ class RequestTelemetry:
             return
         body = bytearray()
         reply = bytearray()
-        status = {"code": HTTP_SERVER_ERROR}
+        status = {"code": HTTP_SERVER_ERROR, "body_bytes": 0}
 
         async def receive_logged() -> Message:
             message = await receive()
             if message["type"] == "http.request":
-                body.extend(message.get("body", b"")[: MAX_BODY_BYTES - len(body)])
+                chunk = message.get("body", b"")
+                status["body_bytes"] += len(chunk)
+                body.extend(chunk[: MAX_BODY_BYTES - len(body)])
             return message
 
         async def send_logged(message: Message) -> None:
@@ -445,7 +508,7 @@ class RequestTelemetry:
             await send(message)
 
         step = f"{scope['method']} {scope['path']}"
-        query = scope.get("query_string", b"").decode(errors="replace") or None
+        query = parse_query(scope.get("query_string", b""))
         run_id = new_run_id("req")
         began = time.monotonic()
         try:
@@ -461,7 +524,7 @@ class RequestTelemetry:
                 f"{type(exc).__name__}: {exc}",
                 time.monotonic() - began,
                 query=query,
-                body=parse_body(bytes(body)),
+                body=parse_body(bytes(body), status["body_bytes"]),
                 status=HTTP_SERVER_ERROR,
             )
             raise
@@ -483,6 +546,6 @@ class RequestTelemetry:
             reason,
             time.monotonic() - began,
             query=query,
-            body=parse_body(bytes(body)),
+            body=parse_body(bytes(body), status["body_bytes"]),
             status=code,
         )

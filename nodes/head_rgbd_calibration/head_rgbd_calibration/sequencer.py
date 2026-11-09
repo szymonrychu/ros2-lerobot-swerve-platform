@@ -37,8 +37,9 @@ big-joint answer, the return), sequence end (done, stopped, error), park start, 
 its message (errors at ERROR, stops and skipped poses at WARNING) and kept in a bounded list of the newest
 EVENT_LIMIT events, `state()["events"]` (newest first), so the Calibrate page shows why a sequence ended.
 
-Telemetry (telemetry.py): every journal line of this module is one `calib_event` of flow `head_arm` under the run id of
-the sequence (`seq-...`) or park (`park-...`); a UI event is that same line (append_event), never a second one. The
+Telemetry (telemetry.py): the journal lines of this module are `calib_event`s of flow `head_arm` under the run id of the
+sequence (`seq-...`) or park (`park-...`), plus the traceback of an unexpected exception; a UI event is that same line
+(append_event), never a second one. The
 worker steps are timed (start, ok, stopped or error with the exception and the step's inputs), and the measured joints
 (get_arm_state), path checks (start, target, gripper, every violated entry), MCP results (status, message, result),
 the gripper reading against its limits, each view and still outcome and the park's carry reasons, mount and reset are
@@ -369,8 +370,12 @@ class Sequencer:
         self.recorded_mount = recorded
         self.log(BOARD_RECORD_STEP, "offered", session_id=session, clipped_at=record["clipped_at"], mount=recorded)
 
-    def record_board(self) -> None:
-        """Write the board record (atomically); a failed write is logged, the in-memory state stands."""
+    def record_board(self, run_id: str | None = None) -> None:
+        """Write the board record (atomically); a failed write is logged, the in-memory state stands.
+
+        Args:
+            run_id (str | None): The run the log lines belong to (None: the current run).
+        """
         if self.board_file is None:
             return
         mount = self.cfg.fit.board_mount
@@ -385,21 +390,31 @@ class Sequencer:
             temp.write_text(json.dumps(record))
             os.replace(temp, self.board_file)
         except OSError as exc:
-            self.log(BOARD_RECORD_STEP, "error", logging.ERROR, f"cannot write: {exc}", file=self.board_file)
+            self.log(BOARD_RECORD_STEP, "error", logging.ERROR, f"cannot write: {exc}", run_id, file=self.board_file)
             return
-        self.log(BOARD_RECORD_STEP, "written", file=self.board_file, **record)
+        self.log(BOARD_RECORD_STEP, "written", run_id=run_id, file=self.board_file, **record)
 
-    def clear_board(self) -> None:
-        """Remove the board record."""
+    def clear_board(self, run_id: str | None = None) -> None:
+        """Remove the board record.
+
+        Args:
+            run_id (str | None): The run the log line belongs to (None: the current run).
+        """
         if self.board_file is None:
             return
         try:
             self.board_file.unlink(missing_ok=True)
         except OSError as exc:
-            self.log(BOARD_RECORD_STEP, "error", logging.ERROR, f"cannot remove: {exc}", file=self.board_file)
+            self.log(BOARD_RECORD_STEP, "error", logging.ERROR, f"cannot remove: {exc}", run_id, file=self.board_file)
 
     def log(
-        self, step: str, outcome: str, level: int = logging.INFO, reason: str | None = None, **data: Any
+        self,
+        step: str,
+        outcome: str,
+        level: int = logging.INFO,
+        reason: str | None = None,
+        run_id: str | None = None,
+        **data: Any,
     ) -> dict[str, Any]:
         """Log one journal-only calib_event of this run (not a UI event).
 
@@ -408,12 +423,14 @@ class Sequencer:
             outcome (str): The outcome (ok, refused, converged, ...).
             level (int): Logging level.
             reason (str | None): Why it failed or was refused.
+            run_id (str | None): The run the event belongs to; None takes the current `run_id` (a worker that logs
+                after clearing `running` passes its own, as a new claim may have replaced it).
             **data (Any): Inputs and measured values.
 
         Returns:
             dict[str, Any]: The logged event.
         """
-        return calib_event(LOG, FLOW, self.run_id, step, outcome, level, reason, **data)
+        return calib_event(LOG, FLOW, run_id or self.run_id, step, outcome, level, reason, **data)
 
     def timed(self, step: str, **data: Any) -> Any:
         """A timed worker step of this run (telemetry.step_timer on the injected clock; a stop logs `stopped`).
@@ -857,6 +874,7 @@ class Sequencer:
             board: The board is on the gripper (the mount check_board_park_path returned): move to `park_pose`
                 first (its path was checked), then park through mcp_server's internal board park.
         """
+        run_id = self.run_id  # kept: a claim after the end may replace self.run_id
         error: str | None = None
         status = ""
         lease = False
@@ -918,7 +936,7 @@ class Sequencer:
                 self.status = f"park failed: {error}"
                 self.error = error
         if error is None:
-            self.clear_board()
+            self.clear_board(run_id)
 
     def park_move(self) -> None:
         """Move to `park_pose` at the sequence speed scale (guarded by mcp_server); the path was checked.
@@ -936,6 +954,7 @@ class Sequencer:
 
     def work(self, plan: Plan) -> None:
         """Worker: run the sequence, then always stop the capture and release the arm holding its position."""
+        run_id = self.run_id  # kept: a claim after the end may replace self.run_id
         error: str | None = None
         outcome = "done"
         try:
@@ -993,7 +1012,7 @@ class Sequencer:
                         logging.INFO, f"sequence done: {self.status}", SEQUENCE_STEP, "done", ended_in, **summary
                     )
         if self.board_on:
-            self.record_board()  # now with the capture session id
+            self.record_board(run_id)  # now with the capture session id
 
     def hold(self, error: str | None) -> str | None:
         """Stop the still capture and release the arm keeping its position; failures are added to the error."""

@@ -1,6 +1,7 @@
 """Tests for the live capture controller: subscriptions and QoS, their lifetime, decoding, pairing and stored stills."""
 
 import json
+import logging
 import threading
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -538,7 +539,7 @@ def test_state_is_safe_while_frames_arrive(tmp_path: Path) -> None:
     assert controller.state()["pose_count"] == 1
 
 
-def test_refused_still_shows_the_reason(tmp_path: Path) -> None:
+def test_refused_still_shows_the_reason(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     node = FakeNode()
     controller = make_controller(tmp_path, node)
     sid = controller.start(None)["session_id"]
@@ -547,7 +548,8 @@ def test_refused_still_shows_the_reason(tmp_path: Path) -> None:
     state = controller.state()
     assert state["running"] is True and state["pose_count"] == 0
     assert state["status"].startswith("pose 1 not stored: camera_info")
-    assert any(level == "error" and "not stored" in msg for level, msg in node.logger.records)
+    errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    assert any("calib_event" in msg and "not stored" in msg for msg in errors)  # the journal line (telemetry.py)
 
 
 # head_arm still capture
