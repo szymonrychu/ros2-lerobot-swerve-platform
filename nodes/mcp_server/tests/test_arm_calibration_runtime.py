@@ -14,6 +14,7 @@ from arm_collision.settings import ArmBaseOffset
 from ros2_common.head_rgbd_calibration.arm_calibration_file import ARM_CALIBRATION_FILE, ARM_CALIBRATION_KEY
 from ros2_common.head_rgbd_calibration.urdf_text import APPLIED_MARKER_FILE
 
+from mcp_server import arm_calibration, calibration_marker
 from mcp_server.arm import ArmBusyError, ArmController
 from mcp_server.arm_calibration import FLOW, ArmCalibrationWatcher, arm_values
 from mcp_server.arm_reach import ReachEnvelope
@@ -369,6 +370,41 @@ def test_a_re_zero_after_the_capture_keeps_joint_offsets_stale(tmp_path: Path, s
     before = marker.read_text()
     ArmCalibrationWatcher(cfg.arm).startup(cfg.arm)
     assert marker.read_text() == before
+
+
+def test_a_zero_change_recorded_after_the_capture_keeps_joint_offsets_stale(tmp_path: Path) -> None:
+    """A zero restore after the capture records the change (a later re-zero relists joint_offsets with an old marker
+    time here): the accepted offsets do not hold in the current zero, so the marker stays."""
+    cfg = config(tmp_path)
+    accept(cfg.arm.applied_dir)
+    marker = stale_marker(cfg, ["joint_offsets"], BEFORE_CAPTURE)
+    record = {"version": 1, "group": "follower", "changed_at": AFTER_CAPTURE}
+    marker.with_name("zero_changed.json").write_text(json.dumps(record))
+    before = marker.read_text()
+    ArmCalibrationWatcher(cfg.arm).startup(cfg.arm)
+    assert marker.read_text() == before
+
+
+def test_a_marker_rewritten_between_check_and_clear_is_kept(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The bridge may write a new re-zero between the time check and the clear: the clear then leaves it."""
+    cfg = config(tmp_path)
+    accept(cfg.arm.applied_dir)
+    marker = stale_marker(cfg, ["joint_offsets", "home"], BEFORE_CAPTURE)
+    original = calibration_marker.load_marker
+    calls = {"n": 0}
+
+    def load_then_rezero(path: Path) -> Any:
+        loaded = original(path)
+        calls["n"] += 1
+        if calls["n"] == 1:  # the bridge saves a neutral right after the watcher's check read
+            stale_marker(cfg, ["joint_offsets", "home"], AFTER_CAPTURE)
+        return loaded
+
+    monkeypatch.setattr(calibration_marker, "load_marker", load_then_rezero)
+    monkeypatch.setattr(arm_calibration, "load_marker", load_then_rezero)
+    ArmCalibrationWatcher(cfg.arm).startup(cfg.arm)
+    assert json.loads(marker.read_text())["saved_at"] == AFTER_CAPTURE
+    assert json.loads(marker.read_text())["stale"] == ["joint_offsets", "home"]
 
 
 def test_the_config_fallback_never_touches_the_marker(tmp_path: Path) -> None:

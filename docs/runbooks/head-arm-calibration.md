@@ -187,9 +187,10 @@ gauges: `nodes/head_rgbd_calibration/README.md` ("Arm to camera calibration").
 5. Accept (`POST .../accept`) applies the calibration to the robot; decline (`POST .../decline`) keeps the one in use.
    Accept writes `applied/arm_calibration.json` and then applied.json (`arm_calibration`); mcp_server picks it up on its
    next monitor tick and swaps the joint offsets, arm base and mount height into the running arm model as soon as no
-   arm motion runs (no restart, no client.yml edit, no redeploy). The accept is refused (409) when the follower stale
-   marker lists `joint_offsets` for an arm re-zero at or after the session's first still (capture a new session after
-   the re-zero) or when that marker is unreadable.
+   arm motion runs (no restart, no client.yml edit, no redeploy). The accept is refused (409) when the arm zero may
+   have changed at or after the session's first still: the follower stale marker lists `joint_offsets` for a re-zero
+   then, `/var/lib/ros2/arm/zero_changed.json` names a neutral save or zero restore then, or either file is unreadable.
+   Capture a new session in the current zero.
 6. Confirm the runtime picked it up: `get_arm_state` shows `arm_calibration` with the accepted session and result, and
    the mcp_server journal has a `calib_event` flow `arm_calibration` step `load` ok with `old` and `new` values
    (`apply` start first if a motion was running; `stale_marker` ok if joint_offsets was cleared; `load` failed means

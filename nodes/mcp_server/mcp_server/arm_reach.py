@@ -255,13 +255,16 @@ class ReachEnvelope:
             thread.join(wait_s)
         return self._result
 
-    def compute(self, stop: threading.Event, key: str) -> None:
-        """Compute and cache the envelope (once per inputs).
+    def compute(self, stop: threading.Event | None = None, key: str | None = None) -> None:
+        """Compute and cache the envelope (once per inputs; start() runs it in a background thread).
 
         Args:
-            stop (threading.Event): Set to abandon the computation (nothing is stored).
-            key (str): cache_key() of the inputs it computes for.
+            stop (threading.Event | None): Set to abandon the computation (nothing is stored); None: the envelope's
+                current stop event.
+            key (str | None): cache_key() of the inputs it computes for; None: the current inputs.
         """
+        stop = self._stop if stop is None else stop
+        key = self.cache_key() if key is None else key
         started = time.monotonic()
         checker, cfg = self.checker, self.settings
         grids = [np.linspace(*joint_range(checker, j), ENVELOPE_SAMPLES_PER_JOINT) for j in ENVELOPE_JOINTS]
@@ -321,7 +324,7 @@ class ReachEnvelope:
             if stop.is_set():
                 return
             self.compute_count += 1
-            self._result = result
+            self._result, self._key = result, key
         self.save_cache(result, key)
 
     def cell(self, heading_deg: float, z: float) -> dict[str, Any] | None:

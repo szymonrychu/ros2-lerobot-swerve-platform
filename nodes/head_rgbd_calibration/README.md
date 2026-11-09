@@ -590,8 +590,9 @@ journalctl -u ros2-head_rgbd_calibration -o cat --since today | grep -o 'calib_e
   `read_arm_calibration` (what mcp_server applies) returns with the accepted offsets and base; the next result compares
   with the accepted one and starts from it (`applied_offsets_rad`, `applied_base`, `applied_source` in the inputs
   event), without one from the config, and an unreadable accepted file fails the compute; the accept is refused for a
-  re-zero after the capture or an unreadable / timeless stale marker and goes through for a re-zero before the
-  capture or a marker without joint_offsets, never writing the marker; decline records `declined` and changes nothing applied, a declined result cannot be accepted; a failed result
+  re-zero after the capture, a zero restore recorded after the capture (marker deleted) or an unreadable / timeless
+  stale marker and goes through for a re-zero before the capture or a marker without joint_offsets, never writing the
+  marker; `captured_from` is the earliest stamp of any source; decline records `declined` and changes nothing applied, a declined result cannot be accepted; a failed result
   is refused by both; a running and a crashed compute read from the job state; `/state` without a head chain and the
   head chain source names; the shipped bounds; an accept after another head chain was applied is refused and the
   accepted calibration reads `head_chain_changed`.
@@ -947,10 +948,15 @@ restarts the head nodes only when a file they read changed) and no client.yml ed
 values stay the baseline mcp_server falls back to when nothing is accepted. The tool point is not fitted and stays
 the configured one. See `nodes/mcp_server/README.md` ("Accepted arm calibration").
 
-Arm re-zero: the accept is refused (409) while the follower bridge's stale marker (`arm_stale_marker`) lists
-`joint_offsets` for a re-zero at or after `captured_from` (the offsets were measured in the old zero: capture a new
-session), or when that marker is unreadable or has no timezone-aware `saved_at`. The accept only reads the marker;
-mcp_server clears `joint_offsets` from it when it applies a calibration captured after the re-zero (one writer).
+Arm zero: the accept is refused (409) when the servo zero may have changed at or after `captured_from` (the earliest
+stamp of any source of any still: colour, head and arm joints), read by ros2_common `zero_change_refusal` from the
+follower bridge's stale marker (`arm_stale_marker`) and its zero change record (`zero_changed.json` next to it, the
+time of the last neutral save or zero restore, never cleared): the marker lists `joint_offsets` for a re-zero at or
+after the capture, the record names a zero change at or after it (a zero restore deletes the marker but not the
+record), either is unreadable, or the marker lists `joint_offsets` without a timezone-aware `saved_at`. Times count
+within one second of the capture as after it (the bridge writes whole seconds). Capture a new session then. The accept
+only reads these files; mcp_server clears `joint_offsets` from the marker when it applies a calibration that passes the
+same check (one writer).
 
 `snippet` / `joint_offsets_snippet.yaml` (`joint_offsets_rad`, `arm_base_height_m`, `base_in_base_link`) stay for
 review and for moving an accepted calibration into the client.yml baseline (with `fit.joint_offsets_rad` /

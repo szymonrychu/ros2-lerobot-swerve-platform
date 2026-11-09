@@ -567,7 +567,7 @@ class SelfCollisionChecker:
         """The checker of the body with the head at a measured pose: the full envelope obstacle (HEAD_OBSTACLE)
         replaced by the posed head parts (head.HeadModel.parts, head.posed_body). No pose, no head model or no head
         obstacle in the body returns this checker (the full envelope, fail closed). The last posed checker is reused
-        for the same pose.
+        for the same pose while it stands on the current mount (set_mount may run during a call).
 
         Args:
             head (HeadPose | None): Fresh measured head pose (head.head_pose), None when missing or stale.
@@ -578,7 +578,7 @@ class SelfCollisionChecker:
         if head is None or self.head is None or HEAD_OBSTACLE not in [o.name for o in self.body.obstacles]:
             return self
         last = self.last_posed
-        if last is not None and last[0] == head:
+        if last is not None and last[0] == head and last[1].mount == self.mount:  # a mount swap makes it stale
             return last[1]
         boxes, cylinders = self.head.parts(head)
         parts = BodyModel.from_settings(BodySettings(boxes=boxes, cylinders=cylinders)).obstacles

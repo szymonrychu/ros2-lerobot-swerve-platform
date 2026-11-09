@@ -503,7 +503,12 @@ ignored) holds `session`, `result`, `accepted_at`, `captured_from` (the session'
 `read_arm_calibration(applied_dir)` returns the calibration the `applied.json` `arm_calibration` record names, None when
 nothing is accepted (no `applied.json` or no record; a file without its record is not in effect), and raises
 `ArmCalibrationError` for an unreadable `applied.json` or a named file that is missing, invalid or of another result.
-Tests: `tests/test_arm_calibration_file.py`.
+`zero_change_refusal(marker, since)` tells whether the servo zero may have changed at or after a capture time: it reads
+the follower bridge's stale marker (a `joint_offsets` re-zero `saved_at`) and its zero change record
+(`zero_record_path(marker)`, `zero_changed.json`, `changed_at` of the last neutral save or zero restore, never
+cleared); a time within one second of the capture counts as after it, an unreadable file or a timeless joint_offsets
+marker is a refusal. The head_rgbd_calibration accept refuses on it; mcp_server clears `joint_offsets` only when it
+passes. Tests: `tests/test_arm_calibration_file.py`.
 
 ## ros2_common_cpp (C++)
 

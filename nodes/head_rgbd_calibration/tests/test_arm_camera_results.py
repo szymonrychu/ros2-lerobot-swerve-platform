@@ -19,6 +19,7 @@ from ros2_common.head_rgbd_calibration.arm_calibration_file import (
     ARM_CALIBRATION_FILE,
     ArmCalibrationFile,
     read_arm_calibration,
+    zero_record_path,
 )
 from ros2_common.head_rgbd_calibration.chain import UrdfChain
 from ros2_common.head_rgbd_calibration.config import ARM_JOINT_NAMES, ArmCameraBounds, ArmCameraFitConfig
@@ -31,6 +32,7 @@ from head_rgbd_calibration.arm_camera_results import (
     NO_HEAD_CHAIN_REASON,
     accept_arm_camera,
     arm_camera_state,
+    captured_from,
     compute_arm_camera,
     decline_arm_camera,
     read_arm_camera_result,
@@ -317,9 +319,35 @@ def test_accept_refuses_while_the_re_zero_time_is_unknown(tmp_path: Path, body: 
     result = compute_arm_camera(scene.cfg, scene.store, scene.sid, SessionStore.new_result_id(NOW), NOW)
     marker = write_stale_marker(scene.cfg, [], None)
     marker.write_text(body)
-    with pytest.raises(NotApplicable, match="stale marker"):
+    with pytest.raises(NotApplicable, match="arm zero"):
         accept_arm_camera(scene.cfg, scene.store, scene.sid, result["id"], LATER, fake_run)
     assert not (scene.state / "applied" / ARM_CALIBRATION_FILE).exists()
+
+
+def test_accept_refuses_a_fit_of_a_zero_restored_since_the_capture(tmp_path: Path) -> None:
+    """A zero restore after the capture deletes the marker but records the zero change: the offsets were measured in
+    the restored-away zero, so the accept is refused."""
+    scene = Scene(tmp_path)
+    result = compute_arm_camera(scene.cfg, scene.store, scene.sid, SessionStore.new_result_id(NOW), NOW)
+    marker = Path(scene.cfg.arm_stale_marker or "")
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    after_capture = datetime.fromtimestamp(STAMP_NS / 1e9 + 60, tz=UTC).isoformat()
+    zero_record_path(marker).write_text(json.dumps({"version": 1, "group": "follower", "changed_at": after_capture}))
+    with pytest.raises(NotApplicable, match="zero changed"):
+        accept_arm_camera(scene.cfg, scene.store, scene.sid, result["id"], LATER, fake_run)
+    assert not (scene.state / "applied" / ARM_CALIBRATION_FILE).exists()
+
+
+def test_captured_from_is_the_earliest_stamp_of_any_source(tmp_path: Path) -> None:
+    """The arm joint stamps come from the follower bridge (the clock of the zero change times): the earliest stamp of
+    any source counts, so a zero change just before a late camera stamp is not missed."""
+    scene = Scene(tmp_path)
+    pid = scene.store.pose_ids(scene.sid)[3]
+    path = scene.store.pose_dir(scene.sid, pid) / "pose.json"
+    meta = json.loads(path.read_text())
+    meta["stamps"]["arm_joints"] = STAMP_NS - 5_000_000_000
+    path.write_text(json.dumps(meta))
+    assert captured_from(scene.store, scene.sid) == datetime.fromtimestamp(STAMP_NS / 1e9 - 5, tz=UTC)
 
 
 @pytest.mark.parametrize(

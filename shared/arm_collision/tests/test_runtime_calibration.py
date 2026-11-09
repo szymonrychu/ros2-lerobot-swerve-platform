@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from arm_collision.body_model import BodyModel
-from arm_collision.head import HeadPose
+from arm_collision.head import HeadModel, HeadPose
 from arm_collision.ik import ArmKinematics
 from arm_collision.jaw import JawModel
 from arm_collision.self_collision import SelfCollisionChecker
@@ -101,3 +101,16 @@ def test_set_mount_forgets_the_posed_checker() -> None:
     swapped.last_posed = (HeadPose(0.0, 0.5), swapped)
     swapped.set_mount(NEW_MOUNT)
     assert swapped.last_posed is None
+
+
+def test_a_posed_checker_built_on_the_old_mount_is_not_reused() -> None:
+    """A read-only planner may store a posed checker of the old mount while set_mount runs (outside the motion lock):
+    the next posed() for the same head pose must not hand it out."""
+    swapped = checker(kinematics(OLD_OFFSETS), OLD_MOUNT)
+    swapped.head = HeadModel.from_urdf()
+    head = HeadPose(0.0, 0.5)
+    stale = swapped.posed(head)
+    assert stale is not swapped and stale.mount == OLD_MOUNT
+    swapped.set_mount(NEW_MOUNT)
+    swapped.last_posed = (head, stale)  # the late store of a concurrent posed() call
+    assert swapped.posed(head).mount == NEW_MOUNT

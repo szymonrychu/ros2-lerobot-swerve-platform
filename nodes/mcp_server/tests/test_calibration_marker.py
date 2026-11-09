@@ -109,7 +109,16 @@ def test_clear_last_item_deletes_the_file(tmp_path: Path) -> None:
 
 
 def test_clear_absent_file_is_a_noop(tmp_path: Path) -> None:
-    clear_stale(tmp_path / "m.json", ["home"])
+    assert clear_stale(tmp_path / "m.json", ["home"]) is False
+
+
+def test_clear_only_while_the_checked_re_zero_is_the_marker_s(tmp_path: Path) -> None:
+    path = tmp_path / "m.json"
+    path.write_text(json.dumps(marker_doc()))
+    assert clear_stale(path, ["joint_offsets"], only_if_saved_at="2026-01-01T00:00:00+00:00") is False
+    assert json.loads(path.read_text()) == marker_doc()
+    assert clear_stale(path, ["joint_offsets"], only_if_saved_at=SAVED_AT) is True
+    assert json.loads(path.read_text())["stale"] == ["home"]
 
 
 def test_clear_unreadable_marker_deletes_it_when_everything_is_cleared(tmp_path: Path) -> None:

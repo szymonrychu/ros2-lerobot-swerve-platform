@@ -3,6 +3,7 @@ calibration head_rgbd_calibration writes and mcp_server applies, and the `arm:` 
 
 import json
 import math
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -14,9 +15,12 @@ from ros2_common.head_rgbd_calibration.arm_calibration_file import (
     ARM_CALIBRATION_FILE,
     ARM_CALIBRATION_KEY,
     ARM_SETTINGS_FIELDS,
+    ZERO_RECORD_FILE,
     ArmCalibrationError,
     ArmCalibrationFile,
     read_arm_calibration,
+    zero_change_refusal,
+    zero_record_path,
 )
 from ros2_common.head_rgbd_calibration.arm_camera_fit import calibration_snippet_yaml
 from ros2_common.head_rgbd_calibration.urdf_text import APPLIED_MARKER_FILE
@@ -146,3 +150,72 @@ def test_an_unreadable_marker_is_an_error(tmp_path: Path) -> None:
     (tmp_path / APPLIED_MARKER_FILE).write_text("[1, 2")
     with pytest.raises(ArmCalibrationError, match=APPLIED_MARKER_FILE):
         read_arm_calibration(tmp_path)
+
+
+# --- arm zero changes since the capture (zero_change_refusal) -----------------------------------------------------
+
+CAPTURE = datetime(2026, 11, 9, 12, 1, 0, 500000, tzinfo=UTC)
+
+
+def marker_file(directory: Path, stale: list[str] | None, saved_at: str | None, zero_at: str | None) -> Path:
+    """The bridge's stale marker (None: none) and zero change record (None: none) in `directory`."""
+    directory.mkdir(parents=True, exist_ok=True)
+    marker = directory / "calibration_stale.json"
+    if stale is not None:
+        marker.write_text(
+            json.dumps({"version": 1, "group": "follower", "saved_at": saved_at, "joints": {}, "stale": stale})
+        )
+    if zero_at is not None:
+        zero_record_path(marker).write_text(json.dumps({"version": 1, "group": "follower", "changed_at": zero_at}))
+    return marker
+
+
+@pytest.mark.parametrize(
+    ("stale", "saved_at", "zero_at"),
+    [
+        (None, None, None),
+        (["home"], "2026-11-09T12:30:00+00:00", None),
+        (["joint_offsets", "home"], "2026-11-09T11:00:00+00:00", "2026-11-09T11:00:00+00:00"),
+    ],
+    ids=["nothing", "home-only-marker", "re-zero-before-capture"],
+)
+def test_no_zero_change_since_the_capture(tmp_path: Path, stale: list[str] | None, saved_at: str, zero_at: str) -> None:
+    assert zero_change_refusal(marker_file(tmp_path, stale, saved_at, zero_at), CAPTURE) is None
+
+
+@pytest.mark.parametrize(
+    ("stale", "saved_at", "zero_at", "reason"),
+    [
+        (["joint_offsets"], "2026-11-09T13:00:00+00:00", None, "re-zero"),
+        (["joint_offsets"], "2026-11-09T12:01:00+00:00", None, "re-zero"),  # same second as the capture: fail closed
+        (["joint_offsets"], None, None, "saved_at"),
+        (None, None, "2026-11-09T13:00:00+00:00", "zero changed"),  # a zero restore after the capture, marker gone
+        (["home"], "2026-11-09T11:00:00+00:00", "2026-11-09T12:30:00+00:00", "zero changed"),
+    ],
+    ids=["re-zero-after", "same-second", "timeless-marker", "restore-after-capture", "restore-left-home"],
+)
+def test_a_zero_change_at_or_after_the_capture_is_refused(
+    tmp_path: Path, stale: list[str] | None, saved_at: str | None, zero_at: str | None, reason: str
+) -> None:
+    refusal = zero_change_refusal(marker_file(tmp_path, stale, saved_at, zero_at), CAPTURE)
+    assert refusal is not None and reason in refusal
+
+
+@pytest.mark.parametrize("which", ["marker", "record"])
+def test_an_unreadable_marker_or_zero_record_is_refused(tmp_path: Path, which: str) -> None:
+    marker = marker_file(tmp_path, ["home"], "2026-11-09T11:00:00+00:00", "2026-11-09T11:00:00+00:00")
+    (marker if which == "marker" else zero_record_path(marker)).write_text("{not json")
+    refusal = zero_change_refusal(marker, CAPTURE)
+    assert refusal is not None and "unreadable" in refusal
+
+
+def test_the_zero_record_sits_next_to_the_marker() -> None:
+    assert zero_record_path(Path("/var/lib/ros2/arm/calibration_stale.json")) == Path(
+        "/var/lib/ros2/arm/" + ZERO_RECORD_FILE
+    )
+
+
+def test_the_bridge_writes_the_zero_record_the_readers_read() -> None:
+    """feetech_servos (its own venv, not importable here) names the same file next to its stale marker."""
+    neutral = (Path(__file__).resolve().parents[1] / "nodes/bridges/feetech_servos/neutral.py").read_text()
+    assert f'ZERO_RECORD_FILE = "{ZERO_RECORD_FILE}"' in neutral

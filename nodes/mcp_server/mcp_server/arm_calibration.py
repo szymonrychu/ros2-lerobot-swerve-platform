@@ -16,8 +16,10 @@ motion lock without waiting, so no arm motion runs during the swap and none can 
 motion runs the swap waits for a later tick (one `apply` start event says so).
 
 After an accepted calibration is applied (startup or reload), joint_offsets is cleared from the arm re-zero stale
-marker when the re-zero happened before the session's first still (`captured_from`): the offsets were measured in the
-current zero. A marker of a later re-zero (or of an unknown time) is kept. mcp_server is the one writer of that
+marker when the servo zero did not change at or after the session's first still (`captured_from`; ros2_common
+zero_change_refusal reads the marker's re-zero time and the bridge's zero change record): the offsets were measured in
+the current zero. Otherwise (a later or unknown re-zero, a later zero restore) the marker is kept. The clear only
+removes the item while the marker still names the re-zero that was checked. mcp_server is the one writer of that
 clearing (calibration_marker.clear_stale, atomic).
 
 Telemetry (calib_event, flow `arm_calibration`): `load` ok with {source, old, new} on every load (startup, each
@@ -29,7 +31,6 @@ stay), `stale_marker` ok when joint_offsets was cleared
 
 import logging
 from collections.abc import Callable
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +40,7 @@ from ros2_common.head_rgbd_calibration.arm_calibration_file import (
     ArmCalibrationError,
     ArmCalibrationFile,
     read_arm_calibration,
+    zero_change_refusal,
 )
 from ros2_common.head_rgbd_calibration.urdf_text import APPLIED_MARKER_FILE
 
@@ -282,7 +284,8 @@ class ArmCalibrationWatcher:
             self.clear_stale_offsets(calibration, run_id)
 
     def clear_stale_offsets(self, calibration: ArmCalibrationFile, run_id: str) -> None:
-        """Clear joint_offsets from the re-zero stale marker when the re-zero predates the calibration's capture.
+        """Clear joint_offsets from the re-zero stale marker when the zero did not change at or after the calibration's
+        capture (ros2_common zero_change_refusal: the marker's re-zero and the bridge's zero change record).
 
         Args:
             calibration (ArmCalibrationFile): The accepted calibration now in use.
@@ -291,13 +294,9 @@ class ArmCalibrationWatcher:
         if self.marker_path is None:
             return
         marker = load_marker(self.marker_path)
-        if marker is None or STALE_OFFSETS_ITEM not in marker.stale or marker.saved_at is None:
+        if marker is None or STALE_OFFSETS_ITEM not in marker.stale:
             return
-        try:
-            saved = datetime.fromisoformat(marker.saved_at)
-        except ValueError:
-            return
-        if saved.tzinfo is None or saved >= calibration.captured_from:
+        if zero_change_refusal(self.marker_path, calibration.captured_from) is not None:
             return
         data = {
             "marker": str(self.marker_path),
@@ -305,8 +304,9 @@ class ArmCalibrationWatcher:
             "captured_from": calibration.captured_from.isoformat(),
         }
         try:
-            clear_stale(self.marker_path, [STALE_OFFSETS_ITEM])
+            cleared = clear_stale(self.marker_path, [STALE_OFFSETS_ITEM], only_if_saved_at=marker.saved_at)
         except OSError as exc:
             emit_calib_event(LOGGER, FLOW, run_id, "stale_marker", "failed", f"cannot clear joint_offsets: {exc}", data)
             return
-        emit_calib_event(LOGGER, FLOW, run_id, "stale_marker", "ok", data=data)
+        if cleared:
+            emit_calib_event(LOGGER, FLOW, run_id, "stale_marker", "ok", data=data)

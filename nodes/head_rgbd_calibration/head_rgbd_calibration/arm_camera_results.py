@@ -47,6 +47,7 @@ from ros2_common.head_rgbd_calibration.arm_calibration_file import (
     ArmCalibrationError,
     ArmCalibrationFile,
     read_arm_calibration,
+    zero_change_refusal,
 )
 from ros2_common.head_rgbd_calibration.arm_camera_fit import (
     arm_camera_report,
@@ -79,7 +80,6 @@ STATE_RUNNING = "running"
 STATE_DONE = "done"
 STATE_FAILED = "failed"
 DATE_TIMESPEC = "seconds"
-STALE_OFFSETS_ITEM = "joint_offsets"  # arm re-zero stale marker item: offsets measured in another zero
 NS_PER_S = 1e9
 URDF_SOURCE = "urdf"
 # applied.json head_chain record `source` -> the head chain source the arm to camera API names.
@@ -95,12 +95,7 @@ DECLINED_ERROR = "result {rid} was declined and cannot be accepted"
 ACCEPTED_ERROR = "result {rid} was accepted and cannot be declined"
 CRASHED_ERROR = "the compute ended without a result"
 ACCEPTED_UNREADABLE_ERROR = "the accepted arm calibration cannot be read ({error}): accept a result again"
-ZERO_CHANGED_ERROR = (
-    "result {rid} cannot be accepted: the arm stale marker {marker} lists joint_offsets for an arm re-zero at {saved_at},"
-    " at or after the session's first still at {captured_from}: the offsets were measured in the old zero; capture a new"
-    " session"
-)
-ZERO_UNKNOWN_ERROR = "result {rid} cannot be accepted: the arm stale marker {marker} {problem}, so the arm zero of the capture is unknown"
+ZERO_CHANGED_ERROR = "result {rid} cannot be accepted: {reason}; capture a new session in the current arm zero"
 NO_STILLS_ERROR = "session {sid} has no still poses"
 HEAD_CHAIN_CHANGED_ERROR = (
     "result {rid} was fitted against another head chain ({fitted}); the applied one is {applied}: compute again"
@@ -200,20 +195,23 @@ def effective_fit(cfg: NodeConfig) -> tuple[HeadArmFitConfig, dict[str, str] | N
 
 
 def captured_from(store: SessionStore, sid: str) -> datetime:
-    """Capture time of the session's earliest still (the colour stamp, ROS time of the robot clock).
+    """Capture time of the session's earliest still: the earliest stamp of any source (colour, head and arm joints) of
+    any still pose, so a zero change just before the first arm joint sample is not missed.
 
     Args:
         store: Session store.
         sid: head_arm session id.
 
     Returns:
-        datetime: UTC time of the earliest colour stamp.
+        datetime: UTC time of the earliest stamp.
 
     Raises:
         ValueError: the session has no still pose.
     """
     stamps = [
-        json.loads((store.pose_dir(sid, pid) / POSE_FILE).read_text())["stamps"]["rgb"] for pid in store.pose_ids(sid)
+        int(stamp)
+        for pid in store.pose_ids(sid)
+        for stamp in json.loads((store.pose_dir(sid, pid) / POSE_FILE).read_text())["stamps"].values()
     ]
     if not stamps:
         raise ValueError(NO_STILLS_ERROR.format(sid=sid))
@@ -221,8 +219,8 @@ def captured_from(store: SessionStore, sid: str) -> datetime:
 
 
 def zero_refusal(cfg: NodeConfig, rid: str, since: datetime) -> str | None:
-    """Why the offsets of a result captured from `since` do not hold in the current arm zero, read from the follower
-    bridge's re-zero stale marker ({version, group, saved_at, joints, stale}).
+    """Why the offsets of a result captured from `since` may not hold in the current arm zero (the follower bridge's
+    stale marker and zero change record, ros2_common `zero_change_refusal`).
 
     Args:
         cfg: Node config (arm_stale_marker).
@@ -230,35 +228,13 @@ def zero_refusal(cfg: NodeConfig, rid: str, since: datetime) -> str | None:
         since: The session's first still.
 
     Returns:
-        str | None: None when there is no marker check, no marker, the marker does not list joint_offsets or its
-        re-zero predates `since`; else the refusal (a re-zero at or after `since`, an unreadable marker or one without
-        a timezone-aware saved_at).
+        str | None: The refusal; None without a marker check (`arm_stale_marker` null) or without a zero change at or
+        after `since`.
     """
     if cfg.arm_stale_marker is None:
         return None
-    path = Path(cfg.arm_stale_marker)
-    try:
-        marker = json.loads(path.read_text())
-    except FileNotFoundError:
-        return None
-    except (OSError, ValueError) as exc:
-        return ZERO_UNKNOWN_ERROR.format(rid=rid, marker=path, problem=f"is unreadable ({exc})")
-    if not isinstance(marker, dict) or not isinstance(marker.get("stale"), list):
-        return ZERO_UNKNOWN_ERROR.format(rid=rid, marker=path, problem="has no stale list")
-    if STALE_OFFSETS_ITEM not in marker["stale"]:
-        return None
-    saved_at = marker.get("saved_at")
-    try:
-        saved = datetime.fromisoformat(saved_at) if isinstance(saved_at, str) else None
-    except ValueError:
-        saved = None
-    if saved is None or saved.tzinfo is None:
-        return ZERO_UNKNOWN_ERROR.format(
-            rid=rid, marker=path, problem=f"lists joint_offsets with saved_at {saved_at!r}"
-        )
-    if saved >= since:
-        return ZERO_CHANGED_ERROR.format(rid=rid, marker=path, saved_at=saved_at, captured_from=since.isoformat())
-    return None
+    reason = zero_change_refusal(Path(cfg.arm_stale_marker), since)
+    return None if reason is None else ZERO_CHANGED_ERROR.format(rid=rid, reason=reason)
 
 
 def base_body(rid: str, sid: str, now: datetime, head_chain: dict[str, str | None] | None) -> dict[str, Any]:
@@ -506,8 +482,12 @@ def accept_locked(
     elif result["head_chain"] != (applied_chain := head_chain_source(cfg)):
         refusal = HEAD_CHAIN_CHANGED_ERROR.format(rid=rid, fitted=result["head_chain"], applied=applied_chain)
     else:
-        since = captured_from(store, sid)
-        refusal = zero_refusal(cfg, rid, since)
+        try:
+            since = captured_from(store, sid)
+        except ValueError as exc:
+            refusal = str(exc)
+        else:
+            refusal = zero_refusal(cfg, rid, since)
     if refusal is not None:
         calib_event(LOGGER, FLOW_ACCEPT, rid, "accept", "refused", logging.WARNING, refusal, session_id=sid)
         raise NotApplicable(refusal)

@@ -1336,7 +1336,11 @@ head chain comes from; `null` disables the override):
   kinematics offsets (`ArmKinematics.set_offsets`, IK caches cleared), the sag model offsets, the floor guard mount
   and the config's `arm` fields. A lease held between motions keeps its hold and keepalive setpoints (measured space).
   A plan made before the swap and run after it is body-checked with the new model when it runs. A read-only tool
-  computing during the swap (no motion) may see old and new values in that one answer.
+  computing during the swap (no motion) may see old and new values in that one answer; a motion asked for during the
+  swap (milliseconds, the body kernel rebuild) is refused with the usual "another arm motion is running" and can be
+  retried at once. Tool descriptions that state the floor height were written at registration and keep the startup
+  value (mm-level after a swap). A swap waiting for a motion keeps its validated calibration even if a later reload
+  fails (the latest valid accepted calibration).
 - Derived data: `get_arm_reach` recomputes its envelope when its inputs (mount, offsets) changed; the approach tools
   check the reach map key on every call, so after an accepted calibration that moves the arm they refuse with the
   regenerate command until the map is rebuilt for it (the map is built from client.yml: copy the accepted snippet
@@ -1345,8 +1349,11 @@ head chain comes from; `null` disables the override):
   record, or a merged block `ArmSettings` refuses): a `calib_event` `load` failed (ERROR) and the values in use stay;
   the server never stops for it.
 - Stale marker: after an accepted calibration is applied (startup or reload), `joint_offsets` is cleared from
-  `arm.calibration_stale_marker` when the marker's `saved_at` predates the calibration's `captured_from` (its first
-  still: the offsets were measured in the current zero). A later or unknown re-zero keeps it. mcp_server is the one
+  `arm.calibration_stale_marker` when the servo zero did not change at or after the calibration's `captured_from` (its
+  first still), read by ros2_common `zero_change_refusal` from the marker's `saved_at` and the bridge's zero change
+  record (`zero_changed.json` next to the marker, written on every neutral save and zero restore, never cleared). A
+  later or unknown re-zero or a later zero restore keeps it, and the clear only removes the item while the marker
+  still names the re-zero that was checked (`clear_stale(..., only_if_saved_at=...)`). mcp_server is the one
   writer of that clearing (`calibration_marker.clear_stale`, atomic); the head_rgbd_calibration accept only reads the
   marker and refuses a calibration captured before the re-zero.
 - State: `get_arm_state` reports `arm_calibration` `{session, result, accepted_at}` of the calibration in use, null for

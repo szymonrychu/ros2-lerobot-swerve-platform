@@ -7,10 +7,17 @@ file is in effect only while that record names its session and result. mcp_serve
 `ARM_SETTINGS_FIELDS` of its `arm:` block with it (`ArmCalibrationFile.arm_settings_update`), the keys the reviewed
 client.yml snippet (`arm_camera_fit.calibration_snippet_yaml`) sets; the rest of the body (score, report, tool point,
 snippet) is for people and is ignored here.
+
+Arm zero: offsets fitted from stills hold only for the servo zero in effect when the stills were taken. The follower
+bridge (feetech_servos) writes the stale marker after a re-zero and `zero_changed.json` next to it whenever it changes a
+servo zero (neutral save, zero restore). `zero_change_refusal` tells whether the zero may have changed at or after the
+capture; the head_rgbd_calibration accept refuses then, and mcp_server only clears joint_offsets from the marker when it
+did not.
 """
 
 import json
 import math
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +31,11 @@ ARM_CALIBRATION_KEY = "arm_calibration"  # the applied.json record of the accept
 # mcp_server `arm:` keys the accepted calibration overrides (arm_base_height_m is the arm base z: mcp_server requires
 # base_in_base_link.z == arm_base_height_m).
 ARM_SETTINGS_FIELDS = ("joint_offsets_rad", "arm_base_height_m", "base_in_base_link")
+# The follower bridge's record of its last servo zero change, next to its stale marker (feetech_servos neutral.py).
+ZERO_RECORD_FILE = "zero_changed.json"
+STALE_OFFSETS_ITEM = "joint_offsets"
+# The bridge writes whole seconds: a zero change in the capture's second counts as after it (fail closed).
+ZERO_TIME_RESOLUTION = timedelta(seconds=1)
 
 
 class ArmCalibrationError(ValueError):
@@ -135,3 +147,82 @@ def read_arm_calibration(applied_dir: Path) -> ArmCalibrationFile | None:
             f"{path} holds {calibration.session}/{calibration.result} but {marker_path} names {named[0]}/{named[1]}"
         )
     return calibration
+
+
+def zero_record_path(marker: Path) -> Path:
+    """The bridge's zero change record next to its stale marker.
+
+    Args:
+        marker (Path): Stale marker path.
+
+    Returns:
+        Path: `zero_changed.json` in the marker's directory.
+    """
+    return marker.with_name(ZERO_RECORD_FILE)
+
+
+def aware_time(value: object) -> datetime | None:
+    """A timezone-aware ISO 8601 time.
+
+    Args:
+        value (object): JSON value.
+
+    Returns:
+        datetime | None: The time; None when it is not a string, not ISO 8601 or has no timezone.
+    """
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else None
+
+
+def zero_change_refusal(marker: Path, since: datetime) -> str | None:
+    """Why offsets measured from `since` on may not hold in the current arm zero (None when they do).
+
+    Args:
+        marker (Path): The follower bridge's stale marker ({version, group, saved_at, joints, stale}); its directory
+            holds the zero change record ({version, group, changed_at}).
+        since (datetime): Capture time of the first still (timezone aware).
+
+    Returns:
+        str | None: The reason when the marker or the record is unreadable, the marker lists joint_offsets without a
+        timezone-aware saved_at or for a re-zero at or after `since`, or the record names a zero change at or after
+        `since` (both within ZERO_TIME_RESOLUTION); None otherwise (no marker and no record is no zero change).
+    """
+    record_path = zero_record_path(marker)
+    for path in (marker, record_path):
+        try:
+            data = json.loads(path.read_text())
+        except FileNotFoundError:
+            continue
+        except (OSError, ValueError) as exc:
+            return f"{path} is unreadable ({exc}): the arm zero of the capture is unknown"
+        if not isinstance(data, dict):
+            return f"{path} is unreadable (not a JSON object): the arm zero of the capture is unknown"
+        if path == marker:
+            stale = data.get("stale")
+            if not isinstance(stale, list):
+                return f"{path} is unreadable (no stale list): the arm zero of the capture is unknown"
+            if STALE_OFFSETS_ITEM not in stale:
+                continue
+            saved = aware_time(data.get("saved_at"))
+            if saved is None:
+                return f"{path} lists joint_offsets with saved_at {data.get('saved_at')!r}: the arm zero is unknown"
+            if saved + ZERO_TIME_RESOLUTION > since:
+                return (
+                    f"{path} lists joint_offsets for an arm re-zero at {data['saved_at']}, at or after the first still "
+                    f"at {since.isoformat()}: the offsets were measured in the old zero"
+                )
+        else:
+            changed = aware_time(data.get("changed_at"))
+            if changed is None:
+                return f"{path} is unreadable (changed_at {data.get('changed_at')!r}): the arm zero is unknown"
+            if changed + ZERO_TIME_RESOLUTION > since:
+                return (
+                    f"{path}: the arm zero changed at {data['changed_at']}, at or after the first still at "
+                    f"{since.isoformat()}: the offsets were measured in another zero"
+                )
+    return None
