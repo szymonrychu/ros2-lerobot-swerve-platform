@@ -1,5 +1,6 @@
 """Tests for the compute job: busy, timeout and failure tail with fake child commands."""
 
+import json
 import subprocess
 import sys
 import time
@@ -10,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from head_rgbd_calibration.config import NodeConfig
+from head_rgbd_calibration.ground_results import GroundStore
 from head_rgbd_calibration.jobs import Busy, ComputeJob
 from head_rgbd_calibration.store import SessionStore
 from head_rgbd_calibration.telemetry import events_in
@@ -156,3 +158,28 @@ def test_new_result_id_skips_one_being_written(cfg: NodeConfig, store: SessionSt
     rid = job.start(sid)
     wait_until(lambda: not job.state()["running"])
     assert rid != taken.name
+
+
+def test_job_runs_on_a_ground_store(cfg: NodeConfig, caplog: pytest.LogCaptureFixture) -> None:
+    """The ground board compute runs its child on a GroundStore (ground_board/<sid>/results/<rid>)."""
+    ground = GroundStore(cfg)
+    session = Path(cfg.state_dir) / "ground_board" / "ground-20261019-120000"
+    session.mkdir(parents=True)
+    (session / "observations.json").write_text(json.dumps({"views": [{"view_id": "p0-000-0"}]}))
+    calls: list = []
+    job = ComputeJob(
+        cfg,
+        ground,
+        fake_popen("pass", calls),
+        FakeClock(),
+        CONFIG_PATH,
+        module="head_rgbd_calibration.ground_compute",
+        flow="ground_compute",
+    )
+    with caplog.at_level("INFO", logger="head_rgbd_calibration.jobs"):
+        rid = job.start("ground-20261019-120000")
+        wait_until(lambda: not job.state()["running"])
+    assert "head_rgbd_calibration.ground_compute" in calls[0][0]
+    assert ground.result_dir("ground-20261019-120000", rid).parent == session / "results"
+    start = next(e for e in events_in(caplog.records) if e["outcome"] == "start")
+    assert (start["flow"], start["data"]["poses"]) == ("ground_compute", 1)
