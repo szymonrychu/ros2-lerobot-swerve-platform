@@ -195,6 +195,17 @@ class TopicSettings(StrictModel):
     # std_srvs/Trigger (web UI Calibrate page): every arm joint but the gripper to 0.0 measured via the home routing;
     # refused while the stale marker lists joint_offsets or the arm torque is off.
     move_to_neutral_service: str = "/arm/move_to_neutral"
+    # std_srvs/Trigger (web UI Calibrate page, General section): open the gripper fully; refused while any arm lease is
+    # held (a running calibration sequence, the agent, the web UI Arm tab) or the arm torque is off; releases after.
+    gripper_open_service: str = "/arm/gripper/open"
+    # std_srvs/Trigger (Calibrate page, General section): close the gripper; same refusals and release as the open.
+    gripper_close_service: str = "/arm/gripper/close"
+    # std_srvs/Trigger (Calibrate page, General section): head to head.home_pan_rad / home_tilt_rad; refused while the
+    # head torque is off; success only when converged.
+    head_home_service: str = "/head/home"
+    # std_srvs/Trigger (Calibrate page, General section): zero the base (only this server's Nav2 / dock goals are
+    # cancelled, zero twist) and wait until every steer joint is straight; refused while the base lease is held.
+    steer_home_service: str = "/base/steer_home"
     swerve_joint_states: str = "/swerve_drive/joint_states"  # steer joints for the release_control base reset
     tf: str = "/tf"  # subscribed on demand (on_demand.linger_s) by the TF lookups of the tools
     tf_static: str = "/tf_static"  # always subscribed (latched, about 0 msg/s)

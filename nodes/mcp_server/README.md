@@ -114,6 +114,32 @@ compact JSON with `flow`, `run_id` (8 hex chars per request), `step`, `outcome`,
 `result`/`failed` (motion status and the measured joints after). Read them with
 `journalctl -u ros2-mcp_server | grep calib_event`.
 
+Calibrate page General section (`std_srvs/Trigger`, all called by the web UI `POST /api/calibration/general/{action}`;
+each logs `calib_event` lines with flow `calib_general`: `start`, then `refused`, `ok` or `failed`, one run id per
+call):
+
+- `/arm/gripper/open` and `/arm/gripper/close` (`topics.gripper_open_service` / `gripper_close_service`, body
+  `ArmController.gripper_service_call`, steps `gripper_open` / `gripper_close`, data: action, status, measured gripper
+  before and after): move only the gripper (`set_gripper(open_fraction=1.0)` / `open_fraction=0.0`), then release
+  control (also after a failed motion; a lease left behind reads "released by the /arm/gripper service (web UI
+  Calibrate page)"). Open succeeds when converged; close succeeds for every completed close: `converged` (empty jaws),
+  `grasped` (stalled on something, held) and `blocked` (contact without a real closure, held where it stopped).
+  Refused, nothing moves and no lease is touched: while any arm lease is held (a running head_rgbd_calibration
+  sequence, the agent, the web UI Arm tab, an implicit hold) or an arm motion runs: "<open|close> gripper refused: arm
+  control is held (a running calibration sequence, the agent or the web UI Arm tab) - stop the running calibration
+  (Abort) or release control first"; while the arm torque is released: "<open|close> gripper refused: " plus the
+  torque-off text; a busy arm (`ArmBusyError`) answers its text and never releases the running motion's lease.
+- `/head/home` (`topics.head_home_service`, body `calib_general.head_home_call`, step `head_home`): head to
+  `head.home_pan_rad` / `head.home_tilt_rad` (default pan 0, tilt 0.5236 rad = 30 deg down); success only when
+  converged (`timeout` / `no_feedback` fail with target and measured angles). No lease check (operator head commands
+  are always allowed). Refused while the head torque is released, or for a `HeadError` (angles outside the limits).
+- `/base/steer_home` (`topics.steer_home_service`, body `calib_general.steer_home_call`, step `steer_home`): the base
+  reset of `release_control` without a lease: cancel only this server's Nav2 / dock goals, publish zero twist, then
+  wait (`control.base_reset_timeout_s`) until every steer joint is within `control.steer_neutral_tolerance_rad`.
+  The failure names the worst joint; a Nav2 cancel that did not answer also fails. Refused while the base lease is held
+  ("steering home refused: the base lease is held (the agent or a running sequence drives the base) - stop it or
+  release control first") or the base torque is released.
+
 ### StopBox on backing and turning
 
 Robot agent retrospective 2026-10-22 16:28 ("Explore", near the mirror wardrobe): "StopBox fired immediately on
