@@ -85,11 +85,14 @@ class CentreOutcome:
         after_steps: Verified present_position after DefineMiddle; None when the centre was not verified.
         limits: Final (min, max) angle limit readback; None unless the joint fully saved.
         reason: Why the joint failed; None on success.
+        middle_sent: DefineMiddle was sent, so the servo zero may have changed (even when it failed or was not
+            verified); False only for a joint that failed before it.
     """
 
     after_steps: int | None
     limits: tuple[int, int] | None
     reason: str | None
+    middle_sent: bool = True
 
 
 def utc_now_iso() -> str:
@@ -509,6 +512,7 @@ class NeutralControl:
 
         saved: list[str] = []
         centred: dict[str, tuple[int, int]] = {}
+        zero_touched = False  # DefineMiddle sent to any joint: the zero change record is written
         failure: tuple[str, str] | None = None
         not_attempted: list[str] = []
         for index, joint in enumerate(joints):
@@ -528,6 +532,7 @@ class NeutralControl:
                 },
                 time.monotonic() - started,
             )
+            zero_touched = zero_touched or outcome.middle_sent
             if outcome.after_steps is not None:
                 centred[joint.name] = (present[joint.name], outcome.after_steps)
             if outcome.reason is not None:
@@ -541,7 +546,7 @@ class NeutralControl:
 
         saved_at = self.now_iso()
         self.last_saves[namespace] = {"saved_at": saved_at, "saved": saved, "failed": [failure[0]] if failure else []}
-        marker_error = self.write_marker(group, saved_at, centred)
+        marker_error = self.write_marker(group, saved_at, centred, zero_touched)
         if failure is not None:
             self.keep_released(group)
             message = (
@@ -549,13 +554,13 @@ class NeutralControl:
                 f"failed: {failure[0]} ({failure[1]}); not attempted: {names_text(not_attempted)}"
             )
             if marker_error is not None:
-                message += f"; stale marker not written: {marker_error}"
+                message += f"; {marker_error}"
             return self.finished(run_id, started, NeutralResult(False, message), saved, not_attempted)
 
         del self.captures[namespace]
         enabled = self.torque.enable(namespace)
         if marker_error is not None:
-            message = f"/{namespace}: neutral saved, stale marker not written: {marker_error}"
+            message = f"/{namespace}: neutral saved, {marker_error}"
             if not enabled.success:
                 message += f"; {enabled.message}"
             return self.finished(run_id, started, NeutralResult(False, message), saved, [])
@@ -672,7 +677,7 @@ class NeutralControl:
         sid = joint.id
         before_limits = self.read_limits(sid)
         if before_limits is None:
-            return CentreOutcome(None, None, "angle limit read failed, centre not changed")
+            return CentreOutcome(None, None, "angle limit read failed, centre not changed", middle_sent=False)
         cache = self.torque.last_written.setdefault(sid, {})
         cache.pop(TORQUE_REGISTER, None)  # DefineMiddle writes torque_enable = 128 behind the cache
         servo.UnLockEprom(sid)
@@ -748,27 +753,41 @@ class NeutralControl:
         if failed:
             self.log_error(f"/{group.namespace}: torque off not verified after a failed neutral save: {failed}")
 
-    def write_marker(self, group: JointGroup, saved_at: str, centred: dict[str, tuple[int, int]]) -> str | None:
-        """Write the group's stale marker for the joints whose centre changed, and record the zero change.
+    def write_marker(
+        self, group: JointGroup, saved_at: str, centred: dict[str, tuple[int, int]], zero_touched: bool
+    ) -> str | None:
+        """Record the zero change (first: it is the readers' fail-safe) and write the group's stale marker for the
+        joints whose centre changed.
 
         Args:
             group (JointGroup): The saved group.
             saved_at (str): ISO-8601 UTC save time.
-            centred (dict[str, tuple[int, int]]): joint name -> (before_steps, after_steps).
+            centred (dict[str, tuple[int, int]]): joint name -> (before_steps, after_steps) of the verified centres.
+            zero_touched (bool): DefineMiddle was sent to a joint (also one that failed): the zero may have changed.
 
         Returns:
-            str | None: The error text when the marker could not be written; None when written or not needed.
+            str | None: "stale marker not written: ..." and / or "zero change record not written: ..." when a write
+                failed; None when written or not needed.
         """
-        if group.neutral_stale_marker is None or not centred:
+        if group.neutral_stale_marker is None:
             return None
-        try:
-            write_stale_marker(Path(group.neutral_stale_marker), group.namespace, saved_at, centred)
-            record_zero_change(Path(group.neutral_stale_marker), group.namespace, saved_at)
-        except OSError as exc:
-            error = f"{type(exc).__name__}: {exc}"
-            self.log_error(f"/{group.namespace}: neutral saved, stale marker not written: {error}")
-            return error
-        return None
+        marker = Path(group.neutral_stale_marker)
+        record_error = marker_error = None
+        if zero_touched or centred:
+            try:
+                record_zero_change(marker, group.namespace, saved_at)
+            except OSError as exc:
+                record_error = f"zero change record not written: {type(exc).__name__}: {exc}"
+        if centred:
+            try:
+                write_stale_marker(marker, group.namespace, saved_at, centred)
+            except OSError as exc:
+                marker_error = f"stale marker not written: {type(exc).__name__}: {exc}"
+        errors = "; ".join(e for e in (marker_error, record_error) if e is not None)
+        if not errors:
+            return None
+        self.log_error(f"/{group.namespace}: neutral save, {errors}")
+        return errors
 
     def refused(self, run_id: str, step: str, started: float, message: str) -> NeutralResult:
         """Log a refused record/save (calib_event at WARNING plus the info line) and return it.

@@ -350,9 +350,11 @@ class JointOutcome:
         limits_after: Angle limits at the end.
         rolled_back: The old offset was rewritten and read back after a failure (None when no rollback was needed).
         reason: Why the joint failed; None on success.
+        written: The offset write was sent (it may have landed even when not acknowledged).
     """
 
     applied: bool = False
+    written: bool = False
     present_after_steps: int | None = None
     offset_after_steps: int | None = None
     limits_after: tuple[int, int] | None = None
@@ -839,6 +841,7 @@ class ZeroRestoreControl:
         cache = self.torque.last_written.setdefault(joint.id, {})
         for register in CACHE_CLEARED_REGISTERS:
             cache.pop(register, None)
+        outcome.written = True
         written = self.write_offset(joint.id, planned.new_offset_steps)
         event(
             "joint_write",
@@ -1084,18 +1087,18 @@ class ZeroRestoreControl:
                     if abs(j.offset_change_steps) > group.zero_restore.plan_tolerance_steps
                 ]
             else:
-                names = [n for n, o in outcomes.items() if o.applied or o.rolled_back is False]
+                names = [n for n, o in outcomes.items() if o.written and o.rolled_back is not True]
             changed = {n: (plan.joints[n].present_steps, after_steps(outcomes.get(n), plan.joints[n])) for n in names}
             new_items = None
         data = {"path": str(path), "before": items, "changed": list(changed)}
         try:
-            if new_items is not None:
-                set_stale_items(path, new_items, group.namespace, self.now_iso())
+            if new_items is not None:  # the record first: it is the readers' fail-safe if the marker goes
                 record_zero_change(path, group.namespace, self.now_iso())
+                set_stale_items(path, new_items, group.namespace, self.now_iso())
                 data["after"] = new_items
             elif changed:
-                write_stale_marker(path, group.namespace, self.now_iso(), changed)
                 record_zero_change(path, group.namespace, self.now_iso())
+                write_stale_marker(path, group.namespace, self.now_iso(), changed)
                 data["after"] = read_stale_items(path)
             else:
                 data["after"] = items

@@ -338,6 +338,15 @@ def test_accept_refuses_a_fit_of_a_zero_restored_since_the_capture(tmp_path: Pat
     assert not (scene.state / "applied" / ARM_CALIBRATION_FILE).exists()
 
 
+def test_accept_refuses_a_session_without_stills(tmp_path: Path) -> None:
+    scene = Scene(tmp_path)
+    result = compute_arm_camera(scene.cfg, scene.store, scene.sid, SessionStore.new_result_id(NOW), NOW)
+    for pid in scene.store.pose_ids(scene.sid):  # a pose without pose.json is not a stored pose
+        (scene.store.pose_dir(scene.sid, pid) / "pose.json").unlink()
+    with pytest.raises(NotApplicable, match="no still poses"):
+        accept_arm_camera(scene.cfg, scene.store, scene.sid, result["id"], LATER, fake_run)
+
+
 def test_captured_from_is_the_earliest_stamp_of_any_source(tmp_path: Path) -> None:
     """The arm joint stamps come from the follower bridge (the clock of the zero change times): the earliest stamp of
     any source counts, so a zero change just before a late camera stamp is not missed."""

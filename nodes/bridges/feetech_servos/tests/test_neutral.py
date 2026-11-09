@@ -681,6 +681,50 @@ def test_save_records_the_zero_change_next_to_the_marker(tmp_path: Path) -> None
     assert record == {"version": 1, "group": "follower", "changed_at": SAVED_AT}
 
 
+@pytest.mark.parametrize("failure", ["define_middle_error", "raise_define_middle", "no_shift"])
+def test_a_failed_save_after_define_middle_records_the_zero_change(tmp_path: Path, failure: str) -> None:
+    """DefineMiddle was sent to the first joint, so its zero may have moved even though the save failed."""
+    rig = released_and_recorded(tmp_path)
+    if failure == "raise_define_middle":
+        rig.servo.raise_define_middle.add(1)
+    else:
+        getattr(rig.port, failure).add(1)
+    assert rig.neutral.save("follower").success is False
+    record = json.loads(rig.marker.with_name(ZERO_RECORD_FILE).read_text())
+    assert record["changed_at"] == SAVED_AT
+
+
+def test_a_save_failing_before_define_middle_records_nothing(tmp_path: Path) -> None:
+    rig = released_and_recorded(tmp_path)
+    rig.port.limit_reads_dropped[1] = 99  # the limit read before DefineMiddle fails: nothing written
+    assert rig.neutral.save("follower").success is False
+    assert not rig.marker.with_name(ZERO_RECORD_FILE).exists()
+
+
+def test_the_zero_record_is_written_before_the_marker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A failing marker write must not leave the zero change unrecorded (the record is the readers' fail-safe)."""
+    rig = released_and_recorded(tmp_path)
+
+    def broken(*args: Any, **kwargs: Any) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(neutral_module, "write_stale_marker", broken)
+    result = rig.neutral.save("follower")
+    assert "stale marker not written" in result.message
+    assert json.loads(rig.marker.with_name(ZERO_RECORD_FILE).read_text())["changed_at"] == SAVED_AT
+
+
+def test_a_failed_zero_record_write_is_named(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    rig = released_and_recorded(tmp_path)
+
+    def broken(*args: Any, **kwargs: Any) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(neutral_module, "record_zero_change", broken)
+    result = rig.neutral.save("follower")
+    assert "zero change record not written" in result.message
+
+
 def test_no_marker_without_neutral_stale_marker(tmp_path: Path) -> None:
     rig = released_and_recorded(tmp_path, namespace="swerve_drive")
     assert rig.neutral.save("swerve_drive").success

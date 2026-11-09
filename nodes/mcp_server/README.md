@@ -1355,7 +1355,10 @@ head chain comes from; `null` disables the override):
   later or unknown re-zero or a later zero restore keeps it, and the clear only removes the item while the marker
   still names the re-zero that was checked (`clear_stale(..., only_if_saved_at=...)`). mcp_server is the one
   writer of that clearing (`calibration_marker.clear_stale`, atomic); the head_rgbd_calibration accept only reads the
-  marker and refuses a calibration captured before the re-zero.
+  marker and the record (the same check) and refuses a calibration whose capture is not after the last zero change.
+  The clear is not locked against the bridge: a re-zero written in the milliseconds between the guarded read and the
+  rewrite would lose its joint_offsets entry from the marker (the never-cleared zero change record still protects the
+  accept).
 - State: `get_arm_state` reports `arm_calibration` `{session, result, accepted_at}` of the calibration in use, null for
   the configured values.
 - Telemetry (`calib_event`, flow `arm_calibration`): `load` ok with `source` (`{session, result, accepted_at}` or

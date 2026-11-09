@@ -592,7 +592,7 @@ journalctl -u ros2-head_rgbd_calibration -o cat --since today | grep -o 'calib_e
   event), without one from the config, and an unreadable accepted file fails the compute; the accept is refused for a
   re-zero after the capture, a zero restore recorded after the capture (marker deleted) or an unreadable / timeless
   stale marker and goes through for a re-zero before the capture or a marker without joint_offsets, never writing the
-  marker; `captured_from` is the earliest stamp of any source; decline records `declined` and changes nothing applied, a declined result cannot be accepted; a failed result
+  marker; a session without stills is refused; `captured_from` is the earliest stamp of any source; decline records `declined` and changes nothing applied, a declined result cannot be accepted; a failed result
   is refused by both; a running and a crashed compute read from the job state; `/state` without a head chain and the
   head chain source names; the shipped bounds; an accept after another head chain was applied is refused and the
   accepted calibration reads `head_chain_changed`.

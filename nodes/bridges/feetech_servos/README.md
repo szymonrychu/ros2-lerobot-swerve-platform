@@ -200,10 +200,13 @@ when it applies an accepted arm to camera calibration captured after the last ze
 `success=false` with `neutral saved, stale marker not written: <error>` (torque stays enabled) and logs an error.
 The arm zero restore (below) updates the marker after every apply.
 
-Zero change record: every save that writes the marker also writes `zero_changed.json` next to it (same directory,
-atomic: `{"version": 1, "group": "follower", "changed_at": "<saved_at>"}`), and the zero restore writes it whenever an
-apply changed the zero (the joint_offsets restore, a change beyond `plan_tolerance_steps`, a failed apply that may have
-changed offsets). Unlike the marker it is never cleared: it is the time of the last servo zero change. The arm to
+Zero change record: every save that sent DefineMiddle to a joint (also a failed one: the zero may have moved) writes
+`zero_changed.json` next to the marker (same directory, atomic: `{"version": 1, "group": "follower", "changed_at":
+"<saved_at>"}`), before the marker; the zero restore writes it, also before its marker update, whenever an apply
+changed the zero (the joint_offsets restore, a change beyond `plan_tolerance_steps`, a failed apply whose offset write
+was sent and not rolled back, a limits failure included). A restore whose changes all stay within
+`plan_tolerance_steps` writes neither (the same zero by definition). A failed record write is named in the answer
+(`zero change record not written: ...`) like a failed marker write. Unlike the marker it is never cleared: it is the time of the last servo zero change. The arm to
 camera calibration accept refuses a session whose first still is not after it, and mcp_server clears `joint_offsets`
 from the marker only for a calibration captured after it (ros2_common `arm_calibration_file.zero_change_refusal`).
 

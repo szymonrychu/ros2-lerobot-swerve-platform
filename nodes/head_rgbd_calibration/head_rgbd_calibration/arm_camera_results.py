@@ -11,14 +11,15 @@ A result lives in the session's results/<rid>/ next to the head-arm results: res
 reviewed client.yml mcp_server `arm:` snippet). The compute runs as a niced child (arm_camera_compute.py, through a
 ComputeJob); while it runs the result has no directory and `read_arm_camera_result` reports `running` from the job.
 
-Accept (only a done, plausible, not declined result of the applied head chain, captured after the last arm re-zero)
+Accept (only a done, plausible, not declined result of the applied head chain, captured after the last servo zero change)
 writes applied/arm_calibration.json (format: ros2_common `arm_calibration_file.ArmCalibrationFile`, validated before
 the write) and then the `arm_calibration` record of applied/applied.json through `apply.update_applied`, the writer
 every apply uses; the head chain and its record stay as they are. mcp_server sees the applied.json change and applies
 the offsets and the arm base at its next idle point (no restart, no client.yml edit); it also clears joint_offsets from
-the arm re-zero stale marker then (the one writer). The accept itself only reads that marker: it refuses while the
-marker lists joint_offsets for a re-zero at or after the session's first still (`captured_from`; the offsets were
-measured in the old zero) or at an unknown time. Decline records `declined: true` in result.json and changes nothing
+the arm re-zero stale marker then (the one writer). The accept itself only reads the follower bridge's stale marker and
+its zero change record (ros2_common `zero_change_refusal`): it refuses when the zero may have changed at or after the
+session's first still (`captured_from`: a re-zero, a zero restore, an unknown time or an unreadable file; the offsets
+were measured in another zero) and when the session has no still. Decline records `declined: true` in result.json and changes nothing
 applied.
 
 Telemetry (calib_event): flow `arm_camera_compute` (run id: the result id): `inputs` (views, intrinsics, the head
