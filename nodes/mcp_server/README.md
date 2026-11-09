@@ -91,7 +91,24 @@ on the feeds node (`dual_rate_topic(node=feeds_node)`). Config `feeds_executor: 
 | `get_3d_free_space(x, y, radius_m=1.0, z_min_m=0.02, z_max_m=None)` | Sensor, read-only. Map-frame x, y; `radius_m` 0.2..5 m; the height band `z_min_m`..`z_max_m` in m above the floor (default top = `map3d.robot_height_m`). For 8 bearing sectors (`bearing_deg` 0 = map +x, counter-clockwise) the distance `free_m` to the nearest obstacle inside the band, plus `observed` (0..1). `free_m` is null for a sector nobody observed (unknown is never free); lidar-only walls block every height. Errors when no 3D map was received yet. |
 
 ROS services (`std_srvs/Trigger`): `/arm/home` (move to the stored home pose, then always release arm control, also
-after a failed motion; used by the web UI "Arm home" button) and `/arm/set_home` (store the measured pose). The home pose is YAML (`joints: {name: rad}`) at `arm.home_file` (default `/var/lib/ros2/arm/home.yaml`,
+after a failed motion; used by the web UI "Arm home" button and the Calibrate page General **Home arm**) and
+`/arm/set_home` (store the measured pose).
+
+`/arm/home` guard (`ControlManager.home_service_call`, then `ArmController.home_service_call`): refused, with nothing
+moved and no lease touched, while
+- the agent holds the arm lease (`take_control(subsystem='arm')`, e.g. a running head_rgbd_calibration sequence):
+  "arm home refused: the agent holds the arm lease (take_control, e.g. a running calibration sequence) - stop it or wait
+  for its release_control first". A lease the web UI took (`/arm/take_control`, holder `web_ui`) or an implicit hold
+  does not refuse: the caller is the web UI, and home still releases it;
+- the gripper carries (`carrying_state`: the carry record or a live holding load, e.g. the calibration board clamped by
+  its handle): "arm home refused: the gripper carries something (<reasons>) - the home route is not checked with it;
+  remove it first (park the calibration board from its flow)";
+- the calibration stale marker lists `joint_offsets` (an unreadable marker counts): "arm home refused: the calibration
+  stale marker lists joint_offsets (arm re-zero at <saved_at>): the home route and its body check would use the old
+  zero; restore the arm zero first" (a stale `home` keeps its own refusal, see the stale marker section);
+- the ControlManager is not bound yet (startup): "arm home refused: mcp_server is not ready".
+
+The agent's `arm_home` tool is not affected by the lease and carry checks (it needs the agent's own lease). The home pose is YAML (`joints: {name: rad}`) at `arm.home_file` (default `/var/lib/ros2/arm/home.yaml`,
 directory created by Ansible, owned by the node user), written atomically.
 
 `/arm/move_to_neutral` (`std_srvs/Trigger`, `topics.move_to_neutral_service`; web UI Calibrate page "Move to neutral
@@ -1217,7 +1234,8 @@ it back with one button. Both go through the same `ControlManager` and arm lease
 - `/arm/release_control` (`ControlManager.release_web_ui`) publishes the autonomy release and clears the holder; the
   arm stays put and filter_node's proximity rule (0.15 rad) hands it back to the leader once the leader arm is
   close. Refused when the web UI does not hold the arm (the agent's lease is never released by it).
-- `/arm/home` is unchanged: it moves home, then releases (which also clears the `web_ui` holder).
+- `/arm/home` moves home, then releases (which also clears the `web_ui` holder); it is refused while the agent holds
+  the arm, the gripper carries or the arm zero is stale (see the `/arm/home` guard above).
 - `get_control_state` reports `arm.held_by: "web_ui"` (`arm.held` stays the agent's lease). The startup orphan check
   never drops a `web_ui` lease (this process holds it). An agent `take_control` while the web UI holds the arm adopts
   the lease (the holder becomes `agent`).
@@ -1333,7 +1351,8 @@ stale}`, where `stale` lists `joint_offsets` and/or `home`.
   (`saved_at`). A missing marker means `[]` / `null`; an unreadable or invalid marker counts as both items stale.
 - `arm_home` (and the `/arm/home` service) is refused while `home` is stale, publishing nothing: "arm home was
   recorded before the arm re-zero at <saved_at>; record a new home with arm_set_home".
-- `/arm/move_to_neutral` is refused while `joint_offsets` is stale (the FK and body check use the zero).
+- `/arm/move_to_neutral` and the `/arm/home` service are refused while `joint_offsets` is stale (the FK and body
+  check use the zero).
 - `arm_set_home` clears `home` from the marker. `joint_offsets` is only reported here; the offsets re-fit in the
   head-and-arm-calibration-fro epic clears it. The marker file is deleted once nothing is stale.
 

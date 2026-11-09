@@ -691,7 +691,9 @@ calibration:
   `call_ros_service` errors (503 service unavailable, 504 timeout, 500 call error); otherwise `{ok, message}` with the
   service's message, 200 on success and 409 when the service refused or failed (e.g. "open gripper refused: arm control
   is held (a running calibration sequence, the agent or the web UI Arm tab) - stop the running calibration (Abort) or
-  release control first").
+  release control first"; `home_arm` is refused by mcp_server's `/arm/home` while the agent holds the arm lease, while
+  the gripper carries (the calibration board, an object) or while the arm zero is stale (`joint_offsets` in the
+  calibration marker), see the mcp_server README "`/arm/home` guard").
 - Each request with a known action logs two structlog lines `calib_general` with `run_id` (8 hex), `action`, `service`,
   `outcome` (`start`, then `ok`, `refused` (route refusals, and service answers whose message contains "refused") or
   `failed`), `reason` and `duration_s`; `start` / `ok` at info, `refused` at warning, `failed` at error.

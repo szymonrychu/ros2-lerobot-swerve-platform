@@ -67,7 +67,7 @@ from .base_motion import (
 from .calib_general import head_home_call, steer_home_call
 from .camera_scene import CameraInfoData
 from .config import McpServerConfig
-from .control import ControlManager, LeaderActivity, NavGoalRegistry, wait_steering_neutral
+from .control import HOME_SERVICE_NOT_READY, ControlManager, LeaderActivity, NavGoalRegistry, wait_steering_neutral
 from .depth_source import DepthFrame, DepthSource
 from .drive_pose import DISABLED, LIFTED, SKIPPED_PREFIX, DrivePose
 from .drive_pose_check import check_drive_pose
@@ -1879,16 +1879,20 @@ class RosRobot:
             threading.Thread(target=answer, name="grasp-command", daemon=True).start()
 
     def on_home(self, _request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
-        """/arm/home: move to the stored home pose, then release arm control (also after a failed motion).
+        """/arm/home: move to the stored home pose, then release arm control (also after a failed motion); refused
+        while the agent holds the arm, the gripper carries or the arm zero is stale (ControlManager.home_service_call).
 
         Args:
             _request (Trigger.Request): Empty request.
             response (Trigger.Response): Response to fill.
 
         Returns:
-            Trigger.Response: success and message.
+            Trigger.Response: success and message (the refusal text when refused).
         """
-        response.success, response.message = self.arm.home_service_call()
+        if self.control is None:
+            response.success, response.message = False, HOME_SERVICE_NOT_READY
+            return response
+        response.success, response.message = self.control.home_service_call()
         if response.success and self.footprint_tick is not None:
             self.footprint_tick()  # the arm is parked now: back to the static footprint without waiting for the tick
         return response

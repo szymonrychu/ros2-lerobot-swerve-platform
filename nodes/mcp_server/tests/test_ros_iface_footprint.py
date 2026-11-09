@@ -19,7 +19,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from mcp_server.config import McpServerConfig
-from mcp_server.control import ControlManager
+from mcp_server.control import HOME_SERVICE_NOT_READY, ControlManager
 from mcp_server.footprint import NavFootprint
 
 from .test_footprint import HOME, SIDEWAYS, deployed_config, footprint_robot, move_arm, settings
@@ -193,20 +193,30 @@ def test_home_service_runs_the_footprint_tick_only_after_success(
     robot = make_robot(ros_iface, tmp_path, [0.0])
     ticks: list[int] = []
     robot.every(5.0, lambda: ticks.append(1))
-    robot.arm = MagicMock()
-    robot.arm.home_service_call.return_value = (home_ok, "done" if home_ok else "aborted_stale")
+    robot.control = MagicMock()
+    robot.control.home_service_call.return_value = (home_ok, "done" if home_ok else "aborted_stale")
     response = robot.on_home(MagicMock(), SimpleNamespace(success=None, message=None))
-    assert (response.success, response.message) == robot.arm.home_service_call.return_value
+    assert (response.success, response.message) == robot.control.home_service_call.return_value
     assert len(ticks) == ticks_expected
 
 
 def test_home_service_without_a_footprint_tick_still_answers(ros_iface: ModuleType, tmp_path: Path) -> None:
     robot = make_robot(ros_iface, tmp_path, [0.0])
     robot.footprint_tick = None
-    robot.arm = MagicMock()
-    robot.arm.home_service_call.return_value = (True, "done")
+    robot.control = MagicMock()
+    robot.control.home_service_call.return_value = (True, "done")
     response = robot.on_home(MagicMock(), SimpleNamespace(success=None, message=None))
     assert response.success is True
+
+
+def test_home_service_refused_until_control_is_bound(ros_iface: ModuleType, tmp_path: Path) -> None:
+    """/arm/home answers through the ControlManager (its lease and carry guard): refused before bind_control."""
+    robot = make_robot(ros_iface, tmp_path, [0.0])
+    robot.control = None
+    robot.arm = MagicMock()
+    response = robot.on_home(MagicMock(), SimpleNamespace(success=None, message=None))
+    assert (response.success, response.message) == (False, HOME_SERVICE_NOT_READY)
+    robot.arm.home_service_call.assert_not_called()
 
 
 @pytest.mark.parametrize(("move_ok", "ticks_expected"), [(True, 1), (False, 0)])
@@ -237,6 +247,7 @@ def test_converged_home_service_ends_with_the_static_footprint(ros_iface: Module
     robot.arm.set_home()
     move_arm(robot, SIDEWAYS)
     nav.start()  # as tools.py does: the released arm is out, and the tick is wired to RosRobot
+    robot.control = ControlManager(robot.arm, robot, robot.cfg, footprint=nav)
     assert nav.state().kind == "dynamic"
     robot.arm_backend.follow = False  # the home motion cannot converge
     response = robot.on_home(MagicMock(), SimpleNamespace(success=None, message=None))

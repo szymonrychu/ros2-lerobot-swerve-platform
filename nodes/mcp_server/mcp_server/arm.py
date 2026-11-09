@@ -2486,9 +2486,19 @@ class ArmController:
     def home_service_call(self) -> tuple[bool, str]:
         """/arm/home service body: move home and always release control afterwards.
 
+        Refused (nothing moves, no lease is touched) while the stale marker lists joint_offsets (an unreadable marker
+        counts): the home route and its body checks would use the old arm zero.
+
         Returns:
-            tuple[bool, str]: success (converged) and message.
+            tuple[bool, str]: success (converged) and message (the refusal text when refused).
         """
+        marker = self.stale_marker()
+        if marker is not None and STALE_OFFSETS_ITEM in marker.stale:
+            when = marker.saved_at or "an unknown time"
+            return False, (
+                f"arm home refused: the calibration stale marker lists {STALE_OFFSETS_ITEM} (arm re-zero at {when}): "
+                "the home route and its body check would use the old zero; restore the arm zero first"
+            )
         was_held = self._held
         try:
             result = self.home(keep_prior_control=False)

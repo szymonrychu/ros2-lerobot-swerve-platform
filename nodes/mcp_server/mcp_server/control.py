@@ -107,6 +107,17 @@ WEB_UI_NOT_HELD = "arm control not held by web_ui"
 WEB_UI_AGENT_REFUSAL = "take_control refused: the agent holds the arm - wait for it to release or stop it first"
 WEB_UI_BATTERY_REFUSAL = "take_control refused: battery below cut-off"
 WEB_UI_LEADER_REFUSAL = "take_control refused: the leader arm is moving - hold it still and try again"
+# /arm/home service (web UI Home buttons, the Calibrate page General section): refused while another holder has the arm
+# or the gripper carries (the calibration board, an object); the arm itself refuses a stale arm zero.
+HOME_SERVICE_AGENT_REFUSAL = (
+    "arm home refused: the agent holds the arm lease (take_control, e.g. a running calibration sequence) - stop it or "
+    "wait for its release_control first"
+)
+HOME_SERVICE_CARRYING_REFUSAL = (
+    "arm home refused: the gripper carries something ({reasons}) - the home route is not checked with it; remove it "
+    "first (park the calibration board from its flow)"
+)
+HOME_SERVICE_NOT_READY = "arm home refused: mcp_server is not ready"
 
 
 class LeaderActivity:
@@ -413,6 +424,33 @@ class ControlManager:
         if self.footprint is not None:
             self.footprint.publish_static()
         return True, "arm control taken by web_ui at the measured pose"
+
+    def home_service_refusal(self) -> str | None:
+        """Why the /arm/home service may not move the arm now, or None.
+
+        Returns:
+            str | None: Refusal text: the agent holds the arm lease (another holder than the web UI caller; a lease
+                taken by the web UI, or none, passes), or the gripper carries (carrying_state: the carry record or a
+                holding load, e.g. the calibration board in the jaws); None when it may home.
+        """
+        if self.arm_held:
+            return HOME_SERVICE_AGENT_REFUSAL
+        carrying = self.carrying_state()
+        if carrying.carrying:
+            return HOME_SERVICE_CARRYING_REFUSAL.format(reasons="; ".join(carrying.reasons))
+        return None
+
+    def home_service_call(self) -> tuple[bool, str]:
+        """/arm/home service body: refused per home_service_refusal (nothing moves, no lease is touched), else the arm's
+        home_service_call (stale marker checks, home, then always release).
+
+        Returns:
+            tuple[bool, str]: success (converged) and message (the refusal text when refused).
+        """
+        refusal = self.home_service_refusal()
+        if refusal is not None:
+            return False, refusal
+        return self.arm.home_service_call()
 
     def release_web_ui(self) -> tuple[bool, str]:
         """/arm/release_control: publish the autonomy release so the follower hands back to the leader (filter_node's
