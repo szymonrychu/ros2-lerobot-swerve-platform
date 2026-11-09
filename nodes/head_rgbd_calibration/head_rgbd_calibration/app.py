@@ -2,6 +2,8 @@
 
 The /api/capture, /api/sessions and /api/applied routes serve the D435 intrinsics check. Every error answers
 {ok: false, message}: InvalidId and NotFound give 404, Busy and NotApplicable give 409, a session of another kind 400.
+Every mutating request to the app, the included routers too, is logged as a calib_event of flow `api` with its query,
+body, status and refusal message (telemetry.RequestTelemetry).
 """
 
 import json
@@ -32,6 +34,7 @@ from head_rgbd_calibration.config import NodeConfig
 from head_rgbd_calibration.jobs import Busy as JobBusy
 from head_rgbd_calibration.jobs import ComputeJob
 from head_rgbd_calibration.store import KIND_INTRINSICS, POSE_FILE, RESULT_FILE, InvalidId, NotFound, SessionStore
+from head_rgbd_calibration.telemetry import RequestTelemetry
 
 JPEG_MEDIA_TYPE = "image/jpeg"
 ZIP_MEDIA_TYPE = "application/zip"
@@ -106,6 +109,7 @@ def build_app(capture: CaptureController, job: ComputeJob, store: SessionStore, 
         The FastAPI app with the routes of the design's Node HTTP API table.
     """
     app = FastAPI(title="head_rgbd_calibration")
+    app.add_middleware(RequestTelemetry)
 
     @app.exception_handler(InvalidId)
     @app.exception_handler(NotFound)
