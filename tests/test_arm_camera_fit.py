@@ -59,7 +59,7 @@ REPORT_KEYS = {
     "plausible", "refusals", "warnings", "score", "params", "accuracy_examples", "comparison", "skew", "sag", "notes",
 }  # fmt: skip
 SCORE_KEYS = {"rms_px", "heldout_rms_px", "heldout_tool_mm", "views", "poses"}
-PARAM_KEYS = {"name", "value", "sigma", "unit", "applied_value", "change"}
+PARAM_KEYS = {"name", "value", "sigma", "held", "unit", "applied_value", "change"}
 EXAMPLE_LABELS = (
     "tool point at 30 cm reach",
     "tool point at full reach",
@@ -121,6 +121,16 @@ def test_current_calibration_scores_worse(standard: tuple[object, ArmCameraFit])
     assert all(shift_mm > 1.0 for _, shift_mm in fit.shifts)
 
 
+def test_unknown_sigma_of_a_fitted_param_is_null_but_not_held(standard: tuple[object, ArmCameraFit]) -> None:
+    """A singular covariance gives an infinite sigma: reported as null like a gauge-held one, but held stays false so
+    the page does not show a badly conditioned fitted parameter as held."""
+    _, fit = standard
+    unknown = dataclasses.replace(fit, sigma={name: math.inf for name in fit.sigma})
+    params = {p["name"]: p for p in arm_camera_report(unknown, arm_camera_config())["params"]}
+    assert params["shoulder_pan_offset"]["sigma"] is None and params["shoulder_pan_offset"]["held"] is False
+    assert params["wrist_roll_offset"]["held"] is True
+
+
 def test_report_matches_the_contract(standard: tuple[object, ArmCameraFit]) -> None:
     _, fit = standard
     report = arm_camera_report(fit, arm_camera_config())
@@ -141,7 +151,8 @@ def test_report_matches_the_contract(standard: tuple[object, ArmCameraFit]) -> N
     pan = next(p for p in report["params"] if p["name"] == "shoulder_pan_offset")
     assert pan["unit"] == "deg" and pan["change"] == pytest.approx(pan["value"] - pan["applied_value"])
     roll = next(p for p in report["params"] if p["name"] == "wrist_roll_offset")
-    assert roll["sigma"] is None and roll["change"] == 0.0  # fixed: the gauge
+    assert roll["sigma"] is None and roll["held"] is True and roll["change"] == 0.0  # fixed: the gauge
+    assert pan["held"] is False and pan["sigma"] is not None
     labels = [e["label"] for e in report["accuracy_examples"]]
     for label in EXAMPLE_LABELS:
         assert f"{label}, 1 sigma" in labels and f"{label}, 95 %" in labels
@@ -313,7 +324,7 @@ def test_switches_free_wrist_roll_droop_and_fix_base_z() -> None:
     report = arm_camera_report(fit, arm_camera_config(fit_droop=True))
     assert any(p["name"] == "droop" and p["unit"] == "mm/(N m)" for p in report["params"])
     roll = next(p for p in report["params"] if p["name"] == "wrist_roll_offset")
-    assert roll["sigma"] is not None
+    assert roll["sigma"] is not None and roll["held"] is False
 
 
 def test_solver_summary(standard: tuple[object, ArmCameraFit]) -> None:

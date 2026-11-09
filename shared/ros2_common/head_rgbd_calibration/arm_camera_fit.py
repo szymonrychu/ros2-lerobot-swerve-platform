@@ -936,7 +936,9 @@ def param_entries(fit: ArmCameraFit) -> list[dict]:
         fit: Fit result.
 
     Returns:
-        list[dict]: {name, value, sigma, unit, applied_value, change}; sigma None for a fixed parameter (a gauge);
+        list[dict]: {name, value, sigma, held, unit, applied_value, change}; held True and sigma None for a fixed
+        parameter (a gauge); sigma None with held False for a fitted parameter whose sigma is not finite (a singular
+        covariance);
         lengths in mm, angles in deg, the sag in deg/(N m), the droop in mm/(N m); the applied value of the board seat
         is the CAD mount for board_x, y, z, zero for the seat turn `board_skew_roll`, `board_skew_pitch`,
         `board_skew_yaw` (the skew rotation, board frame, as `skew.rpy_deg`), the sag and the droop.
@@ -948,6 +950,7 @@ def param_entries(fit: ArmCameraFit) -> list[dict]:
             "name": name,
             "value": json_float(value),
             "sigma": None if sigma is None else json_float(sigma),
+            "held": sigma is None,
             "unit": unit,
             "applied_value": json_float(applied),
             "change": json_float(change),

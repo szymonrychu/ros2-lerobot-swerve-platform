@@ -910,12 +910,14 @@ Report fields (`arm_camera_fit.arm_camera_report`):
   `holdout_tool_mm` (`fit.arm_limits`), `min_views` (`fit.arm_limits`), `min_arm_poses` (`fit.limits`), `no_holdout`.
 - `score`: `{rms_px, heldout_rms_px, heldout_tool_mm, views, poses}` (held-out: every `fit.limits.holdout_every`-th
   arm pose with all its views; the tool error is the arm FK tool point against the view's solvePnP board pose).
-- `params`: `[{name, value, sigma, unit, applied_value, change}]` in plain units: `<joint>_offset` (deg), `base_x`,
+- `params`: `[{name, value, sigma, held, unit, applied_value, change}]` in plain units: `<joint>_offset` (deg), `base_x`,
   `base_y`, `base_z` (mm), `base_yaw` (deg), `board_x`, `board_y`, `board_z` (mm, the seat in gripper_link; the applied
   value is the CAD mount, the change equals `skew.xyz_mm`), `board_skew_roll`, `board_skew_pitch`, `board_skew_yaw`
   (deg, the seat turn against the CAD mount in the board frame, equal to `skew.rpy_deg`; applied value 0), `sag`
   (deg/(N m)), `droop` (mm/(N m), only with `fit_droop`).
-  `sigma` is null for a fixed parameter (a gauge).
+  `held` is true and `sigma` null for a fixed parameter (a gauge); a fitted parameter whose sigma is not finite (a
+  singular covariance) also has `sigma` null, with `held` false. Non-finite numbers are null everywhere in the result,
+  including `calibration` (a `non_finite` fit stays strict JSON, so its result can be read and declined).
 - `accuracy_examples`: `[{label, value, unit: "mm"}]`, two per example (`<example>, 1 sigma` and `<example>, 95 %`) for
   "tool point at 30 cm reach", "tool point at full reach" and "gripper position seen by the head camera at 50 cm",
   the parameter covariance propagated to the tool point in base_link (1 sigma: RMS 3D error; 95 %: chi-square radius

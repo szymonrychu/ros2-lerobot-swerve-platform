@@ -41,6 +41,7 @@ from ros2_common.head_rgbd_calibration.arm_camera_fit import (
     fit_arm_camera,
 )
 from ros2_common.head_rgbd_calibration.config import ARM_JOINT_NAMES
+from ros2_common.head_rgbd_calibration.floor_fit import json_float
 
 from head_rgbd_calibration import floor_results
 from head_rgbd_calibration.apply import APPLIED_DIR, SNIPPET_FILE, NotApplicable, unit_state, update_applied
@@ -255,9 +256,10 @@ def compute_arm_camera(cfg: NodeConfig, store: SessionStore, sid: str, rid: str,
             state=STATE_DONE,
             report=report,
             calibration={
-                "joint_offsets_rad": {name: float(fit.offsets[name]) for name in ARM_JOINT_NAMES},
-                "base_in_base_link": {key: float(value) for key, value in fit.base.items()},
-                "tool_offset_m": [float(v) for v in cfg.fit.tool_offset_m],
+                # json_float: a non-finite fit (refused as non_finite) keeps result.json strict JSON (null)
+                "joint_offsets_rad": {name: json_float(fit.offsets[name]) for name in ARM_JOINT_NAMES},
+                "base_in_base_link": {key: json_float(value) for key, value in fit.base.items()},
+                "tool_offset_m": [json_float(v) for v in cfg.fit.tool_offset_m],
                 "snippet": snippet,
             },
         )

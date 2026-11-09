@@ -14,7 +14,7 @@
     "result": "r-20261109-101000"
   },
   "report": {
-    "plausible": true,
+    "plausible": false,
     "refusals": [
       {
         "name": "offset_change:elbow_flex",
@@ -45,6 +45,7 @@
         "name": "shoulder_pan_offset",
         "value": 2.181695295823206,
         "sigma": 0.01774896428749217,
+        "held": false,
         "unit": "deg",
         "applied_value": 1.0427831871380984,
         "change": 1.1389121086851048

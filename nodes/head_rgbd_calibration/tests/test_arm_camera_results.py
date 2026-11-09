@@ -6,6 +6,7 @@ differ from the configured (applied) values, stored as a head_arm session with t
 applied head chain is a floor-fit head_chain.json equal to the chain the scene was rendered with.
 """
 
+import dataclasses
 import json
 import logging
 import math
@@ -20,6 +21,7 @@ from ros2_common.head_rgbd_calibration.config import ARM_JOINT_NAMES, ArmCameraB
 from ros2_common.head_rgbd_calibration.head_arm_fit import MOUNT_JOINT, TILT_JOINT
 from ros2_common.head_rgbd_calibration.urdf_text import Origin, head_chain_json
 
+from head_rgbd_calibration import arm_camera_results
 from head_rgbd_calibration.apply import NotApplicable
 from head_rgbd_calibration.arm_camera_results import (
     ARM_CALIBRATION_FILE,
@@ -161,6 +163,31 @@ def test_compute_refuses_an_implausible_fit(tmp_path: Path) -> None:
     with pytest.raises(NotApplicable, match="not plausible"):
         accept_arm_camera(scene.cfg, scene.store, scene.sid, result["id"], LATER, fake_run)
     assert not (scene.state / "applied" / ARM_CALIBRATION_FILE).exists()
+
+
+def reject_constant(name: str) -> None:
+    """json.loads parse_constant hook: NaN and infinities are not JSON."""
+    raise ValueError(f"non-JSON constant {name}")
+
+
+def test_a_non_finite_fit_writes_strict_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A fit with a non-finite offset is refused (non_finite) and its result.json stays strict JSON: the
+    calibration numbers are null, so the result route can serve it and it can be declined."""
+    real_fit = arm_camera_results.fit_arm_camera
+
+    def nan_fit(*args: Any, **kwargs: Any) -> Any:
+        fit = real_fit(*args, **kwargs)
+        return dataclasses.replace(fit, offsets={**fit.offsets, "shoulder_pan": math.nan})
+
+    monkeypatch.setattr(arm_camera_results, "fit_arm_camera", nan_fit)
+    scene = Scene(tmp_path)
+    result = compute_arm_camera(scene.cfg, scene.store, scene.sid, SessionStore.new_result_id(NOW), NOW)
+    assert result["state"] == "done" and result["report"]["plausible"] is False
+    text = (scene.store.result_dir(scene.sid, result["id"]) / "result.json").read_text()
+    stored = json.loads(text, parse_constant=reject_constant)
+    assert stored["calibration"]["joint_offsets_rad"]["shoulder_pan"] is None
+    declined = decline_arm_camera(scene.store, scene.sid, result["id"], LATER)
+    assert declined["declined"] is True
 
 
 def test_compute_logs_inputs_solver_refusals_and_result(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
