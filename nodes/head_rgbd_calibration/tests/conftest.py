@@ -1,8 +1,8 @@
 """Shared pytest setup: stub ROS 2 modules that are not installed in the dev environment.
 
-The stubs only stand in for what capture.py, floor_sweep.py and __main__.py import: rclpy.qos QoSProfile and its
-policy enums, rclpy.executors.MultiThreadedExecutor, the sensor_msgs.msg message classes and
-sensor_msgs_py.point_cloud2. QoSProfile records its keyword arguments so tests can assert the QoS.
+The stubs only stand in for what capture.py, floor_sweep.py, ground_sweep.py, ground_verify.py and __main__.py
+import: rclpy.qos QoSProfile and its policy enums, rclpy.executors.MultiThreadedExecutor, the sensor_msgs.msg message
+classes, std_msgs.msg.String and sensor_msgs_py.point_cloud2. QoSProfile records its keyword arguments so tests can assert the QoS.
 """
 
 import enum
@@ -18,6 +18,8 @@ ROS2_MODULES = (
     "sensor_msgs.msg",
     "sensor_msgs_py",
     "sensor_msgs_py.point_cloud2",
+    "std_msgs",
+    "std_msgs.msg",
 )
 
 
@@ -40,6 +42,13 @@ class QoSProfile:
 
     def __init__(self, **kwargs: Any) -> None:
         self.__dict__.update(kwargs)
+
+
+class DurabilityPolicy(enum.Enum):
+    """Stand-in for rclpy.qos.DurabilityPolicy."""
+
+    VOLATILE = 1
+    TRANSIENT_LOCAL = 2
 
 
 class MultiThreadedExecutor:
@@ -71,6 +80,13 @@ class PointCloud2:
     """Stand-in for sensor_msgs.msg.PointCloud2 (type marker only)."""
 
 
+class String:
+    """Stand-in for std_msgs.msg.String: the data field."""
+
+    def __init__(self, data: str = "") -> None:
+        self.data = data
+
+
 def read_points_numpy(*_args: Any, **_kwargs: Any) -> Any:
     """Stand-in for sensor_msgs_py.point_cloud2.read_points_numpy; tests patch it where they need points."""
     raise RuntimeError("sensor_msgs_py is not installed; patch read_points_numpy")
@@ -86,6 +102,7 @@ def install_ros2_stubs() -> None:
         "QoSProfile": QoSProfile,
         "ReliabilityPolicy": ReliabilityPolicy,
         "HistoryPolicy": HistoryPolicy,
+        "DurabilityPolicy": DurabilityPolicy,
     }.items():
         if not hasattr(qos, name):
             setattr(qos, name, value)
@@ -96,6 +113,11 @@ def install_ros2_stubs() -> None:
     for cls in (Image, CompressedImage, CameraInfo, JointState, PointCloud2):
         if not hasattr(msg, cls.__name__):
             setattr(msg, cls.__name__, cls)
+    std = sys.modules["std_msgs.msg"]
+    if not hasattr(std, "String"):
+        std.String = String
+    if not hasattr(sys.modules["std_msgs"], "msg"):
+        sys.modules["std_msgs"].msg = std
     point_cloud2 = sys.modules["sensor_msgs_py.point_cloud2"]
     if not hasattr(point_cloud2, "read_points_numpy"):
         point_cloud2.read_points_numpy = read_points_numpy

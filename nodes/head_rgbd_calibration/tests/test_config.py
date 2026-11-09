@@ -7,7 +7,13 @@ import pytest
 import yaml
 from pydantic import ValidationError
 from ros2_common.head_rgbd_calibration.arm_pose_check import PoseCheckConfig
-from ros2_common.head_rgbd_calibration.config import ARM_BOARD, ARM_JOINT_NAMES, FULL_BOARD, FloorFitConfig
+from ros2_common.head_rgbd_calibration.config import (
+    ARM_BOARD,
+    ARM_JOINT_NAMES,
+    FULL_BOARD,
+    FloorFitConfig,
+    GroundBoardFitConfig,
+)
 
 from head_rgbd_calibration.config import CONFIG_ENV, ArmSequenceConfig, NodeConfig, load_config
 
@@ -463,3 +469,64 @@ def test_board_record_max_age_defaults_to_two_hours_and_must_be_positive() -> No
     assert load_config(SHIPPED).arm_sequence.board_record_max_age_s == 7200.0
     with pytest.raises(ValueError):
         NodeConfig.model_validate({"arm_sequence": sequence_with(board_record_max_age_s=0)})
+
+
+def test_ground_board_defaults() -> None:
+    ground = NodeConfig().ground_board
+    assert ground.pan_offsets_deg == [-24, -12, 0, 12, 24]
+    assert ground.tilt_offsets_deg == [-12, -6, 0, 6, 12]
+    assert ground.min_tilt_deg == 0.0
+    assert ground.max_tilt_deg == 45.0
+    assert ground.image_margin_px == 10.0
+    assert ground.frames_per_pose == 3
+    assert ground.min_frames_per_pose == 2
+    assert ground.min_corners == 12
+    assert ground.home_min_corners == 16
+    assert ground.detect_upscale == 2
+    assert ground.frame_timeout_s == 3.0
+    assert ground.max_placements == 3
+    assert ground.placement_wait_s == 1800.0
+    assert ground.fit == GroundBoardFitConfig()
+    # The home pose is mcp_server's head home (config.head home_pan_rad 0, home_tilt_rad 0.5236).
+    assert (ground.fit.home_pan_deg, ground.fit.home_tilt_deg) == (0.0, 30.0)
+    verify = ground.verify
+    assert verify.state_topic == "/ground/state"
+    assert verify.poses_deg == [(0.0, 30.0), (40.0, 20.0), (-40.0, 25.0)]
+    assert verify.settle_s == 3.0
+    assert verify.window_s == 15.0
+    assert verify.min_samples == 10
+    assert verify.sample_timeout_s == 60.0
+    # docs/runbooks/head-floor-fit.md acceptance checks.
+    assert verify.max_height_m == 0.01
+    assert verify.max_plane_vs_base_deg == 0.6
+    assert verify.max_obstacle_points == 10
+    assert verify.max_drop_points == 0
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "ground_board:\n  pan_offsets_deg: []\n",
+        "ground_board:\n  tilt_offsets_deg: []\n",
+        "ground_board:\n  max_tilt_deg: 46\n",
+        "ground_board:\n  min_tilt_deg: -31\n",
+        "ground_board:\n  min_tilt_deg: 30\n  max_tilt_deg: 20\n",
+        "ground_board:\n  frames_per_pose: 0\n",
+        "ground_board:\n  frames_per_pose: 2\n  min_frames_per_pose: 3\n",
+        "ground_board:\n  min_corners: 5\n",
+        "ground_board:\n  home_min_corners: 21\n",
+        "ground_board:\n  detect_upscale: 0\n",
+        "ground_board:\n  max_placements: 0\n",
+        "ground_board:\n  verify:\n    poses_deg: []\n",
+        "ground_board:\n  verify:\n    poses_deg: [[0, 50]]\n",
+        "ground_board:\n  verify:\n    poses_deg: [[95, 20]]\n",
+        "ground_board:\n  verify:\n    min_samples: 0\n",
+        "ground_board:\n  fit:\n    bounds:\n      max_mount_move_mm: 0\n",
+        "ground_board:\n  bogus: 1\n",
+    ],
+)
+def test_ground_board_out_of_range_rejected(tmp_path: Path, text: str) -> None:
+    path = tmp_path / "c.yaml"
+    path.write_text(text)
+    with pytest.raises(ValidationError):
+        load_config(path)

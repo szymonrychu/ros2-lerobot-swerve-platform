@@ -14,6 +14,7 @@ from ros2_common.head_rgbd_calibration.config import (
     BoardConfig,
     BoardMountConfig,
     FloorFitConfig,
+    GroundBoardFitConfig,
     HeadArmFitConfig,
     LimitsConfig,
     PlateMountConfig,
@@ -74,6 +75,16 @@ CLOUDS_KEY = "clouds_per_pose"
 MAX_FLOOR_PAN_DEG = 90.0
 MIN_FLOOR_TILT_DEG = -30.0  # head tilt range, + is down (drivable-ground head-tilt-range-widened)
 MAX_FLOOR_TILT_DEG = 45.0
+# Ground board sweep (ground_sweep.py): pan/tilt offsets around the aim at the board on the floor. The D435 colour
+# sees 69 x 42 deg, so +-24 deg pan and +-12 deg tilt keep a close 24 x 20 cm board in view at most offsets; poses
+# whose predicted board leaves the image are dropped before the head moves.
+DEFAULT_GROUND_PAN_OFFSETS_DEG = (-24.0, -12.0, 0.0, 12.0, 24.0)
+DEFAULT_GROUND_TILT_OFFSETS_DEG = (-12.0, -6.0, 0.0, 6.0, 12.0)
+DEFAULT_GROUND_STATE_TOPIC = "/ground/state"
+# Verification poses (pan, tilt) deg: home, then the two poses of docs/runbooks/head-floor-fit.md acceptance checks.
+DEFAULT_VERIFY_POSES_DEG = ((0.0, 30.0), (40.0, 20.0), (-40.0, 25.0))
+FULL_BOARD_CORNERS = 20  # inner corners of the 6x5 FULL board
+MIN_GROUND_CORNERS = 6  # charuco.MIN_CORNERS: detect() reports no fewer
 DEFAULT_ROBOT_MCP_URL = "http://127.0.0.1:18200/mcp"
 DEFAULT_ROBOT_TOKEN_FILE = "/etc/ros2/mcp_server/token"
 DEFAULT_ROBOT_BOARD_PARK_TOKEN_FILE = "/etc/ros2/mcp_server/board_park_token"
@@ -304,6 +315,96 @@ class FloorSweepConfig(StrictModel):
         return values
 
 
+def check_head_tilt(value: float, key: str) -> float:
+    """A head tilt within the head_tilt range (MIN_FLOOR_TILT_DEG..MAX_FLOOR_TILT_DEG).
+
+    Args:
+        value: Tilt (deg), + is down.
+        key: Config key for the message.
+
+    Returns:
+        float: The value.
+
+    Raises:
+        ValueError: Outside the range.
+    """
+    if not MIN_FLOOR_TILT_DEG <= value <= MAX_FLOOR_TILT_DEG:
+        raise ValueError(f"{key} {value:g} is outside {MIN_FLOOR_TILT_DEG:g}..{MAX_FLOOR_TILT_DEG:g}")
+    return value
+
+
+class GroundVerifyConfig(StrictModel):
+    """Verification after a ground board accept (decision 313): the head visits `poses_deg` (pan, tilt; the first is
+    home) and at each the node reads `state_topic` (ground_estimator_cpp /ground/state) for `window_s` once the head
+    is still, `settle_s` has passed and the estimate reports head_moving false; a pose needs `min_samples` such
+    samples within `sample_timeout_s`. A pose passes when the median plane height is within `max_height_m` of 0, the
+    median plane_vs_base_deg is under `max_plane_vs_base_deg`, the median obstacle point count is under
+    `max_obstacle_points` and the median drop point count is at most `max_drop_points` (the runbook acceptance
+    checks). The head moves through the floor sweep's command path and motion settings (`floor`).
+    """
+
+    state_topic: str = DEFAULT_GROUND_STATE_TOPIC
+    poses_deg: list[tuple[float, float]] = Field(default_factory=lambda: list(DEFAULT_VERIFY_POSES_DEG), min_length=1)
+    settle_s: float = Field(default=3.0, ge=0)
+    window_s: float = Field(default=15.0, gt=0)
+    min_samples: int = Field(default=10, ge=1)
+    sample_timeout_s: float = Field(default=60.0, gt=0)
+    max_height_m: float = Field(default=0.01, gt=0)
+    max_plane_vs_base_deg: float = Field(default=0.6, gt=0)
+    max_obstacle_points: int = Field(default=10, ge=1)
+    max_drop_points: int = Field(default=0, ge=0)
+
+    @field_validator("poses_deg")
+    @classmethod
+    def check_poses(cls, poses: list[tuple[float, float]]) -> list[tuple[float, float]]:
+        for pan, tilt in poses:
+            if abs(pan) > MAX_FLOOR_PAN_DEG:
+                raise ValueError(f"verify pan {pan:g} is outside -{MAX_FLOOR_PAN_DEG:g}..{MAX_FLOOR_PAN_DEG:g}")
+            check_head_tilt(tilt, "verify tilt")
+        return poses
+
+
+class GroundBoardConfig(StrictModel):
+    """Ground board calibration (ground_sweep.py, ground_results.py, ground_verify.py; user decisions 312, 313, 324,
+    326): the FULL board lies flat on the floor, close and fully visible at the homed head.
+
+    Per placement the head goes home (`fit.home_pan_deg`, `fit.home_tilt_deg`), the board must show at least
+    `home_min_corners` corners there, then the head visits `pan_offsets_deg` x `tilt_offsets_deg` around the aim at
+    the located board, tilt clamped to `min_tilt_deg`..`max_tilt_deg`, skipping poses whose predicted board comes
+    closer than `image_margin_px` to the image edge. At each pose it keeps up to `frames_per_pose` colour frames with
+    at least `min_corners` corners (detection retried at `detect_upscale` times the size, for the small oblique
+    markers), waiting up to `frame_timeout_s` per frame; a pose with fewer than `min_frames_per_pose` frames is
+    skipped. The session takes up to `max_placements` placements and ends itself after `placement_wait_s` without
+    the next one. Motion (reach, stillness, timeouts) and the depth floor planes use the `floor` settings.
+    """
+
+    pan_offsets_deg: list[float] = Field(default_factory=lambda: list(DEFAULT_GROUND_PAN_OFFSETS_DEG), min_length=1)
+    tilt_offsets_deg: list[float] = Field(default_factory=lambda: list(DEFAULT_GROUND_TILT_OFFSETS_DEG), min_length=1)
+    min_tilt_deg: float = 0.0
+    max_tilt_deg: float = MAX_FLOOR_TILT_DEG
+    image_margin_px: float = Field(default=10.0, ge=0)
+    frames_per_pose: int = Field(default=3, ge=1)
+    min_frames_per_pose: int = Field(default=2, ge=1)
+    min_corners: int = Field(default=12, ge=MIN_GROUND_CORNERS, le=FULL_BOARD_CORNERS)
+    home_min_corners: int = Field(default=16, ge=MIN_GROUND_CORNERS, le=FULL_BOARD_CORNERS)
+    detect_upscale: int = Field(default=2, ge=1, le=4)
+    frame_timeout_s: float = Field(default=3.0, gt=0)
+    max_placements: int = Field(default=3, ge=1)
+    placement_wait_s: float = Field(default=1800.0, gt=0)
+    fit: GroundBoardFitConfig = Field(default_factory=GroundBoardFitConfig)
+    verify: GroundVerifyConfig = Field(default_factory=GroundVerifyConfig)
+
+    @model_validator(mode="after")
+    def check_ranges(self) -> Self:
+        check_head_tilt(self.min_tilt_deg, "ground_board.min_tilt_deg")
+        check_head_tilt(self.max_tilt_deg, "ground_board.max_tilt_deg")
+        if self.min_tilt_deg > self.max_tilt_deg:
+            raise ValueError("ground_board.min_tilt_deg must not exceed max_tilt_deg")
+        if self.min_frames_per_pose > self.frames_per_pose:
+            raise ValueError("ground_board.min_frames_per_pose must not exceed frames_per_pose")
+        return self
+
+
 class RobotConfig(StrictModel):
     """The mcp_server the node moves the head and arm through (its guarded tools only)."""
 
@@ -495,6 +596,7 @@ class NodeConfig(StrictModel):
     selection: D435SelectionConfig = Field(default_factory=D435SelectionConfig)
     limits: D435LimitsConfig = Field(default_factory=D435LimitsConfig)
     floor: FloorSweepConfig = Field(default_factory=FloorSweepConfig)
+    ground_board: GroundBoardConfig = Field(default_factory=GroundBoardConfig)
     still: StillConfig = Field(default_factory=StillConfig)
     fit: HeadArmFitConfig = Field(default_factory=default_fit)
     robot: RobotConfig = Field(default_factory=RobotConfig)
