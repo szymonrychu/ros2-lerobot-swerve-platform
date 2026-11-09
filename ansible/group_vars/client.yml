@@ -2052,6 +2052,11 @@ ros2_nodes:
       neutral_enabled: true
       neutral_exclude_joints: [gripper]
       neutral_stale_marker: /var/lib/ros2/arm/calibration_stale.json
+      # Large-shift save guard: save_neutral is refused (nothing written, torque unchanged) when a recorded joint
+      # shift exceeds this many degrees; the Calibrate page then asks for an explicit confirm and saves through
+      # save_neutral_confirmed. Incident 2026-11-09: a neutral recorded in the folded pose shifted elbow_flex by
+      # +90.5 deg and Park could not converge. base_servos and the head group keep the bridge default (15 deg).
+      neutral_max_shift_deg: 15.0
       # /follower/torque_state repeat interval (filter_node, mcp_server and web_ui subscribe).
       torque_state_interval_s: 1.0
       # filter_node tags /follower/joint_commands with its source in header.frame_id. web_ui and autonomy
