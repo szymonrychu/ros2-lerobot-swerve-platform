@@ -138,7 +138,7 @@ def test_get_fresh_stale_missing_and_marker(tmp_path: Path) -> None:
     arm, head = response.json()["groups"]
     assert arm == {
         "id": "arm", "label": "Arm", "neutral": True, "state": STATE, "age_s": 1.0, "stale": False,
-        "calibration_stale": ["joint_offsets", "home"], "zero_restore": True, "move_to_neutral": True,
+        "calibration_stale": ["joint_offsets", "home"], "zero_restore": True, "servo_calibration": False, "move_to_neutral": True,
         "set_home": True, "home_pose_hint": "pointing straight forward",
     }  # fmt: skip
     assert head["stale"] is True and head["age_s"] == 11.0 and head["calibration_stale"] is None
@@ -408,3 +408,181 @@ def test_plan_run_id_is_ignored_by_other_actions(tmp_path: Path) -> None:
     response = make_client(tmp_path, bridge).post("/api/calibration/servos/arm/zero_restore_dry_run?plan_run_id=x")
     assert response.status_code == 200
     assert bridge.services == ["/follower/servo/zero_restore_dry_run"]
+
+
+CAL_ACTIONS = (
+    "calibration_record_home",
+    "calibration_capture_start",
+    "calibration_capture_stop",
+    "calibration_plan",
+    "calibration_store",
+    "calibration_store_confirmed",
+)
+CAL_STORES = ("calibration_store", "calibration_store_confirmed")
+CAL_RUN_ID = "c0ffee11"
+CAL_STATE = {
+    **STATE,
+    "released": False,
+    "servo_calibration": {"plan": {"run_id": CAL_RUN_ID, "needs_confirm": False, "ok": True, "joints": {}}},
+}
+SET_HOME_FROM_CAL = "/arm/set_home_from_calibration"
+
+
+def cal_groups() -> list[ServoGroupConfig]:
+    return [
+        ServoGroupConfig(
+            id="arm",
+            label="Arm",
+            namespace="follower",
+            servo_calibration=True,
+            set_home_from_calibration_service=SET_HOME_FROM_CAL,
+        ),
+        ServoGroupConfig(id="head", label="Head", namespace="head", servo_calibration=True),
+        ServoGroupConfig(id="base", label="Base", namespace="base"),
+    ]
+
+
+def cal_client(tmp_path: Path, bridge: Any, guard: Any = None) -> TestClient:
+    from web_ui.server import build_app
+
+    config = AppConfig(calibration=CalibrationConfig(servo_groups=cal_groups()))
+    return TestClient(
+        build_app(
+            config=config, urdf_dir=tmp_path, static_dir=tmp_path / "none", bridge_node=bridge, battery_guard=guard
+        )
+    )
+
+
+def cal_samples() -> dict[str, tuple[dict[str, Any], float]]:
+    return {"follower": (CAL_STATE, 100.0), "head": (CAL_STATE, 100.0)}
+
+
+def cal_url(group: str, action: str) -> str:
+    query = f"?plan_run_id={CAL_RUN_ID}" if action in CAL_STORES else ""
+    return f"/api/calibration/servos/{group}/{action}{query}"
+
+
+@pytest.mark.parametrize("action", CAL_ACTIONS)
+def test_calibration_actions_map_to_bridge_services(tmp_path: Path, action: str) -> None:
+    bridge = FakeBridge(cal_samples())
+    with patch("web_ui.servo_calibration.time.monotonic", return_value=100.5):
+        response = cal_client(tmp_path, bridge).post(cal_url("head", action))
+    assert response.status_code == 200
+    assert bridge.services == [f"/head/servo/{action}"]
+    config = AppConfig(calibration=CalibrationConfig(servo_groups=cal_groups()))
+    assert "/head/servo/calibration_plan" in config.trigger_services()
+    assert SET_HOME_FROM_CAL in config.trigger_services()
+
+
+@pytest.mark.parametrize("action", CAL_ACTIONS)
+def test_calibration_actions_404_without_flag(tmp_path: Path, action: str) -> None:
+    bridge = FakeBridge(cal_samples())
+    assert cal_client(tmp_path, bridge).post(cal_url("base", action)).status_code == 404
+    assert bridge.services == []
+
+
+@pytest.mark.parametrize("action", CAL_STORES)
+def test_calibration_store_battery_blocked(tmp_path: Path, action: str) -> None:
+    bridge = FakeBridge(cal_samples())
+    response = cal_client(tmp_path, bridge, guard=FakeGuard()).post(cal_url("head", action))
+    assert response.status_code == 503
+    assert bridge.services == []
+    with patch("web_ui.servo_calibration.time.monotonic", return_value=100.5):
+        assert (
+            cal_client(tmp_path, bridge, guard=FakeGuard()).post(cal_url("head", "calibration_plan")).status_code == 200
+        )
+
+
+@pytest.mark.parametrize("action", CAL_STORES)
+@pytest.mark.parametrize(
+    ("samples", "query", "now"),
+    [
+        ("cal", "", 100.5),
+        ("cal", "?plan_run_id=deadbeef", 100.5),
+        ("zero", f"?plan_run_id={CAL_RUN_ID}", 100.5),  # only a zero_restore plan cached
+        ("cal", f"?plan_run_id={CAL_RUN_ID}", 200.0),  # stale
+        ("none", f"?plan_run_id={CAL_RUN_ID}", 100.5),
+    ],
+)
+def test_calibration_store_plan_bound(tmp_path: Path, action: str, samples: str, query: str, now: float) -> None:
+    cached = {
+        "cal": {"head": (CAL_STATE, 100.0)},
+        "zero": {"head": ({**STATE, "zero_restore": {"plan": {"run_id": CAL_RUN_ID}}}, 100.0)},
+        "none": {},
+    }[samples]
+    bridge = FakeBridge(cached)
+    with patch("web_ui.servo_calibration.time.monotonic", return_value=now):
+        response = cal_client(tmp_path, bridge).post(f"/api/calibration/servos/head/{action}{query}")
+    assert response.status_code == 409
+    assert response.json() == {"ok": False, "message": PLAN_CHANGED}
+    assert bridge.services == []
+
+
+def test_calibration_store_uses_long_timeout(tmp_path: Path) -> None:
+    seen: list[tuple[str, float]] = []
+
+    async def fake_call(action: str, future: Any, service: str, timeout_s: float) -> tuple[Any, None]:
+        seen.append((service, timeout_s))
+        return SimpleNamespace(success=True, message="ok"), None
+
+    with (
+        patch("web_ui.server.call_ros_service", fake_call),
+        patch("web_ui.servo_calibration.time.monotonic", return_value=100.5),
+    ):
+        client = cal_client(tmp_path, FakeBridge(cal_samples()))
+        client.post(cal_url("head", "calibration_store"))
+        client.post(cal_url("head", "calibration_capture_start"))
+        client.post("/api/calibration/servos/head/release")
+    assert seen == [
+        ("/head/servo/calibration_store", 60.0),
+        ("/head/servo/calibration_capture_start", 60.0),
+        ("/head/servo/release_torque", 15.0),
+    ]
+
+
+@pytest.mark.parametrize("action", CAL_STORES)
+def test_arm_store_chains_set_home_from_calibration(tmp_path: Path, action: str) -> None:
+    bridge = FakeBridge(cal_samples(), trigger=SimpleNamespace(success=True, message="stored"))
+    with patch("web_ui.servo_calibration.time.monotonic", return_value=100.5):
+        response = cal_client(tmp_path, bridge).post(cal_url("arm", action))
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ok"] is True and body["home_set"] is True
+    assert "stored" in body["message"] and "set home from calibration" in body["message"]
+    assert bridge.services == [f"/follower/servo/{action}", SET_HOME_FROM_CAL]
+
+
+def test_arm_store_reports_home_not_set_on_failure(tmp_path: Path) -> None:
+    async def fake_call(action: str, future: Any, service: str, timeout_s: float) -> tuple[Any, None]:
+        ok = service != SET_HOME_FROM_CAL
+        return SimpleNamespace(success=ok, message="stored" if ok else "no record"), None
+
+    with (
+        patch("web_ui.server.call_ros_service", fake_call),
+        patch("web_ui.servo_calibration.time.monotonic", return_value=100.5),
+    ):
+        response = cal_client(tmp_path, FakeBridge(cal_samples())).post(cal_url("arm", "calibration_store"))
+    body = response.json()
+    assert response.status_code == 200 and body["ok"] is True and body["home_set"] is False
+    assert "stored" in body["message"] and "no record" in body["message"]
+
+
+def test_arm_failed_store_does_not_chain(tmp_path: Path) -> None:
+    bridge = FakeBridge(cal_samples(), trigger=SimpleNamespace(success=False, message="refused"))
+    with patch("web_ui.servo_calibration.time.monotonic", return_value=100.5):
+        response = cal_client(tmp_path, bridge).post(cal_url("arm", "calibration_store"))
+    assert response.status_code == 409
+    assert bridge.services == ["/follower/servo/calibration_store"]
+
+
+def test_head_store_does_not_chain(tmp_path: Path) -> None:
+    bridge = FakeBridge(cal_samples())
+    with patch("web_ui.servo_calibration.time.monotonic", return_value=100.5):
+        response = cal_client(tmp_path, bridge).post(cal_url("head", "calibration_store"))
+    assert response.json()["home_set"] is None
+    assert bridge.services == ["/head/servo/calibration_store"]
+
+
+def test_status_lists_servo_calibration_flag(tmp_path: Path) -> None:
+    groups_json = cal_client(tmp_path, FakeBridge()).get("/api/calibration/servos").json()["groups"]
+    assert {g["id"]: g["servo_calibration"] for g in groups_json} == {"arm": True, "head": True, "base": False}

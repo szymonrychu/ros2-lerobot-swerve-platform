@@ -9,7 +9,11 @@ the same name; apply waits zero_restore_timeout_s and is battery-blocked like sa
 move_to_neutral_service (mcp_server /arm/move_to_neutral), refused (409) while the group is released. set_home calls
 the group's set_home_service (mcp_server /arm/set_home, the Arm tab Set home service): it stores the measured arm pose
 as home and clears `home` from the stale marker, moves nothing and so is allowed with torque off (the user poses the
-arm by hand); it is battery-blocked like the Arm tab Set home. Both apply
+arm by hand); it is battery-blocked like the Arm tab Set home. A group with servo_calibration
+offers the calibration_* actions (bridge services of the same name, waiting servo_calibration_timeout_s);
+calibration_store / calibration_store_confirmed are battery-blocked and plan-bound to the servo_calibration plan, and
+after a successful store the group's set_home_from_calibration_service (when set) is called: the response then carries
+home_set (true / false, a failed chain leaves ok true; null when not chained). Both apply
 actions are bound to the dry run the user saw: the request carries `?plan_run_id=` and is refused (409, PLAN_CHANGED)
 unless it equals the run_id of the plan in the group's fresh cached torque_state.
 """
@@ -26,6 +30,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 from .config import (
+    SERVO_CALIBRATION_STORE_ACTIONS,
     SERVO_MOVE_TO_NEUTRAL_ACTION,
     SERVO_PLAN_BOUND_ACTIONS,
     SERVO_SAVE_ACTIONS,
@@ -35,16 +40,21 @@ from .config import (
 )
 from .imu_calibration import HTTP_CONFLICT, HTTP_NOT_FOUND, HTTP_UNAVAILABLE, NOT_CONFIGURED_MESSAGE, error
 
+# torque_state key holding the plan, by whether the action is a servo calibration store.
+PLAN_STATE_KEYS: dict[bool, str] = {False: "zero_restore", True: "servo_calibration"}
 PLAN_CHANGED = "the dry run changed since it was shown; review the new plan"
 
 
-def shown_plan_error(group: ServoGroupConfig, bridge_node: Any, plan_run_id: str | None) -> str | None:
-    """Explain why a zero restore apply does not match the plan the user was shown.
+def shown_plan_error(
+    group: ServoGroupConfig, bridge_node: Any, plan_run_id: str | None, action: str = "zero_restore_apply"
+) -> str | None:
+    """Explain why a plan-bound write does not match the plan the user was shown.
 
     Args:
         group (ServoGroupConfig): The group.
         bridge_node (Any): BridgeNode or None.
         plan_run_id (str | None): run_id of the plan the Calibrate page showed (query parameter).
+        action (str): The action; a calibration store reads the servo_calibration plan, others the zero_restore plan.
 
     Returns:
         str | None: PLAN_CHANGED when the id is missing, no fresh plan is cached or the cached plan has another
@@ -52,8 +62,8 @@ def shown_plan_error(group: ServoGroupConfig, bridge_node: Any, plan_run_id: str
     """
     status = group_status(group, bridge_node)
     state = status["state"] if not status["stale"] else None
-    zero = state.get("zero_restore") if isinstance(state, dict) else None
-    plan = zero.get("plan") if isinstance(zero, dict) else None
+    block = state.get(PLAN_STATE_KEYS[action in SERVO_CALIBRATION_STORE_ACTIONS]) if isinstance(state, dict) else None
+    plan = block.get("plan") if isinstance(block, dict) else None
     cached = plan.get("run_id") if isinstance(plan, dict) else None
     if plan_run_id is None or cached is None or plan_run_id != cached:
         return PLAN_CHANGED
@@ -87,8 +97,8 @@ def group_status(group: ServoGroupConfig, bridge_node: Any) -> dict[str, Any]:
         bridge_node (Any): BridgeNode or None.
 
     Returns:
-        dict[str, Any]: {id, label, neutral, state, age_s, stale, calibration_stale, zero_restore, move_to_neutral,
-            set_home, home_pose_hint}.
+        dict[str, Any]: {id, label, neutral, state, age_s, stale, calibration_stale, zero_restore,
+            servo_calibration, move_to_neutral, set_home, home_pose_hint}.
     """
     sample = bridge_node.servo_torque_sample(group.namespace) if bridge_node is not None else None
     state, age_s = None, None
@@ -104,6 +114,7 @@ def group_status(group: ServoGroupConfig, bridge_node: Any) -> dict[str, Any]:
         "stale": age_s is None or age_s > group.state_stale_s,
         "calibration_stale": read_stale_items(group.stale_marker),
         "zero_restore": group.zero_restore,
+        "servo_calibration": group.servo_calibration,
         "move_to_neutral": group.move_to_neutral_service is not None,
         "set_home": group.set_home_service is not None,
         "home_pose_hint": group.home_pose_hint,
@@ -181,7 +192,9 @@ def register_servo_calibration_routes(
             return blocked
         if moves and (released := released_error_of(group, bridge_node)) is not None:
             return error(released, HTTP_CONFLICT)
-        if action in SERVO_PLAN_BOUND_ACTIONS and (changed := shown_plan_error(group, bridge_node, plan_run_id)):
+        if action in SERVO_PLAN_BOUND_ACTIONS and (
+            changed := shown_plan_error(group, bridge_node, plan_run_id, action)
+        ):
             return error(changed, HTTP_CONFLICT)
         if bridge_node is None:
             return error("ROS bridge unavailable", HTTP_UNAVAILABLE)
@@ -193,7 +206,25 @@ def register_servo_calibration_routes(
             return failure
         ok = bool(getattr(response, "success", False))
         message = getattr(response, "message", "") or f"{service} {'succeeded' if ok else 'refused'}"
-        return JSONResponse({"ok": ok, "message": message}, status_code=200 if ok else HTTP_CONFLICT)
+        if not ok:
+            return JSONResponse({"ok": False, "message": message}, status_code=HTTP_CONFLICT)
+        body: dict[str, Any] = {"ok": True, "message": message}
+        if action not in SERVO_CALIBRATION_STORE_ACTIONS:
+            return JSONResponse(body)
+        body["home_set"] = None
+        chain = group.set_home_from_calibration_service
+        if chain:
+            home, home_failure = await call_ros_service(
+                f"servo_{group_id}_set_home_from_calibration",
+                bridge_node.trigger_async(chain),
+                chain,
+                group.service_timeout_s,
+            )
+            home_ok = home_failure is None and bool(getattr(home, "success", False))
+            home_message = (getattr(home, "message", "") if home_failure is None else "") or f"{chain} failed"
+            body["home_set"] = home_ok
+            body["message"] = f"{message}; set home from calibration: {home_message}"
+        return JSONResponse(body)
 
     app.add_api_route("/api/calibration/servos", status, methods=["GET"], include_in_schema=False)
     app.add_api_route("/api/calibration/servos/{group_id}/{action}", act, methods=["POST"], include_in_schema=False)

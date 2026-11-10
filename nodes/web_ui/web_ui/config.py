@@ -509,6 +509,16 @@ class GpsStatusConfig(BaseModel):
     base_timeout_s: float = Field(2.0, gt=0)
 
 
+# Servo calibration flow actions (action -> bridge service suffix under /<ns>/servo/), offered when servo_calibration.
+SERVO_CALIBRATION_ACTIONS: dict[str, str] = {
+    "calibration_record_home": "calibration_record_home",
+    "calibration_capture_start": "calibration_capture_start",
+    "calibration_capture_stop": "calibration_capture_stop",
+    "calibration_plan": "calibration_plan",
+    "calibration_store": "calibration_store",
+    # The explicit confirm: calibration_store refuses a plan with needs_confirm (large change or narrow limits).
+    "calibration_store_confirmed": "calibration_store_confirmed",
+}
 SERVO_ACTION_SERVICES: dict[str, str] = {
     "release": "release_torque",
     "enable": "enable_torque",
@@ -522,6 +532,7 @@ SERVO_ACTION_SERVICES: dict[str, str] = {
     # The explicit large-change confirm: zero_restore_apply refuses an offset change above the bridge's max_change_deg.
     "zero_restore_apply_confirmed": "zero_restore_apply_confirmed",
     "save_rest_reference": "save_rest_reference",
+    **SERVO_CALIBRATION_ACTIONS,
 }
 SERVO_NEUTRAL_ACTIONS: frozenset[str] = frozenset({"record", "save", "save_confirmed"})
 SERVO_ZERO_RESTORE_ACTIONS: frozenset[str] = frozenset(
@@ -529,10 +540,23 @@ SERVO_ZERO_RESTORE_ACTIONS: frozenset[str] = frozenset(
 )
 # EEPROM writes and arm motion: refused while the battery is cut off.
 SERVO_SAVE_ACTIONS: frozenset[str] = frozenset(
-    {"save", "save_confirmed", "zero_restore_apply", "zero_restore_apply_confirmed"}
+    {
+        "save",
+        "save_confirmed",
+        "zero_restore_apply",
+        "zero_restore_apply_confirmed",
+        "calibration_store",
+        "calibration_store_confirmed",
+    }
 )
-# Zero restore writes bound to the dry run the user was shown: the request carries that plan's run_id.
-SERVO_PLAN_BOUND_ACTIONS: frozenset[str] = frozenset({"zero_restore_apply", "zero_restore_apply_confirmed"})
+# Writes bound to the plan the user was shown: the request carries that plan's run_id.
+SERVO_PLAN_BOUND_ACTIONS: frozenset[str] = frozenset(
+    {"zero_restore_apply", "zero_restore_apply_confirmed", "calibration_store", "calibration_store_confirmed"}
+)
+# Calibration stores that write the offsets and limits (an arm store chains set_home_from_calibration_service).
+SERVO_CALIBRATION_STORE_ACTIONS: frozenset[str] = frozenset({"calibration_store", "calibration_store_confirmed"})
+# A calibration store writes, settles and verifies every joint of the group and the plan/capture calls read the bus.
+DEFAULT_SERVO_CALIBRATION_TIMEOUT_S = 60.0
 # Calibrate page action served by mcp_server (ServoGroupConfig.move_to_neutral_service), not by the bridge.
 SERVO_MOVE_TO_NEUTRAL_ACTION = "move_to_neutral"
 # Calibrate page Set home (ServoGroupConfig.set_home_service, mcp_server /arm/set_home as the Arm tab Set home): stores
@@ -570,6 +594,11 @@ class ServoGroupConfig(BaseModel):
         zero_restore: Whether the zero restore actions (dry run, apply, apply confirmed, save rest reference) are
             offered (the bridge group has a zero_restore block).
         zero_restore_timeout_s: Wait for one zero restore Trigger response (an apply can exceed service_timeout_s).
+        servo_calibration: Whether the servo calibration actions are offered (the bridge group has a servo_calibration
+            block).
+        servo_calibration_timeout_s: Wait for one servo calibration Trigger response (a store verifies every joint).
+        set_home_from_calibration_service: Arm only: mcp_server std_srvs/Trigger setting home from the calibration
+            record, called after a successful calibration store (None: not chained).
         move_to_neutral_service: Arm only: mcp_server std_srvs/Trigger moving every arm joint to 0 (None: no button).
         move_to_neutral_timeout_s: Wait for the move to neutral response (a motion, like arm home).
         set_home_service: Arm only: mcp_server std_srvs/Trigger storing the measured arm pose as home (the Arm tab Set
@@ -588,6 +617,9 @@ class ServoGroupConfig(BaseModel):
     command_topics: list[str] = Field(default_factory=list)
     zero_restore: bool = False
     zero_restore_timeout_s: float = Field(DEFAULT_ZERO_RESTORE_TIMEOUT_S, gt=0)
+    servo_calibration: bool = False
+    servo_calibration_timeout_s: float = Field(DEFAULT_SERVO_CALIBRATION_TIMEOUT_S, gt=0)
+    set_home_from_calibration_service: str | None = None
     move_to_neutral_service: str | None = None
     move_to_neutral_timeout_s: float = Field(DEFAULT_ARM_SERVICE_TIMEOUT_S, gt=0)
     set_home_service: str | None = None
@@ -622,7 +654,7 @@ class ServoGroupConfig(BaseModel):
 
         Returns:
             bool: False for an unknown action, a neutral action without neutral, a zero restore action without
-                zero_restore, move_to_neutral or set_home without its service.
+                zero_restore, a calibration action without servo_calibration, move_to_neutral or set_home without its service.
         """
         if action == SERVO_MOVE_TO_NEUTRAL_ACTION:
             return self.move_to_neutral_service is not None
@@ -634,6 +666,8 @@ class ServoGroupConfig(BaseModel):
             return self.neutral
         if action in SERVO_ZERO_RESTORE_ACTIONS:
             return self.zero_restore
+        if action in SERVO_CALIBRATION_ACTIONS:
+            return self.servo_calibration
         return True
 
     def timeout(self, action: str) -> float:
@@ -643,8 +677,11 @@ class ServoGroupConfig(BaseModel):
             action (str): Action name.
 
         Returns:
-            float: zero_restore_timeout_s, move_to_neutral_timeout_s or service_timeout_s.
+            float: zero_restore_timeout_s, servo_calibration_timeout_s, move_to_neutral_timeout_s or
+                service_timeout_s.
         """
+        if action in SERVO_CALIBRATION_ACTIONS:
+            return self.servo_calibration_timeout_s
         if action in SERVO_ZERO_RESTORE_ACTIONS:
             return self.zero_restore_timeout_s
         if action == SERVO_MOVE_TO_NEUTRAL_ACTION:
@@ -968,6 +1005,8 @@ class AppConfig(BaseModel):
                 services.update(
                     group.service(a) for a in (*SERVO_ACTION_SERVICES, *SERVO_MCP_ACTIONS) if group.offers(a)
                 )
+                if group.servo_calibration and group.set_home_from_calibration_service:
+                    services.add(group.set_home_from_calibration_service)
             general = self.calibration.general
             if general is not None:
                 services.update(s for s in (general.service(a) for a in general.offered()) if s)
