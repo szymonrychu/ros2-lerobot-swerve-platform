@@ -22,7 +22,7 @@ from head_rgbd_calibration.floor_results import applied_head_chain
 from head_rgbd_calibration.floor_sweep import FloorSweep
 from head_rgbd_calibration.head_arm_results import apply_head_arm, compute_head_arm
 from head_rgbd_calibration.jobs import ComputeJob
-from head_rgbd_calibration.sequencer import Busy, SequenceError, Sequencer
+from head_rgbd_calibration.sequencer import IDLE, Busy, SequenceError, Sequencer
 from head_rgbd_calibration.store import KIND_HEAD_ARM, RESULT_FILE, NotFound, SessionStore
 
 MSG_SEQUENCE_RUNNING = "a head-arm sequence is running; stop it first"
@@ -34,6 +34,10 @@ MSG_NEEDS_RESUME_CONFIRM = (
     "resume with the board on needs confirm=true: it moves the arm with the board to the base pose (the gripper keeps"
     " its measured angle)"
 )
+MSG_NEEDS_BOARD_GRIPPED = (
+    "resume from idle needs board_gripped=true: state that the calibration board is gripped in the jaws (taped or"
+    " seated); the jaws will not open"
+)
 MSG_NEEDS_PARK_CONFIRM = (
     "park needs confirm=true: the arm moves to its park pose (the board may stay on when the path is clear)"
 )
@@ -44,6 +48,14 @@ class ParkRequest(BaseModel):
 
     confirm: bool = False
     board_on: bool = False
+
+
+class ResumeRequest(BaseModel):
+    """Body of POST /api/head-arm/sequence/resume-board-on: `board_gripped` states the calibration board is gripped in
+    the jaws (needed from idle, e.g. after a node restart)."""
+
+    confirm: bool = False
+    board_gripped: bool = False
 
 
 class ComputeArmRequest(BaseModel):
@@ -165,12 +177,14 @@ def head_arm_router(
         return step(sequencer.move_to_base, True)
 
     @router.post("/sequence/resume-board-on")
-    def sequence_resume_board_on(body: ConfirmRequest | None = None) -> Any:
+    def sequence_resume_board_on(body: ResumeRequest | None = None) -> Any:
         if not (body and body.confirm):
             return error_response(HTTP_BAD_REQUEST, MSG_NEEDS_RESUME_CONFIRM)
         if (refused := others_running()) is not None:
             return refused
-        return step(sequencer.resume_with_board, True)
+        if sequencer.state()["phase"] == IDLE and not body.board_gripped:
+            return error_response(HTTP_BAD_REQUEST, MSG_NEEDS_BOARD_GRIPPED)
+        return step(sequencer.resume_with_board, True, body.board_gripped)
 
     @router.post("/sequence/board-attached")
     def sequence_board_attached() -> Any:
