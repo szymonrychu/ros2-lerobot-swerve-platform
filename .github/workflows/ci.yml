@@ -98,7 +98,10 @@ jobs:
   cpp:
     # amd64 runner; scripts/cpp-node-test.sh builds its image for the native platform (arm64 on the Mac, like the Pi).
     # 60 min, not 3x a typical 3 to 10 min run: on a slow runner day the image build alone took up to 54 min
-    # (run 42744433547) and those jobs passed.
+    # (run 42744433547) and those jobs passed. That slowness was archive.ubuntu.com crawling at about 9 kB/s from the
+    # runners (run 42757550349 failed a fetch after 44 min): the script sees GITHUB_ACTIONS=true (set by the runner,
+    # never overridden here) and builds the image against the runners' own mirror, http://azure.archive.ubuntu.com,
+    # with apt retries. The image is not cached between runs (see scripts/README.md, cpp-node-test.sh).
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:

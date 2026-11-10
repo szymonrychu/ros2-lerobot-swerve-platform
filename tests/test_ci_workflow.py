@@ -13,6 +13,8 @@ UV_VERSION = "0.11.29"
 CPP_JOB = "cpp"
 CPP_TEST_COMMAND = "./scripts/cpp-node-test.sh ${{ matrix.package }}"
 MAX_JOB_TIMEOUT_MINUTES = 60
+# Environment the cpp job must leave to the runner and the script: GITHUB_ACTIONS=true selects the Azure apt mirror.
+CPP_SCRIPT_OWNED_ENV = ("GITHUB_ACTIONS", "UBUNTU_MIRROR", "UBUNTU_SECURITY_MIRROR")
 
 
 def load_workflow() -> dict:
@@ -89,6 +91,17 @@ def test_cpp_matrix_equals_filesystem() -> None:
     assert job["strategy"]["fail-fast"] is False
     run = "\n".join(str(s.get("run", "")) for s in job["steps"])
     assert CPP_TEST_COMMAND in run
+
+
+def test_cpp_job_leaves_the_apt_mirror_choice_to_the_script() -> None:
+    """The cpp job runs on a GitHub-hosted runner, where GITHUB_ACTIONS=true makes scripts/cpp-node-test.sh build its
+    image against the runners' Azure Ubuntu mirror; neither the job nor its steps override that environment."""
+    job = load_workflow()["jobs"][CPP_JOB]
+    envs = [job.get("env") or {}, *((s.get("env") or {}) for s in job["steps"])]
+    for env in envs:
+        for name in CPP_SCRIPT_OWNED_ENV:
+            assert name not in env, f"cpp job sets {name}; the script derives the mirror from GITHUB_ACTIONS"
+    assert 'if [ "${GITHUB_ACTIONS:-}" = true ]; then' in (REPO_ROOT / "scripts" / "cpp-node-test.sh").read_text()
 
 
 def test_ansible_job_installs_collections_before_syntax_check() -> None:
