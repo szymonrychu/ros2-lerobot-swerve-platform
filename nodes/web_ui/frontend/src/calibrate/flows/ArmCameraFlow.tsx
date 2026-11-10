@@ -185,6 +185,9 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
 
   const phase = sequence?.phase ?? PHASE_IDLE
   const sid = sequence?.session_id ?? null
+  // The sequence belongs to a live run: a fresh run has no capture session until Board attached (session_id null),
+  // a run the user closed with Start a new run keeps its session id and no longer counts.
+  const liveRun = sid === null || sid !== closedSid
   const captured =
     sid !== null && sid !== closedSid && (sequence?.captured ?? 0) > 0 && !running && !CAPTURE_PHASES.includes(phase)
   // The fits of More fits run on the live session, or on the newest one when the node has none (after a restart).
@@ -316,7 +319,7 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
               id: 'home',
               title: 'Home arm',
               optional: !canHomeArm,
-              done: homed || (phase !== PHASE_IDLE && sid !== closedSid) || captured,
+              done: homed || (phase !== PHASE_IDLE && liveRun) || captured,
               see: 'The arm folds to its stored home pose and stops; nothing on the gripper.',
               error: errors.home,
               children: (
@@ -344,7 +347,7 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
             {
               id: 'open',
               title: 'Open gripper',
-              done: (AT_BASE_PHASES.includes(phase) && sid !== closedSid) || captured,
+              done: (AT_BASE_PHASES.includes(phase) && liveRun) || captured,
               see: 'The arm stands in the calibration base pose with the gripper open to the insert width. Keep the area clear.',
               error: errors.open,
               children: (
@@ -356,7 +359,7 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
             {
               id: 'grab',
               title: 'Grab board',
-              done: (GRABBED_PHASES.includes(phase) && sid !== closedSid) || captured,
+              done: (GRABBED_PHASES.includes(phase) && liveRun) || captured,
               see: 'The jaws close on the handle; the events report the grip seated, without slack. The wrist poses start.',
               error: errors.grab,
               children: (
