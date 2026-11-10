@@ -135,6 +135,19 @@ def test_home_service_refused_while_the_board_record_exists_without_a_lease_or_l
     assert len(robot.arm_backend.commands) == commands and robot.arm_backend.releases == 0
 
 
+def test_home_service_board_refusal_names_the_record_and_both_ways_to_clear_it(robot: FakeRobot) -> None:
+    """The record may outlive the board (removed by hand without a park): the refusal names the file, the park and
+    the Calibrate page clear."""
+    record = {"session_id": None, "mount": {}, "clipped_at": "2026-11-09T18:44:15+00:00"}
+    write_board_record(robot, json.dumps(record))
+    ok, message = manager(robot).home_service_call()
+    assert ok is False
+    assert str(robot.arm.cfg.arm.calibration_board_record) in message
+    assert "session None, attached at 2026-11-09T18:44:15+00:00" in message
+    assert "Park (board is on the gripper)" in message
+    assert "Board already off: clear the record on the Calibrate page" in message
+
+
 def test_home_service_refused_on_an_unreadable_board_record(robot: FakeRobot) -> None:
     write_board_record(robot, "{not json")
     ok, message = manager(robot).home_service_call()

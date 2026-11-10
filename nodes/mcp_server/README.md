@@ -105,9 +105,12 @@ Arm tab Home, the Calibrate page General Home arm (`/api/calibration/general/hom
   `/var/lib/ros2/head_rgbd_calibration/head_arm_board.json`, the node's `<state_dir>/head_arm_board.json`; written on
   Board attached, removed by a successful park; any age, an unreadable file counts; null disables the check). This
   covers the board in the jaws with no lease held and a relaxed grip (the `holding` phase after a run, a failed park, a
-  node restart): "arm home refused: the calibration board is on the gripper (session <id>, attached at <time>, record
-  <path>) - the home route is not checked with it; park it from the Calibrate page Arm to camera flow (Park arm, or Park
-  (board is on the gripper)) first";
+  node restart): "arm home refused: the calibration board is on the gripper by the board record <path> (session <id>,
+  attached at <time>) - the home route is not checked with it. Board still on: park it from the Calibrate page Arm to
+  camera flow (Park arm, or Park (board is on the gripper)). Board already off: clear the record on the Calibrate page
+  (The board is already off the gripper: clear the record)". The clear is head_rgbd_calibration's
+  `POST /api/arm-camera/board-record/clear` (no motion; it logs a `board_record_clear` calib_event), so a board taken
+  off by hand without a park does not block Home for good;
 - the gripper carries (`carrying_state`: the carry record or a live holding load, e.g. the calibration board clamped by
   its handle): "arm home refused: the gripper carries something (<reasons>) - the home route is not checked with it;
   remove it first (park the calibration board from its flow)";
