@@ -14,7 +14,9 @@ minus neutral_exclude_joints (the gripper is never touched):
   0 on the bus, the arm is still (present_position spread within still_tolerance_steps over still_window_s) and the
   reference is valid (the reference file wins over seed_reference_rad; an invalid file refuses, never falls back).
   Reads the offset and angle limits and plans, per joint, target, offset change and new offset. Nothing is written.
-  needs_confirm when a change exceeds max_change_deg.
+  needs_confirm when a change exceeds max_change_deg; refused (nothing planned, so no apply) when a change exceeds
+  refuse_change_deg: zero restore repairs a slightly shifted zero, a new home pose goes through Set home (or Record
+  neutral and save).
 - apply(namespace, confirmed): needs a plan younger than plan_max_age_s whose readings still hold within
   plan_tolerance_steps, and confirmed=True for a large change (zero_restore_apply_confirmed). Stops the bus wheels,
   then per joint in config order: re-read torque (must be 0), write the offset (write_register does unlock_eeprom /
@@ -625,6 +627,13 @@ class ZeroRestoreControl:
                 continue
             target = position_to_raw_steps(state.reference["joints"][joint.name], joint.inverted)
             change = offset_delta_steps(presents[joint.name], target)
+            change_deg = steps_to_degrees(-change)
+            if abs(change_deg) > config.refuse_change_deg:
+                problems.append(
+                    f"{joint.name}: change {change_deg:+.1f} deg above {config.refuse_change_deg:g} deg; zero restore "
+                    "repairs a slightly shifted zero; to record a new home pose use Set home (or Record neutral and save)"
+                )
+                continue
             new_offset = wrap_offset_steps(offset_before + change)
             if abs(new_offset) > OFFSET_MAX_STEPS:
                 problems.append(

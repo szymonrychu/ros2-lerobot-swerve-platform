@@ -62,9 +62,18 @@ ARM = [
 ]
 ARM_IDS = (1, 2, 3, 4, 5)
 GRIPPER_ID = 6
-# Logged shifts of the wrong re-zero ("neutral recorded: <joint> +N steps"); the restore's offset change is the inverse.
-INCIDENT_SHIFT = {"shoulder_pan": -11, "shoulder_lift": -901, "elbow_flex": 1029, "wrist_flex": -47, "wrist_roll": 14}
+# Shifts of a wrong re-zero, two of them between max_change_deg (15) and refuse_change_deg (45); the restore's offset
+# change is the inverse. The logged incident (shoulder_lift -901, elbow_flex +1029 steps) is above refuse_change_deg
+# and refused (LOGGED_INCIDENT_SHIFT).
+INCIDENT_SHIFT = {"shoulder_pan": -11, "shoulder_lift": -301, "elbow_flex": 429, "wrist_flex": -47, "wrist_roll": 14}
 ORIGINAL_OFFSET = {"shoulder_pan": 120, "shoulder_lift": -300, "elbow_flex": 450, "wrist_flex": -20, "wrist_roll": 0}
+LOGGED_INCIDENT_SHIFT = {
+    "shoulder_pan": -11,
+    "shoulder_lift": -901,
+    "elbow_flex": 1029,
+    "wrist_flex": -47,
+    "wrist_roll": 14,
+}
 SMALL_SHIFT = {"shoulder_pan": -11, "shoulder_lift": 20, "elbow_flex": -30, "wrist_flex": -47, "wrist_roll": 14}
 LIMITS = {1: (500, 3500), 2: (0, 4095), 3: (0, 4095), 4: (0, 4095), 5: (0, 4095), 6: (1900, 3377)}
 STALE_COMMAND_LIMITS = (0, 4095)
@@ -554,7 +563,7 @@ def test_dry_run_logs_calib_events(tmp_path: Path) -> None:
     ]
     data = events[-1]["data"]
     assert data["needs_confirm"] is True
-    assert data["joints"]["elbow_flex"]["offset_change_steps"] == -1029
+    assert data["joints"]["elbow_flex"]["offset_change_steps"] == -INCIDENT_SHIFT["elbow_flex"]
     assert data["joints"]["elbow_flex"]["limits"] == [0, 4095]
     assert data["torque"] == {name: 0 for name in SEED}
     assert len({e["run_id"] for e in events}) == 1
@@ -579,6 +588,49 @@ def test_apply_refused_when_the_dry_run_is_too_old(tmp_path: Path) -> None:
     assert "dry run is 61 s old (max 60 s)" in result.message
     assert rig.offset_writes() == []
     assert plan_or_none(rig) is None
+
+
+def test_dry_run_refuses_a_change_above_refuse_change_deg(tmp_path: Path) -> None:
+    """A change above refuse_change_deg (45 deg) refuses the dry run per joint: nothing planned, apply impossible."""
+    rig = make_rig(tmp_path, shift=LOGGED_INCIDENT_SHIFT)
+    result = rig.zero.dry_run("follower")
+    assert result.success is False
+    lift = steps_to_degrees(LOGGED_INCIDENT_SHIFT["shoulder_lift"])
+    elbow = steps_to_degrees(LOGGED_INCIDENT_SHIFT["elbow_flex"])
+    assert (
+        f"shoulder_lift: change {lift:+.1f} deg above 45 deg; zero restore repairs a slightly shifted zero; "
+        "to record a new home pose use Set home (or Record neutral and save)"
+    ) in result.message
+    assert f"elbow_flex: change {elbow:+.1f} deg above 45 deg" in result.message
+    assert "wrist_flex" not in result.message
+    assert result.message.endswith("; nothing written")
+    assert plan_or_none(rig) is None
+    assert rig.offset_writes() == []
+    applied = rig.zero.apply("follower", confirmed=True)
+    assert applied.success is False
+    assert "dry run first" in applied.message
+    assert rig.offset_writes() == []
+
+
+def test_dry_run_refuse_change_deg_comes_from_the_config(tmp_path: Path) -> None:
+    """refuse_change_deg is read from the group's block: a 100 deg cap plans the logged incident (with the confirm)."""
+    rig = make_rig(tmp_path, shift=LOGGED_INCIDENT_SHIFT, refuse_change_deg=100.0)
+    result = rig.zero.dry_run("follower")
+    assert result.success is True, result.message
+    assert plan_of(rig)["needs_confirm"] is True
+
+
+def test_dry_run_change_between_max_and_refuse_needs_the_confirm(tmp_path: Path) -> None:
+    """A change between max_change_deg (15) and refuse_change_deg (45) is planned and applies only confirmed."""
+    rig = make_rig(tmp_path)
+    for name in ("shoulder_lift", "elbow_flex"):
+        assert 15.0 < abs(steps_to_degrees(INCIDENT_SHIFT[name])) < 45.0
+    result = rig.zero.dry_run("follower")
+    assert result.success is True, result.message
+    assert plan_of(rig)["needs_confirm"] is True
+    assert rig.zero.apply("follower").success is False
+    assert rig.offset_writes() == []
+    assert rig.zero.apply("follower", confirmed=True).success is True
 
 
 def test_apply_refuses_a_large_change_without_the_confirm(tmp_path: Path) -> None:
