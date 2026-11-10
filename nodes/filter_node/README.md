@@ -38,12 +38,33 @@ Flow, per command:
 Config (`self_collision_guard:` in the node config; `ansible/group_vars/client.yml`, pinned by
 `tests/test_arm_guard_config.py`): `enabled` (default true), `max_step_rad` (0.02 deployed, <= 0.5),
 `hard_margin_m` (0.005, equal to mcp_server `body_check.hard_margin_m`), `head_state_topic`, `head_state_max_age_s`,
-`arm` (URDF, mount and calibration, equal to mcp_server's `arm` values; shared `ArmModelSettings`) and
-`leader_gripper` (the bridge's gripper range mapping). The node type ships `src_extra_paths:
+`arm` (URDF, mount and calibration, equal to mcp_server's `arm` values; shared `ArmModelSettings`), `applied_dir`
+(see "Accepted arm calibration" below; default null) and `leader_gripper` (the bridge's gripper range mapping). The node type ships `src_extra_paths:
 [nodes/mcp_server/mcp_core_cpp, nodes/web_ui/urdf]`. Omit the block and the guard is off.
 
 **Rollback:** `enabled: false` in `ansible/group_vars/client.yml`, then `scripts/deploy-nodes.sh client filter_node`.
 Commands then go out unchecked (mcp_server still checks its own motions).
+
+**Accepted arm calibration** (`filter_node/arm_calibration.py`, user decision 342): with `applied_dir` set
+(`/var/lib/ros2/head_rgbd_calibration/applied`, mcp_server's `arm.applied_dir`), an arm to camera calibration accepted
+on the Calibrate page (`arm_calibration.json`, named by the `arm_calibration` record of `applied.json`) overrides the
+guard arm's `joint_offsets_rad`, `base_in_base_link` and `arm_base_height_m` (= base z), exactly as in mcp_server; the
+tool point and every other `arm` key stay configured. The reload state is the shared ros2_common
+`applied_arm_calibration.AppliedArmCalibration` ([shared/README.md](../../shared/README.md)).
+
+- Startup: read before the guard is built; the log line names the source (accepted session/result, or the configured
+  client.yml values) and the values.
+- Runtime: a 1 s timer (`CALIBRATION_POLL_S`) stats `applied.json` and re-reads only when its identity (mtime, size,
+  inode) changed. One thread runs every callback and the main loop, so the timer runs between two checks: the swap
+  (`swap_checker_calibration`: the checker's mount with its C++ body kernel rebuilt first, then the kinematics joint
+  offsets) applies at once, without a restart. An `applied.json` change naming the same calibration (a head chain
+  apply) swaps nothing; a removed record goes back to the configured values.
+- Failure: an unreadable or invalid calibration, or a swap that raises, logs an error and keeps the values in use
+  until `applied.json` changes again.
+- `applied_dir: null` (the default) keeps the configured `arm` values.
+
+ros2-common is a dependency for these OpenCV-free modules only (`tests/test_arm_calibration.py` checks cv2 is not
+imported).
 
 **Guard state topic:** `guard_state_topic` (default `/filter/guard_state`, `std_msgs/String` JSON, reliable +
 transient_local) carries `{"blocked", "source", "link", "obstacle", "clearance_m"}`. It is published on change, and

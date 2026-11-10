@@ -11,6 +11,7 @@ dependencies = [
     "pydantic==2.13.5",
     "arm-collision",
     "feetech-mapping",
+    "ros2-common",
 ]
 
 [dependency-groups]
@@ -31,6 +32,8 @@ ros2-metrics = { path = "../../shared/ros2_metrics", editable = true }
 arm-collision = { path = "../../shared/arm_collision", editable = true }
 # The bridge's leader -> follower range mapping: the guard checks a leader gripper command in follower radians.
 feetech-mapping = { path = "../../shared/feetech_mapping", editable = true }
+# The accepted arm calibration (applied_arm_calibration, OpenCV-free modules only): the guard follows an Accept.
+ros2-common = { path = "../../shared", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["filter_node"]
