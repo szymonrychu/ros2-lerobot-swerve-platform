@@ -214,6 +214,8 @@ class TopicSettings(StrictModel):
     tf: str = "/tf"  # subscribed on demand (on_demand.linger_s) by the TF lookups of the tools
     tf_static: str = "/tf_static"  # always subscribed (latched, about 0 msg/s)
     set_home_service: str = "/arm/set_home"
+    # std_srvs/Trigger: store the arm home from the latest servo calibration record (allowed while joint_offsets is stale).
+    set_home_from_calibration_service: str = "/arm/set_home_from_calibration"
     # Drive pose controller state (std_msgs/String JSON {state, reason, enabled, stamp_ns}, latched).
     drive_pose_state: str = "/arm/drive_pose/state"
     # std_srvs/Trigger: store the measured arm pose as the drive pose (after the drive pose check).
@@ -510,6 +512,9 @@ class ArmSettings(ArmModelSettings):
     # Board record of head_rgbd_calibration (the calibration board is on the gripper, also with no lease held and a
     # relaxed grip): while the file exists the /arm/home service is refused. null disables the check.
     calibration_board_record: Path | None = DEFAULT_CALIBRATION_BOARD_RECORD
+    # Latest follower servo calibration record (servo_calibration-follower-latest.json, written by the follower bridge
+    # on a fully successful store): /arm/set_home_from_calibration reads the arm home from it. null disables the service.
+    servo_calibration_record: Path | None = None
     # Applied calibration directory of head_rgbd_calibration: an accepted arm to camera calibration there
     # (arm_calibration.json, named by applied.json) overrides joint_offsets_rad, base_in_base_link and arm_base_height_m
     # at startup and at the next idle point after each accept (mcp_server arm_calibration.py). null keeps these values.

@@ -28,6 +28,7 @@ from arm_collision.self_collision import (
     rigid,
 )
 from arm_collision.settings import ArmBaseOffset
+from pydantic import BaseModel, ConfigDict, ValidationError
 from ros2_common.head_rgbd_calibration.applied_arm_calibration import assign_calibration
 
 from .calib_event import emit_calib_event, new_run_id
@@ -123,6 +124,7 @@ GRIPPER_LEASE_REFUSAL = (
     "- stop the running calibration (Abort) or release control first"
 )
 STALE_OFFSETS_ITEM = "joint_offsets"  # stale marker item: the arm zero changed, joint_offsets_rad is suspect
+CALIBRATION_RECORD_GROUP = "follower"  # group of the servo calibration record that may set the arm home
 # lost_note after the startup orphan check released an autonomy lease left behind by a crashed predecessor.
 RESTART_RELEASE_NOTE = "mcp_server restarted (the orphaned autonomy lease was released)"
 # filter_node's active source while no input is active (filter_node.arbitration.SOURCE_NONE), e.g. right after it
@@ -271,6 +273,17 @@ def lower_clearance(target: GuardReport, commanded: GuardReport) -> GuardReport:
 # Park with the calibration board on (D63): the measured arm must already be this close to the stored home (and to the
 # commanded pose), so the homing leg is trivial and every leg starts from where the arm really is.
 BOARD_REST_TOLERANCE_RAD = 0.1
+
+
+class CalibrationRecord(BaseModel):
+    """The fields of the follower bridge's servo_calibration-follower-latest.json that set the home pose."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    group: str
+    success: bool
+    changed_at: str
+    home_rad: dict[str, float]
 
 
 class ArmError(RuntimeError):
@@ -2760,6 +2773,62 @@ class ArmController:
                 f"(arm re-zero at {when})"
             )
         pose = self.measured(self.require_sample())
+        try:
+            save_home(self.cfg.arm.home_file, pose)
+        except (OSError, HomeStoreError) as exc:
+            raise ArmError(f"cannot store home pose at {self.cfg.arm.home_file}: {exc}") from exc
+        marker_path = self.cfg.arm.calibration_stale_marker
+        if marker_path is not None:
+            try:
+                clear_stale(marker_path, ["home"])
+            except OSError as exc:
+                raise ArmError(f"home stored, but cannot clear the stale marker {marker_path}: {exc}") from exc
+        return pose
+
+    def set_home_from_calibration(self) -> dict[str, float]:
+        """Store the home pose from the latest servo calibration record (targets, not a hand-posed measurement).
+
+        Accepted only for a successful follower record whose changed_at equals the stale marker's saved_at (the record
+        is the latest arm zero change). Allowed while joint_offsets is stale (that is the case right after the store);
+        clears only the home item of the marker.
+
+        Returns:
+            dict[str, float]: The stored pose (arm joint -> rad).
+
+        Raises:
+            ArmError: No record path, the record is absent, unreadable or not a successful follower store, a newer zero
+                change happened (or no marker exists), the record lacks an arm joint, or the pose or marker cannot be
+                written.
+        """
+        record_path = self.cfg.arm.servo_calibration_record
+        if record_path is None:
+            raise ArmError("set home from calibration refused: arm.servo_calibration_record is not configured")
+        try:
+            text = record_path.read_text()
+        except FileNotFoundError as exc:
+            raise ArmError(f"set home from calibration refused: no servo calibration record at {record_path}") from exc
+        except OSError as exc:
+            raise ArmError(f"set home from calibration refused: record {record_path} unreadable: {exc}") from exc
+        try:
+            record = CalibrationRecord.model_validate(json.loads(text))
+        except (ValueError, ValidationError) as exc:
+            raise ArmError(f"set home from calibration refused: record {record_path} invalid: {exc}") from exc
+        if record.group != CALIBRATION_RECORD_GROUP or not record.success:
+            raise ArmError(
+                f"set home from calibration refused: the record at {record_path} is not a successful "
+                f"{CALIBRATION_RECORD_GROUP} store (group {record.group}, success {record.success})"
+            )
+        marker = self.stale_marker()
+        if marker is None or marker.saved_at != record.changed_at:
+            when = "no stale marker" if marker is None else f"arm zero change at {marker.saved_at or 'an unknown time'}"
+            raise ArmError(
+                f"set home from calibration refused: a newer zero change happened than the record "
+                f"({record.changed_at}): {when}"
+            )
+        missing = [j for j in self.joint_names if j not in record.home_rad]
+        if missing:
+            raise ArmError(f"set home from calibration refused: the record has no home for {missing}")
+        pose = {j: record.home_rad[j] for j in self.joint_names}
         try:
             save_home(self.cfg.arm.home_file, pose)
         except (OSError, HomeStoreError) as exc:
