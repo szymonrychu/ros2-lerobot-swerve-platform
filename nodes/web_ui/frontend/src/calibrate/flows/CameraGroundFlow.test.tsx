@@ -21,7 +21,12 @@ vi.mock('../RgbdCalibration', () => ({ RgbdCalibration: () => <div>d435-check</d
 vi.mock('../CsiIntrinsics', () => ({ CsiIntrinsics: () => <div>csi-cameras</div> }))
 vi.mock('../BoardNeeded', () => ({ BoardNeeded: ({ role }: { role: string }) => <div>{`board-${role}`}</div> }))
 vi.mock('../FloorFitMore', () => ({
-  FloorFitMore: ({ disabled }: { disabled?: boolean }) => <div>{`more-fits${disabled ? ' disabled' : ''}`}</div>,
+  FloorFitMore: ({ disabled, onApplied }: { disabled?: boolean; onApplied?: () => void }) => (
+    <div>
+      <div>{`more-fits${disabled ? ' disabled' : ''}`}</div>
+      <button onClick={onApplied}>floor-applied</button>
+    </div>
+  ),
 }))
 
 const B = '/api/calibration/rgbd/ground-board'
@@ -341,6 +346,59 @@ describe('CameraGroundFlow', () => {
     renderFlow()
     await waitFor(() => expect(step(8).getByText('Verification passed')).toBeTruthy())
     expect(step(8).getByText('Done')).toBeTruthy()
+  })
+
+  it('a verification of a previous head chain does not count for the chain in effect', async () => {
+    const chain = { source: 'ground_board', session: SID, result: 'r-20261109-050000' }
+    install(world({ state: { ...nodeState, sweep: doneSweep, head_chain: chain, accepted: null } }))
+    renderFlow()
+    await screen.findByText(/This verification was of a previous head chain/)
+    expect(step(8).queryByText('Done')).toBeNull()
+    expect(step(8).getByRole('button', { name: 'Start verification' }).hasAttribute('disabled')).toBe(false)
+  })
+
+  it('reports that the camera preview is wanted while the flow is open', async () => {
+    install(world())
+    const wanted = vi.fn()
+    const { unmount } = renderFlow({ onHeadCameraWanted: wanted })
+    await screen.findByText('d435-check')
+    expect(wanted).toHaveBeenLastCalledWith(true)
+    unmount()
+    expect(wanted).toHaveBeenLastCalledWith(false)
+  })
+
+  it('Start sweep is off while a ground compute runs', async () => {
+    const compute = { running: true, session_id: SID, result_id: RID, started_at: '2026-11-09T04:00:01+00:00', error: null }
+    install(world({ state: sessionDone({ compute }), results: [{ ...nodeRunning, id: RID, session: SID }] }))
+    renderFlow()
+    await screen.findByText('Computing the ground board fit...')
+    expect(screen.getByRole('button', { name: 'Start sweep' }).hasAttribute('disabled')).toBe(true)
+  })
+
+  it('a refused start reloads the node state (the old session no longer counts)', async () => {
+    const w = world({ state: sessionDone(), refuse: '/sweep/start', refusal: 'board not detected' })
+    install(w)
+    renderFlow()
+    const start = await screen.findByRole('button', { name: 'Start sweep' })
+    await waitFor(() => expect(start.hasAttribute('disabled')).toBe(false))
+    w.state = { ...idleState, sweep: { ...idleState.sweep, status: 'error', error: 'board not detected' } }
+    await act(async () => {
+      fireEvent.click(start)
+    })
+    await waitFor(() => expect(step(6).getByText('Finish step 5 first.')).toBeTruthy())
+    expect(step(5).getAllByText('board not detected').length).toBeGreaterThan(0)
+  })
+
+  it('an apply of the depth floor fit under More fits reloads the head chain in effect', async () => {
+    const w = world()
+    install(w)
+    renderFlow()
+    await screen.findByText('d435-check')
+    const before = w.calls.filter((c) => c === `GET ${B}/state`).length
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'floor-applied' }))
+    })
+    expect(w.calls.filter((c) => c === `GET ${B}/state`).length).toBe(before + 1)
   })
 
   it('verification is locked without an applied head chain', async () => {

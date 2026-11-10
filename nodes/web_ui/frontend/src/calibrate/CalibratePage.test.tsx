@@ -6,10 +6,19 @@ import { CalibratePage } from './CalibratePage'
 vi.mock('./flows/ServoHomeFlow', () => ({ ServoHomeFlow: () => <div>servo-home-flow</div> }))
 vi.mock('./flows/ImuFlow', () => ({ ImuFlow: () => <div>imu-flow</div> }))
 vi.mock('./flows/CameraGroundFlow', () => ({
-  CameraGroundFlow: ({ canHomeHead, headCamera }: { canHomeHead: boolean; headCamera: { topic: string } | null }) => (
+  CameraGroundFlow: ({
+    canHomeHead,
+    headCamera,
+    onHeadCameraWanted,
+  }: {
+    canHomeHead: boolean
+    headCamera: { topic: string } | null
+    onHeadCameraWanted?: (wanted: boolean) => void
+  }) => (
     <div>
       <div>camera-ground-flow</div>
       <div>{`home=${canHomeHead} preview=${headCamera?.topic ?? 'none'}`}</div>
+      <button onClick={() => onHeadCameraWanted?.(true)}>want-preview</button>
     </div>
   ),
 }))
@@ -96,9 +105,12 @@ describe('CalibratePage', () => {
   it('Camera to ground gets the General Home camera and the head camera preview', async () => {
     window.location.hash = '#/calibrate/camera-ground'
     respond(200, ALL)
-    render(<CalibratePage onBack={() => {}} headCamera={{ topic: '/head/rgb', data: undefined }} />)
+    const wanted = vi.fn()
+    render(<CalibratePage onBack={() => {}} headCamera={{ topic: '/head/rgb', data: undefined }} onHeadCameraWanted={wanted} />)
     await loaded()
     expect(screen.getByText('home=true preview=/head/rgb')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'want-preview' }))
+    expect(wanted).toHaveBeenCalledWith(true)
   })
 
   it('Camera to ground without the Home camera action or a preview', async () => {

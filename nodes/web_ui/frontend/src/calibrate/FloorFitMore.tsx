@@ -20,8 +20,10 @@ const ACCEPT_BODY =
 
 /**
  * The depth floor fit: 1 head floor sweep, 2 compute, 3 the gate whose Accept applies the head chain.
+ *
+ * @param onApplied - called after an apply (the head chain in effect changed)
  */
-export function DepthFloorFit() {
+export function DepthFloorFit({ onApplied }: { onApplied?: () => void }) {
   const floor = useFloorFit()
   const [decision, setDecision] = useState<GateDecision>(null)
   const { sweep, result, running, busy } = floor
@@ -36,7 +38,10 @@ export function DepthFloorFit() {
     await floor.compute()
   }
   const accept = async () => {
-    if (await floor.apply()) setDecision('accepted')
+    if (await floor.apply()) {
+      setDecision('accepted')
+      onApplied?.()
+    }
   }
 
   return (
@@ -126,8 +131,9 @@ export function DepthFloorFit() {
  * More fits of the Camera to ground flow, closed until opened: the depth floor fit.
  *
  * @param disabled - a ground board session or verification moves the head: the depth floor fit stays closed
+ * @param onApplied - called after an apply of the depth floor fit
  */
-export function FloorFitMore({ disabled = false }: { disabled?: boolean }) {
+export function FloorFitMore({ disabled = false, onApplied }: { disabled?: boolean; onApplied?: () => void }) {
   const [open, setOpen] = useState(false)
   return (
     <Box sx={{ mt: 1 }}>
@@ -143,7 +149,7 @@ export function FloorFitMore({ disabled = false }: { disabled?: boolean }) {
             The head chain from the D435 depth floor plane alone (the interim camera to ground calibration). The ground
             board fit above is the primary one; use this one only when the board fit cannot run.
           </Typography>
-          <DepthFloorFit />
+          <DepthFloorFit onApplied={onApplied} />
         </Box>
       )}
     </Box>

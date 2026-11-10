@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { GeneralSection } from './GeneralSection'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { GENERAL_POLL_MS, GeneralSection } from './GeneralSection'
 import * as generalApi from './generalApi'
 import * as headArmApi from './headArmApi'
 import * as headFloorApi from './headFloorApi'
@@ -38,6 +38,7 @@ function stubSequence(seq: Partial<HeadArmSequence> = {}) {
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 
 const ALL = generalApi.GENERAL_ACTIONS.map((a) => a.id)
@@ -156,6 +157,23 @@ describe('GeneralSection', () => {
       cleanup()
       vi.restoreAllMocks()
     }
+  })
+
+  it('an unreadable ground state keeps Home camera off while the last read said the head moves', async () => {
+    vi.useFakeTimers()
+    stubSequence()
+    const ground = vi
+      .spyOn(groundBoardApi, 'getGroundState')
+      .mockResolvedValueOnce({ ok: true, value: { ...GROUND_IDLE, sweep: sweepingSweep } })
+      .mockResolvedValue({ ok: false, status: 503, message: 'calibration node unreachable' })
+    render(<GeneralSection actions={ALL} rgbd />)
+    await act(async () => {})
+    expect((screen.getByRole('button', { name: 'Home camera' }) as HTMLButtonElement).disabled).toBe(true)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(GENERAL_POLL_MS * 2)
+    })
+    expect(ground.mock.calls.length).toBeGreaterThan(1)
+    expect((screen.getByRole('button', { name: 'Home camera' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
   it('without the RGB-D node it does not read the sequence', async () => {

@@ -19,6 +19,7 @@ import {
   type HeadCameraPreview,
   groundAcceptText,
   headChainApplied,
+  sameChain,
 } from '../GroundBoard'
 import { GateDecision, QualityGate, groundBoardGate } from '../QualityGate'
 import { RgbdCalibration } from '../RgbdCalibration'
@@ -68,6 +69,8 @@ interface Props {
   canHomeHead: boolean
   /** The head camera stream for the board check, null when the robot config has none. */
   headCamera: HeadCameraPreview | null
+  /** Told whether the head camera stream is wanted (true while the flow is open), so it is subscribed only then. */
+  onHeadCameraWanted?: (wanted: boolean) => void
 }
 
 /**
@@ -77,7 +80,7 @@ interface Props {
  *
  * @param props - see Props
  */
-export function CameraGroundFlow({ canHomeHead, headCamera }: Props) {
+export function CameraGroundFlow({ canHomeHead, headCamera, onHeadCameraWanted }: Props) {
   const [state, setState] = useState<GroundState | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [errors, setErrors] = useState<Errors>({})
@@ -103,13 +106,21 @@ export function CameraGroundFlow({ canHomeHead, headCamera }: Props) {
     setState(r.value)
     // A compute still running on the node (the page was reloaded): poll it to its result.
     const job = r.value.compute
-    if (!resumed.current && job.running && job.session_id && job.result_id) setComputing({ sid: job.session_id, rid: job.result_id })
+    if (!resumed.current && job.running && job.session_id && job.result_id) {
+      pollFailures.current = 0
+      setComputing({ sid: job.session_id, rid: job.result_id })
+    }
     resumed.current = true
   }, [])
 
   useEffect(() => {
     void reload()
   }, [reload])
+
+  useEffect(() => {
+    onHeadCameraWanted?.(true)
+    return () => onHeadCameraWanted?.(false)
+  }, [onHeadCameraWanted])
 
   const sweep = state?.sweep ?? null
   const verify = state?.verify ?? null
@@ -172,14 +183,24 @@ export function CameraGroundFlow({ canHomeHead, headCamera }: Props) {
     setErrors((e) => ({ ...e, home: ok ? undefined : r.ok ? r.value.message : r.message }))
   }
 
-  const start = () =>
-    run('sweep', startGroundSweep, (s) => {
-      setSweep(s)
-      setResult(null)
-      setDecision(null)
-      setDecisionMessage(null)
-      setErrors({})
-    })
+  const start = async () => {
+    // Steps 3 and 4 were done to reach Start: they stay done when a refused start drops the node's old session.
+    setHomed(true)
+    setBoardDown(true)
+    setBusy(true)
+    const r = await startGroundSweep()
+    setBusy(false)
+    if (!r.ok) {
+      setErrors((e) => ({ ...e, sweep: r.message }))
+      void reload() // a refused start resets the node's session: the old one no longer counts
+      return
+    }
+    setSweep(r.value)
+    setResult(null)
+    setDecision(null)
+    setDecisionMessage(null)
+    setErrors({})
+  }
 
   const compute = async () => {
     const sid = sweep?.session_id
@@ -188,7 +209,10 @@ export function CameraGroundFlow({ canHomeHead, headCamera }: Props) {
     setDecision(null)
     setDecisionMessage(null)
     setErrors((e) => ({ ...e, gate: undefined }))
-    await run('compute', () => computeGround(sid), (v) => setComputing({ sid, rid: v.result_id }))
+    await run('compute', () => computeGround(sid), (v) => {
+      pollFailures.current = 0
+      setComputing({ sid, rid: v.result_id })
+    })
   }
 
   const decide = async (accept: boolean) => {
@@ -211,6 +235,8 @@ export function CameraGroundFlow({ canHomeHead, headCamera }: Props) {
   const sid = sweep?.session_id ?? null
   const swept = sid !== null && !sweepRunning && (sweep?.views ?? 0) > 0
   const applied = headChainApplied(state?.head_chain ?? null)
+  // The node keeps its last verification until the next one starts: it counts only for the chain it verified.
+  const verifyPrevious = verify !== null && verify.status !== 'idle' && !verifyRunning && !sameChain(verify.head_chain, state?.head_chain ?? null)
   const target = { minHeight: TOUCH_TARGET_PX }
   const canNext = sweep !== null && sweep.awaiting_placement && sweep.placements_done < sweep.max_placements
 
@@ -302,7 +328,12 @@ export function CameraGroundFlow({ canHomeHead, headCamera }: Props) {
                   )}
                   {sweep?.awaiting_placement && <BoardPreview preview={headCamera} />}
                   <Box sx={{ display: 'flex', gap: 1, mt: 1, flexWrap: 'wrap' }}>
-                    <Button variant="contained" sx={target} disabled={busy || sweepRunning || verifyRunning} onClick={() => void start()}>
+                    <Button
+                      variant="contained"
+                      sx={target}
+                      disabled={busy || sweepRunning || verifyRunning || computing !== null}
+                      onClick={() => void start()}
+                    >
                       Start sweep
                     </Button>
                     <Button variant="outlined" sx={target} disabled={busy || !canNext} onClick={() => void run('sweep', nextPlacement, setSweep)}>
@@ -367,7 +398,7 @@ export function CameraGroundFlow({ canHomeHead, headCamera }: Props) {
             {
               id: 'verify',
               title: 'Verify on the ground',
-              done: verify?.status === 'done' && verify.passed === true,
+              done: verify?.status === 'done' && verify.passed === true && !verifyPrevious,
               alwaysOpen: applied,
               see: 'Every pose passes: plane height within 10 mm of 0, plane vs base under 0.6 deg, few obstacle points, no drop points.',
               error: errors.verify,
@@ -395,14 +426,14 @@ export function CameraGroundFlow({ canHomeHead, headCamera }: Props) {
                       Stop verification
                     </Button>
                   </Box>
-                  {verify && <GroundVerifyView verify={verify} running={verifyRunning} />}
+                  {verify && <GroundVerifyView verify={verify} running={verifyRunning} previous={verifyPrevious} />}
                 </>
               ),
             },
           ]}
         />
       </Box>
-      <FloorFitMore disabled={sweepRunning || verifyRunning} />
+      <FloorFitMore disabled={sweepRunning || verifyRunning} onApplied={() => void reload()} />
       <ConfirmDialog
         open={homeDialog}
         title="Home the camera?"

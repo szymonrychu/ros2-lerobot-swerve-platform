@@ -213,6 +213,18 @@ describe('DepthFloorFit (More fits)', () => {
     expect(screen.getByText('Accepted')).toBeTruthy()
   })
 
+  it('tells the flow after an apply', async () => {
+    install(world())
+    const onApplied = vi.fn()
+    render(<DepthFloorFit onApplied={onApplied} />)
+    const compute = await ready()
+    await act(async () => {
+      fireEvent.click(compute)
+    })
+    await accept()
+    expect(onApplied).toHaveBeenCalledTimes(1)
+  })
+
   it('Decline applies nothing', async () => {
     const w = world()
     install(w)

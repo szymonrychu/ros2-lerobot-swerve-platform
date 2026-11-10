@@ -47,6 +47,16 @@ const fixed = (v: number | null, digits: number) => (v === null ? '-' : v.toFixe
 export const sourceLabel = (source: string | null) => (source === null ? 'unknown' : SOURCE_LABELS[source] ?? source)
 
 /**
+ * Two head chain records name the same chain.
+ *
+ * @param a - a head chain record
+ * @param b - another one
+ * @returns true when both are present with the same source, session and result
+ */
+export const sameChain = (a: GroundHeadChain | null, b: GroundHeadChain | null) =>
+  a !== null && b !== null && a.source === b.source && a.session === b.session && a.result === b.result
+
+/**
  * A head chain is applied (by any fit): the ground verification and the arm to camera fit can run.
  *
  * @param chain - the head chain in effect
@@ -232,10 +242,16 @@ function VerifyRow({ pose }: { pose: GroundVerifyPose }) {
  *
  * @param verify - the verification state (or a stored verification)
  * @param running - the verification runs now
+ * @param previous - it verified another head chain than the one in effect (shown, but it does not count)
  */
-export function GroundVerifyView({ verify, running }: { verify: GroundVerify; running: boolean }) {
+export function GroundVerifyView({ verify, running, previous = false }: { verify: GroundVerify; running: boolean; previous?: boolean }) {
   return (
-    <Box sx={{ mt: 1 }}>
+    <Box sx={{ mt: 1, opacity: previous ? 0.6 : 1 }}>
+      {previous && (
+        <Typography variant="body2" color="text.secondary">
+          This verification was of a previous head chain: verify the chain in effect again.
+        </Typography>
+      )}
       {verify.status !== 'idle' && (
         <Typography variant="body2">{`Verification ${verify.status.replace(/_/g, ' ')}: pose ${verify.pose} of ${verify.total}${running ? '' : '.'}`}</Typography>
       )}

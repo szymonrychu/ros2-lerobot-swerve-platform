@@ -40,7 +40,10 @@ export function GeneralSection({ actions, rgbd }: { actions: GeneralActionId[]; 
   const [busy, setBusy] = useState(false)
   const [feedback, setFeedback] = useState<Feedback>(null)
   const [sequenceLive, setSequenceLive] = useState(false)
-  const [sweepLive, setSweepLive] = useState(false)
+  // Head motions of the floor sweep and of the ground board (session or verification); each kept from its last read.
+  const [floorLive, setFloorLive] = useState(false)
+  const [groundLive, setGroundLive] = useState(false)
+  const sweepLive = floorLive || groundLive
 
   useEffect(() => {
     if (!rgbd) return
@@ -49,8 +52,8 @@ export function GeneralSection({ actions, rgbd }: { actions: GeneralActionId[]; 
       const [s, f, g] = await Promise.all([getHeadArmState(), getFloorState(), getGroundState()])
       if (!live) return
       if (s.ok) setSequenceLive(s.value.sequence.running || LIVE_PHASES.includes(s.value.sequence.phase))
-      const ground = g.ok && (g.value.sweep.running || g.value.verify.running)
-      setSweepLive((f.ok && f.value.sweep.running) || ground)
+      if (f.ok) setFloorLive(f.value.sweep.running)
+      if (g.ok) setGroundLive(g.value.sweep.running || g.value.verify.running)
     }
     void poll()
     const id = setInterval(() => void poll(), GENERAL_POLL_MS)

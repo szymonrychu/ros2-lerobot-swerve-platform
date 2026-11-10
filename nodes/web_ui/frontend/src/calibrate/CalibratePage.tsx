@@ -80,13 +80,15 @@ interface Props {
   onBack: () => void
   /** The head camera stream for the Camera to ground board check, null when the robot config has none. */
   headCamera?: HeadCameraPreview | null
+  /** Told whether the head camera stream is wanted (the Camera to ground flow is open). */
+  onHeadCameraWanted?: (wanted: boolean) => void
 }
 
 /**
  * Hidden Calibrate page, reached from the hamburger menu at #/calibrate: the General section on top, then one tab per
  * calibration flow (one open at a time, deep link #/calibrate/<flow>).
  */
-export function CalibratePage({ onBack, headCamera = null }: Props) {
+export function CalibratePage({ onBack, headCamera = null, onHeadCameraWanted }: Props) {
   const [state, setState] = useState<LoadState>({ kind: 'loading' })
   const [hashFlow, setHashFlow] = useState<FlowId | null>(() => calibrateFlow(window.location.hash))
 
@@ -157,7 +159,11 @@ export function CalibratePage({ onBack, headCamera = null }: Props) {
                 {flow === 'servo-home' && <ServoHomeFlow />}
                 {flow === 'imu' && <ImuFlow />}
                 {flow === 'camera-ground' && (
-                  <CameraGroundFlow canHomeHead={state.config.general.includes('home_head')} headCamera={headCamera} />
+                  <CameraGroundFlow
+                    canHomeHead={state.config.general.includes('home_head')}
+                    headCamera={headCamera}
+                    onHeadCameraWanted={onHeadCameraWanted}
+                  />
                 )}
                 {flow === 'arm-camera' && <ArmCameraFlow canHomeArm={state.config.general.includes('home_arm')} />}
               </Box>

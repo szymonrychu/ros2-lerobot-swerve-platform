@@ -175,8 +175,9 @@ export default function App() {
   const [headRgbdWanted, setHeadRgbdWanted] = useState(false) // RGB-D view of the open head tab
   const [headRgbdCloudWanted, setHeadRgbdCloudWanted] = useState(false) // Head RGB-D layer of the open map tab
   const [groundWanted, setGroundWanted] = useState(false) // Ground layer of the open map tab
-  // The Calibrate page previews the head camera (the board check of Camera to ground) while it is open.
-  const headCameraTopic = calibrating && config ? calibrateHeadCameraTopic(config) : null
+  const [calibrateCameraWanted, setCalibrateCameraWanted] = useState(false) // Camera to ground flow of the Calibrate page is open
+  // The Calibrate page previews the head camera (the board check of Camera to ground) only while that flow is open.
+  const headCameraTopic = calibrating && calibrateCameraWanted && config ? calibrateHeadCameraTopic(config) : null
   const subscription = config
     ? withTopic(
         subscribedTopics(config, activeTabConfig, obstaclesWanted, map3dCloudWanted, headRgbdWanted, headRgbdCloudWanted, groundWanted),
@@ -341,6 +342,7 @@ export default function App() {
             <CalibratePage
               onBack={() => setCalibrating(false)}
               headCamera={headCameraTopic ? { topic: headCameraTopic, data: topicData[headCameraTopic] } : null}
+              onHeadCameraWanted={setCalibrateCameraWanted}
             />
           )}
           {!calibrating && tab && renderTab(tab, topicData, publish, battery, tilt, { items: poiItems, onShowOnMap: showOnMap, photos: poiPhotos }, pendingFocus, clearPendingFocus, setObstaclesWanted, setMap3dCloudWanted, setHeadRgbdWanted, setHeadRgbdCloudWanted, setGroundWanted)}
