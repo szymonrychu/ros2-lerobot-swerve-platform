@@ -17,7 +17,9 @@ Telemetry (calib_event): flow `ground_compute` (run id: the result id): `inputs`
 skipped poses, depth stats, camera_info, the head chain, the fit config), `solver` (status, evaluations, start and end
 RMS, free parameters, largest correlation, condition number), one `refusal` per refusal and one `warning` per warning
 and `result` (plausible, implausible or error, with the score, the parameters, the placements, the cross-check and the
-accuracy examples); flow `ground_accept`: `accept` (accepted or refused with the reason) and `decline`.
+accuracy examples); flow `ground_accept`: `accept` (accepted, or refused with the reason when the result is not done,
+declined, already accepted or not plausible) and `decline`. A refusal of the apply itself (no accepted D435 intrinsics
+check, head chain no longer applied) is logged once, by flow `head_chain_apply` of floor_results.apply_head_chain_file.
 """
 
 import json
@@ -433,8 +435,9 @@ def accept_ground(
         restarted}]}.
 
     Raises:
-        NotApplicable: the result is not done, not plausible, was declined, was fitted against a head chain that is
-            no longer applied, or no D435 intrinsics check is accepted.
+        NotApplicable: checked in this order (as the arm to camera accept): the result is not done, was declined,
+            was already accepted or is not plausible; no D435 intrinsics check is accepted; the result was fitted
+            against a head chain that is no longer applied.
         InvalidId, NotFound: unknown or malformed ids.
     """
     with DECISION_LOCK:
@@ -472,11 +475,8 @@ def accept_locked(
         return record
 
     directory = store.result_dir(sid, rid)
-    try:
-        body = floor_results.apply_head_chain_file(cfg, directory / HEAD_CHAIN_FILE, rid, record_for, now, run)
-    except NotApplicable as exc:
-        calib_event(LOGGER, FLOW_ACCEPT, rid, "accept", "refused", logging.WARNING, str(exc), session_id=sid)
-        raise
+    # A refusal of the apply itself (no accepted check, head chain changed) is logged once, by head_chain_apply.
+    body = floor_results.apply_head_chain_file(cfg, directory / HEAD_CHAIN_FILE, rid, record_for, now, run)
     write_json_atomic(directory / RESULT_FILE, {**result, "accepted_at": record["applied_at"]})
     calib_event(
         LOGGER,

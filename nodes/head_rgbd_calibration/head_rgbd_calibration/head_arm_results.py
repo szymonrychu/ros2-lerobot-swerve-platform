@@ -387,8 +387,7 @@ def apply_head_arm(
 
     Returns:
         {head_chain: {session, result, applied_at, source: "head_arm", floor}, units: [...]}; floor is the record's
-        current floor reference carried forward, read
-        under the applied lock with the write.
+        current floor reference carried forward, read under the applied lock with the write.
 
     Raises:
         NotApplicable: the result did not pass, or no RGB-D calibration is applied.

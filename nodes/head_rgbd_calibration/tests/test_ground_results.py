@@ -47,6 +47,7 @@ NOW = datetime(2026, 11, 9, 4, 0, 0, tzinfo=UTC)
 LATER = datetime(2026, 11, 9, 4, 10, 0, tzinfo=UTC)
 SID = "ground-20261109-033000"
 LOGGER = "head_rgbd_calibration.ground_results"
+PACKAGE_LOGGER = "head_rgbd_calibration"
 RESULT_KEYS = {
     "id", "session", "kind", "state", "error", "created_at", "declined", "declined_at", "accepted_at", "head_chain",
     "report", "calibration", "verification",
@@ -253,6 +254,42 @@ def test_accept_is_refused_after_the_applied_chain_changed(tmp_path: Path) -> No
     )
     with pytest.raises(NotApplicable, match="another head chain"):
         accept_ground(scene.cfg, scene.store, scene.sid, result["id"], LATER, fake_run)
+
+
+def test_a_refused_apply_is_logged_once(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """A refusal of the apply itself (here: the head chain changed) is one calib_event, of flow head_chain_apply."""
+    scene = Scene(tmp_path)
+    result = compute_ground(scene.cfg, scene.store, scene.sid, SessionStore.new_result_id(NOW), NOW)
+    other = {"head_tilt": Origin((0.0, 0.0, 0.04), (0.0, 0.1, 0.0))}
+    (scene.state / "applied" / "head_chain.json").write_text(
+        head_chain_json(other, "floor fit", "floor-20261109-010000", "r-20261109-011000")
+    )
+    with caplog.at_level(logging.INFO, logger=PACKAGE_LOGGER), pytest.raises(NotApplicable, match="another head chain"):
+        accept_ground(scene.cfg, scene.store, scene.sid, result["id"], LATER, fake_run)
+    refused = [e for e in events_in(caplog.records) if e["outcome"] == "refused"]
+    assert [(e["flow"], e["step"], e["run_id"]) for e in refused] == [("head_chain_apply", "apply", result["id"])]
+    assert "another head chain" in refused[0]["reason"]
+    assert [r.levelno for r in caplog.records if "another head chain" in r.getMessage()] == [logging.WARNING]
+
+
+def test_accept_refusals_come_in_check_order(tmp_path: Path) -> None:
+    """Like the arm to camera accept: the result's own state first, then the apply's prerequisite (an accepted D435
+    intrinsics check), the applied head chain last."""
+    scene = Scene(tmp_path / "implausible", bounds=GroundBoardBounds(max_mount_move_mm=1.0), check=False)
+    implausible = compute_ground(scene.cfg, scene.store, scene.sid, SessionStore.new_result_id(NOW), NOW)
+    other = {"head_tilt": Origin((0.0, 0.0, 0.04), (0.0, 0.1, 0.0))}
+    changed = head_chain_json(other, "floor fit", "floor-20261109-010000", "r-20261109-011000")
+    (scene.state / "applied").mkdir(parents=True, exist_ok=True)
+    (scene.state / "applied" / "head_chain.json").write_text(changed)
+    with pytest.raises(NotApplicable, match="not plausible"):
+        accept_ground(scene.cfg, scene.store, scene.sid, implausible["id"], LATER, fake_run)
+    unchecked = Scene(tmp_path / "unchecked", check=False)
+    good = compute_ground(unchecked.cfg, unchecked.store, unchecked.sid, SessionStore.new_result_id(NOW), NOW)
+    (unchecked.state / "applied").mkdir(parents=True, exist_ok=True)
+    (unchecked.state / "applied" / "head_chain.json").write_text(changed)
+    assert ground_results.head_chain_source(unchecked.cfg) != good["head_chain"]
+    with pytest.raises(NotApplicable, match="D435 intrinsics check"):
+        accept_ground(unchecked.cfg, unchecked.store, unchecked.sid, good["id"], LATER, fake_run)
 
 
 def test_a_head_chain_apply_after_the_accept_check_lands_after_the_accept(
