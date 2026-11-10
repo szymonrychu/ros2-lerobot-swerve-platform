@@ -154,3 +154,46 @@ def test_release_mid_dump_round_is_not_overwritten_by_older_dump_readings(monkey
 
 
 IDS_HELD = {name: 1 for name in IDS}
+
+
+def test_calibration_is_wired_to_the_bridge_cycle_zero_restore_and_the_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    harness = Harness(monkeypatch, cycles=2)
+    config_module = importlib.import_module("feetech_servos.config")
+    harness.config.servo_calibration = config_module.ServoCalibrationConfig(
+        home_reference_rad={"shoulder_pan": 0.0, "wrist_roll": 0.0}, offset_exclude_joints=["gripper"], record_dir="x"
+    )
+    harness.config.joints[0].command_min_steps = 100
+    harness.config.joints[0].command_max_steps = 3000
+    module = harness.module
+    seen: dict[str, Any] = {}
+
+    class Recording(module.ServoCalibrationControl):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            seen["control"] = self
+            self.observed: list[Any] = []
+
+        def observe(self, readings: Any) -> None:
+            self.observed.append(readings)
+
+    class RecordingCycle(module.BridgeCycle):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            seen["cycle"] = self
+
+    class RecordingZero(module.ZeroRestoreControl):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            seen["zero"] = self
+
+    monkeypatch.setattr(module, "ServoCalibrationControl", Recording)
+    monkeypatch.setattr(module, "BridgeCycle", RecordingCycle)
+    monkeypatch.setattr(module, "ZeroRestoreControl", RecordingZero)
+    harness.run()
+    control = seen["control"]
+    assert control.zero_restore is seen["zero"]
+    assert control.command_limits is seen["cycle"].command_limits
+    assert control.command_overrides == {1: (100, 3000)}
+    assert "/follower/servo/calibration_plan" in harness.services
+    assert len(control.observed) == 2
+    assert set(control.observed[0]) == set(IDS.values())

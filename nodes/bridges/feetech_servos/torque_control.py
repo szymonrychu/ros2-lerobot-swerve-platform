@@ -54,6 +54,7 @@ def torque_state_payload(
     neutral_capture: dict[str, dict[str, Any]] | None = None,
     last_save: dict[str, Any] | None = None,
     zero_restore: dict[str, Any] | None = None,
+    servo_calibration: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the /<ns>/torque_state payload of one group (position joints only).
 
@@ -69,11 +70,14 @@ def torque_state_payload(
         last_save (dict[str, Any] | None): Last neutral save {"saved_at", "saved", "failed"}; None = none yet.
         zero_restore (dict[str, Any] | None): Arm zero restore state (ZeroRestoreControl.status); None = the group
             has no zero_restore block (the key is then left out).
+        servo_calibration (dict[str, Any] | None): Servo calibration state (ServoCalibrationControl.status); None =
+            the group has no servo_calibration block (the key is then left out).
 
     Returns:
         dict[str, Any]: {"namespace", "released" (any joint gated), "joints" (name -> 0|1), "stamp_ns",
             "neutral_enabled", "neutral_capture", "last_save", "neutral_max_shift_deg" (the group's save guard in
-            degrees; None without neutral)}, plus "zero_restore" for a group with a zero_restore block.
+            degrees; None without neutral)}, plus "zero_restore" for a group with a zero_restore block and
+            "servo_calibration" for a group with a servo_calibration block.
     """
     position_joints = [j for j in group.joints if j.mode == "position"]
     payload = {
@@ -88,6 +92,8 @@ def torque_state_payload(
     }
     if zero_restore is not None:
         payload["zero_restore"] = zero_restore
+    if servo_calibration is not None:
+        payload["servo_calibration"] = servo_calibration
     return payload
 
 
@@ -339,8 +345,8 @@ class TorqueStatePublisher:
             control (TorqueControl): Torque control of the bus.
             interval_s (float): Seconds between repeats of an unchanged state; 0 = on change only.
             publish (Callable[[str, dict[str, Any]], None]): Sends one payload of a namespace.
-            neutral_status (Callable[[str], dict[str, Any]] | None): Neutral and zero restore fields of a namespace's
-                payload.
+            neutral_status (Callable[[str], dict[str, Any]] | None): Neutral, zero restore and servo calibration fields of a
+                namespace's payload.
         """
         self.control = control
         self.interval_s = interval_s
@@ -385,6 +391,7 @@ class TorqueStatePublisher:
                 payload["neutral_capture"],
                 payload["last_save"],
                 payload.get("zero_restore"),
+                payload.get("servo_calibration"),
             )
             due = namespace not in self.last_time or (
                 self.interval_s > 0 and now - self.last_time[namespace] >= self.interval_s

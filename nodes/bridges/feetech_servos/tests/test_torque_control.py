@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 from st3215.protocol_packet_handler import protocol_packet_handler
 from st3215.values import INST_READ, INST_WRITE
@@ -15,7 +16,7 @@ from feetech_servos.registers import (
     STS_TORQUE_ENABLE,
     get_register_entry_by_name,
 )
-from feetech_servos.torque_control import TorqueControl, TorqueResult
+from feetech_servos.torque_control import TorqueControl, TorqueResult, TorqueStatePublisher, torque_state_payload
 
 from .sts_bus import FakeStsPort, StsPacket, put_word, register_table
 
@@ -370,3 +371,25 @@ def test_note_register_dump_updates_joint_torque() -> None:
     assert rig.control.joint_torque == {5: 1}
     rig.control.note_register_dump(6, {"present_position": 2000})  # no torque_enable read: nothing recorded
     assert rig.control.joint_torque == {5: 1}
+
+
+def test_torque_state_payload_servo_calibration_key_only_when_given() -> None:
+    assert "servo_calibration" not in torque_state_payload(HEAD, {21: 1}, set(), 1)
+    payload = torque_state_payload(HEAD, {21: 1}, set(), 1, servo_calibration={"capture": None})
+    assert payload["servo_calibration"] == {"capture": None}
+
+
+def test_torque_state_republishes_on_capture_change() -> None:
+    capture = {"servo_calibration": {"capture": {"cycles": 1}}}
+    published: list[dict[str, Any]] = []
+    rig = make_rig()
+    reporter = TorqueStatePublisher(
+        rig.control, 0.0, lambda _ns, payload: published.append(payload), lambda _ns: capture
+    )
+    reporter.control.joint_torque.update({21: 1, 22: 1})
+    reporter.control.groups = {"head": HEAD}
+    reporter.step(0.0, 1)
+    reporter.step(1.0, 2)  # unchanged, interval 0
+    capture["servo_calibration"] = {"capture": {"cycles": 2}}
+    reporter.step(2.0, 3)
+    assert [p["servo_calibration"]["capture"]["cycles"] for p in published] == [1, 2]

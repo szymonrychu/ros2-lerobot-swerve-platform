@@ -50,6 +50,7 @@ from .registers import (
 )
 from .registers import read_register as read_register_raw
 from .serial_wait import use_blocking_reads
+from .servo_calibration import ServoCalibrationControl
 from .set_register import apply_set_register
 from .startup_torque import hold_current_positions, set_startup_torque_state
 from .sync_read import (
@@ -114,15 +115,18 @@ def setup_torque_interfaces(
     interval_s: float,
     neutral: NeutralControl | None = None,
     zero: ZeroRestoreControl | None = None,
+    calibration: ServoCalibrationControl | None = None,
 ) -> TorqueStatePublisher:
-    """Create the torque, neutral and zero restore services and /<ns>/torque_state of every group.
+    """Create the torque, neutral, zero restore and servo calibration services and /<ns>/torque_state of every group.
 
     Every group gets /<ns>/servo/release_torque and /<ns>/servo/enable_torque; a group with neutral_enabled also gets
     /<ns>/servo/record_neutral, /<ns>/servo/save_neutral (refused above neutral_max_shift_deg) and
     /<ns>/servo/save_neutral_confirmed (the explicit large-shift confirm; when neutral is given). A group with a
     zero_restore block gets /<ns>/servo/zero_restore_dry_run, zero_restore_apply, zero_restore_apply_confirmed (the
-    explicit large-change confirm) and save_rest_reference (when zero is given). Every neutral / zero restore call
-    publishes the group's torque_state at the next step. The service callbacks run inline on the loop thread (the
+    explicit large-change confirm) and save_rest_reference (when zero is given). A group with a servo_calibration
+    block gets /<ns>/servo/calibration_record_home, calibration_capture_start, calibration_capture_stop,
+    calibration_plan, calibration_store and calibration_store_confirmed (the explicit confirm; when calibration is
+    given). Every neutral / zero restore / calibration call publishes the group's torque_state at the next step. The service callbacks run inline on the loop thread (the
     executor is drained there), the sole bus owner.
 
     Args:
@@ -133,6 +137,8 @@ def setup_torque_interfaces(
         interval_s (float): torque_state_interval_s.
         neutral (NeutralControl | None): Neutral control of the bus; None creates no neutral services.
         zero (ZeroRestoreControl | None): Zero restore control of the bus; None creates no zero restore services.
+        calibration (ServoCalibrationControl | None): Servo calibration control of the bus; None creates no
+            calibration services.
 
     Returns:
         TorqueStatePublisher: Call step(now, stamp_ns) once per loop iteration with an open bus.
@@ -147,9 +153,11 @@ def setup_torque_interfaces(
         fields = neutral.status(namespace) if neutral is not None else {}
         if zero is not None:
             fields |= zero.status(namespace)
+        if calibration is not None:
+            fields |= calibration.status(namespace)
         return fields
 
-    reporter = TorqueStatePublisher(control, interval_s, publish, status if neutral or zero else None)
+    reporter = TorqueStatePublisher(control, interval_s, publish, status if neutral or zero or calibration else None)
 
     def make_service(namespace: str, action: Any, publish_state: bool = False) -> Any:
         def on_request(_request: Any, response: Any) -> Any:
@@ -181,6 +189,16 @@ def setup_torque_interfaces(
                 ("save_rest_reference", zero.save_rest_reference),
             ):
                 node.create_service(Trigger, f"/{ns}/servo/{name}", make_service(ns, action, True))
+        if calibration is not None and group.servo_calibration is not None:
+            for name, action in (
+                ("calibration_record_home", calibration.record_home),
+                ("calibration_capture_start", calibration.capture_start),
+                ("calibration_capture_stop", calibration.capture_stop),
+                ("calibration_plan", calibration.plan),
+                ("calibration_store", calibration.store),
+                ("calibration_store_confirmed", confirmed_store(calibration)),
+            ):
+                node.create_service(Trigger, f"/{ns}/servo/{name}", make_service(ns, action, True))
 
     return reporter
 
@@ -207,6 +225,18 @@ def confirmed_apply(zero: ZeroRestoreControl) -> Callable[[str], NeutralResult]:
         Callable[[str], NeutralResult]: namespace -> ZeroRestoreControl.apply(namespace, confirmed=True).
     """
     return lambda namespace: zero.apply(namespace, confirmed=True)
+
+
+def confirmed_store(calibration: ServoCalibrationControl) -> Callable[[str], NeutralResult]:
+    """The action of calibration_store_confirmed: a store with the explicit confirm given.
+
+    Args:
+        calibration (ServoCalibrationControl): Servo calibration control of the bus.
+
+    Returns:
+        Callable[[str], NeutralResult]: namespace -> ServoCalibrationControl.store(namespace, confirmed=True).
+    """
+    return lambda namespace: calibration.store(namespace, confirmed=True)
 
 
 def make_executor(kind: str) -> Executor:
@@ -443,8 +473,16 @@ def serve_bridge(config: BridgeConfig, node: Node) -> None:
         events=calib_events,
     )
     zero = ZeroRestoreControl(torque_control, command_limits, events=calib_events)
+    command_overrides = {
+        j.id: (j.command_min_steps, j.command_max_steps)
+        for j in all_joints
+        if j.command_min_steps is not None and j.command_max_steps is not None
+    }
+    calibration = ServoCalibrationControl(
+        torque_control, command_limits, command_overrides, events=calib_events, zero_restore=zero
+    )
     torque_state = setup_torque_interfaces(
-        node, groups, torque_control, callbacks_run, config.torque_state_interval_s, neutral, zero
+        node, groups, torque_control, callbacks_run, config.torque_state_interval_s, neutral, zero, calibration
     )
 
     for group in groups:
@@ -488,6 +526,7 @@ def serve_bridge(config: BridgeConfig, node: Node) -> None:
                     expected_ids, make_sync_group, fallback_read, state_read_length, read_backoff, clock_ns
                 )
                 record_read_cycle(metric_joints, readings)
+                calibration.observe(readings)
                 for group in groups:
                     missing = [j.name for j in group.joints if j.id not in readings]
                     if missing:
