@@ -235,10 +235,7 @@ the group's position joints minus `neutral_exclude_joints` (the gripper is never
   is wrapped into -2048..2047 (`wrap_offset_steps`; e.g. 2469 is written as -1627, -2242 as 1854): the present reading,
   and so the reference file and the angle limits, are the same either way. The one wrapped value the register cannot
   hold is +-2048 (magnitude max 2047): that joint refuses (`new offset +-2048 cannot be encoded`; move the joint a
-  little and dry run again), as does a failed read. A joint whose reading change exceeds `refuse_change_deg` (45 deg)
-  refuses the whole dry run, nothing planned (`shoulder_lift: change -88.2 deg above 45 deg; zero restore repairs a
-  slightly shifted zero; to record a new home pose use Set home (or Record neutral and save); nothing written`); a
-  change between `max_change_deg` and `refuse_change_deg` is planned and needs the confirm. Nothing is written. The plan goes into `torque_state` (below); the message is a short summary per joint in degrees.
+  little and dry run again), as does a failed read. Nothing is written. The plan goes into `torque_state` (below); the message is a short summary per joint in degrees.
 - `/<ns>/servo/zero_restore_apply`: writes the plan. Refused without a dry run ("dry run first"), with a plan older
   than `plan_max_age_s` or when a joint now reads more than `plan_tolerance_steps` from its dry run reading (both drop
   the plan: run the dry run again), when torque is no longer off, and when a planned change exceeds `max_change_deg`
@@ -307,7 +304,6 @@ marker (re-read at most once a second).
 | `record_dir` | required | Directory of the apply audit records. |
 | `seed_reference_rad` | required | joint -> rest reading (rad) used while no reference file exists; must name exactly the restore joints. |
 | `max_change_deg` | `15.0` | A planned reading change above this needs `zero_restore_apply_confirmed`. |
-| `refuse_change_deg` | `45.0` | A planned reading change above this refuses the dry run (nothing planned, so no apply): zero restore repairs a slightly shifted zero; a new home pose goes through Set home (or Record neutral and save). Must be above `max_change_deg`. |
 | `still_window_s` | `1.0` | Still check window of the dry run and `save_rest_reference`. |
 | `still_tolerance_steps` | `3` | Largest `present_position` spread over the window. |
 | `verify_tolerance_steps` | `3` | After a write the reading must be within this of the target. |

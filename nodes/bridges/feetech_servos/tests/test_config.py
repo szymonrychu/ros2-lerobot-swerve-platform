@@ -710,7 +710,6 @@ def test_zero_restore_defaults(tmp_path: Path) -> None:
         seed_reference_rad={"shoulder_pan": -0.018, "elbow_flex": 1.516},
     )
     assert zero.max_change_deg == 15.0
-    assert zero.refuse_change_deg == 45.0
     assert zero.still_window_s == 1.0
     assert zero.still_tolerance_steps == 3
     assert zero.verify_tolerance_steps == 3
@@ -724,7 +723,7 @@ def test_zero_restore_values(tmp_path: Path) -> None:
     p.write_text(
         ZERO_BASE
         + ZERO_BLOCK
-        + "  max_change_deg: 10\n  refuse_change_deg: 30\n  still_window_s: 2\n  still_tolerance_steps: 4\n  verify_tolerance_steps: 2\n"
+        + "  max_change_deg: 10\n  still_window_s: 2\n  still_tolerance_steps: 4\n  verify_tolerance_steps: 2\n"
         + "  plan_max_age_s: 30\n  plan_tolerance_steps: 6\n"
         + NEUTRAL_EXTRA
         + "    zero_restore:\n      reference_file: /tmp/r.json\n      record_dir: /tmp\n"
@@ -734,7 +733,6 @@ def test_zero_restore_values(tmp_path: Path) -> None:
     assert cfg is not None
     arm, base = (g.zero_restore for g in cfg.groups)
     assert (arm.max_change_deg, arm.still_window_s, arm.still_tolerance_steps) == (10.0, 2.0, 4)
-    assert arm.refuse_change_deg == 30.0
     assert (arm.verify_tolerance_steps, arm.plan_max_age_s, arm.plan_tolerance_steps) == (2, 30.0, 6)
     assert base.seed_reference_rad == {"fl_steer": 0.1}
 
@@ -756,12 +754,6 @@ def test_zero_restore_values(tmp_path: Path) -> None:
         "zero_restore:\n  reference_file: /x\n  record_dir: /y\n"
         "  seed_reference_rad: {shoulder_pan: 0, elbow_flex: true}\n",
         ZERO_BLOCK + "  max_change_deg: 0\n",
-        ZERO_BLOCK + "  refuse_change_deg: 0\n",
-        ZERO_BLOCK + "  refuse_change_deg: x\n",
-        # refuse_change_deg must be above max_change_deg (default 15)
-        ZERO_BLOCK + "  refuse_change_deg: 15\n",
-        ZERO_BLOCK + "  refuse_change_deg: 10\n",
-        ZERO_BLOCK + "  max_change_deg: 50\n",
         ZERO_BLOCK + "  still_window_s: -1\n",
         ZERO_BLOCK + "  still_tolerance_steps: 1.5\n",
         ZERO_BLOCK + "  verify_tolerance_steps: -1\n",
