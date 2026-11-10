@@ -208,8 +208,9 @@ keys are rejected.
 | `arm_sequence.speed_scale`, `settle_s`, `confirm_timeout_s` | 0.1 (<= 0.3), 1.0, 600 | Arm speed (slow for the fragile board mount; `move_arm_joints` has no acceleration option, its quintic peak acceleration scales with the speed squared), wait after a move, unanswered confirm timeout |
 | `arm_sequence.head_offsets_deg` | `[[0, 0], [10, 0], [-10, 0], [0, -3]]` | (pan, tilt) offsets added to the aimed head angles, one view each. The tilt offset is -3 deg (head up): the board fills 250-340 px of the 360 px D435 colour image height, and the former +6 deg pushed it out on 26 of 33 poses |
 | `arm_sequence.pose_check`, `provisional_margin_m` | core defaults, 0.05 | FK pose check settings (`board_spacing_m` 0.005: the largest gap of the board lattice per axis, at most `margin_m`; see "Board lattice"); the board (plate and handle boxes) keeps `margin_m + provisional_margin_m` while the mount is the shipped CAD seed; every view keeps each board corner `d435_min_z_m + d435_min_z_margin_m` (0.15 + 0.05 m) deep from `camera_frame` |
-| `csi_cameras` | `front`: `/front_camera/image_raw/compressed`, `ros2-front_camera.service`; `back`: `/back_camera/image_raw/compressed`, `ros2-back_camera.service` | CSI cameras whose intrinsics are calibrated: name (lower-case letters and digits, it names `applied/<name>_camera_calibration.yaml`) -> `image_topic` (compressed) and `unit` (reads the applied file, reported after an apply) |
+| `csi_cameras` | `front`: `/front_camera/image_raw/compressed`, `ros2-front_camera.service`, enabled; `back`: `/back_camera/image_raw/compressed`, `ros2-back_camera.service`, disabled | CSI cameras whose intrinsics are calibrated: name (lower-case letters and digits, it names `applied/<name>_camera_calibration.yaml`) -> `image_topic` (compressed), `unit` (reads the applied file, reported after an apply) and `enabled` (default true; mirrors the camera node's ros2_nodes `enabled`: only enabled cameras are listed by `GET /api/csi` and a disabled one is unknown, 404, to every camera route) |
 | `csi_min_view_shift_px` | 20 | A detected CSI view is kept only when its shared corners moved this far (mean, px) from the last kept view |
+| `csi_frame_timeout_s` | 10 | A CSI capture that received no frame this long after its start stops as camera not detected (`capture.no_frames`) |
 | `arm_sequence.park_pose`, `park_board_sag_margin_m`, `board_record_max_age_s` | the parked arm (`scripts/gen_nav_footprint.yaml` `parked_arm_joints`), 0.01, 7200 | Park with the board on (design D63): the arm moves to `park_pose` only after the path from the measured joints passes the pose check with the board outline and `park_board_sag_margin_m` added to the board floor, body and head clearances (the live run showed the stick-mounted 214 g board about 4 mm below FK; the 211.7 g ARM board on its handle is lighter and its tab deflects about 0.25 mm by the CAD estimate, so the margin is conservative) |
 
 ## Compute
@@ -372,13 +373,18 @@ The routes are served by the node HTTP API alongside the capture routes.
 
 `head_rgbd_calibration/csi_intrinsics.py` calibrates the intrinsics of each camera in `csi_cameras` (the front and back
 Camera Module 3, head_camera_cpp at 1152x648). Until a camera is applied, head_camera_cpp publishes its images without
-`camera_info` (no placeholder intrinsics) and marker_detector skips it.
+`camera_info` (no placeholder intrinsics) and marker_detector skips it. Only the cameras with `enabled` true are offered
+(`GET /api/csi`; the shipped config disables `back` while back_camera is disabled).
 
 - Capture: one at a time (any camera; 409 while one runs). It subscribes `csi_cameras.<camera>.image_topic`
   (BEST_EFFORT, `qos.rgb`) only while it runs and stops after `max_capture_s`. A frame becomes a view only when the
   ChArUco `board` is detected and the view differs from the last kept one (`csi_min_view_shift_px` mean shift of the
   shared corners, or fewer than 6 shared corners); a frame of another size than the session's is not kept. The status
-  line says why a frame was not kept.
+  line says why a frame was not kept. A capture that receives no frame at all within `csi_frame_timeout_s` (head_camera_cpp
+  publishes nothing when libcamera finds no sensor, e.g. "camera ... not found" after a failed imx708 probe) stops with
+  the status "camera not detected: no frame on <topic> within <n> s of the start; check the ribbon cable and reboot" and
+  `capture.no_frames` true (logged on the node logger and as the capture's `stopped` calib_event), instead of waiting
+  for frames until `max_capture_s`.
 - Layout: `<state_dir>/csi/<camera>/<sid>/session.json` (`{id, camera, created, image_size}`, sid
   `csi-YYYYmmdd-HHMMSS[-N]`), `views/<NNN>/{image.jpg, view.json}` (the received JPEG; `{stamp_ns, ids, points}`) and
   `results/<rid>/result.json`.
@@ -395,7 +401,8 @@ Camera Module 3, head_camera_cpp at 1152x648). Until a camera is applied, head_c
 
 | Route | Purpose |
 |---|---|
-| `GET /api/csi/{camera}/state` | `{camera, capture, session, applied}`: `capture` `{running, camera, session_id, status, view_count, started_at, stops_at}` (latest capture of any camera); `session` (the capture's when it is this camera's, else the newest, else null) `{id, created, view_count, image_size, coverage: {cols, rows, counts}, results}`; `applied` the camera's record or null |
+| `GET /api/csi` | `{cameras: [names]}`: the enabled cameras in config order (fixture `csi_cameras.json`) |
+| `GET /api/csi/{camera}/state` | `{camera, capture, session, applied}` (fixtures `csi_state.json`, `csi_state_running.json`): `capture` `{running, camera, session_id, status, view_count, started_at, stops_at, no_frames}` (latest capture of any camera); `session` (the capture's when it is this camera's, else the newest, else null) `{id, created, view_count, image_size, coverage: {cols, rows, counts}, results}`; `applied` the camera's record or null |
 | `POST /api/csi/{camera}/start` | start a capture (body optional `session_id` to add views); answers the state |
 | `POST /api/csi/{camera}/stop` | stop the capture when it is this camera's; answers the state |
 | `POST /api/csi/{camera}/sessions/{sid}/compute` | compute; answers `result.json` |
@@ -670,7 +677,11 @@ journalctl -u ros2-head_rgbd_calibration -o cat --since today | grep -o 'calib_e
 - `tests/test_csi_intrinsics.py` - the CSI intrinsics over synthetic 1152x648 ChArUco views fed to a fake node: the
   `csi_cameras` defaults and their validation, `view_differs`, the image subscription only while capturing and `Busy`,
   a view kept only with the board detected and different from the last kept one (`NO_BOARD`, `SAME_VIEW`), coverage,
-  a reopened session, expiry, undecodable frames dropped, an unknown camera; compute returns K, D and RMS near the
+  a reopened session, expiry, undecodable frames dropped, an unknown camera; the frame watchdog (no frame within
+  `csi_frame_timeout_s` stops the capture with `NO_FRAMES` and `no_frames` true, one frame keeps it running), the
+  shipped back camera disabled (not listed by `GET /api/csi`, 404 on its routes), the camera list and the state bodies
+  against `csi_cameras.json`, `csi_state_running.json` and `csi_state.json` (the `cfg` fixture enables both cameras);
+  compute returns K, D and RMS near the
   truth and too few views name the count, refused while capturing; apply writes
   `applied/front_camera_calibration.yaml` (head_camera_cpp's loader keys, the C++ test fixture's key set) before the
   `csi_intrinsics` record in `applied.json`, keeps the other records and reports the camera unit; a CSI-only

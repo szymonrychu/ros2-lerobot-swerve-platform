@@ -59,6 +59,14 @@ the parameters with the held head mount gauge; **Accept** or **Decline**), 8 **S
 fail with the medians against the tolerances). The depth floor fit stays under **More fits**. The same steps through
 the API follow.
 
+Step 2 (Front/back cameras, CSI intrinsics, optional) offers only the CSI cameras whose node is enabled
+(`GET /api/calibration/rgbd/csi`; `csi_cameras.<name>.enabled` mirrors the `<name>_camera` ros2_nodes entry, so the
+back camera is not offered while back_camera is disabled). When a capture gets no frame within `csi_frame_timeout_s`
+(10 s) the node stops it and the step says "Camera not detected: the Front camera published no frames. Check the ribbon
+cable and reboot the robot, then start the capture again." (journal: `front_camera` logs "camera ... not found" and
+the kernel "imx708 ... probe ... failed" when the sensor does not answer on the CSI bus). Reseat the ribbon with the
+robot powered off; no software step brings the sensor back without a reboot.
+
 ## Steps (API through the web_ui proxy)
 
 `API=http://client.ros2.lan:8080/api/calibration/rgbd/ground-board` (web_ui forwards to the node's `/api/ground-board`).

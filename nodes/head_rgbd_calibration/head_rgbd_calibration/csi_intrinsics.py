@@ -3,7 +3,9 @@
 Layout under state_dir: csi/<camera>/<sid>/session.json, csi/<camera>/<sid>/views/<NNN>/{image.jpg, view.json} and
 csi/<camera>/<sid>/results/<rid>/result.json. A capture subscribes `csi_cameras.<camera>.image_topic` only while it
 runs and keeps a view when the ChArUco board is detected and the view moved at least `csi_min_view_shift_px` from
-the last kept one. Compute fits K and plumb_bob D (shared core intrinsics.calibrate, `limits.min_views`). Apply
+the last kept one. A capture that receives no frame within `csi_frame_timeout_s` of its start stops with
+NO_FRAMES (`capture.no_frames` true): the camera node publishes nothing when libcamera finds no sensor. Only cameras with
+`enabled` true are offered (GET /api/csi lists them); a disabled camera is unknown (NotFound, 404) to every route. Compute fits K and plumb_bob D (shared core intrinsics.calibrate, `limits.min_views`). Apply
 writes applied/<camera>_camera_calibration.yaml (ROS camera_calibration format, head_camera_cpp's camera_info_file)
 and then the `csi_intrinsics.<camera>` record of applied/applied.json, which starts the apply path unit; its script
 try-restarts the camera's unit only when that file changed.
@@ -81,6 +83,9 @@ FLOW_CAPTURE = "csi_capture"
 FLOW_COMPUTE = "csi_compute"
 FLOW_APPLY = "csi_apply"
 CAMERA_NAME_SUFFIX = "_camera"
+NO_FRAMES = (
+    "camera not detected: no frame on {topic} within {timeout_s:g} s of the start; check the ribbon cable and reboot"
+)
 
 
 def applied_file_name(camera: str) -> str:
@@ -182,6 +187,9 @@ class CsiRun:
         running: False once stopped.
         subscriptions: The image subscription.
         timer: The max_capture_s timer.
+        frames: Frames received (decodable or not).
+        no_frames: The capture stopped because no frame arrived within csi_frame_timeout_s.
+        watchdog: The csi_frame_timeout_s timer (cancelled on its first call, destroyed with the run).
     """
 
     camera: str
@@ -195,6 +203,9 @@ class CsiRun:
     running: bool = True
     subscriptions: list[Any] = field(default_factory=list)
     timer: Any = None
+    frames: int = 0
+    no_frames: bool = False
+    watchdog: Any = None
 
 
 class CsiCalibration:
@@ -220,11 +231,16 @@ class CsiCalibration:
 
     # paths
 
+    def enabled_cameras(self) -> list[str]:
+        """Names of the offered cameras (csi_cameras with `enabled` true), in config order."""
+        return [name for name, camera in self.cfg.csi_cameras.items() if camera.enabled]
+
     def camera_config(self, camera: str) -> CsiCameraConfig:
-        """The config of a camera; NotFound for a camera not in csi_cameras."""
+        """The config of a camera; NotFound for a camera not in csi_cameras or disabled."""
         found = self.cfg.csi_cameras.get(camera)
-        if found is None:
-            raise NotFound(f"no such CSI camera: {camera} (configured: {', '.join(self.cfg.csi_cameras)})")
+        if found is None or not found.enabled:
+            reason = "disabled" if found is not None else "no such CSI camera"
+            raise NotFound(f"{reason}: {camera} (enabled: {', '.join(self.enabled_cameras()) or 'none'})")
         return found
 
     def session_dir(self, camera: str, sid: str) -> Path:
@@ -315,7 +331,8 @@ class CsiCalibration:
         }
 
     def capture_state(self) -> dict[str, Any]:
-        """{running, camera, session_id, status, view_count, started_at, stops_at} of the latest capture."""
+        """{running, camera, session_id, status, view_count, started_at, stops_at, no_frames} of the latest capture
+        (no_frames: it stopped because the camera sent no frame within csi_frame_timeout_s)."""
         with self.lock:
             run = self.run
             if run is None:
@@ -327,6 +344,7 @@ class CsiCalibration:
                     "view_count": 0,
                     "started_at": None,
                     "stops_at": None,
+                    "no_frames": False,
                 }
             return {
                 "running": run.running,
@@ -336,6 +354,7 @@ class CsiCalibration:
                 "view_count": run.view_count,
                 "started_at": run.started_at.isoformat(),
                 "stops_at": run.stops_at.isoformat() if run.running else None,
+                "no_frames": run.no_frames,
             }
 
     def state(self, camera: str) -> dict[str, Any]:
@@ -408,6 +427,7 @@ class CsiCalibration:
                     self.node.create_subscription(CompressedImage, topic, callback, rgb_qos(self.cfg.qos.rgb))
                 )
                 run.timer = self.node.create_timer(self.cfg.max_capture_s, partial(self.expire, run))
+                run.watchdog = self.node.create_timer(self.cfg.csi_frame_timeout_s, partial(self.check_frames, run))
             except BaseException:
                 run.running = False
                 self.release(run)
@@ -426,6 +446,7 @@ class CsiCalibration:
             topic=settings.image_topic,
             max_capture_s=self.cfg.max_capture_s,
             min_view_shift_px=self.cfg.csi_min_view_shift_px,
+            frame_timeout_s=self.cfg.csi_frame_timeout_s,
         )
         return self.state(camera)
 
@@ -450,6 +471,23 @@ class CsiCalibration:
         """Timer callback: stop this capture after max_capture_s."""
         self.finish(run, f"{STOPPED}: max_capture_s ({self.cfg.max_capture_s:g} s) reached")
 
+    def check_frames(self, run: CsiRun) -> None:
+        """Watchdog callback (once, csi_frame_timeout_s after the start): stop a capture that got no frame at all.
+
+        Args:
+            run (CsiRun): The capture the watchdog belongs to.
+        """
+        if run.watchdog is not None:
+            run.watchdog.cancel()
+        with self.lock:
+            silent = run.running and run.frames == 0
+            if silent:
+                run.no_frames = True
+        if silent:
+            topic = self.camera_config(run.camera).image_topic
+            self.logger.error(f"CSI capture of {run.camera}: no frame on {topic}")
+            self.finish(run, NO_FRAMES.format(topic=topic, timeout_s=self.cfg.csi_frame_timeout_s))
+
     def finish(self, run: CsiRun, reason: str) -> None:
         """Mark the run stopped with reason and destroy its subscription and timer (once)."""
         with self.lock:
@@ -472,23 +510,26 @@ class CsiCalibration:
     def release(self, run: CsiRun) -> None:
         """Destroy the subscription and the timer of a run; a failing destroy does not stop the other."""
         handles, run.subscriptions = run.subscriptions, []
-        timer, run.timer = run.timer, None
+        timers = [t for t in (run.timer, run.watchdog) if t is not None]
+        run.timer = run.watchdog = None
         for sub in handles:
             try:
                 self.node.destroy_subscription(sub)
             except Exception as exc:  # keep destroying the rest
                 self.logger.error(f"destroying a CSI capture subscription failed: {exc}")
-        if timer is not None:
+        for timer in timers:
             try:
                 timer.cancel()
                 self.node.destroy_timer(timer)
             except Exception as exc:  # logged, the subscription is gone already
-                self.logger.error(f"destroying the CSI capture timer failed: {exc}")
+                self.logger.error(f"destroying a CSI capture timer failed: {exc}")
 
     def on_image(self, run: CsiRun, topic: str, msg: Any) -> None:
         """Image callback (executor thread): keep the frame as a view when the board is found and the view is new."""
         if not run.running:
             return
+        with self.lock:
+            run.frames += 1
         raw = bytes(msg.data)
         try:
             image = decode_compressed(msg, topic)
@@ -700,19 +741,26 @@ class CsiStartRequest(BaseModel):
 
 
 def csi_router(csi: CsiCalibration, run: RunFn = subprocess.run) -> APIRouter:
-    """Routes of the CSI intrinsics calibration under /api/csi/{camera} (web_ui proxies /api/calibration/rgbd/*).
+    """Routes of the CSI intrinsics calibration under /api/csi (web_ui proxies /api/calibration/rgbd/*).
 
-    Errors use the common {ok: false, message} body of build_app: an unknown camera, session or result is 404, a
-    running capture is 409, too few views 409 naming the count.
+    GET /api/csi answers {cameras: [names]}, the enabled cameras in config order (the Calibrate page offers only
+    these). The camera routes are under /api/csi/{camera}. Errors use the common {ok: false, message} body of
+    build_app: an unknown or disabled camera, session or result is 404, a running capture is 409, too few views 409
+    naming the count.
 
     Args:
         csi: The controller.
         run: subprocess.run-compatible callable for the unit state after an apply.
 
     Returns:
-        APIRouter: state, start, stop, compute, results and apply routes.
+        APIRouter: the camera list and the state, start, stop, compute, results and apply routes.
     """
+    outer = APIRouter()
     router = APIRouter(prefix="/api/csi/{camera}")
+
+    @outer.get("/api/csi")
+    def cameras() -> dict[str, list[str]]:
+        return {"cameras": csi.enabled_cameras()}
 
     @router.get("/state")
     def state(camera: str) -> dict[str, Any]:
@@ -747,4 +795,5 @@ def csi_router(csi: CsiCalibration, run: RunFn = subprocess.run) -> APIRouter:
     def apply(camera: str, sid: str, rid: str) -> dict[str, Any]:
         return csi.apply(camera, sid, rid, run)
 
-    return router
+    outer.include_router(router)
+    return outer

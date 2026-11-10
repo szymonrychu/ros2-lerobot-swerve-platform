@@ -1,0 +1,45 @@
+{
+  "camera": "front",
+  "capture": {
+    "running": true,
+    "camera": "front",
+    "session_id": "csi-20261031-120001",
+    "status": "waiting for frames",
+    "view_count": 0,
+    "started_at": "2026-10-31T12:00:01+00:00",
+    "stops_at": "2026-10-31T12:15:01+00:00",
+    "no_frames": false
+  },
+  "session": {
+    "id": "csi-20261031-120001",
+    "created": "2026-10-31T12:00:01+00:00",
+    "view_count": 0,
+    "image_size": null,
+    "coverage": {
+      "cols": 4,
+      "rows": 3,
+      "counts": [
+        [
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    "results": []
+  },
+  "applied": null
+}

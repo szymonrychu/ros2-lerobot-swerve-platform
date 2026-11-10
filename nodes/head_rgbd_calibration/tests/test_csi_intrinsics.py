@@ -1,5 +1,8 @@
 """Tests for the CSI camera (front, back) intrinsics calibration: capture, compute, apply and the /api/csi routes.
 
+The `cfg` fixture enables both cameras (the shipped config disables the back one until its module is fitted), so the
+two-camera behaviour stays covered; the enabled flag has its own tests.
+
 Views are synthetic ChArUco renders through a known 1152x648 pinhole (tests/rgbd_synthetic.py of the repo root),
 delivered as CompressedImage-like messages to the capture's subscription callback.
 """
@@ -31,6 +34,7 @@ from head_rgbd_calibration.csi_intrinsics import (
     APPLIED_KEY,
     KIND_CSI,
     NO_BOARD,
+    NO_FRAMES,
     SAME_VIEW,
     CsiCalibration,
     applied_file_name,
@@ -41,6 +45,7 @@ from head_rgbd_calibration.floor_results import apply_head_chain_file
 from head_rgbd_calibration.store import KIND_INTRINSICS, RESULT_FILE, NotFound, SessionStore, write_json_atomic
 from head_rgbd_calibration.telemetry import events_in
 from tests.applied_writes import record_applied_writes
+from tests.contract import assert_matches_fixture
 from tests.pose_factory import BOARD_CFG, detection_at, load_synthetic
 
 CSI_SIZE = (1152, 648)
@@ -129,9 +134,17 @@ class Clock:
         return self.now
 
 
+BOTH_ENABLED = {
+    "front": {"image_topic": "/front_camera/image_raw/compressed", "unit": FRONT_UNIT, "enabled": True},
+    "back": {"image_topic": "/back_camera/image_raw/compressed", "unit": BACK_UNIT, "enabled": True},
+}
+
+
 @pytest.fixture
 def cfg(tmp_path: Path) -> NodeConfig:
-    return NodeConfig.model_validate({"state_dir": str(tmp_path / "state"), "limits": {"min_views": MIN_VIEWS}})
+    return NodeConfig.model_validate(
+        {"state_dir": str(tmp_path / "state"), "limits": {"min_views": MIN_VIEWS}, "csi_cameras": BOTH_ENABLED}
+    )
 
 
 @pytest.fixture
@@ -172,6 +185,10 @@ def test_config_defaults_name_front_and_back_cameras() -> None:
         "back": ("/back_camera/image_raw/compressed", BACK_UNIT),
     }
     assert NodeConfig().csi_min_view_shift_px > 0
+    assert {name: c.enabled for name, c in cameras.items()} == {"front": True, "back": False}
+    assert NodeConfig().csi_frame_timeout_s == 10.0
+    with pytest.raises(ValidationError, match="csi_frame_timeout_s"):
+        NodeConfig.model_validate({"csi_frame_timeout_s": 0})
 
 
 @pytest.mark.parametrize(
@@ -267,6 +284,44 @@ def test_undecodable_frame_is_dropped(csi: CsiCalibration, node: FakeNode) -> No
     node.subscriptions[0].callback(bad)
     assert csi.state("front")["capture"]["view_count"] == 0
     assert any("dropped" in line for line in node.logger.lines)
+
+
+def test_capture_without_any_frame_stops_as_camera_not_detected(csi: CsiCalibration, node: FakeNode) -> None:
+    state = csi.start("front", None)
+    assert state["capture"]["no_frames"] is False
+    watchdog = node.timers[1]
+    assert watchdog.period == csi.cfg.csi_frame_timeout_s
+    watchdog.callback()
+    capture = csi.state("front")["capture"]
+    assert capture["running"] is False and capture["no_frames"] is True
+    assert capture["status"] == NO_FRAMES.format(topic="/front_camera/image_raw/compressed", timeout_s=10.0)
+    assert "ribbon cable and reboot" in capture["status"]
+    assert node.subscriptions[0] in node.destroyed and watchdog in node.destroyed
+    assert any("no frame on /front_camera/image_raw/compressed" in line for line in node.logger.lines)
+
+
+def test_capture_with_a_frame_survives_the_frame_watchdog(csi: CsiCalibration, node: FakeNode) -> None:
+    csi.start("front", None)
+    feed(node, [blank_view()])  # a frame without the board still proves the camera publishes
+    node.timers[1].callback()
+    capture = csi.state("front")["capture"]
+    assert capture["running"] is True and capture["no_frames"] is False
+    assert capture["status"] == NO_BOARD
+    csi.stop("front")
+    assert csi.state("front")["capture"]["no_frames"] is False
+
+
+def test_disabled_camera_is_not_offered_and_unknown_to_the_routes(tmp_path: Path) -> None:
+    shipped = CsiCalibration(FakeNode(), NodeConfig.model_validate({"state_dir": str(tmp_path / "s")}), Clock())
+    assert shipped.enabled_cameras() == ["front"]
+    with pytest.raises(NotFound, match="disabled: back"):
+        shipped.start("back", None)
+    with pytest.raises(NotFound, match="disabled"):
+        shipped.state("back")
+    client = TestClient(app_with(shipped, shipped.cfg))
+    assert client.get("/api/csi").json() == {"cameras": ["front"]}
+    assert client.get("/api/csi/back/state").status_code == 404
+    assert client.post("/api/csi/back/start", json={}).status_code == 404
 
 
 def test_unknown_camera_is_not_found(csi: CsiCalibration) -> None:
@@ -434,6 +489,25 @@ def test_routes_capture_compute_results_and_apply(csi: CsiCalibration, node: Fak
     assert applied.status_code == 200
     assert applied.json()["units"][0]["name"] == FRONT_UNIT
     assert client.get("/api/csi/front/state").json()["applied"]["result"] == rid
+
+
+def test_routes_camera_list_and_state_match_the_contract_fixtures(
+    csi: CsiCalibration, node: FakeNode, cfg: NodeConfig
+) -> None:
+    """The bodies the web UI builds on (fixtures csi_cameras.json, csi_state.json): a running capture, then a session
+    with a result applied."""
+    client = TestClient(app_with(csi, cfg))
+    cameras = client.get("/api/csi").json()
+    assert cameras == {"cameras": ["front", "back"]}
+    assert_matches_fixture(cameras, "csi_cameras")
+    started = client.post("/api/csi/front/start", json={}).json()
+    assert_matches_fixture(started, "csi_state_running")
+    sid = started["capture"]["session_id"]
+    feed(node, [csi_view(i) for i in range(VIEW_COUNT)])
+    client.post("/api/csi/front/stop")
+    rid = client.post(f"/api/csi/front/sessions/{sid}/compute").json()["result"]
+    assert client.post(f"/api/csi/front/sessions/{sid}/results/{rid}/apply").status_code == 200
+    assert_matches_fixture(client.get("/api/csi/front/state").json(), "csi_state")
 
 
 def test_routes_unknown_camera_is_404(csi: CsiCalibration, cfg: NodeConfig) -> None:
