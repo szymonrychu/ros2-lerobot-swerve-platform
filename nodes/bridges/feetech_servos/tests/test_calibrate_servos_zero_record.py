@@ -15,6 +15,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from feetech_servos.registers import EEPROM_LOCKED, STS_LOCK
+
 scripts_dir = Path(__file__).resolve().parent.parent / "scripts"
 if str(scripts_dir) not in sys.path:
     sys.path.insert(0, str(scripts_dir))
@@ -48,6 +50,7 @@ class FakeBus:
         self.centre_to = 2048
         self.servo = MagicMock()
         self.servo.DefineMiddle.side_effect = self.define_middle
+        self.servo.write1ByteTxRx.return_value = (0, 0)
         self.servo.ReadPosition.side_effect = lambda sid: self.present.get(sid)
         self.servo.ListServos.return_value = sorted(self.present)
 
@@ -163,7 +166,7 @@ def test_center_records_a_define_middle_that_failed_or_raised(tmp_path: Path) ->
         (tmp_path / "arm" / RECORD_NAME).unlink(missing_ok=True)
         assert run(bus, ["center", "--device", DEVICE, "--id", "3", "--bridge-config", str(config)]) == 1
         assert record(tmp_path)["group"] == "follower", attribute
-        bus.servo.LockEprom.assert_called_with(3)
+        bus.servo.write1ByteTxRx.assert_called_with(3, STS_LOCK, EEPROM_LOCKED)
 
 
 def test_center_of_a_group_without_marker_writes_nothing(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

@@ -17,8 +17,8 @@ minus neutral_exclude_joints (the gripper is never touched):
   needs_confirm when a change exceeds max_change_deg.
 - apply(namespace, confirmed): needs a plan younger than plan_max_age_s whose readings still hold within
   plan_tolerance_steps, and confirmed=True for a large change (zero_restore_apply_confirmed). Stops the bus wheels,
-  then per joint in config order: re-read torque (must be 0), write the offset (write_register does UnLockEprom /
-  LockEprom), settle, verify present within verify_tolerance_steps of the target (else rewrite the old offset and
+  then per joint in config order: re-read torque (must be 0), write the offset (write_register does unlock_eeprom /
+  lock_eeprom), settle, verify present within verify_tolerance_steps of the target (else rewrite the old offset and
   stop), restore the angle limits when they moved, refresh the bridge register cache and command limits. Torque stays
   off. A JSON record goes to record_dir for every apply that reached the bus. Stale marker afterwards (update_marker):
   a full restore over a marker listing joint_offsets clears joint_offsets and flips home (a home recorded after the

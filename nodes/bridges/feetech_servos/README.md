@@ -156,12 +156,12 @@ sequence, all on the loop thread:
    does not acknowledge refuses the save with nothing written). The save stalls this bridge's loop for about 0.6 s per
    joint and its velocity watchdog cannot run meanwhile; wheels on another bus keep their own bridge and watchdog.
 3. Per joint, in config order (the sequence of `scripts/calibrate_servos.py center`): read `min/max_angle_limit`
-   (retried), `UnLockEprom`, `DefineMiddle` (`torque_enable = 128`), sleep `CENTER_SETTLE_S = 0.5`, `LockEprom` in a
+   (retried), `unlock_eeprom`, `DefineMiddle` (`torque_enable = 128`), sleep `CENTER_SETTLE_S = 0.5`, `lock_eeprom` in a
    `finally` (also when DefineMiddle fails or raises); verify `present_position` within `2048 +- 3` with up to 10
    reads 0.1 s apart (a failed read is retried); only on a verified servo settle and re-read the limits (up to
    `LIMIT_VERIFY_ATTEMPTS = 3` reads, `LIMIT_SETTLE_S = 0.2` before each; one `None` or mismatching read does not
    count, the first read equal to the pre-centre limits ends it) and, only if they still differ, write the pre-centre
-   numbers back (EEPROM write inside `UnLockEprom` / `LockEprom`, cache entry dropped) and read them back with the same
+   numbers back (EEPROM write inside `unlock_eeprom` / `lock_eeprom`, cache entry dropped) and read them back with the same
    settle/retry; a failed restore reports the first limits read after the centre; refresh the bridge
    command range of joints without `command_min_steps` / `command_max_steps` from the final limit readback (joints with
    config steps keep them).
@@ -242,7 +242,7 @@ the group's position joints minus `neutral_exclude_joints` (the gripper is never
   (`offset change above 15 deg: ...; nothing written; confirm the large change to apply
   (zero_restore_apply_confirmed)`, the plan is kept). Then the wheels of the bus are stopped and per joint, in config
   order: torque re-read (must be 0, else stop), cache entries of offset / goal / torque / limits dropped, the offset
-  written (`write_register` wraps it in `UnLockEprom` / `LockEprom`), settle 0.5 s, `present_position` verified within
+  written (`write_register` wraps it in `unlock_eeprom` / `lock_eeprom`), settle 0.5 s, `present_position` verified within
   `verify_tolerance_steps` of the target (10 reads 0.1 s apart; on a mismatch, or an unacknowledged write, the old
   offset is rewritten and read back, reported as `rewritten and read back` or `REWRITE NOT VERIFIED (...)`, and the
   run stops, later joints are not attempted), the angle limits written back when they read differently, the bridge command
@@ -340,6 +340,14 @@ Answered by the head_pan single-joint bench in `docs/runbooks/servo-torque-neutr
 3. Do `min/max_angle_limit` stay unchanged after the centre offset is applied?
 
    pending: filled by the runbook
+
+4. Does the servo answer the EEPROM lock writes?
+
+   Yes. st3215 `UnLockEprom` / `LockEprom` send them with `write1ByteTxOnly` and never read the status reply, and
+   `PortHandler.clearPort` only flushes output, so the orphan replies stayed in the RX buffer and every later read got
+   the answer to an earlier request (zero_restore apply: the offset read returned `present_position`, then the limit
+   reads failed). The node therefore locks and unlocks with `registers.unlock_eeprom` / `lock_eeprom`
+   (`write1ByteTxRx` on `STS_LOCK` = 55), which consume the reply.
 
 ## Bus budget
 
