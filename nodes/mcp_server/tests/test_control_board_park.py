@@ -184,7 +184,7 @@ def test_the_park_lattice_is_no_coarser_than_the_spacing() -> None:
     [
         {"handle_boxes_mm": [((0.0, 0.0, 4.0), (10.0, 10.0, 4.0))]},  # zero height
         {"handle_boxes_mm": [((10.0, 0.0, 0.0), (0.0, 10.0, 10.0))]},  # min above max
-        {"lattice_spacing_m": 0.07},  # over margin_m 0.065
+        {"lattice_spacing_m": 0.07},  # over margin_m 0.015
         {"lattice_spacing_m": 0.0005},  # below the minimum spacing
     ],
 )

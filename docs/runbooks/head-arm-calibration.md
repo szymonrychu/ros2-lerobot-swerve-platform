@@ -25,7 +25,7 @@ not be filled in by an agent.
    - Mass: 211.7 g (CAD). The arm carries it at `speed_scale` 0.1.
    - Board frame pose in `gripper_link`: the CAD seed `fit.board_mount` xyz (-0.0794, 0.187949, -0.118113) m, rpy
      (pi, 0, 0) from `markers/charuco-arm-6x5-28mm.json`; the fit refines it, and the pose check adds
-     `provisional_margin_m` while the mount is the seed.
+     `provisional_margin_m` (0, user decision 2026-11-10) while the mount is the seed.
    - Earlier mount (2026-10-23, retired, the session `calib-20261023-074418` below): the 6x5 40 mm board glued at the
      middle of its long edge to a stick clamped in the gripper with a rubber band, print toward the arm, lower edge
      about 20 mm past the grip tip, 214 g.

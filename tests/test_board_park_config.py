@@ -58,7 +58,7 @@ def test_mcp_server_board_equals_the_calibration_fit_board_and_mount() -> None:
     assert tuple(mcp["mount_xyz_m"]) == fit.board_mount.xyz_init
     assert tuple(mcp["mount_rpy_rad"]) == fit.board_mount.rpy_init
     assert [tuple(map(tuple, box)) for box in mcp["handle_boxes_mm"]] == fit.board_mount.handle_boxes_mm
-    # The strictest clearances the node's park check uses: sequence margin + nominal-mount allowance + sag.
+    # The strictest clearances the node's park check uses: sequence margin + provisional_margin_m (0) + sag.
     assert mcp["margin_m"] == pytest.approx(seq.board_margin_m(True) + seq.park_board_sag_margin_m)
     assert mcp["min_height_m"] == pytest.approx(seq.pose_check.min_board_height_m + seq.park_board_sag_margin_m)
 

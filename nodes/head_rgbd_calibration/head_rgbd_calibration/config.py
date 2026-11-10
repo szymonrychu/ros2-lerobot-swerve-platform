@@ -516,7 +516,7 @@ class ArmSequenceConfig(StrictModel):
         default_factory=lambda: list(DEFAULT_HEAD_OFFSETS_DEG), min_length=1
     )
     pose_check: PoseCheckConfig = Field(default_factory=PoseCheckConfig)
-    provisional_margin_m: float = Field(default=0.05, ge=0)
+    provisional_margin_m: float = Field(default=0.0, ge=0)
     park_pose: dict[str, float] = Field(default_factory=lambda: arm_pose(DEFAULT_PARK_POSE))
     park_board_sag_margin_m: float = Field(default=DEFAULT_PARK_BOARD_SAG_MARGIN_M, ge=0)
     board_record_max_age_s: float = Field(default=DEFAULT_BOARD_RECORD_MAX_AGE_S, gt=0)

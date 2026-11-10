@@ -125,8 +125,8 @@ class CalibrationBoardSettings(StrictModel):
     )
     mount_tolerance_m: float = Field(default=0.03, gt=0)
     mount_tolerance_deg: float = Field(default=10.0, gt=0)
-    # Clearance of the board from every body obstacle: 0.005 margin + 0.05 CAD-seed-mount allowance + 0.01 sag.
-    margin_m: float = Field(default=0.065, ge=0, le=0.3)
+    # Clearance of the board from every body obstacle: 0.005 margin + 0.01 sag (no CAD-seed-mount allowance).
+    margin_m: float = Field(default=0.015, ge=0, le=0.3)
     min_height_m: float = Field(default=0.06, ge=0, le=0.5)  # lowest board point above the floor, sag included
 
     @model_validator(mode="after")
