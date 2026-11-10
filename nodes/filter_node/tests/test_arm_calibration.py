@@ -241,6 +241,24 @@ def test_a_failing_swap_keeps_the_values_in_use_and_never_raises(tmp_path: Path)
     assert "kernel build failed" in line
 
 
+def test_an_unexpected_read_error_keeps_the_values_in_use_and_never_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    accept(tmp_path)
+    log = MagicMock()
+    calibration = GuardCalibration(ARM, tmp_path, log)
+    calibration.startup()
+    accept(tmp_path, result="r-2", x=0.065)
+    monkeypatch.setattr(calibration, "read", MagicMock(side_effect=OSError("disk vanished")))
+    apply = MagicMock()
+    assert not calibration.tick(apply)
+    apply.assert_not_called()
+    assert calibration.current == accepted_arm() and calibration.loaded is not None
+    assert calibration.loaded.result == "r-1"
+    (line,) = error_lines(log)
+    assert "disk vanished" in line and "r-1" in line
+
+
 # --- swap_checker_calibration -------------------------------------------------------------------------------------
 
 

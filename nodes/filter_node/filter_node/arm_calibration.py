@@ -21,9 +21,8 @@ from typing import Any, Protocol
 
 from arm_collision.self_collision import SelfCollisionChecker
 from arm_collision.settings import ArmBaseOffset, ArmModelSettings
-from pydantic import ValidationError
 from ros2_common.head_rgbd_calibration.applied_arm_calibration import AppliedArmCalibration
-from ros2_common.head_rgbd_calibration.arm_calibration_file import ArmCalibrationError, ArmCalibrationFile
+from ros2_common.head_rgbd_calibration.arm_calibration_file import ArmCalibrationFile
 
 # Period (s) of the applied.json check; a stat per tick, the file is read only after a change.
 CALIBRATION_POLL_S = 1.0
@@ -100,7 +99,7 @@ class GuardCalibration(AppliedArmCalibration[ArmModelSettings]):
         self.log = log
 
     def read_logged(self) -> tuple[ArmModelSettings, ArmCalibrationFile | None] | None:
-        """Read and merge the accepted calibration; a failure is logged and gives None.
+        """Read and merge the accepted calibration; any failure is logged and gives None (never raises).
 
         Returns:
             tuple[ArmModelSettings, ArmCalibrationFile | None] | None: (merged settings, calibration or None for the
@@ -108,7 +107,7 @@ class GuardCalibration(AppliedArmCalibration[ArmModelSettings]):
         """
         try:
             return self.read()
-        except (ArmCalibrationError, ValidationError) as exc:
+        except Exception as exc:  # the node timer must keep running: an unusable calibration keeps the values in use
             self.log.error(
                 f"Self-collision guard: accepted arm calibration in {self.applied_dir} not applied, keeping "
                 f"{source_text(self.loaded)}: {exc}"
