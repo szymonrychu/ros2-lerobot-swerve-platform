@@ -560,9 +560,6 @@ def eager_goal_node(ros: FakeRos) -> tuple[BridgeNode, Any]:
 
 def test_first_publish_waits_for_a_matched_subscriber(ros: FakeRos) -> None:
     """A publish right after creation polls until a subscriber matches, then publishes without a warning."""
-    node, pub = eager_goal_node(ros)
-    counts = iter([0, 0, 1])
-    pub.get_subscription_count.side_effect = lambda: next(counts, 1)
     clock = {"t": 100.0}
 
     def sleep(s: float) -> None:
@@ -573,6 +570,9 @@ def test_first_publish_waits_for_a_matched_subscriber(ros: FakeRos) -> None:
         patch("web_ui.bridge.time.sleep", sleep),
         patch("web_ui.bridge.log") as log,
     ):
+        node, pub = eager_goal_node(ros)  # created on the fake clock, like every later reading
+        counts = iter([0, 0, 1])
+        pub.get_subscription_count.side_effect = lambda: next(counts, 1)
         node.publish_now(GOAL, {})
     pub.publish.assert_called_once()
     assert 0 < clock["t"] - 100.0 < PUBLISH_MATCH_WAIT_S
@@ -581,8 +581,6 @@ def test_first_publish_waits_for_a_matched_subscriber(ros: FakeRos) -> None:
 
 def test_no_subscriber_publishes_after_the_bound_and_warns(ros: FakeRos) -> None:
     """Without any subscriber the wait is bounded by PUBLISH_MATCH_WAIT_S, then it publishes anyway and warns."""
-    node, pub = eager_goal_node(ros)
-    pub.get_subscription_count.return_value = 0
     clock = {"t": 100.0}
 
     def sleep(s: float) -> None:
@@ -593,6 +591,8 @@ def test_no_subscriber_publishes_after_the_bound_and_warns(ros: FakeRos) -> None
         patch("web_ui.bridge.time.sleep", sleep),
         patch("web_ui.bridge.log") as log,
     ):
+        node, pub = eager_goal_node(ros)  # created on the fake clock, like every later reading
+        pub.get_subscription_count.return_value = 0
         node.publish_now(GOAL, {})
         waited = clock["t"] - 100.0
         node.publish_now(GOAL, {})
@@ -612,9 +612,6 @@ def test_matched_publisher_publishes_without_waiting(ros: FakeRos) -> None:
 
 def test_publish_dict_never_waits_on_the_caller_thread(ros: FakeRos) -> None:
     """publish_dict inside the match window returns at once; the executor queue waits, then publishes in order."""
-    node, pub = eager_goal_node(ros)
-    counts = iter([0, 0, 1])
-    pub.get_subscription_count.side_effect = lambda: next(counts, 1)
     caller = threading.get_ident()
     sleepers: list[int] = []
     clock = {"t": 100.0}
@@ -624,6 +621,9 @@ def test_publish_dict_never_waits_on_the_caller_thread(ros: FakeRos) -> None:
         clock["t"] += s
 
     with patch("web_ui.bridge.time.monotonic", lambda: clock["t"]), patch("web_ui.bridge.time.sleep", sleep):
+        node, pub = eager_goal_node(ros)  # created on the fake clock, like every later reading
+        counts = iter([0, 0, 1])
+        pub.get_subscription_count.side_effect = lambda: next(counts, 1)
         node.publish_dict(GOAL, {})
         node.publish_dict(GOAL, {})
         assert sleepers == []
