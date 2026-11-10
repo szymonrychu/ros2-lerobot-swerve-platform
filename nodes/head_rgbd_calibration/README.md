@@ -462,7 +462,7 @@ Events per flow:
 | `arm_camera_accept` | result id | `accept` accepted (record, offsets, base, `captured_from`, unit states) or refused (reason: not done, implausible, declined, head chain changed, arm re-zero after the capture or unknown, invalid calibration); `decline` declined (plausible, score) or refused |
 | `ground_sweep` | session id | `sweep` start (config, home, start pan/tilt) or refused start (error); `placement` start, `located` (located board, aim, grid, dropped poses, home corners, upscale) or `failed` (WARNING, reason: home not reached, no camera_info, board not detected at home, not located), `awaiting`, `next`, `wait_ended`, `done` (poses, skipped, views), `home_unconfirmed`; `pose` observed (target, reached, corners, upscale and depth bias per frame, dropped frames, planes, plane heights, dropped clouds) or skipped (WARNING, reason); `restore`, `release`; `sweep` done, stopped or error (placements, failures, views, planes, skipped, reasons) |
 | `ground_compute` | result id | `child` start and end in the node (the job); in the child: `inputs` (views, poses, placements, planes, skipped poses, placement failures, depth bias summary, camera_info, the head chain the fit starts from, `ground_board.fit`, frames), `solver` (status, message, evaluations, cost, start and end RMS, free parameters, largest correlation, condition number), one `refusal` per refusal and one `warning` per warning, `result` plausible, implausible or error (score, params, placements, cross-check, accuracy examples, the applied chain's score, refusal and warning names) |
-| `ground_accept` | result id | `accept` accepted (record, score, joints, unit states) or refused (reason); `decline` declined (plausible, score) or refused |
+| `ground_accept` | result id | `accept` accepted (record, score, joints, unit states) or refused (reason: not done, declined, already accepted, implausible; a refusal of the apply itself, no accepted D435 intrinsics check or head chain changed, is logged once by `head_chain_apply`); `decline` declined (plausible, score) or refused |
 | `ground_verify` | `verify-YYYYmmdd-HHMMSS` | `verify` start (head chain, result, poses, tolerances, units) or refused start; `units` restarted, not_restarted (WARNING) or skipped; `pose` passed or failed (WARNING; medians, maxima, samples, every check, reached angles); `record` error; `restore`, `release`; `verify` passed, failed, stopped or error |
 | `head_chain_apply` | result id | `apply` applied (record, files written, unit states, units not restarted yet) or refused |
 | `applied` | none | `write` (every applied/ write: files with sizes, applied.json keys before and after) |
@@ -610,7 +610,8 @@ floor apply starting right after its read lands after it), a failed result refus
   results; the compute telemetry (inputs, solver, refusal, result); running and crashed results from the job state;
   accept applies the head chain (`source: "ground_board"`, `floor: null`), stamps `accepted_at`, shows in the state
   and refuses a decline; accept after the applied chain changed, of an implausible, declined, unchecked or already accepted
-  result is refused; a head chain apply that starts right after the accept's applied chain check lands after the accept,
+  result is refused, and a refused apply (head chain changed) is one `head_chain_apply` event, not repeated by
+  `ground_accept`; a head chain apply that starts right after the accept's applied chain check lands after the accept,
   never in between (`tests/applied_writes.py` `interleave_apply`); accept and decline telemetry; the session list; the
   arm to camera source name.
 - `tests/test_ground_compute.py` - the ground compute child `main` writes the result of its session and result id.
