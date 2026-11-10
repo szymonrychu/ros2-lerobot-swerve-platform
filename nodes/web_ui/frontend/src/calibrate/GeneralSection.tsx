@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import Typography from '@mui/material/Typography'
 import { ConfirmDialog } from '../layout/ConfirmDialog'
 import { TOUCH_TARGET_PX } from '../theme'
+import { BoardRecordNotice } from './BoardRecordNotice'
 import { GENERAL_ACTIONS, type GeneralAction, type GeneralActionId, abortCalibration, runGeneralAction } from './generalApi'
-import { getHeadArmState } from './headArmApi'
+import { type BoardRecord, type HeadArmSequence, getHeadArmState } from './headArmApi'
 import { getFloorState } from './headFloorApi'
 import { getGroundState } from './groundBoardApi'
 
@@ -21,6 +22,7 @@ const LIVE_PHASES = ['waiting_board', 'waiting_big_joints', 'holding', 'parking'
 const BLOCKED_TEXT =
   'Arm and camera moves are off: a calibration sequence runs or the arm holds the board. Abort the running calibration first, or park the board from the Arm to camera flow.'
 const SWEEP_TEXT = 'Home camera is off while a floor sweep, a ground board session or a ground verification moves the head.'
+const BOARD_PARK_HINT = 'park it with Park (board is on the gripper) in the Arm to camera flow.'
 const ABORT_TEXT =
   'Stops the running calibration capture, sweep or sequence. The arm holds where it is (no park); park it from the flow or use Home arm afterwards.'
 
@@ -29,7 +31,8 @@ type Pending = GeneralAction | 'abort' | null
 
 /**
  * General section of the Calibrate page, always on top: Abort calibration plus the moving helpers (open / close
- * gripper, home arm, home camera, home steering servos), each behind a confirm.
+ * gripper, home arm, home camera, home steering servos), each behind a confirm, and the node's board record (any age)
+ * with its no-motion clear. Home arm is off while the board record exists (mcp_server refuses it).
  *
  * @param actions - the actions the robot offers (GET /api/calibration/config `general`)
  * @param rgbd - the RGB-D calibration node is configured: Abort is offered and the section follows its sequence to
@@ -40,10 +43,19 @@ export function GeneralSection({ actions, rgbd }: { actions: GeneralActionId[]; 
   const [busy, setBusy] = useState(false)
   const [feedback, setFeedback] = useState<Feedback>(null)
   const [sequenceLive, setSequenceLive] = useState(false)
+  const [sequenceRunning, setSequenceRunning] = useState(false)
+  // The node's board record, whatever its age: mcp_server refuses Home arm while it exists.
+  const [boardRecord, setBoardRecord] = useState<BoardRecord | null>(null)
   // Head motions of the floor sweep and of the ground board (session or verification); each kept from its last read.
   const [floorLive, setFloorLive] = useState(false)
   const [groundLive, setGroundLive] = useState(false)
   const sweepLive = floorLive || groundLive
+
+  const follow = useCallback((sequence: HeadArmSequence) => {
+    setSequenceLive(sequence.running || LIVE_PHASES.includes(sequence.phase))
+    setSequenceRunning(sequence.running)
+    setBoardRecord(sequence.board_record)
+  }, [])
 
   useEffect(() => {
     if (!rgbd) return
@@ -51,7 +63,7 @@ export function GeneralSection({ actions, rgbd }: { actions: GeneralActionId[]; 
     const poll = async () => {
       const [s, f, g] = await Promise.all([getHeadArmState(), getFloorState(), getGroundState()])
       if (!live) return
-      if (s.ok) setSequenceLive(s.value.sequence.running || LIVE_PHASES.includes(s.value.sequence.phase))
+      if (s.ok) follow(s.value.sequence)
       if (f.ok) setFloorLive(f.value.sweep.running)
       if (g.ok) setGroundLive(g.value.sweep.running || g.value.verify.running)
     }
@@ -61,7 +73,7 @@ export function GeneralSection({ actions, rgbd }: { actions: GeneralActionId[]; 
       live = false
       clearInterval(id)
     }
-  }, [rgbd])
+  }, [rgbd, follow])
 
   const run = async (action: GeneralAction) => {
     setPending(null)
@@ -100,13 +112,19 @@ export function GeneralSection({ actions, rgbd }: { actions: GeneralActionId[]; 
             key={a.id}
             variant="outlined"
             sx={target}
-            disabled={busy || (sequenceLive && SEQUENCE_BLOCKED.includes(a.id)) || (sweepLive && SWEEP_BLOCKED.includes(a.id))}
+            disabled={
+              busy ||
+              (sequenceLive && SEQUENCE_BLOCKED.includes(a.id)) ||
+              (sweepLive && SWEEP_BLOCKED.includes(a.id)) ||
+              (boardRecord !== null && a.id === 'home_arm')
+            }
             onClick={() => setPending(a)}
           >
             {a.label}
           </Button>
         ))}
       </Box>
+      {rgbd && <BoardRecordNotice record={boardRecord} running={sequenceRunning} parkHint={BOARD_PARK_HINT} onCleared={follow} />}
       {sequenceLive && (
         <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
           {BLOCKED_TEXT}

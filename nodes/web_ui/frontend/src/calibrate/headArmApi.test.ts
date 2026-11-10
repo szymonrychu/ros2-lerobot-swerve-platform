@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  BOARD_RECORD,
   allowBigJoints,
   applyHeadArm,
   boardAttached,
+  clearBoardRecord,
   computeArm,
   computeHeadArm,
   getHeadArmResult,
@@ -118,6 +120,41 @@ describe("headArmApi", () => {
       headers: JSON_HEADERS,
       body: JSON.stringify({ confirm: true, board_on: true }),
     });
+  });
+  it("clearBoardRecord posts the confirm to the arm-camera route and answers the sequence", async () => {
+    const cleared = { ...stateFx.sequence, board_record: null };
+    const f = stub(200, cleared);
+    expect(await clearBoardRecord()).toEqual({ ok: true, value: cleared });
+    expect(f).toHaveBeenLastCalledWith(
+      "/api/calibration/rgbd/arm-camera/board-record/clear",
+      { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ confirm: true }) },
+    );
+    stub(409, { ok: false, message: "a head-arm sequence or park is running" });
+    expect(await clearBoardRecord()).toEqual({
+      ok: false,
+      status: 409,
+      message: "a head-arm sequence or park is running",
+    });
+  });
+  it("the board record shape has exactly the fixture keys and accepts an unreadable record", async () => {
+    expect(Object.keys(BOARD_RECORD).sort()).toEqual(
+      Object.keys(stateFx.sequence.board_record).sort(),
+    );
+    const unreadable = {
+      ...stateFx.sequence.board_record,
+      session_id: null,
+      clipped_at: null,
+      age_s: null,
+      offered: false,
+      problem: "unreadable: Expecting value",
+    };
+    stub(200, { sequence: { ...stateFx.sequence, board_record: unreadable }, applied: null });
+    expect((await getHeadArmState()).ok).toBe(true);
+    const { offered: _o, ...noOffered } = stateFx.sequence.board_record;
+    stub(200, { sequence: { ...stateFx.sequence, board_record: noOffered }, applied: null });
+    const r = await getHeadArmState();
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.message).toContain("board_record");
   });
   it("listHeadArmSessions accepts the sessions fixture", async () => {
     const f = stub(200, sessionsFx);
