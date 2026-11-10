@@ -266,9 +266,12 @@ def test_calibrate_records_a_failed_define_middle_before_exiting(tmp_path: Path)
     assert not (tmp_path / "arm" / MARKER_NAME).exists()
 
 
-def test_calibrate_without_bridge_config_is_refused_before_define_middle(capsys: pytest.CaptureFixture[str]) -> None:
+def test_calibrate_without_bridge_config_is_refused_before_define_middle(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     bus = FakeBus({1: 1500, 3: 2600})
-    assert run(bus, ["calibrate", "--device", DEVICE, "--output", "unused.json", "--expected-joints", "2"]) == 1
+    out = tmp_path / "unused.json"
+    assert run(bus, ["calibrate", "--device", DEVICE, "--output", str(out), "--expected-joints", "2"]) == 1
     assert bus.middles == []
     assert "--bridge-config" in capsys.readouterr().err
 
