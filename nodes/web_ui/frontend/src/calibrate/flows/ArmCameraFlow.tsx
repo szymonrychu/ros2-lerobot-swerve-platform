@@ -78,7 +78,7 @@ export function acceptText(answer: ArmCameraAccept): string {
   return `Applied result ${answer.arm_calibration.result}.${units.length ? ` Units: ${units.join(', ')}.` : ''}`
 }
 
-type Dialog = 'home' | 'base' | 'big' | 'park' | 'parkBoard' | 'resume' | null
+type Dialog = 'home' | 'base' | 'big' | 'park' | 'parkBoard' | 'resume' | 'resumeIdle' | null
 type StepId = 'home' | 'open' | 'grab' | 'capture' | 'compute' | 'gate' | 'park'
 type Errors = Partial<Record<StepId, string>>
 
@@ -266,6 +266,8 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
   const boardRecorded = (sequence?.board_record ?? null) !== null
   // Holding with the board on (taped or gripped): the capture may resume without opening the jaws.
   const canResume = phase === PHASE_HOLDING && !running && sequence?.board_on === true
+  // Idle (e.g. the node restarted and forgot the board): the user states the board is gripped; the node refuses open jaws.
+  const canResumeFromIdle = phase === PHASE_IDLE && !running && sequence !== null
   const snippet = typeof result?.calibration?.snippet === 'string' ? result.calibration.snippet : null
 
   return (
@@ -342,6 +344,11 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
                   {phase === PHASE_IDLE && (
                     <Button variant="outlined" sx={target} disabled={busy} onClick={() => setDialog('parkBoard')}>
                       Park (board is on the gripper)
+                    </Button>
+                  )}
+                  {canResumeFromIdle && (
+                    <Button variant="outlined" sx={target} disabled={moveBlocked} onClick={() => setDialog('resumeIdle')}>
+                      Resume capture (board on)
                     </Button>
                   )}
                 </Box>
@@ -544,6 +551,14 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
         confirmLabel="Resume"
         onCancel={() => setDialog(null)}
         onConfirm={() => void step('park', () => resumeBoardOn(true))}
+      />
+      <ConfirmDialog
+        open={dialog === 'resumeIdle'}
+        title="Resume the capture with the board gripped in the jaws?"
+        body={`Use this only when the calibration board is gripped in the gripper jaws (taped or seated), for example after a node restart. The jaws will not open: the gripper stays at its measured angle, and the node refuses when it reads the jaws open. The arm moves with the board to the base pose (${BASE_JOINTS.filter((j) => j !== 'gripper').join(', ')}), then the capture tiers run again in a new session. Keep the area around the arm clear.`}
+        confirmLabel="The board is gripped: resume"
+        onCancel={() => setDialog(null)}
+        onConfirm={() => void step('home', () => resumeBoardOn(true, true))}
       />
       <ConfirmDialog
         open={dialog === 'parkBoard'}

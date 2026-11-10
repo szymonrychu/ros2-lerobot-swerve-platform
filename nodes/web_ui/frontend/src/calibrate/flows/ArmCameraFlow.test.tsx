@@ -254,8 +254,36 @@ describe('ArmCameraFlow', () => {
   })
 
   it.each([
+    ['without the board on', { board_on: false }],
+    ['with the board on', { board_on: true }],
+  ])('Resume capture (board on) from idle %s confirms the board is gripped and posts board_gripped', async (_name, over) => {
+    setState(seq(over))
+    m.resumeBoardOn.mockResolvedValue(ok(seq({ running: true, phase: 'moving_to_base', session_id: null, board_on: true })))
+    await renderFlow(false)
+    expect(within(step(7)).queryByRole('button', { name: 'Resume capture (board on)' })).toBeNull()
+    await click('Resume capture (board on)', step(1))
+    const body = within(dialog()).getByText(/gripped in the gripper jaws \(taped or seated\)/).textContent
+    expect(body).toContain('The jaws will not open')
+    await click('Cancel', dialog())
+    expect(m.resumeBoardOn).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    await click('Resume capture (board on)', step(1))
+    await confirmIn('The board is gripped: resume')
+    expect(m.resumeBoardOn).toHaveBeenCalledWith(true, true)
+    expect(screen.queryByRole('button', { name: 'Resume capture (board on)' })).toBeNull()
+  })
+
+  it('Resume capture (board on) from idle shows the node refusal on Home arm', async () => {
+    setState(seq({}))
+    m.resumeBoardOn.mockResolvedValue({ ok: false, status: 400, message: 'resume from idle refused: the gripper is open' })
+    await renderFlow(false)
+    await click('Resume capture (board on)', step(1))
+    await confirmIn('The board is gripped: resume')
+    expect(within(step(1)).getByText(/the gripper is open/)).toBeTruthy()
+  })
+
+  it.each([
     ['holding without the board on', { ...HOLDING, board_on: false }],
-    ['idle with the board on', { board_on: true }],
     ['capturing with the board on', { running: true, phase: 'capturing', session_id: SID, board_on: true }],
   ])('Resume capture (board on) is not offered %s', async (_name, over) => {
     setState(seq(over))
