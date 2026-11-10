@@ -82,26 +82,36 @@ protected:
   static void SetUpTestSuite() { rclcpp::init(0, nullptr); }
   static void TearDownTestSuite() { rclcpp::shutdown(); }
 
+  // The fake slam_toolbox spins on its own executor and thread, like the separate process it stands in for: a delayed
+  // answer then never blocks the client's executor. A node is never moved between executors while they spin (the old
+  // executor's wait set still holds its entities until its next rebuild, and the new one throws "subscription already
+  // associated with a wait set").
   void SetUp() override
   {
     executor_ = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
+    fake_executor_ = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
     client_node_ = std::make_shared<rclcpp::Node>("map_guard_test_client");
     fake_ = std::make_shared<FakeSlamToolbox>();
     executor_->add_node(client_node_);
-    executor_->add_node(fake_);
+    fake_executor_->add_node(fake_);
     spinner_ = std::thread([this]() { executor_->spin(); });
+    fake_spinner_ = std::thread([this]() { fake_executor_->spin(); });
   }
 
   void TearDown() override
   {
     executor_->cancel();
+    fake_executor_->cancel();
     spinner_.join();
+    fake_spinner_.join();
   }
 
   std::shared_ptr<rclcpp::executors::SingleThreadedExecutor> executor_;
+  std::shared_ptr<rclcpp::executors::SingleThreadedExecutor> fake_executor_;
   rclcpp::Node::SharedPtr client_node_;
   std::shared_ptr<FakeSlamToolbox> fake_;
   std::thread spinner_;
+  std::thread fake_spinner_;
 };
 
 // A 4 m x 4 m square room (walls at |x| = 2 or |y| = 2) on a 0.05 m grid with its origin at (-3, -3).
@@ -266,16 +276,11 @@ TEST_F(RosTest, TimedOutCallReturnsFalse)
 {
   mg::Config config;
   config.service_timeout_s = 0.2;
-  // The fake answers from the executor thread, so its delay must not block it: give it its own executor.
-  executor_->remove_node(fake_);
-  auto fake_executor = std::make_shared<rclcpp::executors::SingleThreadedExecutor>();
-  fake_executor->add_node(fake_);
-  std::thread fake_spinner([fake_executor]() { fake_executor->spin(); });
-  fake_->delay = 600ms;
+  fake_->delay = 600ms;  // answers on the fake's own executor, after the client gave up
   mg::SlamServices slam(*client_node_, config);
   EXPECT_FALSE(slam.toggle_pause());
-  fake_executor->cancel();
-  fake_spinner.join();
+  // The request reached the fake (a timeout, not an unavailable service).
+  EXPECT_TRUE(wait_for([&]() { return fake_->pause_calls.load() == 1; }));
 }
 
 TEST_F(RosTest, NodeScoresScansAndDetectsACarriedRobotInDryRun)
