@@ -5,12 +5,14 @@ bus, both with a servo_calibration block; every servo reads present = (encoder -
 """
 
 import json
+import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
 from feetech_mapping.command_mapping import position_to_raw_steps, steps_to_radians
 from st3215.values import INST_WRITE
 
@@ -977,6 +979,30 @@ def test_failed_arm_store_writes_the_zero_change_record(tmp_path: Path) -> None:
     assert not (directory / "calibration_stale.json").exists()
 
 
+def test_store_with_unknown_offset_marks_the_joint_stale(tmp_path: Path) -> None:
+    extra = arm_extra(tmp_path)
+    rig = planned_rig(tmp_path, head_extra=extra)
+    rig.port.drop_offset_reads_after_writes[21] = 1
+    result = rig.cal.store("head")
+    assert result.success is False
+    marker = json.loads(Path(extra["neutral_stale_marker"]).read_text())
+    assert list(marker["joints"]) == ["head_pan"]
+    assert marker["joints"]["head_pan"]["before_steps"] == 10
+    assert marker["stale"] == ["joint_offsets", "home"]
+
+
+def test_store_with_bookkeeping_error_writes_no_latest_record(tmp_path: Path) -> None:
+    extra = arm_extra(tmp_path)
+    Path(extra["zero_restore"].reference_file).write_text("not json")
+    rig = planned_rig(tmp_path, head_extra=extra)
+    result = rig.cal.store("head")
+    assert result.success is False
+    last = rig.cal.states["head"].last_result
+    assert last["bookkeeping_errors"]
+    assert json.loads(Path(last["record_path"]).read_text())["success"] is False
+    assert not (tmp_path / "servo_calibration-head-latest.json").exists()
+
+
 def test_store_still_check_refusal_hints_to_return_home(tmp_path: Path) -> None:
     rig = planned_rig(tmp_path)
     rig.port.jitter[21] = [0, 40, -40, 40]
@@ -1009,6 +1035,7 @@ def test_head_store_writes_no_marker(tmp_path: Path) -> None:
     )
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores directory permissions")
 def test_store_refused_when_record_dir_not_writable(tmp_path: Path) -> None:
     locked = tmp_path / "locked"
     locked.mkdir()

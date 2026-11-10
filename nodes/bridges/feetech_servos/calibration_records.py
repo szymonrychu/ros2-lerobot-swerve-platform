@@ -36,6 +36,7 @@ def record_payload(
     home_rad: dict[str, float],
     override_notes: list[str],
     bookkeeping_errors: list[str],
+    success: bool,
 ) -> dict[str, Any]:
     """Build the audit record content of one servo calibration store.
 
@@ -52,9 +53,10 @@ def record_payload(
         override_notes (list[str]): Joints whose config command override is wider than the new hardware limits.
         bookkeeping_errors (list[str]): Arm bookkeeping writes that failed (stale marker, zero change record, rest
             reference); the EEPROM writes stay.
+        success (bool): No joint failed and no bookkeeping write failed.
 
     Returns:
-        dict[str, Any]: The record; success is true exactly when there is no failure.
+        dict[str, Any]: The record; success as given (the latest record is written only for a success).
     """
     return {
         "version": RECORD_VERSION,
@@ -64,7 +66,7 @@ def record_payload(
         "created_at": created_at,
         "changed_at": created_at,
         "confirmed": confirmed,
-        "success": failure is None,
+        "success": success,
         "failure": list(failure) if failure is not None else None,
         "not_attempted": list(not_attempted),
         "joints": joints,

@@ -664,6 +664,7 @@ class ServoCalibrationControl:
             home_rad(plan.joints),
             override_notes,
             bookkeeping,
+            success=failure is None and not bookkeeping,
         )
         record_errors = write_records(record_dir, namespace, stamp, record)
         audit_written = not any(str(record_path) in error for error in record_errors)
@@ -745,7 +746,8 @@ class ServoCalibrationControl:
 
         Runs when an offset write was sent (also for a failed store). With a stale marker path the zero change record
         and, for the verified offset changes, the marker (joint_offsets and home stale) are written with changed_at
-        equal to the audit record's. With a zero_restore block the rest reference is rewritten in the new frame for
+        equal to the audit record's. The marker also lists a joint whose offset write was sent, not verified and not rolled
+        back (its offset is unknown; the read-back value, else the planned one, is its after). With a zero_restore block the rest reference is rewritten in the new frame for
         the verified changes and the zero restore plan is dropped. Failures are reported, never undone: the EEPROM
         writes stay.
 
@@ -768,9 +770,16 @@ class ServoCalibrationControl:
         if not sent:
             return []
         verified = [n for n in sent if outcomes[n].applied]
+        unknown = [n for n in sent if not outcomes[n].applied and outcomes[n].rolled_back is not True]
         errors: list[str] = []
         if group.neutral_stale_marker is not None:
             joints = {n: (plan.joints[n].offset_before_steps, plan.joints[n].new_offset_steps) for n in verified}
+            for n in unknown:  # offset unknown (sent, unverified, not rolled back): mark it with the read-back value
+                after = outcomes[n].offset_after_steps
+                joints[n] = (
+                    plan.joints[n].offset_before_steps,
+                    plan.joints[n].new_offset_steps if after is None else after,
+                )
             errors.extend(write_zero_change(Path(group.neutral_stale_marker), group.namespace, changed_at, joints))
             self.events.event(
                 FLOW,

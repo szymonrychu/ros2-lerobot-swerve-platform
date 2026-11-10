@@ -37,6 +37,7 @@ def make_payload(failure: tuple[str, str] | None = None) -> dict[str, Any]:
         {"elbow_flex": 1.0},
         [],
         [],
+        success=failure is None,
     )
 
 
