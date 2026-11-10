@@ -9,10 +9,13 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from arm_collision.settings import MOUNT_HEIGHT_TOLERANCE_M as ARM_MODEL_MOUNT_HEIGHT_TOLERANCE_M
 from arm_collision.settings import ArmBaseOffset, ArmModelSettings
 from pydantic import ValidationError
 from ros2_common.head_rgbd_calibration.applied_arm_calibration import (
+    MOUNT_HEIGHT_TOLERANCE_M,
     AppliedArmCalibration,
+    ArmCalibrationSettings,
     applied_marker_identity,
     assign_calibration,
     calibrated_settings,
@@ -112,6 +115,56 @@ def test_assign_copies_the_fitted_fields_in_place() -> None:
     assert target == source
     assert target.base_in_base_link is not source.base_in_base_link
     assert target.joint_offsets_rad is not source.joint_offsets_rad
+
+
+# --- ArmCalibrationSettings ---------------------------------------------------------------------------------------
+
+CONFIGURED_VALUES = {
+    "joint_offsets_rad": {
+        "shoulder_pan": 0.0182,
+        "shoulder_lift": -0.0345,
+        "elbow_flex": -0.107,
+        "wrist_flex": 0.0988,
+        "wrist_roll": -0.071,
+    },
+    "arm_base_height_m": 0.1,
+    "base_in_base_link": {"x": 0.0592, "y": -0.05, "z": 0.1, "yaw": 0.0},
+}
+
+
+def test_the_calibrated_values_validate_as_a_baseline() -> None:
+    settings = ArmCalibrationSettings.model_validate(CONFIGURED_VALUES)
+    assert settings.model_dump() == CONFIGURED_VALUES
+    assert set(ArmCalibrationSettings.model_fields) == set(ARM_SETTINGS_FIELDS)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"joint_offsets_rad": {"shoulder_pan": 0.0}},
+        {"joint_offsets_rad": {**CONFIGURED_VALUES["joint_offsets_rad"], "gripper": 0.0}},
+        {"joint_offsets_rad": {**CONFIGURED_VALUES["joint_offsets_rad"], "wrist_roll": float("nan")}},
+        {"arm_base_height_m": 0.12},
+        {"arm_base_height_m": 0.0, "base_in_base_link": {"x": 0.0, "y": 0.0, "z": 0.0, "yaw": 0.0}},
+        {"tool_offset_m": {"x": 0.0, "y": 0.0, "z": 0.0}},
+    ],
+    ids=["missing-joint", "extra-joint", "nan-offset", "z-not-mount-height", "mount-on-the-floor", "unknown-key"],
+)
+def test_the_baseline_refuses_what_the_arm_models_refuse(change: dict[str, Any]) -> None:
+    with pytest.raises(ValidationError):
+        ArmCalibrationSettings.model_validate({**CONFIGURED_VALUES, **change})
+
+
+def test_the_mount_height_tolerance_is_the_arm_models() -> None:
+    assert MOUNT_HEIGHT_TOLERANCE_M == ARM_MODEL_MOUNT_HEIGHT_TOLERANCE_M
+
+
+def test_an_accepted_calibration_merges_over_the_values_baseline() -> None:
+    baseline = ArmCalibrationSettings.model_validate(CONFIGURED_VALUES)
+    merged = calibrated_settings(baseline, ArmCalibrationFile.model_validate(body()))
+    assert type(merged) is ArmCalibrationSettings
+    expected = {"joint_offsets_rad": OFFSETS, "arm_base_height_m": BASE["z"], "base_in_base_link": BASE}
+    assert merged.model_dump() == expected
 
 
 # --- AppliedArmCalibration ----------------------------------------------------------------------------------------

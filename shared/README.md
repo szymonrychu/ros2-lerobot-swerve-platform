@@ -507,6 +507,7 @@ ignored) holds `session`, `result`, `accepted_at`, `captured_from` (the session'
 `read_arm_calibration(applied_dir)` returns the calibration the `applied.json` `arm_calibration` record names, None when
 nothing is accepted (no `applied.json` or no record; a file without its record is not in effect), and raises
 `ArmCalibrationError` for an unreadable `applied.json` or a named file that is missing, invalid or of another result.
+`check_arm_joint_offsets(value)` is that offsets check (also used by `ArmCalibrationSettings`).
 `zero_change_refusal(marker, since)` tells whether the servo zero may have changed at or after a capture time: it reads
 the follower bridge's stale marker (a `joint_offsets` re-zero `saved_at`) and its zero change record
 (`zero_record_path(marker)`, `zero_changed.json`, `changed_at` of the last neutral save, zero restore or
@@ -522,8 +523,13 @@ web_ui (`arm_calibration`, the `/api/arm/calibration` route). No OpenCV or scipy
 
 - `applied_marker_identity(applied_dir)`: `(mtime_ns, size, inode)` of `applied.json`, None without a directory or
   file. The one reload key: the inode catches the accept's atomic replace even within one coarse mtime tick.
+- `ArmCalibrationSettings`: the `ARM_SETTINGS_FIELDS` alone (`joint_offsets_rad` for exactly the five arm joints,
+  `arm_base_height_m` in (0, 1] m, `base_in_base_link` with z equal to it within `MOUNT_HEIGHT_TOLERANCE_M`, the
+  arm_collision tolerance), validated as arm_collision `ArmModelSettings` validates them: the baseline of a consumer
+  without an arm model (web_ui's `arm_calibration`, the configured values its 3D arm views draw with while nothing is
+  accepted).
 - `calibrated_settings(baseline, calibration)`: the configured arm model (any pydantic model with the
-  `ARM_SETTINGS_FIELDS`, e.g. arm_collision `ArmModelSettings` or mcp_server `ArmSettings`) with the accepted
+  `ARM_SETTINGS_FIELDS`, e.g. arm_collision `ArmModelSettings`, mcp_server `ArmSettings` or `ArmCalibrationSettings`) with the accepted
   calibration's fields, validated as the baseline's type (a copy of the baseline for None). The tool point stays
   configured.
 - `assign_calibration(target, source)`: copies the `ARM_SETTINGS_FIELDS` into a settings object in place.

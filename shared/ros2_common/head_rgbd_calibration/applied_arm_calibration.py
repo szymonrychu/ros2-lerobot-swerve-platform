@@ -6,9 +6,10 @@ record of applied/applied.json (arm_calibration_file). A consumer keys its reloa
 coarse mtime tick) and re-reads only when it changed, without a thread of its own.
 
 The accepted calibration overrides exactly `ARM_SETTINGS_FIELDS` (joint offsets, arm base pose, mount height = base z)
-of the consumer's configured arm model (a pydantic model with those fields, e.g. arm_collision ArmModelSettings or
-mcp_server ArmSettings); the configured values are the baseline, used while nothing is accepted or after the record is
-removed. The tool point is not fitted and stays configured.
+of the consumer's configured arm model (a pydantic model with those fields, e.g. arm_collision ArmModelSettings,
+mcp_server ArmSettings, or `ArmCalibrationSettings` for a consumer that holds only those values, web_ui); the configured
+values are the baseline, used while nothing is accepted or after the record is removed. The tool point is not fitted and
+stays configured.
 
 `AppliedArmCalibration` holds that state (baseline, applied_dir, the applied.json identity last seen, the accepted
 calibration in use and the settings in use). When and how a change is swapped into a running model, and how it is
@@ -19,12 +20,64 @@ This module imports no OpenCV (an import-closure test pins it).
 
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .arm_calibration_file import ARM_SETTINGS_FIELDS, ArmCalibrationFile, read_arm_calibration
+from .arm_calibration_file import (
+    ARM_SETTINGS_FIELDS,
+    ArmCalibrationBase,
+    ArmCalibrationFile,
+    check_arm_joint_offsets,
+    read_arm_calibration,
+)
 from .urdf_text import APPLIED_MARKER_FILE
 
 MarkerIdentity = tuple[int, int, int]  # applied.json (mtime_ns, size, inode)
+# Mount z and arm_base_height_m are one height: they may differ by this much (m), as in arm_collision ArmModelSettings.
+MOUNT_HEIGHT_TOLERANCE_M = 1e-6
+
+
+class ArmCalibrationSettings(BaseModel):
+    """The calibrated arm values (ARM_SETTINGS_FIELDS) alone, the baseline of a consumer without an arm model (web_ui).
+
+    Validated as arm_collision ArmModelSettings validates them: offsets for exactly the five arm joints, a mount height
+    in (0, 1] m and a mount z equal to it.
+
+    Attributes:
+        joint_offsets_rad: Zero offset per arm joint (rad, urdf = measured + offset).
+        arm_base_height_m: Arm mount height above the floor (m).
+        base_in_base_link: Arm base pose in base_link (m, rad).
+    """
+
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    joint_offsets_rad: dict[str, float]
+    arm_base_height_m: float = Field(gt=0.0, le=1.0)
+    base_in_base_link: ArmCalibrationBase
+
+    @field_validator("joint_offsets_rad")
+    @classmethod
+    def five_finite_offsets(cls, value: dict[str, float]) -> dict[str, float]:
+        """Require exactly the arm joints, each finite (check_arm_joint_offsets).
+
+        Args:
+            value (dict[str, float]): Joint name -> offset (rad).
+
+        Returns:
+            dict[str, float]: The offsets.
+        """
+        return check_arm_joint_offsets(value)
+
+    @model_validator(mode="after")
+    def mount_z_is_the_mount_height(self) -> "ArmCalibrationSettings":
+        """Require base_in_base_link.z to equal arm_base_height_m.
+
+        Returns:
+            ArmCalibrationSettings: The validated settings.
+        """
+        if abs(self.base_in_base_link.z - self.arm_base_height_m) > MOUNT_HEIGHT_TOLERANCE_M:
+            z, height = self.base_in_base_link.z, self.arm_base_height_m
+            raise ValueError(f"base_in_base_link.z ({z}) must equal arm_base_height_m ({height})")
+        return self
 
 
 def applied_marker_identity(applied_dir: Path | None) -> MarkerIdentity | None:

@@ -40,6 +40,26 @@ STALE_OFFSETS_ITEM = "joint_offsets"
 ZERO_TIME_RESOLUTION = timedelta(seconds=1)
 
 
+def check_arm_joint_offsets(value: dict[str, float]) -> dict[str, float]:
+    """Require joint offsets for exactly the arm joints (ARM_JOINT_NAMES), each finite.
+
+    Args:
+        value (dict[str, float]): Joint name -> offset (rad).
+
+    Returns:
+        dict[str, float]: The offsets.
+
+    Raises:
+        ValueError: A joint is missing or extra, or an offset is not finite.
+    """
+    if set(value) != set(ARM_JOINT_NAMES):
+        raise ValueError(f"joint_offsets_rad must name exactly {list(ARM_JOINT_NAMES)}, got {sorted(value)}")
+    bad = [name for name, offset in value.items() if not math.isfinite(offset)]
+    if bad:
+        raise ValueError(f"joint_offsets_rad must be finite: {bad}")
+    return value
+
+
 class ArmCalibrationError(ValueError):
     """The applied.json record names an arm calibration that cannot be read or does not validate."""
 
@@ -80,7 +100,7 @@ class ArmCalibrationFile(BaseModel):
     @field_validator("joint_offsets_rad")
     @classmethod
     def five_finite_offsets(cls, value: dict[str, float]) -> dict[str, float]:
-        """Require exactly the arm joints, each finite.
+        """Require exactly the arm joints, each finite (check_arm_joint_offsets).
 
         Args:
             value (dict[str, float]): Joint name -> offset (rad).
@@ -88,12 +108,7 @@ class ArmCalibrationFile(BaseModel):
         Returns:
             dict[str, float]: The offsets.
         """
-        if set(value) != set(ARM_JOINT_NAMES):
-            raise ValueError(f"joint_offsets_rad must name exactly {list(ARM_JOINT_NAMES)}, got {sorted(value)}")
-        bad = [name for name, offset in value.items() if not math.isfinite(offset)]
-        if bad:
-            raise ValueError(f"joint_offsets_rad must be finite: {bad}")
-        return value
+        return check_arm_joint_offsets(value)
 
     def arm_settings_update(self) -> dict[str, Any]:
         """The mcp_server `arm:` values this calibration sets, keyed by ARM_SETTINGS_FIELDS in that order.
