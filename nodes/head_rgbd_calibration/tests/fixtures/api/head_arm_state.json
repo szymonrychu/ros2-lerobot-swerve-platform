@@ -17,8 +17,12 @@
     ],
     "waiting_since": null,
     "board_record": {
+      "file": "/var/lib/ros2/head_rgbd_calibration/head_arm_board.json",
       "session_id": "calib-20261023-074418",
-      "clipped_at": "2026-10-23T07:50:00+00:00"
+      "clipped_at": "2026-10-23T07:50:00+00:00",
+      "age_s": 600.0,
+      "offered": true,
+      "problem": null
     },
     "events": [
       {

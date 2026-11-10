@@ -535,7 +535,7 @@ journalctl -u ros2-head_rgbd_calibration -o cat --since today | grep -o 'calib_e
   stop's warning event, park start / done / failed events (logged) and a refused park or start as error events, the
   list bounded to `EVENT_LIMIT` (`test_events_are_bounded_to_the_newest`); the gripper opens to `insert_gripper_rad` with the base
   move and closes alone to `grip_rad` after Board attached, a jaw closed past `contact - squeeze / 2` (unseated) or no
-  reported gripper angle stops the sequence holding the arm, the threshold boundary passes; views inside the D435 min-Z or outside the colour FOV skipped with the reason and a pose with no usable view not visited (`test_poses_inside_min_z_are_skipped`), the wait for the colour camera_info; including Park with the board on (checked even when no load is reported, then the internal admin park; the board record offered only fresh and for a stored session, the stated-on Park, a stale record plus a non-board load refused): path-checked then moved at speed 0.1 and released with `park_calibration_board`, refused with the named rule when the sag margin eats the clearance, the fitted mount hook, another carried object and a load without this sequence's board still refused, a failed move keeps holding.
+  reported gripper angle stops the sequence holding the arm, the threshold boundary passes; views inside the D435 min-Z or outside the colour FOV skipped with the reason and a pose with no usable view not visited (`test_poses_inside_min_z_are_skipped`), the wait for the colour camera_info; including Park with the board on (checked even when no load is reported, then the internal admin park; the board record shown at any age with `offered` true only fresh and for a stored session and `problem` naming why not, the stated-on Park, a stale record plus a non-board load refused; `clear_board_record` needs the confirm, removes an old record with a `board_record_clear` calib_event and no mcp_server call, returns a holding sequence to idle so Park is the plain park, says when there was no record, and is refused while a sequence runs): path-checked then moved at speed 0.1 and released with `park_calibration_board`, refused with the named rule when the sag margin eats the clearance, the fitted mount hook, another carried object and a load without this sequence's board still refused, a failed move keeps holding.
 - `tests/test_arm_pose_set.py` - the shipped arm pose set on the shipped and the applied (floor fit 2026-10-22) head
   URDF: tier rules, short transits, every pose and transit (home -> base -> tiers -> base) safe by `PoseChecker` with
   the board margin `margin_m + provisional_margin_m` (`test_every_pose_and_transit_is_safe`) and with the mount
@@ -654,7 +654,9 @@ journalctl -u ros2-head_rgbd_calibration -o cat --since today | grep -o 'calib_e
   `arm_camera_accept.json`, `arm_camera_state.json`; 404 for unknown sessions, results and a result of another kind,
   400 for an intrinsics session, 409 while a sequence or a compute runs, when not ready, for accept or decline of a
   running or failed result, accept of an implausible or declined result and decline of an accepted one; the head-arm
-  routes neither list nor serve arm to camera results.
+  routes neither list nor serve arm to camera results; `POST /board-record/clear` needs `confirm: true` (400), answers
+  the sequence state, is refused (409) while an arm to camera compute runs and maps the sequencer's Busy (409) and
+  SequenceError (400).
 - `tests/test_app.py` - every route with a fake capture, a fake job and a tmp store: error body shape, 404/409/400/422
   mapping, capture/compute mutual refusal, min_views refusal, coverage, thumbnails `image/jpeg`, zip headers, apply,
   `/api/state` without systemctl, `/api/applied` units.
@@ -948,6 +950,7 @@ checked with `tests/contract.py`). Errors use the common `{ok: false, message}` 
 | `POST /sessions/{sid}/results/{rid}/accept` | `{arm_calibration: {session, result, accepted_at, score}, units: [{name, active_state, restarted}]}` (`units`: the `restart_units` states as every apply reports them; no unit reads arm_calibration.json, so they show `restarted: false`; mcp_server applies it without a restart); 409 when the result is not done (running or failed), declined, not plausible (the message lists the refusals), captured before the last arm re-zero (or the re-zero time is unknown), not a valid arm calibration, or fitted against a head chain that is no longer the applied one (checked in this order, like the ground board accept); 404 as above |
 | `POST /sessions/{sid}/results/{rid}/decline` | the result with `declined: true`, `declined_at`; nothing applied changes; 409 when not done or already accepted |
 | `GET /state` | `{applied: {session, result, accepted_at, score, accuracy_examples, head_chain_changed} \| null, head_chain_source, ready, reason}` (`head_chain_changed`: the applied head chain is no longer the one the accepted calibration was fitted against); `head_chain_source` is `floor_fit`, `head_arm`, `arm_offsets` (the applied.json head_chain record `source` floor, head_arm, arm), null for an applied chain without a matching record, `urdf` without an applied chain (then `ready` false and `reason` "apply a head calibration first ...") |
+| `POST /board-record/clear` | body `{confirm: true}`: the user states the board is already off the gripper; removes the board record, moves nothing, answers the head-arm sequence state (`sequence.board_record` then null); 400 without the confirm, 409 while a head-arm sequence or park or an arm to camera compute runs (see "The board record") |
 
 Result body (result.json; while the job runs and after a child that wrote nothing it is built from the job state,
 which keeps only the last compute: a crashed result reads 404 once the next compute starts):
@@ -1253,9 +1256,21 @@ sequencer reads `get_control_state`:
 
 When the board is attached (and again when the sequence ends, with the capture session id) the sequencer writes
 `<state_dir>/head_arm_board.json` (`session_id`, `mount` used, `clipped_at`: the time the board was attached; the key
-keeps its name). A completed park or a new base move removes
-it. A node start only offers a record: it is shown as `sequence.board_record` (the Park dialog mentions it) when it is
-younger than `arm_sequence.board_record_max_age_s` (7200 s) and its session is a stored head_arm session; older, unknown
-or unreadable records are ignored and logged. The record never switches the board on: after a restart the user must
-state that the board is on (`board_on: true`, the idle "Park (board is on the gripper)" button) before a board park, and
-the path checks still run. Without that statement a gripped board is refused.
+keeps its name). A completed park, a new base move or a clear (below) removes it. mcp_server refuses `/arm/home` while
+the file exists, at any age, so `sequence.board_record` always shows it while it exists (None without a file):
+`{file, session_id, clipped_at, age_s, offered, problem}`. `offered` is true when the record would pre-fill a board
+park: younger than `arm_sequence.board_record_max_age_s` (7200 s) and of a stored head_arm session; else `problem` says
+why ("too old", "not a stored head_arm session", or "unreadable: <error>" with the other fields null). A node start
+restores the session and mount of an offered record only, and logs an ignored one. The record never switches the board
+on: after a restart the user must state that the board is on (`board_on: true`, the idle "Park (board is on the
+gripper)" button) before a board park, and the path checks still run. Without that statement a gripped board is
+refused.
+
+When the board is already off the gripper (taken off by hand without a park), `POST /api/arm-camera/board-record/clear`
+with `{confirm: true}` removes the record (`Sequencer.clear_board_record`): nothing moves, a `holding` phase returns to
+idle (the board is off, so Park is the plain park), the status and a recent event say "board record cleared: the user
+stated the calibration board is off the gripper (nothing moved)", and the journal gets a calib_event of step
+`board_record_clear` (outcome `cleared`, or `none` without a record) under a `board-...` run id with the removed record.
+It answers the head-arm sequence state; 400 without the confirm, 409 while a head-arm sequence or park (or its worker
+thread) or an arm to camera compute runs. The Calibrate page offers it as "The board is already off the gripper: clear
+the record" behind a confirm, in the Arm to camera flow and in the General section.

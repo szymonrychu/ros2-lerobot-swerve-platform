@@ -41,7 +41,14 @@ STATE_DOC = {
     "error": None,
     "big_joints": ["elbow_flex", "shoulder_lift", "shoulder_pan"],
     "waiting_since": None,
-    "board_record": {"session_id": "calib-20261023-074418", "clipped_at": "2026-10-23T07:50:00+00:00"},
+    "board_record": {
+        "file": "/var/lib/ros2/head_rgbd_calibration/head_arm_board.json",
+        "session_id": "calib-20261023-074418",
+        "clipped_at": "2026-10-23T07:50:00+00:00",
+        "age_s": 600.0,
+        "offered": True,
+        "problem": None,
+    },
     "events": [
         {
             "time": "2026-10-23T07:52:10+00:00",
@@ -82,6 +89,9 @@ class FakeSequencer:
 
     def stop(self) -> dict[str, Any]:
         return self.act("stop")
+
+    def clear_board_record(self, confirmed: bool) -> dict[str, Any]:
+        return self.act("clear_board_record", confirmed)
 
 
 class FakeRunning:
