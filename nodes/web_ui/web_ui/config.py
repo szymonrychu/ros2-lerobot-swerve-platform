@@ -538,6 +538,11 @@ SERVO_SAVE_ACTIONS: frozenset[str] = frozenset(
 SERVO_PLAN_BOUND_ACTIONS: frozenset[str] = frozenset({"zero_restore_apply", "zero_restore_apply_confirmed"})
 # Calibrate page action served by mcp_server (ServoGroupConfig.move_to_neutral_service), not by the bridge.
 SERVO_MOVE_TO_NEUTRAL_ACTION = "move_to_neutral"
+# Calibrate page Set home (ServoGroupConfig.set_home_service, mcp_server /arm/set_home as the Arm tab Set home): stores
+# the measured arm pose as home and clears `home` from the stale marker; no motion, so allowed with torque off.
+SERVO_SET_HOME_ACTION = "set_home"
+# Arm actions served by mcp_server, not by the bridge.
+SERVO_MCP_ACTIONS: tuple[str, ...] = (SERVO_MOVE_TO_NEUTRAL_ACTION, SERVO_SET_HOME_ACTION)
 # A zero restore apply writes, settles and verifies up to 5 joints (about 0.6-2.5 s each): above service_timeout_s.
 DEFAULT_ZERO_RESTORE_TIMEOUT_S = 30.0
 # Calibrate page General section actions (POST /api/calibration/general/{action}) in display order, each with the
@@ -570,6 +575,8 @@ class ServoGroupConfig(BaseModel):
         zero_restore_timeout_s: Wait for one zero restore Trigger response (an apply can exceed service_timeout_s).
         move_to_neutral_service: Arm only: mcp_server std_srvs/Trigger moving every arm joint to 0 (None: no button).
         move_to_neutral_timeout_s: Wait for the move to neutral response (a motion, like arm home).
+        set_home_service: Arm only: mcp_server std_srvs/Trigger storing the measured arm pose as home (the Arm tab Set
+            home service; it clears `home` from the stale marker); None: no Set home step. Waits service_timeout_s.
     """
 
     id: Literal["arm", "base", "head"]
@@ -584,6 +591,7 @@ class ServoGroupConfig(BaseModel):
     zero_restore_timeout_s: float = Field(DEFAULT_ZERO_RESTORE_TIMEOUT_S, gt=0)
     move_to_neutral_service: str | None = None
     move_to_neutral_timeout_s: float = Field(DEFAULT_ARM_SERVICE_TIMEOUT_S, gt=0)
+    set_home_service: str | None = None
 
     @property
     def state_topic(self) -> str:
@@ -594,14 +602,16 @@ class ServoGroupConfig(BaseModel):
         """Return the Trigger service of an action.
 
         Args:
-            action (str): A SERVO_ACTION_SERVICES key, or move_to_neutral.
+            action (str): A SERVO_ACTION_SERVICES key, move_to_neutral or set_home.
 
         Returns:
-            str: The service name, e.g. /follower/servo/release_torque; move_to_neutral_service ("" when unset) for
-                move_to_neutral.
+            str: The service name, e.g. /follower/servo/release_torque; move_to_neutral_service or set_home_service
+                ("" when unset) for move_to_neutral and set_home.
         """
         if action == SERVO_MOVE_TO_NEUTRAL_ACTION:
             return self.move_to_neutral_service or ""
+        if action == SERVO_SET_HOME_ACTION:
+            return self.set_home_service or ""
         return f"/{self.namespace}/servo/{SERVO_ACTION_SERVICES[action]}"
 
     def offers(self, action: str) -> bool:
@@ -612,10 +622,12 @@ class ServoGroupConfig(BaseModel):
 
         Returns:
             bool: False for an unknown action, a neutral action without neutral, a zero restore action without
-                zero_restore or move_to_neutral without its service.
+                zero_restore, move_to_neutral or set_home without its service.
         """
         if action == SERVO_MOVE_TO_NEUTRAL_ACTION:
             return self.move_to_neutral_service is not None
+        if action == SERVO_SET_HOME_ACTION:
+            return self.set_home_service is not None
         if action not in SERVO_ACTION_SERVICES:
             return False
         if action in SERVO_NEUTRAL_ACTIONS:
@@ -921,7 +933,7 @@ class AppConfig(BaseModel):
             services.update((self.calibration.imu_save_service, self.calibration.imu_reset_service))
             for group in self.calibration.servo_groups:
                 services.update(
-                    group.service(a) for a in (*SERVO_ACTION_SERVICES, SERVO_MOVE_TO_NEUTRAL_ACTION) if group.offers(a)
+                    group.service(a) for a in (*SERVO_ACTION_SERVICES, *SERVO_MCP_ACTIONS) if group.offers(a)
                 )
             general = self.calibration.general
             if general is not None:

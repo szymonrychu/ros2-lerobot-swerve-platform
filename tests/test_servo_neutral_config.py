@@ -35,6 +35,7 @@ REST_SEED_RAD = {
 }
 ZERO_RESTORE_TIMEOUT_S = 30
 MOVE_TO_NEUTRAL_SERVICE = "/arm/move_to_neutral"
+SET_HOME_SERVICE = "/arm/set_home"
 
 
 def nodes(path: Path) -> list[dict]:
@@ -163,8 +164,16 @@ def test_web_ui_arm_offers_zero_restore_and_move_to_neutral() -> None:
     for gid in ("base", "head"):
         assert not web_ui_groups()[gid].get("zero_restore", False)
         assert "move_to_neutral_service" not in web_ui_groups()[gid]
+        assert "set_home_service" not in web_ui_groups()[gid]
     groups = bridge_groups()
     assert [ns for ns, g in groups.items() if "zero_restore" in g["config"]] == ["follower"]
+
+
+def test_web_ui_arm_set_home_is_the_arm_tab_set_home_service() -> None:
+    """The Servo home flow Set home calls the same mcp_server service as the Arm tab Set home (it clears `home` from
+    the stale marker after a zero restore)."""
+    arm_tab = next(t for t in node_config("web_ui")["tabs"] if t.get("arm_set_home_service"))
+    assert web_ui_groups()["arm"]["set_home_service"] == arm_tab["arm_set_home_service"] == SET_HOME_SERVICE
 
 
 def test_stale_marker_path_is_identical_everywhere() -> None:

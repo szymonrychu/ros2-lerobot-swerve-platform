@@ -42,14 +42,17 @@ export function servoGate(groups: ServoGroup[]): GateReport {
 }
 
 /**
- * Flow 1, servo home calibration: record and save the neutral (large-shift guard), the Arm zero restore, Move to
- * neutral pose, then the check gate. The first two steps are optional: they are needed after a servo swap or a re-zero.
+ * Flow 1, servo home calibration: record and save the neutral (large-shift guard), the Arm zero restore, Set home (the
+ * stale marker's joint_offsets and home shown), Move to neutral pose, then the check gate. The neutral, zero
+ * and Set home steps are optional: they are needed after a servo swap or a re-zero (a zero restore clears joint_offsets
+ * from the stale marker but leaves home stale until Set home).
  */
 export function ServoHomeFlow() {
   const servo = useServoGroups()
   const [saved, setSaved] = useState(false)
   const [zeroApplied, setZeroApplied] = useState(false)
   const [moved, setMoved] = useState(false)
+  const [homeSet, setHomeSet] = useState(false)
   const [decision, setDecision] = useState<GateDecision>(null)
 
   const onResult = useCallback((_group: string, action: ServoAction, ok: boolean) => {
@@ -57,17 +60,20 @@ export function ServoHomeFlow() {
     if (SAVE_ACTIONS.includes(action)) setSaved(true)
     if (ZERO_APPLY_ACTIONS.includes(action)) setZeroApplied(true)
     if (action === 'move_to_neutral') setMoved(true)
+    if (action === 'set_home') setHomeSet(true)
   }, [])
 
   const restart = () => {
     setSaved(false)
     setZeroApplied(false)
     setMoved(false)
+    setHomeSet(false)
     setDecision(null)
   }
 
   const canMove = servo.groups.some((g) => g.move_to_neutral)
   const hasZero = servo.groups.some((g) => g.zero_restore)
+  const hasHome = servo.groups.some((g) => g.set_home)
   return (
     <FlowStepper
       label="Servo home calibration steps"
@@ -90,6 +96,18 @@ export function ServoHomeFlow() {
             <ServoNeutral parts={['zero']} servo={servo} heading={false} onResult={onResult} />
           ) : (
             <Typography variant="body2">No servo group offers the zero restore.</Typography>
+          ),
+        },
+        {
+          id: 'home',
+          title: 'Set home',
+          optional: true,
+          done: homeSet,
+          see: 'Pose the arm first (by hand with torque off, or Move to neutral pose in step 4), then Set home records that pose as home; nothing moves. The home chip of the stale marker turns ok. Needed after a zero restore: it clears joint_offsets but leaves home stale.',
+          children: hasHome ? (
+            <ServoNeutral parts={['home']} servo={servo} heading={false} onResult={onResult} />
+          ) : (
+            <Typography variant="body2">No servo group offers Set home.</Typography>
           ),
         },
         {

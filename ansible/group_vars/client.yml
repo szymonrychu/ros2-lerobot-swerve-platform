@@ -2924,6 +2924,9 @@ ros2_nodes:
             zero_restore_timeout_s: 30
             # "Move to neutral pose" button: mcp_server /arm/move_to_neutral (home routing, all arm joints at 0).
             move_to_neutral_service: /arm/move_to_neutral
+            # Servo home flow "Set home" step: mcp_server /arm/set_home, the Arm tab Set home service (stores the
+            # measured pose as home and clears `home` from the stale marker; no motion).
+            set_home_service: /arm/set_home
           - id: base
             label: Base steering
             namespace: swerve_drive

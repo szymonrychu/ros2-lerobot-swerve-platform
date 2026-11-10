@@ -15,7 +15,7 @@ describe('servoApi', () => {
   it('fetchServoGroups returns the groups', async () => {
     const group = {
       id: 'arm', label: 'Arm', neutral: true, state: null, age_s: null, stale: true, calibration_stale: null,
-      zero_restore: true, move_to_neutral: true,
+      zero_restore: true, move_to_neutral: true, set_home: true,
     }
     respond(200, { groups: [group] })
     const r = await fetchServoGroups()

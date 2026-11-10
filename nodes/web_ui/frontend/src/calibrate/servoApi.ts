@@ -7,7 +7,8 @@ export const SERVO_POLL_MS = 1000
 /**
  * `save_confirmed` saves a recorded shift above neutral_max_shift_deg; the bridge refuses it for plain `save`.
  * `zero_restore_apply_confirmed` applies an offset change above the zero restore max_change_deg the same way.
- * `move_to_neutral` is served by mcp_server (/arm/move_to_neutral), the others by the feetech bridge.
+ * `move_to_neutral` and `set_home` are served by mcp_server (/arm/move_to_neutral, /arm/set_home: the Arm tab Set
+ * home), the others by the feetech bridge.
  */
 export type ServoAction =
   | 'release'
@@ -20,6 +21,7 @@ export type ServoAction =
   | 'zero_restore_apply_confirmed'
   | 'save_rest_reference'
   | 'move_to_neutral'
+  | 'set_home'
 
 /** One joint of a zero restore dry run plan (steps and joint radians as /follower/joint_states). */
 export interface ZeroRestorePlanJoint {
@@ -113,6 +115,8 @@ export interface ServoGroup {
   zero_restore: boolean
   /** The Move to neutral pose button is offered (mcp_server /arm/move_to_neutral). */
   move_to_neutral: boolean
+  /** The Set home step is offered (mcp_server /arm/set_home, as the Arm tab Set home). */
+  set_home: boolean
 }
 
 export interface ServoActionResult {

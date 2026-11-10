@@ -68,6 +68,7 @@ function armGroup(stale: string[] | null = null): ServoGroup {
     calibration_stale: stale,
     zero_restore: true,
     move_to_neutral: true,
+    set_home: true,
   }
 }
 

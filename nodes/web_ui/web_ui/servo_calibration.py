@@ -6,7 +6,10 @@ save_neutral, which the bridge refuses (409) when a recorded shift exceeds its n
 calls save_neutral_confirmed after the user confirmed those shifts on the Calibrate page. A group with zero_restore
 offers zero_restore_dry_run / zero_restore_apply / zero_restore_apply_confirmed / save_rest_reference (bridge services of
 the same name; apply waits zero_restore_timeout_s and is battery-blocked like save). move_to_neutral calls the group's
-move_to_neutral_service (mcp_server /arm/move_to_neutral), refused (409) while the group is released. Both apply
+move_to_neutral_service (mcp_server /arm/move_to_neutral), refused (409) while the group is released. set_home calls
+the group's set_home_service (mcp_server /arm/set_home, the Arm tab Set home service): it stores the measured arm pose
+as home and clears `home` from the stale marker, moves nothing and so is allowed with torque off (the user poses the
+arm by hand); it is battery-blocked like the Arm tab Set home. Both apply
 actions are bound to the dry run the user saw: the request carries `?plan_run_id=` and is refused (409, PLAN_CHANGED)
 unless it equals the run_id of the plan in the group's fresh cached torque_state.
 """
@@ -26,6 +29,7 @@ from .config import (
     SERVO_MOVE_TO_NEUTRAL_ACTION,
     SERVO_PLAN_BOUND_ACTIONS,
     SERVO_SAVE_ACTIONS,
+    SERVO_SET_HOME_ACTION,
     AppConfig,
     ServoGroupConfig,
 )
@@ -83,7 +87,8 @@ def group_status(group: ServoGroupConfig, bridge_node: Any) -> dict[str, Any]:
         bridge_node (Any): BridgeNode or None.
 
     Returns:
-        dict[str, Any]: {id, label, neutral, state, age_s, stale, calibration_stale, zero_restore, move_to_neutral}.
+        dict[str, Any]: {id, label, neutral, state, age_s, stale, calibration_stale, zero_restore, move_to_neutral,
+            set_home}.
     """
     sample = bridge_node.servo_torque_sample(group.namespace) if bridge_node is not None else None
     state, age_s = None, None
@@ -100,6 +105,7 @@ def group_status(group: ServoGroupConfig, bridge_node: Any) -> dict[str, Any]:
         "calibration_stale": read_stale_items(group.stale_marker),
         "zero_restore": group.zero_restore,
         "move_to_neutral": group.move_to_neutral_service is not None,
+        "set_home": group.set_home_service is not None,
     }
 
 
@@ -168,7 +174,7 @@ def register_servo_calibration_routes(
         if group is None or not group.offers(action):
             return error(f"unknown servo group or action: {group_id}/{action}", HTTP_NOT_FOUND)
         moves = action == SERVO_MOVE_TO_NEUTRAL_ACTION
-        if (action in SERVO_SAVE_ACTIONS or moves) and (
+        if (action in SERVO_SAVE_ACTIONS or moves or action == SERVO_SET_HOME_ACTION) and (
             blocked := battery_block(f"servo_{group_id}_{action}")
         ) is not None:
             return blocked
