@@ -785,6 +785,16 @@ def test_arm_endpoint_service_reports_failure(arm_app: Any) -> None:
     assert resp.json() == {"ok": False, "message": "no home pose saved"}
 
 
+def test_arm_set_home_stale_zero_refusal_passes_through(arm_app: Any) -> None:
+    """The Arm tab Set home gets mcp_server's stale zero refusal as the error message."""
+    refusal = "set home refused: the arm zero is stale (joint_offsets); run the zero restore first (arm re-zero at x)"
+    bridge = MagicMock()
+    bridge.trigger_async.return_value = FakeFuture(SimpleNamespace(success=False, message=refusal))
+    resp = arm_app(bridge).post("/api/arm/set_home?tab=map")
+    assert resp.status_code == 500
+    assert resp.json() == {"ok": False, "message": refusal}
+
+
 def test_arm_endpoint_unavailable(arm_app: Any) -> None:
     bridge = MagicMock()
     bridge.trigger_async.return_value = None

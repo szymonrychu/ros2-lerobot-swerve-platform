@@ -26,8 +26,9 @@ const LARGE_SHIFT_TEXT =
 const LARGE_SHIFT_CONFIRM = 'The large shift is intended: save it'
 export const MOVE_TO_NEUTRAL_TEXT = 'The arm moves to the neutral pose: all joints at 0. Keep the area clear.'
 export const SET_HOME_TEXT =
-  "Stores the arm's current pose as its home pose (as the Arm tab Set home). Nothing moves. Pose the arm first: by hand with torque off, or with Move to neutral pose. Home arm then returns to this pose."
+  "Records the arm's current joint readings as its home pose (as the Arm tab Set home). Nothing moves. Pose the arm first: by hand with torque off, or with Move to neutral pose. Home arm then returns to this pose."
 export const SET_HOME_STALE_REASON = 'Set home is off while the arm zero is stale (joint_offsets): restore the zero first.'
+export const SET_HOME_NO_READINGS_REASON = 'Set home is off: no fresh arm joint readings.'
 /** Stale marker items the Servo home flow shows (the bridge re-zero marker, cleared by the zero restore and Set home). */
 export const MARKER_ITEMS = ['joint_offsets', 'home']
 export const MOVE_RELEASED_REASON = 'Move to neutral needs torque on.'
@@ -110,7 +111,11 @@ function ServoCard({ group, parts, busy, onRun, onConfirm }: CardProps) {
   const torque = parts.includes('torque')
   const move = parts.includes('move') && group.move_to_neutral
   const home = parts.includes('home') && group.set_home
-  const homeReason = staleJointOffsets(group) ? SET_HOME_STALE_REASON : null
+  const homeReason = staleJointOffsets(group)
+    ? SET_HOME_STALE_REASON
+    : !group.state || group.stale
+      ? SET_HOME_NO_READINGS_REASON
+      : null
 
   return (
     <Box component="section" aria-label={group.label} sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 2, mb: 1 }}>

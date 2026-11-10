@@ -725,10 +725,14 @@ the torque is not on ("Move to neutral needs torque on.") or while the arm zero 
 is stale (joint_offsets): restore the zero first.").
 
 With `set_home` the arm card (Servo home flow step 3) shows the stale marker as chips, `joint_offsets: ok|stale` and
-`home: ok|stale` (from `calibration_stale`; no marker reads ok), and **Set home**: a confirm "Stores the arm's current
-pose as its home pose (as the Arm tab Set home). Nothing moves. Pose the arm first: by hand with torque off, or with
-Move to neutral pose. Home arm then returns to this pose." (button **Set home**) posts `set_home`. It is disabled while
-the arm zero is stale ("Set home is off while the arm zero is stale (joint_offsets): restore the zero first.").
+`home: ok|stale` (from `calibration_stale`; no marker reads ok), and **Set home**: a confirm "Records the arm's current
+joint readings as its home pose (as the Arm tab Set home). Nothing moves. Pose the arm first: by hand with torque off,
+or with Move to neutral pose. Home arm then returns to this pose." (button **Set home**) posts `set_home`. It is
+disabled with the reason shown while the arm zero is stale ("Set home is off while the arm zero is stale
+(joint_offsets): restore the zero first.") or while the follower group has no fresh state (`stale` or no sample: "Set
+home is off: no fresh arm joint readings."). The UI check is a hint only: mcp_server refuses `/arm/set_home` itself
+while `joint_offsets` is stale ("set home refused: the arm zero is stale (joint_offsets); run the zero restore first
+(arm re-zero at ...)"), and the route returns that message as a 409 error shown in the Alert.
 
 **Arm zero restore panel** (`ZeroRestorePanel.tsx`, in a card with `zero_restore`; driven by `state.zero_restore`):
 "Puts the arm zero back on the saved folded-rest reference by rewriting each servo offset. The arm does not move." It
@@ -871,7 +875,7 @@ Layout: the stream is `head_camera_topic` (deployed as the head D435 colour `/he
 
 mcp_server lifts the arm out of the head camera's view while a navigation goal runs ([mcp_server Drive pose](../mcp_server/README.md#drive-pose)). The bridge subscribes `/arm/drive_pose/state` (`std_msgs/String` JSON, reliable + transient_local) as one role delivered to both the Arm and the Map tab. Arm tab: **Set drive pose** next to Set home (`POST /api/arm/set_drive_pose`, stores the current pose when the mcp_server check passes; two clicks, **Confirm set drive pose** for 4 s) and a **Drive pose lift** toggle that shows the live `enabled` from the state topic and posts `POST /api/arm/drive_pose/enable` (runtime only, not persisted). Both are disabled with a visible reason while the arm is released (torque off) or a request is in flight, and both endpoints are refused like the other arm actions in the read-only mode. Map tab: the state (`lifted`, `lifting`, `skipped: <reason>`, ...) shows read-only in the status line and has no button.
 
-**Arm actions** (`frontend/src/arm/ArmActions.tsx', reasons in `arm/armControls.ts`, vitest `ArmActions.test.tsx`, `armControls.test.ts`): **Arm home** (`POST /api/arm/home`, one click), **Set home** (`POST /api/arm/set_home`, stores the current pose, two clicks: it reads **Confirm set home** for 4 s) and the **Grasp** dropdown (see [Grasp](#grasp)). The reply shows as an alert. A disabled control says why as visible text under the buttons (so a phone sees it) and as its tooltip: arm torque off (joint names from `torque_state`, which the bridge reports as released when any arm joint is torque-off or unverified), `Arm action in flight`, or for the drag the lease and waiting reasons above.
+**Arm actions** (`frontend/src/arm/ArmActions.tsx', reasons in `arm/armControls.ts`, vitest `ArmActions.test.tsx`, `armControls.test.ts`): **Arm home** (`POST /api/arm/home`, one click), **Set home** (`POST /api/arm/set_home`, stores the current pose, two clicks: it reads **Confirm set home** for 4 s; mcp_server refuses it while the arm zero is stale and the refusal "set home refused: the arm zero is stale (joint_offsets); run the zero restore first ..." shows as the error alert) and the **Grasp** dropdown (see [Grasp](#grasp)). The reply shows as an alert. A disabled control says why as visible text under the buttons (so a phone sees it) and as its tooltip: arm torque off (joint names from `torque_state`, which the bridge reports as released when any arm joint is torque-off or unverified), `Arm action in flight`, or for the drag the lease and waiting reasons above.
 
 **Jog panel** (`frontend/src/arm/ArmJogPanel.tsx`, calls `arm/armApi.ts`, vitest `ArmJogPanel.test.tsx`):
 

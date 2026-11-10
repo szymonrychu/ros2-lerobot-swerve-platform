@@ -348,6 +348,22 @@ def test_set_home_refusal_is_409_with_the_mcp_message(tmp_path: Path) -> None:
     assert (response.status_code, response.json()) == (409, {"ok": False, "message": "no fresh arm joint state"})
 
 
+STALE_SET_HOME_REFUSAL = (
+    "set home refused: the arm zero is stale (joint_offsets); run the zero restore first "
+    "(arm re-zero at 2026-10-20T10:00:00+00:00)"
+)
+
+
+def test_set_home_stale_zero_refusal_passes_through_as_409(tmp_path: Path) -> None:
+    """mcp_server refuses /arm/set_home while joint_offsets is stale: the route returns its message as the error."""
+    bridge = FakeBridge(
+        {"follower": (STATE, 100.0)}, trigger=SimpleNamespace(success=False, message=STALE_SET_HOME_REFUSAL)
+    )
+    response = make_client(tmp_path, bridge).post("/api/calibration/servos/arm/set_home")
+    assert (response.status_code, response.json()) == (409, {"ok": False, "message": STALE_SET_HOME_REFUSAL})
+    assert bridge.services == ["/arm/set_home"]
+
+
 def test_move_to_neutral_404_without_service(tmp_path: Path) -> None:
     from web_ui.server import build_app
 
