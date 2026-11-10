@@ -382,7 +382,7 @@ def test_d435_records_ignore_a_csi_only_applied_json(
     source = tmp_path / "head_chain.json"
     source.write_text("{}")
     with pytest.raises(NotApplicable, match="no D435 intrinsics check is accepted"):
-        apply_head_chain_file(cfg, source, {"session": "s"}, T0, fake_run)
+        apply_head_chain_file(cfg, source, "r-1", lambda _info: {"session": "s"}, T0, fake_run)
     store = SessionStore(Path(cfg.state_dir), cfg)
     check = store.create_session(T0)
     rid = "r-20261031-120001"
@@ -490,7 +490,7 @@ def test_concurrent_applies_keep_every_record(
     monkeypatch.setattr(os, "replace", replace)
     source = tmp_path / "head_chain.json"
     source.write_text("{}")
-    apply_head_chain_file(cfg, source, {"session": "floor-1"}, T0, fake_run)
+    apply_head_chain_file(cfg, source, "r-1", lambda _info: {"session": "floor-1"}, T0, fake_run)
     data = json.loads(marker.read_text())
     assert data["kind"] == KIND_INTRINSICS
     assert data[APPLIED_KEY]["front"]["result"] == rid

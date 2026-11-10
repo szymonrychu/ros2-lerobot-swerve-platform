@@ -309,11 +309,23 @@ def current_floor_ref(cfg: NodeConfig) -> dict[str, str] | None:
         cfg: Node config (state_dir).
 
     Returns:
-        {session, result}: the record's `floor` entry; for a record without a `floor` key (written by the floor apply
-        before the key existed) whose session matches FLOOR_SESSION_ID_RE, that record's own session and result;
-        None when there is neither.
+        dict[str, str] | None: `floor_ref_in` of applied/applied.json.
     """
-    record = read_applied_marker(cfg).get(HEAD_CHAIN_KEY)
+    return floor_ref_in(read_applied_marker(cfg))
+
+
+def floor_ref_in(info: dict[str, Any]) -> dict[str, str] | None:
+    """The floor result the head chain of an applied.json content was checked against, from its `head_chain` record.
+
+    Args:
+        info: The applied.json content.
+
+    Returns:
+        dict[str, str] | None: {session, result}: the record's `floor` entry; for a record without a `floor` key
+        (written by the floor apply before the key existed) whose session matches FLOOR_SESSION_ID_RE, that record's
+        own session and result; None when there is neither.
+    """
+    record = info.get(HEAD_CHAIN_KEY)
     if not isinstance(record, dict):
         return None
     if "floor" in record:
@@ -328,23 +340,35 @@ def current_floor_ref(cfg: NodeConfig) -> dict[str, str] | None:
 
 
 def apply_head_chain_file(
-    cfg: NodeConfig, source: Path, record: dict[str, Any], now: datetime, run: RunFn
+    cfg: NodeConfig,
+    source: Path,
+    rid: str,
+    record_for: Callable[[dict[str, Any]], dict[str, Any]],
+    now: datetime,
+    run: RunFn,
 ) -> dict[str, Any]:
     """Copy a head_chain.json into applied/ and record it in applied.json (the one writer of the applied chain).
+
+    The record is made from the applied.json content under the applied lock (apply.update_applied), so a check of
+    what is applied (the head chain a result was fitted against, the floor reference carried forward) and the write
+    are one step: no other apply lands in between.
 
     Args:
         cfg: Node config (state_dir, restart_units).
         source: The result's head_chain.json.
-        record: The `head_chain` record: {session, result, applied_at, source, floor}.
+        rid: Result id (telemetry run id).
+        record_for: Maps the current applied.json content to the `head_chain` record {session, result, applied_at,
+            source, floor}; it may raise NotApplicable to refuse, then nothing is written.
         now: Apply time, for the unit states.
         run: subprocess.run-compatible callable for the unit state.
 
     Returns:
-        {head_chain: record, units: [{name, active_state, restarted}]}.
+        dict[str, Any]: {head_chain: record, units: [{name, active_state, restarted}]}.
 
     Raises:
-        NotApplicable: no RGB-D calibration is applied.
+        NotApplicable: no RGB-D calibration is applied, or record_for refused.
     """
+    records: list[dict[str, Any]] = []
 
     def add_record(info: dict[str, Any]) -> dict[str, Any]:
         if not has_check_record(info):
@@ -352,20 +376,20 @@ def apply_head_chain_file(
                 "no D435 intrinsics check is accepted yet: press Accept check on a passed check in the RGB-D section "
                 "of the Calibrate page, then apply the head chain"
             )
-        return {**info, HEAD_CHAIN_KEY: record}
+        records.append(record_for(info))
+        return {**info, HEAD_CHAIN_KEY: records[0]}
 
     try:
         update_applied(Path(cfg.state_dir) / APPLIED_DIR, add_record, [(HEAD_CHAIN_FILE, source.read_bytes())])
     except NotApplicable as exc:
-        calib_event(
-            LOGGER, FLOW_APPLY, record.get("result"), "apply", "refused", logging.WARNING, str(exc), record=record
-        )
+        calib_event(LOGGER, FLOW_APPLY, rid, "apply", "refused", logging.WARNING, str(exc), source_file=source)
         raise
+    record = records[0]
     units = [unit_state(u, now.timestamp(), run) for u in cfg.restart_units]
     calib_event(
         LOGGER,
         FLOW_APPLY,
-        record.get("result"),
+        rid,
         "apply",
         "applied",
         record=record,
@@ -408,7 +432,7 @@ def apply_floor(cfg: NodeConfig, sid: str, rid: str, now: datetime, run: RunFn) 
         "source": SOURCE_FLOOR,
         "floor": {"session": sid, "result": rid},
     }
-    return apply_head_chain_file(cfg, source, record, now, run)
+    return apply_head_chain_file(cfg, source, rid, lambda _info: record, now, run)
 
 
 def applied_head_chain(cfg: NodeConfig) -> dict[str, Any] | None:

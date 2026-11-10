@@ -3,7 +3,9 @@
 Accepting records the check in <state_dir>/applied/applied.json and copies no file into applied/: the D435 factory
 intrinsics stay the ones every consumer reads. The records other applies keep in applied.json (the head chain) are
 left as they are. Every writer of applied.json (this accept, the head chain applies, the CSI applies) goes through
-update_applied, one lock for the read-modify-write. A unit restart is triggered outside this node, which only reads unit state with an unprivileged
+update_applied, one lock for the read-modify-write; a check of what is applied (the head chain a result was fitted
+against, the floor reference an apply carries forward) runs in its change callback, so the check and the write are
+one step. A unit restart is triggered outside this node, which only reads unit state with an unprivileged
 systemctl show.
 
 Telemetry: update_applied logs every applied/ write (flow `applied`: the files with their sizes and the applied.json

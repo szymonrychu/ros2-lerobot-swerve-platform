@@ -22,7 +22,7 @@ from ros2_common.head_rgbd_calibration.frames import CameraInfoData
 from ros2_common.head_rgbd_calibration.head_arm_fit import FLOOR_PARAMS, start_params
 from ros2_common.head_rgbd_calibration.urdf_text import Origin, head_chain_json
 
-from head_rgbd_calibration import head_arm_results
+from head_rgbd_calibration import floor_results, head_arm_results
 from head_rgbd_calibration.apply import NotApplicable
 from head_rgbd_calibration.config import NodeConfig
 from head_rgbd_calibration.floor_results import applied_head_chain, base_urdf
@@ -34,7 +34,7 @@ from head_rgbd_calibration.head_arm_results import (
 )
 from head_rgbd_calibration.store import SessionStore
 from head_rgbd_calibration.telemetry import events_in
-from tests.applied_writes import record_applied_writes
+from tests.applied_writes import interleave_apply, record_applied_writes
 from tests.pose_factory import still_arm_pose
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -415,6 +415,31 @@ def test_head_arm_apply_writes_the_head_chain_before_applied_json(
     landed = record_applied_writes(monkeypatch, state / "applied")
     apply_head_arm(cfg, store, ready, result["id"], NOW, fake_run)
     assert landed == ["head_chain.json", "applied.json"]
+
+
+def test_head_arm_apply_carries_the_floor_reference_applied_at_its_write(
+    cfg: NodeConfig, state: Path, store: SessionStore, ready: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The floor reference carried forward is read under the applied lock with the write: a floor apply that starts
+    right after the read lands after the head-arm apply, never in between."""
+    result = compute_head_arm(cfg, store, ready, NOW)
+    source = state / "other_head_chain.json"
+    source.write_text(head_chain_json({TILT: Origin((0.0, 0.0, 0.04), (0.0, 0.1, 0.0))}, "floor fit", **OTHER_FLOOR))
+    floor_record = {**OTHER_FLOOR, "applied_at": NOW.isoformat(), "source": "floor", "floor": OTHER_FLOOR}
+    landed = record_applied_writes(monkeypatch, state / "applied")
+    applied_head_arm, applied_floor = interleave_apply(
+        monkeypatch,
+        floor_results,
+        "floor_ref_in",
+        lambda: apply_head_arm(cfg, store, ready, result["id"], NOW, fake_run),
+        lambda: floor_results.apply_head_chain_file(
+            cfg, source, OTHER_FLOOR["result"], lambda _info: floor_record, NOW, fake_run
+        ),
+    )
+    assert applied_head_arm["head_chain"]["floor"] == {"session": FLOOR_SID, "result": FLOOR_RID}
+    assert applied_floor["head_chain"] == floor_record
+    assert landed == ["head_chain.json", "applied.json", "head_chain.json", "applied.json"]
+    assert json.loads((state / "applied" / "applied.json").read_text())["head_chain"] == floor_record
 
 
 def test_apply_writes_applied_chain_and_record(cfg: NodeConfig, state: Path, store: SessionStore, ready: str) -> None:

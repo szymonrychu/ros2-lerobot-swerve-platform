@@ -458,15 +458,22 @@ def accept_locked(
     elif not result["report"]["plausible"]:
         reasons = "; ".join(r["message"] for r in result["report"]["refusals"])
         refusal = NOT_PLAUSIBLE_ERROR.format(rid=rid, reasons=reasons)
-    elif result["head_chain"] != (applied_chain := head_chain_source(cfg)):
-        refusal = HEAD_CHAIN_CHANGED_ERROR.format(rid=rid, fitted=result["head_chain"], applied=applied_chain)
     if refusal is not None:
         calib_event(LOGGER, FLOW_ACCEPT, rid, "accept", "refused", logging.WARNING, refusal, session_id=sid)
         raise NotApplicable(refusal)
     record = {"session": sid, "result": rid, "applied_at": now.isoformat(), "source": SOURCE, "floor": None}
+
+    def record_for(_info: dict[str, Any]) -> dict[str, Any]:
+        # Under the applied lock: the head chain the fit held fixed is still the applied one when this one lands.
+        if result["head_chain"] != (applied_chain := head_chain_source(cfg)):
+            raise NotApplicable(
+                HEAD_CHAIN_CHANGED_ERROR.format(rid=rid, fitted=result["head_chain"], applied=applied_chain)
+            )
+        return record
+
     directory = store.result_dir(sid, rid)
     try:
-        body = floor_results.apply_head_chain_file(cfg, directory / HEAD_CHAIN_FILE, record, now, run)
+        body = floor_results.apply_head_chain_file(cfg, directory / HEAD_CHAIN_FILE, rid, record_for, now, run)
     except NotApplicable as exc:
         calib_event(LOGGER, FLOW_ACCEPT, rid, "accept", "refused", logging.WARNING, str(exc), session_id=sid)
         raise

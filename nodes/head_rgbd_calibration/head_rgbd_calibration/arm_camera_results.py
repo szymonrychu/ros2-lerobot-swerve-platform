@@ -488,8 +488,6 @@ def accept_locked(
     elif not result["report"]["plausible"]:
         reasons = "; ".join(r["message"] for r in result["report"]["refusals"])
         refusal = NOT_PLAUSIBLE_ERROR.format(rid=rid, reasons=reasons)
-    elif result["head_chain"] != (applied_chain := head_chain_source(cfg)):
-        refusal = HEAD_CHAIN_CHANGED_ERROR.format(rid=rid, fitted=result["head_chain"], applied=applied_chain)
     else:
         try:
             since = captured_from(store, sid)
@@ -516,11 +514,20 @@ def accept_locked(
         calib_event(LOGGER, FLOW_ACCEPT, rid, "accept", "refused", logging.WARNING, reason, session_id=sid)
         raise NotApplicable(reason) from exc
     text = json.dumps(calibration, indent=2).encode()
-    update_applied(
-        Path(cfg.state_dir) / APPLIED_DIR,
-        lambda info: {**info, ARM_CALIBRATION_KEY: record},
-        [(ARM_CALIBRATION_FILE, text)],
-    )
+
+    def add_record(info: dict[str, Any]) -> dict[str, Any]:
+        # Under the applied lock: the head chain the fit held fixed is still the applied one when this one lands.
+        if result["head_chain"] != (applied_chain := head_chain_source(cfg)):
+            raise NotApplicable(
+                HEAD_CHAIN_CHANGED_ERROR.format(rid=rid, fitted=result["head_chain"], applied=applied_chain)
+            )
+        return {**info, ARM_CALIBRATION_KEY: record}
+
+    try:
+        update_applied(Path(cfg.state_dir) / APPLIED_DIR, add_record, [(ARM_CALIBRATION_FILE, text)])
+    except NotApplicable as exc:
+        calib_event(LOGGER, FLOW_ACCEPT, rid, "accept", "refused", logging.WARNING, str(exc), session_id=sid)
+        raise
     write_json_atomic(store.result_dir(sid, rid) / RESULT_FILE, {**result, "accepted_at": record["accepted_at"]})
     units = [unit_state(unit, now.timestamp(), run) for unit in cfg.restart_units]
     calib_event(

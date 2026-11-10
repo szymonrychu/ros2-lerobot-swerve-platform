@@ -120,6 +120,7 @@ def test_result_matches_the_contract(shared: SimpleNamespace) -> None:
     assert response.status_code == 200
     body = response.json()
     assert_matches_fixture(with_fixed_sigmas_as_numbers(body), "ground_board_result")
+    assert body["report"]["plausible"] is True and body["report"]["refusals"] == []
     gauge = {p["name"] for p in body["report"]["params"] if p["sigma"] is None}
     assert gauge == {"mount_x_m", "mount_y_m", "mount_yaw_deg"}
     assert (body["id"], body["session"], body["state"]) == (shared.rid, shared.scene.sid, "done")
@@ -254,8 +255,21 @@ def test_implausible_accept_is_409(tmp_path: Path) -> None:
     parts = make_parts(Scene(tmp_path, bounds=GroundBoardBounds(max_mount_move_mm=1.0)))
     sid = parts.scene.sid
     rid = parts.client.post(f"/api/ground-board/sessions/{sid}/compute").json()["result_id"]
+    body = parts.client.get(f"/api/ground-board/sessions/{sid}/results/{rid}").json()
+    assert_matches_fixture(with_fixed_sigmas_as_numbers(body), "ground_board_result_implausible")
+    assert body["report"]["plausible"] is False and body["report"]["refusals"]
     response = parts.client.post(f"/api/ground-board/sessions/{sid}/results/{rid}/accept")
     assert response.status_code == 409 and "not plausible" in response.json()["message"]
+
+
+@pytest.mark.parametrize(
+    ("fixture", "plausible"), [("ground_board_result", True), ("ground_board_result_implausible", False)]
+)
+def test_result_fixtures_are_plausible_exactly_without_refusals(fixture: str, plausible: bool) -> None:
+    """A done result is plausible exactly when its report has no refusal; one fixture holds each case."""
+    report = load_fixture(fixture)["report"]
+    assert report["plausible"] is plausible
+    assert (report["refusals"] == []) is plausible
 
 
 def test_accept_is_409_while_a_verification_or_session_runs(tmp_path: Path) -> None:

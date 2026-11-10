@@ -27,7 +27,7 @@ from ros2_common.head_rgbd_calibration.config import ARM_JOINT_NAMES, ArmCameraB
 from ros2_common.head_rgbd_calibration.head_arm_fit import MOUNT_JOINT, TILT_JOINT
 from ros2_common.head_rgbd_calibration.urdf_text import Origin, head_chain_json
 
-from head_rgbd_calibration import arm_camera_results
+from head_rgbd_calibration import arm_camera_results, floor_results
 from head_rgbd_calibration.apply import NotApplicable
 from head_rgbd_calibration.arm_camera_results import (
     KIND,
@@ -42,6 +42,7 @@ from head_rgbd_calibration.arm_camera_results import (
 from head_rgbd_calibration.config import NodeConfig
 from head_rgbd_calibration.store import SessionStore
 from head_rgbd_calibration.telemetry import events_in
+from tests.applied_writes import interleave_apply, record_applied_writes
 from tests.pose_factory import STAMP_NS, still_arm_pose
 from tests.test_compute_arm import INTRINSICS_BOARD
 from tests.test_head_arm_results import fake_run, put_marker, synthetic, synthetic_camera_info
@@ -488,4 +489,35 @@ def test_accept_refuses_a_fit_of_a_head_chain_no_longer_applied(tmp_path: Path) 
     (scene.state / "applied" / "applied.json").write_text(json.dumps(marker))
     with pytest.raises(NotApplicable, match="head chain"):
         accept_arm_camera(scene.cfg, scene.store, scene.sid, second["id"], LATER, fake_run)
+    assert arm_camera_state(scene.cfg)["applied"]["head_chain_changed"] is True
+
+
+def test_a_head_chain_apply_after_the_accept_check_lands_after_the_accept(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The applied head chain check and the arm calibration write are one step under the applied lock: a head chain
+    apply of another flow (e.g. a ground board accept) that starts right after the check lands after the accept,
+    which then reports the calibration as fitted against another head chain."""
+    scene = Scene(tmp_path)
+    result = compute_arm_camera(scene.cfg, scene.store, scene.sid, SessionStore.new_result_id(NOW), NOW)
+    other = {"session": "ground-20261109-120000", "result": "r-20261109-121000"}
+    source = tmp_path / "other_head_chain.json"
+    source.write_text(
+        (scene.state / "applied" / "head_chain.json").read_text().replace(FLOOR_SID, other["session"])
+        .replace(FLOOR_RID, other["result"])
+    )  # fmt: skip
+    record = {**other, "applied_at": LATER.isoformat(), "source": "ground_board", "floor": None}
+    landed = record_applied_writes(monkeypatch, scene.state / "applied")
+    accepted, applied = interleave_apply(
+        monkeypatch,
+        arm_camera_results,
+        "head_chain_source",
+        lambda: accept_arm_camera(scene.cfg, scene.store, scene.sid, result["id"], LATER, fake_run),
+        lambda: floor_results.apply_head_chain_file(
+            scene.cfg, source, other["result"], lambda _info: record, LATER, fake_run
+        ),
+    )
+    assert accepted["arm_calibration"]["result"] == result["id"]
+    assert applied["head_chain"] == record
+    assert landed == [ARM_CALIBRATION_FILE, "applied.json", "head_chain.json", "applied.json"]
     assert arm_camera_state(scene.cfg)["applied"]["head_chain_changed"] is True
