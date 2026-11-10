@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cmath>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -23,7 +24,9 @@ namespace
 {
 
 // slam_toolbox stand-in: paused_new_measurements parameter (served by the node's parameter services), the Pause
-// toggle, Reset and SerializePoseGraph with configurable answers and an optional delay.
+// toggle, Reset and SerializePoseGraph with configurable answers and an optional delay. It answers on its own executor
+// thread while the test thread sets the answers and reads what it received, so every shared field is an atomic or
+// guarded by mutex_.
 class FakeSlamToolbox : public rclcpp::Node
 {
 public:
@@ -35,11 +38,11 @@ public:
       [this](
         const slam_toolbox::srv::Pause::Request::SharedPtr, slam_toolbox::srv::Pause::Response::SharedPtr response) {
         ++pause_calls;
-        std::this_thread::sleep_for(delay);
-        if (toggle_works) {
+        std::this_thread::sleep_for(delay.load());
+        if (toggle_works.load()) {
           set_parameter(rclcpp::Parameter(mg::PAUSED_PARAMETER, !get_parameter(mg::PAUSED_PARAMETER).as_bool()));
         }
-        response->status = toggle_status;
+        response->status = toggle_status.load();
       });
     reset_ = create_service<slam_toolbox::srv::Reset>(
       "/" + name + "/reset", [this](
@@ -47,30 +50,41 @@ public:
                                slam_toolbox::srv::Reset::Response::SharedPtr response) {
         ++reset_calls;
         reset_pause_flag = request->pause_new_measurements;
-        response->result = reset_result;
+        response->result = reset_result.load();
       });
     serialize_ = create_service<slam_toolbox::srv::SerializePoseGraph>(
       "/" + name + "/serialize_map", [this](
                                        const slam_toolbox::srv::SerializePoseGraph::Request::SharedPtr request,
                                        slam_toolbox::srv::SerializePoseGraph::Response::SharedPtr response) {
         ++serialize_calls;
-        serialized = request->filename;
-        response->result = serialize_result;
+        {
+          std::lock_guard<std::mutex> lock(mutex_);
+          serialized_ = request->filename;
+        }
+        response->result = serialize_result.load();
       });
   }
 
-  std::chrono::milliseconds delay{0};
-  bool toggle_works = true;
-  bool toggle_status = true;
-  std::uint8_t reset_result = slam_toolbox::srv::Reset::Response::RESULT_SUCCESS;
-  std::uint8_t serialize_result = slam_toolbox::srv::SerializePoseGraph::Response::RESULT_SUCCESS;
+  // The filename of the last SerializePoseGraph request.
+  std::string serialized() const
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return serialized_;
+  }
+
+  std::atomic<std::chrono::milliseconds> delay{std::chrono::milliseconds{0}};
+  std::atomic<bool> toggle_works{true};
+  std::atomic<bool> toggle_status{true};
+  std::atomic<std::uint8_t> reset_result{slam_toolbox::srv::Reset::Response::RESULT_SUCCESS};
+  std::atomic<std::uint8_t> serialize_result{slam_toolbox::srv::SerializePoseGraph::Response::RESULT_SUCCESS};
   std::atomic<int> pause_calls{0};
   std::atomic<int> reset_calls{0};
   std::atomic<int> serialize_calls{0};
-  bool reset_pause_flag = true;
-  std::string serialized;
+  std::atomic<bool> reset_pause_flag{true};
 
 private:
+  mutable std::mutex mutex_;
+  std::string serialized_;
   rclcpp::Service<slam_toolbox::srv::Pause>::SharedPtr pause_;
   rclcpp::Service<slam_toolbox::srv::Reset>::SharedPtr reset_;
   rclcpp::Service<slam_toolbox::srv::SerializePoseGraph>::SharedPtr serialize_;
@@ -249,9 +263,9 @@ TEST_F(RosTest, SerializeAndResetCheckResultCodes)
   mg::Config config;
   mg::SlamServices slam(*client_node_, config);
   EXPECT_TRUE(slam.serialize_map("/var/lib/ros2/maps/b"));
-  EXPECT_EQ(fake_->serialized, "/var/lib/ros2/maps/b");
+  EXPECT_EQ(fake_->serialized(), "/var/lib/ros2/maps/b");
   EXPECT_TRUE(slam.reset());
-  EXPECT_FALSE(fake_->reset_pause_flag);  // the pause state is left as it is
+  EXPECT_FALSE(fake_->reset_pause_flag.load());  // the pause state is left as it is
   fake_->serialize_result = slam_toolbox::srv::SerializePoseGraph::Response::RESULT_FAILED_TO_WRITE_FILE;
   fake_->reset_result = 1;
   EXPECT_FALSE(slam.serialize_map("/x"));
