@@ -6,6 +6,7 @@ zero_record.write_zero_change for a joint of a group with neutral_stale_marker, 
 """
 
 import json
+import logging
 import os
 import sys
 from pathlib import Path
@@ -264,6 +265,29 @@ def test_calibrate_records_a_failed_define_middle_before_exiting(tmp_path: Path)
     assert bus.middles == [1]
     assert record(tmp_path)["group"] == "follower"
     assert not (tmp_path / "arm" / MARKER_NAME).exists()
+
+
+def test_calibrate_prints_the_define_middle_error_when_the_record_write_also_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    bus = FakeBus({1: 1500, 3: 2600})
+    bus.middle_raises = True
+    monkeypatch.setattr(m, "write_zero_change", lambda *a: ["zero change record not written: OSError: disk full"])
+    assert run(bus, calibrate_args(tmp_path, 2)) == 1
+    assert bus.middles == [1]
+    err = capsys.readouterr().err
+    assert "zero change record not written" in err
+    assert "failed to set center for servo 1" in err and "OSError: serial timeout" in err
+
+
+def test_define_middle_that_raises_logs_the_traceback(caplog: pytest.LogCaptureFixture) -> None:
+    servo = MagicMock()
+    servo.DefineMiddle.side_effect = OSError("serial timeout")
+    with caplog.at_level(logging.ERROR):
+        error = m.define_middle(servo, 3)
+    assert error == "DefineMiddle (torque_enable=128) raised OSError: serial timeout"
+    assert caplog.records and caplog.records[0].exc_info is not None
+    assert "Traceback" in caplog.text and "servo 3" in caplog.text
 
 
 def test_calibrate_without_bridge_config_is_refused_before_define_middle(

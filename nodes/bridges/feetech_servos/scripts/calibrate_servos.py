@@ -16,6 +16,7 @@ writable for this user (zero_record.record_dir_refusal); a record write that fai
 
 import argparse
 import json
+import logging
 import os
 import sys
 import time
@@ -40,6 +41,8 @@ from registers import (  # noqa: E402
     write_register,
 )
 from zero_record import ZERO_RECORD_FILE, record_dir_refusal, utc_now_iso, write_zero_change  # noqa: E402
+
+LOGGER = logging.getLogger(__name__)
 
 # Legacy cal.json keys mapped to register names when loading config
 _LEGACY_CONFIG_KEYS: dict[str, str] = {"min": "min_angle_limit", "max": "max_angle_limit"}
@@ -194,6 +197,7 @@ def define_middle(servo: Any, sid: int) -> str | None:
     try:
         defined = servo.DefineMiddle(sid)
     except Exception as exc:  # noqa: BLE001 - any bus error: the command may have landed, the caller records it
+        LOGGER.exception("DefineMiddle (torque_enable=128) to servo %d raised", sid)
         return f"DefineMiddle (torque_enable=128) raised {type(exc).__name__}: {exc}"
     return None if defined else "DefineMiddle (torque_enable=128) failed"
 
@@ -330,10 +334,11 @@ def cmd_calibrate(servo: Any, args: argparse.Namespace) -> int:
         error = define_middle(servo, jid)
         center = servo.ReadPosition(jid) if error is None else None
         verified = center is not None and abs(center - DEFAULT_CENTER) <= CENTER_TOLERANCE_STEPS
-        if not record_zero(zero.get(jid), jid, before, center, verified):
-            return 1
+        recorded = record_zero(zero.get(jid), jid, before, center, verified)
         if error is not None:
             print(f"Error: failed to set center for servo {jid}: {error}", file=sys.stderr)
+            return 1
+        if not recorded:
             return 1
         if center is None:
             center = DEFAULT_CENTER
