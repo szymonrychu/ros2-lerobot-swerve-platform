@@ -48,7 +48,7 @@ def record_payload(
         failure (tuple[str, str] | None): (joint, reason) of the first failure; None on full success.
         not_attempted (list[str]): Joints not reached after a failure.
         home_rad (dict[str, float]): joint name -> recorded home reading in rad (the gripper reading, spec 3.6).
-        override_notes (list[str]): What the confirm overrode.
+        override_notes (list[str]): Joints whose config command override is wider than the new hardware limits.
 
     Returns:
         dict[str, Any]: The record; success is true exactly when there is no failure.
@@ -70,6 +70,20 @@ def record_payload(
     }
 
 
+def audit_path(record_dir: Path, stamp: datetime, run_id: str) -> Path:
+    """Path of the audit record of one run.
+
+    Args:
+        record_dir (Path): Directory of the record files.
+        stamp (datetime): Time of the run (named in UTC).
+        run_id (str): Id of the run.
+
+    Returns:
+        Path: `<record_dir>/servo_calibration-<YYYYmmddTHHMMSSZ>-<run_id>.json`.
+    """
+    return record_dir / f"{RECORD_PREFIX}-{stamp.astimezone(UTC).strftime(STAMP_FORMAT)}-{run_id}.json"
+
+
 def write_records(record_dir: Path, namespace: str, stamp: datetime, payload: dict[str, Any]) -> list[str]:
     """Write the audit record and, on full success, the latest record.
 
@@ -83,8 +97,7 @@ def write_records(record_dir: Path, namespace: str, stamp: datetime, payload: di
         list[str]: One "... not written: ..." text per failed write; empty when everything was written.
     """
     errors: list[str] = []
-    audit = record_dir / f"{RECORD_PREFIX}-{stamp.astimezone(UTC).strftime(STAMP_FORMAT)}-{payload['run_id']}.json"
-    targets = [audit]
+    targets = [audit_path(record_dir, stamp, payload["run_id"])]
     if payload["success"]:
         targets.append(record_dir / f"{RECORD_PREFIX}-{namespace}-latest.json")
     for path in targets:

@@ -9,12 +9,21 @@ Per group with a `servo_calibration` block (config.ServoCalibrationConfig), over
   and the offsets. Nothing is written. Discards the group's capture and plan.
 - capture_start / capture_stop(namespace): start (needs a recorded home and torque off, read on the bus) or stop the
   range capture. While running, observe(readings), called once per loop after the sync read, folds each joint's
-  reading into a wrap-safe RangeTracker; a group that is not released (bookkeeping only, no bus I/O) is paused.
+  reading into a wrap-safe RangeTracker; a group that is not released (bookkeeping only, no bus I/O) is paused, and
+  the first fold after a pause is taken relative to home (the joints may have been driven anywhere meanwhile).
 - plan(namespace): needs a recorded home and no running capture; re-reads offsets and angle limits, refuses when an
   offset changed since home was recorded, then plans every joint (calibration_plan.plan_joint) and keeps the plan
-  with a run_id, its monotonic time and the "before" values the store re-checks. Succeeds only when no joint has a
-  problem; needs_confirm when a joint exceeds max_change_deg or is narrower than required_travel_rad. Nothing is
-  written.
+  with a run_id, its monotonic time and the "before" values the store re-checks. A joint that got no sample during a
+  capture is a problem. Succeeds only when no joint has a problem; needs_confirm when a joint exceeds max_change_deg
+  or is narrower than required_travel_rad. Nothing is written.
+- store(namespace, confirmed): spec 3.5. Refused (nothing written) without a plan, with problems, when older than
+  plan_max_age_s, without the confirm when needs_confirm (store_confirmed accepts), unless released with torque 0 on
+  the bus, still, and every offset and limit reads the plan's before value. Per joint in config order (unchanged
+  joints skipped): torque 0 and present p0 re-read; offset written, settled and verified against the predicted
+  reading (p0 - change) mod 4096; differing limits written; offset and limits read back. A failure rolls that joint
+  back (old offset and limits, read back) and ends the store. Then the command limits are refreshed (config
+  overrides kept, wider overrides reported), the audit record (and on full success the latest record) is written,
+  and on full success home, capture and plan are cleared. Torque stays off; never DefineMiddle.
 - status(namespace): the `servo_calibration` field of /<ns>/torque_state. The capture part is rebuilt at most every
   capture_status_interval_s (any service call forces a rebuild), so the torque_state change detection publishes at
   most that often while capturing. Fields stay None until real readings exist.
@@ -27,16 +36,32 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
-from feetech_mapping.command_mapping import steps_to_radians
+from feetech_mapping.command_mapping import STEPS_PER_REVOLUTION, steps_to_radians
 
-from .calib_event import OUTCOME_OK, OUTCOME_REFUSED, OUTCOME_START, CalibEventLog, new_run_id
+from .calib_event import OUTCOME_FAILED, OUTCOME_OK, OUTCOME_REFUSED, OUTCOME_START, CalibEventLog, new_run_id
 from .calibration_plan import JointCalibrationPlan, RangeTracker, plan_joint
+from .calibration_records import audit_path, home_rad, record_payload, write_records
 from .config import JointEntry, JointGroup, ServoCalibrationConfig, calibration_joints
 from .neutral import NeutralResult, names_text, stop_bus_wheels
-from .servo_offsets import read_limits, read_offset, read_torques, sample_still, steps_to_degrees, torque_refusals
-from .torque_control import TORQUE_OFF, TorqueControl
+from .servo_offsets import (
+    CACHE_CLEARED_REGISTERS,
+    SETTLE_S,
+    offset_delta_steps,
+    read_limits,
+    read_offset,
+    read_retried,
+    read_torques,
+    sample_still,
+    steps_to_degrees,
+    torque_refusals,
+    verify_present,
+    write_limits,
+    write_offset,
+)
+from .torque_control import PRESENT_REGISTER, TORQUE_OFF, TorqueControl
 
 LOGGER = logging.getLogger(__name__)
 FLOW = "servo_calibration"
@@ -44,8 +69,12 @@ STEP_RECORD_HOME = "record_home"
 STEP_CAPTURE_START = "capture_start"
 STEP_CAPTURE_STOP = "capture_stop"
 STEP_PLAN = "plan"
+STEP_STORE = "store"
+ACTION_STORE = "store"
+ACTION_STORE_CONFIRMED = "store_confirmed"
 NOT_CONFIGURED = "servo calibration not configured for this group"
 NOTHING_WRITTEN = "nothing written"
+NO_RANGE_SAMPLES = "no range samples; record ranges again"
 # Numeric config values published in the status (plus home_reference_rad).
 STATUS_CONFIG_KEYS = (
     "min_range_deg",
@@ -120,6 +149,49 @@ class GroupCalibrationState:
     last_result: dict[str, Any] | None = None
     snapshot: dict[str, Any] | None = None
     snapshot_mono: float = 0.0
+
+
+@dataclass
+class StoreOutcome:
+    """Result of storing one joint's planned offset and limits.
+
+    Attributes:
+        written: An EEPROM write was sent (it may have landed even when not acknowledged).
+        applied: The planned offset and limits are on the servo (written and verified, or already equal).
+        present_before_steps: present_position read right before the writes; None when not read.
+        present_after_steps: Last present_position read after the offset write (within tolerance of the predicted
+            reading when applied); None without an offset write or when unread.
+        offset_after_steps: Offset read back after the writes (before any rollback); the planned value when skipped.
+        limits_after: Angle limits read back after the writes (before any rollback); the planned ones when skipped.
+        rolled_back: The old offset and limits were rewritten and read back after a failure; None without a rollback.
+        reason: Why the joint failed; None on success.
+    """
+
+    written: bool = False
+    applied: bool = False
+    present_before_steps: int | None = None
+    present_after_steps: int | None = None
+    offset_after_steps: int | None = None
+    limits_after: tuple[int, int] | None = None
+    rolled_back: bool | None = None
+    reason: str | None = None
+
+    def payload(self) -> dict[str, Any]:
+        """Return the outcome as JSON values (status and audit record).
+
+        Returns:
+            dict[str, Any]: All fields, limits_after as a list.
+        """
+        return {
+            "written": self.written,
+            "applied": self.applied,
+            "present_before_steps": self.present_before_steps,
+            "present_after_steps": self.present_after_steps,
+            "offset_after_steps": self.offset_after_steps,
+            "limits_after": None if self.limits_after is None else list(self.limits_after),
+            "rolled_back": self.rolled_back,
+            "reason": self.reason,
+        }
 
 
 class ServoCalibrationControl:
@@ -249,18 +321,26 @@ class ServoCalibrationControl:
         unstopped = stop_bus_wheels(self.torque)
         if unstopped:
             return self.refused(
-                run_id, STEP_RECORD_HOME, started, namespace, f"wheels not stopped: {names_text(unstopped)}"
+                run_id,
+                STEP_RECORD_HOME,
+                started,
+                namespace,
+                f"wheels not stopped: {names_text(unstopped)}; {NOTHING_WRITTEN}",
             )
         presents, refusal = sample_still(
             self.torque.servo, joints, config.still_window_s, config.still_tolerance_steps, self.sleep
         )
         if presents is None:
-            return self.refused(run_id, STEP_RECORD_HOME, started, namespace, refusal)
+            return self.refused(run_id, STEP_RECORD_HOME, started, namespace, f"{refusal}; {NOTHING_WRITTEN}")
         offsets = {j.name: read_offset(self.torque.servo, j.id) for j in joints}
         unread = [n for n, v in offsets.items() if v is None]
         if unread:
             return self.refused(
-                run_id, STEP_RECORD_HOME, started, namespace, f"offset read failed: {names_text(unread)}"
+                run_id,
+                STEP_RECORD_HOME,
+                started,
+                namespace,
+                f"offset read failed: {names_text(unread)}; {NOTHING_WRITTEN}",
             )
         state = self.state(namespace)
         state.joints = joints
@@ -352,9 +432,15 @@ class ServoCalibrationControl:
         for state in self.states.values():
             if not state.running:
                 continue
+            was_paused = state.paused
             state.paused = bool(self.not_released(state.joints))
             if state.paused:
                 continue
+            if was_paused:
+                # The joints may have been driven anywhere while paused: the first fold after the pause is taken
+                # relative to home (short way), not the short way from the pre-pause sample.
+                for tracker in state.trackers.values():
+                    tracker.last_steps = None
             state.cycles += 1
             for joint in state.joints:
                 reading = readings.get(joint.id)
@@ -415,6 +501,10 @@ class ServoCalibrationControl:
             )
             for j in state.joints
         }
+        if state.trackers:
+            for name, tracker in state.trackers.items():
+                if tracker.samples == 0:
+                    joints[name].problems.append(NO_RANGE_SAMPLES)
         plan = CalibrationPlan(run_id, self.now_iso(), joints)
         state.plan = plan
         state.plan_mono = self.monotonic()
@@ -431,6 +521,340 @@ class ServoCalibrationControl:
         message = plan_message(namespace, plan, config)
         (LOGGER.info if plan.ok else LOGGER.warning)(message)
         return NeutralResult(plan.ok, message)
+
+    # --- store --------------------------------------------------------------------------------------------------
+
+    def store(self, namespace: str, confirmed: bool = False) -> NeutralResult:
+        """Write the plan's offsets and angle limits joint by joint with verify and rollback; torque stays off.
+
+        Refused (nothing written) unless a plan exists, it has no problem, it is at most plan_max_age_s old, the
+        confirm was given when it needs one, the group is released and reads torque 0 on the bus, the joints are
+        still and every offset and limit still reads the plan's before value. Joints whose offset and limits are
+        unchanged are skipped. The first failing joint is rolled back and ends the store; joints stored before it
+        stay stored. Afterwards the command limits are refreshed (except config overrides), the audit record is
+        written (and the latest record on full success) and, on full success, home, capture and plan are cleared.
+
+        Args:
+            namespace (str): Group namespace.
+            confirmed (bool): The user confirmed a large change or limits narrower than required (store_confirmed).
+
+        Returns:
+            NeutralResult: success when every joint was stored and the records were written; otherwise the message
+                names the stored, failed and unattempted joints.
+        """
+        run_id, started = self.start(namespace, STEP_STORE)
+
+        def refuse(reason: str) -> NeutralResult:
+            return self.refused(run_id, STEP_STORE, started, namespace, reason)
+
+        group, refusal = self.configured_group(namespace)
+        if group is None:
+            return refuse(f"{refusal}; {NOTHING_WRITTEN}")
+        config: ServoCalibrationConfig = group.servo_calibration
+        state = self.state(namespace)
+        plan = state.plan
+        if plan is None or state.plan_mono is None:
+            return refuse(f"plan first; {NOTHING_WRITTEN}")
+        if not plan.ok:
+            problems = [f"{name}: {p}" for name, j in plan.joints.items() for p in j.problems]
+            return refuse(f"cannot store: {'; '.join(problems)}; {NOTHING_WRITTEN}")
+        age = self.monotonic() - state.plan_mono
+        if age > config.plan_max_age_s:
+            state.plan = None
+            state.plan_mono = None
+            return refuse(f"plan is {age:.0f} s old (max {config.plan_max_age_s:g} s); plan again; {NOTHING_WRITTEN}")
+        if plan.needs_confirm and not confirmed:
+            return refuse(
+                f"needs the confirm: {confirm_text(plan, config)}; confirm to store (store_confirmed); "
+                f"{NOTHING_WRITTEN}"
+            )
+        group, refusal = self.released_group(namespace)
+        if group is None:
+            return refuse(refusal)
+        joints = [j for j in state.joints if j.name in plan.joints]
+        unstopped = stop_bus_wheels(self.torque)
+        if unstopped:
+            return refuse(f"wheels not stopped: {names_text(unstopped)}; {NOTHING_WRITTEN}")
+        presents, refusal = sample_still(
+            self.torque.servo, joints, config.still_window_s, config.still_tolerance_steps, self.sleep
+        )
+        if presents is None:
+            return refuse(f"{refusal}; {NOTHING_WRITTEN}")
+        unread: list[str] = []
+        changed: list[str] = []
+        for joint in joints:
+            planned = plan.joints[joint.name]
+            offset = read_offset(self.torque.servo, joint.id)
+            limits = read_limits(self.torque.servo, joint.id)
+            if offset is None or limits is None:
+                unread.append(joint.name)
+            elif offset != planned.offset_before_steps or limits != planned.limits_before:
+                changed.append(
+                    f"{joint.name} (offset {planned.offset_before_steps} -> {offset}, limits "
+                    f"{limits_text(planned.limits_before)} -> {limits_text(limits)})"
+                )
+        if unread:
+            return refuse(f"offset/limit read failed: {names_text(unread)}; {NOTHING_WRITTEN}")
+        if changed:
+            state.plan = None
+            state.plan_mono = None
+            return refuse(f"registers changed since the plan: {', '.join(changed)}; plan again; {NOTHING_WRITTEN}")
+
+        state.plan = None
+        state.plan_mono = None
+        if plan.needs_confirm:
+            self.ok(run_id, "confirm", started, {"group": namespace, "confirm": confirm_text(plan, config)})
+        outcomes: dict[str, StoreOutcome] = {}
+        failure: tuple[str, str] | None = None
+        not_attempted: list[str] = []
+        for index, joint in enumerate(joints):
+            outcome = self.store_joint(joint, plan.joints[joint.name], config.verify_tolerance_steps, run_id, started)
+            outcomes[joint.name] = outcome
+            if outcome.reason is not None:
+                failure = (joint.name, outcome.reason)
+                not_attempted = [j.name for j in joints[index + 1 :]]
+                break
+
+        override_notes: list[str] = []
+        for joint in joints:
+            outcome = outcomes.get(joint.name)
+            if outcome is None or not outcome.applied or outcome.limits_after is None:
+                continue
+            override = self.command_overrides.get(joint.id)
+            if override is None:
+                self.command_limits[joint.id] = outcome.limits_after
+            elif override[0] < outcome.limits_after[0] or override[1] > outcome.limits_after[1]:
+                override_notes.append(
+                    f"{joint.name}: override {limits_text(override)} still clamps commands; the servo now stops at "
+                    f"{limits_text(outcome.limits_after)}"
+                )
+
+        stamp = self.now()
+        finished_at = stamp.isoformat(timespec="seconds")
+        record_dir = Path(config.record_dir)
+        record_path = audit_path(record_dir, stamp, run_id)
+        record = record_payload(
+            namespace,
+            run_id,
+            plan.run_id,
+            finished_at,
+            confirmed,
+            {name: {"plan": plan.joints[name].payload(), **o.payload()} for name, o in outcomes.items()},
+            failure,
+            not_attempted,
+            home_rad(plan.joints),
+            override_notes,
+        )
+        record_errors = write_records(record_dir, namespace, stamp, record)
+        audit_written = not any(str(record_path) in error for error in record_errors)
+        self.events.event(
+            FLOW,
+            run_id,
+            "record",
+            OUTCOME_FAILED if record_errors else OUTCOME_OK,
+            "; ".join(record_errors) or None,
+            {"path": str(record_path)},
+            self.monotonic() - started,
+        )
+
+        stored = [n for n, o in outcomes.items() if o.applied and o.written]
+        unchanged = [n for n, o in outcomes.items() if o.applied and not o.written]
+        if failure is None:
+            message = f"/{namespace}: calibration stored for {names_text(stored)}"
+            if unchanged:
+                message += f" (unchanged: {names_text(unchanged)})"
+            message += f"; torque stays off; re-enable torque next; record {record_path}"
+            state.home_steps = {}
+            state.offsets = {}
+            state.home_recorded_at = None
+            state.trackers = {}
+            state.running = False
+            state.paused = False
+            state.cycles = 0
+        else:
+            message = (
+                f"/{namespace}: calibration store failed, torque stays off; stored: {names_text(stored)}; failed: "
+                f"{failure[0]} ({failure[1]}); not attempted: {names_text(not_attempted)}; record {record_path}"
+            )
+        for note in (*override_notes, *record_errors):
+            message += f"; {note}"
+        success = failure is None and not record_errors
+        state.snapshot = None
+        state.last_result = {
+            "run_id": run_id,
+            "plan_run_id": plan.run_id,
+            "action": ACTION_STORE_CONFIRMED if confirmed else ACTION_STORE,
+            "finished_at": finished_at,
+            "success": success,
+            "message": message,
+            "record_path": str(record_path) if audit_written else None,
+            "joints": {name: o.payload() for name, o in outcomes.items()},
+            "failure": None if failure is None else list(failure),
+            "not_attempted": not_attempted,
+            "override_notes": override_notes,
+        }
+        self.events.event(
+            FLOW,
+            run_id,
+            STEP_STORE,
+            OUTCOME_OK if success else OUTCOME_FAILED,
+            None if success else message,
+            {
+                "group": namespace,
+                "confirmed": confirmed,
+                "stored": stored,
+                "not_attempted": not_attempted,
+                "plan_run_id": plan.run_id,
+            },
+            self.monotonic() - started,
+        )
+        (LOGGER.info if success else LOGGER.error)(message)
+        return NeutralResult(success, message)
+
+    def store_joint(
+        self, joint: JointEntry, planned: JointCalibrationPlan, tolerance: int, run_id: str, started: float
+    ) -> StoreOutcome:
+        """Write, verify and read back one joint's planned offset and limits, rolling back on any failure.
+
+        Skips a joint whose offset and limits are unchanged (no bus I/O). Otherwise: re-read torque (must be 0) and
+        present p0; write the offset when it changes, settle, verify present within tolerance of the predicted
+        reading (p0 - change) mod 4096 (the joint need not be at home); write the limits that differ; read back
+        offset and limits and compare with the plan.
+
+        Args:
+            joint (JointEntry): The joint.
+            planned (JointCalibrationPlan): Its plan.
+            tolerance (int): verify_tolerance_steps.
+            run_id (str): calib_event run id.
+            started (float): Monotonic start of the store.
+
+        Returns:
+            StoreOutcome: applied, readings and the failure reason (with the rollback outcome).
+        """
+        servo = self.torque.servo
+        outcome = StoreOutcome()
+
+        def event(step: str, ok: bool, reason: str | None = None, **data: Any) -> None:
+            self.events.event(
+                FLOW,
+                run_id,
+                step,
+                OUTCOME_OK if ok else OUTCOME_FAILED,
+                reason,
+                {"joint": joint.name, "id": joint.id, **data},
+                self.monotonic() - started,
+            )
+
+        def fail(reason: str) -> StoreOutcome:
+            outcome.rolled_back, text = self.rollback_joint(joint, planned)
+            outcome.reason = f"{reason}; {text}"
+            event(
+                "rollback",
+                outcome.rolled_back,
+                None if outcome.rolled_back else text,
+                offset_steps=planned.offset_before_steps,
+                limits=list(planned.limits_before),
+            )
+            return outcome
+
+        wanted = planned.limits_after
+        if wanted is None:
+            outcome.reason = "no planned limits"
+            return outcome
+        if planned.new_offset_steps == planned.offset_before_steps and wanted == planned.limits_before:
+            outcome.applied = True
+            outcome.offset_after_steps = planned.new_offset_steps
+            outcome.limits_after = wanted
+            event("joint_skip", True, None, offset_steps=planned.new_offset_steps, limits=list(wanted))
+            return outcome
+        refused = torque_refusals(read_torques(servo, [joint]))
+        if refused:
+            outcome.reason = f"torque not off before the write: {refused[0]}"
+            event("joint_write", False, outcome.reason)
+            return outcome
+        p0 = read_retried(servo, joint.id, PRESENT_REGISTER)
+        if p0 is None:
+            outcome.reason = "present_position read failed before the write"
+            event("joint_write", False, outcome.reason)
+            return outcome
+        outcome.present_before_steps = p0
+        cache = self.torque.last_written.setdefault(joint.id, {})
+        for register in CACHE_CLEARED_REGISTERS:
+            cache.pop(register, None)
+        outcome.written = True
+        if planned.new_offset_steps != planned.offset_before_steps:
+            acknowledged = write_offset(servo, cache, joint.id, planned.new_offset_steps)
+            event(
+                "joint_write",
+                acknowledged,
+                None if acknowledged else "offset write failed",
+                offset_before_steps=planned.offset_before_steps,
+                new_offset_steps=planned.new_offset_steps,
+                torque=TORQUE_OFF,
+            )
+            if not acknowledged:
+                return fail("offset write failed")
+            self.sleep(SETTLE_S)
+            expected = (p0 - planned.offset_change_steps) % STEPS_PER_REVOLUTION
+            present = verify_present(servo, joint.id, expected, tolerance, self.sleep)
+            outcome.present_after_steps = present
+            verified = present is not None and abs(offset_delta_steps(present, expected)) <= tolerance
+            event(
+                "joint_verify",
+                verified,
+                None if verified else "present not at the predicted reading",
+                present_before_steps=p0,
+                present_after_steps=present,
+                expected_steps=expected,
+                tolerance_steps=tolerance,
+            )
+            if not verified:
+                reading = "read failed" if present is None else f"reads {present}"
+                return fail(f"not verified ({reading}, expected {expected} +- {tolerance})")
+        outcome.limits_after = write_limits(servo, cache, joint.id, wanted)
+        outcome.offset_after_steps = read_offset(servo, joint.id)
+        read_back = outcome.offset_after_steps == planned.new_offset_steps and outcome.limits_after == wanted
+        event(
+            "limits",
+            read_back,
+            None if read_back else "read back differs from the plan",
+            limits_before=list(planned.limits_before),
+            limits_after=None if outcome.limits_after is None else list(outcome.limits_after),
+            offset_after_steps=outcome.offset_after_steps,
+        )
+        if not read_back:
+            return fail(
+                f"read back offset {outcome.offset_after_steps}, limits {limits_text(outcome.limits_after)}, "
+                f"planned offset {planned.new_offset_steps}, limits {limits_text(wanted)}"
+            )
+        outcome.applied = True
+        return outcome
+
+    def rollback_joint(self, joint: JointEntry, planned: JointCalibrationPlan) -> tuple[bool, str]:
+        """Rewrite the joint's old offset (when it differs) and old limits, then read both back.
+
+        Args:
+            joint (JointEntry): The joint.
+            planned (JointCalibrationPlan): Its plan (offset_before_steps, limits_before).
+
+        Returns:
+            tuple[bool, str]: (offset and limits read the old values again, text for the message).
+        """
+        servo = self.torque.servo
+        cache = self.torque.last_written.setdefault(joint.id, {})
+        old_offset, old_limits = planned.offset_before_steps, planned.limits_before
+        acknowledged = True
+        if read_offset(servo, joint.id) != old_offset:
+            acknowledged = write_offset(servo, cache, joint.id, old_offset)
+        limits = write_limits(servo, cache, joint.id, old_limits)
+        offset = read_offset(servo, joint.id)
+        if offset == old_offset and limits == old_limits:
+            return True, f"rolled back: old offset {old_offset} and limits {limits_text(old_limits)} read back"
+        ack = "" if acknowledged else ", offset write not acknowledged"
+        return False, (
+            f"ROLLBACK NOT VERIFIED (offset reads {'unread' if offset is None else offset}, limits "
+            f"{limits_text(limits)}; wanted {old_offset}, {limits_text(old_limits)}{ack})"
+        )
 
     # --- status -------------------------------------------------------------------------------------------------
 
@@ -633,3 +1057,36 @@ def plan_message(namespace: str, plan: CalibrationPlan, config: ServoCalibration
     if narrow:
         message += f"; limits narrower than the required travel on {names_text(narrow)}: confirm to store"
     return message
+
+
+def limits_text(limits: tuple[int, int] | None) -> str:
+    """Angle limits for a message.
+
+    Args:
+        limits (tuple[int, int] | None): (min, max), None when unread.
+
+    Returns:
+        str: "min..max" or "unread".
+    """
+    return "unread" if limits is None else f"{limits[0]}..{limits[1]}"
+
+
+def confirm_text(plan: CalibrationPlan, config: ServoCalibrationConfig) -> str:
+    """Why a plan needs the confirm, per joint.
+
+    Args:
+        plan (CalibrationPlan): The plan.
+        config (ServoCalibrationConfig): The group's block (max_change_deg).
+
+    Returns:
+        str: e.g. "head_pan (large change +20.3 deg, above 15 deg), fl_steer (limits narrower than the required
+            travel)"; empty when no confirm is needed.
+    """
+    parts: list[str] = []
+    for name, joint in plan.joints.items():
+        if joint.exceeds_max_change:
+            change = steps_to_degrees(joint.offset_change_steps)
+            parts.append(f"{name} (large change {change:+.1f} deg, above {config.max_change_deg:g} deg)")
+        if joint.narrower_than_required:
+            parts.append(f"{name} (limits narrower than the required travel)")
+    return ", ".join(parts)

@@ -22,16 +22,17 @@ from feetech_servos.registers import (
     STS_MAX_ANGLE_LIMIT_L,
     STS_MIN_ANGLE_LIMIT_L,
     STS_OFS_L,
+    STS_PRESENT_POSITION_L,
     STS_TORQUE_ENABLE,
     get_register_entry_by_name,
 )
 from feetech_servos.servo_calibration import ServoCalibrationControl
-from feetech_servos.servo_offsets import encode_offset, steps_to_degrees
+from feetech_servos.servo_offsets import decode_offset, encode_offset, steps_to_degrees
 from feetech_servos.torque_control import TorqueControl
 
 from .offset_bus import Clock, OffsetPort
 from .sts_bus import StsPacket, put_word, register_table
-from .test_neutral import FakeServo
+from .test_neutral import FakeServo, word
 
 HEAD = [JointEntry("head_pan", 21), JointEntry("head_tilt", 22)]
 STEER = [JointEntry("fl_steer", 33), JointEntry("fr_steer", 34)]
@@ -60,15 +61,27 @@ class Rig:
 
 
 class WriteLog(OffsetPort):
-    """OffsetPort recording every write instruction's start address."""
+    """OffsetPort recording every write instruction's start address.
+
+    Attributes:
+        writes: (servo_id, address) of every write instruction, in order.
+        max_limit_skew: servo_id -> steps added to the next max_angle_limit write it stores (one-shot fault).
+    """
 
     writes: list[tuple[int, int]]
+    max_limit_skew: dict[int, int]
 
     def apply(self, packet: StsPacket) -> None:
-        """Record (servo_id, address) of writes, then apply."""
+        """Record (servo_id, address) of writes, then apply (skewing a faulted max_angle_limit write)."""
         if packet.instruction == INST_WRITE and packet.params:
             self.writes.append((packet.servo_id, packet.params[0]))
         super().apply(packet)
+        skew = self.max_limit_skew.pop(packet.servo_id, None) if packet.params else None
+        if skew is not None and packet.instruction == INST_WRITE and packet.params[0] == STS_MAX_ANGLE_LIMIT_L:
+            table = self.servos[packet.servo_id]
+            put_word(table, STS_MAX_ANGLE_LIMIT_L, word(table, STS_MAX_ANGLE_LIMIT_L) + skew)
+        elif skew is not None:
+            self.max_limit_skew[packet.servo_id] = skew
 
 
 def make_config(reference: dict[str, float], tmp_path: Path, **changes: Any) -> ServoCalibrationConfig:
@@ -76,8 +89,17 @@ def make_config(reference: dict[str, float], tmp_path: Path, **changes: Any) -> 
     return ServoCalibrationConfig(home_reference_rad=reference, record_dir=str(tmp_path), **changes)
 
 
-def make_rig(tmp_path: Path, head_block: bool = True, released: tuple[str, ...] = (), **changes: Any) -> Rig:
-    """Build head + swerve_drive (torque on), optionally released, with their servo_calibration blocks."""
+def make_rig(
+    tmp_path: Path,
+    head_block: bool = True,
+    released: tuple[str, ...] = (),
+    overrides: dict[int, tuple[int, int]] | None = None,
+    **changes: Any,
+) -> Rig:
+    """Build head + swerve_drive (torque on), optionally released, with their servo_calibration blocks.
+
+    overrides are config command limits per servo id (they also seed the bridge command limits, as in the node).
+    """
     head = JointGroup(
         "head",
         list(HEAD),
@@ -90,6 +112,7 @@ def make_rig(tmp_path: Path, head_block: bool = True, released: tuple[str, ...] 
     )
     port = WriteLog(servos={})
     port.writes = []
+    port.max_limit_skew = {}
     for joint in HEAD + STEER + DRIVE:
         table = register_table({STS_TORQUE_ENABLE: 1, STS_LOCK: 1})
         low, high = LIMITS.get(joint.id, (0, 4095))
@@ -101,7 +124,8 @@ def make_rig(tmp_path: Path, head_block: bool = True, released: tuple[str, ...] 
         port.refresh_present(joint.id)
     servo = FakeServo(port)
     last_written = {sid: {"torque_enable": 1} for sid in port.servos}
-    command_limits = {j.id: (0, 4095) for j in HEAD + STEER}
+    overrides = dict(overrides or {})
+    command_limits = {j.id: overrides.get(j.id, (0, 4095)) for j in HEAD + STEER}
     cycle = BridgeCycle(
         servo=servo,
         goal_entry=get_register_entry_by_name("goal_position"),
@@ -120,7 +144,7 @@ def make_rig(tmp_path: Path, head_block: bool = True, released: tuple[str, ...] 
     cal = ServoCalibrationControl(
         torque,
         command_limits,
-        {},
+        overrides,
         sleep=lambda _s: None,
         monotonic=clock,
         now=lambda: NOW,
@@ -465,3 +489,395 @@ def test_service_call_marks_snapshot_dirty(tmp_path: Path) -> None:
     assert section(rig, "head")["capture"]["running"] is True
     assert rig.cal.capture_stop("head").success
     assert section(rig, "head")["capture"]["running"] is False
+
+
+# --- carry-in fixes (Task 5 review) -----------------------------------------------------------------------------------
+
+
+def test_record_home_refusals_say_nothing_written(tmp_path: Path) -> None:
+    """The still check and the offset read refusals of record home carry the "nothing written" suffix."""
+    rig = make_rig(tmp_path, released=("head",))
+    rig.port.jitter[21] = [0, 4, 9, 12]
+    moving = rig.cal.record_home("head")
+    assert moving.success is False
+    assert "joints not still: head_pan moved" in moving.message
+    assert "arm" not in moving.message
+    assert moving.message.endswith("; nothing written")
+    rig.port.drop_offset_reads_after_writes[22] = 0
+    unread = rig.cal.record_home("head")
+    assert unread.success is False
+    assert unread.message == "/head: offset read failed: head_tilt; nothing written"
+
+
+def test_plan_flags_joint_without_range_samples(tmp_path: Path) -> None:
+    """A capture ran but one joint got no samples: that joint gets a problem instead of a home-only plan."""
+    rig = make_rig(tmp_path, released=("head",))
+    assert rig.cal.record_home("head").success
+    assert rig.cal.capture_start("head").success
+    rig.cal.observe(readings(head_pan=ENCODER[21] - 300))
+    rig.cal.observe(readings(head_pan=ENCODER[21] + 300))
+    assert rig.cal.capture_stop("head").success
+    result = rig.cal.plan("head")
+    assert result.success is False
+    plan = section(rig, "head")["plan"]
+    assert plan["joints"]["head_tilt"]["problems"] == ["no range samples; record ranges again"]
+    assert plan["joints"]["head_pan"]["problems"] == []
+    assert "head_tilt: no range samples; record ranges again" in result.message
+
+
+def test_observe_reanchors_to_home_after_pause(tmp_path: Path) -> None:
+    """After a pause the first fold is relative to home, not the short way from the pre-pause sample."""
+    rig = make_rig(tmp_path, released=("head",))
+    assert rig.cal.record_home("head").success
+    assert rig.cal.capture_start("head").success
+    home = ENCODER[21]
+    rig.cal.observe(readings(head_pan=(home + 700) % 4096, head_tilt=ENCODER[22]))
+    rig.cal.observe(readings(head_pan=(home + 1500) % 4096, head_tilt=ENCODER[22]))
+    assert rig.torque.enable("head").success
+    rig.cal.observe(readings(head_pan=(home - 1000) % 4096, head_tilt=ENCODER[22]))
+    assert rig.torque.release("head").success
+    rig.cal.observe(readings(head_pan=(home - 1000) % 4096, head_tilt=ENCODER[22]))
+    tracker = rig.cal.states["head"].trackers["head_pan"]
+    assert tracker.rel == -1000
+    assert (tracker.min_rel, tracker.max_rel) == (-1000, 1500)
+    rig.cal.observe(readings(head_pan=(home - 1100) % 4096, head_tilt=ENCODER[22]))
+    assert tracker.rel == -1100
+
+
+# --- store ------------------------------------------------------------------------------------------------------------
+
+
+def planned_rig(tmp_path: Path, namespace: str = "head", **kwargs: Any) -> Rig:
+    """Rig with the group released, home recorded and a home-only plan; write log cleared."""
+    rig = make_rig(tmp_path, released=(namespace,), **kwargs)
+    assert rig.cal.record_home(namespace).success
+    assert rig.cal.plan(namespace).message
+    rig.port.writes.clear()
+    rig.port.events.clear()
+    return rig
+
+
+def eeprom_writes(rig: Rig) -> list[tuple[int, int]]:
+    """(servo_id, address) of every offset, angle limit or lock write."""
+    return [w for w in rig.port.writes if w[1] in EEPROM_ADDRESSES]
+
+
+def offset_of(rig: Rig, servo_id: int) -> int:
+    """Offset register of a servo on the rig bus (steps)."""
+    return decode_offset(word(rig.port.servos[servo_id], STS_OFS_L))
+
+
+def limits_of(rig: Rig, servo_id: int) -> tuple[int, int]:
+    """Angle limit registers of a servo on the rig bus."""
+    table = rig.port.servos[servo_id]
+    return word(table, STS_MIN_ANGLE_LIMIT_L), word(table, STS_MAX_ANGLE_LIMIT_L)
+
+
+def present_of(rig: Rig, servo_id: int) -> int:
+    """present_position of a servo on the rig bus."""
+    return word(rig.port.servos[servo_id], STS_PRESENT_POSITION_L)
+
+
+def assert_head_untouched(rig: Rig) -> None:
+    """No EEPROM write was sent and the head registers are as built."""
+    assert eeprom_writes(rig) == []
+    assert (offset_of(rig, 21), offset_of(rig, 22)) == (10, -5)
+    assert (limits_of(rig, 21), limits_of(rig, 22)) == (LIMITS[21], LIMITS[22])
+
+
+def test_store_refused_without_plan(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path, released=("head",))
+    assert rig.cal.record_home("head").success
+    rig.port.writes.clear()
+    result = rig.cal.store("head")
+    assert result.success is False
+    assert result.message == "/head: plan first; nothing written"
+    assert_head_untouched(rig)
+
+
+def test_store_refused_when_plan_too_old(tmp_path: Path) -> None:
+    rig = planned_rig(tmp_path)
+    rig.clock.now += 301.0
+    result = rig.cal.store("head")
+    assert result.success is False
+    assert "plan is 301 s old (max 300 s)" in result.message
+    assert result.message.endswith("nothing written")
+    assert_head_untouched(rig)
+    assert section(rig, "head")["plan"] is None
+
+
+def test_store_refused_when_torque_on(tmp_path: Path) -> None:
+    rig = planned_rig(tmp_path)
+    rig.port.servos[22][STS_TORQUE_ENABLE] = 1
+    on_bus = rig.cal.store("head")
+    assert on_bus.success is False
+    assert on_bus.message.startswith("/head: torque not off: head_tilt")
+    assert_head_untouched(rig)
+    rig.port.servos[22][STS_TORQUE_ENABLE] = 0
+    assert rig.torque.enable("head").success
+    rig.port.writes.clear()
+    enabled = rig.cal.store("head")
+    assert enabled.success is False
+    assert "release torque first" in enabled.message
+    assert_head_untouched(rig)
+    assert section(rig, "head")["plan"] is not None
+
+
+def test_store_refused_when_registers_changed_since_plan(tmp_path: Path) -> None:
+    rig = planned_rig(tmp_path)
+    put_word(rig.port.servos[22], STS_MAX_ANGLE_LIMIT_L, 2700)
+    result = rig.cal.store("head")
+    assert result.success is False
+    assert "changed since the plan" in result.message
+    assert "head_tilt" in result.message
+    assert "head_pan" not in result.message
+    assert result.message.endswith("nothing written")
+    assert eeprom_writes(rig) == []
+    assert section(rig, "head")["plan"] is None
+
+
+def test_store_refused_when_joints_not_still(tmp_path: Path) -> None:
+    rig = planned_rig(tmp_path)
+    rig.port.jitter[22] = [0, 5, 9]
+    result = rig.cal.store("head")
+    assert result.success is False
+    assert "joints not still: head_tilt moved" in result.message
+    assert result.message.endswith("nothing written")
+    assert_head_untouched(rig)
+
+
+def test_store_refused_with_problems(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path, released=("head",))
+    assert rig.cal.record_home("head").success
+    assert rig.cal.capture_start("head").success
+    rig.cal.observe(readings(head_pan=ENCODER[21] - 40, head_tilt=ENCODER[22] - 300))
+    rig.cal.observe(readings(head_pan=ENCODER[21] + 40, head_tilt=ENCODER[22] + 300))
+    assert rig.cal.capture_stop("head").success
+    assert rig.cal.plan("head").success is False
+    rig.port.writes.clear()
+    for confirmed in (False, True):
+        result = rig.cal.store("head", confirmed=confirmed)
+        assert result.success is False
+        assert "cannot store" in result.message
+        assert "head_pan" in result.message
+        assert "below 20 deg" in result.message
+        assert_head_untouched(rig)
+
+
+def test_store_refused_for_large_change_without_confirm(tmp_path: Path) -> None:
+    rig = planned_rig(tmp_path, max_change_deg=1.0)
+    result = rig.cal.store("head")
+    assert result.success is False
+    assert "head_pan (large change +4.6 deg, above 1 deg)" in result.message
+    assert "head_tilt (large change -3.5 deg, above 1 deg)" in result.message
+    assert "store_confirmed" in result.message
+    assert result.message.endswith("nothing written")
+    assert_head_untouched(rig)
+    assert section(rig, "head")["plan"] is not None
+
+
+def test_store_refused_when_narrower_than_required_without_confirm(tmp_path: Path) -> None:
+    rig = planned_rig(tmp_path, required_travel_rad={"head_pan": (-1.5708, 1.5708)})
+    result = rig.cal.store("head")
+    assert result.success is False
+    assert "head_pan (limits narrower than the required travel)" in result.message
+    assert "head_tilt" not in result.message
+    assert_head_untouched(rig)
+    confirmed = rig.cal.store("head", confirmed=True)
+    assert confirmed.success, confirmed.message
+    assert limits_of(rig, 21) == (948, 2948)
+
+
+def test_store_confirmed_applies_large_change(tmp_path: Path) -> None:
+    rig = planned_rig(tmp_path, max_change_deg=1.0)
+    result = rig.cal.store("head", confirmed=True)
+    assert result.success, result.message
+    assert (offset_of(rig, 21), offset_of(rig, 22)) == (62, -45)
+    assert rig.cal.states["head"].last_result["action"] == "store_confirmed"
+
+
+def test_store_head_writes_offsets_and_limits(tmp_path: Path) -> None:
+    rig = planned_rig(tmp_path)
+    plan = rig.cal.states["head"].plan
+    assert plan is not None
+    result = rig.cal.store("head")
+    assert result.success, result.message
+    assert result.message.startswith("/head: calibration stored for head_pan, head_tilt")
+    assert "torque stays off" in result.message
+    for joint in HEAD:
+        planned = plan.joints[joint.name]
+        assert offset_of(rig, joint.id) == planned.new_offset_steps
+        assert limits_of(rig, joint.id) == planned.limits_after
+        assert present_of(rig, joint.id) == TARGET
+    assert limits_of(rig, 21) == (948, 2948)
+    assert limits_of(rig, 22) == (1240, 2840)
+    state = rig.cal.states["head"]
+    assert state.plan is None
+    assert state.home_steps == {}
+    assert state.trackers == {}
+    status = section(rig, "head")
+    assert status["home"] is None
+    assert status["plan"] is None
+    last = status["last_result"]
+    assert last["success"] is True
+    assert last["action"] == "store"
+    assert last["plan_run_id"] == plan.run_id
+    assert last["failure"] is None
+    assert last["not_attempted"] == []
+    pan = last["joints"]["head_pan"]
+    assert pan["applied"] is True
+    assert pan["written"] is True
+    assert pan["present_before_steps"] == TARGET + 52
+    assert pan["present_after_steps"] == TARGET
+    assert pan["offset_after_steps"] == 62
+    assert pan["limits_after"] == [948, 2948]
+    assert pan["rolled_back"] is None
+    json.dumps(last)
+
+
+def test_store_verifies_the_predicted_reading_away_from_home(tmp_path: Path) -> None:
+    """The user moved head_pan 300 steps away from home after the plan: verify against p0 - change."""
+    rig = planned_rig(tmp_path)
+    rig.port.encoder[21] += 300
+    rig.port.refresh_present(21)
+    result = rig.cal.store("head")
+    assert result.success, result.message
+    assert offset_of(rig, 21) == 62
+    assert present_of(rig, 21) == TARGET + 300
+    pan = rig.cal.states["head"].last_result["joints"]["head_pan"]
+    assert pan["present_before_steps"] == TARGET + 352
+    assert pan["present_after_steps"] == TARGET + 300
+
+
+def test_store_skips_unchanged_joint(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path, released=("head",))
+    rig.port.encoder[22] = TARGET + OFFSETS[22]
+    rig.port.refresh_present(22)
+    assert rig.cal.record_home("head").success
+    assert rig.cal.plan("head").success
+    rig.port.writes.clear()
+    result = rig.cal.store("head")
+    assert result.success, result.message
+    assert "unchanged: head_tilt" in result.message
+    assert [w for w in rig.port.writes if w[0] == 22] == []
+    assert (offset_of(rig, 22), limits_of(rig, 22)) == (-5, LIMITS[22])
+    tilt = rig.cal.states["head"].last_result["joints"]["head_tilt"]
+    assert tilt["written"] is False
+    assert tilt["applied"] is True
+    assert tilt["reason"] is None
+
+
+def test_store_rolls_back_on_verify_failure(tmp_path: Path) -> None:
+    """head_pan drops the offset effect (acknowledged, not stored): old offset and limits kept, head_tilt not tried."""
+    rig = planned_rig(tmp_path)
+    rig.port.stuck_offset.add(21)
+    result = rig.cal.store("head")
+    assert result.success is False
+    assert "failed: head_pan (not verified" in result.message
+    assert "not attempted: head_tilt" in result.message
+    assert (offset_of(rig, 21), limits_of(rig, 21)) == (10, LIMITS[21])
+    assert (offset_of(rig, 22), limits_of(rig, 22)) == (-5, LIMITS[22])
+    assert [w for w in eeprom_writes(rig) if w[0] == 22] == []
+    last = rig.cal.states["head"].last_result
+    assert last["success"] is False
+    assert last["failure"][0] == "head_pan"
+    assert last["not_attempted"] == ["head_tilt"]
+    pan = last["joints"]["head_pan"]
+    assert pan["written"] is True
+    assert pan["applied"] is False
+    assert pan["rolled_back"] is True
+    assert "head_tilt" not in last["joints"]
+    assert rig.cal.states["head"].plan is None
+    assert rig.cal.states["head"].home_steps == home_of("head")
+    assert rig.cal.command_limits[21] == (0, 4095)
+
+
+def test_store_rolls_back_on_limit_readback_mismatch(tmp_path: Path) -> None:
+    """head_pan's max limit lands 7 steps off: the old offset and both old limits are rewritten and read back."""
+    rig = planned_rig(tmp_path)
+    rig.port.max_limit_skew[21] = 7
+    result = rig.cal.store("head")
+    assert result.success is False
+    assert "failed: head_pan" in result.message
+    assert "2955" in result.message
+    assert (offset_of(rig, 21), limits_of(rig, 21)) == (10, LIMITS[21])
+    assert present_of(rig, 21) == TARGET + 52
+    assert (offset_of(rig, 22), limits_of(rig, 22)) == (-5, LIMITS[22])
+    last = rig.cal.states["head"].last_result
+    assert last["not_attempted"] == ["head_tilt"]
+    assert last["joints"]["head_pan"]["rolled_back"] is True
+    rollback = [e for e in rig.calib_events() if e["step"] == "rollback"]
+    assert len(rollback) == 1
+    assert rollback[0]["outcome"] == "ok"
+    assert rig.cal.command_limits[21] == (0, 4095)
+
+
+def test_store_refreshes_command_limits_but_keeps_overrides(tmp_path: Path) -> None:
+    rig = planned_rig(tmp_path, overrides={22: (1300, 2700)})
+    assert rig.cal.store("head").success
+    assert rig.cal.command_limits[21] == (948, 2948)
+    assert rig.cal.command_limits[22] == (1300, 2700)
+    assert rig.torque.cycle.command_limits[21] == (948, 2948)
+
+
+def test_store_reports_wider_override(tmp_path: Path) -> None:
+    rig = planned_rig(tmp_path, overrides={22: (1000, 3000)})
+    result = rig.cal.store("head")
+    assert result.success, result.message
+    note = "head_tilt: override 1000..3000 still clamps commands; the servo now stops at 1240..2840"
+    assert note in result.message
+    assert rig.cal.states["head"].last_result["override_notes"] == [note]
+    latest = json.loads((tmp_path / "servo_calibration-head-latest.json").read_text())
+    assert latest["override_notes"] == [note]
+
+
+def test_store_keeps_torque_off(tmp_path: Path) -> None:
+    rig = planned_rig(tmp_path)
+    assert rig.cal.store("head").success
+    assert [w for w in rig.port.writes if w[1] == STS_TORQUE_ENABLE] == []
+    for joint in HEAD:
+        assert rig.port.servos[joint.id][STS_TORQUE_ENABLE] == 0
+        assert joint.id in rig.torque.released_ids
+    assert rig.cal.not_released(HEAD) == []
+
+
+def test_store_writes_record_and_latest(tmp_path: Path) -> None:
+    rig = planned_rig(tmp_path)
+    plan_run_id = rig.cal.states["head"].plan.run_id
+    assert rig.cal.store("head").success
+    last = rig.cal.states["head"].last_result
+    audit = tmp_path / f"servo_calibration-20261110T120000Z-{last['run_id']}.json"
+    assert last["record_path"] == str(audit)
+    record = json.loads(audit.read_text())
+    latest = json.loads((tmp_path / "servo_calibration-head-latest.json").read_text())
+    assert record == latest
+    assert record["success"] is True
+    assert record["group"] == "head"
+    assert record["plan_run_id"] == plan_run_id
+    assert record["confirmed"] is False
+    assert record["changed_at"] == "2026-11-10T12:00:00+00:00"
+    assert set(record["joints"]) == {"head_pan", "head_tilt"}
+    assert record["joints"]["head_pan"]["plan"]["new_offset_steps"] == 62
+    assert record["joints"]["head_pan"]["offset_after_steps"] == 62
+    assert record["home_rad"]["head_pan"] == 0.0
+    steps = [e["step"] for e in rig.calib_events() if e["flow"] == "servo_calibration"]
+    assert steps[-1] == "store"
+    assert "record" in steps
+
+
+def test_failed_store_writes_audit_record_only(tmp_path: Path) -> None:
+    rig = planned_rig(tmp_path)
+    rig.port.stuck_offset.add(21)
+    assert rig.cal.store("head").success is False
+    last = rig.cal.states["head"].last_result
+    record = json.loads(Path(last["record_path"]).read_text())
+    assert record["success"] is False
+    assert record["failure"][0] == "head_pan"
+    assert record["not_attempted"] == ["head_tilt"]
+    assert not (tmp_path / "servo_calibration-head-latest.json").exists()
+
+
+def test_store_never_sends_define_middle(tmp_path: Path) -> None:
+    rig = planned_rig(tmp_path)
+    assert rig.cal.store("head").success
+    assert not any(event == "define_middle" for _, event, _ in rig.port.events)

@@ -46,8 +46,9 @@ from feetech_mapping.command_mapping import position_to_raw_steps, steps_to_radi
 
 from .calib_event import OUTCOME_FAILED, OUTCOME_OK, OUTCOME_REFUSED, OUTCOME_START, CalibEventLog, new_run_id
 from .config import JointEntry, JointGroup, ZeroRestoreConfig
-from .neutral import MAX_LIMIT_REGISTER, MIN_LIMIT_REGISTER, NeutralResult, names_text, stop_bus_wheels
+from .neutral import NeutralResult, names_text, stop_bus_wheels
 from .servo_offsets import (
+    CACHE_CLEARED_REGISTERS,
     HALF_TURN_STEPS,
     OFFSET_MAX_STEPS,
     OFFSET_REGISTER,
@@ -65,7 +66,7 @@ from .servo_offsets import (
     write_limits,
     write_offset,
 )
-from .torque_control import GOAL_REGISTER, PRESENT_REGISTER, TORQUE_OFF, TORQUE_REGISTER, TorqueControl
+from .torque_control import PRESENT_REGISTER, TORQUE_OFF, TorqueControl
 from .zero_record import read_stale_items, record_zero_change, set_stale_items, write_json_atomic, write_stale_marker
 
 LOGGER = logging.getLogger(__name__)
@@ -79,8 +80,6 @@ FLOW_RESTORE = "zero_restore"
 FLOW_REFERENCE = "rest_reference"
 SOURCE_SEED = "seed"
 SOURCE_FILE = "file"
-# Registers whose cached value is stale after an offset write (the next write must reach the servo).
-CACHE_CLEARED_REGISTERS = (OFFSET_REGISTER, GOAL_REGISTER, TORQUE_REGISTER, MIN_LIMIT_REGISTER, MAX_LIMIT_REGISTER)
 
 
 def load_reference(config: ZeroRestoreConfig, names: list[str]) -> tuple[dict[str, Any] | None, str | None]:

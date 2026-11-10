@@ -13,7 +13,7 @@ from feetech_mapping.command_mapping import STEPS_PER_REVOLUTION
 from .config import JointEntry
 from .neutral import MAX_LIMIT_REGISTER, MIN_LIMIT_REGISTER, names_text
 from .registers import get_register_entry_by_name, read_register, write_register
-from .torque_control import PRESENT_REGISTER, TORQUE_OFF, TORQUE_REGISTER
+from .torque_control import GOAL_REGISTER, PRESENT_REGISTER, TORQUE_OFF, TORQUE_REGISTER
 
 DEGREES_PER_TURN = 360.0
 HALF_TURN_STEPS = STEPS_PER_REVOLUTION // 2
@@ -28,6 +28,8 @@ SETTLE_S = 0.5
 VERIFY_READ_ATTEMPTS = 10
 VERIFY_RETRY_SLEEP_S = 0.1
 STILL_SAMPLE_INTERVAL_S = 0.1
+# Registers whose cached value is stale after an offset write (the next write must reach the servo).
+CACHE_CLEARED_REGISTERS = (OFFSET_REGISTER, GOAL_REGISTER, TORQUE_REGISTER, MIN_LIMIT_REGISTER, MAX_LIMIT_REGISTER)
 
 
 def encode_offset(steps: int) -> int:
@@ -295,5 +297,8 @@ def sample_still(
     moved = {n: s for n, s in still_spreads(samples).items() if s > tolerance}
     if moved:
         text = ", ".join(f"{n} moved {s} steps" for n, s in moved.items())
-        return None, f"arm not still: {text} (tolerance {tolerance}) over {window_s:g} s; rest it and try again"
+        return (
+            None,
+            f"joints not still: {text} (tolerance {tolerance}) over {window_s:g} s; let them rest and try again",
+        )
     return samples[-1], ""

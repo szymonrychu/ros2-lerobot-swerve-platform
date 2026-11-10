@@ -10,7 +10,13 @@ import pytest
 
 from feetech_servos import calibration_records as records_module
 from feetech_servos.calibration_plan import JointCalibrationPlan
-from feetech_servos.calibration_records import convert_rest_reference, home_rad, record_payload, write_records
+from feetech_servos.calibration_records import (
+    audit_path,
+    convert_rest_reference,
+    home_rad,
+    record_payload,
+    write_records,
+)
 
 CREATED_AT = "2026-11-10T12:00:00+00:00"
 STAMP = datetime(2026, 11, 10, 12, 0, 0, tzinfo=UTC)
@@ -41,6 +47,12 @@ def make_plan(name: str, home: int, target: int, inverted: bool = False) -> Join
         exceeds_max_change=False,
         narrower_than_required=False,
     )
+
+
+def test_audit_path_names_utc_stamp_and_run_id(tmp_path: Path) -> None:
+    """The audit file name carries the run time in UTC and the run id."""
+    stamp = datetime(2026, 11, 10, 12, 0, 5, tzinfo=UTC)
+    assert audit_path(tmp_path, stamp, "abc123") == tmp_path / "servo_calibration-20261110T120005Z-abc123.json"
 
 
 def test_write_records_writes_audit_and_latest_on_success(tmp_path: Path) -> None:
