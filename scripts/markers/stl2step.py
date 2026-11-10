@@ -58,7 +58,7 @@ def mesh_to_solid(mesh: TopoDS_Shape) -> TopoDS_Shape:
     solid_maker = BRepBuilderAPI_MakeSolid()
     explorer = TopExp_Explorer(sewing.SewedShape(), TopAbs_SHELL)
     while explorer.More():
-        solid_maker.Add(TopoDS.Shell_s(explorer.Current()))
+        solid_maker.Add(TopoDS.Shell(explorer.Current()))
         explorer.Next()
     unify = ShapeUpgrade_UnifySameDomain(solid_maker.Solid(), True, True, True)
     unify.Build()
