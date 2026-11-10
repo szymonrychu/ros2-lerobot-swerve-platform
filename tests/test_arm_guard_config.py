@@ -2,8 +2,9 @@
 
 The body is one packaged file (shared/arm_collision robot_body.yaml); the arm calibration stays in each node config.
 This pins filter_node's `self_collision_guard.arm` to mcp_server's `arm` values of every ArmModelSettings field, its
-keep-away to mcp_server's body_check.hard_margin_m, and the guard on. The node type ships the arm URDF and the C++
-kernels the shared package path-depends on.
+keep-away to mcp_server's body_check.hard_margin_m, its applied_dir (and web_ui's arm_applied_calibration_dir) to
+mcp_server's arm.applied_dir, and the guard on. The node type ships the arm URDF and the C++ kernels the shared package
+path-depends on.
 """
 
 from pathlib import Path
@@ -45,6 +46,14 @@ def test_filter_node_guard_arm_equals_mcp_server_arm() -> None:
     shared = {k: v for k, v in mcp_arm.items() if k in ArmModelSettings.model_fields}
     assert ArmModelSettings.model_validate(guard_arm) == ArmModelSettings.model_validate(shared)
     assert set(guard_arm) == set(shared)
+
+
+def test_the_accepted_arm_calibration_consumers_read_mcp_servers_applied_dir() -> None:
+    """filter_node's guard and the web_ui 3D arm view follow the same accepted arm calibration as mcp_server."""
+    applied = client_node("mcp_server")["arm"]["applied_dir"]
+    assert applied == "/var/lib/ros2/head_rgbd_calibration/applied"
+    assert client_node("filter_node")["self_collision_guard"]["applied_dir"] == applied
+    assert client_node("web_ui")["arm_applied_calibration_dir"] == applied
 
 
 def test_filter_node_guard_keep_away_equals_mcp_server_hard_margin() -> None:

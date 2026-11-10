@@ -167,8 +167,8 @@ ros2_node_type_defaults:
     deploy_mode: native
     node_launch_command: "python3 -m filter_node"
     node_src_dir: "nodes/filter_node"
-    # Depends on shared/ros2_metrics and shared/arm_collision (editable path dependencies): shared/ changes restart and
-    # re-sync it.
+    # Depends on shared/ros2_metrics, shared/arm_collision and shared/ (ros2_common: the accepted arm calibration,
+    # editable path dependencies): shared/ changes restart and re-sync it.
     src_shared: true
     # The self-collision guard: arm_collision path-depends on the C++ kernels (built into this venv) and loads the arm
     # URDF from the web_ui package directory.
@@ -1325,7 +1325,13 @@ ros2_nodes:
         # The D435 head is posed from a fresh pan/tilt; older than head_state_max_age_s = the full head envelope.
         head_state_topic: /head/joint_states
         head_state_max_age_s: 0.5
-        # Arm calibration: equal to mcp_server's arm block (tests/test_arm_guard_config.py pins it).
+        # head_rgbd_calibration applied/ (mcp_server's arm.applied_dir, tests/test_arm_guard_config.py): an accepted arm
+        # to camera calibration there (arm_calibration.json, named by applied.json) overrides joint_offsets_rad,
+        # base_in_base_link and arm_base_height_m of the arm below at startup and within 1 s of each Accept, no restart
+        # (nodes/filter_node/README.md, "Accepted arm calibration"). null keeps the arm values below.
+        applied_dir: /var/lib/ros2/head_rgbd_calibration/applied
+        # Arm calibration: equal to mcp_server's arm block (tests/test_arm_guard_config.py pins it); the baseline while
+        # no arm calibration is accepted.
         arm:
           urdf_path: nodes/web_ui/urdf/so101_arm.urdf
           arm_base_height_m: 0.100
@@ -2872,6 +2878,10 @@ ros2_nodes:
       ws_broadcast_hz: 20
       # Applied head calibration laid over the served head URDF (3D view, head tab).
       head_applied_calibration_dir: /var/lib/ros2/head_rgbd_calibration/applied
+      # Accepted arm to camera calibration for the 3D arm views (GET /api/arm/calibration, polled every 5 s): its arm
+      # mount and joint offsets replace the tabs' arm_offset (and no joint offsets) after an Accept, no restart. Same
+      # directory as mcp_server's arm.applied_dir (tests/test_arm_guard_config.py).
+      arm_applied_calibration_dir: /var/lib/ros2/head_rgbd_calibration/applied
       # Nav goals are refused when the tilt guard state (1 Hz) is older than this many seconds.
       tilt_guard_stale_s: 5
       bridge:

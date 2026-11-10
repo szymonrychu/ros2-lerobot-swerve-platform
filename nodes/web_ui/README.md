@@ -351,7 +351,7 @@ The **Grasp** dropdown of the Arm tab (shown when `grasp_command_topic` is set; 
 - **Grip strength**: **Gentle** / **Soft** / **Normal** / **Firm** (default Normal; remembered in this browser, `localStorage` key `grasp.gripProfile`, unreadable or unknown values fall back to Normal). Sent as `grip_profile` with **Execute** only (it does not change the plan, so switching it keeps a feasible plan executable). Gentle is for fragile or light objects, Soft for plush and soft toys (foam, fabric), Normal for ordinary ones, Firm for heavy or slippery objects and tools; the mcp_server presets set the gripper torque limit, close speed and squeeze (`nodes/mcp_server/README.md`, "Grip profiles").
 - **Advanced** (collapsed): Pitch (Angled), `surface_z_m` (expected surface height relative to the robot plane), tilt override roll / pitch (degrees, both blank = use the IMU) and every numeric `grasp` config field as a `params` override (blank = the server default, shown as the placeholder). Inputs are validated like the server (ranges), every problem is listed.
 - **Result:** the plan is a dry run (`action: "plan"`, nothing moves). The panel shows feasibility, the chosen strategy, pitch, the reasons of an infeasible plan, the `auto` attempts and the plan summary. **Plan again** (after an object was clicked) re-plans for changed size settings. **Execute** appears only for a feasible plan made for exactly the current inputs (any change hides it); it opens a confirm step with the plan summary (strategy, pitch, wrist roll, jaw opening, waypoints, slow-zone steps) and only **Confirm execute** sends it. **Release** opens the gripper and lifts; it needs two clicks (**Confirm release**, 4 s). While a grasp runs the panel shows the running state, a large **STOP GRASP** button at the top of the panel and one in the toolbar (also with the panel closed); **Stop** in the panel is always present. The dropdown items are disabled while planning or executing. The outcome (`grasped`, `unverified`, `missed`, `aborted`, `infeasible`, `released`; `unverified` means the jaw closed almost fully on a soft, squashed object or nothing, kept closed and lifted: check the head camera (Arm tab), then Release if the jaws are empty), reasons, per-step statuses and the final gripper position and load come from the stream below; a run with a close also shows the grip profile used and the holding load ("Grip gentle, holding load 131"), with "slipping: try a firmer grip" or "crush risk: try a gentler grip" when mcp_server flags it.
-- **Preview** in the 3D scene (while the panel is open): a translucent box at the object pose (width along the yaw, or across the approach from the arm base when blank) and, for a plan that matches the inputs, a polyline through the waypoint tool positions with a labelled marker per waypoint (`pre_grasp`, `open`, `approach`, `grasp`, `close`, `lift`, `retreat`). Plan waypoints are in the arm frame; they are drawn at `arm_offset + point` in the robot group (the arm frame is `base_link` shifted by the mount, no yaw).
+- **Preview** in the 3D scene (while the panel is open): a translucent box at the object pose (width along the yaw, or across the approach from the arm base when blank) and, for a plan that matches the inputs, a polyline through the waypoint tool positions with a labelled marker per waypoint (`pre_grasp`, `open`, `approach`, `grasp`, `close`, `lift`, `retreat`). Plan waypoints are in the arm frame; they are drawn at `mount + point` in the robot group (the arm frame is `base_link` shifted by the mount, turned by its yaw when an accepted arm calibration has one; see "Accepted arm calibration").
 
 #### API contract
 
@@ -526,6 +526,7 @@ Key fields (map_nav fields are listed in the Map tab section):
 - `http_port` (default: 8080)
 - `ws_broadcast_hz` (default: 20)
 - `tilt_guard_stale_s` (default: 5, must be > 0): age after which the cached tilt guard state is stale (see Tilt guard)
+- `arm_applied_calibration_dir` (default: null): head_rgbd_calibration applied directory of `GET /api/arm/calibration` (see "Accepted arm calibration")
 - `tabs`: list of tab configs
 - `overlays`: list of bottom-bar overlay items
 
@@ -848,6 +849,35 @@ Deployed config: the `head` tab sits after `arm` in `config/default.yaml` and in
 Layout: the stream is `head_camera_topic` (deployed as the head D435 colour `/head/d435/color/image_raw/compressed`, alt text "head camera"; the arm has no camera). On tablet and desktop the head camera and the arm-glued 3D view (camera modes: side left/right, above) sit side by side with the arm actions and the jog panel docked below; on a phone everything stacks vertically and the jog panel is a bottom sheet (`OverlayPanel`).
 
 **Draggable arm** (`frontend/src/arm/ArmView.tsx`): drag the rings and handles on the arm model to move it. Setpoints are published on the tab's `arm_command_topic` (default `/filter/web_ui_joint_commands`, an allowlisted publish topic) and arbitrated by filter_node. Dragging starts only once live arm joint states have arrived. While drag is not possible the arm is drawn display-only and the reason is shown over the view (`data-testid="arm-drag-reason"`): `Waiting for arm joint states`, `Arm held by the agent or Take control - Release to drag` (filter_node reports `autonomy`: the agent or the jog panel holds the lease, so drags would be ignored), or `Arm torque is off: <joints> released (Calibrate page)`. During a grasp pick the arm is display-only too.
+
+### Accepted arm calibration (Arm and Map 3D views)
+
+The 3D arm views draw with the arm calibration accepted on the Calibrate page (Flow 4, Arm to camera; user decision
+342), the same one mcp_server's planner and filter_node's guard use, without a restart:
+
+- Backend `GET /api/arm/calibration` (`web_ui/arm_calibration.py`): reads `arm_applied_calibration_dir` (client.yml:
+  `/var/lib/ros2/head_rgbd_calibration/applied`, mcp_server's `arm.applied_dir`) with the shared ros2_common
+  `applied_arm_calibration` / `arm_calibration_file` code: `applied.json`'s `arm_calibration` record names
+  `arm_calibration.json`, re-read only when the identity of `applied.json` (mtime, size, inode) changed. Body
+  `{"accepted": {session, result, accepted_at, joint_offsets_rad, base_in_base_link: {x, y, z, yaw}} | null,
+  "error": string | null}`, `Cache-Control: no-store`. An unreadable or invalid calibration keeps the last good one
+  (as mcp_server does) and reports `error`; a removed record answers null. Without the key it answers
+  `{"accepted": null, "error": null}`.
+- Frontend (`frontend/src/arm/armCalibrationApi.ts`: typed, validated client naming the first bad key, and
+  `useArmCalibration`, polling every 5 s while the page is visible; `arm/armCalibration.ts`: the pure maths). With an
+  accepted calibration the arm mount is its `base_in_base_link` (x, y, z and yaw) and the URDF is posed in URDF angles
+  (`urdf = measured + joint_offsets_rad`, the gripper has none); the draggable arm turns its angles back
+  (`measured = urdf - offset`) before it publishes. Without one (or before the first answer) the views use the tab's
+  `arm_offset` with no yaw and no joint offsets, as before. A failed poll keeps the last answer. Used by the Arm tab
+  (`ArmTab` -> `ArmView`: arm, floor grid, floor pick and grasp preview) and the map tab 3D view (`MapScene`).
+- The grasp preview and pick conversions (`grasp/grasp.ts` `armPointToBaseLink` / `baseLinkPointToArm`,
+  `arm/armViewPick.ts`) take the mount yaw (`ArmMount` `[x, y, z]` or `[x, y, z, yaw]`).
+- The tool point is not fitted and is not drawn from the calibration. Note: client.yml gives the web UI no joint
+  offsets, so the drawn arm moves by the accepted offsets when the first calibration is accepted.
+- Tests: backend `tests/test_arm_calibration.py`; vitest `arm/armCalibrationApi.test.ts`, `arm/armCalibration.test.ts`,
+  `arm/ArmView.test.tsx` (URDF angles for both arms, offsets handed to the draggable arm, the pick on the accepted
+  mount, a redraw on a new calibration), `tabs/ArmTab.test.tsx` (the calibration reaches the view),
+  `grasp/grasp.test.ts` and `arm/armViewPick.test.ts` (mount yaw).
 
 ### Drive pose (Arm and Map tabs)
 
