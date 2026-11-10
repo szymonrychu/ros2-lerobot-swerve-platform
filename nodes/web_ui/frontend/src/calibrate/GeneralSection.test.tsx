@@ -133,6 +133,32 @@ describe('GeneralSection', () => {
     }
   })
 
+  it('shows the board record at any age, keeps Home arm off and clears it without motion behind a confirm', async () => {
+    const record = {
+      file: '/var/lib/ros2/head_rgbd_calibration/head_arm_board.json',
+      session_id: null,
+      clipped_at: '2026-11-09T18:44:15+00:00',
+      age_s: 39600,
+      offered: false,
+      problem: 'too old',
+    }
+    const state = stubSequence({ board_record: record })
+    const clear = vi.spyOn(headArmApi, 'clearBoardRecord').mockResolvedValue({ ok: true, value: { ...SEQ, board_record: null } })
+    const run = vi.spyOn(generalApi, 'runGeneralAction')
+    render(<GeneralSection actions={ALL} rgbd />)
+    const notice = await screen.findByRole('region', { name: 'Board record' })
+    expect(within(notice).getByText(/Park \(board is on the gripper\) in the Arm to camera flow/)).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Home arm' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: 'Open gripper' }) as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.click(within(notice).getByRole('button', { name: 'The board is already off the gripper: clear the record' }))
+    state.mockResolvedValue({ ok: true, value: { sequence: SEQ, applied: null } })
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Clear the record' }))
+    await waitFor(() => expect(clear).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'Board record' })).toBeNull())
+    expect((screen.getByRole('button', { name: 'Home arm' }) as HTMLButtonElement).disabled).toBe(false)
+    expect(run).not.toHaveBeenCalled()
+  })
+
   it('Home camera is off while a floor sweep moves the head', async () => {
     stubSequence()
     vi.spyOn(headFloorApi, 'getFloorState').mockResolvedValue({

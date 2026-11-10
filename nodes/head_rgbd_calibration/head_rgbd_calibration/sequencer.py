@@ -27,8 +27,8 @@ error, exception, confirm timeout) stops the still capture and releases the arm 
 a checked pose and mcp_server keeps the head where it is. The sequence never parks on its own and never sends
 `carried_object_radius_m`.
 
-Threads (as floor_sweep.py): `move_to_base`, `board_attached`, `allow_big_joints`, `stop`, `park` and `state` run on
-HTTP threads; one worker thread runs the sequence or the park. `lock` guards the shared fields and is only held for
+Threads (as floor_sweep.py): `move_to_base`, `board_attached`, `allow_big_joints`, `stop`, `park`,
+`clear_board_record` and `state` run on HTTP threads; one worker thread runs the sequence or the park. `lock` guards the shared fields and is only held for
 short updates (never across a tool call or `blocked`); the worker waits through the injected `sleep` and measures
 every wait on the injected `clock`.
 
@@ -38,7 +38,7 @@ its message (errors at ERROR, stops and skipped poses at WARNING) and kept in a 
 EVENT_LIMIT events, `state()["events"]` (newest first), so the Calibrate page shows why a sequence ended.
 
 Telemetry (telemetry.py): the journal lines of this module are `calib_event`s of flow `head_arm` under the run id of the
-sequence (`seq-...`) or park (`park-...`), plus the traceback of an unexpected exception; a UI event is that same line
+sequence (`seq-...`), park (`park-...`) or board record clear (`board-...`), plus the traceback of an unexpected exception; a UI event is that same line
 (append_event), never a second one. The
 worker steps are timed (start, ok, stopped or error with the exception and the step's inputs), and the measured joints
 (get_arm_state), path checks (start, target, gripper, every violated entry), MCP results (status, message, result),
@@ -108,6 +108,14 @@ FLOW = "head_arm"
 SEQUENCE_STEP = "sequence"
 PARK_STEP = "park"
 BOARD_RECORD_STEP = "board_record"
+BOARD_CLEAR_STEP = "board_record_clear"
+REASON_TOO_OLD = "too old"
+REASON_UNKNOWN_SESSION = "not a stored head_arm session"
+MESSAGE_CLEAR_CONFIRM = (
+    "clearing the board record needs confirmed=True: the user states the calibration board is already off the gripper"
+)
+MESSAGE_CLEARED = "board record cleared: the user stated the calibration board is off the gripper (nothing moved)"
+MESSAGE_NOTHING_TO_CLEAR = "no board record to clear (nothing moved)"
 
 
 class SequenceError(RuntimeError):
@@ -247,6 +255,31 @@ def carrying_reasons(result: ToolResult) -> list[str]:
     return [str(reason) for reason in carrying.get("reasons") or []] or ["carrying"]
 
 
+def read_board_record(path: Path) -> dict[str, Any]:
+    """Read and check a board record file.
+
+    Args:
+        path (Path): The record `{session_id, mount: {xyz, rpy}, clipped_at}` (Sequencer board_file).
+
+    Returns:
+        dict[str, Any]: {session_id (str | None), clipped_at (str, ISO 8601 with a zone), clipped (datetime),
+            mount ({xyz, rpy} as float lists)}.
+
+    Raises:
+        OSError: The file cannot be read.
+        ValueError, AttributeError, KeyError, TypeError: The content is not a valid record.
+    """
+    record = json.loads(path.read_text())
+    session = record.get("session_id")
+    clipped = datetime.fromisoformat(record["clipped_at"])
+    mount = {k: [float(v) for v in record["mount"][k]] for k in ("xyz", "rpy")}
+    if session is not None and not isinstance(session, str):
+        raise ValueError("session_id is not a string")
+    if clipped.tzinfo is None:
+        raise ValueError("clipped_at has no timezone")
+    return {"session_id": session, "clipped_at": record["clipped_at"], "clipped": clipped, "mount": mount}
+
+
 class Sequencer:
     """Runs one guided head-from-arm capture sequence (or one park) at a time on a worker thread."""
 
@@ -280,16 +313,16 @@ class Sequencer:
                 None without one; the Park path check uses it instead of `fit.board_mount`.
             board_file: JSON record `{session_id, mount, clipped_at}` of a board attached to the gripper, written when
                 the board is attached (or the user states it is on) and removed by a completed park or a new base
-                move. A node start only offers it (state()["board_record"]) when it is younger than
-                `arm_sequence.board_record_max_age_s` and `session_exists` accepts its session; the user must still
-                state that the board is on (park(board_on=True)) before a board park. None: not kept.
+                move, or by clear_board_record (the user states the board is off). state()["board_record"] shows it at
+                any age; it is offered for a board park (and a node start restores its session and mount) only when
+                it is younger than `arm_sequence.board_record_max_age_s` and `session_exists` accepts its session; the
+                user must still state that the board is on (park(board_on=True)) before a board park. None: not kept.
             session_exists: Whether a capture session id is a stored head_arm session (default: any id).
             now: Wall clock (default: datetime.now(UTC)); stamps and ages the board record.
         """
         self.board_file = board_file
         self.session_exists = session_exists or (lambda session_id: session_id is not None)
         self.now = now or (lambda: datetime.now(UTC))
-        self.board_record: dict[str, Any] | None = None
         self.fitted_mount = fitted_mount or (lambda _session_id: None)
         self.capture = capture
         self.robot = robot
@@ -325,50 +358,147 @@ class Sequencer:
     def restore_board(self) -> None:
         """Offer the board record of a previous run: only a fresh one of a stored session, never as the state itself.
 
-        A record older than `board_record_max_age_s`, of an unknown session or unreadable is ignored and logged. A
-        valid one is shown as `state()["board_record"]` (the UI pre-fills its confirm); a board park still needs the
-        user's fresh statement that the board is on.
+        A record older than `board_record_max_age_s`, of an unknown session or unreadable is not offered (logged); it
+        is still shown by `board_record_state` until a park or `clear_board_record` removes it. An offered one also
+        restores its session and mount; a board park still needs the user's fresh statement that the board is on.
         """
         if self.board_file is None or not self.board_file.is_file():
             return
         try:
-            record = json.loads(self.board_file.read_text())
-            session = record.get("session_id")
-            clipped_at = datetime.fromisoformat(record["clipped_at"])
-            recorded = {k: [float(v) for v in record["mount"][k]] for k in ("xyz", "rpy")}
-            if session is not None and not isinstance(session, str):
-                raise ValueError("session_id is not a string")
-            if clipped_at.tzinfo is None:
-                raise ValueError("clipped_at has no timezone")
+            record = read_board_record(self.board_file)
         except (OSError, ValueError, AttributeError, KeyError, TypeError) as exc:
             self.log(BOARD_RECORD_STEP, "ignored", logging.WARNING, f"unreadable: {exc}", file=self.board_file)
             return
-        age = (self.now() - clipped_at).total_seconds()
-        if age > self.seq.board_record_max_age_s or age < 0:
+        age = (self.now() - record["clipped"]).total_seconds()
+        problem = self.board_record_problem(record["session_id"], age)
+        if problem == REASON_TOO_OLD:
             self.log(
                 BOARD_RECORD_STEP,
                 "ignored",
                 logging.WARNING,
-                "too old",
+                problem,
                 file=self.board_file,
                 age_s=age,
                 max_age_s=self.seq.board_record_max_age_s,
             )
             return
-        if not self.session_exists(session):
+        if problem is not None:
             self.log(
                 BOARD_RECORD_STEP,
                 "ignored",
                 logging.WARNING,
-                "not a stored head_arm session",
+                problem,
                 file=self.board_file,
-                session_id=session,
+                session_id=record["session_id"],
             )
             return
-        self.board_record = {"session_id": session, "clipped_at": record["clipped_at"]}
+        session = record["session_id"]
         self.session_id = session
-        self.recorded_mount = recorded
-        self.log(BOARD_RECORD_STEP, "offered", session_id=session, clipped_at=record["clipped_at"], mount=recorded)
+        self.recorded_mount = record["mount"]
+        self.log(
+            BOARD_RECORD_STEP, "offered", session_id=session, clipped_at=record["clipped_at"], mount=record["mount"]
+        )
+
+    def board_record_problem(self, session: str | None, age_s: float) -> str | None:
+        """Why a board record is not offered for a board park, or None when it is.
+
+        Args:
+            session (str | None): The record's session id.
+            age_s (float): Its age by the node's wall clock (s).
+
+        Returns:
+            str | None: REASON_TOO_OLD (older than `board_record_max_age_s`, or from the future), REASON_UNKNOWN_SESSION
+                (session_exists refuses it), else None.
+        """
+        if age_s > self.seq.board_record_max_age_s or age_s < 0:
+            return REASON_TOO_OLD
+        if not self.session_exists(session):
+            return REASON_UNKNOWN_SESSION
+        return None
+
+    def board_record_state(self) -> dict[str, Any] | None:
+        """The board record file as it is now, whatever its age (mcp_server refuses /arm/home while it exists).
+
+        Returns:
+            dict[str, Any] | None: None without a file, else {file, session_id, clipped_at, age_s, offered, problem}:
+                file is its path, age_s its age in seconds (None, as session_id and clipped_at, when unreadable),
+                offered whether a board park would accept it as fresh, problem why not (REASON_TOO_OLD,
+                REASON_UNKNOWN_SESSION or "unreadable: ..."; None when offered).
+        """
+        if self.board_file is None or not self.board_file.exists():
+            return None
+        view: dict[str, Any] = {"file": str(self.board_file), "session_id": None, "clipped_at": None, "age_s": None}
+        try:
+            record = read_board_record(self.board_file)
+        except (OSError, ValueError, AttributeError, KeyError, TypeError) as exc:
+            return {**view, "offered": False, "problem": f"unreadable: {exc}"}
+        age = round((self.now() - record["clipped"]).total_seconds(), 1)
+        problem = self.board_record_problem(record["session_id"], age)
+        return {
+            **view,
+            "session_id": record["session_id"],
+            "clipped_at": record["clipped_at"],
+            "age_s": age,
+            "offered": problem is None,
+            "problem": problem,
+        }
+
+    def clear_board_record(self, confirmed: bool) -> dict[str, Any]:
+        """The user states the calibration board is already off the gripper: remove the board record, move nothing.
+
+        Refused while a sequence or a park runs (its worker may still write the record). A holding phase (the
+        sequence ended with the board on) returns to idle: the board is off, so Park and Home need no board path.
+
+        Args:
+            confirmed (bool): The user confirmed the board is off the gripper.
+
+        Returns:
+            dict[str, Any]: The state() after the clear.
+
+        Raises:
+            ValueError: Not confirmed (nothing changes).
+            Busy: A sequence or park runs.
+            SequenceError: The file cannot be removed (logged; the record stays).
+        """
+        if not confirmed:
+            raise ValueError(MESSAGE_CLEAR_CONFIRM)
+        with self.lock:
+            if self.running or (self.thread is not None and self.thread.is_alive()):
+                raise Busy(f"a head-arm sequence or park is running (phase {self.phase}): stop it or let it end first")
+            previous = self.board_record_state()
+            self.run_id = new_run_id("board", self.now())
+            try:
+                if self.board_file is not None:
+                    self.board_file.unlink(missing_ok=True)
+            except OSError as exc:
+                self.append_event(
+                    logging.ERROR,
+                    f"board record not cleared: {exc}",
+                    BOARD_CLEAR_STEP,
+                    "error",
+                    reason=str(exc),
+                    file=str(self.board_file),
+                )
+                raise SequenceError(f"cannot remove the board record {self.board_file}: {exc}") from exc
+            phase = self.phase
+            self.board_on = False
+            self.recorded_mount = None
+            if self.phase == HOLDING:
+                self.phase = IDLE
+            message = MESSAGE_CLEARED if previous is not None else MESSAGE_NOTHING_TO_CLEAR
+            self.status = message
+            self.error = None
+            self.append_event(
+                logging.INFO,
+                message,
+                BOARD_CLEAR_STEP,
+                "cleared" if previous is not None else "none",
+                phase,
+                file=None if self.board_file is None else str(self.board_file),
+                record=previous,
+                phase_after=self.phase,
+            )
+        return self.state()
 
     def record_board(self, run_id: str | None = None) -> None:
         """Write the board record (atomically); a failed write is logged, the in-memory state stands.
@@ -505,7 +635,7 @@ class Sequencer:
             waiting_since, board_record, events}: arm_pose is the 0-based index over the whole pose set of the pose
             worked on (None before the first), skipped maps each skip reason to its count, big_joints names the joints
             tier 2 moves, waiting_since is the clock time a confirm wait began (None outside a wait), board_record is
-            `{session_id, clipped_at}` of a fresh board record from before a node restart (None without one), events
+            board_record_state() (the record file at any age, None without one), events
             are the newest EVENT_LIMIT `{time (ISO 8601), phase, level (info, warning, error), message}`, newest first.
         """
         with self.lock:
@@ -522,7 +652,7 @@ class Sequencer:
                 "error": self.error,
                 "big_joints": list(BIG_JOINTS),
                 "waiting_since": self.waiting_since,
-                "board_record": self.board_record,
+                "board_record": self.board_record_state(),
                 "events": [dict(e) for e in reversed(self.events)],
             }
 

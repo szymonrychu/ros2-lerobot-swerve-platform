@@ -2742,9 +2742,23 @@ class ArmController:
     def set_home(self) -> dict[str, float]:
         """Store the measured pose as the home pose.
 
+        Refused while the stale marker lists joint_offsets (an unreadable marker counts): a pose measured in the old
+        arm zero would be driven to after the zero restore. Every caller (the MCP tool, the /arm/set_home service and
+        so the web_ui Arm tab and Calibrate page) goes through here.
+
         Returns:
             dict[str, float]: The stored pose.
+
+        Raises:
+            ArmError: The arm zero is stale, no fresh joint sample, or the pose or marker cannot be written.
         """
+        marker = self.stale_marker()
+        if marker is not None and STALE_OFFSETS_ITEM in marker.stale:
+            when = marker.saved_at or "an unknown time"
+            raise ArmError(
+                f"set home refused: the arm zero is stale ({STALE_OFFSETS_ITEM}); run the zero restore first "
+                f"(arm re-zero at {when})"
+            )
         pose = self.measured(self.require_sample())
         try:
             save_home(self.cfg.arm.home_file, pose)

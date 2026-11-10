@@ -69,6 +69,7 @@ def groups(marker: Path | None = None) -> list[ServoGroupConfig]:
             stale_marker=str(marker) if marker else None,
             zero_restore=True,
             move_to_neutral_service="/arm/move_to_neutral",
+            set_home_service="/arm/set_home",
         ),
         ServoGroupConfig(id="head", label="Head", namespace="head"),
     ]
@@ -123,6 +124,7 @@ def test_derived_names() -> None:
         assert f"/follower/servo/{action}" in config.trigger_services()
         assert f"/head/servo/{action}" not in config.trigger_services()
     assert "/arm/move_to_neutral" in config.trigger_services()
+    assert "/arm/set_home" in config.trigger_services()
 
 
 def test_get_fresh_stale_missing_and_marker(tmp_path: Path) -> None:
@@ -136,10 +138,11 @@ def test_get_fresh_stale_missing_and_marker(tmp_path: Path) -> None:
     assert arm == {
         "id": "arm", "label": "Arm", "neutral": True, "state": STATE, "age_s": 1.0, "stale": False,
         "calibration_stale": ["joint_offsets", "home"], "zero_restore": True, "move_to_neutral": True,
+        "set_home": True,
     }  # fmt: skip
     assert head["stale"] is True and head["age_s"] == 11.0 and head["calibration_stale"] is None
     assert head["neutral"] is False
-    assert head["zero_restore"] is False and head["move_to_neutral"] is False
+    assert head["zero_restore"] is False and head["move_to_neutral"] is False and head["set_home"] is False
 
 
 def test_get_missing_sample_and_marker_absent(tmp_path: Path) -> None:
@@ -167,6 +170,7 @@ def test_get_without_bridge(tmp_path: Path) -> None:
         ("zero_restore_apply_confirmed", "/follower/servo/zero_restore_apply_confirmed"),
         ("save_rest_reference", "/follower/servo/save_rest_reference"),
         ("move_to_neutral", "/arm/move_to_neutral"),
+        ("set_home", "/arm/set_home"),
     ],
 )
 def test_post_calls_derived_service(tmp_path: Path, action: str, service: str) -> None:
@@ -197,6 +201,7 @@ def test_post_404_paths(tmp_path: Path) -> None:
     for action in ZERO_RESTORE_ACTIONS:
         assert client.post(f"/api/calibration/servos/head/{action}").status_code == 404
     assert client.post("/api/calibration/servos/head/move_to_neutral").status_code == 404
+    assert client.post("/api/calibration/servos/head/set_home").status_code == 404
 
 
 def test_post_503_paths(tmp_path: Path) -> None:
@@ -310,6 +315,55 @@ def test_move_to_neutral_refused_while_released(tmp_path: Path) -> None:
     assert bridge.services == []
 
 
+def test_set_home_is_allowed_with_torque_off_and_waits_the_service_timeout(tmp_path: Path) -> None:
+    """Set home moves nothing: the user poses the arm by hand with torque off, then records it (mcp_server /arm/set_home)."""
+    seen: list[tuple[str, float]] = []
+
+    async def fake_call(action: str, future: Any, service: str, timeout_s: float) -> tuple[Any, None]:
+        seen.append((service, timeout_s))
+        return SimpleNamespace(success=True, message="home stored"), None
+
+    with (
+        patch("web_ui.server.call_ros_service", fake_call),
+        patch("web_ui.servo_calibration.time.monotonic", return_value=100.5),
+    ):
+        response = make_client(tmp_path, FakeBridge({"follower": (STATE, 100.0)})).post(
+            "/api/calibration/servos/arm/set_home"
+        )
+    assert STATE["released"] is True
+    assert (response.status_code, response.json()) == (200, {"ok": True, "message": "home stored"})
+    assert seen == [("/arm/set_home", 15.0)]
+
+
+def test_set_home_blocked_under_cutoff(tmp_path: Path) -> None:
+    bridge = FakeBridge()
+    response = make_client(tmp_path, bridge, guard=FakeGuard()).post("/api/calibration/servos/arm/set_home")
+    assert response.status_code != 200
+    assert bridge.services == []
+
+
+def test_set_home_refusal_is_409_with_the_mcp_message(tmp_path: Path) -> None:
+    bridge = FakeBridge(trigger=SimpleNamespace(success=False, message="no fresh arm joint state"))
+    response = make_client(tmp_path, bridge).post("/api/calibration/servos/arm/set_home")
+    assert (response.status_code, response.json()) == (409, {"ok": False, "message": "no fresh arm joint state"})
+
+
+STALE_SET_HOME_REFUSAL = (
+    "set home refused: the arm zero is stale (joint_offsets); run the zero restore first "
+    "(arm re-zero at 2026-10-20T10:00:00+00:00)"
+)
+
+
+def test_set_home_stale_zero_refusal_passes_through_as_409(tmp_path: Path) -> None:
+    """mcp_server refuses /arm/set_home while joint_offsets is stale: the route returns its message as the error."""
+    bridge = FakeBridge(
+        {"follower": (STATE, 100.0)}, trigger=SimpleNamespace(success=False, message=STALE_SET_HOME_REFUSAL)
+    )
+    response = make_client(tmp_path, bridge).post("/api/calibration/servos/arm/set_home")
+    assert (response.status_code, response.json()) == (409, {"ok": False, "message": STALE_SET_HOME_REFUSAL})
+    assert bridge.services == ["/arm/set_home"]
+
+
 def test_move_to_neutral_404_without_service(tmp_path: Path) -> None:
     from web_ui.server import build_app
 
@@ -318,6 +372,7 @@ def test_move_to_neutral_404_without_service(tmp_path: Path) -> None:
     app = build_app(config=config, urdf_dir=tmp_path, static_dir=tmp_path / "none", bridge_node=FakeBridge())
     client = TestClient(app)
     assert client.post("/api/calibration/servos/arm/move_to_neutral").status_code == 404
+    assert client.post("/api/calibration/servos/arm/set_home").status_code == 404
     assert client.post("/api/calibration/servos/arm/zero_restore_dry_run").status_code == 404
 
 

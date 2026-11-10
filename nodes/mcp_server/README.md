@@ -92,7 +92,8 @@ on the feeds node (`dual_rate_topic(node=feeds_node)`). Config `feeds_executor: 
 
 ROS services (`std_srvs/Trigger`): `/arm/home` (move to the stored home pose, then always release arm control, also
 after a failed motion; used by the web UI "Arm home" button and the Calibrate page General **Home arm**) and
-`/arm/set_home` (store the measured pose).
+`/arm/set_home` (store the measured pose; refused while the arm zero is stale, see
+[Calibration stale marker](#calibration-stale-marker)).
 
 `/arm/home` guard (`ControlManager.home_service_call`, then `ArmController.home_service_call`). Callers: the web UI
 Arm tab Home, the Calibrate page General Home arm (`/api/calibration/general/home_arm`) and the Map tab (map_nav
@@ -105,9 +106,12 @@ Arm tab Home, the Calibrate page General Home arm (`/api/calibration/general/hom
   `/var/lib/ros2/head_rgbd_calibration/head_arm_board.json`, the node's `<state_dir>/head_arm_board.json`; written on
   Board attached, removed by a successful park; any age, an unreadable file counts; null disables the check). This
   covers the board in the jaws with no lease held and a relaxed grip (the `holding` phase after a run, a failed park, a
-  node restart): "arm home refused: the calibration board is on the gripper (session <id>, attached at <time>, record
-  <path>) - the home route is not checked with it; park it from the Calibrate page Arm to camera flow (Park arm, or Park
-  (board is on the gripper)) first";
+  node restart): "arm home refused: the calibration board is on the gripper by the board record <path> (session <id>,
+  attached at <time>) - the home route is not checked with it. Board still on: park it from the Calibrate page Arm to
+  camera flow (Park arm, or Park (board is on the gripper)). Board already off: clear the record on the Calibrate page
+  (The board is already off the gripper: clear the record)". The clear is head_rgbd_calibration's
+  `POST /api/arm-camera/board-record/clear` (no motion; it logs a `board_record_clear` calib_event), so a board taken
+  off by hand without a park does not block Home for good;
 - the gripper carries (`carrying_state`: the carry record or a live holding load, e.g. the calibration board clamped by
   its handle): "arm home refused: the gripper carries something (<reasons>) - the home route is not checked with it;
   remove it first (park the calibration board from its flow)";
@@ -1365,6 +1369,9 @@ stale}`, where `stale` lists `joint_offsets` and/or `home`.
   recorded before the arm re-zero at <saved_at>; record a new home with arm_set_home".
 - `/arm/move_to_neutral` and the `/arm/home` service are refused while `joint_offsets` is stale (the FK and body
   check use the zero).
+- `arm_set_home` (the tool and the `/arm/set_home` service, so also the web UI Arm tab and Calibrate page Set
+  home) is refused while `joint_offsets` is stale (an unreadable marker counts), storing nothing and keeping the
+  marker: "set home refused: the arm zero is stale (joint_offsets); run the zero restore first (arm re-zero at <saved_at>)". A home measured in the old zero would be the pose `/arm/home` drives to after the zero restore.
 - `arm_set_home` clears `home` from the marker. `joint_offsets` is cleared when an accepted arm to camera
   calibration captured after the re-zero is applied ("Accepted arm calibration"). The marker file is deleted once
   nothing is stale.

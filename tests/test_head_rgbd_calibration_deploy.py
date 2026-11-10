@@ -216,6 +216,15 @@ def test_apply_pairs_match_the_node_csi_cameras() -> None:
     assert pairs == RESTART_PAIRS[1:]
 
 
+def test_csi_cameras_enabled_mirrors_the_camera_nodes() -> None:
+    """The Calibrate page offers only the CSI cameras whose node is enabled (back_camera is disabled until fitted)."""
+    cameras = calib_config()["csi_cameras"]
+    assert {name: camera["enabled"] for name, camera in cameras.items()} == {
+        name: node_entry(f"{name}_camera")["enabled"] for name in cameras
+    }
+    assert cameras["back"]["enabled"] is False
+
+
 def test_apply_rejects_an_argument_without_units(tmp_path: Path) -> None:
     result = subprocess.run(["bash", str(APPLY_SCRIPT), "head_chain.json"], capture_output=True, text=True, check=False)
     assert result.returncode != 0

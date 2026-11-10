@@ -210,6 +210,15 @@ describe('ArmActions drive pose', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
+  it('a Set home refused while the arm zero is stale shows the mcp_server message as an error', async () => {
+    const refusal = 'set home refused: the arm zero is stale (joint_offsets); run the zero restore first (arm re-zero at x)'
+    fetchMock.mockResolvedValue({ status: 500, json: async () => ({ ok: false, message: refusal }) })
+    render(<Host />)
+    fireEvent.click(button('Set home'))
+    await act(async () => fireEvent.click(button('Confirm set home')))
+    expect((await screen.findByRole('alert')).textContent).toContain(refusal)
+  })
+
   it('a refused set drive pose shows the service message as an error', async () => {
     fetchMock.mockResolvedValue({ status: 500, json: async () => ({ ok: false, message: 'drive pose check failed: head' }) })
     render(<Host />)

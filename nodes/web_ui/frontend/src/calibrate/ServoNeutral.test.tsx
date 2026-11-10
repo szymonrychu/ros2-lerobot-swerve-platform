@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { ServoNeutral } from './ServoNeutral'
+import { SET_HOME_NO_READINGS_REASON, SET_HOME_STALE_REASON, SET_HOME_TEXT, ServoNeutral, markerState } from './ServoNeutral'
 import type { ServoGroup, TorqueState } from './servoApi'
 
 function state(joints: Record<string, number>, capture: TorqueState['neutral_capture'] = null): TorqueState {
@@ -29,6 +29,7 @@ function group(id: string, over: Partial<ServoGroup> = {}): ServoGroup {
     calibration_stale: null,
     zero_restore: false,
     move_to_neutral: false,
+    set_home: false,
     ...over,
   }
 }
@@ -345,6 +346,74 @@ describe('ServoNeutral', () => {
     expect(screen.queryByRole('region', { name: 'Head' })).toBeNull()
     expect(within(card('Arm')).queryByRole('button', { name: 'Move to neutral pose' })).toBeNull()
     expect(within(card('Arm')).queryByRole('button', { name: 'Re-enable torque' })).toBeNull()
+  })
+
+  it('the home part shows the stale marker items and Set home behind a no-motion confirm', async () => {
+    groups = [group('arm', { set_home: true, move_to_neutral: true, calibration_stale: ['home'] })]
+    mockFetch()
+    render(<ServoNeutral parts={['home']} />)
+    await inCard('Arm')
+    const marker = within(card('Arm')).getByRole('region', { name: 'Stale marker' })
+    expect(within(marker).getByText('joint_offsets: ok')).toBeTruthy()
+    expect(within(marker).getByText('home: stale')).toBeTruthy()
+    expect(within(card('Arm')).queryByRole('button', { name: 'Move to neutral pose' })).toBeNull()
+    expect(within(card('Arm')).queryByRole('button', { name: 'Torque off' })).toBeNull()
+    fireEvent.click(btn('Arm', 'Set home'))
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByText(SET_HOME_TEXT)).toBeTruthy()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Set home' }))
+    await waitFor(() => expect(posts).toContain('/api/calibration/servos/arm/set_home'))
+  })
+
+  it('Set home is off with the reason while joint_offsets is stale, and absent without the service', async () => {
+    groups = [group('arm', { set_home: true, calibration_stale: ['joint_offsets', 'home'] }), group('head')]
+    mockFetch()
+    render(<ServoNeutral parts={['home']} />)
+    await inCard('Arm')
+    expect((btn('Arm', 'Set home') as HTMLButtonElement).disabled).toBe(true)
+    expect(within(card('Arm')).getByText(SET_HOME_STALE_REASON)).toBeTruthy()
+    expect(screen.queryByRole('region', { name: 'Head' })).toBeNull()
+  })
+
+  it('Set home is off with the reason while the follower joint readings are stale', async () => {
+    groups = [group('arm', { set_home: true, stale: true, calibration_stale: ['home'] })]
+    mockFetch()
+    render(<ServoNeutral parts={['home']} />)
+    await inCard('Arm')
+    expect((btn('Arm', 'Set home') as HTMLButtonElement).disabled).toBe(true)
+    expect(within(card('Arm')).getByText(SET_HOME_NO_READINGS_REASON)).toBeTruthy()
+    expect(SET_HOME_NO_READINGS_REASON).toContain('no fresh arm joint readings')
+  })
+
+  it('Set home is off without any follower state', async () => {
+    groups = [group('arm', { set_home: true, state: null, age_s: null })]
+    mockFetch()
+    render(<ServoNeutral parts={['home']} />)
+    await inCard('Arm')
+    expect((btn('Arm', 'Set home') as HTMLButtonElement).disabled).toBe(true)
+    expect(within(card('Arm')).getByText(SET_HOME_NO_READINGS_REASON)).toBeTruthy()
+  })
+
+  it('SET_HOME_TEXT says it records the current joint readings', () => {
+    expect(SET_HOME_TEXT).toContain('current joint readings')
+  })
+
+  it('a Set home refused by mcp_server shows its message as an error', async () => {
+    groups = [group('arm', { set_home: true, calibration_stale: ['home'] })]
+    mockFetch()
+    const refusal = 'set home refused: the arm zero is stale (joint_offsets); run the zero restore first (arm re-zero at x)'
+    postReply = { status: 409, body: { ok: false, message: refusal } }
+    render(<ServoNeutral parts={['home']} />)
+    await inCard('Arm')
+    fireEvent.click(btn('Arm', 'Set home'))
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Set home' }))
+    const shown = await screen.findByText(refusal)
+    expect(shown.closest('[role="alert"]')?.className).toContain('MuiAlert-colorError')
+  })
+
+  it('markerState reads a missing marker as nothing stale', () => {
+    expect(markerState(group('arm'))).toEqual({ joint_offsets: false, home: false })
+    expect(markerState(group('arm', { calibration_stale: ['joint_offsets'] }))).toEqual({ joint_offsets: true, home: false })
   })
 
   it('reports each action outcome to onResult', async () => {

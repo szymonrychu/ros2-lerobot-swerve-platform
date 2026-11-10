@@ -25,6 +25,12 @@ const LARGE_SHIFT_TEXT =
   'A large shift usually means the joints were not in the neutral pose when it was recorded (for example the folded arm). Saving it moves every later pose and Park by that angle. Record again in the neutral pose unless the shift is intended.'
 const LARGE_SHIFT_CONFIRM = 'The large shift is intended: save it'
 export const MOVE_TO_NEUTRAL_TEXT = 'The arm moves to the neutral pose: all joints at 0. Keep the area clear.'
+export const SET_HOME_TEXT =
+  "Records the arm's current joint readings as its home pose (as the Arm tab Set home). Nothing moves. Pose the arm first: by hand with torque off, or with Move to neutral pose. Home arm then returns to this pose."
+export const SET_HOME_STALE_REASON = 'Set home is off while the arm zero is stale (joint_offsets): restore the zero first.'
+export const SET_HOME_NO_READINGS_REASON = 'Set home is off: no fresh arm joint readings.'
+/** Stale marker items the Servo home flow shows (the bridge re-zero marker, cleared by the zero restore and Set home). */
+export const MARKER_ITEMS = ['joint_offsets', 'home']
 export const MOVE_RELEASED_REASON = 'Move to neutral needs torque on.'
 export const MOVE_STALE_REASON =
   'Move to neutral is off while the arm zero is stale (joint_offsets): restore the zero first.'
@@ -36,11 +42,25 @@ const RELEASE_TEXT: Record<string, string> = {
 
 type TorqueLevel = 'on' | 'off' | 'partly' | 'unknown'
 type Feedback = { ok: boolean; message: string } | null
-type ConfirmAction = 'release' | 'save' | 'move_to_neutral'
+type ConfirmAction = 'release' | 'save' | 'move_to_neutral' | 'set_home'
 type Pending = { group: ServoGroup; action: ConfirmAction } | null
-/** Parts of a group card: torque and neutral controls, the Arm zero restore panel, the Move to neutral pose button. */
-export type ServoPart = 'torque' | 'zero' | 'move'
-export const ALL_SERVO_PARTS: ServoPart[] = ['torque', 'zero', 'move']
+/**
+ * Parts of a group card: torque and neutral controls, the Arm zero restore panel, the Move to neutral pose button, the
+ * Set home button with the stale marker state.
+ */
+export type ServoPart = 'torque' | 'zero' | 'move' | 'home'
+export const ALL_SERVO_PARTS: ServoPart[] = ['torque', 'zero', 'move', 'home']
+
+/**
+ * Per item of MARKER_ITEMS whether the stale marker lists it (null calibration_stale: no marker, nothing stale).
+ *
+ * @param group - the servo group
+ * @returns item -> stale
+ */
+export function markerState(group: ServoGroup): Record<string, boolean> {
+  const stale = group.calibration_stale ?? []
+  return Object.fromEntries(MARKER_ITEMS.map((item) => [item, stale.includes(item)]))
+}
 
 /** Torque level of a group: unknown when there is no fresh state or no joint reading. */
 export function torqueLevel(group: ServoGroup): TorqueLevel {
@@ -90,6 +110,12 @@ function ServoCard({ group, parts, busy, onRun, onConfirm }: CardProps) {
   const moveReason = !known || released ? MOVE_RELEASED_REASON : staleJointOffsets(group) ? MOVE_STALE_REASON : null
   const torque = parts.includes('torque')
   const move = parts.includes('move') && group.move_to_neutral
+  const home = parts.includes('home') && group.set_home
+  const homeReason = staleJointOffsets(group)
+    ? SET_HOME_STALE_REASON
+    : !group.state || group.stale
+      ? SET_HOME_NO_READINGS_REASON
+      : null
 
   return (
     <Box component="section" aria-label={group.label} sx={{ border: 1, borderColor: 'divider', borderRadius: 1, p: 2, mb: 1 }}>
@@ -149,6 +175,19 @@ function ServoCard({ group, parts, busy, onRun, onConfirm }: CardProps) {
         )}
       </Box>
       {move && moveReason && <Typography variant="body2" color="text.secondary">{moveReason}</Typography>}
+      {home && (
+        <Box component="section" aria-label="Stale marker" sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1 }}>
+          {Object.entries(markerState(group)).map(([item, isStale]) => (
+            <Chip key={item} size="small" color={isStale ? 'warning' : 'success'} label={`${item}: ${isStale ? 'stale' : 'ok'}`} />
+          ))}
+        </Box>
+      )}
+      {home && (
+        <Button variant="contained" sx={btn} disabled={busy || homeReason !== null} onClick={() => onConfirm(group, 'set_home')}>
+          Set home
+        </Button>
+      )}
+      {home && homeReason && <Typography variant="body2" color="text.secondary">{homeReason}</Typography>}
       {parts.includes('zero') && group.zero_restore && (
         <ZeroRestorePanel
           group={group}
@@ -229,7 +268,12 @@ interface ServoNeutralProps {
 
 /** Whether a group has anything to show for the parts. */
 function groupShown(group: ServoGroup, parts: ServoPart[]): boolean {
-  return parts.includes('torque') || (parts.includes('zero') && group.zero_restore) || (parts.includes('move') && group.move_to_neutral)
+  return (
+    parts.includes('torque') ||
+    (parts.includes('zero') && group.zero_restore) ||
+    (parts.includes('move') && group.move_to_neutral) ||
+    (parts.includes('home') && group.set_home)
+  )
 }
 
 /**
@@ -301,6 +345,14 @@ function ServoNeutralView({ parts = ALL_SERVO_PARTS, servo, heading = true, onRe
         body={MOVE_TO_NEUTRAL_TEXT}
         confirmLabel="Move"
         onConfirm={() => pending && void run(pending.group, 'move_to_neutral')}
+        onCancel={() => setPending(null)}
+      />
+      <ConfirmDialog
+        open={pending?.action === 'set_home'}
+        title={`Set home: ${pending?.group.label ?? ''}?`}
+        body={SET_HOME_TEXT}
+        confirmLabel="Set home"
+        onConfirm={() => pending && void run(pending.group, 'set_home')}
         onCancel={() => setPending(null)}
       />
       <SaveNeutralDialog

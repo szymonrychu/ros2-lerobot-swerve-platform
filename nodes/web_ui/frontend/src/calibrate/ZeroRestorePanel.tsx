@@ -62,10 +62,31 @@ export function staleJointOffsets(group: ServoGroup): boolean {
   return (group.calibration_stale ?? []).includes('joint_offsets') || group.state?.zero_restore?.stale_joint_offsets === true
 }
 
-/** Whether a dry run is older than its max_age_s (the bridge refuses to apply it), by the browser clock. */
-export function planExpired(plan: ZeroRestorePlan, now: number = Date.now()): boolean {
+const NS_PER_MS = 1e6
+const MS_PER_S = 1000
+
+/**
+ * Seconds a dry run has left before the bridge refuses to apply it (negative once expired), on the robot clock only:
+ * the plan's created_at and the torque_state sample's stamp_ns are both the robot's wall clock, and the sample's age_s
+ * (measured by web_ui) carries it to now. The browser clock is never read, so a skewed browser clock cannot expire a
+ * fresh plan or keep an old one.
+ *
+ * @param plan - the bridge's dry run (created_at ISO 8601, max_age_s)
+ * @param group - the group whose torque_state carries the plan (state.stamp_ns, age_s)
+ * @returns the remaining seconds, or null without a sample stamp or a readable created_at
+ */
+export function planRemainingS(plan: ZeroRestorePlan, group: ServoGroup): number | null {
   const created = Date.parse(plan.created_at)
-  return Number.isFinite(created) && now - created > plan.max_age_s * 1000
+  const stamp = group.state?.stamp_ns
+  if (!Number.isFinite(created) || typeof stamp !== 'number') return null
+  const robotNowMs = stamp / NS_PER_MS + (group.age_s ?? 0) * MS_PER_S
+  return plan.max_age_s - (robotNowMs - created) / MS_PER_S
+}
+
+/** Whether a dry run is older than its max_age_s on the robot clock (planRemainingS below 0; unknown is not expired). */
+export function planExpired(plan: ZeroRestorePlan, group: ServoGroup): boolean {
+  const remaining = planRemainingS(plan, group)
+  return remaining !== null && remaining < 0
 }
 
 function PlanTable({ plan }: { plan: ZeroRestorePlan }) {
@@ -193,7 +214,8 @@ export function ZeroRestorePanel({ group, released, known, busy, onRun, onReleas
   useEffect(() => {
     if (dialog === 'apply' && currentRunId !== shownRunId) setDialog(null)
   }, [dialog, currentRunId, shownRunId])
-  const expired = plan !== null && planExpired(plan)
+  const expired = plan !== null && planExpired(plan, group)
+  const remaining = plan !== null ? planRemainingS(plan, group) : null
   const result = zero?.last_result ?? null
   const btn = { minHeight: TOUCH_TARGET_PX }
   const staleOffsets = staleJointOffsets(group)
@@ -246,7 +268,7 @@ export function ZeroRestorePanel({ group, released, known, busy, onRun, onReleas
           {plan && (
             <Box sx={{ mb: 1 }}>
               <Typography variant="body2" color="text.secondary">
-                {`Plan ${plan.created_at} (reference ${plan.reference_source}, valid ${plan.max_age_s} s)`}
+                {`Plan ${plan.created_at} (reference ${plan.reference_source}, valid ${plan.max_age_s} s${remaining !== null && remaining >= 0 ? `, ${Math.floor(remaining)} s left` : ''})`}
               </Typography>
               <PlanTable plan={plan} />
             </Box>

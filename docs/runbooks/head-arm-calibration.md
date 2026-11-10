@@ -104,6 +104,17 @@ arm holds the board; the checked board park),
 then Open gripper again (step 2: base pose, gripper at `insert_gripper_rad`), reseat the handle and retry. A page that
 lost the sequence (restart) offers **Park (board is on the gripper)** in step 1.
 
+Board record: from Board attached until a completed park the node keeps
+`/var/lib/ros2/head_rgbd_calibration/head_arm_board.json`, and mcp_server refuses `/arm/home` (Home arm everywhere) while
+it exists, whatever its age; the refusal names the file and both ways out. The Calibrate page shows the record in the
+General section and above the Arm to camera steps, with its session (or "without a capture session"), attach time and
+age, and disables Home arm while it exists. Board still on the gripper: **Park (board is on the gripper)** (step 1) or
+**Park arm** (step 7 while holding). Board already off (taken out by hand without a park): **The board is already off
+the gripper: clear the record** and confirm. Nothing moves; the node removes the file, logs a `board_record_clear`
+calib_event (run id `board-...`, the removed record in `data.record`) and a recent event, and a `holding` sequence
+returns to idle. The clear is refused while a head-arm sequence or park or an arm to camera compute runs. Never delete
+the file by hand on the robot while the board may still be in the jaws.
+
 Where errors show: a sequence or park that ends with an error shows it on the Calibrate page in the red banner
 **Last head-arm error** (Arm to camera flow, above its steps; a refused button shows its message on its own step) with the time and phase it happened
 in, and the **Recent head-arm events** log below it lists the newest 50 events (start, each step and pose outcome,

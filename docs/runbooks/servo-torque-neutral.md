@@ -80,7 +80,7 @@ Repairs a follower arm re-zero recorded in the wrong pose (2026-11-09: `neutral 
 -901 steps and elbow_flex about +1029 steps) without moving the arm. The follower bridge rewrites each arm servo's EEPROM
 offset so the arm, resting folded on its rest with torque off, reads its rest reference again. The gripper is never
 touched. The user runs it alone on the web UI Calibrate page, tab **Servo home** (deep link `#/calibrate/servo-home`),
-step 2 "Arm zero restore", panel "Arm zero restore". Details:
+step 2 "Arm zero restore", panel "Arm zero restore", then step 3 "Set home". Details:
 `nodes/bridges/feetech_servos/README.md` "Arm zero restore" and `nodes/web_ui/README.md`.
 
 Needs `lerobot_follower`, `mcp_server` and `web_ui` deployed from this branch (`scripts/deploy-nodes.sh client
@@ -109,15 +109,24 @@ Steps (one button each; the panel says what to expect under every button):
    still and run it again), an invalid rest reference.
 3. Press **3. Apply**. Because shoulder_lift and elbow_flex change by more than 15 deg, the dialog "Apply a large zero
    change?" lists them; tick "The arm rests folded on its rest and the large change is intended" and press **Apply
-   large change**. Apply within 60 s of the dry run without touching the arm, else it is refused ("dry run is N s old" or
+   large change**. Apply within 60 s of the dry run (the plan line shows the seconds left, counted on the robot clock,
+   so a wrong browser clock does not matter) without touching the arm, else it is refused ("dry run is N s old" or
    "moved since the dry run": run the dry run again). Expect: "zero restored for shoulder_pan, shoulder_lift,
    elbow_flex, wrist_flex, wrist_roll; torque stays off" and the result table: every joint Applied yes, Now (rad)
-   equal to the Target of step 2 within 0.005 rad. The arm does not move. The calibration-stale warning
-   disappears (joint_offsets cleared; home cleared too when it was listed, or listed now when home was re-recorded
-   after the wrong re-zero: then store a new home from the Arm tab after Park). Mismatch (a failed joint): STOP and report the message; the failed joint got its
+   equal to the Target of step 2 within 0.005 rad. The arm does not move. The stale marker drops joint_offsets; home
+   can stay listed (the stored home was recorded before the re-zero): the Servo home flow step 3 **Set home** shows the
+   marker as chips, `joint_offsets: ok` and `home: stale` in that case. Mismatch (a failed joint): STOP and report the message; the failed joint got its
    old offset back, joints before it are restored, later joints untouched; torque stays off.
 4. Press **4. Re-enable torque**. Expect: the arm holds its pose, the card shows torque on.
-5. Park the arm: General section **Home arm** (or the Arm to camera flow's Park when it holds the board). Expect: it
+5. When the flow's step 3 shows `home: stale`: pose the arm where home should be (by hand with torque off, then
+   re-enable torque; or **Move to neutral pose** in step 4), press **Set home** and confirm ("... Nothing moves ...").
+   Expect: "home stored" and the chip `home: ok`; mcp_server's Home no longer refuses with "record a new home with
+   arm_set_home". It is the Arm tab Set home (`/arm/set_home`): it records the current joint readings, so the button
+   is off while joint_offsets is stale or while there are no fresh arm joint readings ("Set home is off: no fresh arm
+   joint readings."). mcp_server enforces the stale zero for every caller (Arm tab, MCP tool, direct service call):
+   "set home refused: the arm zero is stale (joint_offsets); run the zero restore first (arm re-zero at ...)". Seeing
+   it means the zero restore (step 3) did not complete: run it, then Set home again.
+6. Park the arm: General section **Home arm** (or the Arm to camera flow's Park when it holds the board). Expect: it
    parks on its rest without a jump. Mismatch: stop the motion from the Arm tab or the agent's stop and report
    (**Abort calibration** stops calibration captures and sequences only, not a Home arm motion).
 
@@ -125,7 +134,7 @@ Optional, once the zero is right: with the arm resting folded and torque off, **
 (confirm **Save reference**) stores today's rest readings in `/var/lib/ros2/arm/rest_reference.json`; later restores
 use it instead of the seed ("Reference: saved <time>"). It is disabled while the zero is stale (joint_offsets).
 
-**Move to neutral pose** (Servo home flow, step 3, confirm **Move**: "The arm moves to the neutral pose: all joints at 0.
+**Move to neutral pose** (Servo home flow, step 4, confirm **Move**: "The arm moves to the neutral pose: all joints at 0.
 Keep the area clear.") moves every arm joint except the gripper to 0 rad along the home routing (`/arm/home`) with its body checks and
 speed;
 it needs torque on and a zero that is not stale.

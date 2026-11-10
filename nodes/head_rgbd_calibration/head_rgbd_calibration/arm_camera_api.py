@@ -6,6 +6,10 @@ common {ok: false, message} body: InvalidId and NotFound give 404 (unknown ids a
 that is not head_arm gives 400, a running sequence, ground board session, verification or ground compute, an arm
 to camera compute, a node not ready (no applied head chain), and an accept or decline of a result that is not done,
 not plausible, declined or accepted give 409.
+
+POST /board-record/clear removes the board record (Sequencer.clear_board_record) when the user states the calibration
+board is already off the gripper; nothing moves. It needs {confirm: true} (400 without) and is refused (409) while a
+head-arm sequence or park or an arm to camera compute runs. It answers the head-arm sequence state.
 """
 
 from collections.abc import Callable
@@ -14,6 +18,7 @@ from typing import Any
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from head_rgbd_calibration.app import HTTP_ACCEPTED, HTTP_BAD_REQUEST, HTTP_CONFLICT, RunFn, error_response
 from head_rgbd_calibration.apply import NotApplicable
@@ -28,10 +33,20 @@ from head_rgbd_calibration.arm_camera_results import (
 )
 from head_rgbd_calibration.config import NodeConfig
 from head_rgbd_calibration.jobs import ComputeJob
-from head_rgbd_calibration.sequencer import Sequencer
+from head_rgbd_calibration.sequencer import Busy, SequenceError, Sequencer
 from head_rgbd_calibration.store import KIND_HEAD_ARM, SessionStore
 
 MSG_SEQUENCE_RUNNING = "a head-arm sequence is running; stop it first"
+MSG_COMPUTE_RUNNING = "an arm to camera compute is running; wait for it to finish"
+MSG_CLEAR_NEEDS_CONFIRM = (
+    "clearing the board record needs confirm=true: state that the calibration board is already off the gripper"
+)
+
+
+class ClearBoardRequest(BaseModel):
+    """Body of POST /api/arm-camera/board-record/clear: `confirm` states the board is already off the gripper."""
+
+    confirm: bool = False
 
 
 def arm_camera_router(
@@ -55,8 +70,8 @@ def arm_camera_router(
             more.
 
     Returns:
-        APIRouter: POST /sessions/{sid}/compute, GET /sessions/{sid}/results/{rid}, POST .../accept, POST .../decline
-        and GET /state under /api/arm-camera.
+        APIRouter: POST /sessions/{sid}/compute, GET /sessions/{sid}/results/{rid}, POST .../accept, POST .../decline,
+        GET /state and POST /board-record/clear under /api/arm-camera.
     """
     router = APIRouter(prefix="/api/arm-camera")
 
@@ -100,5 +115,18 @@ def arm_camera_router(
     @router.get("/state")
     def state() -> dict[str, Any]:
         return arm_camera_state(cfg)
+
+    @router.post("/board-record/clear")
+    def clear_board_record(body: ClearBoardRequest | None = None) -> Any:
+        if not (body and body.confirm):
+            return error_response(HTTP_BAD_REQUEST, MSG_CLEAR_NEEDS_CONFIRM)
+        if job.state()["running"]:
+            return error_response(HTTP_CONFLICT, MSG_COMPUTE_RUNNING)
+        try:
+            return sequencer.clear_board_record(True)
+        except Busy as exc:
+            return error_response(HTTP_CONFLICT, str(exc))
+        except (SequenceError, ValueError) as exc:
+            return error_response(HTTP_BAD_REQUEST, str(exc))
 
     return router

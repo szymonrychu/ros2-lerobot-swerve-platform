@@ -25,6 +25,20 @@ export interface HeadArmEvent {
   message: string;
 }
 
+/**
+ * The node's board record (`<state_dir>/head_arm_board.json`), shown whatever its age. `offered`: fresh and of a stored
+ * session, so a board park may use it (the user still confirms the board is on); `problem` says why not (too old, not a
+ * stored head_arm session, unreadable: the other fields are then null).
+ */
+export interface BoardRecord {
+  file: string;
+  session_id: string | null;
+  clipped_at: string | null;
+  age_s: number | null;
+  offered: boolean;
+  problem: string | null;
+}
+
 /** Progress of the guided arm sequence. `skipped` maps each skip reason to its count; `arm_pose` is the 0-based pose index; tier and arm_pose are null while idle. */
 export interface HeadArmSequence {
   running: boolean;
@@ -41,8 +55,8 @@ export interface HeadArmSequence {
   big_joints: string[];
   /** Epoch seconds since the sequence waits for a user confirm; null while it does not wait. */
   waiting_since: number | null;
-  /** A fresh board-attached record from before a node restart; the user still confirms the board is on. */
-  board_record: { session_id: string | null; clipped_at: string } | null;
+  /** The board record file at any age (mcp_server refuses Home arm while it exists); null without one. */
+  board_record: BoardRecord | null;
   /** The newest recent events (start, step outcomes, errors, stops, park results), newest first. */
   events: HeadArmEvent[];
 }
@@ -174,6 +188,15 @@ function badKey(v: unknown, shape: Record<string, Check>): string | null {
   return Object.keys(shape).find((k) => !(k in v) || !shape[k](v[k])) ?? null;
 }
 
+/** Keys of a board record (BoardRecord). */
+export const BOARD_RECORD: Record<string, Check> = {
+  file: isStr,
+  session_id: isNullOr(isStr),
+  clipped_at: isNullOr(isStr),
+  age_s: isNullOr(isNum),
+  offered: isBool,
+  problem: isNullOr(isStr),
+};
 const SEQUENCE: Record<string, Check> = {
   running: isBool,
   phase: isStr,
@@ -187,9 +210,7 @@ const SEQUENCE: Record<string, Check> = {
   error: isNullOr(isStr),
   big_joints: isArrayOf(isStr),
   waiting_since: isNullOr(isNum),
-  board_record: isNullOr(
-    (r) => isObj(r) && isNullOr(isStr)(r.session_id) && isStr(r.clipped_at),
-  ),
+  board_record: isNullOr((r) => badKey(r, BOARD_RECORD) === null),
   events: isArrayOf(
     (e) =>
       badKey(e, { time: isStr, phase: isStr, level: isStr, message: isStr }) ===
@@ -377,6 +398,17 @@ export const park = (confirm: boolean, boardOn = false) =>
   request<HeadArmSequence>(
     `${BASE}/park`,
     post({ confirm, board_on: boardOn }),
+    badSequence,
+  );
+/**
+ * The user states the calibration board is already off the gripper: the node removes its board record (nothing moves;
+ * POST /api/calibration/rgbd/arm-camera/board-record/clear). Refused while a head-arm sequence, a park or an arm to
+ * camera compute runs; answers the head-arm sequence.
+ */
+export const clearBoardRecord = () =>
+  request<HeadArmSequence>(
+    "/api/calibration/rgbd/arm-camera/board-record/clear",
+    post({ confirm: true }),
     badSequence,
   );
 export const listHeadArmSessions = () =>

@@ -121,8 +121,10 @@ HOME_SERVICE_CARRYING_REFUSAL = (
 )
 HOME_SERVICE_NOT_READY = "arm home refused: mcp_server is not ready"
 HOME_SERVICE_BOARD_REFUSAL = (
-    "arm home refused: the calibration board is on the gripper ({record}) - the home route is not checked with it; "
-    "park it from the Calibrate page Arm to camera flow (Park arm, or Park (board is on the gripper)) first"
+    "arm home refused: the calibration board is on the gripper by the board record {path} ({record}) - the home route "
+    "is not checked with it. Board still on: park it from the Calibrate page Arm to camera flow (Park arm, or Park "
+    "(board is on the gripper)). Board already off: clear the record on the Calibrate page (The board is already off "
+    "the gripper: clear the record)"
 )
 
 
@@ -136,17 +138,18 @@ def board_record_refusal(path: Path | None) -> str | None:
         path (Path | None): The board record file (arm.calibration_board_record); None disables the check.
 
     Returns:
-        str | None: HOME_SERVICE_BOARD_REFUSAL naming the session and the attach time (or that the record is
-            unreadable), None when there is no record.
+        str | None: HOME_SERVICE_BOARD_REFUSAL naming the record file, the session and the attach time (or that the
+            record is unreadable) and both ways to clear it (park with the board, or state on the Calibrate page that
+            the board is already off, which removes the record through head_rgbd_calibration); None without a record.
     """
     if path is None or not path.exists():
         return None
     try:
         record = json.loads(path.read_text())
-        detail = f"session {record['session_id']}, attached at {record['clipped_at']}, record {path}"
+        detail = f"session {record['session_id']}, attached at {record['clipped_at']}"
     except (OSError, ValueError, KeyError, TypeError) as exc:
-        detail = f"record {path} present but unreadable: {exc}"
-    return HOME_SERVICE_BOARD_REFUSAL.format(record=detail)
+        detail = f"present but unreadable: {exc}"
+    return HOME_SERVICE_BOARD_REFUSAL.format(path=path, record=detail)
 
 
 class LeaderActivity:

@@ -355,6 +355,17 @@ def test_arm_home_tool_refused_without_the_arm_lease(server: Any, robot: FakeRob
     assert robot.arm_backend.commands == []
 
 
+def test_arm_set_home_tool_refused_while_the_arm_zero_is_stale(server: Any, robot: FakeRobot, tmp_path: Path) -> None:
+    marker = tmp_path / "calibration_stale.json"
+    marker.write_text(
+        json.dumps({"version": 1, "group": "follower", "saved_at": None, "joints": {}, "stale": ["joint_offsets"]})
+    )
+    robot.arm.cfg.arm.calibration_stale_marker = marker
+    with pytest.raises(ToolError, match=r"the arm zero is stale \(joint_offsets\); run the zero restore first"):
+        call(server, "arm_set_home", {})
+    assert not robot.arm.cfg.arm.home_file.exists()
+
+
 def test_arm_home_tool_keeps_control_it_held(server: Any, robot: FakeRobot) -> None:
     call(server, "arm_set_home", {})
     call(server, "take_control", {"subsystem": "arm"})

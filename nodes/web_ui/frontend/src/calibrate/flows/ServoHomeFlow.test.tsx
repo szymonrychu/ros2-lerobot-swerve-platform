@@ -24,6 +24,7 @@ function group(id: string, over: Partial<ServoGroup> = {}): ServoGroup {
     calibration_stale: null,
     zero_restore: false,
     move_to_neutral: false,
+    set_home: false,
     ...over,
   }
 }
@@ -79,29 +80,57 @@ describe('servoGate', () => {
 })
 
 describe('ServoHomeFlow', () => {
-  it('shows the four steps; the gate unlocks after Move to neutral pose', async () => {
-    groups = [group('arm', { move_to_neutral: true, zero_restore: true })]
+  it('shows the five steps; the gate unlocks after Move to neutral pose', async () => {
+    groups = [group('arm', { move_to_neutral: true, zero_restore: true, set_home: true })]
     mockFetch()
     render(<ServoHomeFlow />)
-    await waitFor(() => expect(within(item(2)).getByRole('button', { name: 'Move to neutral pose' })).toBeTruthy())
+    await waitFor(() => expect(within(item(3)).getByRole('button', { name: 'Move to neutral pose' })).toBeTruthy())
     expect(within(item(0)).getByText('1. Record and save neutral')).toBeTruthy()
     expect(within(item(1)).getByText('2. Arm zero restore')).toBeTruthy()
-    expect(within(item(3)).getByText('Finish step 3 first.')).toBeTruthy()
-    fireEvent.click(within(item(2)).getByRole('button', { name: 'Move to neutral pose' }))
+    expect(within(item(2)).getByText('3. Set home')).toBeTruthy()
+    expect(within(item(3)).getByText('4. Move to neutral pose')).toBeTruthy()
+    expect(within(item(4)).getByText('5. Check and accept')).toBeTruthy()
+    expect(within(item(4)).getByText('Finish step 4 first.')).toBeTruthy()
+    fireEvent.click(within(item(3)).getByRole('button', { name: 'Move to neutral pose' }))
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Move' }))
     await waitFor(() => expect(posts).toEqual(['/api/calibration/servos/arm/move_to_neutral']))
-    await waitFor(() => expect(within(item(3)).getByText('Plausible')).toBeTruthy())
+    await waitFor(() => expect(within(item(4)).getByText('Plausible')).toBeTruthy())
+  })
+
+  it('after a zero restore the Set home step shows home still stale and records the pose without motion', async () => {
+    // The zero restore apply cleared joint_offsets from the marker; home stays stale until Set home.
+    groups = [group('arm', { move_to_neutral: true, zero_restore: true, set_home: true, calibration_stale: ['home'] })]
+    mockFetch()
+    render(<ServoHomeFlow />)
+    const marker = await within(item(2)).findByRole('region', { name: 'Stale marker' })
+    expect(within(marker).getByText('joint_offsets: ok')).toBeTruthy()
+    expect(within(marker).getByText('home: stale')).toBeTruthy()
+    fireEvent.click(within(item(2)).getByRole('button', { name: 'Set home' }))
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByText(/Nothing moves/)).toBeTruthy()
+    expect(posts).toEqual([])
+    groups = [group('arm', { move_to_neutral: true, zero_restore: true, set_home: true, calibration_stale: [] })]
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Set home' }))
+    await waitFor(() => expect(posts).toEqual(['/api/calibration/servos/arm/set_home']))
+    await waitFor(() => expect(within(item(2)).getByText('home: ok')).toBeTruthy())
+  })
+
+  it('without a group offering Set home the step says so', async () => {
+    groups = [group('head')]
+    mockFetch()
+    render(<ServoHomeFlow />)
+    expect(await within(item(2)).findByText('No servo group offers Set home.')).toBeTruthy()
   })
 
   it('Accept confirms and records the check; nothing is posted', async () => {
     groups = [group('head')]
     mockFetch()
     render(<ServoHomeFlow />)
-    await waitFor(() => expect(within(item(3)).getByRole('button', { name: 'Accept' })).toBeTruthy())
-    fireEvent.click(within(item(3)).getByRole('button', { name: 'Accept' }))
+    await waitFor(() => expect(within(item(4)).getByRole('button', { name: 'Accept' })).toBeTruthy())
+    fireEvent.click(within(item(4)).getByRole('button', { name: 'Accept' }))
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Accept' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-    expect(await within(item(3)).findByText('Accepted')).toBeTruthy()
+    expect(await within(item(4)).findByText('Accepted')).toBeTruthy()
     expect(posts).toEqual([])
   })
 
@@ -109,9 +138,9 @@ describe('ServoHomeFlow', () => {
     groups = [group('head')]
     mockFetch()
     render(<ServoHomeFlow />)
-    await waitFor(() => expect(within(item(3)).getByRole('button', { name: 'Decline' })).toBeTruthy())
-    fireEvent.click(within(item(3)).getByRole('button', { name: 'Decline' }))
-    fireEvent.click(await within(item(3)).findByRole('button', { name: 'Start over' }))
-    await waitFor(() => expect(within(item(3)).queryByText('Declined')).toBeNull())
+    await waitFor(() => expect(within(item(4)).getByRole('button', { name: 'Decline' })).toBeTruthy())
+    fireEvent.click(within(item(4)).getByRole('button', { name: 'Decline' }))
+    fireEvent.click(await within(item(4)).findByRole('button', { name: 'Start over' }))
+    await waitFor(() => expect(within(item(4)).queryByText('Declined')).toBeNull())
   })
 })

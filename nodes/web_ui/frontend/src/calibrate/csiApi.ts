@@ -5,11 +5,15 @@ import type { Coverage, UnitRestart } from './rgbdApi'
 
 const BASE = '/api/calibration/rgbd/csi'
 
-/** The CSI cameras of the robot (head_rgbd_calibration `csi_cameras`), in selector order. */
-export const CSI_CAMERAS = ['front', 'back'] as const
-export type CsiCamera = (typeof CSI_CAMERAS)[number]
+/** Body of GET /csi: the enabled CSI cameras (head_rgbd_calibration `csi_cameras` with `enabled`), in selector order. */
+export interface CsiCameras {
+  cameras: string[]
+}
 
-/** The latest CSI capture of any camera: kept views and the status line. */
+/**
+ * The latest CSI capture of any camera: kept views and the status line. `no_frames`: the capture stopped because the
+ * camera sent no frame within the node's csi_frame_timeout_s (camera not detected; the status says what to check).
+ */
 export interface CsiCapture {
   running: boolean
   camera: string | null
@@ -18,6 +22,17 @@ export interface CsiCapture {
   view_count: number
   started_at: string | null
   stops_at: string | null
+  no_frames: boolean
+}
+
+/** Keys of each CSI body the client checks (csiContract.test.ts pins them to the node fixtures). */
+export const CSI_KEYS = {
+  cameras: ['cameras'],
+  state: ['camera', 'capture', 'session', 'applied'],
+  capture: ['running', 'camera', 'session_id', 'status', 'view_count', 'started_at', 'stops_at', 'no_frames'],
+  session: ['id', 'created', 'view_count', 'image_size', 'coverage', 'results'],
+  result: ['kind', 'camera', 'session', 'result', 'created', 'image_size', 'k', 'd', 'rms', 'per_view_errors', 'view_count'],
+  applied: ['kind', 'camera', 'session', 'result', 'applied_at'],
 }
 
 /** result.json of one CSI intrinsics compute: K (3x3), plumb_bob D, RMS (px) and per-view errors. */
@@ -84,7 +99,8 @@ const isCapture = (v: unknown) =>
   isStr(v.status) &&
   isNum(v.view_count) &&
   isNullOr(isStr)(v.started_at) &&
-  isNullOr(isStr)(v.stops_at)
+  isNullOr(isStr)(v.stops_at) &&
+  typeof v.no_frames === 'boolean'
 
 const isMatrix3 = (v: unknown) => Array.isArray(v) && v.length === 3 && v.every((row) => isArrayOf(isNum)(row) && row.length === 3)
 
@@ -121,6 +137,8 @@ const isUnit = (v: unknown) => isObj(v) && isStr(v.name) && typeof v.restarted =
 const isState = (v: unknown) =>
   isObj(v) && isStr(v.camera) && isCapture(v.capture) && isNullOr(isSession)(v.session) && isNullOr(isApplied)(v.applied)
 
+const isCameras = (v: unknown) => isObj(v) && isArrayOf(isStr)(v.cameras)
+
 const isApplyAnswer = (v: unknown) => isObj(v) && isApplied(v.applied) && isArrayOf(isUnit)(v.units)
 
 async function call<T>(url: string, init: RequestInit, valid: (v: unknown) => boolean): Promise<CsiApiResult<T>> {
@@ -151,6 +169,8 @@ const seg = encodeURIComponent
 const cameraPath = (camera: string) => `${BASE}/${seg(camera)}`
 const sessionPath = (camera: string, sid: string) => `${cameraPath(camera)}/sessions/${seg(sid)}`
 
+/** The enabled CSI cameras (GET /csi); a disabled camera node is not offered. */
+export const getCsiCameras = () => call<CsiCameras>(BASE, GET, isCameras)
 export const getCsiState = (camera: string) => call<CsiState>(`${cameraPath(camera)}/state`, GET, isState)
 
 /** Start a capture of the camera, on a new session or (with sessionId) on an existing one. */

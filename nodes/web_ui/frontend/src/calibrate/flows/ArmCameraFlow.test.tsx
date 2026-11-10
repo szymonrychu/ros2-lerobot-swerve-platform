@@ -68,6 +68,7 @@ function armGroup(stale: string[] | null = null): ServoGroup {
     calibration_stale: stale,
     zero_restore: true,
     move_to_neutral: true,
+    set_home: true,
   }
 }
 
@@ -409,7 +410,7 @@ describe('ArmCameraFlow', () => {
   })
 
   it('Park with the board (lost sequence) states the board is on and shows the remembered record', async () => {
-    setState(seq({ board_record: { session_id: 'calib-20261023-074418', clipped_at: '2026-10-23T07:50:00+00:00' } }))
+    setState(seq({ board_record: stateFx.sequence.board_record }))
     m.park.mockResolvedValue(ok(seq({ running: true, phase: 'parking' })))
     await renderFlow(false)
     await click('Park (board is on the gripper)', step(1))
@@ -417,6 +418,32 @@ describe('ArmCameraFlow', () => {
     expect(m.park).not.toHaveBeenCalled()
     await confirmIn('Park with the board')
     expect(m.park).toHaveBeenCalledWith(true, true)
+  })
+
+  it('an old board record is shown with Park and the no-motion clear; Home arm is off until it is gone', async () => {
+    const old = { ...stateFx.sequence.board_record, session_id: null, age_s: 39600, offered: false, problem: 'too old' }
+    setState(seq({ board_record: old }))
+    m.clearBoardRecord.mockResolvedValue(ok(seq({ status: 'board record cleared' })))
+    await renderFlow()
+    const notice = screen.getByRole('region', { name: 'Board record' })
+    expect(within(notice).getByText(/attached without a capture session at 2026-10-23T07:50:00\+00:00, 11 h ago/)).toBeTruthy()
+    expect(within(notice).getByText(/Park \(board is on the gripper\) in step 1/)).toBeTruthy()
+    expect((within(step(1)).getByRole('button', { name: 'Home arm' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(within(step(1)).getByRole('button', { name: 'Park (board is on the gripper)' })).toBeTruthy()
+    await click('The board is already off the gripper: clear the record', notice)
+    expect(m.clearBoardRecord).not.toHaveBeenCalled()
+    await confirmIn('Clear the record')
+    expect(m.clearBoardRecord).toHaveBeenCalledTimes(1)
+    expect(m.park).not.toHaveBeenCalled()
+    expect(screen.queryByRole('region', { name: 'Board record' })).toBeNull()
+    expect((within(step(1)).getByRole('button', { name: 'Home arm' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('the Park with the board confirm mentions only an offered record', async () => {
+    setState(seq({ board_record: { ...stateFx.sequence.board_record, offered: false, problem: 'too old' } }))
+    await renderFlow(false)
+    await click('Park (board is on the gripper)', step(1))
+    expect(within(dialog()).queryByText(/The node remembers a board/)).toBeNull()
   })
 
   it('Home arm is off once the sequence holds or moves the arm', async () => {

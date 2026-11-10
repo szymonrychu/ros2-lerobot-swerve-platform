@@ -36,8 +36,12 @@ from head_rgbd_calibration.sequencer import (
     EVENT_LIMIT,
     HOLDING,
     IDLE,
+    MESSAGE_CLEARED,
+    MESSAGE_NOTHING_TO_CLEAR,
     MESSAGE_SLACK_GRIP,
     MESSAGE_UNSEATED,
+    REASON_TOO_OLD,
+    REASON_UNKNOWN_SESSION,
     WAITING_BIG_JOINTS,
     WAITING_BOARD,
     Busy,
@@ -889,7 +893,14 @@ def test_board_record_is_written_with_the_session_and_pre_fills_after_a_restart(
     fresh = after_restart(rig, tmp_path, board_file)
     state = fresh.seq.state()
     assert state["phase"] == IDLE  # the record is not the state: the user confirms it again
-    assert state["board_record"] == {"session_id": SESSION, "clipped_at": record["clipped_at"]}
+    assert state["board_record"] == {
+        "file": str(board_file),
+        "session_id": SESSION,
+        "clipped_at": record["clipped_at"],
+        "age_s": 0.0,
+        "offered": True,
+        "problem": None,
+    }
     with pytest.raises(SequenceError, match="state that the board is on") as refused:
         fresh.seq.park(confirmed=True)
     assert "mcp_server reports carrying" in str(refused.value)
@@ -908,7 +919,9 @@ def test_stale_board_record_is_ignored_and_a_non_board_load_is_refused(tmp_path:
     max_age = rig.cfg.arm_sequence.board_record_max_age_s
     assert max_age == 7200.0
     fresh = after_restart(rig, tmp_path, board_file, now=lambda: NOW + timedelta(seconds=max_age + 60))
-    assert fresh.seq.state()["board_record"] is None
+    shown = fresh.seq.state()["board_record"]  # still shown (mcp_server refuses Home while it exists), not offered
+    assert (shown["session_id"], shown["age_s"]) == (SESSION, max_age + 60)
+    assert (shown["offered"], shown["problem"]) == (False, REASON_TOO_OLD)
     with pytest.raises(SequenceError, match="mcp_server reports carrying"):
         fresh.seq.park(confirmed=True)
     assert [name for name, _ in fresh.robot.calls] == ["get_control_state"]
@@ -919,9 +932,13 @@ def test_board_record_of_another_session_is_ignored(tmp_path: Path) -> None:
     rig = Rig(tmp_path, small_cfg(), board_file=board_file)
     rig.run_to_holding()
     fresh = after_restart(rig, tmp_path, board_file, session_exists=lambda session_id: False)
-    assert fresh.seq.state()["board_record"] is None
+    shown = fresh.seq.state()["board_record"]
+    assert (shown["session_id"], shown["offered"], shown["problem"]) == (SESSION, False, REASON_UNKNOWN_SESSION)
     board_file.write_text("not json")
-    assert after_restart(rig, tmp_path, board_file).seq.state()["board_record"] is None
+    unreadable = after_restart(rig, tmp_path, board_file).seq.state()["board_record"]
+    assert unreadable["file"] == str(board_file) and unreadable["offered"] is False
+    assert (unreadable["session_id"], unreadable["clipped_at"], unreadable["age_s"]) == (None, None, None)
+    assert unreadable["problem"].startswith("unreadable: ")
 
 
 def test_restored_board_park_is_still_path_checked(tmp_path: Path) -> None:
@@ -951,6 +968,78 @@ def test_user_states_the_board_is_on_and_it_is_recorded_then_path_checked(tmp_pa
     with pytest.raises(SequenceError, match="path check"):
         rig2.seq.park(confirmed=True, board_on=True)
     assert json.loads(board_file.read_text())["session_id"] is None
+
+
+def test_board_record_is_shown_from_the_attach_on_and_none_without_a_file(tmp_path: Path) -> None:
+    board_file = tmp_path / "board.json"
+    rig = Rig(tmp_path, small_cfg(), board_file=board_file)
+    assert rig.seq.state()["board_record"] is None
+    rig.run_to_holding()
+    shown = rig.seq.state()["board_record"]
+    assert (shown["session_id"], shown["offered"]) == (SESSION, True)
+    assert Rig(tmp_path, small_cfg()).seq.state()["board_record"] is None  # no board_file: nothing kept
+
+
+def test_clear_board_record_needs_confirm_and_changes_nothing(tmp_path: Path) -> None:
+    board_file = tmp_path / "board.json"
+    rig = Rig(tmp_path, small_cfg(), board_file=board_file)
+    rig.run_to_holding()
+    with pytest.raises(ValueError, match="off the gripper"):
+        rig.seq.clear_board_record(confirmed=False)
+    assert board_file.exists() and rig.seq.state()["phase"] == HOLDING
+
+
+def test_clear_board_record_removes_an_old_record_without_any_motion(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    board_file = tmp_path / "board.json"
+    rig = Rig(tmp_path, small_cfg(), board_file=board_file)
+    rig.run_to_holding()
+    max_age = rig.cfg.arm_sequence.board_record_max_age_s
+    fresh = after_restart(rig, tmp_path, board_file, now=lambda: NOW + timedelta(days=1))
+    assert fresh.seq.state()["board_record"]["problem"] == REASON_TOO_OLD and max_age < 86400
+    caplog.set_level(logging.INFO, logger=SEQUENCER_LOGGER)
+    state = fresh.seq.clear_board_record(confirmed=True)
+    assert not board_file.exists()
+    assert state["board_record"] is None and state["status"] == MESSAGE_CLEARED
+    assert state["events"][0]["message"] == MESSAGE_CLEARED
+    assert fresh.robot.calls == []  # nothing moved, mcp_server was not called
+    lines = [r.getMessage() for r in caplog.records if r.name == SEQUENCER_LOGGER]
+    cleared = [line for line in lines if '"step":"board_record_clear"' in line and '"outcome":"cleared"' in line]
+    assert len(cleared) == 1 and '"run_id":"board-' in cleared[0] and str(board_file) in cleared[0]
+
+
+def test_clear_board_record_after_a_held_sequence_returns_to_idle_and_park_is_plain(tmp_path: Path) -> None:
+    board_file = tmp_path / "board.json"
+    rig = Rig(tmp_path, small_cfg(), board_file=board_file)
+    assert rig.run_to_holding()["phase"] == HOLDING
+    state = rig.seq.clear_board_record(confirmed=True)
+    assert state["phase"] == IDLE and not board_file.exists()
+    since = len(rig.robot.calls)
+    rig.seq.park(confirmed=True)  # the board is off: the plain park, no board route
+    rig.finish()
+    assert ADMIN_PARK_BOARD not in park_calls(rig, since)
+
+
+def test_clear_board_record_without_a_record_says_so(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, small_cfg(), board_file=tmp_path / "board.json")
+    state = rig.seq.clear_board_record(confirmed=True)
+    assert state["status"] == MESSAGE_NOTHING_TO_CLEAR and state["events"][0]["message"] == MESSAGE_NOTHING_TO_CLEAR
+
+
+def test_clear_board_record_is_refused_while_a_sequence_runs(tmp_path: Path) -> None:
+    board_file = tmp_path / "board.json"
+    rig = Rig(tmp_path, small_cfg(), board_file=board_file)
+    rig.seq.move_to_base(confirmed=True)
+    rig.wait_phase(WAITING_BOARD)
+    rig.seq.board_attached()
+    rig.wait_phase(WAITING_BIG_JOINTS)
+    assert board_file.exists()
+    with pytest.raises(Busy, match="running"):
+        rig.seq.clear_board_record(confirmed=True)
+    assert board_file.exists()
+    rig.seq.allow_big_joints(False)
+    rig.finish()
 
 
 def test_no_call_carries_a_radius(tmp_path: Path) -> None:

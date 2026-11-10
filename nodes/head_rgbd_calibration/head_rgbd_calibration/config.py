@@ -50,13 +50,17 @@ DEFAULT_RESTART_UNITS = (
 )
 DEFAULT_RESTART_CHECK_S = 60.0
 # CSI Camera Module 3 instances of head_camera_cpp (ansible/group_vars/client.yml front_camera, back_camera): name ->
-# (compressed image topic, systemd unit that reads applied/<name>_camera_calibration.yaml).
+# (compressed image topic, systemd unit that reads applied/<name>_camera_calibration.yaml, enabled: the camera node is
+# enabled; the back camera node is disabled until its module is fitted).
 DEFAULT_CSI_CAMERAS = {
-    "front": ("/front_camera/image_raw/compressed", "ros2-front_camera.service"),
-    "back": ("/back_camera/image_raw/compressed", "ros2-back_camera.service"),
+    "front": ("/front_camera/image_raw/compressed", "ros2-front_camera.service", True),
+    "back": ("/back_camera/image_raw/compressed", "ros2-back_camera.service", False),
 }
 # A detected board view is kept only when its shared corners moved this far (mean, px) from the last kept view.
 DEFAULT_CSI_MIN_VIEW_SHIFT_PX = 20.0
+# A CSI capture that received no frame this long after its start stops as "camera not detected" (head_camera_cpp
+# publishes nothing when libcamera finds no sensor, e.g. a loose ribbon cable), s.
+DEFAULT_CSI_FRAME_TIMEOUT_S = 10.0
 # CSI camera names become file and directory names (applied/<name>_camera_calibration.yaml).
 CSI_CAMERA_NAME_RE = re.compile(r"^[a-z][a-z0-9]*$", re.ASCII)
 DEFAULT_THUMBNAIL_WIDTH_PX = 320
@@ -222,19 +226,24 @@ class StillConfig(StrictModel):
 
 
 class CsiCameraConfig(StrictModel):
-    """One CSI camera calibrated for intrinsics: its compressed image topic and the unit that reads its applied file."""
+    """One CSI camera calibrated for intrinsics: its compressed image topic, the unit that reads its applied file and
+    whether it is offered (`enabled`: the camera node is enabled; a disabled camera is unknown to every route)."""
 
     image_topic: str
     unit: str
+    enabled: bool = True
 
 
 def default_csi_cameras() -> dict[str, CsiCameraConfig]:
-    """The front and back Camera Module 3 (DEFAULT_CSI_CAMERAS).
+    """The front and back Camera Module 3 (DEFAULT_CSI_CAMERAS; the back one disabled).
 
     Returns:
         dict[str, CsiCameraConfig]: Camera name -> its config.
     """
-    return {name: CsiCameraConfig(image_topic=topic, unit=unit) for name, (topic, unit) in DEFAULT_CSI_CAMERAS.items()}
+    return {
+        name: CsiCameraConfig(image_topic=topic, unit=unit, enabled=enabled)
+        for name, (topic, unit, enabled) in DEFAULT_CSI_CAMERAS.items()
+    }
 
 
 class CoverageConfig(StrictModel):
@@ -583,7 +592,8 @@ class NodeConfig(StrictModel):
 
     `camera_frame` is the optical frame of the colour stream the head-from-arm fit solves the camera in.
     `csi_cameras` are the CSI cameras whose intrinsics the node calibrates (csi_intrinsics.py), and
-    `csi_min_view_shift_px` the mean corner shift a kept view needs from the last kept one. `arm_stale_marker` is the
+    `csi_min_view_shift_px` the mean corner shift a kept view needs from the last kept one; a CSI capture without any
+    frame `csi_frame_timeout_s` after its start stops as camera not detected. `arm_stale_marker` is the
     follower bridge's arm re-zero stale marker: the arm to camera accept is refused while it lists joint_offsets for a
     re-zero at or after the session's first still (None: no check).
     """
@@ -615,6 +625,7 @@ class NodeConfig(StrictModel):
     arm_sequence: ArmSequenceConfig = Field(default_factory=ArmSequenceConfig)
     csi_cameras: dict[str, CsiCameraConfig] = Field(default_factory=default_csi_cameras)
     csi_min_view_shift_px: float = Field(default=DEFAULT_CSI_MIN_VIEW_SHIFT_PX, gt=0)
+    csi_frame_timeout_s: float = Field(default=DEFAULT_CSI_FRAME_TIMEOUT_S, gt=0)
 
     @field_validator("csi_cameras")
     @classmethod

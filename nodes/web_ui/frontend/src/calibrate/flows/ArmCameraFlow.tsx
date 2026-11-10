@@ -7,6 +7,7 @@ import Typography from '@mui/material/Typography'
 import { ConfirmDialog } from '../../layout/ConfirmDialog'
 import { TOUCH_TARGET_PX } from '../../theme'
 import { BoardNeeded } from '../BoardNeeded'
+import { BoardRecordNotice } from '../BoardRecordNotice'
 import { FlowStepper } from '../FlowStepper'
 import { MoreFits } from '../MoreFits'
 import { GateDecision, QualityGate, armCameraGate } from '../QualityGate'
@@ -61,6 +62,7 @@ const INTRO =
   'The arm joint offsets and arm base are fitted from the head D435: the head D435 watches the ARM board held by its handle in the jaws while the arm moves it through checked poses. Needs a camera-to-ground result (applied head chain) and a fresh arm zero. Robot not driving.'
 const ACCEPT_BODY =
   'Records the arm-to-camera calibration (the arm joint offsets and arm base) as the applied one and restarts its consumer units. The same calibration as a client.yml snippet is shown below the report for review.'
+const PARK_HINT = 'press Park (board is on the gripper) in step 1 (Park arm in step 7 while the sequence holds).'
 const HEAD_CHAIN_CHANGED_TEXT =
   'The head chain changed since the applied arm-to-camera calibration was fitted: it no longer matches the camera. Run this flow again.'
 
@@ -256,6 +258,8 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
   const skipped = Object.values(sequence?.skipped ?? {}).reduce((acc, n) => acc + n, 0)
   const bigJoints = sequence?.big_joints.length ? sequence.big_joints : BIG_JOINTS
   const moveBlocked = busy || zeroStale || notReady !== null
+  // mcp_server refuses Home arm while the node's board record exists: park with the board or clear the record first.
+  const boardRecorded = (sequence?.board_record ?? null) !== null
   const snippet = typeof result?.calibration?.snippet === 'string' ? result.calibration.snippet : null
 
   return (
@@ -294,6 +298,15 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
           {loadError}
         </Alert>
       )}
+      <BoardRecordNotice
+        record={sequence?.board_record ?? null}
+        running={running}
+        parkHint={PARK_HINT}
+        onCleared={(s) => {
+          setSequence(s)
+          setErrors((e) => ({ ...e, home: undefined, park: undefined }))
+        }}
+      />
       {sequence && <SequenceActivity sequence={sequence} withStatus={!sid} />}
       <Box sx={{ mt: 1 }}>
         <FlowStepper
@@ -312,7 +325,7 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
                     <Button
                       variant="contained"
                       sx={target}
-                      disabled={busy || zeroStale || running || phase !== PHASE_IDLE}
+                      disabled={busy || zeroStale || running || phase !== PHASE_IDLE || boardRecorded}
                       onClick={() => setDialog('home')}
                     >
                       Home arm
@@ -517,8 +530,8 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
         open={dialog === 'parkBoard'}
         title="The calibration board is on the gripper"
         body={`Use this when the arm still holds the board but this page lost the sequence (for example after a restart). The board is recorded as on the gripper, the park path is checked with it, and Park is refused, naming the rule, when the board would hit the floor, the body or the head.${
-          sequence?.board_record
-            ? ` The node remembers a board attached in session ${sequence.board_record.session_id ?? 'unknown'} at ${sequence.board_record.clipped_at}: confirm it is still on the gripper.`
+          sequence?.board_record?.offered
+            ? ` The node remembers a board attached in session ${sequence.board_record.session_id ?? 'unknown'} at ${sequence.board_record.clipped_at ?? 'an unknown time'}: confirm it is still on the gripper.`
             : ''
         }`}
         confirmLabel="Park with the board"

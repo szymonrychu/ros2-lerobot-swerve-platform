@@ -14,8 +14,11 @@ from ros2_common.head_rgbd_calibration.config import ArmCameraBounds
 from head_rgbd_calibration.app import build_app
 from head_rgbd_calibration.arm_camera_api import arm_camera_router
 from head_rgbd_calibration.arm_camera_results import compute_arm_camera
+from head_rgbd_calibration.config import NodeConfig
 from head_rgbd_calibration.head_arm_api import head_arm_router
 from head_rgbd_calibration.jobs import Busy
+from head_rgbd_calibration.sequencer import Busy as SequenceBusy
+from head_rgbd_calibration.sequencer import SequenceError
 from head_rgbd_calibration.store import SessionStore
 from tests.contract import assert_matches_fixture
 from tests.test_arm_camera_results import NOW, Scene
@@ -229,3 +232,48 @@ def test_head_arm_routes_do_not_list_or_serve_arm_camera_results(shared: SimpleN
     listed = next(s for s in client.get("/api/head-arm/sessions").json() if s["id"] == shared.scene.sid)
     assert shared.rid not in listed["results"]
     assert client.get(f"/api/head-arm/sessions/{shared.scene.sid}/results/{shared.rid}").status_code == 404
+
+
+def board_parts(tmp_path: Path) -> SimpleNamespace:
+    """The arm to camera routes with a fake sequencer and an idle compute job (no scene: the clear route needs none)."""
+    cfg = NodeConfig(state_dir=str(tmp_path / "state"))
+    store = SessionStore(Path(cfg.state_dir), cfg)
+    sequencer, job = FakeSequencer(), FakeRunning()
+    app = build_app(FakeRunning(), FakeRunning(), store, cfg, fake_run)  # type: ignore[arg-type]
+    app.include_router(arm_camera_router(sequencer, job, store, cfg, fake_run))  # type: ignore[arg-type]
+    return SimpleNamespace(client=TestClient(app), sequencer=sequencer, job=job)
+
+
+@pytest.mark.parametrize("body", [None, {}, {"confirm": False}])
+def test_board_record_clear_needs_confirm(tmp_path: Path, body: dict[str, Any] | None) -> None:
+    parts = board_parts(tmp_path)
+    response = parts.client.post("/api/arm-camera/board-record/clear", json=body)
+    assert response.status_code == 400
+    assert response.json()["ok"] is False and "off the gripper" in response.json()["message"]
+    assert parts.sequencer.calls == []
+
+
+def test_board_record_clear_answers_the_head_arm_sequence_state(tmp_path: Path) -> None:
+    parts = board_parts(tmp_path)
+    response = parts.client.post("/api/arm-camera/board-record/clear", json={"confirm": True})
+    assert response.status_code == 200
+    assert response.json() == parts.sequencer.state()
+    assert parts.sequencer.calls == [("clear_board_record", True)]
+
+
+def test_board_record_clear_is_refused_while_an_arm_to_camera_compute_runs(tmp_path: Path) -> None:
+    parts = board_parts(tmp_path)
+    parts.job.running = True
+    response = parts.client.post("/api/arm-camera/board-record/clear", json={"confirm": True})
+    assert response.status_code == 409 and "compute" in response.json()["message"]
+    assert parts.sequencer.calls == []
+
+
+@pytest.mark.parametrize(
+    ("error", "status"), [(SequenceBusy("a head-arm sequence or park is running"), 409), (SequenceError("cannot"), 400)]
+)
+def test_board_record_clear_maps_the_sequencer_refusals(tmp_path: Path, error: Exception, status: int) -> None:
+    parts = board_parts(tmp_path)
+    parts.sequencer.error = error
+    response = parts.client.post("/api/arm-camera/board-record/clear", json={"confirm": True})
+    assert (response.status_code, response.json()) == (status, {"ok": False, "message": str(error)})
