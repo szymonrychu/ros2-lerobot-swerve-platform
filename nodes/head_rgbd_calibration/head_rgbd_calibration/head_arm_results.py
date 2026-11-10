@@ -387,7 +387,8 @@ def apply_head_arm(
 
     Returns:
         {head_chain: {session, result, applied_at, source: "head_arm", floor}, units: [...]}; floor is the record's
-        current floor reference carried forward.
+        current floor reference carried forward, read
+        under the applied lock with the write.
 
     Raises:
         NotApplicable: the result did not pass, or no RGB-D calibration is applied.
@@ -400,11 +401,10 @@ def apply_head_arm(
     source = directory / HEAD_CHAIN_FILE
     if json.loads(result_path.read_text()).get("passed") is not True or not source.is_file():
         raise NotApplicable(f"result {rid} did not pass and cannot be applied")
-    record = {
-        "session": sid,
-        "result": rid,
-        "applied_at": now.isoformat(),
-        "source": SOURCE_HEAD_ARM,
-        "floor": floor_results.current_floor_ref(cfg),
-    }
-    return floor_results.apply_head_chain_file(cfg, source, record, now, run)
+
+    def record_for(info: dict[str, Any]) -> dict[str, Any]:
+        # The floor reference applied at the write (under the applied lock), never one read before it.
+        floor = floor_results.floor_ref_in(info)
+        return {"session": sid, "result": rid, "applied_at": now.isoformat(), "source": SOURCE_HEAD_ARM, "floor": floor}
+
+    return floor_results.apply_head_chain_file(cfg, source, rid, record_for, now, run)

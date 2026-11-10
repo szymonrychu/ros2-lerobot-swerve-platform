@@ -570,7 +570,8 @@ journalctl -u ros2-head_rgbd_calibration -o cat --since today | grep -o 'calib_e
 - `tests/test_robot_client.py` - the tool helpers' names and arguments, structured data, the move timeout, tool errors, unreachable (also inside an exception group), a missing token file, the token never in any text, `release_arm(keep_position)`, and the board-park admin route (own transport and token file, bearer header, missing token file).
 - `tests/test_head_arm_api.py` - the `/api/head-arm/*` routes over a fake sequencer: state and sessions bodies against the contract fixtures, the confirms (base, park, big joints), 409 for busy and wrong-phase requests, sequencer errors mapped to 400, only head_arm sessions listed, compute and apply, a failed result not applicable, an rgbd session 400 on the result routes, unknown ids 404.
 - `tests/test_applied_chain_for_mcp.py` - the page's output consumed by mcp_server (2026-10-29): a synthetic session computed and applied, then the repo head URDF with `apply_overrides` on `applied/` through `mcp_server/head_kinematics.py` places the D435 colour optical frame within 5 mm of the truth chain at 5 head poses (`test_applied_files_place_the_camera_for_the_mcp_kinematics_within_the_target`), `head_chain.json` is in place before `applied.json` changes (mcp_server reloads on that mtime), an apply without an accepted check names the Accept check button, `state_dir/applied` is the directory mcp_server (`head.applied_dir`) and web_ui read, and the web_ui `rgbd_timeout_s` is not below `compute_timeout_s`. `test_head_arm_results.py` also pins the `residual` block of `head_chain.json`.
-- `tests/test_head_arm_results.py` - compute writes `result.json`, `report.md` and (passed only) `head_chain.json`, fitted joints merged over the applied chain, the pan axis, the d435_joint fitted from the stills' camera_info in `camera_frame` with no `tof_joint.json` (`test_result_fits_the_d435_joint`), a still without camera_info, stills with different camera_info and a session without stills as error results, a failed limit writes no chain, floor values from the applied record (also the legacy record, and none failing the cross-check), apply writes the applied chain and the record with `source` and `floor`, `head_chain.json` lands in `applied/` before `applied.json` (`test_head_arm_apply_writes_the_head_chain_before_applied_json`, `tests/applied_writes.py` records the order), a failed result refused, `latest_board_mount`, `head_arm_session_exists`.
+- `tests/test_head_arm_results.py` - compute writes `result.json`, `report.md` and (passed only) `head_chain.json`, fitted joints merged over the applied chain, the pan axis, the d435_joint fitted from the stills' camera_info in `camera_frame` with no `tof_joint.json` (`test_result_fits_the_d435_joint`), a still without camera_info, stills with different camera_info and a session without stills as error results, a failed limit writes no chain, floor values from the applied record (also the legacy record, and none failing the cross-check), apply writes the applied chain and the record with `source` and `floor`, `head_chain.json` lands in `applied/` before `applied.json` (`test_head_arm_apply_writes_the_head_chain_before_applied_json`, `tests/applied_writes.py` records the order), the floor reference carried forward is the one applied at the write (a
+floor apply starting right after its read lands after it), a failed result refused, `latest_board_mount`, `head_arm_session_exists`.
 - `tests/test_floor_api.py`, `tests/test_floor_results.py` - the floor fit routes and results, including that a floor compute keeps the applied `head_pan` origin that apply writes `source: floor`, and that the floor apply lands `head_chain.json` before `applied.json` (`test_floor_apply_writes_the_head_chain_before_applied_json`: the apply path unit fires on `applied.json` and compares `head_chain.json`).
 - `tests/test_runtime_deps.py` - `httpx`, imported at runtime by the robot client, is a runtime dependency in `pyproject.toml`.
 - `tests/contract.py`, `tests/fixtures/api/*.json` - structural match of a real API body against a literal fixture (helpers and data, not tests).
@@ -609,7 +610,9 @@ journalctl -u ros2-head_rgbd_calibration -o cat --since today | grep -o 'calib_e
   results; the compute telemetry (inputs, solver, refusal, result); running and crashed results from the job state;
   accept applies the head chain (`source: "ground_board"`, `floor: null`), stamps `accepted_at`, shows in the state
   and refuses a decline; accept after the applied chain changed, of an implausible, declined, unchecked or already accepted
-  result is refused; accept and decline telemetry; the session list; the arm to camera source name.
+  result is refused; a head chain apply that starts right after the accept's applied chain check lands after the accept,
+  never in between (`tests/applied_writes.py` `interleave_apply`); accept and decline telemetry; the session list; the
+  arm to camera source name.
 - `tests/test_ground_compute.py` - the ground compute child `main` writes the result of its session and result id.
 - `tests/test_ground_verify.py` - `evaluate_pose` against the runbook tolerances (medians, a plane height, a tilted
   plane, clutter, no plane), and the verification against the fake head world plus a fake ground estimator: every pose
@@ -638,7 +641,8 @@ journalctl -u ros2-head_rgbd_calibration -o cat --since today | grep -o 'calib_e
   marker; a session without stills is refused; `captured_from` is the earliest stamp of any source; decline records `declined` and changes nothing applied, a declined result cannot be accepted; a failed result
   is refused by both; a running and a crashed compute read from the job state; `/state` without a head chain and the
   head chain source names; the shipped bounds; an accept after another head chain was applied is refused and the
-  accepted calibration reads `head_chain_changed`.
+  accepted calibration reads `head_chain_changed`; a head chain apply that starts right after the accept's applied
+  chain check lands after the arm calibration, never in between.
 - `tests/test_arm_camera_compute.py` - the arm to camera child `main` writes the result of its session and result id,
   and a failed result without an applied head chain.
 - `tests/test_arm_camera_api.py` - the `/api/arm-camera/*` routes with an inline job: 202 compute, the result, accept
@@ -988,7 +992,8 @@ Accept applies the calibration to the robot; Decline keeps the one in use. Accep
 tool_offset_m, snippet, captured_from, head_chain, accuracy_examples}`; `captured_from` is the session's earliest still,
 the body is validated as ros2_common `ArmCalibrationFile` before the write) and then the `arm_calibration` record of
 `applied/applied.json` through `apply.update_applied`, the writer of every apply (the data file first, applied.json
-last: the commit point). The head chain, its record and the D435 check record stay as they are, and `accepted_at` is
+last: the commit point); the check that the head chain the result was fitted against is still applied runs under the
+same applied lock as the write. The head chain, its record and the D435 check record stay as they are, and `accepted_at` is
 stamped into result.json. mcp_server (`arm.applied_dir`, the same `applied/`) sees the applied.json change on its
 0.25 s monitor tick and swaps the accepted joint offsets, arm base and mount height (`arm_base_height_m` = base z)
 into the running arm model at its next idle point (no arm motion running); no unit restarts (the apply path unit
@@ -1101,7 +1106,8 @@ polls.
 
 ### Accept, decline and verification
 
-- Accept (only a done, plausible, not declined result fitted against the head chain still applied) copies the
+- Accept (only a done, plausible, not declined result fitted against the head chain still applied, checked under the
+  applied lock with the write, so no other apply lands in between) copies the
   result's head_chain.json (the applied origins merged with the fitted `head_mount_joint`, `head_tilt`, `head_pan` and
   `d435_joint`) into applied/ through `floor_results.apply_head_chain_file`, the one writer of the applied head chain:
   the applied.json `head_chain` record is `{session, result, applied_at, source: "ground_board", floor: null}` and the

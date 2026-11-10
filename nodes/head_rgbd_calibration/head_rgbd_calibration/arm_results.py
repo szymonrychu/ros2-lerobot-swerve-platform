@@ -325,4 +325,4 @@ def apply_arm(
         "source": SOURCE_ARM,
         "floor": result.get("floor"),
     }
-    return floor_results.apply_head_chain_file(cfg, source, record, now, run)
+    return floor_results.apply_head_chain_file(cfg, source, rid, lambda _info: record, now, run)

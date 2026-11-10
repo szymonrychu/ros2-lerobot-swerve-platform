@@ -17,7 +17,7 @@ import pytest
 from ros2_common.head_rgbd_calibration.config import GroundBoardBounds, GroundBoardFitConfig
 from ros2_common.head_rgbd_calibration.urdf_text import Origin, head_chain_json
 
-from head_rgbd_calibration import arm_camera_results
+from head_rgbd_calibration import arm_camera_results, floor_results, ground_results
 from head_rgbd_calibration.apply import NotApplicable
 from head_rgbd_calibration.config import GroundBoardConfig, NodeConfig
 from head_rgbd_calibration.ground_results import (
@@ -32,6 +32,7 @@ from head_rgbd_calibration.ground_results import (
 )
 from head_rgbd_calibration.store import InvalidId, NotFound, SessionStore
 from head_rgbd_calibration.telemetry import events_in
+from tests.applied_writes import interleave_apply, record_applied_writes
 from tests.test_head_arm_results import fake_run, put_marker
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -51,6 +52,7 @@ RESULT_KEYS = {
     "report", "calibration", "verification",
 }  # fmt: skip
 TRUTH_TOLERANCE_M = 0.001
+OTHER = {"session": "floor-20261109-010000", "result": "r-20261109-011000"}
 
 
 def write_session(state: Path, scene: Any, sid: str = SID) -> Path:
@@ -251,6 +253,37 @@ def test_accept_is_refused_after_the_applied_chain_changed(tmp_path: Path) -> No
     )
     with pytest.raises(NotApplicable, match="another head chain"):
         accept_ground(scene.cfg, scene.store, scene.sid, result["id"], LATER, fake_run)
+
+
+def test_a_head_chain_apply_after_the_accept_check_lands_after_the_accept(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The applied head chain check and the write are one step under the applied lock: a head chain apply of another
+    flow that starts right after the check waits for the accept to land, then replaces the chain."""
+    scene = Scene(tmp_path)
+    result = compute_ground(scene.cfg, scene.store, scene.sid, SessionStore.new_result_id(NOW), NOW)
+    other = tmp_path / "other_head_chain.json"
+    other.write_text(
+        head_chain_json(
+            {"head_tilt": Origin((0.0, 0.0, 0.04), (0.0, 0.1, 0.0))}, "floor fit", OTHER["session"], OTHER["result"]
+        )
+    )
+    floor_record = {**OTHER, "applied_at": LATER.isoformat(), "source": "floor", "floor": OTHER}
+    landed = record_applied_writes(monkeypatch, scene.state / "applied")
+    accepted, applied = interleave_apply(
+        monkeypatch,
+        ground_results,
+        "head_chain_source",
+        lambda: accept_ground(scene.cfg, scene.store, scene.sid, result["id"], LATER, fake_run),
+        lambda: floor_results.apply_head_chain_file(
+            scene.cfg, other, OTHER["result"], lambda _info: floor_record, LATER, fake_run
+        ),
+    )
+    assert accepted["head_chain"]["result"] == result["id"]
+    assert applied["head_chain"] == floor_record
+    assert landed == ["head_chain.json", "applied.json", "head_chain.json", "applied.json"]
+    assert json.loads((scene.state / "applied" / "applied.json").read_text())["head_chain"] == floor_record
+    assert (scene.state / "applied" / "head_chain.json").read_text() == other.read_text()
 
 
 def test_accept_is_refused_for_implausible_declined_or_unchecked(tmp_path: Path) -> None:
