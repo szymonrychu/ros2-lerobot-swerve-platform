@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  CSI_CAMERAS,
   applyCsi,
   computeCsi,
+  getCsiCameras,
   getCsiResult,
   getCsiState,
   listCsiResults,
@@ -44,6 +44,7 @@ const STATE: CsiState = {
     view_count: 14,
     started_at: '2026-10-31T12:00:00+00:00',
     stops_at: '2026-10-31T12:15:00+00:00',
+    no_frames: false,
   },
   session: {
     id: 'csi-20261031-120000',
@@ -78,8 +79,12 @@ afterEach(() => {
 })
 
 describe('csiApi', () => {
-  it('names the front and back cameras', () => {
-    expect(CSI_CAMERAS).toEqual(['front', 'back'])
+  it('getCsiCameras reads the enabled cameras from the node', async () => {
+    const f = stub(200, { cameras: ['front'] })
+    expect(await getCsiCameras()).toEqual({ ok: true, value: { cameras: ['front'] } })
+    expect(f).toHaveBeenCalledWith(B, { cache: 'no-store' })
+    stub(200, { cameras: 'front' })
+    expect((await getCsiCameras()).ok).toBe(false)
   })
   it('getCsiState hits the camera state route', async () => {
     const f = stub(200, STATE)
@@ -124,6 +129,9 @@ describe('csiApi', () => {
   })
   it('rejects malformed bodies', async () => {
     stub(200, { ...STATE, capture: { running: 'yes' } })
+    expect((await getCsiState('front')).ok).toBe(false)
+    const { no_frames: _n, ...noFlag } = STATE.capture
+    stub(200, { ...STATE, capture: noFlag })
     expect((await getCsiState('front')).ok).toBe(false)
     stub(200, { ...RESULT, k: [1, 2, 3] })
     expect((await computeCsi('front', 's')).ok).toBe(false)

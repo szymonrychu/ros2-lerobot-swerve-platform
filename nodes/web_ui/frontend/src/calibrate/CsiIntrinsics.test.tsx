@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import { CSI_POLL_MS, CsiIntrinsics } from './CsiIntrinsics'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { CSI_POLL_MS, CsiIntrinsics, noFramesText } from './CsiIntrinsics'
 import type { CsiCapture, CsiResult, CsiSession, CsiState } from './csiApi'
 import rgbdStateFx from '../../../../head_rgbd_calibration/tests/fixtures/api/state.json'
 
@@ -22,6 +22,7 @@ const IDLE: CsiCapture = {
   view_count: 0,
   started_at: null,
   stops_at: null,
+  no_frames: false,
 }
 const RESULT: CsiResult = {
   kind: 'csi_intrinsics',
@@ -53,6 +54,8 @@ function session(views: number): CsiSession {
 }
 
 interface World {
+  /** The enabled cameras GET /csi answers. */
+  cameras: string[]
   capture: CsiCapture
   session: CsiSession | null
   calls: string[]
@@ -67,6 +70,7 @@ function install(w: World): void {
       const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status })
       if (url === '/api/models') return json(MODELS)
       if (url === '/api/calibration/rgbd/state') return json(rgbdStateFx)
+      if (url === B) return json({ cameras: w.cameras })
       const camera = url.slice(B.length + 1).split('/')[0]
       const state = (): CsiState => ({ camera, capture: w.capture, session: w.session, applied: null })
       if (url.endsWith('/state')) return json(state())
@@ -92,6 +96,7 @@ function install(w: World): void {
 }
 
 const world = (over: Partial<World> = {}): World => ({
+  cameras: ['front', 'back'],
   capture: IDLE,
   session: null,
   calls: [],
@@ -111,16 +116,56 @@ describe('CsiIntrinsics', () => {
     install(w)
     render(<CsiIntrinsics />)
     await screen.findByText('CSI camera intrinsics')
-    const front = screen.getByRole('button', { name: 'Front' })
+    const front = await screen.findByRole('button', { name: 'Front' })
     const back = screen.getByRole('button', { name: 'Back' })
     expect(front.getAttribute('aria-pressed')).toBe('true')
     expect(back.getAttribute('aria-pressed')).toBe('false')
-    expect(w.calls).toContain(`GET ${B}/front/state`)
+    await waitFor(() => expect(w.calls).toContain(`GET ${B}/front/state`))
     await act(async () => {
       fireEvent.click(back)
     })
     expect(w.calls).toContain(`GET ${B}/back/state`)
     expect(screen.getByRole('button', { name: 'Back' }).getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('offers only the enabled cameras: one camera is named, no selector', async () => {
+    const w = world({ cameras: ['front'] })
+    install(w)
+    render(<CsiIntrinsics />)
+    expect(await screen.findByText('Camera: Front')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Back' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Front' })).toBeNull()
+    expect(w.calls).toContain(`GET ${B}/front/state`)
+    expect(w.calls.some((c) => c.includes('/back/'))).toBe(false)
+  })
+
+  it('without an enabled camera it says so and offers no capture', async () => {
+    const w = world({ cameras: [] })
+    install(w)
+    render(<CsiIntrinsics />)
+    expect(await screen.findByText('No CSI camera is enabled on this robot.')).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Start capture' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(w.calls.filter((c) => c.endsWith('/state') && c.includes('/csi/'))).toEqual([])
+  })
+
+  it('a capture that got no frame says the camera is not detected instead of waiting', async () => {
+    vi.useFakeTimers()
+    const w = world({ cameras: ['front'] })
+    install(w)
+    render(<CsiIntrinsics />)
+    await act(async () => {})
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Start capture' }))
+    })
+    expect(screen.queryByText(/Camera not detected/)).toBeNull()
+    const status = 'camera not detected: no frame on /front_camera/image_raw/compressed within 10 s of the start; check the ribbon cable and reboot'
+    w.capture = { ...w.capture, running: false, status, no_frames: true }
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(CSI_POLL_MS * 2)
+    })
+    expect(screen.getByText(noFramesText('front'))).toBeTruthy()
+    expect(screen.getByText(/check the ribbon cable and reboot/)).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Start capture' }) as HTMLButtonElement).disabled).toBe(false)
   })
 
   it('heading off leaves the section title out (a flow step names it)', async () => {
@@ -201,14 +246,18 @@ describe('CsiIntrinsics', () => {
     install(world())
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () =>
+      vi.fn(async (url: string) =>
         new Response(
-          JSON.stringify({
-            camera: 'front',
-            capture: IDLE,
-            session: null,
-            applied: { kind: 'csi_intrinsics', camera: 'front', session: SID, result: RID, applied_at: '2026-10-31T12:06:00+00:00' },
-          }),
+          JSON.stringify(
+            url === B
+              ? { cameras: ['front'] }
+              : {
+                  camera: 'front',
+                  capture: IDLE,
+                  session: null,
+                  applied: { kind: 'csi_intrinsics', camera: 'front', session: SID, result: RID, applied_at: '2026-10-31T12:06:00+00:00' },
+                },
+          ),
         ),
       ),
     )

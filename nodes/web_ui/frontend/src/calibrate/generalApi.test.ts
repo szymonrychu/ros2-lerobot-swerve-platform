@@ -23,7 +23,7 @@ const SWEEP_IDLE = { running: false, session_id: null, pose: 0, total: 0, observ
 const CAPTURE_IDLE = { running: false, session_id: null, status: 'idle', pose_count: 0, started_at: null, stops_at: null }
 const COMPUTE_IDLE = { running: false, session_id: null, result_id: null, started_at: null, error: null }
 const BOARD = { name: 'b', dictionary: 'DICT_4X4_50', role: 'full', squares_x: 6, squares_y: 5, square_mm: 40, marker_mm: 30, ids_offset: 0, thickness_mm: 3 }
-const CSI_IDLE = { running: false, camera: null, session_id: null, status: 'idle', view_count: 0, started_at: null, stops_at: null }
+const CSI_IDLE = { running: false, camera: null, session_id: null, status: 'idle', view_count: 0, started_at: null, stops_at: null, no_frames: false }
 
 interface Running {
   headArm?: Partial<typeof SEQ_IDLE>

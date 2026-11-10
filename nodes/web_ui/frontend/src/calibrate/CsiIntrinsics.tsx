@@ -13,13 +13,12 @@ import { TOUCH_TARGET_PX } from '../theme'
 import { BoardNeeded } from './BoardNeeded'
 import { CoverageGrid } from './CoverageGrid'
 import {
-  CSI_CAMERAS,
   type CsiApplyAnswer,
-  type CsiCamera,
   type CsiResult,
   type CsiState,
   applyCsi,
   computeCsi,
+  getCsiCameras,
   getCsiState,
   startCsiCapture,
   stopCsiCapture,
@@ -28,7 +27,25 @@ import {
 /** State poll period while a capture runs: 1 Hz. */
 export const CSI_POLL_MS = 1000
 
-const LABELS: Record<CsiCamera, string> = { front: 'Front', back: 'Back' }
+/**
+ * Display label of a camera name: "front" -> "Front".
+ *
+ * @param name - the node's camera name
+ * @returns the label
+ */
+export function cameraLabel(name: string): string {
+  return name.charAt(0).toUpperCase() + name.slice(1)
+}
+
+/**
+ * The camera-not-detected message of a capture that got no frame (capture.no_frames).
+ *
+ * @param camera - the camera name
+ * @returns the message shown in place of an endless "waiting for frames"
+ */
+export function noFramesText(camera: string): string {
+  return `Camera not detected: the ${cameraLabel(camera)} camera published no frames. Check the ribbon cable and reboot the robot, then start the capture again.`
+}
 
 /** (label, row, column) of the K entries shown. */
 const K_ROWS: [string, number, number][] = [
@@ -60,16 +77,36 @@ function ResultView({ result }: { result: CsiResult }) {
   )
 }
 
-/** CSI camera intrinsics section of the Calibrate page: ChArUco views of the front or back camera, compute, apply. */
+/**
+ * CSI camera intrinsics section of the Calibrate page: ChArUco views of an enabled CSI camera (GET /csi, so a disabled
+ * camera node is not offered), compute, apply. A capture that gets no frame says the camera is not detected.
+ */
 export function CsiIntrinsics({ heading = true }: { heading?: boolean } = {}) {
-  const [camera, setCamera] = useState<CsiCamera>(CSI_CAMERAS[0])
+  // Enabled cameras from the node; null until loaded.
+  const [cameras, setCameras] = useState<string[] | null>(null)
+  const [camera, setCamera] = useState<string | null>(null)
   const [state, setState] = useState<CsiState | null>(null)
   const [result, setResult] = useState<CsiResult | null>(null)
   const [restart, setRestart] = useState<CsiApplyAnswer | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
+  useEffect(() => {
+    let live = true
+    void getCsiCameras().then((r) => {
+      if (!live) return
+      if (r.ok) {
+        setCameras(r.value.cameras)
+        setCamera(r.value.cameras[0] ?? null)
+      } else setError(r.message)
+    })
+    return () => {
+      live = false
+    }
+  }, [])
+
   const reload = useCallback(async () => {
+    if (camera === null) return
     const r = await getCsiState(camera)
     if (r.ok) {
       setState(r.value)
@@ -88,7 +125,7 @@ export function CsiIntrinsics({ heading = true }: { heading?: boolean } = {}) {
     return () => clearInterval(id)
   }, [running, reload])
 
-  const select = (next: CsiCamera | null) => {
+  const select = (next: string | null) => {
     if (next === null || next === camera) return
     setCamera(next)
     setState(null)
@@ -104,6 +141,7 @@ export function CsiIntrinsics({ heading = true }: { heading?: boolean } = {}) {
   }
 
   const start = async () => {
+    if (camera === null) return
     setBusy(true)
     setResult(null)
     setRestart(null)
@@ -111,11 +149,13 @@ export function CsiIntrinsics({ heading = true }: { heading?: boolean } = {}) {
     setBusy(false)
   }
 
-  const stop = async () => answer(await stopCsiCapture(camera))
+  const stop = async () => {
+    if (camera !== null) answer(await stopCsiCapture(camera))
+  }
 
   const session = state?.session ?? null
   const compute = async () => {
-    if (!session) return
+    if (!session || camera === null) return
     setBusy(true)
     setRestart(null)
     const r = await computeCsi(camera, session.id)
@@ -130,7 +170,7 @@ export function CsiIntrinsics({ heading = true }: { heading?: boolean } = {}) {
   }
 
   const apply = async () => {
-    if (!result) return
+    if (!result || camera === null) return
     setBusy(true)
     const r = await applyCsi(camera, result.session, result.result)
     setBusy(false)
@@ -156,23 +196,36 @@ export function CsiIntrinsics({ heading = true }: { heading?: boolean } = {}) {
         corner of the image. A view is kept when the board is found and it moved from the last kept view.
       </Typography>
       <BoardNeeded role="full" />
-      <ToggleButtonGroup
-        exclusive
-        size="small"
-        value={camera}
-        onChange={(_, next: CsiCamera | null) => select(next)}
-        aria-label="CSI camera"
-        sx={{ mt: 1 }}
-      >
-        {CSI_CAMERAS.map((name) => (
-          <ToggleButton key={name} value={name} sx={target}>
-            {LABELS[name]}
-          </ToggleButton>
-        ))}
-      </ToggleButtonGroup>
+      {cameras !== null && cameras.length > 1 && (
+        <ToggleButtonGroup
+          exclusive
+          size="small"
+          value={camera}
+          onChange={(_, next: string | null) => select(next)}
+          aria-label="CSI camera"
+          sx={{ mt: 1 }}
+        >
+          {cameras.map((name) => (
+            <ToggleButton key={name} value={name} sx={target}>
+              {cameraLabel(name)}
+            </ToggleButton>
+          ))}
+        </ToggleButtonGroup>
+      )}
+      {cameras !== null && cameras.length === 1 && camera !== null && (
+        <Typography variant="body2" sx={{ mt: 1 }}>{`Camera: ${cameraLabel(camera)}`}</Typography>
+      )}
+      {cameras !== null && cameras.length === 0 && (
+        <Alert severity="info" sx={{ mt: 1 }}>No CSI camera is enabled on this robot.</Alert>
+      )}
       {error && <Alert severity="error">{error}</Alert>}
+      {ownCapture && capture?.no_frames && camera !== null && (
+        <Alert severity="error" sx={{ mt: 1 }}>
+          {noFramesText(camera)}
+        </Alert>
+      )}
       <Box sx={{ display: 'flex', gap: 1, mt: 1, flexWrap: 'wrap' }}>
-        <Button variant="contained" sx={target} disabled={busy || running} onClick={() => void start()}>
+        <Button variant="contained" sx={target} disabled={busy || running || camera === null} onClick={() => void start()}>
           Start capture
         </Button>
         <Button variant="outlined" sx={target} disabled={!running || capture?.camera !== camera} onClick={() => void stop()}>
