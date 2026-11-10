@@ -329,6 +329,18 @@ class ZeroRestoreControl:
             self.refresh_reference(group, state)
         return state
 
+    def forget_plan(self, namespace: str) -> None:
+        """Drop the group's dry run and reload its rest reference on next use (a servo calibration changed both).
+
+        Args:
+            namespace (str): Group namespace.
+        """
+        state = self.states.get(namespace)
+        if state is not None:
+            state.plan = None
+            state.loaded = False
+            state.marker_checked = None
+
     def refresh_reference(self, group: JointGroup, state: GroupState) -> None:
         """Reload the reference into the state.
 

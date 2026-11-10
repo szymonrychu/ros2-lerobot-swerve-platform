@@ -32,6 +32,7 @@ Every service call logs calib_event lines (flow "servo_calibration"); refusal te
 """
 
 import logging
+import os
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -43,7 +44,7 @@ from feetech_mapping.command_mapping import STEPS_PER_REVOLUTION, steps_to_radia
 
 from .calib_event import OUTCOME_FAILED, OUTCOME_OK, OUTCOME_REFUSED, OUTCOME_START, CalibEventLog, new_run_id
 from .calibration_plan import JointCalibrationPlan, RangeTracker, plan_joint
-from .calibration_records import audit_path, home_rad, record_payload, write_records
+from .calibration_records import audit_path, convert_rest_reference, home_rad, record_payload, write_records
 from .config import JointEntry, JointGroup, ServoCalibrationConfig, calibration_joints
 from .neutral import NeutralResult, names_text, stop_bus_wheels
 from .servo_offsets import (
@@ -62,6 +63,8 @@ from .servo_offsets import (
     write_offset,
 )
 from .torque_control import PRESENT_REGISTER, TORQUE_OFF, TorqueControl
+from .zero_record import record_dir_refusal, write_zero_change
+from .zero_restore import ZeroRestoreControl
 
 LOGGER = logging.getLogger(__name__)
 FLOW = "servo_calibration"
@@ -75,6 +78,8 @@ ACTION_STORE_CONFIRMED = "store_confirmed"
 NOT_CONFIGURED = "servo calibration not configured for this group"
 NOTHING_WRITTEN = "nothing written"
 NO_RANGE_SAMPLES = "no range samples; record ranges again"
+STILL_HINT = "return the joints to home and let go"
+RECORD_FILE_PROBE = "servo_calibration.json"  # a file name in the record dir, for record_dir_refusal
 # Numeric config values published in the status (plus home_reference_rad).
 STATUS_CONFIG_KEYS = (
     "min_range_deg",
@@ -205,6 +210,7 @@ class ServoCalibrationControl:
         monotonic: Monotonic clock (seconds).
         now: UTC clock (datetime).
         events: calib_event sink.
+        zero_restore: Zero restore of the bus (its plan is dropped by a store that wrote an offset); may be None.
         states: namespace -> GroupCalibrationState.
     """
 
@@ -217,6 +223,7 @@ class ServoCalibrationControl:
         monotonic: Callable[[], float] = time.monotonic,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
         events: CalibEventLog | None = None,
+        zero_restore: ZeroRestoreControl | None = None,
     ) -> None:
         """Create the servo calibration control for one bus.
 
@@ -228,9 +235,12 @@ class ServoCalibrationControl:
             monotonic (Callable[[], float]): Monotonic clock, seconds.
             now (Callable[[], datetime]): UTC clock.
             events (CalibEventLog | None): calib_event sink; None logs on this module's logger.
+            zero_restore (ZeroRestoreControl | None): Zero restore of the bus; a store drops its plan (the rest
+                reference file changes); None when the bus has none.
         """
         self.torque = torque
         self.command_limits = command_limits
+        self.zero_restore = zero_restore
         self.command_overrides = command_overrides
         self.sleep = sleep
         self.monotonic = monotonic
@@ -555,6 +565,15 @@ class ServoCalibrationControl:
         plan = state.plan
         if plan is None or state.plan_mono is None:
             return refuse(f"plan first; {NOTHING_WRITTEN}")
+        record_dir = Path(config.record_dir)
+        euid = os.geteuid()
+        files = [record_dir / RECORD_FILE_PROBE]
+        if group.neutral_stale_marker is not None:
+            files.insert(0, Path(group.neutral_stale_marker))
+        for file in files:
+            directory_refusal = record_dir_refusal(file, euid)
+            if directory_refusal is not None:
+                return refuse(f"{directory_refusal}; {NOTHING_WRITTEN}")
         if not plan.ok:
             problems = [f"{name}: {p}" for name, j in plan.joints.items() for p in j.problems]
             return refuse(f"cannot store: {'; '.join(problems)}; {NOTHING_WRITTEN}")
@@ -579,7 +598,7 @@ class ServoCalibrationControl:
             self.torque.servo, joints, config.still_window_s, config.still_tolerance_steps, self.sleep
         )
         if presents is None:
-            return refuse(f"{refusal}; {NOTHING_WRITTEN}")
+            return refuse(f"{refusal}; {STILL_HINT}; {NOTHING_WRITTEN}")
         unread: list[str] = []
         changed: list[str] = []
         for joint in joints:
@@ -631,7 +650,7 @@ class ServoCalibrationControl:
 
         stamp = self.now()
         finished_at = stamp.isoformat(timespec="seconds")
-        record_dir = Path(config.record_dir)
+        bookkeeping = self.arm_bookkeeping(group, plan, outcomes, finished_at, run_id, started)
         record_path = audit_path(record_dir, stamp, run_id)
         record = record_payload(
             namespace,
@@ -644,6 +663,7 @@ class ServoCalibrationControl:
             not_attempted,
             home_rad(plan.joints),
             override_notes,
+            bookkeeping,
         )
         record_errors = write_records(record_dir, namespace, stamp, record)
         audit_written = not any(str(record_path) in error for error in record_errors)
@@ -676,9 +696,9 @@ class ServoCalibrationControl:
                 f"/{namespace}: calibration store failed, torque stays off; stored: {names_text(stored)}; failed: "
                 f"{failure[0]} ({failure[1]}); not attempted: {names_text(not_attempted)}; record {record_path}"
             )
-        for note in (*override_notes, *record_errors):
+        for note in (*override_notes, *bookkeeping, *record_errors):
             message += f"; {note}"
-        success = failure is None and not record_errors
+        success = failure is None and not bookkeeping and not record_errors
         state.snapshot = None
         state.last_result = {
             "run_id": run_id,
@@ -692,6 +712,7 @@ class ServoCalibrationControl:
             "failure": None if failure is None else list(failure),
             "not_attempted": not_attempted,
             "override_notes": override_notes,
+            "bookkeeping_errors": bookkeeping,
         }
         self.events.event(
             FLOW,
@@ -710,6 +731,75 @@ class ServoCalibrationControl:
         )
         (LOGGER.info if success else LOGGER.error)(message)
         return NeutralResult(success, message)
+
+    def arm_bookkeeping(
+        self,
+        group: JointGroup,
+        plan: CalibrationPlan,
+        outcomes: dict[str, StoreOutcome],
+        changed_at: str,
+        run_id: str,
+        started: float,
+    ) -> list[str]:
+        """Mark the arm's calibrations stale and convert its rest reference after a store (spec 3.6).
+
+        Runs when an offset write was sent (also for a failed store). With a stale marker path the zero change record
+        and, for the verified offset changes, the marker (joint_offsets and home stale) are written with changed_at
+        equal to the audit record's. With a zero_restore block the rest reference is rewritten in the new frame for
+        the verified changes and the zero restore plan is dropped. Failures are reported, never undone: the EEPROM
+        writes stay.
+
+        Args:
+            group (JointGroup): The stored group.
+            plan (CalibrationPlan): The applied plan.
+            outcomes (dict[str, StoreOutcome]): Per attempted joint.
+            changed_at (str): ISO-8601 UTC time of the store (the audit record's changed_at).
+            run_id (str): calib_event run id.
+            started (float): Monotonic start of the store.
+
+        Returns:
+            list[str]: One error text per failed write; empty when everything was written or nothing was to do.
+        """
+        sent = [
+            n
+            for n, o in outcomes.items()
+            if o.written and plan.joints[n].new_offset_steps != plan.joints[n].offset_before_steps
+        ]
+        if not sent:
+            return []
+        verified = [n for n in sent if outcomes[n].applied]
+        errors: list[str] = []
+        if group.neutral_stale_marker is not None:
+            joints = {n: (plan.joints[n].offset_before_steps, plan.joints[n].new_offset_steps) for n in verified}
+            errors.extend(write_zero_change(Path(group.neutral_stale_marker), group.namespace, changed_at, joints))
+            self.events.event(
+                FLOW,
+                run_id,
+                "marker_update",
+                OUTCOME_FAILED if errors else OUTCOME_OK,
+                "; ".join(errors) or None,
+                {"path": group.neutral_stale_marker, "joints": list(joints)},
+                self.monotonic() - started,
+            )
+        if group.zero_restore is not None:
+            reference_error = None
+            if verified:
+                changes = {n: (plan.joints[n].offset_change_steps, plan.joints[n].inverted) for n in verified}
+                reference_error = convert_rest_reference(Path(group.zero_restore.reference_file), changes, changed_at)
+            if reference_error is not None:
+                errors.append(reference_error)
+            if self.zero_restore is not None:
+                self.zero_restore.forget_plan(group.namespace)
+            self.events.event(
+                FLOW,
+                run_id,
+                "rest_reference",
+                OUTCOME_FAILED if reference_error else OUTCOME_OK,
+                reference_error,
+                {"path": group.zero_restore.reference_file, "joints": verified},
+                self.monotonic() - started,
+            )
+        return errors
 
     def store_joint(
         self, joint: JointEntry, planned: JointCalibrationPlan, tolerance: int, run_id: str, started: float

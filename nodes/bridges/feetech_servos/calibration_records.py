@@ -35,6 +35,7 @@ def record_payload(
     not_attempted: list[str],
     home_rad: dict[str, float],
     override_notes: list[str],
+    bookkeeping_errors: list[str],
 ) -> dict[str, Any]:
     """Build the audit record content of one servo calibration store.
 
@@ -49,6 +50,8 @@ def record_payload(
         not_attempted (list[str]): Joints not reached after a failure.
         home_rad (dict[str, float]): joint name -> recorded home reading in rad (the gripper reading, spec 3.6).
         override_notes (list[str]): Joints whose config command override is wider than the new hardware limits.
+        bookkeeping_errors (list[str]): Arm bookkeeping writes that failed (stale marker, zero change record, rest
+            reference); the EEPROM writes stay.
 
     Returns:
         dict[str, Any]: The record; success is true exactly when there is no failure.
@@ -67,6 +70,7 @@ def record_payload(
         "joints": joints,
         "home_rad": home_rad,
         "override_notes": list(override_notes),
+        "bookkeeping_errors": list(bookkeeping_errors),
     }
 
 

@@ -26,7 +26,17 @@ LATEST_NAME = "servo_calibration-arm-latest.json"
 
 def make_payload(failure: tuple[str, str] | None = None) -> dict[str, Any]:
     return record_payload(
-        "arm", "run1", "plan1", CREATED_AT, False, {"elbow_flex": {"ok": True}}, failure, [], {"elbow_flex": 1.0}, []
+        "arm",
+        "run1",
+        "plan1",
+        CREATED_AT,
+        False,
+        {"elbow_flex": {"ok": True}},
+        failure,
+        [],
+        {"elbow_flex": 1.0},
+        [],
+        [],
     )
 
 

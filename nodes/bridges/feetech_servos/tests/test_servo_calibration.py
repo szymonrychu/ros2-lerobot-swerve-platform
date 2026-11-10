@@ -11,12 +11,12 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from feetech_mapping.command_mapping import position_to_raw_steps
+from feetech_mapping.command_mapping import position_to_raw_steps, steps_to_radians
 from st3215.values import INST_WRITE
 
 from feetech_servos.bridge_cycle import BridgeCycle
 from feetech_servos.calib_event import CalibEventLog
-from feetech_servos.config import JointEntry, JointGroup, ServoCalibrationConfig
+from feetech_servos.config import JointEntry, JointGroup, ServoCalibrationConfig, ZeroRestoreConfig
 from feetech_servos.registers import (
     STS_LOCK,
     STS_MAX_ANGLE_LIMIT_L,
@@ -29,6 +29,7 @@ from feetech_servos.registers import (
 from feetech_servos.servo_calibration import ServoCalibrationControl
 from feetech_servos.servo_offsets import decode_offset, encode_offset, steps_to_degrees
 from feetech_servos.torque_control import TorqueControl
+from feetech_servos.zero_restore import ZeroRestoreControl
 
 from .offset_bus import Clock, OffsetPort
 from .sts_bus import StsPacket, put_word, register_table
@@ -52,6 +53,7 @@ class Rig:
     port: OffsetPort
     torque: TorqueControl
     cal: ServoCalibrationControl
+    zero: ZeroRestoreControl
     clock: Clock
     lines: list[str]
 
@@ -86,7 +88,7 @@ class WriteLog(OffsetPort):
 
 def make_config(reference: dict[str, float], tmp_path: Path, **changes: Any) -> ServoCalibrationConfig:
     """servo_calibration block with the given home references."""
-    return ServoCalibrationConfig(home_reference_rad=reference, record_dir=str(tmp_path), **changes)
+    return ServoCalibrationConfig(home_reference_rad=reference, **{"record_dir": str(tmp_path), **changes})
 
 
 def make_rig(
@@ -94,16 +96,19 @@ def make_rig(
     head_block: bool = True,
     released: tuple[str, ...] = (),
     overrides: dict[int, tuple[int, int]] | None = None,
+    head_extra: dict[str, Any] | None = None,
     **changes: Any,
 ) -> Rig:
     """Build head + swerve_drive (torque on), optionally released, with their servo_calibration blocks.
 
     overrides are config command limits per servo id (they also seed the bridge command limits, as in the node).
+    head_extra are further JointGroup fields of the head (neutral_stale_marker, zero_restore: the arm bookkeeping).
     """
     head = JointGroup(
         "head",
         list(HEAD),
         servo_calibration=make_config({"head_pan": 0.0, "head_tilt": 0.0}, tmp_path, **changes) if head_block else None,
+        **(head_extra or {}),
     )
     swerve = JointGroup(
         "swerve_drive",
@@ -141,6 +146,7 @@ def make_rig(
         assert torque.release(namespace).success
     clock = Clock()
     lines: list[str] = []
+    zero = ZeroRestoreControl(torque, command_limits, sleep=lambda _s: None, monotonic=clock, now=lambda: NOW)
     cal = ServoCalibrationControl(
         torque,
         command_limits,
@@ -149,8 +155,9 @@ def make_rig(
         monotonic=clock,
         now=lambda: NOW,
         events=CalibEventLog(lines.append, lines.append, lines.append),
+        zero_restore=zero,
     )
-    return Rig(port, torque, cal, clock, lines)
+    return Rig(port, torque, cal, zero, clock, lines)
 
 
 def readings(**steps: int) -> dict[int, SimpleNamespace]:
@@ -881,3 +888,138 @@ def test_store_never_sends_define_middle(tmp_path: Path) -> None:
     rig = planned_rig(tmp_path)
     assert rig.cal.store("head").success
     assert not any(event == "define_middle" for _, event, _ in rig.port.events)
+
+
+# --- arm bookkeeping (spec 3.6) ---------------------------------------------------------------------------------------
+
+
+def arm_extra(tmp_path: Path, rad: float = 0.0) -> dict[str, Any]:
+    """Head group fields that make it carry the arm bookkeeping: a stale marker and a zero_restore block."""
+    reference = {
+        "version": 1,
+        "group": "head",
+        "saved_at": "2026-11-01T00:00:00+00:00",
+        "joints": {"head_pan": rad, "head_tilt": 0.0},
+    }
+    path = tmp_path / "zero" / "rest_reference.json"
+    path.parent.mkdir()
+    path.write_text(json.dumps(reference))
+    return {
+        "neutral_stale_marker": str(tmp_path / "zero" / "calibration_stale.json"),
+        "zero_restore": ZeroRestoreConfig(
+            reference_file=str(path), record_dir=str(tmp_path), seed_reference_rad={"head_pan": 0.0, "head_tilt": 0.0}
+        ),
+    }
+
+
+def test_arm_store_marks_joint_offsets_and_home_stale(tmp_path: Path) -> None:
+    extra = arm_extra(tmp_path)
+    rig = planned_rig(tmp_path, head_extra=extra)
+    assert rig.cal.store("head").success
+    marker = json.loads(Path(extra["neutral_stale_marker"]).read_text())
+    assert marker["stale"] == ["joint_offsets", "home"]
+    assert marker["joints"] == {
+        "head_pan": {"before_steps": 10, "after_steps": 62},
+        "head_tilt": {"before_steps": -5, "after_steps": -45},
+    }
+    zero_change = json.loads((Path(extra["neutral_stale_marker"]).parent / "zero_changed.json").read_text())
+    assert zero_change["changed_at"] == "2026-11-10T12:00:00+00:00"
+
+
+def test_marker_saved_at_equals_record_changed_at(tmp_path: Path) -> None:
+    extra = arm_extra(tmp_path)
+    rig = planned_rig(tmp_path, head_extra=extra)
+    assert rig.cal.store("head").success
+    marker = json.loads(Path(extra["neutral_stale_marker"]).read_text())
+    record = json.loads((tmp_path / "servo_calibration-head-latest.json").read_text())
+    assert marker["saved_at"] == record["changed_at"]
+    assert record["bookkeeping_errors"] == []
+
+
+def test_store_converts_rest_reference_into_new_frame(tmp_path: Path) -> None:
+    extra = arm_extra(tmp_path, rad=0.1)
+    reference_path = Path(extra["zero_restore"].reference_file)
+    rig = planned_rig(tmp_path, head_extra=extra)
+    rig.zero.state(rig.torque.groups["head"])
+    rig.zero.states["head"].plan = object()
+    assert rig.cal.store("head").success
+    record = json.loads((tmp_path / "servo_calibration-head-latest.json").read_text())
+    reference = json.loads(reference_path.read_text())
+    for name, rad in (("head_pan", 0.1), ("head_tilt", 0.0)):
+        change = record["joints"][name]["plan"]["offset_change_steps"]
+        assert change != 0
+        expected = (position_to_raw_steps(rad, False) - change) % 4096
+        assert reference["steps"][name] == expected
+        assert reference["joints"][name] == steps_to_radians(expected, False)
+    assert reference["saved_at"] == "2026-11-10T12:00:00+00:00"
+    assert rig.zero.states["head"].plan is None
+
+
+def test_store_reports_rest_reference_failure_without_undoing_the_writes(tmp_path: Path) -> None:
+    extra = arm_extra(tmp_path)
+    Path(extra["zero_restore"].reference_file).write_text("not json")
+    rig = planned_rig(tmp_path, head_extra=extra)
+    result = rig.cal.store("head")
+    assert result.success is False
+    assert "rest reference" in result.message
+    assert offset_of(rig, 21) == 62
+    record = json.loads(next(tmp_path.glob("servo_calibration-2026*.json")).read_text())
+    assert record["bookkeeping_errors"] and "rest reference" in record["bookkeeping_errors"][0]
+
+
+def test_failed_arm_store_writes_the_zero_change_record(tmp_path: Path) -> None:
+    extra = arm_extra(tmp_path)
+    rig = planned_rig(tmp_path, head_extra=extra)
+    rig.port.stuck_offset.add(21)
+    assert rig.cal.store("head").success is False
+    directory = Path(extra["neutral_stale_marker"]).parent
+    assert json.loads((directory / "zero_changed.json").read_text())["changed_at"] == "2026-11-10T12:00:00+00:00"
+    assert not (directory / "calibration_stale.json").exists()
+
+
+def test_store_still_check_refusal_hints_to_return_home(tmp_path: Path) -> None:
+    rig = planned_rig(tmp_path)
+    rig.port.jitter[21] = [0, 40, -40, 40]
+    result = rig.cal.store("head")
+    assert result.success is False
+    assert "return the joints to home and let go" in result.message
+    assert_head_untouched(rig)
+
+
+def test_store_stops_when_torque_comes_on_after_the_first_joint(tmp_path: Path) -> None:
+    rig = planned_rig(tmp_path)
+    rig.port.torque_on_after_offset[21] = 22
+    result = rig.cal.store("head")
+    assert result.success is False
+    assert "head_tilt (torque not off before the write" in result.message
+    assert offset_of(rig, 21) == 62
+    assert offset_of(rig, 22) == -5
+    assert not [w for w in eeprom_writes(rig) if w[0] == 22]
+    assert rig.cal.states["head"].last_result["joints"]["head_pan"]["applied"] is True
+
+
+def test_head_store_writes_no_marker(tmp_path: Path) -> None:
+    rig = planned_rig(tmp_path)
+    assert rig.cal.store("head").success
+    assert sorted(p.name for p in tmp_path.iterdir() if p.is_file()) == sorted(
+        [
+            f"servo_calibration-20261110T120000Z-{rig.cal.states['head'].last_result['run_id']}.json",
+            "servo_calibration-head-latest.json",
+        ]
+    )
+
+
+def test_store_refused_when_record_dir_not_writable(tmp_path: Path) -> None:
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    rig = planned_rig(tmp_path, record_dir=str(locked))
+    locked.chmod(0o500)
+    try:
+        result = rig.cal.store("head")
+    finally:
+        locked.chmod(0o700)
+    assert result.success is False
+    assert "not writable" in result.message
+    assert result.message.endswith("nothing written")
+    assert_head_untouched(rig)
+    assert section(rig, "head")["plan"] is not None
