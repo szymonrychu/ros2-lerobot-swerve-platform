@@ -240,6 +240,14 @@ package (the directory name equals the `package.xml` name).
    `package.xml`, so the image is rebuilt only when a dependency changes. The Dockerfile also maps the rosdep key
    `prometheus-cpp` (no upstream rule) to apt `prometheus-cpp-dev`. The build streams its output live
    (`docker build --progress=plain`), so a slow or stalled step (image pull, apt, rosdep) is visible in the CI log.
+   Before the first `apt-get`, the Dockerfile rewrites the `URIs:` of the deb822
+   `/etc/apt/sources.list.d/ubuntu.sources` to the build args `UBUNTU_MIRROR` (default
+   `http://archive.ubuntu.com/ubuntu`) and `UBUNTU_SECURITY_MIRROR` (default `http://security.ubuntu.com/ubuntu`); an
+   amd64 build fails if the rewritten URIs are missing (arm64 uses `ports.ubuntu.com`, left untouched). On GitHub
+   Actions (`GITHUB_ACTIONS=true`) the script passes `http://azure.archive.ubuntu.com/ubuntu` for both, the mirror the
+   runner VMs use themselves; local and Mac builds keep the defaults. It also writes
+   `/etc/apt/apt.conf.d/80-cpp-node-test-retries` (`Acquire::Retries "5"`, http and https timeouts of 30 s), so one
+   dropped connection retries instead of failing the build.
 2. Mounts the repo read-only at `/repo` and copies `shared/ros2_common_cpp`, `nodes/*_cpp` and `.clang-format` into
    `/ws/src`, keeping the repo layout.
 3. `rosdep install`, then `colcon build --packages-up-to <pkg> --cmake-args -DBUILD_TESTING=ON
@@ -254,6 +262,19 @@ pattern of `probe-mppi-overlay-docker.sh` (`docker run --rm -i`, repo mounted `:
 poe tasks `test-cpp` and `lint-cpp` run it for every C++ package, and the `cpp` CI job runs it per package (job
 `timeout-minutes: 60`; a typical run takes 3 to 10 minutes including a fresh image build, but on a slow runner day
 the image build alone took up to 54 minutes on a passing run).
+
+Why the Azure mirror in CI: in run 42757550349 every `cpp` job's image build fetched from `archive.ubuntu.com` at
+about 9 kB/s with hundreds of `Ign:` retries, and ended after 44 minutes with `Failed to fetch
+.../nlohmann-json3-dev_3.11.3-1_all.deb Connection failed [IP: 91.189.91.82 80]`; `packages.ros.org` stayed fast.
+GitHub's runner images point apt at `http://azure.archive.ubuntu.com/ubuntu/` first
+([configure-apt-sources.sh](https://github.com/actions/runner-images/blob/main/images/ubuntu/scripts/build/configure-apt-sources.sh)).
+`security.ubuntu.com` moves too: it resolves to the same Canonical IP pool as `archive.ubuntu.com` (including
+91.189.91.82), and the Azure mirror serves `noble-security` with a current `InRelease`.
+
+The image is not cached between CI runs. A `docker buildx` cache in the GitHub Actions cache (`--cache-to/--cache-from
+type=gha`) would need a buildx builder, the Actions runtime token and a `--load` of a multi-GB image in each of the
+eight matrix jobs, against a 10 GB repository cache budget; with a fast mirror the build is a few minutes, so the
+added moving parts are not worth it.
 
 ```bash
 mkdir -p .logs && ./scripts/cpp-node-test.sh ros2_common_cpp 2>&1 | tee .logs/cpp-node-test.log | tail -20

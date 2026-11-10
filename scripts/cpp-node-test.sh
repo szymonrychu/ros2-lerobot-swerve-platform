@@ -3,7 +3,8 @@
 # (native arm64, the Pi's architecture) and in CI (amd64):
 #   1. build or reuse the local image from scripts/cpp-node-test.Dockerfile (colcon plus the rosdep keys of every
 #      in-repo C++ package; tagged by a hash of the Dockerfile and all package.xml files; build output streamed with
-#      --progress=plain);
+#      --progress=plain; on GitHub Actions (GITHUB_ACTIONS=true) with the Azure Ubuntu apt mirror of the runners as
+#      build args UBUNTU_MIRROR and UBUNTU_SECURITY_MIRROR, elsewhere with the Dockerfile's default archive mirrors);
 #   2. mount the repo read-only and copy shared/ros2_common_cpp, nodes/*_cpp, .clang-format and the Nav2 BT XMLs
 #      (nodes/nav2_bringup/behavior_trees) into /ws/src,
 #      keeping the repo layout (packages find the root .clang-format at ../../.clang-format);
@@ -20,6 +21,8 @@ cd "$(dirname "$0")/.."
 USAGE="Usage: scripts/cpp-node-test.sh <pkg> [--lint-only]"
 DOCKERFILE="scripts/cpp-node-test.Dockerfile"
 IMAGE_REPO="cpp-node-test"
+# Ubuntu apt mirror of the GitHub-hosted runner VMs (actions/runner-images); archive.ubuntu.com crawls from there.
+GITHUB_UBUNTU_MIRROR="http://azure.archive.ubuntu.com/ubuntu"
 EXIT_USAGE=2
 PKG="${1:-}"
 LINT_ONLY=0
@@ -83,8 +86,16 @@ if docker image inspect "$IMAGE" >/dev/null 2>&1; then
   echo "== image $IMAGE (reused)"
 else
   echo "== building image $IMAGE from $DOCKERFILE (native $(uname -m))"
+  BUILD_ARGS=()
+  if [ "${GITHUB_ACTIONS:-}" = true ]; then
+    echo "== GitHub Actions: Ubuntu apt mirror $GITHUB_UBUNTU_MIRROR"
+    BUILD_ARGS=(--build-arg "UBUNTU_MIRROR=$GITHUB_UBUNTU_MIRROR"
+      --build-arg "UBUNTU_SECURITY_MIRROR=$GITHUB_UBUNTU_MIRROR")
+  fi
   # Plain progress, streamed live: a slow or stalled step (image pull, apt, rosdep) shows in the log as it happens.
-  docker build --progress=plain -t "$IMAGE" "$CONTEXT" || fail "docker build of $IMAGE failed"
+  # The guarded expansion keeps an empty BUILD_ARGS safe under set -u on the Mac's bash 3.2.
+  docker build --progress=plain ${BUILD_ARGS[@]+"${BUILD_ARGS[@]}"} -t "$IMAGE" "$CONTEXT" \
+    || fail "docker build of $IMAGE failed"
 fi
 
 # --- 2-4. workspace, build, test ------------------------------------------------------------------------------------
