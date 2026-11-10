@@ -2878,10 +2878,20 @@ ros2_nodes:
       ws_broadcast_hz: 20
       # Applied head calibration laid over the served head URDF (3D view, head tab).
       head_applied_calibration_dir: /var/lib/ros2/head_rgbd_calibration/applied
-      # Accepted arm to camera calibration for the 3D arm views (GET /api/arm/calibration, polled every 5 s): its arm
-      # mount and joint offsets replace the tabs' arm_offset (and no joint offsets) after an Accept, no restart. Same
-      # directory as mcp_server's arm.applied_dir (tests/test_arm_guard_config.py).
-      arm_applied_calibration_dir: /var/lib/ros2/head_rgbd_calibration/applied
+      # Arm calibration of the 3D arm views (GET /api/arm/calibration, polled every 5 s; Arm and map tabs). The values
+      # below are the baseline drawn while no arm calibration is accepted: equal to mcp_server's arm block, the values
+      # mcp_server and filter_node's guard use (tests/test_arm_guard_config.py pins them). An accepted arm to camera
+      # calibration in applied_dir (mcp_server's arm.applied_dir) replaces them after an Accept, no restart.
+      arm_calibration:
+        applied_dir: /var/lib/ros2/head_rgbd_calibration/applied
+        arm_base_height_m: 0.100
+        joint_offsets_rad:
+          shoulder_pan: 0.0182
+          shoulder_lift: -0.0345
+          elbow_flex: -0.1070
+          wrist_flex: 0.0988
+          wrist_roll: -0.0710
+        base_in_base_link: {x: 0.0592, y: -0.05, z: 0.100, yaw: 0.0}
       # Nav goals are refused when the tilt guard state (1 Hz) is older than this many seconds.
       tilt_guard_stale_s: 5
       bridge:
@@ -2999,10 +3009,6 @@ ros2_nodes:
           # Pan/tilt head model driven by the head_state_publisher joint states.
           head_urdf: head.urdf
           head_joint_states_topic: /head/joint_states
-          # Arm mount (URDF base origin) in base_link [x, y, z] m (z up from the floor), measured 2026-10-10 (pan axis from
-          # CAD, height from tip touch-downs). Same value as the mcp_server arm.base_in_base_link, so the drawn arm and
-          # the grasp preview agree with the planner.
-          arm_offset: [0.0592, -0.05, 0.100]
           # Home / Set home buttons: std_srvs/Trigger services served by mcp_server.
           arm_home_service: /arm/home
           arm_set_home_service: /arm/set_home
@@ -3065,7 +3071,6 @@ ros2_nodes:
           arm_joint_states_topic: /follower/joint_states
           # Where the draggable arm publishes (filter_node web_ui input).
           arm_command_topic: /filter/web_ui_joint_commands
-          arm_offset: [0.0592, -0.05, 0.100]
           # Set drive pose (std_srvs/Trigger), drive pose toggle (std_srvs/SetBool) and its latched JSON state (mcp_server).
           arm_set_drive_pose_service: /arm/set_drive_pose
           arm_drive_pose_enable_service: /arm/drive_pose/enable

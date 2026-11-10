@@ -91,7 +91,7 @@ function PickLayer({ armOffset, onPick }: PickLayerProps) {
 
 interface SceneProps {
   tab: TabConfig
-  /** Arm mount and joint offsets the arm is drawn with (the accepted calibration, else the tab's arm_offset). */
+  /** Arm mount and joint offsets the arm is drawn with (the served calibration: accepted or configured). */
   calibration: ArmCalibration
   armJoints: JointStates | undefined
   mode: ArmCameraMode | null
@@ -176,7 +176,7 @@ function ArmScene({ tab, calibration, armJoints, mode, publish, draggable, onArm
 
 interface Props {
   tab: TabConfig
-  /** Arm mount and joint offsets to draw with (useArmCalibration: the accepted calibration, else the tab's arm_offset). */
+  /** Arm mount and joint offsets to draw with (useArmCalibration: the accepted calibration or the configured values). */
   calibration: ArmCalibration
   topicData: Record<string, unknown>
   publish: (topic: string, msgType: string, data: unknown) => void

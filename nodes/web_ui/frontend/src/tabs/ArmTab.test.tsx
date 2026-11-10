@@ -8,7 +8,8 @@ import { TabConfig } from '../types'
 import ArmTab from './ArmTab'
 import { tabTopics } from '../hooks/subscription'
 import { designViolations, SOURCES } from '../layout/designRules'
-import { configuredArmCalibration, effectiveArmCalibration, type ArmCalibration } from '../arm/armCalibration'
+import { toArmCalibration, type ArmCalibration } from '../arm/armCalibration'
+import { ACCEPTED, CONFIGURED } from '../arm/armCalibrationFixtures'
 
 const servoMock = vi.hoisted(() => ({ groups: [] as unknown[], notConfigured: false }))
 vi.mock('../calibrate/servoApi', async (orig) => ({
@@ -27,11 +28,17 @@ function setServo(id: string, kind: 'released' | 'enabled' | 'unknown' | 'none')
 
 // The calibration poll (GET /api/arm/calibration) is the hook's own test (arm/armCalibrationApi.test.ts); here it
 // answers synchronously so the fetch assertions below see only the tab's own calls.
-const calibrationMock = vi.hoisted(() => ({ calibration: null as null | ArmCalibration }))
-vi.mock('../arm/armCalibrationApi', async (orig) => ({
-  ...(await orig<typeof import('../arm/armCalibrationApi')>()),
-  useArmCalibration: (offset?: readonly [number, number, number]) => calibrationMock.calibration ?? configuredArmCalibration(offset),
-}))
+// `served: false` is the hook before the first answer (null).
+const calibrationMock = vi.hoisted(() => ({ calibration: null as null | ArmCalibration, served: true }))
+vi.mock('../arm/armCalibrationApi', async (orig) => {
+  const actual = await orig<typeof import('../arm/armCalibrationApi')>()
+  const { toArmCalibration: served } = await import('../arm/armCalibration')
+  const { CONFIGURED: configured } = await import('../arm/armCalibrationFixtures')
+  return {
+    ...actual,
+    useArmCalibration: () => (calibrationMock.served ? calibrationMock.calibration ?? served(configured) : null),
+  }
+})
 
 const viewMock = vi.hoisted(() => ({
   props: null as null | {
@@ -231,21 +238,28 @@ describe('ArmTab drag reason', () => {
 describe('ArmTab arm calibration', () => {
   afterEach(() => {
     calibrationMock.calibration = null
+    calibrationMock.served = true
   })
 
-  it('draws with the configured arm_offset while nothing is accepted', () => {
+  it('draws with the configured values (the mcp_server joint offsets and mount) while nothing is accepted', () => {
     setViewport(1400)
     renderTab({})
-    expect(viewMock.props?.calibration).toEqual(configuredArmCalibration(TAB.arm_offset))
+    expect(viewMock.props?.calibration).toEqual(toArmCalibration(CONFIGURED))
+  })
+
+  it('shows no arm view until the arm calibration is served', () => {
+    setViewport(1400)
+    viewMock.props = null
+    calibrationMock.served = false
+    renderTab({})
+    expect(screen.getByTestId('arm-calibration-waiting')).toBeTruthy()
+    expect(screen.queryByTestId('arm-view')).toBeNull()
+    expect(viewMock.props).toBeNull()
   })
 
   it('hands an accepted calibration to the arm view', () => {
     setViewport(1400)
-    const accepted = effectiveArmCalibration(undefined, {
-      session: 's', result: 'r', accepted_at: '2026-11-09T12:20:00Z',
-      joint_offsets_rad: { shoulder_pan: 0.03, shoulder_lift: -0.02, elbow_flex: -0.09, wrist_flex: 0.08, wrist_roll: -0.07 },
-      base_in_base_link: { x: 0.061, y: -0.048, z: 0.102, yaw: 0.01 },
-    })
+    const accepted = toArmCalibration(ACCEPTED)
     calibrationMock.calibration = accepted
     renderTab({})
     expect(viewMock.props?.calibration).toBe(accepted)

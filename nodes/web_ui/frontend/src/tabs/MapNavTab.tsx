@@ -835,7 +835,6 @@ export default function MapNavTab({
               baseUrdf={tab.base_urdf}
               armUrdf={tab.arm_urdf}
               headUrdf={tab.head_urdf}
-              armOffset={tab.arm_offset}
               map={map}
               costmap={isCleared(costmapMsg) ? null : costmapMsg}
               obstacleCloud={obstacleCloud}

@@ -9,7 +9,8 @@ import type { TabConfig } from '../types'
 import ArmTab from '../tabs/ArmTab'
 import ArmView from './ArmView.tsx'
 import { ARM_CAMERA_MODES } from './armView.ts'
-import { configuredArmCalibration, effectiveArmCalibration, type ArmCalibration } from './armCalibration'
+import { toArmCalibration, type ArmCalibration } from './armCalibration'
+import { ACCEPTED as SERVED_ACCEPTED, CONFIGURED, configuredBody } from './armCalibrationFixtures'
 
 const JOINTS = '/arm/joint_states'
 const canvasEl = vi.hoisted(() => {
@@ -93,7 +94,7 @@ function view(topicData: Record<string, unknown>, reason: string | null = null, 
     <ThemeProvider theme={theme}>
       <ArmView
         tab={TAB}
-        calibration={extra.calibration ?? configuredArmCalibration(TAB.arm_offset)}
+        calibration={extra.calibration ?? toArmCalibration(CONFIGURED)}
         topicData={topicData}
         publish={vi.fn()}
         dragDisabledReason={reason}
@@ -223,7 +224,13 @@ describe('ArmView grasp pick', () => {
 })
 
 describe('ArmTab', () => {
-  it('mounts ArmView inside the arm-view-slot', async () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('mounts ArmView inside the arm-view-slot once the arm calibration is served', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) =>
+      url === '/api/arm/calibration' ? new Response(JSON.stringify(configuredBody), { status: 200 }) : new Response('{}', { status: 404 })))
     window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener: vi.fn(), removeEventListener: vi.fn(), addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(), onchange: null })) as typeof window.matchMedia
     render(
       <ThemeProvider theme={theme}>
@@ -236,11 +243,8 @@ describe('ArmTab', () => {
 })
 
 describe('ArmView arm calibration', () => {
-  const OFFSETS = { shoulder_pan: 0.03, shoulder_lift: -0.02, elbow_flex: -0.09, wrist_flex: 0.08, wrist_roll: -0.07 }
-  const ACCEPTED = effectiveArmCalibration(undefined, {
-    session: 's', result: 'r', accepted_at: '2026-11-09T12:20:00Z', joint_offsets_rad: OFFSETS,
-    base_in_base_link: { x: 0.07, y: -0.04, z: 0.104, yaw: 0.02 },
-  })
+  const OFFSETS = SERVED_ACCEPTED.joint_offsets_rad
+  const ACCEPTED = toArmCalibration({ ...SERVED_ACCEPTED, base_in_base_link: { x: 0.07, y: -0.04, z: 0.104, yaw: 0.02 } })
   const MEASURED = { name: ['shoulder_pan', 'elbow_flex', 'gripper'], position: [0.1, 1.0, 0.5] }
 
   it('the draggable arm is posed in URDF angles and gets the offsets to publish measured commands', () => {
@@ -260,10 +264,19 @@ describe('ArmView arm calibration', () => {
     expect(states.position[1]).toBeCloseTo(0.91)
   })
 
-  it('without an accepted calibration the arm gets the measured joint states unchanged', () => {
+  it('with nothing accepted the arm is posed with the configured joint offsets (the mcp_server values)', () => {
     render(view({ [JOINTS]: MEASURED }))
+    const live = last(mocks.armProps).liveJointStates as { position: number[] }
+    expect(live.position[0]).toBeCloseTo(0.1 + CONFIGURED.joint_offsets_rad.shoulder_pan)
+    expect(live.position[1]).toBeCloseTo(1.0 + CONFIGURED.joint_offsets_rad.elbow_flex)
+    expect(live.position[2]).toBe(0.5)
+    expect(last(mocks.armProps).jointOffsets).toEqual(CONFIGURED.joint_offsets_rad)
+  })
+
+  it('without joint offsets the arm gets the measured joint states unchanged', () => {
+    const calibration = toArmCalibration({ ...CONFIGURED, joint_offsets_rad: {} })
+    render(view({ [JOINTS]: MEASURED }, null, vi.fn(), { calibration }))
     expect(last(mocks.armProps).liveJointStates).toBe(MEASURED)
-    expect(last(mocks.armProps).jointOffsets).toEqual({})
   })
 
   it('a pick under the arm root is the accepted mount in base_link', () => {

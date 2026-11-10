@@ -1,16 +1,20 @@
 /**
- * Client of GET /api/arm/calibration (web_ui/arm_calibration.py): the accepted arm to camera calibration the 3D arm
- * views draw with, and the polling hook that follows a new Accept without a page reload.
+ * Client of GET /api/arm/calibration (web_ui/arm_calibration.py): the arm calibration the 3D arm views draw with (the
+ * accepted arm to camera calibration, or the configured client.yml values while nothing is accepted), and the polling
+ * hook that follows a new Accept without a page reload.
  */
 import { useEffect, useMemo, useState } from 'react'
 import log from '../logging'
-import { effectiveArmCalibration, type ArmCalibration } from './armCalibration'
+import { toArmCalibration, type ArmCalibration } from './armCalibration'
 
 export const ARM_CALIBRATION_URL = '/api/arm/calibration'
 /** Poll period: the backend stats applied.json per call and reads the file only after it changed. */
 export const ARM_CALIBRATION_POLL_MS = 5000
-/** The five calibrated arm joints (gripper excluded), as the backend's ArmCalibrationFile requires them. */
+/** The five calibrated arm joints (gripper excluded), as the backend's ArmCalibrationSettings requires them. */
 export const ARM_CALIBRATION_JOINTS = ['shoulder_pan', 'shoulder_lift', 'elbow_flex', 'wrist_flex', 'wrist_roll'] as const
+
+/** Where the served values come from: an accepted calibration or the configured client.yml values. */
+export type ArmCalibrationSource = 'accepted' | 'configured'
 
 /** Arm base pose in base_link (m, rad). */
 export interface ArmBasePose {
@@ -20,21 +24,28 @@ export interface ArmBasePose {
   yaw: number
 }
 
-/** The accepted calibration as the backend serves it. */
-export interface AcceptedArmCalibration {
+/** Identity of an accepted calibration. */
+export interface AcceptedArmCalibrationId {
   session: string
   result: string
   /** ISO 8601 accept time. */
   accepted_at: string
+}
+
+/** The calibration as the backend serves it. */
+export interface ServedArmCalibration {
+  source: ArmCalibrationSource
+  /** The accepted calibration's identity, null for the configured values. */
+  accepted: AcceptedArmCalibrationId | null
   joint_offsets_rad: Record<string, number>
   base_in_base_link: ArmBasePose
 }
 
 /** GET /api/arm/calibration body. */
 export interface ArmCalibrationBody {
-  /** The accepted calibration in use, null when nothing is accepted (or no applied dir is configured). */
-  accepted: AcceptedArmCalibration | null
-  /** Why the last read failed (the last good calibration stays), null after a good read. */
+  /** The calibration in use, null only when web_ui has no arm_calibration configured. */
+  calibration: ServedArmCalibration | null
+  /** Why the last read failed (the values in use stay), null after a good read. */
   error: string | null
 }
 
@@ -44,25 +55,31 @@ const isFiniteNumber = (v: unknown): v is number => typeof v === 'number' && Num
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 
 /**
- * Check an accepted calibration body.
+ * Check a served calibration.
  *
- * @param v - the `accepted` value
+ * @param v - the `calibration` value
  * @returns null when valid, otherwise the first bad key
  */
-function acceptedProblem(v: unknown): string | null {
-  if (!isObject(v)) return 'accepted'
-  for (const key of ['session', 'result', 'accepted_at'] as const) {
-    if (typeof v[key] !== 'string') return `accepted.${key}`
+function calibrationProblem(v: unknown): string | null {
+  if (!isObject(v)) return 'calibration'
+  if (v.source !== 'accepted' && v.source !== 'configured') return 'calibration.source'
+  if (v.source === 'configured' && v.accepted !== null) return 'calibration.accepted'
+  if (v.source === 'accepted') {
+    const a = v.accepted
+    if (!isObject(a)) return 'calibration.accepted'
+    for (const key of ['session', 'result', 'accepted_at'] as const) {
+      if (typeof a[key] !== 'string') return `calibration.accepted.${key}`
+    }
   }
   const offsets = v.joint_offsets_rad
-  if (!isObject(offsets)) return 'accepted.joint_offsets_rad'
+  if (!isObject(offsets)) return 'calibration.joint_offsets_rad'
   for (const joint of ARM_CALIBRATION_JOINTS) {
-    if (!isFiniteNumber(offsets[joint])) return `accepted.joint_offsets_rad.${joint}`
+    if (!isFiniteNumber(offsets[joint])) return `calibration.joint_offsets_rad.${joint}`
   }
   const base = v.base_in_base_link
-  if (!isObject(base)) return 'accepted.base_in_base_link'
+  if (!isObject(base)) return 'calibration.base_in_base_link'
   for (const key of ['x', 'y', 'z', 'yaw'] as const) {
-    if (!isFiniteNumber(base[key])) return `accepted.base_in_base_link.${key}`
+    if (!isFiniteNumber(base[key])) return `calibration.base_in_base_link.${key}`
   }
   return null
 }
@@ -71,23 +88,21 @@ function acceptedProblem(v: unknown): string | null {
  * Validate a GET /api/arm/calibration body.
  *
  * @param body - parsed JSON
- * @returns the typed body, or a message naming the first bad key
+ * @returns the typed body (only the drawn fields), or a message naming the first bad key
  */
-export function parseArmCalibration(body: unknown): { ok: true; value: ArmCalibrationBody } | { ok: false; message: string } {
+export function parseArmCalibration(body: unknown): ArmCalibrationResult {
   if (!isObject(body)) return { ok: false, message: 'arm calibration: body is not an object' }
   if (body.error !== null && typeof body.error !== 'string') return { ok: false, message: 'arm calibration: bad error' }
-  if (body.accepted === null) return { ok: true, value: { accepted: null, error: body.error } }
-  const problem = acceptedProblem(body.accepted)
+  if (body.calibration === null) return { ok: true, value: { calibration: null, error: body.error } }
+  const problem = calibrationProblem(body.calibration)
   if (problem !== null) return { ok: false, message: `arm calibration: bad ${problem}` }
-  const a = body.accepted as unknown as AcceptedArmCalibration
-  const joint_offsets_rad = Object.fromEntries(ARM_CALIBRATION_JOINTS.map((j) => [j, a.joint_offsets_rad[j]]))
-  const { x, y, z, yaw } = a.base_in_base_link
+  const c = body.calibration as unknown as ServedArmCalibration
+  const joint_offsets_rad = Object.fromEntries(ARM_CALIBRATION_JOINTS.map((j) => [j, c.joint_offsets_rad[j]]))
+  const { x, y, z, yaw } = c.base_in_base_link
+  const accepted = c.accepted === null ? null : { session: c.accepted.session, result: c.accepted.result, accepted_at: c.accepted.accepted_at }
   return {
     ok: true,
-    value: {
-      accepted: { session: a.session, result: a.result, accepted_at: a.accepted_at, joint_offsets_rad, base_in_base_link: { x, y, z, yaw } },
-      error: body.error,
-    },
+    value: { calibration: { source: c.source, accepted, joint_offsets_rad, base_in_base_link: { x, y, z, yaw } }, error: body.error },
   }
 }
 
@@ -115,15 +130,15 @@ export async function fetchArmCalibration(fetchImpl: typeof fetch = fetch): Prom
 }
 
 /**
- * The calibration a 3D arm view draws with, polled every pollMs (while the page is visible). Until the first answer,
- * and while the backend has nothing accepted, it is the tab's configured mount; a failed poll keeps the last answer.
+ * The calibration a 3D arm view draws with, polled every pollMs (while the page is visible): the accepted one or the
+ * configured values, as the backend serves them. Null until the first good answer (and while web_ui has no
+ * arm_calibration configured): the views draw no arm then. A failed poll keeps the last answer.
  *
- * @param armOffset - tab arm_offset [x, y, z] metres, undefined for the default mount
  * @param pollMs - poll period in ms
- * @returns the calibration (a new object only when it changed)
+ * @returns the calibration (a new object only when it changed), or null
  */
-export function useArmCalibration(armOffset?: readonly [number, number, number], pollMs: number = ARM_CALIBRATION_POLL_MS): ArmCalibration {
-  const [accepted, setAccepted] = useState<AcceptedArmCalibration | null>(null)
+export function useArmCalibration(pollMs: number = ARM_CALIBRATION_POLL_MS): ArmCalibration | null {
+  const [served, setServed] = useState<ServedArmCalibration | null>(null)
   useEffect(() => {
     let live = true
     let lastProblem: string | null = null
@@ -135,8 +150,8 @@ export function useArmCalibration(armOffset?: readonly [number, number, number],
       if (problem !== null && problem !== lastProblem) log.warn('[arm] calibration:', problem)
       lastProblem = problem
       if (!r.ok) return
-      const next = r.value.accepted
-      setAccepted((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next))
+      const next = r.value.calibration
+      setServed((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next))
     }
     void poll()
     const id = setInterval(() => void poll(), pollMs)
@@ -145,9 +160,5 @@ export function useArmCalibration(armOffset?: readonly [number, number, number],
       clearInterval(id)
     }
   }, [pollMs])
-  const [x, y, z] = armOffset ?? [undefined, undefined, undefined]
-  return useMemo(
-    () => effectiveArmCalibration(x === undefined || y === undefined || z === undefined ? undefined : [x, y, z], accepted),
-    [x, y, z, accepted],
-  )
+  return useMemo(() => (served === null ? null : toArmCalibration(served)), [served])
 }

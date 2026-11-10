@@ -1,10 +1,11 @@
 """filter_node's self-collision guard checks the same arm as mcp_server (ansible/group_vars/client.yml).
 
 The body is one packaged file (shared/arm_collision robot_body.yaml); the arm calibration stays in each node config.
-This pins filter_node's `self_collision_guard.arm` to mcp_server's `arm` values of every ArmModelSettings field, its
-keep-away to mcp_server's body_check.hard_margin_m, its applied_dir (and web_ui's arm_applied_calibration_dir) to
-mcp_server's arm.applied_dir, and the guard on. The node type ships the arm URDF and the C++ kernels the shared package
-path-depends on.
+This pins filter_node's `self_collision_guard.arm` to mcp_server's `arm` values of every ArmModelSettings field,
+web_ui's `arm_calibration` (the 3D arm views' baseline) to mcp_server's calibrated arm values (ARM_SETTINGS_FIELDS), the
+keep-away to mcp_server's body_check.hard_margin_m, filter_node's applied_dir and web_ui's arm_calibration.applied_dir
+to mcp_server's arm.applied_dir, and the guard on. The node type ships the arm URDF and the C++ kernels the shared
+package path-depends on.
 """
 
 from pathlib import Path
@@ -12,6 +13,8 @@ from typing import Any
 
 import yaml
 from arm_collision.settings import ArmModelSettings
+from ros2_common.head_rgbd_calibration.applied_arm_calibration import ArmCalibrationSettings
+from ros2_common.head_rgbd_calibration.arm_calibration_file import ARM_SETTINGS_FIELDS
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CLIENT_VARS = REPO_ROOT / "ansible" / "group_vars" / "client.yml"
@@ -53,7 +56,25 @@ def test_the_accepted_arm_calibration_consumers_read_mcp_servers_applied_dir() -
     applied = client_node("mcp_server")["arm"]["applied_dir"]
     assert applied == "/var/lib/ros2/head_rgbd_calibration/applied"
     assert client_node("filter_node")["self_collision_guard"]["applied_dir"] == applied
-    assert client_node("web_ui")["arm_applied_calibration_dir"] == applied
+    assert client_node("web_ui")["arm_calibration"]["applied_dir"] == applied
+
+
+def test_web_ui_arm_baseline_equals_mcp_server_configured_arm_values() -> None:
+    """With nothing accepted the 3D arm views draw with mcp_server's (and the guard's) configured joint offsets, mount
+    height and arm base pose; web_ui's arm_calibration holds exactly those keys and its applied_dir."""
+    mcp_arm = client_node("mcp_server")["arm"]
+    web_arm = client_node("web_ui")["arm_calibration"]
+    assert set(web_arm) == {*ARM_SETTINGS_FIELDS, "applied_dir"}
+    configured = {k: mcp_arm[k] for k in ARM_SETTINGS_FIELDS}
+    baseline = {k: web_arm[k] for k in ARM_SETTINGS_FIELDS}
+    assert baseline == configured
+    assert ArmCalibrationSettings.model_validate(baseline) == ArmCalibrationSettings.model_validate(configured)
+    model = ArmModelSettings.model_validate({k: v for k, v in mcp_arm.items() if k in ArmModelSettings.model_fields})
+    assert ArmCalibrationSettings.model_validate(baseline).model_dump() == {
+        "joint_offsets_rad": model.joint_offsets_rad.model_dump(),
+        "arm_base_height_m": model.arm_base_height_m,
+        "base_in_base_link": None if model.base_in_base_link is None else model.base_in_base_link.model_dump(),
+    }
 
 
 def test_filter_node_guard_keep_away_equals_mcp_server_hard_margin() -> None:

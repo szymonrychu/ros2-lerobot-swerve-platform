@@ -1,16 +1,17 @@
 /**
- * The arm calibration the 3D arm views draw with: the accepted arm to camera calibration (GET /api/arm/calibration,
- * armCalibrationApi.ts) when there is one, otherwise the tab's configured mount (client.yml arm_offset, no yaw) and no
- * joint offsets, the configured values the views always drew with.
+ * The arm calibration the 3D arm views draw with, always the one the backend serves (GET /api/arm/calibration,
+ * armCalibrationApi.ts): the accepted arm to camera calibration, or with nothing accepted the configured client.yml
+ * values (web_ui arm_calibration, the joint offsets and arm mount mcp_server and filter_node use). The views have no
+ * mount of their own: until the backend answers they draw no arm.
  *
  * Joint offsets: urdf_angle = measured_angle + offset (mcp_server and filter_node apply them the same way). The views
  * pose the URDF in URDF angles (toUrdfJointStates) and the draggable arm turns its URDF angles back into measured
  * commands (toMeasuredPositions) before publishing.
  */
 import type { ArmMount } from '../grasp/grasp'
-import { DEFAULT_ARM_OFFSET, mountYaw } from '../grasp/grasp'
+import { mountYaw } from '../grasp/grasp'
 import { rosToThree, rosYawToThreeY, type ThreeTuple } from '../map3d/coords'
-import type { AcceptedArmCalibration } from './armCalibrationApi'
+import type { ArmCalibrationSource, ServedArmCalibration } from './armCalibrationApi'
 
 /** Joint states as the bridge forwards them (parallel name / position arrays). */
 export interface JointStates {
@@ -24,43 +25,25 @@ export interface ArmCalibration {
   mount: ArmMount
   /** Zero offset per joint (rad, urdf = measured + offset); a joint without one has 0. */
   jointOffsets: Readonly<Record<string, number>>
-  /** 'accepted' for an accepted calibration, 'config' for the tab's configured mount. */
-  source: 'accepted' | 'config'
+  /** 'accepted' for an accepted calibration, 'configured' for the configured client.yml values. */
+  source: ArmCalibrationSource
   /** Session and result of an accepted calibration, null for the configured values. */
   accepted: { session: string; result: string; accepted_at: string } | null
 }
 
-const NO_OFFSETS: Readonly<Record<string, number>> = Object.freeze({})
-
 /**
- * The configured calibration of a tab: its arm_offset (or the measured default) with no yaw and no joint offsets.
+ * The calibration to draw with, from the one the backend serves.
  *
- * @param armOffset - tab arm_offset [x, y, z] metres, undefined for the default mount
- * @returns the configured calibration
+ * @param served - calibration served by GET /api/arm/calibration (accepted or configured)
+ * @returns the calibration (its own copies of the offsets and the identity)
  */
-export function configuredArmCalibration(armOffset?: readonly [number, number, number]): ArmCalibration {
-  const [x, y, z] = armOffset ?? DEFAULT_ARM_OFFSET
-  return { mount: [x, y, z, 0], jointOffsets: NO_OFFSETS, source: 'config', accepted: null }
-}
-
-/**
- * The calibration to draw with: the accepted one when there is one, otherwise the tab's configured mount.
- *
- * @param armOffset - tab arm_offset [x, y, z] metres, undefined for the default mount
- * @param accepted - accepted calibration from the backend, null when nothing is accepted
- * @returns the calibration
- */
-export function effectiveArmCalibration(
-  armOffset: readonly [number, number, number] | undefined,
-  accepted: AcceptedArmCalibration | null,
-): ArmCalibration {
-  if (accepted === null) return configuredArmCalibration(armOffset)
-  const b = accepted.base_in_base_link
+export function toArmCalibration(served: ServedArmCalibration): ArmCalibration {
+  const b = served.base_in_base_link
   return {
     mount: [b.x, b.y, b.z, b.yaw],
-    jointOffsets: { ...accepted.joint_offsets_rad },
-    source: 'accepted',
-    accepted: { session: accepted.session, result: accepted.result, accepted_at: accepted.accepted_at },
+    jointOffsets: { ...served.joint_offsets_rad },
+    source: served.source,
+    accepted: served.accepted === null ? null : { ...served.accepted },
   }
 }
 

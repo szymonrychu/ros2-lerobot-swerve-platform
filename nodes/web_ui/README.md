@@ -11,7 +11,7 @@ Runs as a native service on the client RPi. Accessible at `http://client.ros2.la
 | Map | `map_nav` | Primary tab, listed first and opened by default. One 3D view: SLAM map, local costmap, GPS tiles, Nav2 plans, goal, footprint, the robot URDF at its TF pose and an interactive arm, plus stop / save / reset / arm home (see below) |
 | Retros | `agent_retros` | Retrospectives the `claude_agent` node wrote after its jobs, via `/api/agent/retrospectives`. Needs an `agent_chat` tab (a config with `agent_retros` but no `agent_chat` tab fails validation); it uses that tab's `agent_url` |
 | Agent | `agent_chat` | Chat with the `claude_agent` node (Claude with the robot MCP tools): see [Agent tab](#agent-tab-agent_chat) |
-| Arm | `arm` | The head D435 colour stream (`head_camera_topic`, default `/head/d435/color/image_raw/compressed`; the arm has no camera) beside the arm view and jog panel. Other fields (defaults filled by the backend): `arm_urdf` (`so101_arm.urdf`, the model drawn in the 3D view; without it the view is empty), `arm_joint_states_topic`, `arm_command_topic` (`/filter/web_ui_joint_commands`, where the draggable arm publishes; only the arm tab has it), `grasp_command_topic` / `grasp_result_topic` (`/grasp/command`, `/grasp/result`), `arm_offset`, `active_source_topic` (`/filter/active_source`), `arm_home_service`, `arm_set_home_service`, `arm_set_drive_pose_service` (`/arm/set_drive_pose`), `arm_drive_pose_enable_service` (`/arm/drive_pose/enable`), `drive_pose_state_topic` (`/arm/drive_pose/state`), `arm_take_control_service` (`/arm/take_control`), `arm_release_control_service` (`/arm/release_control`); its Trigger services are in `trigger_services()` |
+| Arm | `arm` | The head D435 colour stream (`head_camera_topic`, default `/head/d435/color/image_raw/compressed`; the arm has no camera) beside the arm view and jog panel. Other fields (defaults filled by the backend): `arm_urdf` (`so101_arm.urdf`, the model drawn in the 3D view; without it the view is empty), `arm_joint_states_topic`, `arm_command_topic` (`/filter/web_ui_joint_commands`, where the draggable arm publishes; only the arm tab has it), `grasp_command_topic` / `grasp_result_topic` (`/grasp/command`, `/grasp/result`), `active_source_topic` (`/filter/active_source`), `arm_home_service`, `arm_set_home_service`, `arm_set_drive_pose_service` (`/arm/set_drive_pose`), `arm_drive_pose_enable_service` (`/arm/drive_pose/enable`), `drive_pose_state_topic` (`/arm/drive_pose/state`), `arm_take_control_service` (`/arm/take_control`), `arm_release_control_service` (`/arm/release_control`); its Trigger services are in `trigger_services()` |
 | Head | `head` | Head RGB stream (`rgb_camera_topic`, `sensor_msgs/CompressedImage`, deployed as the D435 colour `/head/d435/color/image_raw/compressed` from `realsense_d435` on the pan/tilt head) beside a greyscale depth preview (`depth_topic`, deployed as the D435 depth `/head/d435/depth/image_rect_raw`: 16UC1 mm; near is bright, `depth_range_m` (default 4.0 m, > 0) or beyond is black, invalid 0 is black). The live D435 topics are pinned in `nodes/bridges/realsense_d435/config/topics.yaml`. Streams without a message show `Waiting for <topic>...`, never a placeholder image. With `rgbd_rgb_topic` and `rgbd_depth_topic` set, an **RGB-D** view shows the `head_rgbd_cpp` RGB with the registered depth as a colormap overlay (opacity slider, legend, hover depth readout). See [Head tab](#head-tab-head) |
 | Cameras | `camera` | The two CSI body cameras in one grid (side by side, stacked on a phone), front then back (`topics`, each `{topic, label}`: `/front_camera/image_raw/compressed` "Front", `/back_camera/image_raw/compressed` "Back", `sensor_msgs/CompressedImage` from the `front_camera` and `back_camera` nodes). A stream without a message shows `Waiting for <topic>...`; the back one stays waiting while `back_camera` is disabled (module not fitted). Deployed in `client.yml` only, not in `config/default.yaml` |
 | POI | `poi` | One list of POIs and photos (kind chips, search, sort); each row's button centres it on the map and opens its popup. Reads `poi_list_topic` / `poi_photos_topic` (default `/poi/list`, `/poi/photos`) |
@@ -339,19 +339,19 @@ One 3D scene (react-three-fiber, code in `frontend/src/tabs/MapNavTab.tsx` and `
 | `tile_display_zoom` | `19` | Preferred GPS tile zoom (1..22); above a source's `max_zoom` its tiles are stretched |
 | `tile_max_zoom` | `18` | `max_zoom` of the single `tile_url` source (1..22) |
 
-All map_nav fields are optional; unset fields get the defaults above (empty strings are rejected). `arm_offset` (optional, `[x, y, z]` in metres) places the arm URDF root on the base model: ROS coordinates in `base_link`, z up from the floor (the base model stands on z = 0), no yaw. Unset, the frontend uses the same measured mount `[0.0592, -0.05, 0.100]` (2026-10-10); the robot sets it to the same mcp_server `arm.base_in_base_link` value in `client.yml`, so the drawn arm and the grasp preview match what the planner assumes. Message types for these topics come from the tab fields, not from the hard-coded `TOPIC_TYPE_HINTS`. `TOPIC_TYPE_HINTS` and `config/default.yaml` name only the robot's own topics; `/controller/*` topics come only from the master2master proxy to external ROS2 masters and are not used by web_ui.
+All map_nav fields are optional; unset fields get the defaults above (empty strings are rejected). The arm URDF root is placed on the base model by the served arm calibration (top-level `arm_calibration`, see "Arm calibration"), not by a tab field: the same mount and joint offsets mcp_server's planner uses, so the drawn arm and the grasp preview match what the planner assumes. Message types for these topics come from the tab fields, not from the hard-coded `TOPIC_TYPE_HINTS`. `TOPIC_TYPE_HINTS` and `config/default.yaml` name only the robot's own topics; `/controller/*` topics come only from the master2master proxy to external ROS2 masters and are not used by web_ui.
 
 ### Grasp
 
 The **Grasp** dropdown of the Arm tab (shown when `grasp_command_topic` is set; the Arm tab fills the default) has the items **Auto**, **Scoop**, **Angled** and **Top down** (strategies `auto`, `scoop`, `angled`, `top_down`; Angled uses the server default pitch unless **Pitch** is set under Advanced). It drives the mcp_server grasp macros (`nodes/mcp_server/README.md`, "Grasp macros" and "Web-UI contract"). Code: `frontend/src/grasp/` (pure logic `grasp.ts`, pick-mode state machine and menu mapping `pick.ts`, size persistence `objectSettings.ts`, API client `graspApi.ts`, state `useGrasp.ts`, UI `GraspPanel.tsx`, 3D `GraspPreview.tsx`; vitest `grasp.test.ts`, `pick.test.ts`, `objectSettings.test.ts`, `graspApi.test.ts`, `GraspPanel.test.tsx`).
 
-- **Flow:** choose an item (this opens the panel over the Arm tab and arms the pick; the arm in the 3D view becomes display-only meanwhile). Pick mode shows a crosshair cursor over the arm view, the hint **Click the object in the arm view** next to the toolbar and a **Cancel grasp pick** button; **Esc** or **Cancel grasp pick** leaves it without planning. The next click or tap on the arm view floor (a press that does not move) sets the object and immediately sends the plan request, then leaves pick mode. The arm view draws a floor grid at base_link z = 0 (under the arm root, `-arm_offset` z); the picked point is already in `base_link`, so the request uses frame `base_link` without any robot pose (`BASE_LINK_POSE`, code `frontend/src/arm/armViewPick.ts`). A click above the horizon of the camera picks nothing. **STOP GRASP** appears beside the Arm toolbar only while a grasp executes. A released arm closes the flow. Choosing an item again (also while a plan is shown) starts a new pick. There are no position text inputs.
+- **Flow:** choose an item (this opens the panel over the Arm tab and arms the pick; the arm in the 3D view becomes display-only meanwhile). Pick mode shows a crosshair cursor over the arm view, the hint **Click the object in the arm view** next to the toolbar and a **Cancel grasp pick** button; **Esc** or **Cancel grasp pick** leaves it without planning. The next click or tap on the arm view floor (a press that does not move) sets the object and immediately sends the plan request, then leaves pick mode. The arm view draws a floor grid at base_link z = 0 (under the arm root, minus the mount z of the served arm calibration); the picked point is already in `base_link`, so the request uses frame `base_link` without any robot pose (`BASE_LINK_POSE`, code `frontend/src/arm/armViewPick.ts`). A click above the horizon of the camera picks nothing. **STOP GRASP** appears beside the Arm toolbar only while a grasp executes. A released arm closes the flow. Choosing an item again (also while a plan is shown) starts a new pick. There are no position text inputs.
 - **Object position:** the clicked ground point is converted from the map frame to `base_link` with the robot pose (if the pose is unknown nothing is planned and an error is shown). The request uses `frame: "base_link"` and `support_z: 0` (the `base_link` origin is on the floor), so the object stands on the floor at the clicked x, y.
 - **Object** (collapsed): width (across the jaws), depth (along the approach), height, all 0.04 m by default and remembered in this browser (`localStorage` key `grasp.object`; unavailable or corrupt storage falls back to the defaults), **Gap below** (`object.gap_below_m`, shown for Scoop only, default 0: the clear height under the object) and yaw in degrees (blank = across the approach).
 - **Grip strength**: **Gentle** / **Soft** / **Normal** / **Firm** (default Normal; remembered in this browser, `localStorage` key `grasp.gripProfile`, unreadable or unknown values fall back to Normal). Sent as `grip_profile` with **Execute** only (it does not change the plan, so switching it keeps a feasible plan executable). Gentle is for fragile or light objects, Soft for plush and soft toys (foam, fabric), Normal for ordinary ones, Firm for heavy or slippery objects and tools; the mcp_server presets set the gripper torque limit, close speed and squeeze (`nodes/mcp_server/README.md`, "Grip profiles").
 - **Advanced** (collapsed): Pitch (Angled), `surface_z_m` (expected surface height relative to the robot plane), tilt override roll / pitch (degrees, both blank = use the IMU) and every numeric `grasp` config field as a `params` override (blank = the server default, shown as the placeholder). Inputs are validated like the server (ranges), every problem is listed.
 - **Result:** the plan is a dry run (`action: "plan"`, nothing moves). The panel shows feasibility, the chosen strategy, pitch, the reasons of an infeasible plan, the `auto` attempts and the plan summary. **Plan again** (after an object was clicked) re-plans for changed size settings. **Execute** appears only for a feasible plan made for exactly the current inputs (any change hides it); it opens a confirm step with the plan summary (strategy, pitch, wrist roll, jaw opening, waypoints, slow-zone steps) and only **Confirm execute** sends it. **Release** opens the gripper and lifts; it needs two clicks (**Confirm release**, 4 s). While a grasp runs the panel shows the running state, a large **STOP GRASP** button at the top of the panel and one in the toolbar (also with the panel closed); **Stop** in the panel is always present. The dropdown items are disabled while planning or executing. The outcome (`grasped`, `unverified`, `missed`, `aborted`, `infeasible`, `released`; `unverified` means the jaw closed almost fully on a soft, squashed object or nothing, kept closed and lifted: check the head camera (Arm tab), then Release if the jaws are empty), reasons, per-step statuses and the final gripper position and load come from the stream below; a run with a close also shows the grip profile used and the holding load ("Grip gentle, holding load 131"), with "slipping: try a firmer grip" or "crush risk: try a gentler grip" when mcp_server flags it.
-- **Preview** in the 3D scene (while the panel is open): a translucent box at the object pose (width along the yaw, or across the approach from the arm base when blank) and, for a plan that matches the inputs, a polyline through the waypoint tool positions with a labelled marker per waypoint (`pre_grasp`, `open`, `approach`, `grasp`, `close`, `lift`, `retreat`). Plan waypoints are in the arm frame; they are drawn at `mount + point` in the robot group (the arm frame is `base_link` shifted by the mount, turned by its yaw when an accepted arm calibration has one; see "Accepted arm calibration").
+- **Preview** in the 3D scene (while the panel is open): a translucent box at the object pose (width along the yaw, or across the approach from the arm base when blank) and, for a plan that matches the inputs, a polyline through the waypoint tool positions with a labelled marker per waypoint (`pre_grasp`, `open`, `approach`, `grasp`, `close`, `lift`, `retreat`). Plan waypoints are in the arm frame; they are drawn at `mount + point` in the robot group (the arm frame is `base_link` shifted by the mount, turned by its yaw when the served arm calibration has one; see "Arm calibration").
 
 #### API contract
 
@@ -526,7 +526,7 @@ Key fields (map_nav fields are listed in the Map tab section):
 - `http_port` (default: 8080)
 - `ws_broadcast_hz` (default: 20)
 - `tilt_guard_stale_s` (default: 5, must be > 0): age after which the cached tilt guard state is stale (see Tilt guard)
-- `arm_applied_calibration_dir` (default: null): head_rgbd_calibration applied directory of `GET /api/arm/calibration` (see "Accepted arm calibration")
+- `arm_calibration` (default: null): the 3D arm views' arm calibration of `GET /api/arm/calibration`: the configured `joint_offsets_rad` (exactly the five arm joints), `arm_base_height_m` and `base_in_base_link` {x, y, z, yaw} (z equal to the mount height), validated as the shared `ArmCalibrationSettings`, and `applied_dir`, the head_rgbd_calibration applied directory (null keeps the configured values). null: the route answers null and the views draw no arm (see "Arm calibration")
 - `tabs`: list of tab configs
 - `overlays`: list of bottom-bar overlay items
 
@@ -850,34 +850,43 @@ Layout: the stream is `head_camera_topic` (deployed as the head D435 colour `/he
 
 **Draggable arm** (`frontend/src/arm/ArmView.tsx`): drag the rings and handles on the arm model to move it. Setpoints are published on the tab's `arm_command_topic` (default `/filter/web_ui_joint_commands`, an allowlisted publish topic) and arbitrated by filter_node. Dragging starts only once live arm joint states have arrived. While drag is not possible the arm is drawn display-only and the reason is shown over the view (`data-testid="arm-drag-reason"`): `Waiting for arm joint states`, `Arm held by the agent or Take control - Release to drag` (filter_node reports `autonomy`: the agent or the jog panel holds the lease, so drags would be ignored), or `Arm torque is off: <joints> released (Calibrate page)`. During a grasp pick the arm is display-only too.
 
-### Accepted arm calibration (Arm and Map 3D views)
+### Arm calibration (Arm and Map 3D views)
 
-The 3D arm views draw with the arm calibration accepted on the Calibrate page (Flow 4, Arm to camera; user decision
-342), the same one mcp_server's planner and filter_node's guard use, without a restart:
+The 3D arm views always draw with the arm calibration the backend serves: the one accepted on the Calibrate page (Flow
+4, Arm to camera; user decision 342) or, while none is accepted, the configured client.yml values. Either way it is the
+calibration mcp_server's planner and filter_node's guard use, so the drawn arm never jumps by the offsets on the first
+Accept, and an Accept shows without a restart:
 
-- Backend `GET /api/arm/calibration` (`web_ui/arm_calibration.py`): reads `arm_applied_calibration_dir` (client.yml:
-  `/var/lib/ros2/head_rgbd_calibration/applied`, mcp_server's `arm.applied_dir`) with the shared ros2_common
-  `applied_arm_calibration` / `arm_calibration_file` code: `applied.json`'s `arm_calibration` record names
-  `arm_calibration.json`, re-read only when the identity of `applied.json` (mtime, size, inode) changed. Body
-  `{"accepted": {session, result, accepted_at, joint_offsets_rad, base_in_base_link: {x, y, z, yaw}} | null,
-  "error": string | null}`, `Cache-Control: no-store`. An unreadable or invalid calibration keeps the last good one
-  (as mcp_server does) and reports `error`; a removed record answers null. Without the key it answers
-  `{"accepted": null, "error": null}`.
+- Config `arm_calibration` (client.yml): `joint_offsets_rad`, `arm_base_height_m`, `base_in_base_link` equal to
+  mcp_server's `arm` block (and filter_node's `self_collision_guard.arm`); `tests/test_arm_guard_config.py` pins them
+  (node configs are YAML text blocks, so the values cannot be shared by an anchor), and `applied_dir`
+  `/var/lib/ros2/head_rgbd_calibration/applied` (mcp_server's `arm.applied_dir`).
+- Backend `GET /api/arm/calibration` (`web_ui/arm_calibration.py`): the shared ros2_common `AppliedArmCalibration`
+  (the reload state mcp_server and filter_node build on) over an `ArmCalibrationSettings` baseline: `applied.json`'s
+  `arm_calibration` record names `arm_calibration.json`, re-read only when the identity of `applied.json` (mtime, size,
+  inode) changed, and merged over the configured values (`calibrated_settings`). Body
+  `{"calibration": {source: "accepted" | "configured", accepted: {session, result, accepted_at} | null,
+  joint_offsets_rad, base_in_base_link: {x, y, z, yaw}} | null, "error": string | null}`, `Cache-Control: no-store`
+  (contract fixtures `tests/fixtures/api/arm_calibration_{configured,accepted}.json`, read by the frontend tests). An
+  unreadable or invalid calibration, or one the baseline model refuses, keeps the values in use (as mcp_server does)
+  and reports `error`; a removed record goes back to the configured values. Without `arm_calibration` it answers
+  `{"calibration": null, "error": null}`.
 - Frontend (`frontend/src/arm/armCalibrationApi.ts`: typed, validated client naming the first bad key, and
-  `useArmCalibration`, polling every 5 s while the page is visible; `arm/armCalibration.ts`: the pure maths). With an
-  accepted calibration the arm mount is its `base_in_base_link` (x, y, z and yaw) and the URDF is posed in URDF angles
+  `useArmCalibration`, polling every 5 s while the page is visible; `arm/armCalibration.ts`: `toArmCalibration` and the
+  pure maths). The arm mount is the served `base_in_base_link` (x, y, z and yaw) and the URDF is posed in URDF angles
   (`urdf = measured + joint_offsets_rad`, the gripper has none); the draggable arm turns its angles back
-  (`measured = urdf - offset`) before it publishes. Without one (or before the first answer) the views use the tab's
-  `arm_offset` with no yaw and no joint offsets, as before. A failed poll keeps the last answer. Used by the Arm tab
-  (`ArmTab` -> `ArmView`: arm, floor grid, floor pick and grasp preview) and the map tab 3D view (`MapScene`).
+  (`measured = urdf - offset`) before it publishes. The views have no mount of their own: until the first answer (or
+  without `arm_calibration`) the Arm tab shows "Waiting for the arm calibration" instead of the arm view and the map
+  tab draws no arm. A failed poll keeps the last answer. Used by the Arm tab (`ArmTab` -> `ArmView`: arm, floor grid,
+  floor pick and grasp preview) and the map tab 3D view (`MapScene`).
 - The grasp preview and pick conversions (`grasp/grasp.ts` `armPointToBaseLink` / `baseLinkPointToArm`,
   `arm/armViewPick.ts`) take the mount yaw (`ArmMount` `[x, y, z]` or `[x, y, z, yaw]`).
-- The tool point is not fitted and is not drawn from the calibration. Note: client.yml gives the web UI no joint
-  offsets, so the drawn arm moves by the accepted offsets when the first calibration is accepted.
+- The tool point is not fitted and is not drawn from the calibration.
 - Tests: backend `tests/test_arm_calibration.py`; vitest `arm/armCalibrationApi.test.ts`, `arm/armCalibration.test.ts`,
-  `arm/ArmView.test.tsx` (URDF angles for both arms, offsets handed to the draggable arm, the pick on the accepted
-  mount, a redraw on a new calibration), `tabs/ArmTab.test.tsx` (the calibration reaches the view),
-  `grasp/grasp.test.ts` and `arm/armViewPick.test.ts` (mount yaw).
+  `arm/ArmView.test.tsx` (URDF angles for both arms with the configured and the accepted offsets, offsets handed to
+  the draggable arm, the pick on the accepted mount, a redraw on a new calibration), `tabs/ArmTab.test.tsx` (the
+  configured and the accepted calibration reach the view, no view before the first answer), `grasp/grasp.test.ts` and
+  `arm/armViewPick.test.ts` (mount yaw).
 
 ### Drive pose (Arm and Map tabs)
 

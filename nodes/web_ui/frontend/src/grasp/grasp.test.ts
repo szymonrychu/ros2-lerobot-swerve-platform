@@ -6,7 +6,6 @@ import {
   mountYaw,
   buildGraspRequest,
   canExecute,
-  DEFAULT_ARM_OFFSET,
   DEFAULT_FORM,
   DEFAULT_GRIP_PROFILE,
   describeHold,
@@ -177,10 +176,6 @@ describe('frames', () => {
   it('mountYaw is 0 for a mount without one', () => {
     expect(mountYaw(MOUNT)).toBe(0)
     expect(mountYaw([0, 0, 0.1, 0.02])).toBe(0.02)
-  })
-
-  it('tabs without an arm_offset mount the arm at the measured mount (mcp_server arm.base_in_base_link)', () => {
-    expect(DEFAULT_ARM_OFFSET).toEqual([0.0592, -0.05, 0.100])
   })
 
   it('map point to base_link uses the robot pose', () => {

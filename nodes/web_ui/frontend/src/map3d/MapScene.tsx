@@ -74,8 +74,6 @@ export interface MapSceneProps {
   baseUrdf?: string
   armUrdf?: string
   headUrdf?: string
-  /** Tab arm_offset (configured arm mount); an accepted arm calibration replaces it (useArmCalibration). */
-  armOffset?: [number, number, number]
   map: GridImageMsg | null | undefined
   costmap: GridImageMsg | null | undefined
   /** Raw D435 depth cloud and lidar scan payloads (with frame_pose) of the 3D obstacles layer. */
@@ -260,8 +258,8 @@ const RobotLayer = memo(function RobotLayer({
   baseUrdf?: string
   armUrdf?: string
   headUrdf?: string
-  /** Arm mount and joint offsets (the accepted calibration, else the tab's arm_offset). */
-  armCalibration: ArmCalibration
+  /** Arm mount and joint offsets (the served arm calibration: accepted or configured); null draws no arm. */
+  armCalibration: ArmCalibration | null
   baseJoints: JointStates | undefined
   armJoints: JointStates | undefined
   headJoints?: JointStates
@@ -279,9 +277,12 @@ const RobotLayer = memo(function RobotLayer({
   )
   const baseValues = useBaseJointValues(baseJoints)
   const headValues = useMemo(() => headJointValues(headJoints), [headJoints])
-  const armPlacement = useMemo(() => armScenePlacement(armCalibration.mount), [armCalibration.mount])
+  const armPlacement = useMemo(() => (armCalibration ? armScenePlacement(armCalibration.mount) : null), [armCalibration])
   // The arm URDF is posed in URDF angles: measured + the calibration's joint offsets.
-  const armValues = useMemo(() => toUrdfJointStates(armJoints, armCalibration.jointOffsets), [armJoints, armCalibration.jointOffsets])
+  const armValues = useMemo(
+    () => (armCalibration ? toUrdfJointStates(armJoints, armCalibration.jointOffsets) : undefined),
+    [armJoints, armCalibration],
+  )
   useEffect(() => invalidate(), [p.x, p.y, p.yaw, armCalibration, invalidate])
   return (
     <group position={rosToThree(p)} rotation={[0, rosYawToThreeY(p.yaw), 0]}>
@@ -293,7 +294,7 @@ const RobotLayer = memo(function RobotLayer({
           linkVisible={linkVisible}
         />
       )}
-      {armUrdf && (
+      {armUrdf && armPlacement && (
         <group position={armPlacement.position} rotation={armPlacement.rotation}>
           <RobotModel urdfFile={armUrdf} jointStates={armValues} visible={showArm} />
         </group>
@@ -308,7 +309,7 @@ function inMapFrame<T extends { frame_id?: string }>(msg: T | null | undefined, 
 }
 
 /** Scene contents (inside the Canvas). */
-function SceneContents(props: MapSceneProps & { mapFrame?: string; armCalibration: ArmCalibration }) {
+function SceneContents(props: MapSceneProps & { mapFrame?: string; armCalibration: ArmCalibration | null }) {
   const orbitRef = useRef<OrbitControlsImpl | null>(null)
   const { layers } = props
   const map3dCloud = useMap3dCloud(props.map3dCloud, props.map3dFrameId)
@@ -391,8 +392,8 @@ export const MapScene = memo(function MapScene(props: MapSceneProps & { mapFrame
   // Canvas resizes with it and one frame is requested (the loop stays on demand).
   const boxRef = useRef<HTMLDivElement>(null)
   useInvalidateOnResize(boxRef)
-  // The accepted arm calibration (polled), else the tab's arm_offset: the drawn arm follows an Accept.
-  const armCalibration = useArmCalibration(props.armOffset)
+  // The served arm calibration (polled): the configured values, the accepted one after an Accept (no arm before it).
+  const armCalibration = useArmCalibration()
   return (
     <div ref={boxRef} style={{ width: '100%', height: '100%' }}>
       <Canvas

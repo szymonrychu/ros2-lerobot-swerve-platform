@@ -1099,8 +1099,6 @@ def test_web_ui_has_map_nav_tab() -> None:
         "base_joint_states_topic": "/swerve_drive/joint_states",
         "arm_urdf": "so101_arm.urdf",
         "arm_joint_states_topic": "/follower/joint_states",
-        # Arm mount in base_link (x, y, z m): the mcp_server arm.base_in_base_link measured 2026-10-10.
-        "arm_offset": [0.0592, -0.05, 0.100],
         # Home / Set home buttons call the std_srvs/Trigger services served by mcp_server.
         "arm_home_service": "/arm/home",
         "arm_set_home_service": "/arm/set_home",
@@ -1142,12 +1140,6 @@ def test_web_ui_has_map_nav_tab() -> None:
             },
         ],
     }
-
-
-def test_web_ui_arm_offset_matches_mcp_server_arm_mount() -> None:
-    tab = next(t for t in node_config("web_ui")["tabs"] if t["id"] == "map")
-    mount = node_config("mcp_server")["arm"]["base_in_base_link"]
-    assert tab["arm_offset"] == [mount["x"], mount["y"], mount["z"]]
 
 
 def test_web_ui_loads_the_tile_api_key_env_file_and_never_stores_the_key() -> None:

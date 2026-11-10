@@ -1,18 +1,11 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, renderHook, waitFor } from '@testing-library/react'
-import { configuredArmCalibration } from './armCalibration'
+import { toArmCalibration } from './armCalibration'
 import { ARM_CALIBRATION_URL, fetchArmCalibration, parseArmCalibration, useArmCalibration } from './armCalibrationApi'
+import { ACCEPTED, CONFIGURED, acceptedBody, configuredBody } from './armCalibrationFixtures'
 
-const OFFSETS = { shoulder_pan: 0.03, shoulder_lift: -0.02, elbow_flex: -0.09, wrist_flex: 0.08, wrist_roll: -0.07 }
-const ACCEPTED = {
-  session: 'calib-20261109-120000',
-  result: 'r-1',
-  accepted_at: '2026-11-09T12:20:00Z',
-  joint_offsets_rad: OFFSETS,
-  base_in_base_link: { x: 0.061, y: -0.048, z: 0.102, yaw: 0.01 },
-}
-const OFFSET: [number, number, number] = [0.0592, -0.05, 0.1]
+const OFFSETS = ACCEPTED.joint_offsets_rad
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -26,31 +19,45 @@ function respond(status: number, body: unknown) {
 }
 
 describe('parseArmCalibration', () => {
-  it('reads nothing accepted', () => {
-    expect(parseArmCalibration({ accepted: null, error: null })).toEqual({ ok: true, value: { accepted: null, error: null } })
+  it('reads the configured values', () => {
+    expect(parseArmCalibration(configuredBody)).toEqual({ ok: true, value: configuredBody })
   })
 
-  it('reads an accepted calibration and keeps only the drawn fields', () => {
-    const r = parseArmCalibration({ accepted: { ...ACCEPTED, joint_offsets_rad: { ...OFFSETS, gripper: 1 }, extra: 1 }, error: null })
-    expect(r).toEqual({ ok: true, value: { accepted: ACCEPTED, error: null } })
+  it('reads an accepted calibration', () => {
+    expect(parseArmCalibration(acceptedBody)).toEqual({ ok: true, value: acceptedBody })
   })
 
-  it('passes the backend error with the last good calibration', () => {
-    const r = parseArmCalibration({ accepted: ACCEPTED, error: 'arm_calibration.json unreadable' })
-    expect(r).toEqual({ ok: true, value: { accepted: ACCEPTED, error: 'arm_calibration.json unreadable' } })
+  it('reads no calibration (web_ui without arm_calibration)', () => {
+    expect(parseArmCalibration({ calibration: null, error: null })).toEqual({ ok: true, value: { calibration: null, error: null } })
+  })
+
+  it('keeps only the drawn fields', () => {
+    const r = parseArmCalibration({
+      calibration: { ...ACCEPTED, accepted: { ...ACCEPTED.accepted, score: 1 }, joint_offsets_rad: { ...OFFSETS, gripper: 1 }, extra: 1 },
+      error: null,
+    })
+    expect(r).toEqual({ ok: true, value: acceptedBody })
+  })
+
+  it('passes the backend error with the values in use', () => {
+    const r = parseArmCalibration({ calibration: CONFIGURED, error: 'arm_calibration.json unreadable' })
+    expect(r).toEqual({ ok: true, value: { calibration: CONFIGURED, error: 'arm_calibration.json unreadable' } })
   })
 
   it.each([
     [null, 'body is not an object'],
-    [{ accepted: null }, 'bad error'],
-    [{ accepted: 'x', error: null }, 'bad accepted'],
-    [{ accepted: { ...ACCEPTED, session: 1 }, error: null }, 'bad accepted.session'],
-    [{ accepted: { ...ACCEPTED, accepted_at: null }, error: null }, 'bad accepted.accepted_at'],
-    [{ accepted: { ...ACCEPTED, joint_offsets_rad: [] }, error: null }, 'bad accepted.joint_offsets_rad'],
-    [{ accepted: { ...ACCEPTED, joint_offsets_rad: { ...OFFSETS, wrist_roll: undefined } }, error: null }, 'bad accepted.joint_offsets_rad.wrist_roll'],
-    [{ accepted: { ...ACCEPTED, joint_offsets_rad: { ...OFFSETS, elbow_flex: 'x' } }, error: null }, 'bad accepted.joint_offsets_rad.elbow_flex'],
-    [{ accepted: { ...ACCEPTED, base_in_base_link: null }, error: null }, 'bad accepted.base_in_base_link'],
-    [{ accepted: { ...ACCEPTED, base_in_base_link: { x: 0, y: 0, z: 0.1 } }, error: null }, 'bad accepted.base_in_base_link.yaw'],
+    [{ calibration: null }, 'bad error'],
+    [{ calibration: 'x', error: null }, 'bad calibration'],
+    [{ calibration: { ...CONFIGURED, source: 'config' }, error: null }, 'bad calibration.source'],
+    [{ calibration: { ...CONFIGURED, accepted: ACCEPTED.accepted }, error: null }, 'bad calibration.accepted'],
+    [{ calibration: { ...ACCEPTED, accepted: null }, error: null }, 'bad calibration.accepted'],
+    [{ calibration: { ...ACCEPTED, accepted: { ...ACCEPTED.accepted, session: 1 } }, error: null }, 'bad calibration.accepted.session'],
+    [{ calibration: { ...ACCEPTED, accepted: { ...ACCEPTED.accepted, accepted_at: null } }, error: null }, 'bad calibration.accepted.accepted_at'],
+    [{ calibration: { ...CONFIGURED, joint_offsets_rad: [] }, error: null }, 'bad calibration.joint_offsets_rad'],
+    [{ calibration: { ...CONFIGURED, joint_offsets_rad: { ...OFFSETS, wrist_roll: undefined } }, error: null }, 'bad calibration.joint_offsets_rad.wrist_roll'],
+    [{ calibration: { ...CONFIGURED, joint_offsets_rad: { ...OFFSETS, elbow_flex: 'x' } }, error: null }, 'bad calibration.joint_offsets_rad.elbow_flex'],
+    [{ calibration: { ...CONFIGURED, base_in_base_link: null }, error: null }, 'bad calibration.base_in_base_link'],
+    [{ calibration: { ...CONFIGURED, base_in_base_link: { x: 0, y: 0, z: 0.1 } }, error: null }, 'bad calibration.base_in_base_link.yaw'],
   ])('refuses %j naming the bad key', (body, message) => {
     const r = parseArmCalibration(body)
     expect(r.ok).toBe(false)
@@ -60,8 +67,8 @@ describe('parseArmCalibration', () => {
 
 describe('fetchArmCalibration', () => {
   it('gets the route uncached', async () => {
-    const mock = respond(200, { accepted: ACCEPTED, error: null })
-    expect(await fetchArmCalibration()).toEqual({ ok: true, value: { accepted: ACCEPTED, error: null } })
+    const mock = respond(200, acceptedBody)
+    expect(await fetchArmCalibration()).toEqual({ ok: true, value: acceptedBody })
     expect(mock).toHaveBeenCalledWith(ARM_CALIBRATION_URL, { cache: 'no-store' })
   })
 
@@ -76,28 +83,35 @@ describe('fetchArmCalibration', () => {
 })
 
 describe('useArmCalibration', () => {
-  it('starts with the configured mount and switches to an accepted calibration', async () => {
-    respond(200, { accepted: ACCEPTED, error: null })
-    const { result } = renderHook(() => useArmCalibration(OFFSET, 60_000))
-    expect(result.current).toEqual(configuredArmCalibration(OFFSET))
-    await waitFor(() => expect(result.current.source).toBe('accepted'))
-    expect(result.current.mount).toEqual([0.061, -0.048, 0.102, 0.01])
-    expect(result.current.jointOffsets).toEqual(OFFSETS)
+  it('is null until the first answer, then the configured values', async () => {
+    respond(200, configuredBody)
+    const { result } = renderHook(() => useArmCalibration(60_000))
+    expect(result.current).toBeNull()
+    await waitFor(() => expect(result.current).toEqual(toArmCalibration(CONFIGURED)))
+    expect(result.current?.source).toBe('configured')
+  })
+
+  it('stays null without a calibration (web_ui without arm_calibration)', async () => {
+    const mock = respond(200, { calibration: null, error: null })
+    const { result } = renderHook(() => useArmCalibration(60_000))
+    await waitFor(() => expect(mock).toHaveBeenCalledTimes(1))
+    expect(result.current).toBeNull()
   })
 
   it('follows a new accept and a removed one on the next poll', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
-    let body: unknown = { accepted: null, error: null }
+    let body: unknown = configuredBody
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(body), { status: 200 })))
-    const { result } = renderHook(() => useArmCalibration(OFFSET, 1000))
-    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1))
-    expect(result.current.source).toBe('config')
-    body = { accepted: ACCEPTED, error: null }
+    const { result } = renderHook(() => useArmCalibration(1000))
+    await waitFor(() => expect(result.current?.source).toBe('configured'))
+    body = acceptedBody
     await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
-    await waitFor(() => expect(result.current.source).toBe('accepted'))
-    body = { accepted: null, error: null }
+    await waitFor(() => expect(result.current?.source).toBe('accepted'))
+    expect(result.current?.mount).toEqual([0.061, -0.048, 0.102, 0.01])
+    expect(result.current?.jointOffsets).toEqual(OFFSETS)
+    body = configuredBody
     await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
-    await waitFor(() => expect(result.current).toEqual(configuredArmCalibration(OFFSET)))
+    await waitFor(() => expect(result.current).toEqual(toArmCalibration(CONFIGURED)))
   })
 
   it('keeps the last answer when a poll fails and the same object while nothing changed', async () => {
@@ -105,10 +119,10 @@ describe('useArmCalibration', () => {
     let fail = false
     vi.stubGlobal('fetch', vi.fn(async () => {
       if (fail) throw new Error('link down')
-      return new Response(JSON.stringify({ accepted: ACCEPTED, error: null }), { status: 200 })
+      return new Response(JSON.stringify(acceptedBody), { status: 200 })
     }))
-    const { result } = renderHook(() => useArmCalibration(OFFSET, 1000))
-    await waitFor(() => expect(result.current.source).toBe('accepted'))
+    const { result } = renderHook(() => useArmCalibration(1000))
+    await waitFor(() => expect(result.current?.source).toBe('accepted'))
     const first = result.current
     await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
     expect(result.current).toBe(first)
@@ -119,8 +133,8 @@ describe('useArmCalibration', () => {
 
   it('stops polling on unmount', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
-    const mock = respond(200, { accepted: null, error: null })
-    const { unmount } = renderHook(() => useArmCalibration(OFFSET, 1000))
+    const mock = respond(200, configuredBody)
+    const { unmount } = renderHook(() => useArmCalibration(1000))
     await waitFor(() => expect(mock).toHaveBeenCalledTimes(1))
     unmount()
     await act(async () => { await vi.advanceTimersByTimeAsync(3000) })

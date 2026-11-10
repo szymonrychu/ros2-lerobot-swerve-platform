@@ -59,7 +59,6 @@ export interface TabConfig {
   base_joint_states_topic?: string // sensor_msgs/JointState driving the base URDF (wheel steer/drive)
   arm_urdf?: string // arm URDF under /api/urdf/
   arm_joint_states_topic?: string // sensor_msgs/JointState driving the arm URDF (follower positions)
-  arm_offset?: [number, number, number] // arm mount in the base frame (ROS x, y, z metres)
   arm_command_topic?: string // sensor_msgs/JointState published by the draggable arm
   poi_list_topic?: string // default /poi/list (latched JSON list from poi_store)
   poi_photos_topic?: string // default /poi/photos (latched photo store summary {revision, count, bytes, ...})
