@@ -1297,7 +1297,8 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   the roll guard as a tool error, structured outputs, camera JPEG + stamp,
   argument validation, robot errors as tool errors, map PNG, arm tool round trip (take_control, moves, release_control
   keep_position), take/release_control descriptions require an explicit release, `arm_home` refused without the arm
-  lease (nothing published) and keeping a held lease; the `take(server, ...)` helper takes leases for the motion tests;
+  lease (nothing published) and keeping a held lease, `arm_set_home` refused as a tool error while the stale marker
+  lists `joint_offsets` (no home stored); the `take(server, ...)` helper takes leases for the motion tests;
   bearer-token auth on the Streamable
   HTTP app (401 without/with a wrong token, 200 with the right one) and the configured path
 - battery gate (`test_battery_gate.py`): `MOTION_TOOLS` and `ALWAYS_ALLOWED_TOOLS` partition all tools; each motion tool
@@ -1953,7 +1954,7 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   without a source); navigation goals by result with their duration (errors without a goal not counted); `GET /metrics`
   (200 Prometheus text without a token for 127.0.0.1 and ::1, 403 for other clients, the MCP path stays 401)
 
-- Calibration marker (`nodes/mcp_server/tests/test_calibration_marker.py`): absent marker loads as none, a valid one loads, an invalid one reports everything stale; clearing one item keeps the other, clearing the last deletes the file, clearing an absent file is a no-op (False), `only_if_saved_at` clears only while the marker names that re-zero, an unreadable marker is deleted when everything is cleared; `arm_home` is refused while home is stale and allowed after set-home (and when only offsets are stale); state reports stale items, with and without a marker; a null path disables the marker.
+- Calibration marker (`nodes/mcp_server/tests/test_calibration_marker.py`): absent marker loads as none, a valid one loads, an invalid one reports everything stale; clearing one item keeps the other, clearing the last deletes the file, clearing an absent file is a no-op (False), `only_if_saved_at` clears only while the marker names that re-zero, an unreadable marker is deleted when everything is cleared; `arm_home` is refused while home is stale and allowed after set-home with only home stale, which deletes the marker (and when only offsets are stale); `set_home` is refused while `joint_offsets` is stale, with or without home (`test_set_home_refused_while_joint_offsets_stale`), and on an unreadable marker (`test_set_home_refused_while_marker_unreadable`), storing nothing and keeping the marker; state reports stale items, with and without a marker; a null path disables the marker.
 - Torque gate (`nodes/mcp_server/tests/test_torque_gate.py`): every motion tool is mapped to servo groups; a tool of a released group is refused and publishes nothing while other groups keep working; unknown or enabled state refuses nothing; `enqueue_motions` checks only the groups of its steps; robot and control state list released groups; the arm lease is dropped without publishing when the arm is released; a filter_node released source is torque off, not a takeover; `take_control` arm and the web_ui take are refused while released; torque state config defaults, the ROS robot subscribes to the three torque topics, a servo is not released without a sample or when stale, a malformed payload is ignored, and publish is suppressed for a released arm and head but not for a base release.
 
 ### Per-node tests (gps_rtk)

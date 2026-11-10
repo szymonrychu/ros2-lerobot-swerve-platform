@@ -92,7 +92,8 @@ on the feeds node (`dual_rate_topic(node=feeds_node)`). Config `feeds_executor: 
 
 ROS services (`std_srvs/Trigger`): `/arm/home` (move to the stored home pose, then always release arm control, also
 after a failed motion; used by the web UI "Arm home" button and the Calibrate page General **Home arm**) and
-`/arm/set_home` (store the measured pose).
+`/arm/set_home` (store the measured pose; refused while the arm zero is stale, see
+[Calibration stale marker](#calibration-stale-marker)).
 
 `/arm/home` guard (`ControlManager.home_service_call`, then `ArmController.home_service_call`). Callers: the web UI
 Arm tab Home, the Calibrate page General Home arm (`/api/calibration/general/home_arm`) and the Map tab (map_nav
@@ -1368,6 +1369,9 @@ stale}`, where `stale` lists `joint_offsets` and/or `home`.
   recorded before the arm re-zero at <saved_at>; record a new home with arm_set_home".
 - `/arm/move_to_neutral` and the `/arm/home` service are refused while `joint_offsets` is stale (the FK and body
   check use the zero).
+- `arm_set_home` (the tool and the `/arm/set_home` service, so also the web UI Arm tab and Calibrate page Set
+  home) is refused while `joint_offsets` is stale (an unreadable marker counts), storing nothing and keeping the
+  marker: "set home refused: the arm zero is stale (joint_offsets); run the zero restore first (arm re-zero at <saved_at>)". A home measured in the old zero would be the pose `/arm/home` drives to after the zero restore.
 - `arm_set_home` clears `home` from the marker. `joint_offsets` is cleared when an accepted arm to camera
   calibration captured after the re-zero is applied ("Accepted arm calibration"). The marker file is deleted once
   nothing is stale.

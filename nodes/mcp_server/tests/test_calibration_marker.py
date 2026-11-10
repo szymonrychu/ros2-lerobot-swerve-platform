@@ -129,8 +129,9 @@ def test_clear_unreadable_marker_deletes_it_when_everything_is_cleared(tmp_path:
 
 
 def test_arm_home_refused_while_home_stale_and_allowed_after_set_home(tmp_path: Path) -> None:
+    """Only home stale (the zero restore already ran): set home records the new pose and clears home."""
     path = tmp_path / "marker.json"
-    arm, be = make(tmp_path, path, marker_doc())
+    arm, be = make(tmp_path, path, marker_doc(["home"]))
     sent = len(be.commands)
     with pytest.raises(
         ArmError,
@@ -141,10 +142,40 @@ def test_arm_home_refused_while_home_stale_and_allowed_after_set_home(tmp_path: 
         arm.home()
     assert len(be.commands) == sent
     arm.set_home()
+    assert load_marker(path) is None  # home was the last stale item: the marker is gone
+    arm.home()  # no longer refused (already at the new home)
+
+
+@pytest.mark.parametrize("stale", [["joint_offsets", "home"], ["joint_offsets"]])
+def test_set_home_refused_while_joint_offsets_stale(tmp_path: Path, stale: list[str]) -> None:
+    """A home recorded in the old zero would be driven to after the zero restore: refuse, keep home and the marker."""
+    path = tmp_path / "marker.json"
+    arm, be = make(tmp_path, path, marker_doc(stale))
+    be.positions.update({"elbow_flex": 0.1})
+    home_before = arm.cfg.arm.home_file.read_text()
+    with pytest.raises(
+        ArmError,
+        match=re.escape(
+            "set home refused: the arm zero is stale (joint_offsets); run the zero restore first "
+            f"(arm re-zero at {SAVED_AT})"
+        ),
+    ):
+        arm.set_home()
+    assert arm.cfg.arm.home_file.read_text() == home_before
     marker = load_marker(path)
     assert marker is not None
-    assert marker.stale == ["joint_offsets"]
-    arm.home()  # no longer refused (already at the new home)
+    assert marker.stale == stale
+
+
+def test_set_home_refused_while_marker_unreadable(tmp_path: Path) -> None:
+    path = tmp_path / "marker.json"
+    arm, _ = make(tmp_path, path)
+    path.write_text("{bad")
+    home_before = arm.cfg.arm.home_file.read_text()
+    with pytest.raises(ArmError, match=re.escape("the arm zero is stale (joint_offsets); run the zero restore first")):
+        arm.set_home()
+    assert arm.cfg.arm.home_file.read_text() == home_before
+    assert path.read_text() == "{bad"
 
 
 def test_arm_home_allowed_when_only_offsets_stale(tmp_path: Path) -> None:
