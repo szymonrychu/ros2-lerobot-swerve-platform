@@ -16,6 +16,7 @@
       "shoulder_pan"
     ],
     "waiting_since": null,
+    "board_on": true,
     "board_record": {
       "file": "/var/lib/ros2/head_rgbd_calibration/head_arm_board.json",
       "session_id": "calib-20261023-074418",

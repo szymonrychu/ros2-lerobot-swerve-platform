@@ -27,12 +27,19 @@ error, exception, confirm timeout) stops the still capture and releases the arm 
 a checked pose and mcp_server keeps the head where it is. The sequence never parks on its own and never sends
 `carried_object_radius_m`.
 
-Threads (as floor_sweep.py): `move_to_base`, `board_attached`, `allow_big_joints`, `stop`, `park`,
+Resume with the board on (`resume_with_board`, confirmed): from `holding` with the board on (a stopped or ended
+sequence; the board may be taped into the jaws), a new run (new run id) moves to the base pose through the same path
+check from the measured joints with the board on, commanding the gripper to its measured angle (never
+`insert_gripper_rad`: the jaws never open before the park), skips the board confirm and the handle grip, and runs the
+still session and the tiers exactly as after Board attached (`capture_tiers`), ending holding with the board on, then
+Park. A refused start (not holding, no board on, running, `blocked`, an unusable URDF) moves nothing and keeps holding.
+
+Threads (as floor_sweep.py): `move_to_base`, `resume_with_board`, `board_attached`, `allow_big_joints`, `stop`, `park`,
 `clear_board_record` and `state` run on HTTP threads; one worker thread runs the sequence or the park. `lock` guards the shared fields and is only held for
 short updates (never across a tool call or `blocked`); the worker waits through the injected `sleep` and measures
 every wait on the injected `clock`.
 
-Events: every sequence start, step outcome (base pose, board attached, handle grip, still session, each pose, the
+Events: every sequence start (a resume too), step outcome (base pose, board attached, handle grip, still session, each pose, the
 big-joint answer, the return), sequence end (done, stopped, error), park start, park result and refusal is logged with
 its message (errors at ERROR, stops and skipped poses at WARNING) and kept in a bounded list of the newest
 EVENT_LIMIT events, `state()["events"]` (newest first), so the Calibrate page shows why a sequence ended.
@@ -100,6 +107,11 @@ MESSAGE_SLACK_GRIP = (
 )
 MESSAGE_STATE_BOARD = "; if the calibration board is on the gripper, state that the board is on and press Park again"
 MESSAGE_PARK = "Press Park (the board may stay on when its park path is clear)"
+MESSAGE_RESUME_PHASE = "Resume with the board on is accepted only while holding with the board on"
+MESSAGE_RESUME_CONFIRM = (
+    "resume with the board on needs confirmed=True: it moves the arm with the board to the base pose (the gripper"
+    " stays at its measured angle)"
+)
 HOLDING_LOAD_PREFIX = "holding load"  # mcp_server carrying reason of a gripper that clamps something (the board handle)
 BASE_JOINTS = (*ARM_JOINT_NAMES, GRIPPER_JOINT)
 EVENT_LIMIT = 50  # recent events kept in state()["events"]
@@ -632,7 +644,8 @@ class Sequencer:
 
         Returns:
             {running, phase, session_id, tier, arm_pose, total_poses, captured, skipped, status, error, big_joints,
-            waiting_since, board_record, events}: arm_pose is the 0-based index over the whole pose set of the pose
+            waiting_since, board_on, board_record, events}: board_on is whether the board is on the gripper (attached
+            or stated; a holding phase with it on may resume), arm_pose is the 0-based index over the whole pose set of the pose
             worked on (None before the first), skipped maps each skip reason to its count, big_joints names the joints
             tier 2 moves, waiting_since is the clock time a confirm wait began (None outside a wait), board_record is
             board_record_state() (the record file at any age, None without one), events
@@ -652,6 +665,7 @@ class Sequencer:
                 "error": self.error,
                 "big_joints": list(BIG_JOINTS),
                 "waiting_since": self.waiting_since,
+                "board_on": self.board_on,
                 "board_record": self.board_record_state(),
                 "events": [dict(e) for e in reversed(self.events)],
             }
@@ -677,7 +691,7 @@ class Sequencer:
         self.stop_event.set()
         return self.state()
 
-    def claim(self, phase: str, status: str, run_prefix: str) -> str:
+    def claim(self, phase: str, status: str, run_prefix: str, resume: bool = False) -> str:
         """Mark a sequence or park as running under a new run id, then check `blocked` (outside the lock: it reads
         other controllers).
 
@@ -685,17 +699,21 @@ class Sequencer:
             phase: Phase to enter.
             status: Status line to show.
             run_prefix: Prefix of the new run id (seq, park); a refused claim keeps the run id of the running work.
+            resume: A resume with the board on: claimed only while holding with the board on.
 
         Returns:
             str: The phase before the claim.
 
         Raises:
-            Busy: Something runs already, the arm holds the board pose (a new base move), or `blocked` names a reason.
+            Busy: Something runs already, the arm holds the board pose (a new base move), a resume outside holding with
+                the board on, or `blocked` names a reason.
         """
         with self.lock:
             if self.running:
                 raise Busy(f"a head-arm sequence is running (phase {self.phase}): stop it first")
-            if phase == MOVING_TO_BASE and self.phase == HOLDING:
+            if resume and (self.phase != HOLDING or not self.board_on):
+                raise Busy(f"{MESSAGE_RESUME_PHASE} (phase {self.phase}, board on {self.board_on})")
+            if phase == MOVING_TO_BASE and self.phase == HOLDING and not resume:
                 raise Busy(f"the arm holds the board pose: {MESSAGE_PARK} before a new sequence")
             previous = self.phase
             self.running = True
@@ -789,7 +807,61 @@ class Sequencer:
             pose_check=seq.pose_check,
             camera_frame=self.cfg.camera_frame,
         )
-        self.thread = threading.Thread(target=self.work, args=(plan,), name="head-arm-sequence", daemon=True)
+        self.thread = threading.Thread(target=self.work, args=(plan, False), name="head-arm-sequence", daemon=True)
+        self.thread.start()
+        return self.state()
+
+    def resume_with_board(self, confirmed: bool) -> dict[str, Any]:
+        """Resume the capture with the board on: a new run from holding to the base pose, then the tiers.
+
+        The gripper is commanded to its measured angle (never opened: the board may be taped into the jaws); the
+        board confirm and the handle grip are skipped; the still session and the tiers run as after Board attached.
+
+        Args:
+            confirmed (bool): The user confirmed the base move with the board on.
+
+        Returns:
+            dict[str, Any]: The state() after the start.
+
+        Raises:
+            ValueError: Not confirmed (nothing is called).
+            Busy: A sequence or park runs, the phase is not holding or the board is not on, or `blocked` names a reason.
+            SequenceError: The arm or head URDF is unusable (nothing is called; the arm keeps holding).
+        """
+        if not confirmed:
+            raise ValueError(MESSAGE_RESUME_CONFIRM)
+        self.claim(MOVING_TO_BASE, "preparing the pose check (board on)", "seq", resume=True)
+        try:
+            plan = self.prepare()
+        except SequenceError as exc:
+            self.give_up(HOLDING, str(exc), f"resume with the board on refused: {exc}", SEQUENCE_STEP)
+            raise
+        with self.lock:
+            previous_session = self.session_id
+            self.recorded_mount = self.fitted_mount(previous_session) or self.recorded_mount
+            self.session_id = None
+            self.tier = self.arm_pose = None
+            self.total_poses = len(plan.poses)
+            self.captured = 0
+            self.skipped = Counter()
+            self.big_joints_allowed = None
+            self.status = "taking the arm (board on)"
+        self.stop_event.clear()
+        self.event(
+            logging.INFO,
+            f"sequence resumed with the board on: {len(plan.poses)} poses",
+            SEQUENCE_STEP,
+            "start",
+            resume=True,
+            previous_session_id=previous_session,
+            poses=len(plan.poses),
+            tiers=Counter(tier for tier, _ in plan.poses),
+            base_pose=self.seq.base_pose,
+            speed_scale=self.seq.speed_scale,
+            board_mount={"xyz": self.cfg.fit.board_mount.xyz_init, "rpy": self.cfg.fit.board_mount.rpy_init},
+            recorded_mount=self.recorded_mount,
+        )
+        self.thread = threading.Thread(target=self.work, args=(plan, True), name="head-arm-sequence", daemon=True)
         self.thread.start()
         return self.state()
 
@@ -1082,13 +1154,18 @@ class Sequencer:
         if status != CONVERGED:
             raise StepFailed(f"move_arm_joints to the park pose did not converge: {status}: {message}")
 
-    def work(self, plan: Plan) -> None:
-        """Worker: run the sequence, then always stop the capture and release the arm holding its position."""
+    def work(self, plan: Plan, resume: bool) -> None:
+        """Worker: run the sequence, then always stop the capture and release the arm holding its position.
+
+        Args:
+            plan (Plan): The sequence plan.
+            resume (bool): A resume with the board on (run_sequence).
+        """
         run_id = self.run_id  # kept: a claim after the end may replace self.run_id
         error: str | None = None
         outcome = "done"
         try:
-            self.run_sequence(plan)
+            self.run_sequence(plan, resume)
         except Stopped:
             outcome = REASON_STOPPED
         except StepFailed as exc:
@@ -1164,27 +1241,67 @@ class Sequencer:
         )
         return "; ".join(problems + own) or None
 
-    def run_sequence(self, plan: Plan) -> None:
-        """Base pose, the board confirm, tiers 0 and 1, the big-joint confirm, tier 2, back to the base pose."""
+    def run_sequence(self, plan: Plan, resume: bool = False) -> None:
+        """Base pose, the board confirm, the handle grip, then capture_tiers.
+
+        Args:
+            plan (Plan): The sequence plan.
+            resume (bool): Resume with the board on: the base move keeps the gripper at its measured angle, and the
+                board confirm and the handle grip are skipped.
+        """
         with self.timed("take_control"):
             self.call(self.robot.take_arm(), "take_control")
         self.check_alive()
-        with self.lock:
-            self.status = "moving to the base pose (no board)"
         base = dict(self.seq.base_pose)
-        with self.timed("base_move", target=base, gripper_rad=self.seq.insert_gripper_rad):
-            self.checked_move(plan, base, "the base pose", {**base, GRIPPER_JOINT: self.seq.insert_gripper_rad})
-        self.event(logging.INFO, "base pose reached", "base_move", "reached")
-        with self.timed("wait_board", timeout_s=self.seq.confirm_timeout_s):
-            self.wait_confirm(WAITING_BOARD, MESSAGE_BOARD, lambda: self.board_on)
-        with self.timed(
-            "handle_grip",
-            grip_rad=self.seq.grip_rad,
-            handle_contact_rad=self.seq.handle_contact_rad,
-            handle_squeeze_rad=self.seq.handle_squeeze_rad,
-            grip_converge_tolerance_rad=self.seq.grip_converge_tolerance_rad,
-        ):
-            self.close_on_handle(plan)
+        if resume:
+            self.resume_base_move(plan, base)
+        else:
+            with self.lock:
+                self.status = "moving to the base pose (no board)"
+            with self.timed("base_move", target=base, gripper_rad=self.seq.insert_gripper_rad):
+                self.checked_move(plan, base, "the base pose", {**base, GRIPPER_JOINT: self.seq.insert_gripper_rad})
+            self.event(logging.INFO, "base pose reached", "base_move", "reached")
+            with self.timed("wait_board", timeout_s=self.seq.confirm_timeout_s):
+                self.wait_confirm(WAITING_BOARD, MESSAGE_BOARD, lambda: self.board_on)
+            with self.timed(
+                "handle_grip",
+                grip_rad=self.seq.grip_rad,
+                handle_contact_rad=self.seq.handle_contact_rad,
+                handle_squeeze_rad=self.seq.handle_squeeze_rad,
+                grip_converge_tolerance_rad=self.seq.grip_converge_tolerance_rad,
+            ):
+                self.close_on_handle(plan)
+        self.capture_tiers(plan, base)
+
+    def resume_base_move(self, plan: Plan, base: dict[str, float]) -> None:
+        """Move to the base pose with the board on, the gripper commanded to its measured angle (it never opens).
+
+        Args:
+            plan (Plan): The sequence plan.
+            base (dict[str, float]): The base pose (arm joints).
+
+        Raises:
+            StepFailed: get_arm_state reports no gripper angle, or the checked move fails (nothing moved on a refusal).
+        """
+        with self.lock:
+            self.status = "moving to the base pose (board on, gripper kept)"
+        jaw = self.measured().get(GRIPPER_JOINT)
+        if jaw is None:
+            self.log("gripper_measured", "not reported", logging.WARNING, "resume needs the measured gripper angle")
+            raise StepFailed("get_arm_state reports no gripper angle: cannot keep the jaws on the board; nothing moved")
+        with self.timed("base_move", target=base, gripper_rad=jaw, resume=True):
+            self.checked_move(plan, base, "the base pose (board on)", {**base, GRIPPER_JOINT: jaw})
+        self.event(
+            logging.INFO, f"base pose reached with the board on (jaw kept at {jaw:.4f} rad)", "base_move", "reached"
+        )
+
+    def capture_tiers(self, plan: Plan, base: dict[str, float]) -> None:
+        """Still session, tiers 0 and 1, the big-joint confirm, tier 2, back to the base pose (the board is on).
+
+        Args:
+            plan (Plan): The sequence plan.
+            base (dict[str, float]): The base pose to return to.
+        """
         with self.timed("still_session") as fields:
             session_id = self.capture.start_still_session(None)
             fields["session_id"] = session_id
