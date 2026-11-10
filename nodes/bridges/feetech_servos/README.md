@@ -210,6 +210,10 @@ was sent and not rolled back, a limits failure included). A restore whose change
 camera calibration accept refuses a session whose first still is not after it, and mcp_server clears `joint_offsets`
 from the marker only for a calibration captured after it (ros2_common `arm_calibration_file.zero_change_refusal`).
 
+Both files have one format owner, `zero_record.py` (standard library only): `write_zero_change` writes the record
+first and then, for a verified change, the stale marker. The neutral save, the zero restore (through the same
+helpers) and `scripts/calibrate_servos.py` (see [Zero changes from the CLI](#zero-changes-from-the-cli)) all use it.
+
 ### Arm zero restore (`zero_restore.py`)
 
 Repairs a re-zero recorded in the wrong pose without moving the arm: with the arm resting folded on its rest and
@@ -417,30 +421,66 @@ CLI with subcommands for calibration, register read/write, and min/max limit man
 
 **Subcommands:**
 
-- **`calibrate`** — Interactive calibration for arm joints (e.g. 6-DOF). Disables torque, prompts for neutral then min/max range per joint, writes limits to servos, outputs JSON.
-  - `--device`, `--baudrate`, `--output` (required), `--expected-joints` (default 6).
+- **`calibrate`** - Interactive calibration for arm joints (e.g. 6-DOF). Disables torque, prompts for neutral then min/max range per joint, writes limits to servos, outputs JSON.
+  - `--device`, `--baudrate`, `--output` (required), `--expected-joints` (default 6), `--bridge-config` (required, see below).
   - Output JSON: `{ "<servo_id>": { "min", "center", "max" } }` (steps).
-- **`read`** — Read one register by name or all registers. Requires either `--register <name>` or `--all`.
-- **`get`** — Same as read: get one or all registers (works for both read-only and read-write registers).
-- **`write`** — Write one register: `--register <name>` and `--value <int>`.
-- **`set`** — Same as write but for read-write registers only; refuses read-only with a detailed error (use `get` to read them).
-- **`limits-set`** — Set min/max angle limits (steps 0..4095, min ≤ max): `--min <steps>` and `--max <steps>`.
-- **`limits-get`** — Read min/max angle limits from one servo; prints JSON `{"min": <n>, "max": <n>}`.
-- **`limits-clear`** — Clear min/max limits to full range (0, 4095).
-- **`center`** — Store the servo's current physical position as centre (step 2048, via the STS `torque_enable = 128` offset calibration), verify it reads ~2048, then write `min/max_angle_limit` = 2048 -/+ `--range-steps` (default 1024 = +-90 deg). Prints `{"id", "before", "after", "min", "max"}`. Used for swerve steering servos aligned straight ahead.
-- **`load-config`** — Load an extended JSON config file and apply to servos. Refuses if the file contains any read-only register (exits with a detailed message listing them). Legacy keys `min`/`max` map to `min_angle_limit`/`max_angle_limit`; `center` is ignored.
-- **`dump-config`** — Read all registers for one or more servos and output extended JSON (`servo_id -> { register_name: value }`). Optional `--output <path>`; otherwise prints to stdout. Use `--id 1 2 3` to dump multiple servos.
-- **`list-registers`** — Print register map (name, address, size, read_only, eprom) as JSON. No device needed.
+- **`read`** - Read one register by name or all registers. Requires either `--register <name>` or `--all`.
+- **`get`** - Same as read: get one or all registers (works for both read-only and read-write registers).
+- **`write`** - Write one register: `--register <name>` and `--value <int>`. Writing `offset` or `torque_enable` = 128 changes the servo zero and needs `--bridge-config`.
+- **`set`** - Same as write but for read-write registers only; refuses read-only with a detailed error (use `get` to read them).
+- **`limits-set`** - Set min/max angle limits (steps 0..4095, min ≤ max): `--min <steps>` and `--max <steps>`.
+- **`limits-get`** - Read min/max angle limits from one servo; prints JSON `{"min": <n>, "max": <n>}`.
+- **`limits-clear`** - Clear min/max limits to full range (0, 4095).
+- **`center`** - Store the servo's current physical position as centre (step 2048, via the STS `torque_enable = 128` offset calibration), verify it reads ~2048, then write `min/max_angle_limit` = 2048 -/+ `--range-steps` (default 1024 = +-90 deg). Prints `{"id", "before", "after", "min", "max"}`. Used for swerve steering servos aligned straight ahead. Needs `--bridge-config`.
+- **`load-config`** - Load an extended JSON config file and apply to servos. Refuses if the file contains any read-only register (exits with a detailed message listing them). Legacy keys `min`/`max` map to `min_angle_limit`/`max_angle_limit`; `center` is ignored. A file with an `offset` or `torque_enable: 128` entry (e.g. a `dump-config` output, which carries `offset`) needs `--bridge-config`.
+- **`dump-config`** - Read all registers for one or more servos and output extended JSON (`servo_id -> { register_name: value }`). Optional `--output <path>`; otherwise prints to stdout. Use `--id 1 2 3` to dump multiple servos.
+- **`list-registers`** - Print register map (name, address, size, read_only, eprom) as JSON. No device needed.
 
 **File-based config (extended JSON):** The format is `{ "<servo_id>": { "<register_name>": <int>, ... } }`. Use `dump-config` to produce it and `load-config --file <path>` to apply it. Only writable registers may appear in a file you load; read-only registers cause load to fail with an error.
 
 Register names match `registers.py` (e.g. `present_position`, `goal_position`, `min_angle_limit`, `max_angle_limit`, `torque_enable`). Use `list-registers` to see all.
 
+#### Zero changes from the CLI
+
+`calibrate` and `center` (DefineMiddle), and `set`, `write` and `load-config` when they write `offset` or
+`torque_enable` = 128, change a servo zero outside the bridge. They take `--bridge-config <path>`, the bridge config
+of the bus (`/etc/ros2/lerobot_follower/config.yaml` for the follower arm, `/etc/ros2/base_servos/config.yaml` for the
+swerve servos), and write the same files the bridge's neutral save writes (`zero_record.write_zero_change`):
+
+- A servo that is a joint of a group with `neutral_stale_marker` (the follower arm): after every DefineMiddle or
+  offset write that was sent (also a failed one: the zero may have moved) `zero_changed.json` is written next to the
+  marker; a verified change (DefineMiddle: the servo reads ~2048; offset or 128 write: acknowledged, present read
+  before and after) also merges the joint into the stale marker (`joint_offsets` and `home` stale). `calibrate`
+  records each joint right after its DefineMiddle, so an interrupted run keeps what it changed.
+- A servo of a group without `neutral_stale_marker` (swerve steering) or not in the config: nothing is recorded; a note
+  on stderr says so.
+- Refused before any bus write (exit 1, `nothing written to the servos`): `--bridge-config` missing, the config does
+  not load, its `device` is not the `--device` (symlinks resolved), or the marker directory (or its nearest existing
+  parent) is not owned by and writable for the user running the CLI. The files are created mode 0600, so a record
+  written as another user (root through `sudo`) could not be read or replaced by the bridge service and the readers.
+- A record write that fails after the change exits 1 and names the file (`zero change record not written: ...`);
+  `center` still writes the limits first so the servo is consistent.
+
+How to run it on the client: the bridge owns the bus, so stop it first and run the CLI as the bridge service user
+(`ros2-lerobot_follower.service` runs as the Ansible user, `szymonri`, who owns `/var/lib/ros2/arm`; never through
+`sudo`), with the deployed venv and checkout:
+
+```bash
+sudo systemctl stop ros2-lerobot_follower
+/opt/ros2-nodes/lerobot_follower/venv/bin/python /opt/ros2-lerobot-swerve-platform/nodes/bridges/feetech_servos/scripts/calibrate_servos.py \
+  center --device /dev/serial/by-id/usb-1a86_USB_Single_Serial_5AE6081020-if00 --id 3 \
+  --bridge-config /etc/ros2/lerobot_follower/config.yaml
+sudo systemctl start ros2-lerobot_follower
+```
+
+Prefer the bridge's neutral save and zero restore (web UI, Calibrate, Servo home) for the arm: they also hold torque,
+stop the wheels and keep the command limits in sync.
+
 **Examples:**
 
 ```bash
-# Interactive calibration (multi-joint)
-uv run python scripts/calibrate_servos.py calibrate --device /dev/ttyUSB0 --output cal.json
+# Interactive calibration (multi-joint); records the zero change of every arm joint
+uv run python scripts/calibrate_servos.py calibrate --device /dev/ttyUSB0 --output cal.json --bridge-config /etc/ros2/lerobot_follower/config.yaml
 
 # Read one register from servo ID 1 (default)
 uv run python scripts/calibrate_servos.py read --device /dev/ttyUSB0 --register present_position
@@ -466,7 +506,7 @@ uv run python scripts/calibrate_servos.py set --device /dev/ttyUSB0 --register g
 
 # File-based config: dump all registers to JSON, then load back (file must not contain read-only registers)
 uv run python scripts/calibrate_servos.py dump-config --device /dev/ttyUSB0 --id 1 2 --output config.json
-uv run python scripts/calibrate_servos.py load-config --device /dev/ttyUSB0 --file config.json
+uv run python scripts/calibrate_servos.py load-config --device /dev/ttyUSB0 --file config.json --bridge-config /etc/ros2/lerobot_follower/config.yaml
 
 # List register map (no device)
 uv run python scripts/calibrate_servos.py list-registers

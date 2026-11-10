@@ -1008,7 +1008,7 @@ the configured one. See `nodes/mcp_server/README.md` ("Accepted arm calibration"
 Arm zero: the accept is refused (409) when the servo zero may have changed at or after `captured_from` (the earliest
 stamp of any source of any still: colour, head and arm joints), read by ros2_common `zero_change_refusal` from the
 follower bridge's stale marker (`arm_stale_marker`) and its zero change record (`zero_changed.json` next to it, the
-time of the last neutral save or zero restore, never cleared): the marker lists `joint_offsets` for a re-zero at or
+time of the last neutral save, zero restore or feetech_servos `calibrate_servos.py` zero change, never cleared): the marker lists `joint_offsets` for a re-zero at or
 after the capture, the record names a zero change at or after it (a zero restore deletes the marker but not the
 record), either is unreadable, or the marker lists `joint_offsets` without a timezone-aware `saved_at`. Times count
 within one second of the capture as after it (the bridge writes whole seconds). Capture a new session then. The accept

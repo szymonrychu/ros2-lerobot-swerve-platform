@@ -134,6 +134,23 @@ Audit and logs: every apply writes `/var/lib/ros2/arm/zero_restore-<UTC time>.js
 reading before/after, limits). Every step logs `calib_event {...}` in the journal (`journalctl -u
 ros2-lerobot_follower | grep calib_event`; Move to neutral in `ros2-mcp_server`).
 
+## Arm re-zero from the CLI (calibrate_servos.py)
+
+Use the Servo home page above whenever possible. When an arm servo zero has to change from the command line
+(`calibrate_servos.py calibrate`, `center`, or `set` / `write` / `load-config` of `offset` or `torque_enable` = 128),
+the CLI writes the same `zero_changed.json` and stale marker as the bridge (feetech_servos README, "Zero changes from
+the CLI"):
+
+1. Stop the bridge (it owns the bus): `sudo systemctl stop ros2-lerobot_follower`.
+2. Run the CLI as `szymonri` (the owner of `/var/lib/ros2/arm` and the bridge service user; not through `sudo`) with
+   `--bridge-config /etc/ros2/lerobot_follower/config.yaml`, e.g.
+   `/opt/ros2-nodes/lerobot_follower/venv/bin/python /opt/ros2-lerobot-swerve-platform/nodes/bridges/feetech_servos/scripts/calibrate_servos.py center --device /dev/serial/by-id/usb-1a86_USB_Single_Serial_5AE6081020-if00 --id <id> --bridge-config /etc/ros2/lerobot_follower/config.yaml`.
+   Pass: exit 0 and stderr `Zero change of servo <id> (follower/<joint>) recorded in /var/lib/ros2/arm/zero_changed.json and stale marker /var/lib/ros2/arm/calibration_stale.json`.
+   Mismatch (`Error: ... nothing written to the servos`: config, device or directory owner; or `zero change record
+   not written`): STOP and report the message.
+3. Start the bridge: `sudo systemctl start ros2-lerobot_follower`. The Servo home page then shows `joint_offsets` and
+   `home` stale; an arm to camera calibration captured before the change can no longer be accepted.
+
 ## Large-shift guard
 
 Re-enable torque + save is refused by the bridge (`save_neutral`, nothing written, torque stays off, the capture is

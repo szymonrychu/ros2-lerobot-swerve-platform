@@ -10,9 +10,9 @@ snippet) is for people and is ignored here.
 
 Arm zero: offsets fitted from stills hold only for the servo zero in effect when the stills were taken. The follower
 bridge (feetech_servos) writes the stale marker after a re-zero and `zero_changed.json` next to it whenever it changes a
-servo zero (neutral save, zero restore). `zero_change_refusal` tells whether the zero may have changed at or after the
-capture; the head_rgbd_calibration accept refuses then, and mcp_server only clears joint_offsets from the marker when it
-did not.
+servo zero (neutral save, zero restore), and so does its calibrate_servos.py CLI (calibrate, center, offset writes).
+`zero_change_refusal` tells whether the zero may have changed at or after the capture; the head_rgbd_calibration
+accept refuses then, and mcp_server only clears joint_offsets from the marker when it did not.
 """
 
 import json
@@ -31,7 +31,7 @@ ARM_CALIBRATION_KEY = "arm_calibration"  # the applied.json record of the accept
 # mcp_server `arm:` keys the accepted calibration overrides (arm_base_height_m is the arm base z: mcp_server requires
 # base_in_base_link.z == arm_base_height_m).
 ARM_SETTINGS_FIELDS = ("joint_offsets_rad", "arm_base_height_m", "base_in_base_link")
-# The follower bridge's record of its last servo zero change, next to its stale marker (feetech_servos neutral.py).
+# The follower bridge's record of its last servo zero change, next to its stale marker (feetech_servos zero_record.py).
 ZERO_RECORD_FILE = "zero_changed.json"
 STALE_OFFSETS_ITEM = "joint_offsets"
 # The bridge writes whole seconds: a zero change in the capture's second counts as after it (fail closed).

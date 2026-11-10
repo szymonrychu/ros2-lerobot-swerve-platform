@@ -18,20 +18,16 @@ the last servo zero change, kept when the marker is cleared, so the arm to camer
 stills were taken in the current zero (ros2_common arm_calibration_file.zero_change_refusal). Every record and save logs calib_event lines (flow "neutral": record, save start / refused / done, one
 centre_joint per joint) through calib_event.CalibEventLog.
 
-Shared helpers: write_json_atomic (temp file + os.replace), read_stale_items / set_stale_items on the stale marker,
-record_zero_change and stop_bus_wheels, also used by zero_restore.
+The stale marker and zero change record format lives in zero_record (write_zero_change, shared with zero_restore and
+scripts/calibrate_servos.py); stop_bus_wheels is also used by zero_restore.
 
 bridge.py runs both on the loop thread (the sole bus owner); tests drive them over an emulated bus.
 """
 
-import json
 import logging
-import os
-import tempfile
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +37,7 @@ from .calib_event import OUTCOME_FAILED, OUTCOME_OK, OUTCOME_REFUSED, OUTCOME_ST
 from .config import JointEntry, JointGroup
 from .registers import get_register_entry_by_name, read_register, write_register
 from .torque_control import PRESENT_REGISTER, TORQUE_OFF, TORQUE_REGISTER, TorqueControl, read_present_position
+from .zero_record import utc_now_iso, write_zero_change
 
 LOGGER = logging.getLogger(__name__)
 NEUTRAL_MOVE_TOLERANCE_STEPS = 20
@@ -56,10 +53,6 @@ DEGREES_PER_TURN = 360.0
 MIN_LIMIT_REGISTER = "min_angle_limit"
 MAX_LIMIT_REGISTER = "max_angle_limit"
 SPEED_REGISTER = "goal_speed"
-MARKER_VERSION = 1
-STALE_ITEMS = ("joint_offsets", "home")
-ZERO_RECORD_FILE = "zero_changed.json"  # next to the stale marker: the time of the last servo zero change
-ZERO_RECORD_VERSION = 1
 NONE_TEXT = "none"
 FLOW = "neutral"
 
@@ -93,15 +86,6 @@ class CentreOutcome:
     limits: tuple[int, int] | None
     reason: str | None
     middle_sent: bool = True
-
-
-def utc_now_iso() -> str:
-    """Return the current UTC time as ISO-8601 with seconds.
-
-    Returns:
-        str: e.g. "2026-10-20T12:00:00+00:00".
-    """
-    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def shift_text(name: str, steps: int) -> str:
@@ -143,144 +127,6 @@ def large_shifts(capture: dict[str, int], max_shift_deg: float) -> list[str]:
     return [name for name, steps in capture.items() if abs(shift_degrees(steps)) > max_shift_deg]
 
 
-def merge_marker(
-    existing: dict[str, Any] | None, group: str, saved_at: str, joints: dict[str, tuple[int, int]]
-) -> dict[str, Any]:
-    """Build the stale marker content, merging the joints of an existing marker.
-
-    Args:
-        existing (dict[str, Any] | None): Parsed existing marker; None or a malformed one starts afresh.
-        group (str): Namespace of the saved group.
-        saved_at (str): ISO-8601 UTC time of the save.
-        joints (dict[str, tuple[int, int]]): joint name -> (before_steps, after_steps) of the joints whose centre changed.
-
-    Returns:
-        dict[str, Any]: {"version", "group", "saved_at", "joints", "stale"}; stale is reset to both STALE_ITEMS.
-    """
-    old_joints = existing.get("joints") if isinstance(existing, dict) else None
-    merged = dict(old_joints) if isinstance(old_joints, dict) else {}
-    for name, (before, after) in joints.items():
-        merged[name] = {"before_steps": before, "after_steps": after}
-    return {
-        "version": MARKER_VERSION,
-        "group": group,
-        "saved_at": saved_at,
-        "joints": merged,
-        "stale": list(STALE_ITEMS),
-    }
-
-
-def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
-    """Write JSON atomically: temp file in the same directory (fsynced), then os.replace; parents are created.
-
-    Args:
-        path (Path): Destination file.
-        payload (dict[str, Any]): JSON content (indented, trailing newline).
-
-    Raises:
-        OSError: When the directory, the temp file or the replace fails (the temp file is removed).
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    content = json.dumps(payload, indent=2) + "\n"
-    fd, temp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w") as handle:
-            handle.write(content)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temp_name, path)
-    except BaseException:
-        Path(temp_name).unlink(missing_ok=True)
-        raise
-
-
-def read_marker_json(path: Path) -> dict[str, Any] | None:
-    """Read the stale marker JSON.
-
-    Args:
-        path (Path): Marker path.
-
-    Returns:
-        dict[str, Any] | None: The parsed marker; None when absent.
-
-    Raises:
-        ValueError: The file exists but is unreadable, not JSON or not an object with a "stale" list.
-    """
-    try:
-        text = path.read_text()
-    except FileNotFoundError:
-        return None
-    except OSError as exc:
-        raise ValueError(f"stale marker {path} unreadable: {exc}") from exc
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"stale marker {path} is not valid JSON: {exc}") from exc
-    if not isinstance(data, dict) or not isinstance(data.get("stale"), list):
-        raise ValueError(f"stale marker {path} has no stale list")
-    return data
-
-
-def read_stale_items(path: Path) -> list[str] | None:
-    """Items the stale marker lists (as mcp_server calibration_marker.load_marker reads them).
-
-    Args:
-        path (Path): Marker path.
-
-    Returns:
-        list[str] | None: The "stale" items; None when there is no marker; every STALE_ITEMS entry for an unreadable
-            or invalid marker (a suspect marker is never read as clean).
-    """
-    try:
-        data = read_marker_json(path)
-    except ValueError as exc:
-        LOGGER.error("%s; treating every item as stale", exc)
-        return list(STALE_ITEMS)
-    return None if data is None else [str(item) for item in data["stale"]]
-
-
-def set_stale_items(path: Path, items: list[str], group: str, saved_at: str | None) -> None:
-    """Set the marker's stale list atomically, keeping its other fields; delete the marker when the list is empty.
-
-    An absent marker is created ({version, group, saved_at, joints: {}, stale}); an unreadable one is rewritten.
-
-    Args:
-        path (Path): Marker path.
-        items (list[str]): The new stale items.
-        group (str): Group namespace for a new marker.
-        saved_at (str | None): ISO-8601 UTC time for a new marker (None: unknown).
-
-    Raises:
-        OSError: When the rewrite or the delete fails.
-    """
-    if not items:
-        path.unlink(missing_ok=True)
-        return
-    try:
-        data = read_marker_json(path)
-    except ValueError as exc:
-        LOGGER.error("%s; rewriting it", exc)
-        data = None
-    if data is None:
-        data = {"version": MARKER_VERSION, "group": group, "saved_at": saved_at, "joints": {}}
-    write_json_atomic(path, {**data, "stale": list(items)})
-
-
-def record_zero_change(marker: Path, group: str, changed_at: str) -> None:
-    """Record a servo zero change atomically in ZERO_RECORD_FILE next to the stale marker (replaced on every change).
-
-    Args:
-        marker (Path): The group's stale marker path (its directory holds the record).
-        group (str): Group namespace.
-        changed_at (str): ISO-8601 UTC time of the change.
-
-    Raises:
-        OSError: When the write fails.
-    """
-    record = {"version": ZERO_RECORD_VERSION, "group": group, "changed_at": changed_at}
-    write_json_atomic(marker.with_name(ZERO_RECORD_FILE), record)
-
-
 def stop_bus_wheels(torque: TorqueControl) -> list[str]:
     """Stop every velocity joint of the bus with an acknowledged zero goal_speed (cache bypassed).
 
@@ -297,29 +143,6 @@ def stop_bus_wheels(torque: TorqueControl) -> list[str]:
         torque.last_written.setdefault(wheel.id, {}).pop(SPEED_REGISTER, None)
     torque.cycle.stop(wheels)
     return [w.name for w in wheels if SPEED_REGISTER not in torque.last_written[w.id]]
-
-
-def write_stale_marker(path: Path, group: str, saved_at: str, joints: dict[str, tuple[int, int]]) -> None:
-    """Write (merge) the stale marker atomically: temp file in the same directory, then os.replace.
-
-    Missing parent directories are created. An existing marker that is not valid JSON is replaced.
-
-    Args:
-        path (Path): Marker path.
-        group (str): Namespace of the saved group.
-        saved_at (str): ISO-8601 UTC time of the save.
-        joints (dict[str, tuple[int, int]]): joint name -> (before_steps, after_steps).
-
-    Raises:
-        OSError: When the directory, the temp file or the replace fails.
-    """
-    existing = None
-    if path.exists():
-        try:
-            existing = json.loads(path.read_text())
-        except json.JSONDecodeError:
-            LOGGER.warning("stale marker %s is not valid JSON; replacing it", path)
-    write_json_atomic(path, merge_marker(existing, group, saved_at, joints))
 
 
 def names_text(names: list[str]) -> str:
@@ -769,21 +592,9 @@ class NeutralControl:
             str | None: "stale marker not written: ..." and / or "zero change record not written: ..." when a write
                 failed; None when written or not needed.
         """
-        if group.neutral_stale_marker is None:
+        if group.neutral_stale_marker is None or not (zero_touched or centred):
             return None
-        marker = Path(group.neutral_stale_marker)
-        record_error = marker_error = None
-        if zero_touched or centred:
-            try:
-                record_zero_change(marker, group.namespace, saved_at)
-            except OSError as exc:
-                record_error = f"zero change record not written: {type(exc).__name__}: {exc}"
-        if centred:
-            try:
-                write_stale_marker(marker, group.namespace, saved_at, centred)
-            except OSError as exc:
-                marker_error = f"stale marker not written: {type(exc).__name__}: {exc}"
-        errors = "; ".join(e for e in (marker_error, record_error) if e is not None)
+        errors = "; ".join(write_zero_change(Path(group.neutral_stale_marker), group.namespace, saved_at, centred))
         if not errors:
             return None
         self.log_error(f"/{group.namespace}: neutral save, {errors}")

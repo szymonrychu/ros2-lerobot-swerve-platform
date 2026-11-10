@@ -142,7 +142,8 @@ With the wheel pointing exactly straight ahead (bridge stopped so the bus is fre
 
 ```bash
 cd nodes/bridges/feetech_servos
-uv run python scripts/calibrate_servos.py center --device /dev/serial/by-id/usb-1a86_USB_Single_Serial_5A7A059004-if00 --id 33
+uv run python scripts/calibrate_servos.py center --device /dev/serial/by-id/usb-1a86_USB_Single_Serial_5A7A059004-if00 --id 33 \
+  --bridge-config /etc/ros2/base_servos/config.yaml  # swerve_drive has no stale marker: nothing recorded
 # repeat for --id 34, 37, 38
 ```
 
