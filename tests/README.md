@@ -3338,6 +3338,14 @@ The ARM board's edge grip handle (`scripts/markers/handle.py`) and the board flo
 | `test_board_metadata_seat_is_reproducible` / `test_shipped_arm_outputs_are_current` | `board_metadata` again gives the written JSON; the committed `markers/charuco-arm-6x5-28mm.json` equals a fresh generation (within 1e-6). |
 | `test_written_arm_print_bodies_read_back_watertight_and_printable` | The ARM `print_bodies` written by `write_bodies` and read back (`read_bodies`): each STL and 3MF body is watertight, the base one body with its volume and bounds kept, base + modules pass `print_violations` (the weld removes the handle slivers, the pinch columns the inlay corner contacts). |
 
+### `test_markers_stl2step.py`
+
+Covers `scripts/markers/stl2step.py` (STL mesh to STEP solid for CAD editing). Skipped where OpenCascade
+(`cadquery-ocp`) cannot load, e.g. without libGL in the pod; run it on a desktop with
+`uv run --with cadquery-ocp pytest tests/test_markers_stl2step.py`.
+
+- `test_cube_triangles_merge_into_six_step_faces`: a 12-triangle cube STL becomes a STEP solid with 6 planar faces.
+
 ### `test_markers_render.py`
 
 The board renders: `scripts/markers/views.py` (view directions, camera, grip scene; no pyvista), the render config (`scripts/markers/config.py` `RenderConfig`) and `scripts/markers_render.py`. Runs in the default environment; the PNG test runs only with the `render` group and the OSMesa libraries (`scripts/markers/setup_render_libs.sh`) and is skipped otherwise.
