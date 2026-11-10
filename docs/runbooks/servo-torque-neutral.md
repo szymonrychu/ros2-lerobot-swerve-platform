@@ -91,7 +91,7 @@ rad. The panel shows "Reference: seed from the bridge config".
 
 Steps (one button each; the panel says what to expect under every button):
 
-1. Rest the arm folded on its rest, jaws empty. Press **1. Torque off arm** and confirm. Expect: the arm goes limp,
+1. Rest the arm folded on its rest, jaws open 90 deg. Press **1. Torque off arm** and confirm. Expect: the arm goes limp,
    the card shows torque off for every joint.
 2. Keep the arm still and press **2. Dry run**. Expect: a success message and the plan table. Today's expected values
    (Now within about 0.03 rad, Change within about 2 deg; the rest pose varies a little):

@@ -746,7 +746,7 @@ shows the reference (`Reference: seed from the bridge config` or `Reference: sav
 `reference_error`) and one button per step, each with what to expect:
 
 1. **1. Torque off arm** (the card's Torque off confirm, posts `release`): "The arm goes limp; rest it folded on its
-   rest, jaws empty."
+   rest, jaws open 90 deg."
 2. **2. Dry run** (enabled while released, posts `zero_restore_dry_run`): "Reads every joint (keep the arm still for
    about a second) and shows the planned offset changes. Nothing is written." The plan table lists joint, now (rad),
    target (rad), change (deg) and the guard (`large` chip when `exceeds_max_change`, else `ok`).

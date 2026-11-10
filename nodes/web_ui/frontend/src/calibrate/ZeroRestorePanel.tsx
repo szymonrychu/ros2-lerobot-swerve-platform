@@ -28,7 +28,7 @@ import type { ServoAction, ServoGroup, ZeroRestorePlan, ZeroRestoreResult, ZeroR
 export const ZERO_RESTORE_INTRO =
   'Puts the arm zero back on the saved folded-rest reference by rewriting each servo offset. The arm does not move.'
 export const STEP_EXPECT = {
-  release: 'The arm goes limp; rest it folded on its rest, jaws empty.',
+  release: 'The arm goes limp; rest it folded on its rest, jaws open 90 deg.',
   dryRun: 'Reads every joint (keep the arm still for about a second) and shows the planned offset changes. Nothing is written.',
   apply: 'Writes the new offsets: the arm does not move and torque stays off. Each joint is verified and rolled back on a mismatch.',
   enable: 'The arm holds its pose.',
