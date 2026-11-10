@@ -7,7 +7,9 @@ import pytest
 from feetech_servos.config import (
     DEFAULT_NEUTRAL_MAX_SHIFT_DEG,
     BridgeConfig,
+    ServoCalibrationConfig,
     ZeroRestoreConfig,
+    calibration_joints,
     load_config,
     load_config_from_env,
 )
@@ -766,4 +768,128 @@ def test_zero_restore_invalid_rejected(tmp_path: Path, block: str) -> None:
     """A malformed block makes the whole config invalid (never a half-configured restore)."""
     p = tmp_path / "c.yaml"
     p.write_text(ZERO_BASE + block)
+    assert load_config(p) is None
+
+
+CAL_BASE = (
+    "namespace: follower\n"
+    "joint_names:\n"
+    "  - name: shoulder_pan\n    id: 1\n"
+    "  - name: elbow_flex\n    id: 3\n"
+    "  - name: gripper\n    id: 6\n"
+)
+CAL_BLOCK = (
+    "servo_calibration:\n"
+    "  record_dir: /var/lib/ros2/arm\n"
+    "  home_reference_rad: {shoulder_pan: 0.0, elbow_flex: 1.5707963}\n"
+    "  offset_exclude_joints: [gripper]\n"
+)
+CAL_EXTRA = (
+    "extra_groups:\n"
+    "  - namespace: swerve_drive\n"
+    "    joint_names:\n"
+    "      - name: fl_steer\n        id: 33\n"
+    "      - name: fl_drive\n        id: 32\n        mode: velocity\n"
+)
+
+
+def test_servo_calibration_block_parsed_with_defaults(tmp_path: Path) -> None:
+    """A minimal block takes the spec defaults; the primary group and BridgeConfig carry it."""
+    p = tmp_path / "c.yaml"
+    p.write_text(CAL_BASE + CAL_BLOCK + "  full_turn_joints: [shoulder_pan]\n")
+    cfg = load_config(p)
+    assert cfg is not None
+    cal = cfg.servo_calibration
+    assert cal is not None and cfg.groups[0].servo_calibration == cal
+    assert cal == ServoCalibrationConfig(
+        record_dir="/var/lib/ros2/arm",
+        home_reference_rad={"shoulder_pan": 0.0, "elbow_flex": 1.5707963},
+        offset_exclude_joints=["gripper"],
+        full_turn_joints=["shoulder_pan"],
+    )
+    assert (cal.min_range_deg, cal.margin_deg, cal.wrap_guard_deg, cal.full_turn_min_deg) == (20.0, 2.0, 5.0, 340.0)
+    assert (cal.max_change_deg, cal.still_window_s, cal.still_tolerance_steps) == (15.0, 1.0, 3)
+    assert (cal.verify_tolerance_steps, cal.plan_max_age_s, cal.capture_status_interval_s) == (3, 300.0, 0.25)
+    assert cal.required_travel_rad == {}
+    assert [j.name for j in calibration_joints(cfg.groups[0])] == ["shoulder_pan", "elbow_flex", "gripper"]
+
+
+def test_servo_calibration_block_on_extra_group(tmp_path: Path) -> None:
+    """An extra group carries its own block; velocity joints are not calibration joints."""
+    p = tmp_path / "c.yaml"
+    p.write_text(
+        CAL_BASE
+        + CAL_EXTRA
+        + "    servo_calibration:\n      record_dir: /tmp\n      home_reference_rad: {fl_steer: 0.0}\n"
+        + "      required_travel_rad: {fl_steer: [-0.5, 0.5]}\n"
+    )
+    cfg = load_config(p)
+    assert cfg is not None
+    assert cfg.servo_calibration is None
+    base = cfg.groups[1]
+    assert base.servo_calibration is not None
+    assert base.servo_calibration.required_travel_rad == {"fl_steer": (-0.5, 0.5)}
+    assert [j.name for j in calibration_joints(base)] == ["fl_steer"]
+
+
+def test_servo_calibration_absent_is_none(tmp_path: Path) -> None:
+    p = tmp_path / "c.yaml"
+    p.write_text(CAL_BASE + CAL_EXTRA)
+    cfg = load_config(p)
+    assert cfg is not None
+    assert [g.servo_calibration for g in cfg.groups] == [None, None]
+
+
+def test_servo_calibration_home_reference_must_cover_offset_joints(tmp_path: Path) -> None:
+    p = tmp_path / "c.yaml"
+    p.write_text(
+        CAL_BASE
+        + "servo_calibration:\n  record_dir: /x\n  home_reference_rad: {shoulder_pan: 0.0}\n"
+        + "  offset_exclude_joints: [gripper]\n"
+    )
+    assert load_config(p) is None
+
+
+def test_servo_calibration_rejects_velocity_joint_in_reference(tmp_path: Path) -> None:
+    p = tmp_path / "c.yaml"
+    p.write_text(
+        CAL_BASE
+        + CAL_EXTRA
+        + "    servo_calibration:\n      record_dir: /tmp\n      home_reference_rad: {fl_steer: 0.0, fl_drive: 0.0}\n"
+    )
+    assert load_config(p) is None
+
+
+def test_servo_calibration_rejects_unknown_key(tmp_path: Path) -> None:
+    p = tmp_path / "c.yaml"
+    p.write_text(CAL_BASE + CAL_BLOCK + "  bogus: 1\n")
+    assert load_config(p) is None
+
+
+@pytest.mark.parametrize("key", ["margin_deg", "min_range_deg", "still_window_s", "plan_max_age_s"])
+@pytest.mark.parametrize("value", ["0", "-1"])
+def test_servo_calibration_rejects_non_positive_margin(tmp_path: Path, key: str, value: str) -> None:
+    p = tmp_path / "c.yaml"
+    p.write_text(CAL_BASE + CAL_BLOCK + f"  {key}: {value}\n")
+    assert load_config(p) is None
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        "  required_travel_rad: {shoulder_pan: [0.5, -0.5]}\n",
+        "  required_travel_rad: {nope: [-0.5, 0.5]}\n",
+        "  full_turn_joints: [nope]\n",
+        "  offset_exclude_joints: [gripper, nope]\n",
+    ],
+)
+def test_servo_calibration_rejects_bad_cross_fields(tmp_path: Path, extra: str) -> None:
+    p = tmp_path / "c.yaml"
+    p.write_text(CAL_BASE + CAL_BLOCK + extra)
+    assert load_config(p) is None
+
+
+def test_servo_calibration_requires_record_dir(tmp_path: Path) -> None:
+    p = tmp_path / "c.yaml"
+    p.write_text(CAL_BASE + "servo_calibration:\n  home_reference_rad: {shoulder_pan: 0, elbow_flex: 0, gripper: 0}\n")
     assert load_config(p) is None
