@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -75,15 +76,24 @@ def test_static_fallback(app) -> None:
     assert b"ok" in resp.content
 
 
-class OverlapDetectingWebSocket:
-    """Fake WebSocket whose send_text yields mid-send and records any overlapping sends."""
+# Upper bound for the fake socket to stay open waiting for its awaited frame; the test fails (not hangs) past it.
+WS_AWAIT_FRAME_TIMEOUT_S = 10.0
 
-    def __init__(self, stay_open_s: float) -> None:
+
+class OverlapDetectingWebSocket:
+    """Fake WebSocket whose send_text yields mid-send and records any overlapping sends.
+
+    The client stays connected until a frame of await_topic was sent (or WS_AWAIT_FRAME_TIMEOUT_S passed), so the
+    session length follows the server's progress, never a wall-clock guess.
+    """
+
+    def __init__(self, await_topic: str) -> None:
         self.client = SimpleNamespace(host="test")
         self.sent: list[dict[str, Any]] = []
         self.overlaps = 0
         self._sending = False
-        self._stay_open_s = stay_open_s
+        self._await_topic = await_topic
+        self._awaited_sent = asyncio.Event()
 
     async def accept(self) -> None:
         return None
@@ -94,10 +104,14 @@ class OverlapDetectingWebSocket:
         self._sending = True
         await asyncio.sleep(0.005)  # a large frame (e.g. the map PNG) takes time to write
         self._sending = False
-        self.sent.append(json.loads(text))
+        frame = json.loads(text)
+        self.sent.append(frame)
+        if frame.get("topic") == self._await_topic:
+            self._awaited_sent.set()
 
     async def iter_text(self) -> Any:
-        await asyncio.sleep(self._stay_open_s)
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(self._awaited_sent.wait(), WS_AWAIT_FRAME_TIMEOUT_S)
         for frame in ():  # no inbound frames; the loop makes this an async generator
             yield frame
 
@@ -112,7 +126,7 @@ def test_ws_snapshot_and_broadcast_never_send_concurrently(urdf_dir: Path, tmp_p
     config = AppConfig(tabs=[], overlays=[], ws_broadcast_hz=1000.0)
     app = build_app(config=config, urdf_dir=urdf_dir, static_dir=tmp_path / "none", bridge_node=bridge)
     endpoint = next(r.endpoint for r in app.routes if isinstance(r, WebSocketRoute) and r.path == "/ws")
-    ws = OverlapDetectingWebSocket(stay_open_s=0.1)
+    ws = OverlapDetectingWebSocket(await_topic="/live")
 
     async def scenario() -> None:
         for handler in app.router.on_startup:
