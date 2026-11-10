@@ -299,7 +299,6 @@ def test_arm_tab_defaults() -> None:
     assert tab.head_camera_topic == "/head/d435/color/image_raw/compressed"
     assert tab.arm_joint_states_topic == "/follower/joint_states"
     assert tab.arm_urdf == "so101_arm.urdf"
-    assert tab.arm_offset == (0.0592, -0.05, 0.100)
     assert tab.active_source_topic == "/filter/active_source"
     assert tab.arm_home_service == "/arm/home"
     assert tab.arm_set_home_service == "/arm/set_home"
@@ -357,10 +356,10 @@ def test_arm_tab_overrides_and_empty_rejected() -> None:
         type="arm",
         label="Arm",
         head_camera_topic="/o",
-        arm_offset=(1.0, 2.0, 3.0),
+        arm_urdf="other_arm.urdf",
     )
     assert tab.head_camera_topic == "/o"
-    assert tab.arm_offset == (1.0, 2.0, 3.0)
+    assert tab.arm_urdf == "other_arm.urdf"
     with pytest.raises(ValidationError):
         TabConfig(id="arm", type="arm", label="Arm", head_camera_topic=" ")
 

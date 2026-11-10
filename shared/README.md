@@ -497,7 +497,9 @@ Config: `HeadArmFitConfig.arm_camera` (`ArmCameraFitConfig`, with `ArmCameraBoun
 ### Accepted arm calibration file
 
 `ros2_common/head_rgbd_calibration/arm_calibration_file.py`: the format of `applied/arm_calibration.json`, written by
-the head_rgbd_calibration accept and applied at runtime by mcp_server. `ArmCalibrationFile` (pydantic, report fields
+the head_rgbd_calibration accept and applied at runtime by mcp_server, filter_node's self-collision guard and the web_ui
+3D arm view. It imports no OpenCV (`ARM_JOINT_NAMES` is defined here; `config` takes it from here), so the light
+consumers can use it. `ArmCalibrationFile` (pydantic, report fields
 ignored) holds `session`, `result`, `accepted_at`, `captured_from` (the session's earliest still, timezone aware),
 `joint_offsets_rad` (exactly the five arm joints, finite) and `base_in_base_link` (`x`, `y`, `z`, `yaw`, finite).
 `arm_settings_update()` gives the mcp_server `arm:` values it overrides, exactly `ARM_SETTINGS_FIELDS`
@@ -505,12 +507,39 @@ ignored) holds `session`, `result`, `accepted_at`, `captured_from` (the session'
 `read_arm_calibration(applied_dir)` returns the calibration the `applied.json` `arm_calibration` record names, None when
 nothing is accepted (no `applied.json` or no record; a file without its record is not in effect), and raises
 `ArmCalibrationError` for an unreadable `applied.json` or a named file that is missing, invalid or of another result.
+`check_arm_joint_offsets(value)` is that offsets check (also used by `ArmCalibrationSettings`).
 `zero_change_refusal(marker, since)` tells whether the servo zero may have changed at or after a capture time: it reads
 the follower bridge's stale marker (a `joint_offsets` re-zero `saved_at`) and its zero change record
 (`zero_record_path(marker)`, `zero_changed.json`, `changed_at` of the last neutral save, zero restore or
 `calibrate_servos.py` zero change, never cleared); a time within one second of the capture counts as after it, an unreadable file or a timeless joint_offsets
 marker is a refusal. The head_rgbd_calibration accept refuses on it; mcp_server clears `joint_offsets` only when it
 passes. Tests: `tests/test_arm_calibration_file.py`.
+
+### Accepted arm calibration at runtime
+
+`ros2_common/head_rgbd_calibration/applied_arm_calibration.py`: the reload state of the accepted arm calibration,
+shared by mcp_server (`arm_calibration.ArmCalibrationWatcher`), filter_node (`arm_calibration.GuardCalibration`) and
+web_ui (`arm_calibration`, the `/api/arm/calibration` route). No OpenCV or scipy is imported.
+
+- `applied_marker_identity(applied_dir)`: `(mtime_ns, size, inode)` of `applied.json`, None without a directory or
+  file. The one reload key: the inode catches the accept's atomic replace even within one coarse mtime tick.
+- `ArmCalibrationSettings`: the `ARM_SETTINGS_FIELDS` alone (`joint_offsets_rad` for exactly the five arm joints,
+  `arm_base_height_m` in (0, 1] m, `base_in_base_link` with z equal to it within `MOUNT_HEIGHT_TOLERANCE_M`, the
+  arm_collision tolerance), validated as arm_collision `ArmModelSettings` validates them: the baseline of a consumer
+  without an arm model (web_ui's `arm_calibration`, the configured values its 3D arm views draw with while nothing is
+  accepted).
+- `calibrated_settings(baseline, calibration)`: the configured arm model (any pydantic model with the
+  `ARM_SETTINGS_FIELDS`, e.g. arm_collision `ArmModelSettings`, mcp_server `ArmSettings` or `ArmCalibrationSettings`) with the accepted
+  calibration's fields, validated as the baseline's type (a copy of the baseline for None). The tool point stays
+  configured.
+- `assign_calibration(target, source)`: copies the `ARM_SETTINGS_FIELDS` into a settings object in place.
+- `AppliedArmCalibration(baseline, applied_dir)`: `baseline`, `applied_dir`, `stamp`, `loaded` (the accepted
+  calibration in use, None for the configured values) and `current` (the settings in use); `changed()` (the identity
+  differs from the last call, which it remembers), `read()` (merged settings and calibration; raises
+  `ArmCalibrationError` or `ValidationError`), `same(calibration)` and `use(settings, calibration)` (returns the old
+  settings). When and how a change is swapped into a running model and how it is logged is the consumer's.
+
+Tests: `tests/test_applied_arm_calibration.py`.
 
 ## Ground board fit
 

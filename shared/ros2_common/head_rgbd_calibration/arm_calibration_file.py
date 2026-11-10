@@ -1,5 +1,5 @@
-"""applied/arm_calibration.json: the accepted arm to camera calibration (head_rgbd_calibration writes it, mcp_server
-reads it).
+"""applied/arm_calibration.json: the accepted arm to camera calibration (head_rgbd_calibration writes it; mcp_server,
+filter_node's guard and web_ui read it through applied_arm_calibration).
 
 The head_rgbd_calibration accept writes `arm_calibration.json` into the applied directory and then the
 `arm_calibration` record ({session, result, accepted_at, score}) of `applied.json`, the commit point of every apply. The
@@ -23,9 +23,11 @@ from typing import Any
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from .config import ARM_JOINT_NAMES
 from .urdf_text import APPLIED_MARKER_FILE
 
+# The five kinematic arm joints of the calibration (gripper excluded). Defined here, not in .config, so this module and
+# its consumers (filter_node, web_ui) import no OpenCV; .config takes it from here.
+ARM_JOINT_NAMES = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll")
 ARM_CALIBRATION_FILE = "arm_calibration.json"
 ARM_CALIBRATION_KEY = "arm_calibration"  # the applied.json record of the accepted arm calibration
 # mcp_server `arm:` keys the accepted calibration overrides (arm_base_height_m is the arm base z: mcp_server requires
@@ -36,6 +38,26 @@ ZERO_RECORD_FILE = "zero_changed.json"
 STALE_OFFSETS_ITEM = "joint_offsets"
 # The bridge writes whole seconds: a zero change in the capture's second counts as after it (fail closed).
 ZERO_TIME_RESOLUTION = timedelta(seconds=1)
+
+
+def check_arm_joint_offsets(value: dict[str, float]) -> dict[str, float]:
+    """Require joint offsets for exactly the arm joints (ARM_JOINT_NAMES), each finite.
+
+    Args:
+        value (dict[str, float]): Joint name -> offset (rad).
+
+    Returns:
+        dict[str, float]: The offsets.
+
+    Raises:
+        ValueError: A joint is missing or extra, or an offset is not finite.
+    """
+    if set(value) != set(ARM_JOINT_NAMES):
+        raise ValueError(f"joint_offsets_rad must name exactly {list(ARM_JOINT_NAMES)}, got {sorted(value)}")
+    bad = [name for name, offset in value.items() if not math.isfinite(offset)]
+    if bad:
+        raise ValueError(f"joint_offsets_rad must be finite: {bad}")
+    return value
 
 
 class ArmCalibrationError(ValueError):
@@ -78,7 +100,7 @@ class ArmCalibrationFile(BaseModel):
     @field_validator("joint_offsets_rad")
     @classmethod
     def five_finite_offsets(cls, value: dict[str, float]) -> dict[str, float]:
-        """Require exactly the arm joints, each finite.
+        """Require exactly the arm joints, each finite (check_arm_joint_offsets).
 
         Args:
             value (dict[str, float]): Joint name -> offset (rad).
@@ -86,12 +108,7 @@ class ArmCalibrationFile(BaseModel):
         Returns:
             dict[str, float]: The offsets.
         """
-        if set(value) != set(ARM_JOINT_NAMES):
-            raise ValueError(f"joint_offsets_rad must name exactly {list(ARM_JOINT_NAMES)}, got {sorted(value)}")
-        bad = [name for name, offset in value.items() if not math.isfinite(offset)]
-        if bad:
-            raise ValueError(f"joint_offsets_rad must be finite: {bad}")
-        return value
+        return check_arm_joint_offsets(value)
 
     def arm_settings_update(self) -> dict[str, Any]:
         """The mcp_server `arm:` values this calibration sets, keyed by ARM_SETTINGS_FIELDS in that order.

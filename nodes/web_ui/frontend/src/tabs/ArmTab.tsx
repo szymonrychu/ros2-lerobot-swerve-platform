@@ -1,14 +1,15 @@
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import Typography from '@mui/material/Typography'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { ReleasedBannerView, releasedLabel } from '../calibrate/ReleasedBanner'
 import { useServoGroups } from '../calibrate/servoApi'
 import ArmJogPanel from '../arm/ArmJogPanel'
 import ArmActions from '../arm/ArmActions'
+import { useArmCalibration } from '../arm/armCalibrationApi'
 import { BASE_LINK_POSE } from '../arm/armViewPick'
 import { activeSourceOf, armControlState, drivePoseOf, guardStateOf, releasedJoints } from '../arm/armControls'
 import { CameraStream } from '../components/CameraStream'
-import { DEFAULT_ARM_OFFSET } from '../grasp/grasp'
 import { GraspPanel } from '../grasp/GraspPanel'
 import { useGrasp } from '../grasp/useGrasp'
 import { useLayout } from '../layout/useLayout'
@@ -31,7 +32,7 @@ const CELL_SX = { flex: '1 1 0', minWidth: 0, minHeight: 0, overflow: 'hidden', 
  * lift toggle / Grasp and the jog panel.
  * Phone stacks everything vertically; tablet and desktop put the stream side by side with the 3D view.
  *
- * @param tab - tab config (head_camera_topic, arm_offset, grasp_command_topic, drive_pose_state_topic, guard_state_topic)
+ * @param tab - tab config (head_camera_topic, grasp_command_topic, drive_pose_state_topic, guard_state_topic)
  * @param topicData - latest payload per topic
  * @param publish - ROS publish helper
  */
@@ -42,8 +43,10 @@ export default function ArmTab({ tab, topicData, publish }: Props) {
   const releasedList = releasedJoints(servo, 'arm')
   const [armReady, setArmReady] = useState(false)
   const [action, setAction] = useState<ActionResult>({ state: 'idle', message: '' })
-  const armMount = useMemo(() => tab.arm_offset ?? DEFAULT_ARM_OFFSET, [tab.arm_offset])
-  const grasp = useGrasp({ tabId: tab.id, topicData, mount: armMount, notify: setAction })
+  // The served arm calibration (configured, or accepted after an Accept): the drawn arm, the floor pick and the grasp
+  // preview. No arm view before it arrives.
+  const calibration = useArmCalibration()
+  const grasp = useGrasp({ tabId: tab.id, topicData, mount: calibration?.mount ?? null, notify: setAction })
   const [graspOpen, setGraspOpen] = useState(false)
   const { cancelPick, applyClick } = grasp
   // Closing the grasp panel (or a limp arm, which takes no grasp) ends the pick.
@@ -94,18 +97,27 @@ export default function ArmTab({ tab, topicData, publish }: Props) {
           <CameraStream topic={tab.head_camera_topic} data={topicData[tab.head_camera_topic ?? '']} alt="head camera" />
         </Box>
         <Box data-testid="arm-view-slot" sx={{ ...CELL_SX, minHeight: streamMinHeight }}>
-          <Suspense fallback={null}>
-            <ArmView
-              tab={tab}
-              topicData={topicData}
-              publish={guardedPublish}
-              dragDisabledReason={drag.disabled ? drag.reason : null}
-              onArmReady={setArmReady}
-              pickMode={grasp.pickMode}
-              onPick={onPick}
-              graspPreview={graspOpen ? grasp.preview : null}
-            />
-          </Suspense>
+          {calibration === null ? (
+            <Box data-testid="arm-calibration-waiting" sx={{ p: 1 }}>
+              <Typography variant="body2" color="text.secondary">
+                Waiting for the arm calibration
+              </Typography>
+            </Box>
+          ) : (
+            <Suspense fallback={null}>
+              <ArmView
+                tab={tab}
+                calibration={calibration}
+                topicData={topicData}
+                publish={guardedPublish}
+                dragDisabledReason={drag.disabled ? drag.reason : null}
+                onArmReady={setArmReady}
+                pickMode={grasp.pickMode}
+                onPick={onPick}
+                graspPreview={graspOpen ? grasp.preview : null}
+              />
+            </Suspense>
+          )}
         </Box>
       </Box>
       <Box data-testid="arm-actions-slot" sx={{ flex: '0 0 auto' }}>

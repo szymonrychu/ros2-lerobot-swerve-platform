@@ -1017,7 +1017,8 @@ same check (one writer).
 
 `snippet` / `joint_offsets_snippet.yaml` (`joint_offsets_rad`, `arm_base_height_m`, `base_in_base_link`) stay for
 review and for moving an accepted calibration into the client.yml baseline (with `fit.joint_offsets_rad` /
-`fit.base_in_base_link` of this node and the web_ui `arm_offset`, which still read client.yml); the runtime override
+`fit.base_in_base_link` of this node, filter_node's `self_collision_guard.arm` and web_ui's `arm_calibration`, the
+baselines of the runtime consumers, pinned equal to mcp_server's by `tests/test_arm_guard_config.py`); the runtime override
 sets exactly these keys (pinned by `tests/test_arm_calibration_file.py`). The head-arm routes
 (`/api/head-arm/sessions`, `.../results/{rid}`) neither list nor serve arm to camera results. While an arm to camera
 compute runs, a head-arm sequence and a floor sweep do not start.

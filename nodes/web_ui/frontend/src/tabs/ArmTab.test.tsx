@@ -8,6 +8,8 @@ import { TabConfig } from '../types'
 import ArmTab from './ArmTab'
 import { tabTopics } from '../hooks/subscription'
 import { designViolations, SOURCES } from '../layout/designRules'
+import { toArmCalibration, type ArmCalibration } from '../arm/armCalibration'
+import { ACCEPTED, CONFIGURED } from '../arm/armCalibrationFixtures'
 
 const servoMock = vi.hoisted(() => ({ groups: [] as unknown[], notConfigured: false }))
 vi.mock('../calibrate/servoApi', async (orig) => ({
@@ -24,9 +26,23 @@ function setServo(id: string, kind: 'released' | 'enabled' | 'unknown' | 'none')
   }]
 }
 
+// The calibration poll (GET /api/arm/calibration) is the hook's own test (arm/armCalibrationApi.test.ts); here it
+// answers synchronously so the fetch assertions below see only the tab's own calls.
+// `served: false` is the hook before the first answer (null).
+const calibrationMock = vi.hoisted(() => ({ calibration: null as null | ArmCalibration, served: true }))
+vi.mock('../arm/armCalibrationApi', async (orig) => {
+  const actual = await orig<typeof import('../arm/armCalibrationApi')>()
+  const { toArmCalibration: served } = await import('../arm/armCalibration')
+  const { CONFIGURED: configured } = await import('../arm/armCalibrationFixtures')
+  return {
+    ...actual,
+    useArmCalibration: () => (calibrationMock.served ? calibrationMock.calibration ?? served(configured) : null),
+  }
+})
 
 const viewMock = vi.hoisted(() => ({
   props: null as null | {
+    calibration: ArmCalibration
     dragDisabledReason: string | null
     publish: (t: string, m: string, d: unknown) => void
     onArmReady: (r: boolean) => void
@@ -216,6 +232,37 @@ describe('ArmTab drag reason', () => {
     renderTab(SOURCE, publish)
     viewMock.props?.publish('/cmd', 'sensor_msgs/JointState', {})
     expect(publish).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('ArmTab arm calibration', () => {
+  afterEach(() => {
+    calibrationMock.calibration = null
+    calibrationMock.served = true
+  })
+
+  it('draws with the configured values (the mcp_server joint offsets and mount) while nothing is accepted', () => {
+    setViewport(1400)
+    renderTab({})
+    expect(viewMock.props?.calibration).toEqual(toArmCalibration(CONFIGURED))
+  })
+
+  it('shows no arm view until the arm calibration is served', () => {
+    setViewport(1400)
+    viewMock.props = null
+    calibrationMock.served = false
+    renderTab({})
+    expect(screen.getByTestId('arm-calibration-waiting')).toBeTruthy()
+    expect(screen.queryByTestId('arm-view')).toBeNull()
+    expect(viewMock.props).toBeNull()
+  })
+
+  it('hands an accepted calibration to the arm view', () => {
+    setViewport(1400)
+    const accepted = toArmCalibration(ACCEPTED)
+    calibrationMock.calibration = accepted
+    renderTab({})
+    expect(viewMock.props?.calibration).toBe(accepted)
   })
 })
 

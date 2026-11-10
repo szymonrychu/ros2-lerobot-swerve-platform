@@ -84,7 +84,8 @@ export interface GraspPanelState {
 export interface GraspArgs {
   tabId: string
   topicData: Record<string, unknown>
-  mount: ArmMount
+  /** Arm mount of the served arm calibration; null before it arrives (no preview is placed then). */
+  mount: ArmMount | null
   notify: (result: ActionResult) => void
 }
 
@@ -228,6 +229,7 @@ export function useGrasp({ tabId, topicData, mount, notify }: GraspArgs): GraspP
 
   const object: GraspObject | null = useMemo(() => previewObject(form), [form])
   const preview = useMemo<GraspPreviewData | null>(() => {
+    if (mount === null) return null
     const box = object ? objectBox(object, mount) : null
     const waypoints = planFresh && plan?.outcome.plan ? waypointScenePoints(plan.outcome.plan.waypoints, mount) : []
     return box || waypoints.length > 0 ? { box, waypoints } : null

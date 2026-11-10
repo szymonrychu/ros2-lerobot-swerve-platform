@@ -2,7 +2,7 @@
 import type * as THREE from 'three'
 import { Pose2D, Vec2 } from '../map/mapMath'
 import { pickGround } from '../map3d/picking'
-import type { ArmMount } from '../grasp/grasp'
+import { armPointToBaseLink, type ArmMount } from '../grasp/grasp'
 
 /**
  * The identity pose handed to the grasp pick: a point picked in the arm view is already in base_link, so no map-to-base
@@ -21,14 +21,16 @@ export function armViewGroundY(armOffset: ArmMount): number {
 }
 
 /**
- * Convert a floor hit in the arm frame to base_link (the frames only differ by the mount translation).
+ * Convert a floor hit in the arm frame to base_link (the mount translation and its yaw, if any).
  *
  * @param hit - ground point in the arm frame (ROS x, y), or null above the horizon
- * @param armOffset - arm mount in base_link (ROS x, y, z metres)
+ * @param armOffset - arm mount in base_link (ROS x, y, z metres, optional yaw)
  * @returns the point in base_link, or null for a null hit
  */
 export function armViewHitToBaseLink(hit: Vec2 | null, armOffset: ArmMount): Vec2 | null {
-  return hit && { x: hit.x + armOffset[0], y: hit.y + armOffset[1] }
+  if (!hit) return null
+  const base = armPointToBaseLink({ x: hit.x, y: hit.y, z: 0 }, armOffset)
+  return { x: base.x, y: base.y }
 }
 
 /**
@@ -39,7 +41,7 @@ export function armViewHitToBaseLink(hit: Vec2 | null, armOffset: ArmMount): Vec
  * @param py - y in CSS px from the canvas top edge
  * @param width - canvas width in CSS px
  * @param height - canvas height in CSS px
- * @param armOffset - arm mount in base_link (ROS x, y, z metres)
+ * @param armOffset - arm mount in base_link (ROS x, y, z metres, optional yaw)
  * @returns base_link point {x, y}, or null when the pixel looks above the horizon
  */
 export function pickArmViewGround(

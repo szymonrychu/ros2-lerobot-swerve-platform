@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 from arm_collision.ik import ArmKinematics, load_joint_limits
 from arm_collision.settings import ArmBaseOffset
+from ros2_common.head_rgbd_calibration.applied_arm_calibration import applied_marker_identity
 from ros2_common.head_rgbd_calibration.arm_calibration_file import ARM_CALIBRATION_FILE, ARM_CALIBRATION_KEY
 from ros2_common.head_rgbd_calibration.urdf_text import APPLIED_MARKER_FILE
 
@@ -265,10 +266,10 @@ def test_both_reloads_share_one_marker_identity(tmp_path: Path) -> None:
     accept(cfg.arm.applied_dir)
     marker = cfg.arm.applied_dir / APPLIED_MARKER_FILE
     st = marker.stat()
-    assert arm_calibration.applied_marker_identity(cfg.arm.applied_dir) == (st.st_mtime_ns, st.st_size, st.st_ino)
-    assert arm_calibration.applied_marker_identity(tmp_path / "missing") is None
-    assert arm_calibration.applied_marker_identity(None) is None
-    assert ArmCalibrationWatcher(cfg.arm).marker_stamp() == arm_calibration.applied_marker_identity(cfg.arm.applied_dir)
+    assert applied_marker_identity(cfg.arm.applied_dir) == (st.st_mtime_ns, st.st_size, st.st_ino)
+    assert applied_marker_identity(tmp_path / "missing") is None
+    assert applied_marker_identity(None) is None
+    assert ArmCalibrationWatcher(cfg.arm).marker_stamp() == applied_marker_identity(cfg.arm.applied_dir)
 
 
 def test_an_invalid_reload_keeps_the_previous_values(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:

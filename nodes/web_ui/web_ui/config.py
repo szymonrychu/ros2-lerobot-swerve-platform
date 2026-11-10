@@ -15,6 +15,8 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from ros2_common.battery import BatteryConfig
+from ros2_common.head_rgbd_calibration.applied_arm_calibration import ArmCalibrationSettings
+from ros2_common.head_rgbd_calibration.arm_calibration_file import ARM_SETTINGS_FIELDS
 
 from .gps_anchor import (
     DEFAULT_MAX_RESIDUAL_M,
@@ -130,8 +132,6 @@ ARM_TAB_DEFAULTS: dict[str, str] = {
     "drive_pose_state_topic": MAP_NAV_DEFAULTS["drive_pose_state_topic"],
     "guard_state_topic": "/filter/guard_state",
 }
-# Arm mount in the base frame (ROS x, y, z metres); the same value as ansible mcp_server arm.base_in_base_link.
-ARM_TAB_DEFAULT_ARM_OFFSET: tuple[float, float, float] = (0.0592, -0.05, 0.100)
 # Default disk cache cap for proxied map tiles (MiB).
 DEFAULT_TILE_CACHE_MAX_MB = 256
 DEFAULT_TILE_MAX_ZOOM = 18
@@ -301,7 +301,6 @@ class TabConfig(BaseModel):
     head_pan_range_deg: tuple[float, float] | None = None  # head: allowed pan (min, max) in degrees
     head_tilt_range_deg: tuple[float, float] | None = None  # head: allowed tilt (min, max) in degrees
     head_home_deg: tuple[float, float] | None = None  # head: (pan, tilt) degrees the Home button commands
-    arm_offset: tuple[float, float, float] | None = None
     arm_command_topic: str | None = None
     head_camera_topic: str | None = None  # arm: sensor_msgs/CompressedImage of the head D435 colour stream
     active_source_topic: str | None = None  # arm: std_msgs/String of the filter_node command source in control
@@ -433,8 +432,6 @@ class TabConfig(BaseModel):
                 setattr(self, field, default)
             elif not value.strip():
                 raise ValueError(f"arm tab {self.id!r}: {field} must not be empty")
-        if self.arm_offset is None:
-            self.arm_offset = ARM_TAB_DEFAULT_ARM_OFFSET
         return self
 
     @model_validator(mode="after")
@@ -758,6 +755,36 @@ class GroundRecorderConfig(BaseModel):
         return value
 
 
+class ArmCalibrationConfig(ArmCalibrationSettings):
+    """The 3D arm views' arm calibration (GET /api/arm/calibration): the configured values and the applied directory.
+
+    The configured values (ArmCalibrationSettings: joint_offsets_rad, arm_base_height_m, base_in_base_link) are the
+    baseline the views draw with while no arm calibration is accepted, the same values as mcp_server's `arm` block.
+
+    Attributes:
+        applied_dir: head_rgbd_calibration applied directory whose accepted arm calibration replaces the configured
+            values; None keeps them.
+    """
+
+    applied_dir: str | None = None
+
+    def baseline(self) -> ArmCalibrationSettings:
+        """The configured values alone.
+
+        Returns:
+            ArmCalibrationSettings: The baseline of the shared reload state.
+        """
+        return ArmCalibrationSettings.model_validate(self.model_dump(include=set(ARM_SETTINGS_FIELDS)))
+
+    def applied_path(self) -> Path | None:
+        """The applied directory as a path.
+
+        Returns:
+            Path | None: applied_dir, None without one.
+        """
+        return None if self.applied_dir is None else Path(self.applied_dir)
+
+
 class AppConfig(BaseModel):
     """Full web_ui application configuration."""
 
@@ -770,6 +797,9 @@ class AppConfig(BaseModel):
     gps_status: GpsStatusConfig | None = None  # absent: no GPS status chips
     calibration: CalibrationConfig | None = None  # absent: the Calibrate page is off, /api/calibration/* answers 404
     head_applied_calibration_dir: str | None = None  # applied head chain dir; None serves head URDFs as files
+    # The 3D arm views' arm calibration (GET /api/arm/calibration): the configured values, replaced by an accepted arm
+    # calibration of its applied_dir. None: the route answers null and the views draw no arm.
+    arm_calibration: ArmCalibrationConfig | None = None
     ground_recorder: GroundRecorderConfig = GroundRecorderConfig()  # /api/ground/recordings; off by default
     models_dir: str | None = None  # printable PDF/3MF files served at /models/{name}; absent: /api/models answers 404
     # Nav goals are refused when the cached tilt guard state is older than this many seconds (the guard sends 1 Hz).

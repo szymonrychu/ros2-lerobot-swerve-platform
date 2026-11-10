@@ -4,6 +4,7 @@ import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import * as THREE from 'three'
 import type { URDFRobot, URDFJoint } from 'urdf-loader'
 import { RobotModel } from './RobotModel'
+import { toMeasuredPositions } from '../arm/armCalibration'
 import { findLink } from '../arm/armView.ts'
 import log from '../logging'
 import { solveCCDIK } from './ccdIKSolver'
@@ -95,7 +96,10 @@ interface AxisArrowEntry {
 
 interface Props {
   urdfFile: string
+  /** Live joint states in URDF angles (measured + jointOffsets, arm/armCalibration.ts toUrdfJointStates). */
   liveJointStates?: JointStates
+  /** Joint zero offsets (rad, urdf = measured + offset): commands are published in measured angles. */
+  jointOffsets: Readonly<Record<string, number>>
   position?: [number, number, number]
   commandTopic: string
   publish: (topic: string, msgType: string, data: unknown) => void
@@ -126,6 +130,7 @@ function closestPointOnLine(
 export function InteractiveArm({
   urdfFile,
   liveJointStates,
+  jointOffsets,
   position,
   commandTopic,
   publish,
@@ -153,7 +158,11 @@ export function InteractiveArm({
   const jointSpheresRef = useRef<Map<string, THREE.Mesh>>(new Map())
   // Map from sphere uuid -> IK_JOINTS index (for hit testing)
   const sphereByUuidRef = useRef<Map<string, number>>(new Map())
+  // Commanded URDF angles and the joint offsets they were taken with: both change together in the live re-sync only
+  // (never during a drag), so a command is always turned back into measured angles with its own offsets even when a
+  // new arm calibration arrives mid-drag.
   const commandedRef = useRef<Record<string, number>>({})
+  const commandedOffsetsRef = useRef<Readonly<Record<string, number>>>(jointOffsets)
   const lastPublishRef = useRef<number>(0)
   const hasInitialStateRef = useRef<boolean>(false)
 
@@ -170,6 +179,7 @@ export function InteractiveArm({
     for (let i = 0; i < liveJointStates.name.length; i++) {
       commandedRef.current[liveJointStates.name[i]] = liveJointStates.position[i]
     }
+    commandedOffsetsRef.current = jointOffsets
     setGhostJointStates(liveJointStates)
     if (!hasInitialStateRef.current) {
       hasInitialStateRef.current = true
@@ -178,7 +188,7 @@ export function InteractiveArm({
     }
     const robot = ghostRobotRef.current
     if (robot) updateArrowPositions(robot)
-  }, [liveJointStates, onReady])
+  }, [liveJointStates, jointOffsets, onReady])
 
   const setGhostBodyOpacity = useCallback((opacity: number) => {
     for (const mesh of ghostBodyMeshesRef.current) {
@@ -190,7 +200,9 @@ export function InteractiveArm({
     const robot = ghostRobotRef.current
     if (!robot) return null
     const names = Object.keys(robot.joints)
-    const positions = names.map((n) => commandedRef.current[n] ?? 0)
+    // The ghost arm moves in URDF angles; the follower takes measured ones (measured = urdf - offset), converted with
+    // the offsets the commanded angles were taken with.
+    const positions = toMeasuredPositions(names, commandedRef.current, commandedOffsetsRef.current)
     return { name: names, position: positions, velocity: [], effort: [] }
   }, [])
 

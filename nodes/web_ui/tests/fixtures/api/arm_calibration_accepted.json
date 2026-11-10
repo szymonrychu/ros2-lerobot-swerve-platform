@@ -1,0 +1,15 @@
+{
+  "calibration": {
+    "source": "accepted",
+    "accepted": {"session": "calib-20261109-120000", "result": "r-1", "accepted_at": "2026-11-09T12:20:00Z"},
+    "joint_offsets_rad": {
+      "shoulder_pan": 0.03,
+      "shoulder_lift": -0.02,
+      "elbow_flex": -0.09,
+      "wrist_flex": 0.08,
+      "wrist_roll": -0.07
+    },
+    "base_in_base_link": {"x": 0.061, "y": -0.048, "z": 0.102, "yaw": 0.01}
+  },
+  "error": null
+}

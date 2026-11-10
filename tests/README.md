@@ -77,7 +77,8 @@ stick mount.
 ### `test_arm_calibration_file.py`
 
 The accepted arm calibration file (`shared/ros2_common/head_rgbd_calibration/arm_calibration_file.py`): what the
-head_rgbd_calibration accept writes to `applied/arm_calibration.json` and mcp_server applies at runtime.
+head_rgbd_calibration accept writes to `applied/arm_calibration.json` and mcp_server, filter_node and web_ui apply at
+runtime.
 
 | Test | Description |
 |------|-------------|
@@ -97,6 +98,33 @@ head_rgbd_calibration accept writes to `applied/arm_calibration.json` and mcp_se
 | `test_an_unreadable_marker_or_zero_record_is_refused` | A non-JSON marker or zero record is refused as unreadable. |
 | `test_the_zero_record_sits_next_to_the_marker` | `zero_record_path` is `zero_changed.json` in the marker's directory. |
 | `test_the_bridge_writes_the_zero_record_the_readers_read` | feetech_servos `zero_record.py` (the writer of the bridge and of `calibrate_servos.py`) names the same `ZERO_RECORD_FILE`. |
+
+### `test_applied_arm_calibration.py`
+
+The accepted arm calibration at runtime (`shared/ros2_common/head_rgbd_calibration/applied_arm_calibration.py`): the
+`applied.json` identity, the merge over a configured arm model and the reload state shared by mcp_server, filter_node
+and web_ui.
+
+| Test | Description |
+|------|-------------|
+| `test_the_identity_is_mtime_size_and_inode` | `applied_marker_identity` is `(mtime_ns, size, inode)` of `applied.json`. |
+| `test_no_dir_or_no_marker_has_no_identity` | No directory, an empty or a missing directory: None. |
+| `test_without_a_calibration_the_baseline_is_copied` | `calibrated_settings(baseline, None)` is an equal deep copy. |
+| `test_the_calibration_sets_exactly_the_fitted_fields_and_keeps_the_type` | The merge sets joint offsets, base pose and mount height, keeps every other field (tool point) and the `ArmModelSettings` type. |
+| `test_a_calibration_the_arm_model_refuses_raises` | A base z above the model's 1 m limit raises `ValidationError`. |
+| `test_assign_copies_the_fitted_fields_in_place` | `assign_calibration` copies the fitted fields into the target, nested models copied. |
+| `test_the_baseline_is_a_snapshot_in_use_until_a_calibration_is_used` | The baseline and current settings are snapshots; nothing is loaded and no identity is seen yet. |
+| `test_changed_follows_the_marker_identity` | `changed()` is false without a file, true after an accept, false again until applied.json changes or is removed. |
+| `test_an_atomic_replace_within_one_mtime_tick_is_a_change` | An atomic replace keeping mtime_ns is a change (inode). |
+| `test_read_merges_the_accepted_calibration` | `read()` returns the merged settings and the accepted calibration. |
+| `test_read_without_an_accepted_calibration_gives_the_baseline` | Without applied_dir or with nothing accepted, `read()` gives the baseline and None. |
+| `test_read_of_a_broken_file_raises` | A broken `arm_calibration.json` raises `ArmCalibrationError` naming it. |
+| `test_same_and_use_track_the_calibration_in_use` | `same` compares with the calibration in use; `use` records the new one and returns the old settings. |
+| `test_the_calibrated_values_validate_as_a_baseline` | `ArmCalibrationSettings` validates the configured values (exactly the `ARM_SETTINGS_FIELDS`). |
+| `test_the_baseline_refuses_what_the_arm_models_refuse` | A missing or extra joint, a NaN offset, a mount z unequal to the mount height, a mount height of 0 and an unknown key raise `ValidationError`. |
+| `test_the_mount_height_tolerance_is_the_arm_models` | `MOUNT_HEIGHT_TOLERANCE_M` equals arm_collision's. |
+| `test_an_accepted_calibration_merges_over_the_values_baseline` | `calibrated_settings` over an `ArmCalibrationSettings` baseline gives the accepted values and keeps the type. |
+| `test_the_consumer_modules_import_no_opencv` | Importing the runtime module and the file contract loads neither cv2 nor scipy. |
 
 ### `test_ground_board_fit.py`
 
@@ -239,11 +267,13 @@ Head-from-arm fit config, board corner geometry and view types (`shared/ros2_com
 
 ### `test_arm_guard_config.py`
 
-filter_node's self-collision guard config in `ansible/group_vars/client.yml` stays equal to the nodes it mirrors (the body is the one packaged `shared/arm_collision` `robot_body.yaml`; the arm calibration and gripper mapping are per-node config). Reads `client.yml` only. Unit tests of the guard itself live in the node (`nodes/filter_node/tests`: `test_guard.py`, `test_guard_state.py`, `test_guard_wiring.py`) and the shared package (`shared/arm_collision/tests`).
+filter_node's self-collision guard config and web_ui's arm calibration baseline in `ansible/group_vars/client.yml` stay equal to the nodes they mirror (the body is the one packaged `shared/arm_collision` `robot_body.yaml`; the arm calibration and gripper mapping are per-node config). Reads `client.yml` only. Unit tests of the guard itself live in the node (`nodes/filter_node/tests`: `test_guard.py`, `test_guard_state.py`, `test_guard_wiring.py`) and the shared package (`shared/arm_collision/tests`).
 
 | Test | Description |
 |------|-------------|
 | `test_filter_node_guard_arm_equals_mcp_server_arm` | Every `ArmModelSettings` field of the guard's `arm` equals mcp_server's `arm` value and the guard's key set equals the shared set. |
+| `test_the_accepted_arm_calibration_consumers_read_mcp_servers_applied_dir` | filter_node's `self_collision_guard.applied_dir` and web_ui's `arm_calibration.applied_dir` equal mcp_server's `arm.applied_dir` (`/var/lib/ros2/head_rgbd_calibration/applied`). |
+| `test_web_ui_arm_baseline_equals_mcp_server_configured_arm_values` | web_ui's `arm_calibration` (the 3D arm views' baseline while nothing is accepted) has exactly the `ARM_SETTINGS_FIELDS` and `applied_dir`, and its `joint_offsets_rad`, `arm_base_height_m` and `base_in_base_link` equal mcp_server's `arm` values (as YAML, as `ArmCalibrationSettings` and as validated by `ArmModelSettings`). |
 | `test_filter_node_guard_keep_away_equals_mcp_server_hard_margin` | The guard's `hard_margin_m` equals mcp_server's `body_check.hard_margin_m`. |
 | `test_filter_node_guard_is_enabled` | `self_collision_guard.enabled` is true. |
 | `test_filter_node_node_type_ships_the_urdf_and_the_kernels` | The filter_node node type has `src_shared: true` and `src_extra_paths` `nodes/mcp_server/mcp_core_cpp` and `nodes/web_ui/urdf`. |
@@ -922,6 +952,20 @@ Released state (`test_arbitration.py`): `release` is ignored when false and a no
 
 Idle feedback rate (`nodes/filter_node/tests/test_feedback_rate.py`, `test_config.py`): `FeedbackRateSwitch` selects the throttled topic while idle, the full-rate topic for any active source (leader, web UI, autonomy lease), returns to throttled after idle, falls back to full rate (logged once per outage, retried later) when the idle topic is silent, keeps full rate with an empty idle topic; config keys `follower_feedback_idle_topic` / `follower_feedback_idle_fallback_s` (> 0) load with defaults.
 
+Accepted arm calibration in the guard (`test_arm_calibration.py`, `filter_node/arm_calibration.py`; real checkers on
+the packaged body): startup without an accepted file uses the configured arm and says so; startup merges an accepted
+calibration (tool point kept) and names its session and result; an invalid file at startup or reload logs an error and
+keeps the values in use; `applied_dir` None never reads; a tick without an `applied.json` change applies nothing; an
+accept after startup, or a newer one, is applied once; a head chain apply alone (same calibration) applies nothing; a
+removed record goes back to the configured arm; a swap that raises is logged once, keeps the values in use and is not
+retried until `applied.json` changes; an unexpected read error (any exception) is logged, keeps the values in use and
+never raises; `swap_checker_calibration` gives the clearances of a checker built with the new
+calibration (home, drive pose, a pose by the wheel) and maps no mount to the mount height above base_link; importing
+the module loads no cv2. Wiring (`test_guard_calibration_wiring.py`, the `test_guard_wiring.py` harness): the guard is
+built on an accepted calibration; an accept while running reaches the guard on the next calibration timer tick and the
+following web UI command is checked with it; no `applied_dir` creates no calibration timer and keeps the configured
+arm; with one the timer is created once.
+
 ### Per-node tests (test_joint_api)
 
 The **test_joint_api** node has tests under `nodes/test_joint_api/tests/`. Run from `nodes/test_joint_api`: `uv run pytest tests/ -v` (or `uv run poe test`). Covers: config (`test_config.py`); GET/POST `/joint-updates` (`test_app.py`: empty GET, single/multiple POST, validation errors, gripper-only POST). Async tests require **pytest-asyncio** (included in the node's uv dev dependency group; if running with system pytest, install it: `pip install pytest-asyncio`). Endpoint use in tests is limited to gripper joints (joint_5, joint_6) for safety. The utility script `scripts/joint_api_client.py` can GET or POST joint updates (see script docstring for examples).
@@ -995,6 +1039,7 @@ The **web_ui** node has tests under `nodes/web_ui/tests/`. Run from `nodes/web_u
 - bridge dirty-flag store (`test_bridge.py`: `/front_camera/image_raw/compressed` and `/back_camera/image_raw/compressed` resolve to `CompressedImage` subscriptions and no `/head_camera/` topic has a hint (`test_type_hints_name_front_and_back_cameras`); `flush_dirty` returns dirty topics, clears after flush, only returns dirty entries; `publish_dict` rejects non-allowlisted topics with warning)
 - message serialization (`test_msg_serializer.py`: `msg_to_dict` — Imu message conversion; `extract_field_from_dict` — simple key, array index, missing returns None, out-of-bounds returns None; depth image serialization — 16UC1 returns expected keys, downscaled raw bytes length, depth values preserved, zero-depth preserved; `CameraInfo` returns fx/fy/cx/cy/width/height; no image topic gets a downscaled colour field; 16UC1 depth at 320x240 gives preview and 160x120 grid)
 - non-finite floats (`test_msg_serializer_nonfinite.py`: NaN/inf in a JointState effort array serialize as JSON null, so the websocket frame stays valid JSON; feetech publishes NaN effort for unmeasured joints)
+- arm calibration route (`test_arm_calibration.py`, `web_ui/arm_calibration.py`, contract fixtures `tests/fixtures/api/arm_calibration_{configured,accepted}.json`): nothing accepted (or no applied dir) serves the configured values with source `configured`; an accepted calibration is served with source `accepted`, its identity, joint offsets and base pose only; the file is re-read only after an `applied.json` change and follows a new accept; an invalid file, or one the baseline model refuses (base z 1.5 m), keeps the values in use and reports the error (the configured values and the error with nothing good before); a removed record goes back to the configured values; `arm_calibration` defaults to None, validates its values as the shared `ArmCalibrationSettings` (z equal to the mount height, base pose required) and the arm tab has no `arm_offset`; `GET /api/arm/calibration` answers uncached with exactly the fixture bodies, follows a new accept without a restart, serves the configured values without an applied dir and answers null without `arm_calibration`. Frontend: `armCalibrationApi.test.ts` (the fixture bodies, body validation naming the bad key incl. source / accepted consistency, fetch errors, the polling hook: null until the first answer, then the configured values, null without a calibration, follows an accept and a removal, keeps the last answer on a failed poll, stops on unmount), `armCalibration.test.ts` (`toArmCalibration` of the configured and the accepted calibration, measured <-> URDF joint conversion, scene placement with the mount yaw), `ArmView.test.tsx` and `ArmTab.test.tsx` (the arm drawn in URDF angles with the configured and the accepted offsets, commands converted back, the pick on the accepted mount, no arm view before the calibration is served), `InteractiveArm.test.tsx` (a calibration arriving mid-drag: every command, throttled and on pointer-up, converts with the offsets the commanded angles were taken with, so an untouched joint keeps its measured angle and the dragged joint follows the ghost), `grasp.test.ts` / `armViewPick.test.ts` (mount yaw)
 - HTTP server routes (`test_server.py`: `/api/config` returns config JSON, `/api/urdf/status` lists URDF files, `/api/urdf/<file>` serves URDF, path traversal blocked, security headers present, static fallback serves index.html)
 - Battery (`test_battery.py`): `battery` config (defaults, absent = off, `resume_cell_v >= cutoff_cell_v`, `cells >= 1`, in `/api/config`, topic subscribed with role `battery`), `serialize_battery`, `BatteryGuard` (unknown without reading, cut-off below 8.4 V, hysteresis release above 8.7 V, stale reading not blocked, invalid voltage ignored, thread safety, rejection message), bridge battery callback (payload with guard state, NaN dropped), server rejection of WS `publish` (error frame) and of map save/reset and arm home/set home with 503, `nav/stop` still allowed, no blocking without battery config, with a good or unknown battery.
 - Battery frontend (`frontend/src/battery/batteryStatus.test.ts`, vitest): chip level/colour/label (unknown, green, amber, red incl. backend flag), stale after `stale_s`, cut-off banner text, WebSocket frame parsing (envelope, error frame, malformed), 503 message surfaced by `parseActionResult`.
@@ -2091,8 +2136,7 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_overlays_use_no_relay_only_topics`, `test_lat_lon_come_from_the_client_gps_fix`, `test_vel_comes_from_the_swerve_odometry`, `test_fl_steer_is_selected_by_joint_name` (`test_web_ui_overlays_config.py`) | web_ui status bar overlays read live client topics: no `/controller/*`, Lat/Lon from the gps_rtk_rover `/client/gps/fix`, Vel from the swerve_controller `odom_topic`, FL Steer from its `joint_states_topic` as `position[name=fl_steer]`. |
 | `test_web_ui_enables_the_imu_calibration_section`, `test_bno055_keeps_the_default_calibration_names` (`test_web_ui_calibration_config.py`) | The client web_ui config has a `calibration` block naming `/imu/calibration` and the `/imu/calibration/save` and `/imu/calibration/reset` services (otherwise the Calibrate page answers "not configured"), and bno055_imu does not rename them. |
 | `test_web_ui_serves_the_repo_models_dir`, `test_models_dir_holds_a_pdf_and_3mf_per_model` (`test_web_ui_models_config.py`) | The client web_ui `models_dir` is the repo checkout's `models/`; that dir holds only PDF and 3MF files, one of each per model, including both ChArUco boards (`charuco-6x5-40mm`, `charuco-arm-6x5-28mm`). |
-| `test_web_ui_has_map_nav_tab` | web_ui config has the `map` tab of type `map_nav` with exactly the expected fields, including the POI topics (`/poi/list`, `/poi/command`, `/poi/result`), the grasp topics (`/grasp/command`, `/grasp/result`), the arm mount `arm_offset` `[0.0592, -0.05, 0.104]` (measured 2026-10-10) and the merged 3D view contract fields (`local_costmap_topic`, `base_urdf`, `base_joint_states_topic`, `arm_urdf`, `arm_joint_states_topic`, arm command topic `/filter/web_ui_joint_commands`) and the arm Trigger services `/arm/home` / `/arm/set_home`, the Head RGB-D layer topic `rgbd_cloud_topic: /head_rgbd/points`, and the keyed CARTO `tile_url` (`?key={api_key}`) with `tile_api_key_env: WEB_UI_TILE_API_KEY` and the `tile_sources` list (Esri satellite max zoom 20 in `{z}/{y}/{x}` order, keyed CARTO street max zoom 18) with `default_tile_source: satellite` and `tile_display_zoom: 19`. |
-| `test_web_ui_arm_offset_matches_mcp_server_arm_mount` | The web_ui map tab `arm_offset` equals the mcp_server `arm.base_in_base_link` x, y, z, so the drawn arm and the grasp planner agree. |
+| `test_web_ui_has_map_nav_tab` | web_ui config has the `map` tab of type `map_nav` with exactly the expected fields, including the POI topics (`/poi/list`, `/poi/command`, `/poi/result`), the grasp topics (`/grasp/command`, `/grasp/result`) and the merged 3D view contract fields (`local_costmap_topic`, `base_urdf`, `base_joint_states_topic`, `arm_urdf`, `arm_joint_states_topic`, arm command topic `/filter/web_ui_joint_commands`) and the arm Trigger services `/arm/home` / `/arm/set_home`, the Head RGB-D layer topic `rgbd_cloud_topic: /head_rgbd/points`, and the keyed CARTO `tile_url` (`?key={api_key}`) with `tile_api_key_env: WEB_UI_TILE_API_KEY` and the `tile_sources` list (Esri satellite max zoom 20 in `{z}/{y}/{x}` order, keyed CARTO street max zoom 18) with `default_tile_source: satellite` and `tile_display_zoom: 19`. |
 | `test_web_ui_loads_the_tile_api_key_env_file_and_never_stores_the_key` | web_ui's unit loads `/etc/ros2/web_ui/env` via `environment_file`; `web_ui_tile_key.yml` reads `CARTO_API_KEY` from the controller, writes `WEB_UI_TILE_API_KEY=` with mode `0600`, `no_log: true` and queues a web_ui restart, and is included by `deploy_nodes_client.yml`. |
 | `test_web_ui_installs_slam_toolbox_for_its_service_imports` | web_ui node type installs `ros-jazzy-slam-toolbox` (it imports `slam_toolbox.srv`), so deploying web_ui alone does not fail with ImportError. |
 | `test_slam_scan_matcher_is_resilient_to_slip_and_transients` | slam_toolbox defaults: `correlation_search_space_dimension` 0.8 (a whole number of 0.01 cells), `check_min_dist_and_heading_precisely` true, `ceres_loss_function` HuberLoss, `occupancy_threshold` 0.25, `min_pass_through` 3; travel thresholds and loop closing unchanged. |

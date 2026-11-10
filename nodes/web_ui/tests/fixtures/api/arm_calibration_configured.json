@@ -1,0 +1,15 @@
+{
+  "calibration": {
+    "source": "configured",
+    "accepted": null,
+    "joint_offsets_rad": {
+      "shoulder_pan": 0.0182,
+      "shoulder_lift": -0.0345,
+      "elbow_flex": -0.107,
+      "wrist_flex": 0.0988,
+      "wrist_roll": -0.071
+    },
+    "base_in_base_link": {"x": 0.0592, "y": -0.05, "z": 0.1, "yaw": 0.0}
+  },
+  "error": null
+}

@@ -1,10 +1,11 @@
 """Accepted arm to camera calibration at runtime: applied/arm_calibration.json overrides the configured `arm:` values.
 
 The head_rgbd_calibration accept writes applied/arm_calibration.json and then the `arm_calibration` record of
-applied/applied.json (ros2_common `arm_calibration_file`). Like the head chain (head.AppliedHeadKinematics), the
-applied.json identity (mtime_ns, size, inode; `applied_marker_identity`, shared with the head chain) is the reload
-trigger, checked without a thread of its own: `startup` loads it before
-the arm model is built, `tick` (the monitor timer, every 0.25 s) re-reads it when applied.json changed.
+applied/applied.json (ros2_common `arm_calibration_file`). The reload state is the shared ros2_common
+`applied_arm_calibration.AppliedArmCalibration` (also used by filter_node's guard and web_ui): like the head chain
+(head.AppliedHeadKinematics), the applied.json identity (mtime_ns, size, inode; `applied_marker_identity`) is the
+reload trigger, checked without a thread of its own: `startup` loads it before the arm model is built, `tick` (the
+monitor timer, every 0.25 s) re-reads it when applied.json changed.
 
 The accepted calibration overrides exactly `ARM_SETTINGS_FIELDS` of the configured arm block (joint offsets, arm base
 pose, mount height = base z); the configured client.yml values are the baseline, used when nothing is accepted (or the
@@ -32,18 +33,16 @@ stay), `stale_marker` ok when joint_offsets was cleared
 
 import logging
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
+from ros2_common.head_rgbd_calibration.applied_arm_calibration import AppliedArmCalibration, assign_calibration
 from ros2_common.head_rgbd_calibration.arm_calibration_file import (
     ARM_SETTINGS_FIELDS,
     ArmCalibrationError,
     ArmCalibrationFile,
-    read_arm_calibration,
     zero_change_refusal,
 )
-from ros2_common.head_rgbd_calibration.urdf_text import APPLIED_MARKER_FILE
 
 from .calib_event import emit_calib_event, new_run_id
 from .calibration_marker import clear_stale, load_marker
@@ -57,7 +56,6 @@ CONFIG_SOURCE = "config"  # the `source` of a load without an accepted calibrati
 STALE_OFFSETS_ITEM = "joint_offsets"
 DEFERRED_REASON = "an arm motion is running: the calibration is applied at the next idle point"
 
-MarkerIdentity = tuple[int, int, int]  # applied.json (mtime_ns, size, inode)
 # Swaps the arm model to new arm settings at an idle point; False while a motion runs (ArmController.swap_calibration).
 SwapFn = Callable[[ArmSettings, ArmCalibrationInUse | None], bool]
 
@@ -103,59 +101,12 @@ def source_name(calibration: ArmCalibrationFile | None) -> dict[str, Any] | str:
     return CONFIG_SOURCE if identity is None else identity.model_dump()
 
 
-def calibrated_arm(baseline: ArmSettings, calibration: ArmCalibrationFile | None) -> ArmSettings:
-    """The configured arm settings with the accepted calibration's fields, validated as ArmSettings.
+class ArmCalibrationWatcher(AppliedArmCalibration[ArmSettings]):
+    """Loads the accepted arm calibration and hands changes to the arm at an idle point (see the module docstring).
 
-    Args:
-        baseline (ArmSettings): The configured (client.yml) arm settings.
-        calibration (ArmCalibrationFile | None): Accepted calibration; None returns a copy of the baseline.
-
-    Returns:
-        ArmSettings: New settings.
-
-    Raises:
-        ValidationError: The merged block is not valid ArmSettings.
+    The reload state (baseline, applied.json identity, calibration and settings in use) is the shared
+    AppliedArmCalibration; the telemetry, the deferred swap and the stale marker are mcp_server's.
     """
-    if calibration is None:
-        return baseline.model_copy(deep=True)
-    return ArmSettings.model_validate({**baseline.model_dump(), **calibration.arm_settings_update()})
-
-
-def applied_marker_identity(applied_dir: Path | None) -> MarkerIdentity | None:
-    """Identity of the applied marker's (applied.json) current version, the one reload key of the applied dir.
-
-    The arm calibration watcher and the head chain provider (head.AppliedHeadKinematics) both key on it. The inode
-    catches head_rgbd_calibration's atomic replace even when two writes share one coarse mtime tick.
-
-    Args:
-        applied_dir (Path | None): Applied calibration directory; None disables the override.
-
-    Returns:
-        MarkerIdentity | None: (mtime_ns, size, inode), None without applied_dir or applied.json.
-    """
-    if applied_dir is None:
-        return None
-    try:
-        st = (applied_dir / APPLIED_MARKER_FILE).stat()
-    except OSError:
-        return None
-    return (st.st_mtime_ns, st.st_size, st.st_ino)
-
-
-def assign_calibration(target: ArmSettings, source: ArmSettings) -> None:
-    """Copy the calibrated fields into the shared arm settings object in place (every holder of the config sees them).
-
-    Args:
-        target (ArmSettings): The running config's arm settings.
-        source (ArmSettings): Validated settings to take the fields from.
-    """
-    for name in ARM_SETTINGS_FIELDS:
-        value = getattr(source, name)
-        setattr(target, name, value.model_copy() if isinstance(value, BaseModel) else value)
-
-
-class ArmCalibrationWatcher:
-    """Loads the accepted arm calibration and hands changes to the arm at an idle point (see the module docstring)."""
 
     def __init__(self, configured: ArmSettings) -> None:
         """Snapshot the configured arm settings (the baseline) before any override.
@@ -163,26 +114,14 @@ class ArmCalibrationWatcher:
         Args:
             configured (ArmSettings): The arm settings as loaded from the config (applied_dir, calibration_stale_marker).
         """
-        self.baseline = configured.model_copy(deep=True)
-        self.applied_dir: Path | None = configured.applied_dir
-        self.marker_path: Path | None = configured.calibration_stale_marker
-        self.stamp: MarkerIdentity | None = None
-        self.loaded: ArmCalibrationFile | None = None  # the accepted calibration in use, None for the configured one
-        self.current = self.baseline.model_copy(deep=True)  # arm settings in use
+        super().__init__(configured, configured.applied_dir)
+        self.marker_path = configured.calibration_stale_marker
         # A validated change waiting for the idle point: (settings, calibration, telemetry run id); and whether its
         # wait was logged.
         self.pending: tuple[ArmSettings, ArmCalibrationFile | None, str] | None = None
         self.deferred_logged = False
 
-    def marker_stamp(self) -> MarkerIdentity | None:
-        """Identity of applied.json's current version (see applied_marker_identity).
-
-        Returns:
-            MarkerIdentity | None: (mtime_ns, size, inode), None without applied_dir or applied.json.
-        """
-        return applied_marker_identity(self.applied_dir)
-
-    def read(self, run_id: str) -> tuple[ArmSettings, ArmCalibrationFile | None] | None:
+    def read_logged(self, run_id: str) -> tuple[ArmSettings, ArmCalibrationFile | None] | None:
         """Read and validate the accepted calibration; a failure is logged (calib_event failed) and gives None.
 
         Args:
@@ -193,8 +132,7 @@ class ArmCalibrationWatcher:
                 configured values), None when the calibration cannot be used.
         """
         try:
-            calibration = None if self.applied_dir is None else read_arm_calibration(self.applied_dir)
-            return calibrated_arm(self.baseline, calibration), calibration
+            return self.read()
         except (ArmCalibrationError, ValidationError) as exc:
             emit_calib_event(
                 LOGGER,
@@ -214,8 +152,8 @@ class ArmCalibrationWatcher:
             arm (ArmSettings): The running config's arm settings (changed in place).
         """
         run_id = new_run_id()
-        self.stamp = self.marker_stamp()
-        loaded = self.read(run_id)
+        self.changed()
+        loaded = self.read_logged(run_id)
         if loaded is None:
             return
         settings, calibration = loaded
@@ -230,11 +168,9 @@ class ArmCalibrationWatcher:
         Args:
             swap (SwapFn): ArmController.swap_calibration.
         """
-        stamp = self.marker_stamp()
-        if stamp != self.stamp:
-            self.stamp = stamp
+        if self.changed():
             run_id = new_run_id()
-            loaded = self.read(run_id)
+            loaded = self.read_logged(run_id)
             if loaded is not None:
                 settings, calibration = loaded
                 if self.same(calibration):
@@ -265,17 +201,6 @@ class ArmCalibrationWatcher:
         self.pending = None
         self.commit(settings, calibration, run_id)
 
-    def same(self, calibration: ArmCalibrationFile | None) -> bool:
-        """Whether a read calibration is the one in use.
-
-        Args:
-            calibration (ArmCalibrationFile | None): Calibration just read.
-
-        Returns:
-            bool: True for the same accepted file content or both the configured values.
-        """
-        return calibration == self.loaded
-
     def commit(self, settings: ArmSettings, calibration: ArmCalibrationFile | None, run_id: str) -> None:
         """Record the calibration now in use, log old -> new and clear the stale marker's joint_offsets when due.
 
@@ -284,8 +209,7 @@ class ArmCalibrationWatcher:
             calibration (ArmCalibrationFile | None): Accepted calibration now in use, None for the configured values.
             run_id (str): calib_event run id.
         """
-        old = arm_values(self.current)
-        self.current, self.loaded = settings, calibration
+        old = arm_values(self.use(settings, calibration))
         emit_calib_event(
             LOGGER,
             FLOW,

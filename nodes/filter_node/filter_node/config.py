@@ -78,7 +78,11 @@ class GuardSettings(StrictModel):
             body_check.hard_margin_m (BodyCheckSettings).
         head_state_topic: Head pan/tilt (sensor_msgs/JointState): the D435 head is posed where it is.
         head_state_max_age_s: Older head states are stale: the full head envelope is checked instead.
-        arm: Arm URDF, mount and calibration (the shared ArmModelSettings, equal to mcp_server's arm values).
+        arm: Arm URDF, mount and calibration (the shared ArmModelSettings, equal to mcp_server's arm values): the
+            baseline while no arm calibration is accepted.
+        applied_dir: head_rgbd_calibration's applied directory (mcp_server's arm.applied_dir): an accepted arm to
+            camera calibration there overrides the arm's joint offsets, base pose and mount height at startup and
+            within CALIBRATION_POLL_S of each Accept (filter_node.arm_calibration); None keeps the arm values.
         leader_gripper: The follower bridge's gripper range mapping, applied to leader commands before the check;
             None checks leader commands as sent.
     """
@@ -93,6 +97,7 @@ class GuardSettings(StrictModel):
     head_state_topic: str = Field(default=DEFAULT_HEAD_STATE_TOPIC, pattern=r"^/[A-Za-z0-9_/]+$")
     head_state_max_age_s: float = Field(default=DEFAULT_HEAD_STATE_MAX_AGE_S, gt=0.0)
     arm: ArmModelSettings
+    applied_dir: Path | None = None
     leader_gripper: LeaderGripperSettings | None = None
 
 

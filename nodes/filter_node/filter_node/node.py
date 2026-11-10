@@ -28,6 +28,7 @@ from .arbitration import (
     SourceArbiter,
     parse_released,
 )
+from .arm_calibration import CALIBRATION_POLL_S, GuardCalibration, swap_checker_calibration
 from .command import fill_command
 from .config import EXECUTOR_KINDS, FilterConfig, GuardSettings
 from .feedback_rate import FeedbackRateSwitch
@@ -183,7 +184,13 @@ def serve_filter_node(config: FilterConfig, node: Node) -> None:
             return None
         return head_pose(sample[1])
 
-    guard = build_arm_guard(guard_settings, fresh_head_pose) if guard_settings is not None else None
+    guard: ArmGuard | None = None
+    calibration: GuardCalibration | None = None
+    if guard_settings is not None:
+        # The accepted arm calibration over self_collision_guard.arm (filter_node.arm_calibration).
+        calibration = GuardCalibration(guard_settings.arm, guard_settings.applied_dir, log)
+        arm = calibration.startup()
+        guard = build_arm_guard(guard_settings.model_copy(update={"arm": arm}), fresh_head_pose)
     last_guard_log = [-GUARD_LOG_PERIOD_S]
     guard_state_pub = (
         node.create_publisher(String, config.guard_state_topic, LATCHED_QOS)
@@ -393,6 +400,14 @@ def serve_filter_node(config: FilterConfig, node: Node) -> None:
 
     if config.follower_feedback_topic:
         swap_feedback_subscription(time.monotonic())
+    if guard is not None and calibration is not None and calibration.applied_dir is not None:
+        checker = guard.checker
+
+        def reload_calibration() -> None:
+            """Swap a new accepted arm calibration into the guard (between two checks: one thread runs both)."""
+            calibration.tick(lambda arm: swap_checker_calibration(checker, arm))
+
+        node.create_timer(CALIBRATION_POLL_S, reload_calibration)
     if guard_settings is not None:
         node.create_subscription(JointState, guard_settings.head_state_topic, on_head_state, FILTER_QOS)
         log.info(

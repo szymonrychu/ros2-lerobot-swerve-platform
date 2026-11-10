@@ -19,7 +19,8 @@ import { GpsAnchor } from './geo'
 import type { GroundState } from './groundLayer'
 import { Bounds, classifyBaseLink, fitDistance } from './groundMath'
 import { LayerState } from './layers'
-import { DEFAULT_ARM_OFFSET } from '../grasp/grasp'
+import { armScenePlacement, toUrdfJointStates, type ArmCalibration } from '../arm/armCalibration'
+import { useArmCalibration } from '../arm/armCalibrationApi'
 import { PhotoLayer } from '../photos/PhotoLayer'
 import type { Photo } from '../photos/api'
 import { PoiLayer } from '../poi/PoiLayer'
@@ -73,7 +74,6 @@ export interface MapSceneProps {
   baseUrdf?: string
   armUrdf?: string
   headUrdf?: string
-  armOffset?: [number, number, number]
   map: GridImageMsg | null | undefined
   costmap: GridImageMsg | null | undefined
   /** Raw D435 depth cloud and lidar scan payloads (with frame_pose) of the 3D obstacles layer. */
@@ -245,7 +245,7 @@ const RobotLayer = memo(function RobotLayer({
   baseUrdf,
   armUrdf,
   headUrdf,
-  armOffset,
+  armCalibration,
   baseJoints,
   armJoints,
   headJoints,
@@ -258,7 +258,8 @@ const RobotLayer = memo(function RobotLayer({
   baseUrdf?: string
   armUrdf?: string
   headUrdf?: string
-  armOffset: [number, number, number]
+  /** Arm mount and joint offsets (the served arm calibration: accepted or configured); null draws no arm. */
+  armCalibration: ArmCalibration | null
   baseJoints: JointStates | undefined
   armJoints: JointStates | undefined
   headJoints?: JointStates
@@ -276,11 +277,13 @@ const RobotLayer = memo(function RobotLayer({
   )
   const baseValues = useBaseJointValues(baseJoints)
   const headValues = useMemo(() => headJointValues(headJoints), [headJoints])
-  const armPos = useMemo(
-    () => rosToThree({ x: armOffset[0], y: armOffset[1], z: armOffset[2] }),
-    [armOffset],
+  const armPlacement = useMemo(() => (armCalibration ? armScenePlacement(armCalibration.mount) : null), [armCalibration])
+  // The arm URDF is posed in URDF angles: measured + the calibration's joint offsets.
+  const armValues = useMemo(
+    () => (armCalibration ? toUrdfJointStates(armJoints, armCalibration.jointOffsets) : undefined),
+    [armJoints, armCalibration],
   )
-  useEffect(() => invalidate(), [p.x, p.y, p.yaw, invalidate])
+  useEffect(() => invalidate(), [p.x, p.y, p.yaw, armCalibration, invalidate])
   return (
     <group position={rosToThree(p)} rotation={[0, rosYawToThreeY(p.yaw), 0]}>
       {baseUrdf && (
@@ -291,7 +294,11 @@ const RobotLayer = memo(function RobotLayer({
           linkVisible={linkVisible}
         />
       )}
-      {armUrdf && <RobotModel urdfFile={armUrdf} jointStates={armJoints} position={armPos} visible={showArm} />}
+      {armUrdf && armPlacement && (
+        <group position={armPlacement.position} rotation={armPlacement.rotation}>
+          <RobotModel urdfFile={armUrdf} jointStates={armValues} visible={showArm} />
+        </group>
+      )}
       {headUrdf && headValues && <RobotModel urdfFile={headUrdf} jointStates={headValues} visible={showHead} />}
     </group>
   )
@@ -302,10 +309,9 @@ function inMapFrame<T extends { frame_id?: string }>(msg: T | null | undefined, 
 }
 
 /** Scene contents (inside the Canvas). */
-function SceneContents(props: MapSceneProps & { mapFrame?: string }) {
+function SceneContents(props: MapSceneProps & { mapFrame?: string; armCalibration: ArmCalibration | null }) {
   const orbitRef = useRef<OrbitControlsImpl | null>(null)
   const { layers } = props
-  const armOffset = props.armOffset ?? DEFAULT_ARM_OFFSET
   const map3dCloud = useMap3dCloud(props.map3dCloud, props.map3dFrameId)
   return (
     <>
@@ -359,7 +365,7 @@ function SceneContents(props: MapSceneProps & { mapFrame?: string }) {
           baseUrdf={props.baseUrdf}
           armUrdf={props.armUrdf}
           headUrdf={props.headUrdf}
-          armOffset={armOffset}
+          armCalibration={props.armCalibration}
           baseJoints={props.baseJoints}
           armJoints={props.armJoints}
           headJoints={props.headJoints}
@@ -386,6 +392,8 @@ export const MapScene = memo(function MapScene(props: MapSceneProps & { mapFrame
   // Canvas resizes with it and one frame is requested (the loop stays on demand).
   const boxRef = useRef<HTMLDivElement>(null)
   useInvalidateOnResize(boxRef)
+  // The served arm calibration (polled): the configured values, the accepted one after an Accept (no arm before it).
+  const armCalibration = useArmCalibration()
   return (
     <div ref={boxRef} style={{ width: '100%', height: '100%' }}>
       <Canvas
@@ -394,7 +402,7 @@ export const MapScene = memo(function MapScene(props: MapSceneProps & { mapFrame
         style={{ background: CANVAS_BG, touchAction: 'none' }}
         dpr={[1, 2]}
       >
-        <SceneContents {...props} />
+        <SceneContents {...props} armCalibration={armCalibration} />
       </Canvas>
     </div>
   )

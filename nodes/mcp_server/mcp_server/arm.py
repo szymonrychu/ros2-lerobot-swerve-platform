@@ -28,8 +28,8 @@ from arm_collision.self_collision import (
     rigid,
 )
 from arm_collision.settings import ArmBaseOffset
+from ros2_common.head_rgbd_calibration.applied_arm_calibration import assign_calibration
 
-from .arm_calibration import assign_calibration
 from .calib_event import emit_calib_event, new_run_id
 from .calibration_board import BoardPark
 from .calibration_marker import CalibrationMarker, clear_stale, load_marker
