@@ -2,7 +2,6 @@
 
 import importlib
 import json
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -12,7 +11,7 @@ import pytest
 from st3215.protocol_packet_handler import protocol_packet_handler
 from st3215.values import INST_READ, INST_WRITE
 
-from feetech_servos import neutral as neutral_module
+from feetech_servos import zero_record as zero_record_module
 from feetech_servos.bridge_cycle import BridgeCycle
 from feetech_servos.calib_event import CalibEventLog
 from feetech_servos.config import DEFAULT_NEUTRAL_MAX_SHIFT_DEG, JointEntry, JointGroup
@@ -22,10 +21,7 @@ from feetech_servos.neutral import (
     LIMIT_READ_ATTEMPTS,
     LIMIT_SETTLE_S,
     NEUTRAL_MOVE_TOLERANCE_STEPS,
-    STALE_ITEMS,
-    ZERO_RECORD_FILE,
     NeutralControl,
-    write_stale_marker,
 )
 from feetech_servos.registers import (
     STS_GOAL_POSITION_L,
@@ -38,6 +34,7 @@ from feetech_servos.registers import (
     get_register_entry_by_name,
 )
 from feetech_servos.torque_control import TorqueControl, torque_state_payload
+from feetech_servos.zero_record import ZERO_RECORD_FILE
 
 from .ros_stubs import install_service_stubs
 from .sts_bus import FakeStsPort, StsPacket, put_word, register_table
@@ -708,7 +705,7 @@ def test_the_zero_record_is_written_before_the_marker(tmp_path: Path, monkeypatc
     def broken(*args: Any, **kwargs: Any) -> None:
         raise OSError("disk full")
 
-    monkeypatch.setattr(neutral_module, "write_stale_marker", broken)
+    monkeypatch.setattr(zero_record_module, "write_stale_marker", broken)
     result = rig.neutral.save("follower")
     assert "stale marker not written" in result.message
     assert json.loads(rig.marker.with_name(ZERO_RECORD_FILE).read_text())["changed_at"] == SAVED_AT
@@ -720,7 +717,7 @@ def test_a_failed_zero_record_write_is_named(tmp_path: Path, monkeypatch: pytest
     def broken(*args: Any, **kwargs: Any) -> None:
         raise OSError("disk full")
 
-    monkeypatch.setattr(neutral_module, "record_zero_change", broken)
+    monkeypatch.setattr(zero_record_module, "record_zero_change", broken)
     result = rig.neutral.save("follower")
     assert "zero change record not written" in result.message
 
@@ -729,54 +726,6 @@ def test_no_marker_without_neutral_stale_marker(tmp_path: Path) -> None:
     rig = released_and_recorded(tmp_path, namespace="swerve_drive")
     assert rig.neutral.save("swerve_drive").success
     assert not rig.marker.exists()
-
-
-def test_marker_merges_an_existing_marker(tmp_path: Path) -> None:
-    marker = tmp_path / "calibration_stale.json"
-    marker.write_text(
-        json.dumps(
-            {
-                "version": 1,
-                "group": "follower",
-                "saved_at": "2026-10-01T00:00:00+00:00",
-                "joints": {
-                    "wrist_flex": {"before_steps": 1000, "after_steps": 2048},
-                    "shoulder_pan": {"before_steps": 1, "after_steps": 2},
-                },
-                "stale": ["joint_offsets"],
-            }
-        )
-    )
-    write_stale_marker(marker, "follower", SAVED_AT, {"shoulder_pan": (1500, 2048)})
-    assert json.loads(marker.read_text()) == {
-        "version": 1,
-        "group": "follower",
-        "saved_at": SAVED_AT,
-        "joints": {
-            "wrist_flex": {"before_steps": 1000, "after_steps": 2048},
-            "shoulder_pan": {"before_steps": 1500, "after_steps": 2048},
-        },
-        "stale": list(STALE_ITEMS),
-    }
-
-
-def test_marker_written_atomically_with_parents_created(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    marker = tmp_path / "a" / "b" / "calibration_stale.json"
-    replaced: list[tuple[str, str]] = []
-    real_replace = os.replace
-
-    def recording_replace(src: str, dst: str) -> None:
-        replaced.append((str(src), str(dst)))
-        assert json.loads(Path(src).read_text())["joints"] == {"head_pan": {"before_steps": 10, "after_steps": 2048}}
-        real_replace(src, dst)
-
-    monkeypatch.setattr(neutral_module.os, "replace", recording_replace)
-    write_stale_marker(marker, "head", SAVED_AT, {"head_pan": (10, 2048)})
-    assert len(replaced) == 1
-    src, dst = replaced[0]
-    assert Path(src).parent == marker.parent and src != str(marker)
-    assert dst == str(marker)
-    assert [p.name for p in marker.parent.iterdir()] == [marker.name]  # no temp file left
 
 
 def test_marker_failure_message_keeps_torque_enabled(tmp_path: Path) -> None:
@@ -1007,67 +956,6 @@ def test_save_services_refuse_then_confirm_a_large_shift(tmp_path: Path, bridge_
     reporter.step(0.2, 2)
     state = json.loads(node.publishers["/follower/torque_state"][-1].data)
     assert state["released"] is False and state["neutral_capture"] is None
-
-
-# --- stale marker read / clear, atomic JSON ---------------------------------------------------------------------------
-
-
-def test_read_stale_items_absent_marker_is_none(tmp_path: Path) -> None:
-    assert neutral_module.read_stale_items(tmp_path / "none.json") is None
-
-
-def test_read_stale_items_lists_the_marker_items(tmp_path: Path) -> None:
-    marker = tmp_path / "m.json"
-    write_stale_marker(marker, "follower", SAVED_AT, {"shoulder_pan": (1500, 2048)})
-    assert neutral_module.read_stale_items(marker) == list(STALE_ITEMS)
-
-
-def test_read_stale_items_unreadable_marker_counts_every_item(tmp_path: Path) -> None:
-    marker = tmp_path / "m.json"
-    marker.write_text("{not json")
-    assert neutral_module.read_stale_items(marker) == list(STALE_ITEMS)
-    marker.write_text('{"stale": "home"}')
-    assert neutral_module.read_stale_items(marker) == list(STALE_ITEMS)
-
-
-def test_set_stale_items_keeps_the_rest_of_the_marker(tmp_path: Path) -> None:
-    marker = tmp_path / "m.json"
-    write_stale_marker(marker, "follower", SAVED_AT, {"shoulder_pan": (1500, 2048)})
-    neutral_module.set_stale_items(marker, ["home"], "follower", SAVED_AT)
-    content = json.loads(marker.read_text())
-    assert content["stale"] == ["home"]
-    assert content["joints"] == {"shoulder_pan": {"before_steps": 1500, "after_steps": 2048}}
-    assert [p.name for p in tmp_path.iterdir()] == ["m.json"]  # no temp file left
-
-
-def test_set_stale_items_deletes_the_marker_when_empty(tmp_path: Path) -> None:
-    marker = tmp_path / "m.json"
-    write_stale_marker(marker, "follower", SAVED_AT, {"shoulder_pan": (1500, 2048)})
-    neutral_module.set_stale_items(marker, [], "follower", SAVED_AT)
-    assert not marker.exists()
-    neutral_module.set_stale_items(marker, [], "follower", SAVED_AT)  # absent: no-op
-
-
-def test_set_stale_items_creates_or_rewrites_a_marker(tmp_path: Path) -> None:
-    marker = tmp_path / "m.json"
-    neutral_module.set_stale_items(marker, ["home"], "follower", SAVED_AT)
-    assert json.loads(marker.read_text()) == {
-        "version": 1,
-        "group": "follower",
-        "saved_at": SAVED_AT,
-        "joints": {},
-        "stale": ["home"],
-    }
-    marker.write_text("{not json")
-    neutral_module.set_stale_items(marker, ["home"], "follower", SAVED_AT)
-    assert json.loads(marker.read_text())["stale"] == ["home"]
-
-
-def test_write_json_atomic_creates_parents_and_leaves_no_temp(tmp_path: Path) -> None:
-    path = tmp_path / "a" / "b.json"
-    neutral_module.write_json_atomic(path, {"x": 1})
-    assert json.loads(path.read_text()) == {"x": 1}
-    assert [p.name for p in path.parent.iterdir()] == ["b.json"]
 
 
 # --- calib_event lines ------------------------------------------------------------------------------------------------
