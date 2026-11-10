@@ -574,6 +574,8 @@ class ServoGroupConfig(BaseModel):
         move_to_neutral_timeout_s: Wait for the move to neutral response (a motion, like arm home).
         set_home_service: Arm only: mcp_server std_srvs/Trigger storing the measured arm pose as home (the Arm tab Set
             home service; it clears `home` from the stale marker); None: no Set home step. Waits service_timeout_s.
+        home_pose_hint: Short text of the group's reference home pose, shown where the hand-posed pose is recorded
+            (None: no hint).
     """
 
     id: Literal["arm", "base", "head"]
@@ -589,6 +591,7 @@ class ServoGroupConfig(BaseModel):
     move_to_neutral_service: str | None = None
     move_to_neutral_timeout_s: float = Field(DEFAULT_ARM_SERVICE_TIMEOUT_S, gt=0)
     set_home_service: str | None = None
+    home_pose_hint: str | None = None
 
     @property
     def state_topic(self) -> str:

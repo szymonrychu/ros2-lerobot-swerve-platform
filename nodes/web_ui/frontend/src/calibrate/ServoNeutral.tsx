@@ -52,6 +52,23 @@ export type ServoPart = 'torque' | 'zero' | 'move' | 'home'
 export const ALL_SERVO_PARTS: ServoPart[] = ['torque', 'zero', 'move', 'home']
 
 /**
+ * Whether the card shows the group's home pose hint: where the hand-posed pose is recorded. That is the zero restore
+ * or Set home step of a group that has one (the arm: its neutral is all joints at 0, not its home), else Record
+ * neutral.
+ *
+ * @param group - the servo group
+ * @param parts - the card parts shown
+ * @returns true when the card shows the hint
+ */
+export function homeHintShown(group: ServoGroup, parts: ServoPart[]): boolean {
+  if (!group.home_pose_hint) return false
+  if (group.zero_restore || group.set_home) {
+    return (parts.includes('zero') && group.zero_restore) || (parts.includes('home') && group.set_home)
+  }
+  return parts.includes('torque') && group.neutral
+}
+
+/**
  * Per item of MARKER_ITEMS whether the stale marker lists it (null calibration_stale: no marker, nothing stale).
  *
  * @param group - the servo group
@@ -125,6 +142,9 @@ function ServoCard({ group, parts, busy, onRun, onConfirm }: CardProps) {
         </Typography>
         <Chip data-testid="torque-chip" size="small" label={chip.label} color={chip.color} />
       </Box>
+      {homeHintShown(group, parts) && (
+        <Typography variant="body2" sx={{ mb: 1 }}>{`Home pose: ${group.home_pose_hint}`}</Typography>
+      )}
       {torque && known && group.state && (
         <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 1 }}>
           {Object.entries(group.state.joints).map(([name, v]) => (

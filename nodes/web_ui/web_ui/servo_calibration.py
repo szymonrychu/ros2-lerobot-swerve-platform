@@ -88,7 +88,7 @@ def group_status(group: ServoGroupConfig, bridge_node: Any) -> dict[str, Any]:
 
     Returns:
         dict[str, Any]: {id, label, neutral, state, age_s, stale, calibration_stale, zero_restore, move_to_neutral,
-            set_home}.
+            set_home, home_pose_hint}.
     """
     sample = bridge_node.servo_torque_sample(group.namespace) if bridge_node is not None else None
     state, age_s = None, None
@@ -106,6 +106,7 @@ def group_status(group: ServoGroupConfig, bridge_node: Any) -> dict[str, Any]:
         "zero_restore": group.zero_restore,
         "move_to_neutral": group.move_to_neutral_service is not None,
         "set_home": group.set_home_service is not None,
+        "home_pose_hint": group.home_pose_hint,
     }
 
 

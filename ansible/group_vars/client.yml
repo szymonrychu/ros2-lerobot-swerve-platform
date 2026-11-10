@@ -2953,16 +2953,20 @@ ros2_nodes:
             # Servo home flow "Set home" step: mcp_server /arm/set_home, the Arm tab Set home service (stores the
             # measured pose as home and clears `home` from the stale marker; no motion).
             set_home_service: /arm/set_home
+            # Reference home pose text shown where the hand-posed pose is recorded (zero restore, Set home).
+            home_pose_hint: "Pointing straight forward, folded in half, gripper jaws open 90 deg."
           - id: base
             label: Base steering
             namespace: swerve_drive
             neutral: true
             command_topics: [/goal_pose]
+            home_pose_hint: "Wheels aligned as if the robot should drive perfectly straight."
           - id: head
             label: Head
             namespace: head
             neutral: true
             command_topics: [/head/joint_commands]
+            home_pose_hint: "Pointing directly forward, perpendicular to the ground."
         # General section buttons (POST /api/calibration/general/{action}): one mcp_server std_srvs/Trigger each; null
         # leaves a button out. Each is refused (409) while the servo group it moves (arm, head, base) is released.
         general:

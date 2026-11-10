@@ -117,6 +117,8 @@ export interface ServoGroup {
   move_to_neutral: boolean
   /** The Set home step is offered (mcp_server /arm/set_home, as the Arm tab Set home). */
   set_home: boolean
+  /** Reference home pose text (web_ui home_pose_hint); null or absent: no hint. */
+  home_pose_hint?: string | null
 }
 
 export interface ServoActionResult {
