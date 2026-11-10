@@ -45,9 +45,7 @@ PLAN_STATE_KEYS: dict[bool, str] = {False: "zero_restore", True: "servo_calibrat
 PLAN_CHANGED = "the dry run changed since it was shown; review the new plan"
 
 
-def shown_plan_error(
-    group: ServoGroupConfig, bridge_node: Any, plan_run_id: str | None, action: str = "zero_restore_apply"
-) -> str | None:
+def shown_plan_error(group: ServoGroupConfig, bridge_node: Any, plan_run_id: str | None, action: str) -> str | None:
     """Explain why a plan-bound write does not match the plan the user was shown.
 
     Args:
@@ -221,7 +219,10 @@ def register_servo_calibration_routes(
                 group.service_timeout_s,
             )
             home_ok = home_failure is None and bool(getattr(home, "success", False))
-            home_message = (getattr(home, "message", "") if home_failure is None else "") or f"{chain} failed"
+            if home_failure is not None:
+                home_message = json.loads(home_failure.body).get("message") or f"{chain} failed"
+            else:
+                home_message = getattr(home, "message", "") or f"{chain} {'succeeded' if home_ok else 'failed'}"
             body["home_set"] = home_ok
             body["message"] = f"{message}; set home from calibration: {home_message}"
         return JSONResponse(body)

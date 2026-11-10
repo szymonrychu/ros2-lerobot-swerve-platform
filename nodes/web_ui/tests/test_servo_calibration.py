@@ -10,6 +10,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
@@ -565,6 +566,36 @@ def test_arm_store_reports_home_not_set_on_failure(tmp_path: Path) -> None:
     body = response.json()
     assert response.status_code == 200 and body["ok"] is True and body["home_set"] is False
     assert "stored" in body["message"] and "no record" in body["message"]
+
+
+def test_arm_store_chain_call_failure_reports_reason(tmp_path: Path) -> None:
+    async def fake_call(action: str, future: Any, service: str, timeout_s: float) -> tuple[Any, Any]:
+        if service == SET_HOME_FROM_CAL:
+            return None, JSONResponse({"ok": False, "message": f"{service} timed out after 5 s"}, status_code=504)
+        return SimpleNamespace(success=True, message="stored"), None
+
+    with (
+        patch("web_ui.server.call_ros_service", fake_call),
+        patch("web_ui.servo_calibration.time.monotonic", return_value=100.5),
+    ):
+        response = cal_client(tmp_path, FakeBridge(cal_samples())).post(cal_url("arm", "calibration_store"))
+    body = response.json()
+    assert response.status_code == 200 and body["ok"] is True and body["home_set"] is False
+    assert "stored" in body["message"] and "timed out after 5 s" in body["message"]
+
+
+def test_arm_store_chain_success_with_empty_message_says_succeeded(tmp_path: Path) -> None:
+    async def fake_call(action: str, future: Any, service: str, timeout_s: float) -> tuple[Any, None]:
+        return SimpleNamespace(success=True, message="stored" if service != SET_HOME_FROM_CAL else ""), None
+
+    with (
+        patch("web_ui.server.call_ros_service", fake_call),
+        patch("web_ui.servo_calibration.time.monotonic", return_value=100.5),
+    ):
+        response = cal_client(tmp_path, FakeBridge(cal_samples())).post(cal_url("arm", "calibration_store"))
+    body = response.json()
+    assert body["home_set"] is True
+    assert f"{SET_HOME_FROM_CAL} succeeded" in body["message"] and "failed" not in body["message"]
 
 
 def test_arm_failed_store_does_not_chain(tmp_path: Path) -> None:
