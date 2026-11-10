@@ -638,7 +638,7 @@ export CARTO_API_KEY=...   # from https://carto.com/basemaps/apikey
 `playbooks/tasks/mcp_server_setup.yml` runs before `mcp_server` is deployed (in `deploy_nodes_client.yml` and in
 tags `setup`, `mcp_server`). It creates `/etc/ros2/mcp_server/token` once, containing
 `MCP_SERVER_TOKEN=<48 random letters/digits>` (mode `0600`, owner `ansible_user`, `force: false` so redeploys keep the
-token, `no_log: true`), and `/var/lib/ros2/arm` (owner `ansible_user`) for the arm home pose (`home.yaml`) and the arm re-zero stale marker (`calibration_stale.json`, written by the lerobot_follower bridge, read by mcp_server and web_ui),
+token, `no_log: true`), and `/var/lib/ros2/arm` (owner `ansible_user`) for the arm home pose (`home.yaml`) and the arm re-zero stale marker (`calibration_stale.json`, written by the lerobot_follower bridge and by its `calibrate_servos.py` CLI run as `ansible_user`, read by mcp_server and web_ui),
 `/var/lib/ros2/camera_calibration` (owner `ansible_user`) for the camera calibration samples of the mcp_server camera
 tools, and `/var/lib/ros2/objects` (owner `ansible_user`) for the legacy object memory file (`objects.json`, imported once into poi_store as object POIs and renamed `objects.json.migrated`), and `/var/lib/ros2/poi` plus
 `/var/lib/ros2/poi/lookups` (owner `ansible_user`, `0755`) for the camera lookup store (every camera image the agent
