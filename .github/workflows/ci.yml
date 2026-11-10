@@ -97,8 +97,10 @@ jobs:
 
   cpp:
     # amd64 runner; scripts/cpp-node-test.sh builds its image for the native platform (arm64 on the Mac, like the Pi).
+    # 60 min, not 3x a typical 3 to 10 min run: on a slow runner day the image build alone took up to 54 min
+    # (run 42744433547) and those jobs passed.
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:

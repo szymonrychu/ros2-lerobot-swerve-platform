@@ -252,7 +252,8 @@ Exits non-zero on any build, test or lint failure, and always ends with one line
 `cpp-node-test: <pkg> FAIL`. An unknown package exits 2 and lists the known ones. It generalizes the container
 pattern of `probe-mppi-overlay-docker.sh` (`docker run --rm -i`, repo mounted `:ro`, inline script on stdin). The root
 poe tasks `test-cpp` and `lint-cpp` run it for every C++ package, and the `cpp` CI job runs it per package (job
-`timeout-minutes: 30`, about 3x a typical run of 3 to 10 minutes including a fresh image build).
+`timeout-minutes: 60`; a typical run takes 3 to 10 minutes including a fresh image build, but on a slow runner day
+the image build alone took up to 54 minutes on a passing run).
 
 ```bash
 mkdir -p .logs && ./scripts/cpp-node-test.sh ros2_common_cpp 2>&1 | tee .logs/cpp-node-test.log | tail -20
