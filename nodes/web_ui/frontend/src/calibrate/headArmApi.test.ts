@@ -105,6 +105,12 @@ describe("headArmApi", () => {
       headers: JSON_HEADERS,
       body: JSON.stringify({ confirm: true }),
     });
+    await resumeBoardOn(true, true);
+    expect(f).toHaveBeenLastCalledWith(`${B}/sequence/resume-board-on`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ confirm: true, board_gripped: true }),
+    });
     await allowBigJoints(false);
     expect(f).toHaveBeenLastCalledWith(`${B}/sequence/big-joints`, {
       method: "POST",

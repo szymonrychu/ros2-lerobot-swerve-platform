@@ -64,11 +64,12 @@ STATE_DOC = {
 class FakeSequencer:
     def __init__(self) -> None:
         self.running = False
+        self.phase = STATE_DOC["phase"]
         self.error: Exception | None = None
         self.calls: list[tuple[str, Any]] = []
 
     def state(self) -> dict[str, Any]:
-        return {**STATE_DOC, "running": self.running}
+        return {**STATE_DOC, "running": self.running, "phase": self.phase}
 
     def act(self, name: str, arg: Any = None) -> dict[str, Any]:
         if self.error is not None:
@@ -82,8 +83,8 @@ class FakeSequencer:
     def board_attached(self) -> dict[str, Any]:
         return self.act("board_attached")
 
-    def resume_with_board(self, confirmed: bool) -> dict[str, Any]:
-        return self.act("resume_with_board", confirmed)
+    def resume_with_board(self, confirmed: bool, board_gripped: bool = False) -> dict[str, Any]:
+        return self.act("resume_with_board", (confirmed, board_gripped))
 
     def allow_big_joints(self, confirmed: bool) -> dict[str, Any]:
         return self.act("allow_big_joints", confirmed)
@@ -207,7 +208,7 @@ def test_resume_board_on_needs_confirm(parts: SimpleNamespace, body: dict[str, A
 def test_resume_board_on_passes_confirm_and_maps_refusals(parts: SimpleNamespace) -> None:
     response = parts.client.post("/api/head-arm/sequence/resume-board-on", json={"confirm": True})
     assert response.status_code == 200
-    assert parts.sequencer.calls == [("resume_with_board", True)]
+    assert parts.sequencer.calls == [("resume_with_board", (True, False))]
     parts.sequencer.error = Busy("accepted only while holding with the board on")
     response = parts.client.post("/api/head-arm/sequence/resume-board-on", json={"confirm": True})
     assert (response.status_code, response.json()["message"]) == (409, "accepted only while holding with the board on")
@@ -217,6 +218,39 @@ def test_resume_board_on_passes_confirm_and_maps_refusals(parts: SimpleNamespace
 def test_resume_board_on_conflicts_while_something_runs(parts: SimpleNamespace, blocker: str) -> None:
     getattr(parts, blocker).running = True
     response = parts.client.post("/api/head-arm/sequence/resume-board-on", json={"confirm": True})
+    assert response.status_code == 409
+    assert parts.sequencer.calls == []
+
+
+@pytest.mark.parametrize("body", [{"confirm": True}, {"confirm": True, "board_gripped": False}])
+def test_resume_board_on_from_idle_needs_board_gripped(parts: SimpleNamespace, body: dict[str, Any]) -> None:
+    parts.sequencer.phase = "idle"
+    response = parts.client.post("/api/head-arm/sequence/resume-board-on", json=body)
+    assert response.status_code == 400
+    assert response.json()["ok"] is False and "board_gripped" in response.json()["message"]
+    assert parts.sequencer.calls == []
+
+
+def test_resume_board_on_from_idle_passes_board_gripped_and_maps_refusals(parts: SimpleNamespace) -> None:
+    parts.sequencer.phase = "idle"
+    body = {"confirm": True, "board_gripped": True}
+    response = parts.client.post("/api/head-arm/sequence/resume-board-on", json=body)
+    assert response.status_code == 200
+    assert parts.sequencer.calls == [("resume_with_board", (True, True))]
+    parts.sequencer.error = Busy("an RGB-D capture is running")
+    response = parts.client.post("/api/head-arm/sequence/resume-board-on", json=body)
+    assert (response.status_code, response.json()["message"]) == (409, "an RGB-D capture is running")
+    parts.sequencer.error = SequenceError("resume from idle refused: the gripper is open")
+    response = parts.client.post("/api/head-arm/sequence/resume-board-on", json=body)
+    assert response.status_code == 400 and "gripper is open" in response.json()["message"]
+
+
+@pytest.mark.parametrize("blocker", ["sequencer", "capture", "sweep", "job"])
+def test_resume_board_on_from_idle_conflicts_while_something_runs(parts: SimpleNamespace, blocker: str) -> None:
+    parts.sequencer.phase = "idle"
+    getattr(parts, blocker).running = True
+    body = {"confirm": True, "board_gripped": True}
+    response = parts.client.post("/api/head-arm/sequence/resume-board-on", json=body)
     assert response.status_code == 409
     assert parts.sequencer.calls == []
 

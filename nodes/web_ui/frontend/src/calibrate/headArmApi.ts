@@ -381,11 +381,15 @@ export const moveToBase = (confirm: boolean) =>
     post({ confirm }),
     badSequence,
   );
-/** Resumes the capture with the board on from holding (new run, the gripper kept at its measured angle); `confirm` is the user's confirm of the base move. */
-export const resumeBoardOn = (confirm: boolean) =>
+/**
+ * Resumes the capture with the board on (new run, the gripper kept at its measured angle); `confirm` is the user's
+ * confirm of the base move. From holding the body is `{confirm}`; from idle (e.g. after a node restart) `boardGripped`
+ * true states the board is gripped in the jaws and the body is `{confirm, board_gripped: true}`.
+ */
+export const resumeBoardOn = (confirm: boolean, boardGripped = false) =>
   request<HeadArmSequence>(
     `${BASE}/sequence/resume-board-on`,
-    post({ confirm }),
+    post(boardGripped ? { confirm, board_gripped: true } : { confirm }),
     badSequence,
   );
 export const boardAttached = () =>

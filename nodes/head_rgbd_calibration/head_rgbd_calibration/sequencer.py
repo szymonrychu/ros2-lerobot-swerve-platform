@@ -34,6 +34,18 @@ check from the measured joints with the board on, commanding the gripper to its 
 still session and the tiers exactly as after Board attached (`capture_tiers`), ending holding with the board on, then
 Park. A refused start (not holding, no board on, running, `blocked`, an unusable URDF) moves nothing and keeps holding.
 
+Resume from idle (`resume_with_board(confirmed, board_gripped=True)`): the phase and board_on live in memory only, so a
+node restart (a deploy) leaves `idle` with the board still taped or seated in the jaws. From `idle` (not running) the
+resume also needs the user's distinct statement that the board is gripped in the jaws (`board_gripped`; without it a
+ValueError, nothing is called). Before anything moves the measured gripper angle (get_arm_state) must be at most
+`handle_contact_rad + grip_converge_tolerance_rad` (jaws closed on the handle: the contact angle plus the mcp_server
+converge tolerance; a larger angle is clearly open jaws), else the start is refused (SequenceError, nothing moved, the
+phase stays idle). A pass sets board_on, writes the board record and logs `board_confirmed` (the user's statement, from
+idle); the run is then the resume above (same mount fallback: the fit of the restored session, else the restored
+board record mount, else the configured one; the same path check from the measured joints with the jaw kept), ending
+holding with the board on. A refusal in the worker (path check, no gripper angle) ends holding with the board on, as
+the user stated it is on.
+
 Threads (as floor_sweep.py): `move_to_base`, `resume_with_board`, `board_attached`, `allow_big_joints`, `stop`, `park`,
 `clear_board_record` and `state` run on HTTP threads; one worker thread runs the sequence or the park. `lock` guards the shared fields and is only held for
 short updates (never across a tool call or `blocked`); the worker waits through the injected `sleep` and measures
@@ -107,7 +119,18 @@ MESSAGE_SLACK_GRIP = (
 )
 MESSAGE_STATE_BOARD = "; if the calibration board is on the gripper, state that the board is on and press Park again"
 MESSAGE_PARK = "Press Park (the board may stay on when its park path is clear)"
-MESSAGE_RESUME_PHASE = "Resume with the board on is accepted only while holding with the board on"
+MESSAGE_RESUME_PHASE = (
+    "Resume with the board on is accepted only while holding with the board on, or from idle with the board confirmed"
+    " gripped"
+)
+MESSAGE_RESUME_GRIPPED = (
+    "resume with the board on from idle needs board_gripped=True: the user states the calibration board is gripped in"
+    " the jaws (taped or seated); the jaws will not open"
+)
+MESSAGE_RESUME_OPEN_JAWS = (
+    "resume from idle refused: the gripper is open (the board cannot be gripped in the jaws); nothing was moved"
+)
+BOARD_CONFIRMED_STEP = "board_confirmed"
 MESSAGE_RESUME_CONFIRM = (
     "resume with the board on needs confirmed=True: it moves the arm with the board to the base pose (the gripper"
     " stays at its measured angle)"
@@ -691,7 +714,7 @@ class Sequencer:
         self.stop_event.set()
         return self.state()
 
-    def claim(self, phase: str, status: str, run_prefix: str, resume: bool = False) -> str:
+    def claim(self, phase: str, status: str, run_prefix: str, resume: bool = False, board_gripped: bool = False) -> str:
         """Mark a sequence or park as running under a new run id, then check `blocked` (outside the lock: it reads
         other controllers).
 
@@ -699,19 +722,22 @@ class Sequencer:
             phase: Phase to enter.
             status: Status line to show.
             run_prefix: Prefix of the new run id (seq, park); a refused claim keeps the run id of the running work.
-            resume: A resume with the board on: claimed only while holding with the board on.
+            resume: A resume with the board on: claimed only while holding with the board on, or from idle with
+                `board_gripped`.
+            board_gripped (bool): The user states the board is gripped in the jaws (allows a resume from idle).
 
         Returns:
             str: The phase before the claim.
 
         Raises:
             Busy: Something runs already, the arm holds the board pose (a new base move), a resume outside holding with
-                the board on, or `blocked` names a reason.
+                the board on (or idle with `board_gripped`), or `blocked` names a reason.
         """
         with self.lock:
             if self.running:
                 raise Busy(f"a head-arm sequence is running (phase {self.phase}): stop it first")
-            if resume and (self.phase != HOLDING or not self.board_on):
+            resumable = (self.phase == HOLDING and self.board_on) or (self.phase == IDLE and board_gripped)
+            if resume and not resumable:
                 raise Busy(f"{MESSAGE_RESUME_PHASE} (phase {self.phase}, board on {self.board_on})")
             if phase == MOVING_TO_BASE and self.phase == HOLDING and not resume:
                 raise Busy(f"the arm holds the board pose: {MESSAGE_PARK} before a new sequence")
@@ -811,31 +837,59 @@ class Sequencer:
         self.thread.start()
         return self.state()
 
-    def resume_with_board(self, confirmed: bool) -> dict[str, Any]:
-        """Resume the capture with the board on: a new run from holding to the base pose, then the tiers.
+    def resume_with_board(self, confirmed: bool, board_gripped: bool = False) -> dict[str, Any]:
+        """Resume the capture with the board on: a new run from holding (or idle) to the base pose, then the tiers.
 
         The gripper is commanded to its measured angle (never opened: the board may be taped into the jaws); the
         board confirm and the handle grip are skipped; the still session and the tiers run as after Board attached.
+        From idle (a restarted node forgot the board) the user must also state the board is gripped in the jaws, and
+        the measured jaw must be closed (`jaws_closed_on_board`) before board_on is set and anything moves.
 
         Args:
             confirmed (bool): The user confirmed the base move with the board on.
+            board_gripped (bool): The user states the calibration board is gripped in the jaws (needed from idle).
 
         Returns:
             dict[str, Any]: The state() after the start.
 
         Raises:
-            ValueError: Not confirmed (nothing is called).
-            Busy: A sequence or park runs, the phase is not holding or the board is not on, or `blocked` names a reason.
-            SequenceError: The arm or head URDF is unusable (nothing is called; the arm keeps holding).
+            ValueError: Not confirmed, or from idle without `board_gripped` (nothing is called).
+            Busy: A sequence or park runs, the phase is neither holding with the board on nor idle with
+                `board_gripped`, or `blocked` names a reason.
+            SequenceError: The arm or head URDF is unusable, or (from idle) the measured jaw is open or not reported
+                (nothing moved; the phase stays as it was).
         """
         if not confirmed:
             raise ValueError(MESSAGE_RESUME_CONFIRM)
-        self.claim(MOVING_TO_BASE, "preparing the pose check (board on)", "seq", resume=True)
+        with self.lock:
+            from_idle = not self.running and self.phase == IDLE
+        if from_idle and not board_gripped:
+            raise ValueError(MESSAGE_RESUME_GRIPPED)
+        previous = self.claim(
+            MOVING_TO_BASE, "preparing the pose check (board on)", "seq", resume=True, board_gripped=board_gripped
+        )
         try:
             plan = self.prepare()
+            jaw = self.jaws_closed_on_board() if previous == IDLE else None
         except SequenceError as exc:
-            self.give_up(HOLDING, str(exc), f"resume with the board on refused: {exc}", SEQUENCE_STEP)
+            self.give_up(previous, str(exc), f"resume with the board on refused: {exc}", SEQUENCE_STEP)
             raise
+        if jaw is not None:
+            with self.lock:
+                self.board_on = True
+            self.event(
+                logging.INFO,
+                f"board confirmed gripped by the user (from idle, jaw {jaw:.4f} rad)",
+                BOARD_CONFIRMED_STEP,
+                "confirmed",
+                from_phase=IDLE,
+                by="user",
+                jaw_rad=jaw,
+                closed_max_rad=self.jaw_closed_max_rad(),
+                restored_session_id=self.session_id,
+                recorded_mount=self.recorded_mount,
+            )
+            self.record_board()
         with self.lock:
             previous_session = self.session_id
             self.recorded_mount = self.fitted_mount(previous_session) or self.recorded_mount
@@ -853,6 +907,7 @@ class Sequencer:
             SEQUENCE_STEP,
             "start",
             resume=True,
+            from_phase=previous,
             previous_session_id=previous_session,
             poses=len(plan.poses),
             tiers=Counter(tier for tier, _ in plan.poses),
@@ -864,6 +919,45 @@ class Sequencer:
         self.thread = threading.Thread(target=self.work, args=(plan, True), name="head-arm-sequence", daemon=True)
         self.thread.start()
         return self.state()
+
+    def jaw_closed_max_rad(self) -> float:
+        """The largest measured gripper angle that still counts as jaws closed on the board handle.
+
+        Returns:
+            float: `handle_contact_rad + grip_converge_tolerance_rad` (rad): the contact angle plus the mcp_server
+                converge tolerance; above it the jaws are clearly open (no handle between them).
+        """
+        return self.seq.handle_contact_rad + self.seq.grip_converge_tolerance_rad
+
+    def jaws_closed_on_board(self) -> float:
+        """Measure the gripper (get_arm_state) and refuse open jaws before a resume from idle (nothing moves).
+
+        Returns:
+            float: The measured gripper angle (rad), at most `jaw_closed_max_rad()`.
+
+        Raises:
+            SequenceError: get_arm_state fails or reports no gripper angle, or the jaw is above `jaw_closed_max_rad()`.
+        """
+        limit = self.jaw_closed_max_rad()
+        try:
+            jaw = self.measured().get(GRIPPER_JOINT)
+        except StepFailed as exc:
+            raise SequenceError(str(exc)) from exc
+        verdict = "not reported" if jaw is None else ("open" if jaw > limit else "closed")
+        self.log(
+            "gripper_measured",
+            verdict,
+            logging.INFO if verdict == "closed" else logging.WARNING,
+            measured_rad=jaw,
+            closed_max_rad=limit,
+            handle_contact_rad=self.seq.handle_contact_rad,
+            grip_converge_tolerance_rad=self.seq.grip_converge_tolerance_rad,
+        )
+        if jaw is None:
+            raise SequenceError("get_arm_state reports no gripper angle: cannot tell the jaws grip the board")
+        if jaw > limit:
+            raise SequenceError(f"{MESSAGE_RESUME_OPEN_JAWS} (measured {jaw:.4f} rad, closed at most {limit:.4f} rad)")
+        return jaw
 
     def prepare(self) -> Plan:
         """Build the pose check and the head chain from the arm URDF and the applied head URDF.
