@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { ServoNeutral } from './ServoNeutral'
+import { planExpired, planRemainingS } from './ZeroRestorePanel'
 import type { ServoGroup, TorqueState, ZeroRestorePlanJoint, ZeroRestoreState } from './servoApi'
 
 const DIALOG_LARGE = 'The arm rests folded on its rest and the large change is intended'
@@ -56,7 +57,8 @@ function state(released: boolean, zr: ZeroRestoreState | null): TorqueState {
     namespace: 'follower',
     released,
     joints: { shoulder_lift: v, wrist_flex: v },
-    stamp_ns: 1,
+    // The robot clock of the sample: now (the plans below are created on it; the browser clock is never read).
+    stamp_ns: Date.now() * 1e6,
     neutral_enabled: true,
     neutral_capture: null,
     last_save: null,
@@ -224,6 +226,43 @@ describe('Arm zero restore panel', () => {
     groups = [arm(true, zero({ plan: plan(false) }), { stale: true })]
     render(<ServoNeutral />)
     expect(button(await panel(), '3. Apply').disabled).toBe(true)
+  })
+
+  it('the dry run expiry reads only the robot clock (plan created_at, sample stamp_ns and age_s)', () => {
+    const robotNow = Date.parse('2026-11-10T05:00:00+00:00')
+    const fresh = { ...plan(false), created_at: '2026-11-10T04:59:30+00:00' }
+    const group = (stampMs: number, ageS = 0.5) => arm(true, zero({ plan: fresh }), { age_s: ageS, state: { ...state(true, null), stamp_ns: stampMs * 1e6 } })
+    // The browser clock is 10 min ahead or behind the robot: the 30 s old plan stays valid either way.
+    for (const skewMs of [600_000, -600_000]) {
+      vi.useFakeTimers({ now: robotNow + skewMs })
+      expect(planExpired(fresh, group(robotNow))).toBe(false)
+      expect(planRemainingS(fresh, group(robotNow))).toBeCloseTo(29.5)
+      vi.useRealTimers()
+    }
+    // 61 s on the robot clock (the sample stamp plus its age at web_ui): expired, whatever the browser says.
+    vi.useFakeTimers({ now: robotNow })
+    expect(planExpired(fresh, group(robotNow + 30_000, 1))).toBe(true)
+    vi.useRealTimers()
+    // No sample stamp or an unreadable created_at: unknown, not expired (a stale state disables Apply anyway).
+    expect(planRemainingS(fresh, arm(true, null, { state: null }))).toBeNull()
+    expect(planExpired({ ...fresh, created_at: 'not a time' }, group(robotNow))).toBe(false)
+  })
+
+  it('a fresh dry run stays applicable with the browser clock 5 min ahead and shows its time left', async () => {
+    vi.useFakeTimers({ now: Date.now() + 300_000, toFake: ['Date'] })
+    try {
+      const robotNowMs = Date.now() - 300_000
+      const created = new Date(robotNowMs - 10_000).toISOString()
+      groups = [arm(true, zero({ plan: plan(false, 'r1', created) }), { state: { ...state(true, zero({ plan: plan(false, 'r1', created) })), stamp_ns: robotNowMs * 1e6 } })]
+      mockFetch()
+      render(<ServoNeutral />)
+      const p = await panel()
+      expect(button(p, '3. Apply').disabled).toBe(false)
+      expect(within(p).queryByText('Dry run expired: run it again')).toBeNull()
+      expect(within(p).getByText(/valid 60 s, 4\d s left/)).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('shows the per-joint result and Re-enable torque posts enable', async () => {

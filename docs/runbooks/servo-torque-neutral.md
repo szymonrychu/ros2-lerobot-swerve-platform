@@ -109,7 +109,8 @@ Steps (one button each; the panel says what to expect under every button):
    still and run it again), an invalid rest reference.
 3. Press **3. Apply**. Because shoulder_lift and elbow_flex change by more than 15 deg, the dialog "Apply a large zero
    change?" lists them; tick "The arm rests folded on its rest and the large change is intended" and press **Apply
-   large change**. Apply within 60 s of the dry run without touching the arm, else it is refused ("dry run is N s old" or
+   large change**. Apply within 60 s of the dry run (the plan line shows the seconds left, counted on the robot clock,
+   so a wrong browser clock does not matter) without touching the arm, else it is refused ("dry run is N s old" or
    "moved since the dry run": run the dry run again). Expect: "zero restored for shoulder_pan, shoulder_lift,
    elbow_flex, wrist_flex, wrist_roll; torque stays off" and the result table: every joint Applied yes, Now (rad)
    equal to the Target of step 2 within 0.005 rad. The arm does not move. The stale marker drops joint_offsets; home
