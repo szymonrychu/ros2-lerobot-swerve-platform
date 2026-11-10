@@ -2,7 +2,10 @@
 
 Repairs a re-zero recorded in the wrong pose without moving the arm. STS3215 offset register (address 31,
 sign-magnitude, sign bit 11): present = (encoder - offset) mod 4096. To make a resting servo read target, the offset
-changes by present - target (offset_delta_steps), the short way round the 0/4095 wrap.
+changes by present - target (offset_delta_steps), the short way round the 0/4095 wrap. The offset only matters
+modulo 4096, so offset_before + change is wrapped into -2048..2047 (wrap_offset_steps): a sum of 2469 is written as
+-1627, the same present reading (and so the same angle limits). The one wrapped value the register cannot hold is
+-2048 (+-2048, magnitude max 2047): the dry run refuses that joint (move it a little and dry run again).
 
 Per group with a `zero_restore` block (config.ZeroRestoreConfig); the restore joints are the group's position joints
 minus neutral_exclude_joints (the gripper is never touched):
@@ -91,6 +94,18 @@ def encode_offset(steps: int) -> int:
     if abs(steps) > OFFSET_MAX_STEPS:
         raise ValueError(f"offset {steps} outside +-{OFFSET_MAX_STEPS}")
     return (-steps | OFFSET_SIGN_BIT) if steps < 0 else steps
+
+
+def wrap_offset_steps(steps: int) -> int:
+    """Wrap an offset into one turn around zero; the offset only matters modulo 4096.
+
+    Args:
+        steps (int): Offset in steps, any value.
+
+    Returns:
+        int: The equivalent offset in -2048..2047 (-2048, i.e. +-2048, is not encodable: encode_offset refuses it).
+    """
+    return (steps + HALF_TURN_STEPS) % STEPS_PER_REVOLUTION - HALF_TURN_STEPS
 
 
 def decode_offset(raw: int) -> int:
@@ -269,7 +284,7 @@ class JointPlan:
         target_steps: present_position that reads the reference through the bridge mapping.
         offset_before_steps: Decoded offset register.
         offset_change_steps: present - target (the offset change).
-        new_offset_steps: offset_before_steps + offset_change_steps.
+        new_offset_steps: offset_before_steps + offset_change_steps wrapped into -2047..2047 (wrap_offset_steps).
         limits: (min, max) angle limits before the write.
         exceeds_max_change: |change| above max_change_deg.
     """
@@ -610,9 +625,12 @@ class ZeroRestoreControl:
                 continue
             target = position_to_raw_steps(state.reference["joints"][joint.name], joint.inverted)
             change = offset_delta_steps(presents[joint.name], target)
-            new_offset = offset_before + change
+            new_offset = wrap_offset_steps(offset_before + change)
             if abs(new_offset) > OFFSET_MAX_STEPS:
-                problems.append(f"{joint.name}: new offset {new_offset} outside +-{OFFSET_MAX_STEPS}")
+                problems.append(
+                    f"{joint.name}: new offset +-{HALF_TURN_STEPS} cannot be encoded (max +-{OFFSET_MAX_STEPS}); "
+                    "move the joint a little and dry run again"
+                )
                 continue
             planned[joint.name] = JointPlan(
                 id=joint.id,

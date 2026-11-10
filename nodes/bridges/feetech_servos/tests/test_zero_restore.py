@@ -43,6 +43,7 @@ from feetech_servos.zero_restore import (
     load_reference,
     offset_delta_steps,
     steps_to_degrees,
+    wrap_offset_steps,
 )
 
 from .ros_stubs import install_service_stubs
@@ -316,6 +317,25 @@ def test_offset_delta_takes_the_short_way_across_the_wrap() -> None:
     assert offset_delta_steps(4090, 10) == -16
 
 
+@pytest.mark.parametrize(
+    ("steps", "wrapped"),
+    [(2469, -1627), (-2242, 1854), (-2601, 1495), (0, 0), (2047, 2047), (-2047, -2047), (2048, -2048), (-2048, -2048)],
+)
+def test_wrap_offset_steps(steps: int, wrapped: int) -> None:
+    assert wrap_offset_steps(steps) == wrapped
+    assert (steps - wrapped) % STEPS_PER_REVOLUTION == 0
+
+
+@pytest.mark.parametrize("steps", [2469, -2242, -2601])
+def test_wrapped_user_offsets_encode(steps: int) -> None:
+    assert decode_offset(encode_offset(wrap_offset_steps(steps))) == wrap_offset_steps(steps)
+
+
+def test_wrapped_2048_is_not_encodable() -> None:
+    with pytest.raises(ValueError):
+        encode_offset(wrap_offset_steps(2048))
+
+
 def test_steps_to_degrees() -> None:
     assert steps_to_degrees(1024) == 90.0
     assert steps_to_degrees(-901) == pytest.approx(-79.189, abs=1e-3)
@@ -469,16 +489,36 @@ def test_dry_run_small_change_needs_no_confirm(tmp_path: Path) -> None:
     assert plan_of(rig)["needs_confirm"] is False
 
 
-def test_dry_run_refused_when_a_new_offset_cannot_be_encoded(tmp_path: Path) -> None:
-    rig = make_rig(tmp_path)
+def test_dry_run_wraps_a_new_offset_past_2047(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path, shift=SMALL_SHIFT)
     put_word(rig.port.servos[3], STS_OFS_L, encode_offset(2000))
-    # the resting servo reads target + 100: the offset must rise by 100, past 2047
+    # the resting servo reads target + 100: the offset rises by 100 to 2100, the same as -1996 modulo 4096
     target = position_to_raw_steps(SEED["elbow_flex"])
     rig.port.encoder[3] = (target + 100 + 2000) % 4096
     rig.port.refresh_present(3)
     result = rig.zero.dry_run("follower")
+    assert result.success is True, result.message
+    joint = plan_of(rig)["joints"]["elbow_flex"]
+    assert joint["offset_before_steps"] == 2000
+    assert joint["offset_change_steps"] == 100
+    assert joint["new_offset_steps"] == -1996
+    assert joint["exceeds_max_change"] is False
+    assert rig.zero.apply("follower").success
+    assert rig.offset(3) == -1996
+    assert rig.present(3) == target  # the wrapped offset gives the same reading
+
+
+def test_dry_run_refuses_a_joint_whose_wrapped_offset_is_2048(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path, shift=SMALL_SHIFT)
+    put_word(rig.port.servos[3], STS_OFS_L, encode_offset(2000))
+    # the offset must rise by 48 to 2048 (== -2048): the sign-magnitude register cannot hold it
+    target = position_to_raw_steps(SEED["elbow_flex"])
+    rig.port.encoder[3] = (target + 48 + 2000) % 4096
+    rig.port.refresh_present(3)
+    result = rig.zero.dry_run("follower")
     assert result.success is False
-    assert "elbow_flex: new offset 2100 outside +-2047" in result.message
+    assert "elbow_flex: new offset +-2048 cannot be encoded (max +-2047)" in result.message
+    assert "nothing written" in result.message
 
 
 def test_dry_run_uses_the_reference_file_when_present(tmp_path: Path) -> None:

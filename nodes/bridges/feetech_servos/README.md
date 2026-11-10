@@ -231,8 +231,11 @@ the group's position joints minus `neutral_exclude_joints` (the gripper is never
 - `/<ns>/servo/zero_restore_dry_run`: refused unless every restore joint is released (gated, cached torque 0) and
   reads `torque_enable` 0 on the bus, the arm is still (`present_position` sampled every 0.1 s over `still_window_s`,
   spread within `still_tolerance_steps`) and the reference is valid. Reads the offset and the angle limits and plans,
-  per joint, target, offset change and new offset (a new offset beyond +-2047 or a failed read refuses). Nothing is
-  written. The plan goes into `torque_state` (below); the message is a short summary per joint in degrees.
+  per joint, target, offset change and new offset. The offset only matters modulo 4096, so `offset_before + change`
+  is wrapped into -2048..2047 (`wrap_offset_steps`; e.g. 2469 is written as -1627, -2242 as 1854): the present reading,
+  and so the reference file and the angle limits, are the same either way. The one wrapped value the register cannot
+  hold is +-2048 (magnitude max 2047): that joint refuses (`new offset +-2048 cannot be encoded`; move the joint a
+  little and dry run again), as does a failed read. Nothing is written. The plan goes into `torque_state` (below); the message is a short summary per joint in degrees.
 - `/<ns>/servo/zero_restore_apply`: writes the plan. Refused without a dry run ("dry run first"), with a plan older
   than `plan_max_age_s` or when a joint now reads more than `plan_tolerance_steps` from its dry run reading (both drop
   the plan: run the dry run again), when torque is no longer off, and when a planned change exceeds `max_change_deg`
