@@ -55,6 +55,8 @@ export interface HeadArmSequence {
   big_joints: string[];
   /** Epoch seconds since the sequence waits for a user confirm; null while it does not wait. */
   waiting_since: number | null;
+  /** The calibration board is on the gripper (attached or stated); holding with it on may resume the capture. */
+  board_on: boolean;
   /** The board record file at any age (mcp_server refuses Home arm while it exists); null without one. */
   board_record: BoardRecord | null;
   /** The newest recent events (start, step outcomes, errors, stops, park results), newest first. */
@@ -210,6 +212,7 @@ const SEQUENCE: Record<string, Check> = {
   error: isNullOr(isStr),
   big_joints: isArrayOf(isStr),
   waiting_since: isNullOr(isNum),
+  board_on: isBool,
   board_record: isNullOr((r) => badKey(r, BOARD_RECORD) === null),
   events: isArrayOf(
     (e) =>
@@ -375,6 +378,13 @@ export const getHeadArmState = () =>
 export const moveToBase = (confirm: boolean) =>
   request<HeadArmSequence>(
     `${BASE}/sequence/base`,
+    post({ confirm }),
+    badSequence,
+  );
+/** Resumes the capture with the board on from holding (new run, the gripper kept at its measured angle); `confirm` is the user's confirm of the base move. */
+export const resumeBoardOn = (confirm: boolean) =>
+  request<HeadArmSequence>(
+    `${BASE}/sequence/resume-board-on`,
     post({ confirm }),
     badSequence,
   );

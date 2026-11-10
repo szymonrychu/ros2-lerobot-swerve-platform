@@ -182,11 +182,12 @@ HEAD_ARM_PAGE_CALLS = (
     ("GET", "sessions/s1/results/r1", "/api/head-arm/sessions/s1/results/r1"),
     ("POST", "sessions/s1/results/r1/apply", "/api/head-arm/sessions/s1/results/r1/apply"),
     ("GET", "state", "/api/head-arm/state"),
+    ("POST", "sequence/resume-board-on", "/api/head-arm/sequence/resume-board-on"),
 )
 
 
 def test_the_head_arm_page_calls_reach_the_node_head_arm_routes() -> None:
-    """Compute and Apply of Head from arm (page -> proxy -> node), the calls that write the applied head chain."""
+    """Compute and Apply of Head from arm and the resume with the board on (page -> proxy -> node)."""
     for method, path, upstream in HEAD_ARM_PAGE_CALLS:
         seen: list[httpx.Request] = []
         client = make_client(recording(httpx.Response(200, json={"ok": True}), seen))

@@ -13,6 +13,7 @@ import {
   listHeadArmSessions,
   moveToBase,
   park,
+  resumeBoardOn,
   stopSequence,
 } from "./headArmApi";
 import stateFx from "../../../../head_rgbd_calibration/tests/fixtures/api/head_arm_state.json";
@@ -97,6 +98,12 @@ describe("headArmApi", () => {
     await boardAttached();
     expect(f).toHaveBeenLastCalledWith(`${B}/sequence/board-attached`, {
       method: "POST",
+    });
+    await resumeBoardOn(true);
+    expect(f).toHaveBeenLastCalledWith(`${B}/sequence/resume-board-on`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ confirm: true }),
     });
     await allowBigJoints(false);
     expect(f).toHaveBeenLastCalledWith(`${B}/sequence/big-joints`, {

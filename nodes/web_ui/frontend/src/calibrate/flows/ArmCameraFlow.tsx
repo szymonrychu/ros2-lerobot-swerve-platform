@@ -34,6 +34,7 @@ import {
   listHeadArmSessions,
   moveToBase,
   park,
+  resumeBoardOn,
   stopSequence,
 } from '../headArmApi'
 import { useServoGroups } from '../servoApi'
@@ -77,7 +78,7 @@ export function acceptText(answer: ArmCameraAccept): string {
   return `Applied result ${answer.arm_calibration.result}.${units.length ? ` Units: ${units.join(', ')}.` : ''}`
 }
 
-type Dialog = 'home' | 'base' | 'big' | 'park' | 'parkBoard' | null
+type Dialog = 'home' | 'base' | 'big' | 'park' | 'parkBoard' | 'resume' | null
 type StepId = 'home' | 'open' | 'grab' | 'capture' | 'compute' | 'gate' | 'park'
 type Errors = Partial<Record<StepId, string>>
 
@@ -263,6 +264,8 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
   const moveBlocked = busy || zeroStale || notReady !== null
   // mcp_server refuses Home arm while the node's board record exists: park with the board or clear the record first.
   const boardRecorded = (sequence?.board_record ?? null) !== null
+  // Holding with the board on (taped or gripped): the capture may resume without opening the jaws.
+  const canResume = phase === PHASE_HOLDING && !running && sequence?.board_on === true
   const snippet = typeof result?.calibration?.snippet === 'string' ? result.calibration.snippet : null
 
   return (
@@ -485,6 +488,11 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
                   <Button variant="contained" sx={target} disabled={busy || phase !== PHASE_HOLDING} onClick={() => setDialog('park')}>
                     Park arm
                   </Button>
+                  {canResume && (
+                    <Button variant="outlined" sx={target} disabled={moveBlocked} onClick={() => setDialog('resume')}>
+                      Resume capture (board on)
+                    </Button>
+                  )}
                   {parked && (
                     <Button variant="outlined" sx={target} onClick={restart}>
                       Start a new run
@@ -528,6 +536,14 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
         confirmLabel="Park"
         onCancel={() => setDialog(null)}
         onConfirm={() => void parkArm(false)}
+      />
+      <ConfirmDialog
+        open={dialog === 'resume'}
+        title="Resume the capture with the board on?"
+        body={`The arm moves with the board to the base pose (${BASE_JOINTS.filter((j) => j !== 'gripper').join(', ')}); the gripper stays at its measured angle and never opens. Then the capture tiers run again in a new session. Keep the area around the arm clear.`}
+        confirmLabel="Resume"
+        onCancel={() => setDialog(null)}
+        onConfirm={() => void step('park', () => resumeBoardOn(true))}
       />
       <ConfirmDialog
         open={dialog === 'parkBoard'}
