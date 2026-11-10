@@ -216,11 +216,12 @@ gauges: `nodes/head_rgbd_calibration/README.md` ("Arm to camera calibration").
 
 7. Verify: a live tool point check as step 5 above (head_look_at on the tool point, pixel offset before and after).
 8. Follow-ups the runtime apply does not cover: the approach tools refuse with "reach map is stale" until the reach map
-   is rebuilt for the new arm, and filter_node's teleop body check and the web_ui arm view still use the client.yml
-   baseline. To make the accepted values the baseline, copy `calibration.snippet` into the client.yml mcp_server `arm:`
-   block (`joint_offsets_rad`, `arm_base_height_m`, `base_in_base_link`), the head_rgbd_calibration
-   `fit.joint_offsets_rad` and `fit.base_in_base_link` (and its shipped YAML) and the web_ui `arm_offset` [x, y, z],
-   rebuild the reach map (`nodes/mcp_server/README.md`, "Reach map"), run the config tests
+   is rebuilt for the new arm. filter_node's teleop body check and the web_ui arm views follow the accepted calibration
+   at runtime and fall back to the client.yml baseline when the record is removed. To make the accepted values the
+   baseline, copy `calibration.snippet` (`joint_offsets_rad`, `arm_base_height_m`, `base_in_base_link`) into the
+   client.yml mcp_server `arm:` block, filter_node's `self_collision_guard.arm` and web_ui's `arm_calibration`
+   (`tests/test_arm_guard_config.py` pins the three equal), the head_rgbd_calibration `fit.joint_offsets_rad` and
+   `fit.base_in_base_link` (and its shipped YAML), rebuild the reach map (`nodes/mcp_server/README.md`, "Reach map"), run the config tests
    (`tests/test_head_arm_calib_config.py`, the node `tests/test_config.py`), commit and redeploy (ansible-deploy skill):
    `./scripts/deploy-nodes.sh client mcp_server head_rgbd_calibration web_ui filter_node 2>&1 | tee .logs/deploy-arm-camera.log`.
 
