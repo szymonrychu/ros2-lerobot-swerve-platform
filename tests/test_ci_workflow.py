@@ -12,6 +12,7 @@ NODES_DIR = REPO_ROOT / "nodes"
 UV_VERSION = "0.11.29"
 CPP_JOB = "cpp"
 CPP_TEST_COMMAND = "./scripts/cpp-node-test.sh ${{ matrix.package }}"
+MAX_JOB_TIMEOUT_MINUTES = 60
 
 
 def load_workflow() -> dict:
@@ -97,3 +98,11 @@ def test_ansible_job_installs_collections_before_syntax_check() -> None:
     install = next(i for i, r in enumerate(runs) if galaxy in r)
     check = next(i for i, r in enumerate(runs) if "poe test-ansible" in r)
     assert install < check
+
+
+def test_every_job_has_a_timeout() -> None:
+    """Every job sets an integer timeout-minutes of at most an hour, so a stalled step fails instead of running 6 h."""
+    for name, job in load_workflow()["jobs"].items():
+        timeout = job.get("timeout-minutes")
+        assert isinstance(timeout, int), f"job {name} has no integer timeout-minutes"
+        assert 0 < timeout <= MAX_JOB_TIMEOUT_MINUTES, f"job {name}: timeout-minutes {timeout}"

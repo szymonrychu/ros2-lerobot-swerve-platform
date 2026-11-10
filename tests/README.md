@@ -340,7 +340,7 @@ Unit tests for master2master topic proxy config parsing (`nodes/master2master/ma
 
 ### `test_ci_workflow.py`
 
-Guards `.github/workflows/ci.yml`: uv-based, pinned, and covering every Python node project (a `pyproject.toml` with its own `uv.lock`) and every C++ package.
+Guards `.github/workflows/ci.yml`: uv-based, pinned, every job bounded by `timeout-minutes`, and covering every Python node project (a `pyproject.toml` with its own `uv.lock`) and every C++ package.
 
 | Test | Description |
 |---|---|
@@ -350,6 +350,7 @@ Guards `.github/workflows/ci.yml`: uv-based, pinned, and covering every Python n
 | `test_node_matrix_equals_filesystem` | The node matrix equals the set of node `pyproject.toml` directories found under `nodes/`, and each entry runs `uv lock --check`, `uv run --frozen poe lint` and `uv run --frozen pytest -q`, with no duplicate entries. The count is derived from the filesystem, not hardcoded, so adding a node only touches the matrix; the marker epic added `marker_detector` to the matrix (own `pyproject.toml` and `uv.lock`) and no test edit was needed. |
 | `test_uv_node_matrix_skips_cpp_packages` | The uv `nodes` matrix has no `*_cpp` entry and no `nodes/*_cpp` carries a `pyproject.toml`. |
 | `test_cpp_matrix_equals_filesystem` | The `cpp` job runs on `ubuntu-latest` (amd64) with `fail-fast: false`; its `package` matrix equals the discovered C++ packages (no duplicates) and it runs `./scripts/cpp-node-test.sh ${{ matrix.package }}`. |
+| `test_every_job_has_a_timeout` | Every job sets an integer `timeout-minutes` between 1 and 60 (about 3x its typical duration on main; GitHub's default is 360), so a stalled step fails the job instead of hanging for hours. |
 | `test_ansible_job_installs_collections_before_syntax_check` | The `lint-ansible` job installs `ansible/requirements.yml` collections (`ansible.posix`, used by the mount tasks) before `poe test-ansible`. |
 
 ### `test_cpp_scaffolding.py`
