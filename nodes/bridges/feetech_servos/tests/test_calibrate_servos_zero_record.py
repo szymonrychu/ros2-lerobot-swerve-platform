@@ -407,6 +407,24 @@ def test_load_config_with_offsets_without_bridge_config_is_refused(tmp_path: Pat
     assert bus.writes == []
 
 
+def test_load_config_offset_under_a_padded_id_needs_the_bridge_config(tmp_path: Path) -> None:
+    bus = FakeBus({1: 2100})
+    regs = tmp_path / "regs.json"
+    regs.write_text(json.dumps({" 1": {"offset": 52}}))
+    assert run(bus, ["load-config", "--device", DEVICE, "--file", str(regs)]) == 1
+    assert bus.writes == []
+
+
+def test_load_config_offset_under_a_padded_id_is_recorded(tmp_path: Path) -> None:
+    bus = FakeBus({1: 2100})
+    regs = tmp_path / "regs.json"
+    regs.write_text(json.dumps({" 1": {"offset": 52}}))
+    config = bridge_config(tmp_path)
+    assert run(bus, ["load-config", "--device", DEVICE, "--file", str(regs), "--bridge-config", str(config)]) == 0
+    assert bus.writes == [(1, "offset", 52)]
+    assert marker(tmp_path)["joints"] == {"shoulder_pan": {"before_steps": 2100, "after_steps": 2048}}
+
+
 def test_load_config_without_zero_registers_needs_no_bridge_config(tmp_path: Path) -> None:
     bus = FakeBus({5: 2048})
     regs = tmp_path / "regs.json"
@@ -426,3 +444,12 @@ def test_changes_zero() -> None:
 def test_zero_change_ids_lists_servos_with_zero_registers() -> None:
     config = {"1": {"offset": 3}, "2": {"min": 0}, "3": {"torque_enable": 128}, "x": {"offset": 1}, "4": "bad"}
     assert m.zero_change_ids(config) == [1, 3]
+
+
+def test_zero_change_ids_parses_ids_as_the_loader_does() -> None:
+    assert m.zero_change_ids({" 1": {"offset": 3}, "3 ": {"torque_enable": 128}}) == [1, 3]
+
+
+def test_parse_servo_id() -> None:
+    assert m.parse_servo_id("7") == 7 and m.parse_servo_id(" 1") == 1
+    assert m.parse_servo_id("x") is None and m.parse_servo_id("") is None

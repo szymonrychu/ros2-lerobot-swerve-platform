@@ -234,6 +234,21 @@ def write_zero_register(
     return written, recorded
 
 
+def parse_servo_id(key: str) -> int | None:
+    """Parse a load-config servo id key the one way load-config and zero_change_ids both use (int()).
+
+    Args:
+        key (str): Servo id key of the file (e.g. "1"; int() also accepts " 1").
+
+    Returns:
+        int | None: The servo id; None when int() cannot parse the key.
+    """
+    try:
+        return int(key)
+    except (ValueError, TypeError):
+        return None
+
+
 def zero_change_ids(config: dict[str, Any]) -> list[int]:
     """Servo ids of a load-config file whose registers change the zero (unparsable entries are left to the loader).
 
@@ -245,10 +260,11 @@ def zero_change_ids(config: dict[str, Any]) -> list[int]:
     """
     ids: list[int] = []
     for servo_id_str, regs in config.items():
-        if not isinstance(regs, dict) or not servo_id_str.isdigit():
+        sid = parse_servo_id(servo_id_str)
+        if not isinstance(regs, dict) or sid is None:
             continue
         if any(changes_zero(_register_name_from_config_key(k), v) for k, v in regs.items() if isinstance(v, int)):
-            ids.append(int(servo_id_str))
+            ids.append(sid)
     return ids
 
 
@@ -672,9 +688,8 @@ def cmd_load_config(servo: Any, args: argparse.Namespace) -> int:
     for servo_id_str, regs in config.items():
         if not isinstance(regs, dict):
             continue
-        try:
-            sid = int(servo_id_str)
-        except (ValueError, TypeError):
+        sid = parse_servo_id(servo_id_str)
+        if sid is None:
             print(f"Error: invalid servo ID in config: {servo_id_str}", file=sys.stderr)
             return 1
         last_written: dict[str, int] = {}
