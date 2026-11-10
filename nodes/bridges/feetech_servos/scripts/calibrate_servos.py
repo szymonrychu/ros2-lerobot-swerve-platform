@@ -4,12 +4,22 @@
 Supports: interactive calibration (multi-joint), single-servo register read/write,
 min/max limit set/clear, and listing register map. Uses st3215 and registers from
 the feetech_servos package.
+
+Servo zero changes: calibrate and center send DefineMiddle; set, write and load-config change the zero when they
+write the offset register or torque_enable = 128 (changes_zero). Each of them needs --bridge-config, the bridge config
+of the bus: the servo's group is looked up there, and for a group with neutral_stale_marker (the follower arm) every
+zero change writes the bridge's zero change record and, for a verified change, the stale marker
+(zero_record.write_zero_change, the same writer as the bridge's neutral save). The command is refused before any bus
+write when the config is missing or unloadable, names another device, or the marker directory is not owned by and
+writable for this user (zero_record.record_dir_refusal); a record write that fails afterwards exits 1 with the error.
 """
 
 import argparse
 import json
+import os
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -20,13 +30,16 @@ if str(_ROOT) not in sys.path:
 
 from st3215 import ST3215  # noqa: E402
 
+from config import load_config  # noqa: E402
 from registers import (  # noqa: E402
     REGISTER_MAP,
+    RegisterEntry,
     get_register_entry_by_name,
     read_all_registers,
     read_register,
     write_register,
 )
+from zero_record import ZERO_RECORD_FILE, record_dir_refusal, utc_now_iso, write_zero_change  # noqa: E402
 
 # Legacy cal.json keys mapped to register names when loading config
 _LEGACY_CONFIG_KEYS: dict[str, str] = {"min": "min_angle_limit", "max": "max_angle_limit"}
@@ -47,6 +60,192 @@ CENTER_TOLERANCE_STEPS = 3
 CENTER_SETTLE_S = 0.5
 CENTER_READ_ATTEMPTS = 10
 CENTER_RETRY_SLEEP_S = 0.1
+# Register writes that change a servo zero: the offset register, and torque_enable = 128 (the DefineMiddle command).
+OFFSET_REGISTER = "offset"
+TORQUE_REGISTER = "torque_enable"
+DEFINE_MIDDLE_VALUE = 128
+POSITION_REGISTER = "present_position"
+EXAMPLE_BRIDGE_CONFIG = "/etc/ros2/lerobot_follower/config.yaml"
+
+
+@dataclass(frozen=True)
+class ZeroJoint:
+    """A servo whose zero changes must be recorded: a joint of a bridge group with neutral_stale_marker.
+
+    Attributes:
+        group: Group namespace (e.g. "follower").
+        joint: Joint name (the stale marker's joints key).
+        marker: The group's stale marker path; the zero change record goes next to it.
+    """
+
+    group: str
+    joint: str
+    marker: Path
+
+
+def changes_zero(register: str, value: int) -> bool:
+    """Tell whether writing value to register changes the servo zero.
+
+    Args:
+        register (str): Register name.
+        value (int): Raw value.
+
+    Returns:
+        bool: True for the offset register and for torque_enable = 128 (DefineMiddle).
+    """
+    return register == OFFSET_REGISTER or (register == TORQUE_REGISTER and value == DEFINE_MIDDLE_VALUE)
+
+
+def zero_joints(bridge_config: str | None, device: str, servo_ids: list[int]) -> dict[int, ZeroJoint] | None:
+    """Resolve the servos a zero-changing command touches to the joints whose zero changes must be recorded.
+
+    Servos that are not a joint of the config, or whose group has no neutral_stale_marker, need no record (a note
+    on stderr says so). Nothing is written.
+
+    Args:
+        bridge_config (str | None): --bridge-config, the bridge config YAML of the bus.
+        device (str): --device of the command.
+        servo_ids (list[int]): Servo ids whose zero the command may change.
+
+    Returns:
+        dict[int, ZeroJoint] | None: servo id -> ZeroJoint for the servos to record; None when the command must be
+            refused (error printed): no or unloadable config, a config of another device, or a marker directory this
+            user may not write the record in.
+    """
+    if bridge_config is None:
+        print(
+            "Error: this command changes a servo zero; pass --bridge-config <bridge config YAML of the bus> (e.g. "
+            f"{EXAMPLE_BRIDGE_CONFIG}) so the zero change record is written; nothing written to the servos",
+            file=sys.stderr,
+        )
+        return None
+    config = load_config(Path(bridge_config))
+    if config is None:
+        print(f"Error: cannot load bridge config {bridge_config}; nothing written to the servos", file=sys.stderr)
+        return None
+    if config.device is None or os.path.realpath(config.device) != os.path.realpath(device):
+        print(
+            f"Error: --device {device} is not the device of {bridge_config} ({config.device}); nothing written to "
+            "the servos",
+            file=sys.stderr,
+        )
+        return None
+    joints: dict[int, ZeroJoint] = {}
+    for sid in servo_ids:
+        found = next(((g, j) for g in config.groups for j in g.joints if j.id == sid), None)
+        if found is None:
+            print(f"Note: servo {sid} is not a joint of {bridge_config}: no zero change record", file=sys.stderr)
+            continue
+        group, joint = found
+        if group.neutral_stale_marker is None:
+            print(
+                f"Note: servo {sid} ({group.namespace}/{joint.name}): group {group.namespace} has no "
+                "neutral_stale_marker: no zero change record",
+                file=sys.stderr,
+            )
+            continue
+        joints[sid] = ZeroJoint(group.namespace, joint.name, Path(group.neutral_stale_marker))
+    for marker in sorted({z.marker for z in joints.values()}):
+        refusal = record_dir_refusal(marker, os.geteuid())
+        if refusal is not None:
+            print(f"Error: {refusal}; nothing written to the servos", file=sys.stderr)
+            return None
+    return joints
+
+
+def record_zero(joint: ZeroJoint | None, sid: int, before: int | None, after: int | None, verified: bool) -> bool:
+    """Record a zero change of one servo that may have happened (write_zero_change), as the bridge does.
+
+    Args:
+        joint (ZeroJoint | None): The servo's joint; None needs no record.
+        sid (int): Servo id, for the messages.
+        before (int | None): present_position before the change (None: unread).
+        after (int | None): present_position after the change (None: unread).
+        verified (bool): The change was acknowledged and verified: the stale marker gets the joint (with both
+            readings); otherwise only the zero change record is written.
+
+    Returns:
+        bool: True when recorded or not needed; False (errors printed) when a write failed.
+    """
+    if joint is None:
+        return True
+    changed = {joint.joint: (before, after)} if verified and before is not None and after is not None else {}
+    errors = write_zero_change(joint.marker, joint.group, utc_now_iso(), changed)
+    name = f"servo {sid} ({joint.group}/{joint.joint})"
+    for error in errors:
+        print(f"Error: {name} zero may have changed but the {error}", file=sys.stderr)
+    if errors:
+        return False
+    marker_text = f" and stale marker {joint.marker}" if changed else ""
+    print(f"Zero change of {name} recorded in {joint.marker.with_name(ZERO_RECORD_FILE)}{marker_text}", file=sys.stderr)
+    return True
+
+
+def define_middle(servo: Any, sid: int) -> str | None:
+    """Send DefineMiddle (torque_enable = 128: the present position becomes 2048).
+
+    Args:
+        servo (Any): ST3215 bus.
+        sid (int): Servo id.
+
+    Returns:
+        str | None: Why it failed (the zero may still have changed); None on success.
+    """
+    try:
+        defined = servo.DefineMiddle(sid)
+    except Exception as exc:  # noqa: BLE001 - any bus error: the command may have landed, the caller records it
+        return f"DefineMiddle (torque_enable=128) raised {type(exc).__name__}: {exc}"
+    return None if defined else "DefineMiddle (torque_enable=128) failed"
+
+
+def write_zero_register(
+    servo: Any, sid: int, entry: RegisterEntry, value: int, last_written: dict[str, int], joint: ZeroJoint | None
+) -> tuple[bool, bool]:
+    """Write a register; when it changes the zero of a recorded joint, record the change (also a failed write).
+
+    Args:
+        servo (Any): ST3215 bus.
+        sid (int): Servo id.
+        entry (RegisterEntry): The register.
+        value (int): Raw value.
+        last_written (dict[str, int]): write_register cache.
+        joint (ZeroJoint | None): The servo's joint when the write changes a recorded zero; None otherwise.
+
+    Returns:
+        tuple[bool, bool]: (written, recorded); recorded is True when no record was needed.
+    """
+    if joint is None:
+        return write_register(servo, sid, entry, value, last_written), True
+    position = get_register_entry_by_name(POSITION_REGISTER)
+    before = read_register(servo, sid, position)
+    written = False
+    after = None
+    try:
+        written = write_register(servo, sid, entry, value, last_written)
+        if written:
+            time.sleep(CENTER_SETTLE_S)
+            after = read_register(servo, sid, position)
+    finally:
+        recorded = record_zero(joint, sid, before, after, written)
+    return written, recorded
+
+
+def zero_change_ids(config: dict[str, Any]) -> list[int]:
+    """Servo ids of a load-config file whose registers change the zero (unparsable entries are left to the loader).
+
+    Args:
+        config (dict[str, Any]): servo id string -> {register key: value}.
+
+    Returns:
+        list[int]: Ids with an offset or torque_enable = 128 entry, in file order.
+    """
+    ids: list[int] = []
+    for servo_id_str, regs in config.items():
+        if not isinstance(regs, dict) or not servo_id_str.isdigit():
+            continue
+        if any(changes_zero(_register_name_from_config_key(k), v) for k, v in regs.items() if isinstance(v, int)):
+            ids.append(int(servo_id_str))
+    return ids
 
 
 def _add_connection_args(parser: argparse.ArgumentParser) -> None:
@@ -72,13 +271,36 @@ def _add_connection_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def add_bridge_config_arg(parser: argparse.ArgumentParser) -> None:
+    """Add --bridge-config (the bridge config of the bus) to a subparser whose command can change a servo zero.
+
+    Args:
+        parser (argparse.ArgumentParser): The subparser.
+    """
+    parser.add_argument(
+        "--bridge-config",
+        dest="bridge_config",
+        default=None,
+        metavar="PATH",
+        help=(
+            f"Bridge config YAML of this bus (e.g. {EXAMPLE_BRIDGE_CONFIG}). Required when the command changes a "
+            "servo zero (calibrate, center, an offset or torque_enable=128 write): a joint of a group with "
+            "neutral_stale_marker gets the zero change record and stale marker the bridge writes."
+        ),
+    )
+
+
 def _open_servo(device: str, baudrate: int = 1_000_000) -> Any:
     """Open ST3215 on device. Raises ValueError/OSError on failure."""
     return ST3215(device)
 
 
 def cmd_calibrate(servo: Any, args: argparse.Namespace) -> int:
-    """Run interactive calibration: neutral then min/max per joint; write JSON to --output."""
+    """Run interactive calibration: neutral then min/max per joint; write JSON to --output.
+
+    Every DefineMiddle sent to a joint of a group with neutral_stale_marker is recorded right away (record_zero), so
+    an interrupted run still leaves the record; a centre reading ~2048 also enters the stale marker.
+    """
     ids = servo.ListServos()
     if ids is None:
         print("Error: could not scan for servos", file=sys.stderr)
@@ -91,6 +313,9 @@ def cmd_calibrate(servo: Any, args: argparse.Namespace) -> int:
         )
         return 1
     joint_ids = sorted(ids)[:expected]
+    zero = zero_joints(args.bridge_config, args.device, joint_ids)
+    if zero is None:
+        return 1
 
     for jid in joint_ids:
         servo.StopServo(jid)
@@ -101,10 +326,15 @@ def cmd_calibrate(servo: Any, args: argparse.Namespace) -> int:
     print("\n--- Neutral position (center) ---")
     for jid in joint_ids:
         input(f"Move joint (servo ID {jid}) to neutral position, then press Enter...")
-        if servo.DefineMiddle(jid) is not True:
-            print(f"Error: failed to set center for servo {jid}", file=sys.stderr)
+        before = servo.ReadPosition(jid) if jid in zero else None
+        error = define_middle(servo, jid)
+        center = servo.ReadPosition(jid) if error is None else None
+        verified = center is not None and abs(center - DEFAULT_CENTER) <= CENTER_TOLERANCE_STEPS
+        if not record_zero(zero.get(jid), jid, before, center, verified):
             return 1
-        center = servo.ReadPosition(jid)
+        if error is not None:
+            print(f"Error: failed to set center for servo {jid}: {error}", file=sys.stderr)
+            return 1
         if center is None:
             center = DEFAULT_CENTER
         result[jid] = {"min": 0, "center": center, "max": 0}
@@ -198,9 +428,33 @@ def cmd_set(servo: Any, args: argparse.Namespace) -> int:
     if entry.name == "lock":
         print("Error: writing 'lock' register is not allowed via this tool", file=sys.stderr)
         return 1
-    last_written: dict[str, int] = {}
-    if not write_register(servo, args.servo_id, entry, value, last_written):
-        print(f"Error: failed to write register '{reg_name}' = {value}", file=sys.stderr)
+    return write_one_register(servo, args, entry, value)
+
+
+def write_one_register(servo: Any, args: argparse.Namespace, entry: RegisterEntry, value: int) -> int:
+    """Write one validated register of --id (set / write); a zero change is recorded (changes_zero, record_zero).
+
+    Args:
+        servo (Any): ST3215 bus.
+        args (argparse.Namespace): device, servo_id, bridge_config.
+        entry (RegisterEntry): The writable register.
+        value (int): Raw value.
+
+    Returns:
+        int: 0 when written (and recorded when needed), 1 otherwise.
+    """
+    joint = None
+    if changes_zero(entry.name, value):
+        zero = zero_joints(args.bridge_config, args.device, [args.servo_id])
+        if zero is None:
+            return 1
+        joint = zero.get(args.servo_id)
+    written, recorded = write_zero_register(servo, args.servo_id, entry, value, {}, joint)
+    if not written:
+        print(f"Error: failed to write register '{entry.name}' = {value}", file=sys.stderr)
+        return 1
+    if not recorded:
+        print(f"Error: register '{entry.name}' = {value} written but the zero change was not recorded", file=sys.stderr)
         return 1
     print("OK")
     return 0
@@ -220,12 +474,7 @@ def cmd_write(servo: Any, args: argparse.Namespace) -> int:
     if entry.name == "lock":
         print("Error: writing 'lock' register is not allowed via this tool", file=sys.stderr)
         return 1
-    last_written: dict[str, int] = {}
-    if not write_register(servo, args.servo_id, entry, value, last_written):
-        print(f"Error: failed to write register '{reg_name}' = {value}", file=sys.stderr)
-        return 1
-    print("OK")
-    return 0
+    return write_one_register(servo, args, entry, value)
 
 
 def cmd_limits_set(servo: Any, args: argparse.Namespace) -> int:
@@ -299,7 +548,9 @@ def cmd_center(servo: Any, args: argparse.Namespace) -> int:
 
     Uses the STS "torque_enable = 128" calibration command (st3215 DefineMiddle), which rewrites the EEPROM
     position offset. Limits are written only after the servo is verified to read ~2048. Prints a JSON summary
-    {"id", "before", "after", "min", "max"}.
+    {"id", "before", "after", "min", "max"}. The zero change of a joint of a group with neutral_stale_marker is
+    recorded once DefineMiddle was sent (also when it failed or was not verified); a failed record exits 1 after the
+    limits.
     """
     range_steps = args.range_steps
     min_pos = DEFAULT_CENTER - range_steps
@@ -317,22 +568,30 @@ def cmd_center(servo: Any, args: argparse.Namespace) -> int:
         print("Error: position/limit registers not found", file=sys.stderr)
         return 1
     sid = args.servo_id
+    zero = zero_joints(args.bridge_config, args.device, [sid])
+    if zero is None:
+        return 1
     before = read_register(servo, sid, pos_entry)
     servo.UnLockEprom(sid)
     try:
-        if not servo.DefineMiddle(sid):
-            print("Error: DefineMiddle (torque_enable=128) failed", file=sys.stderr)
-            return 1
-        time.sleep(CENTER_SETTLE_S)
+        error = define_middle(servo, sid)
+        if error is None:
+            time.sleep(CENTER_SETTLE_S)
     finally:
         servo.LockEprom(sid)
     after = None
-    for _ in range(CENTER_READ_ATTEMPTS):
-        after = read_register(servo, sid, pos_entry)
-        if after is not None and abs(after - DEFAULT_CENTER) <= CENTER_TOLERANCE_STEPS:
-            break
-        time.sleep(CENTER_RETRY_SLEEP_S)
-    if after is None or abs(after - DEFAULT_CENTER) > CENTER_TOLERANCE_STEPS:
+    if error is None:
+        for _ in range(CENTER_READ_ATTEMPTS):
+            after = read_register(servo, sid, pos_entry)
+            if after is not None and abs(after - DEFAULT_CENTER) <= CENTER_TOLERANCE_STEPS:
+                break
+            time.sleep(CENTER_RETRY_SLEEP_S)
+    verified = error is None and after is not None and abs(after - DEFAULT_CENTER) <= CENTER_TOLERANCE_STEPS
+    recorded = record_zero(zero.get(sid), sid, before, after, verified)
+    if error is not None:
+        print(f"Error: {error}", file=sys.stderr)
+        return 1
+    if not verified:
         print(
             f"Error: servo reads {after} after centring, expected ~{DEFAULT_CENTER}; limits not written",
             file=sys.stderr,
@@ -346,6 +605,9 @@ def cmd_center(servo: Any, args: argparse.Namespace) -> int:
         print("Error: failed to write max_angle_limit", file=sys.stderr)
         return 1
     print(json.dumps({"id": sid, "before": before, "after": after, "min": min_pos, "max": max_pos}))
+    if not recorded:
+        print("Error: servo centred but its zero change was not recorded (see above)", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -395,6 +657,13 @@ def cmd_load_config(servo: Any, args: argparse.Namespace) -> int:
             print(f"  - {name}", file=sys.stderr)
         print("Remove them from the file or use 'get' to read their values.", file=sys.stderr)
         return 1
+    zero: dict[int, ZeroJoint] = {}
+    zero_ids = zero_change_ids(config)
+    if zero_ids:
+        resolved = zero_joints(args.bridge_config, args.device, zero_ids)
+        if resolved is None:
+            return 1
+        zero = resolved
     for servo_id_str, regs in config.items():
         if not isinstance(regs, dict):
             continue
@@ -417,8 +686,17 @@ def cmd_load_config(servo: Any, args: argparse.Namespace) -> int:
                 return 1
             if entry.read_only or entry.name == "lock":
                 continue
-            if not write_register(servo, sid, entry, value, last_written):
+            joint = zero.get(sid) if changes_zero(entry.name, value) else None
+            written, recorded = write_zero_register(servo, sid, entry, value, last_written, joint)
+            if not written:
                 print(f"Error: failed to write {reg_name}={value} to servo {sid}", file=sys.stderr)
+                return 1
+            if not recorded:
+                print(
+                    f"Error: {reg_name}={value} written to servo {sid} but the zero change was not recorded; "
+                    "remaining registers not written",
+                    file=sys.stderr,
+                )
                 return 1
     print("OK")
     return 0
@@ -524,6 +802,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_EXPECTED_JOINT_COUNT,
         help=f"Joints to calibrate; fails if fewer found (default: {DEFAULT_EXPECTED_JOINT_COUNT}).",
     )
+    add_bridge_config_arg(p_cal)
     p_cal.set_defaults(_cmd=cmd_calibrate)
 
     # read
@@ -578,6 +857,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_connection_args(p_set)
     p_set.add_argument("--register", required=True, help="Register name to write (must be read-write).")
     p_set.add_argument("--value", type=int, required=True, help="Integer value to write.")
+    add_bridge_config_arg(p_set)
     p_set.set_defaults(_cmd=cmd_set)
 
     # write
@@ -601,6 +881,7 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         help="Integer value to write (range depends on register size).",
     )
+    add_bridge_config_arg(p_write)
     p_write.set_defaults(_cmd=cmd_write)
 
     # limits-set
@@ -669,6 +950,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_CENTER_RANGE_STEPS,
         help="Half-range in steps around 2048 for the angle limits (default: 1024 = +/-90 deg).",
     )
+    add_bridge_config_arg(p_center)
     p_center.set_defaults(_cmd=cmd_center)
 
     # load-config
@@ -691,6 +973,7 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help="Path to the JSON config file to load.",
     )
+    add_bridge_config_arg(p_load)
     p_load.set_defaults(_cmd=cmd_load_config)
 
     # dump-config
