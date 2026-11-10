@@ -6,6 +6,7 @@ import { type ServoActionResult, type ServoApiResult } from './servoApi'
 import { getCsiState, stopCsiCapture } from './csiApi'
 import { getHeadArmState, stopSequence } from './headArmApi'
 import { getFloorState, stopSweep } from './headFloorApi'
+import { getGroundState, stopGroundSweep, stopGroundVerify } from './groundBoardApi'
 import { getState, stopCapture } from './rgbdApi'
 
 const BASE = '/api/calibration/general'
@@ -97,6 +98,20 @@ const STOPPERS: Stopper[] = [
     },
   },
   {
+    name: 'ground board session',
+    run: async () => {
+      const s = await getGroundState()
+      return s.ok ? { live: s.value.sweep.running, stop: async () => done(await stopGroundSweep()) } : { error: s.message }
+    },
+  },
+  {
+    name: 'ground verification',
+    run: async () => {
+      const s = await getGroundState()
+      return s.ok ? { live: s.value.verify.running, stop: async () => done(await stopGroundVerify()) } : { error: s.message }
+    },
+  },
+  {
     name: 'D435 capture',
     run: async () => {
       const s = await getState()
@@ -115,7 +130,7 @@ const STOPPERS: Stopper[] = [
 ]
 
 /**
- * Abort calibration: stop every running sequence, sweep and capture. The head-arm sequence stop HOLDS the arm where it
+ * Abort calibration: stop every running sequence, sweep (floor and ground board), ground verification and capture. The head-arm sequence stop HOLDS the arm where it
  * is (no park). A state that cannot be read is reported and the others are still stopped.
  *
  * @returns what was stopped and the errors

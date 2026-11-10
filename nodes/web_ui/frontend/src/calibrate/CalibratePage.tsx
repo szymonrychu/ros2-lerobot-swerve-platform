@@ -11,6 +11,7 @@ import { TOUCH_TARGET_PX } from '../theme'
 import { FLOW_IDS, FlowId, calibrateFlow, clearCalibrateHash, flowHash } from './calibrateRoute'
 import { GENERAL_ACTIONS, GeneralActionId } from './generalApi'
 import { GeneralSection } from './GeneralSection'
+import type { HeadCameraPreview } from './GroundBoard'
 import { ArmCameraFlow } from './flows/ArmCameraFlow'
 import { CameraGroundFlow } from './flows/CameraGroundFlow'
 import { ImuFlow } from './flows/ImuFlow'
@@ -77,13 +78,15 @@ export function offeredFlows(config: CalibrationConfig): FlowId[] {
 interface Props {
   /** Called after the hash is cleared, to return to the stored tab. */
   onBack: () => void
+  /** The head camera stream for the Camera to ground board check, null when the robot config has none. */
+  headCamera?: HeadCameraPreview | null
 }
 
 /**
  * Hidden Calibrate page, reached from the hamburger menu at #/calibrate: the General section on top, then one tab per
  * calibration flow (one open at a time, deep link #/calibrate/<flow>).
  */
-export function CalibratePage({ onBack }: Props) {
+export function CalibratePage({ onBack, headCamera = null }: Props) {
   const [state, setState] = useState<LoadState>({ kind: 'loading' })
   const [hashFlow, setHashFlow] = useState<FlowId | null>(() => calibrateFlow(window.location.hash))
 
@@ -153,7 +156,9 @@ export function CalibratePage({ onBack }: Props) {
                 </Typography>
                 {flow === 'servo-home' && <ServoHomeFlow />}
                 {flow === 'imu' && <ImuFlow />}
-                {flow === 'camera-ground' && <CameraGroundFlow />}
+                {flow === 'camera-ground' && (
+                  <CameraGroundFlow canHomeHead={state.config.general.includes('home_head')} headCamera={headCamera} />
+                )}
                 {flow === 'arm-camera' && <ArmCameraFlow canHomeArm={state.config.general.includes('home_arm')} />}
               </Box>
             </>

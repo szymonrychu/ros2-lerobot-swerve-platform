@@ -5,7 +5,14 @@ import { CalibratePage } from './CalibratePage'
 
 vi.mock('./flows/ServoHomeFlow', () => ({ ServoHomeFlow: () => <div>servo-home-flow</div> }))
 vi.mock('./flows/ImuFlow', () => ({ ImuFlow: () => <div>imu-flow</div> }))
-vi.mock('./flows/CameraGroundFlow', () => ({ CameraGroundFlow: () => <div>camera-ground-flow</div> }))
+vi.mock('./flows/CameraGroundFlow', () => ({
+  CameraGroundFlow: ({ canHomeHead, headCamera }: { canHomeHead: boolean; headCamera: { topic: string } | null }) => (
+    <div>
+      <div>camera-ground-flow</div>
+      <div>{`home=${canHomeHead} preview=${headCamera?.topic ?? 'none'}`}</div>
+    </div>
+  ),
+}))
 vi.mock('./flows/ArmCameraFlow', () => ({
   ArmCameraFlow: ({ canHomeArm }: { canHomeArm: boolean }) => <div>{`arm-camera-flow home=${canHomeArm}`}</div>,
 }))
@@ -84,6 +91,22 @@ describe('CalibratePage', () => {
     await loaded()
     expect(screen.getByRole('tab', { name: 'Camera to ground' }).getAttribute('aria-selected')).toBe('true')
     expect(screen.getByText('camera-ground-flow')).toBeTruthy()
+  })
+
+  it('Camera to ground gets the General Home camera and the head camera preview', async () => {
+    window.location.hash = '#/calibrate/camera-ground'
+    respond(200, ALL)
+    render(<CalibratePage onBack={() => {}} headCamera={{ topic: '/head/rgb', data: undefined }} />)
+    await loaded()
+    expect(screen.getByText('home=true preview=/head/rgb')).toBeTruthy()
+  })
+
+  it('Camera to ground without the Home camera action or a preview', async () => {
+    window.location.hash = '#/calibrate/camera-ground'
+    respond(200, { ...ALL, general: [] })
+    render(<CalibratePage onBack={() => {}} />)
+    await loaded()
+    expect(screen.getByText('home=false preview=none')).toBeTruthy()
   })
 
   it('a hash change switches the flow', async () => {

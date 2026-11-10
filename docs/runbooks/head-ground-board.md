@@ -44,10 +44,20 @@ Invoke the `ansible-deploy` skill for the exact command first, then (all output 
 
 ```bash
 mkdir -p .logs
-./scripts/deploy-nodes.sh client head_rgbd_calibration 2>&1 | tee .logs/deploy-client-head-ground-board.log
+./scripts/deploy-nodes.sh client head_rgbd_calibration web_ui 2>&1 | tee .logs/deploy-client-head-ground-board.log
 ```
 
-Expect `failed=0` and the unit `active`.
+Expect `failed=0` and the units `active`.
+
+## Steps in the web UI
+
+Calibrate page (hamburger menu, `#/calibrate/camera-ground`), tab **Camera to ground**: 1 D435 intrinsics check
+(accept one first if none is accepted: the ground board accept needs it), 3 **Home camera**, 4 lay the board while
+watching the head camera preview, **Board is down**, 5 **Start sweep**, after each placement move the board and press
+**Next placement** (or **Stop**), 6 **Compute**, 7 the quality gate (refusals, warnings, accuracy at 1 sigma and 95 %,
+the parameters with the held head mount gauge; **Accept** or **Decline**), 8 **Start verification** (per pose pass or
+fail with the medians against the tolerances). The depth floor fit stays under **More fits**. The same steps through
+the API follow.
 
 ## Steps (API through the web_ui proxy)
 

@@ -1,57 +1,110 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { CameraGroundFlow } from './CameraGroundFlow'
-import { FLOOR_POLL_MS } from '../HeadFloorFit'
-import stateFx from '../../../../../head_rgbd_calibration/tests/fixtures/api/floor_state.json'
-import resultFx from '../../../../../head_rgbd_calibration/tests/fixtures/api/floor_result.json'
-import applyFx from '../../../../../head_rgbd_calibration/tests/fixtures/api/floor_apply.json'
-
-import type { SweepState } from '../headFloorApi'
+import { CameraGroundFlow, GROUND_POLL_MS } from './CameraGroundFlow'
+import type { GroundResult, GroundState, GroundSweep, GroundVerifyState } from '../groundBoardApi'
+import {
+  doneResult,
+  doneSweep,
+  failedVerify,
+  idleState,
+  nodeAccept,
+  nodeRunning,
+  nodeState,
+  nodeSweep,
+  nodeVerify,
+  refusedResult,
+  sweepingSweep,
+} from '../groundBoardFixtures'
 
 vi.mock('../RgbdCalibration', () => ({ RgbdCalibration: () => <div>d435-check</div> }))
 vi.mock('../CsiIntrinsics', () => ({ CsiIntrinsics: () => <div>csi-cameras</div> }))
+vi.mock('../BoardNeeded', () => ({ BoardNeeded: ({ role }: { role: string }) => <div>{`board-${role}`}</div> }))
+vi.mock('../FloorFitMore', () => ({
+  FloorFitMore: ({ disabled }: { disabled?: boolean }) => <div>{`more-fits${disabled ? ' disabled' : ''}`}</div>,
+}))
 
-const IDLE: SweepState = { ...stateFx.sweep, running: false, status: 'done' }
-const RUNNING: SweepState = stateFx.sweep
-const FAILED = { ...resultFx, passed: false, failed_limits: ['floor.fit.max_height_rms_mm: height RMS 9 mm exceeds 5 mm'] }
+const B = '/api/calibration/rgbd/ground-board'
+const SID = nodeSweep.session_id as string
+const RID = 'r-20261109-040000'
+const PREVIEW = { topic: '/head/camera/image', data: { jpeg_b64: 'AAAA' } }
 
 interface World {
-  sweep: SweepState
-  applied: typeof stateFx.applied | null
-  result: unknown
+  state: GroundState
+  /** Result bodies served in order (the last one repeats). */
+  results: GroundResult[]
   calls: string[]
-  failNext?: string
+  /** Path suffix answered 409 with `refusal`. */
+  refuse?: string
+  refusal?: string
+  home: { ok: boolean; message: string }
 }
 
 function install(w: World): void {
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
-      w.calls.push(`${init?.method ?? 'GET'} ${url}`)
+      const method = init?.method ?? 'GET'
+      w.calls.push(`${method} ${url}`)
       const json = (b: unknown, status = 200) => new Response(JSON.stringify(b), { status })
-      if (w.failNext && url.includes(w.failNext)) return json({ ok: false, message: 'compute exploded' }, 500)
-      if (url.endsWith('/state')) return json({ sweep: w.sweep, applied: w.applied })
-      if (url.endsWith('/sweep/start')) {
-        w.sweep = RUNNING
-        return json(w.sweep)
+      if (w.refuse && url.endsWith(w.refuse)) return json({ ok: false, message: w.refusal ?? 'refused' }, 409)
+      if (url === '/api/calibration/general/home_head') return json(w.home)
+      if (url === `${B}/state`) return json(w.state)
+      const sweep = (s: GroundSweep) => {
+        w.state = { ...w.state, sweep: s }
+        return json(s)
       }
-      if (url.endsWith('/sweep/stop')) {
-        w.sweep = IDLE
-        return json(w.sweep)
+      const verify = (v: GroundVerifyState) => {
+        w.state = { ...w.state, verify: v }
+        return json(v)
       }
-      if (url.endsWith('/compute')) return json(w.result)
-      if (url.endsWith('/apply')) return json(applyFx)
-      return json({ message: 'nope' }, 404)
+      if (url === `${B}/sweep/start`) return sweep(sweepingSweep)
+      if (url === `${B}/sweep/next-placement`) return sweep({ ...sweepingSweep, placement: 1, placements_done: 1, pose: 1 })
+      if (url === `${B}/sweep/stop`) return sweep(doneSweep)
+      if (url === `${B}/sessions/${SID}/compute`) return json({ result_id: RID }, 202)
+      if (url === `${B}/sessions/${SID}/results/${RID}`) return json(w.results.length > 1 ? w.results.shift() : w.results[0])
+      if (url.endsWith('/accept')) return json(nodeAccept)
+      if (url.endsWith('/decline')) return json({ ...w.results[0], declined: true, declined_at: '2026-11-09T05:00:00+00:00' })
+      if (url === `${B}/verify/start`) return verify({ ...nodeVerify, running: true, status: 'measuring', passed: null, poses: [] })
+      if (url === `${B}/verify/stop`) return verify({ ...nodeVerify, running: false, status: 'stopped', passed: null })
+      return json({ ok: false, message: 'nope' }, 404)
     }),
   )
 }
 
-const world = (over: Partial<World> = {}): World => ({ sweep: IDLE, applied: null, result: resultFx, calls: [], ...over })
+const world = (over: Partial<World> = {}): World => ({
+  state: idleState,
+  results: [{ ...doneResult, id: RID, session: SID }],
+  calls: [],
+  home: { ok: true, message: 'head homed' },
+  ...over,
+})
 
-async function ready(): Promise<HTMLElement> {
-  await screen.findByText(/Pose 3 of 15/)
-  return screen.getByRole('button', { name: 'Compute' })
+/** The state of a finished session of SID. */
+const sessionDone = (over: Partial<GroundState> = {}): GroundState => ({ ...idleState, sweep: doneSweep, ...over })
+
+const steps = () => within(screen.getByRole('list', { name: 'Camera to ground calibration steps' })).getAllByRole('listitem')
+const step = (n: number) => within(steps()[n - 1])
+
+function renderFlow(props: Partial<Parameters<typeof CameraGroundFlow>[0]> = {}) {
+  return render(<CameraGroundFlow canHomeHead headCamera={null} {...props} />)
+}
+
+async function confirm(label: string): Promise<void> {
+  await act(async () => {
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: label }))
+  })
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+}
+
+/** Compute on a finished session; resolves once the gate shows. */
+async function computeDone(): Promise<void> {
+  const btn = await screen.findByRole('button', { name: 'Compute' })
+  await waitFor(() => expect(btn.hasAttribute('disabled')).toBe(false))
+  await act(async () => {
+    fireEvent.click(btn)
+  })
+  await screen.findByText(/^(Plausible|Not plausible)$/, undefined, { timeout: 4000 })
 }
 
 afterEach(() => {
@@ -60,203 +113,256 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-const steps = () => within(screen.getByRole('list', { name: 'Camera to ground calibration steps' })).getAllByRole('listitem')
-
-/** Accepts the shown floor result through the gate confirm. */
-async function accept(): Promise<void> {
-  fireEvent.click(screen.getByRole('button', { name: 'Accept' }))
-  await act(async () => {
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Accept' }))
-  })
-  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-}
-
 describe('CameraGroundFlow', () => {
-  it('orders the steps: D435 check, front/back cameras, sweep, compute, gate, verification', async () => {
-    install(world({ sweep: { ...IDLE, session_id: null } }))
-    render(<CameraGroundFlow />)
+  it('orders the steps: D435 check, front/back cameras, home, board, sweep, compute, gate, verification', async () => {
+    install(world())
+    renderFlow()
     await screen.findByText('d435-check')
     expect(steps().map((li) => li.querySelector('h3')?.textContent)).toEqual([
       '1. D435 intrinsics check',
       '2. Front/back cameras',
-      '3. Head floor sweep',
-      '4. Compute',
-      '5. Check and apply',
-      '6. Verify on the ground (coming)',
+      '3. Home camera',
+      '4. Lay the board',
+      '5. Board sweep',
+      '6. Compute',
+      '7. Check and accept',
+      '8. Verify on the ground',
     ])
-    expect(within(steps()[1]).getByText('csi-cameras')).toBeTruthy()
+    expect(step(2).getByText('csi-cameras')).toBeTruthy()
+    expect(step(4).getByText('Finish step 3 first.')).toBeTruthy()
+    expect(screen.getByText('more-fits')).toBeTruthy()
   })
 
-  it('shows the precondition text and Start sweep', async () => {
-    install(world({ sweep: { ...IDLE, session_id: null } }))
-    render(<CameraGroundFlow />)
-    await screen.findByText('3. Head floor sweep')
-    expect(screen.getByText(/flat floor, not on blocks/)).toBeTruthy()
-    expect(screen.getByText(/2 m in front and 1.5 m to each side/)).toBeTruthy()
-    expect(screen.getByText(/only the head moves/i)).toBeTruthy()
-    expect(within(steps()[3]).getByText('Finish step 3 first.')).toBeTruthy()
-  })
-
-  it('says the floor plane comes from the D435 depth (D435 wording)', async () => {
-    install(world({ sweep: { ...IDLE, session_id: null } }))
-    const { container } = render(<CameraGroundFlow />)
-    await screen.findByText('3. Head floor sweep')
-    expect(screen.getByText(/floor plane from the D435 depth/)).toBeTruthy()
-    expect(container.textContent).not.toMatch(/ToF/)
-  })
-
-  it('start posts, then progress polls while running and Stop ends it', async () => {
-    vi.useFakeTimers()
-    const w = world({ sweep: { ...IDLE, session_id: null } })
+  it('Home camera confirms, runs the General home_head action and unlocks the board step', async () => {
+    const w = world()
     install(w)
-    render(<CameraGroundFlow />)
+    renderFlow()
+    fireEvent.click(await screen.findByRole('button', { name: 'Home camera' }))
+    await confirm('Home camera')
+    expect(w.calls).toContain('POST /api/calibration/general/home_head')
+    await waitFor(() => expect(step(3).getByText('Done')).toBeTruthy())
+    expect(step(4).getByText('board-full')).toBeTruthy()
+  })
+
+  it('a refused Home camera shows the message and keeps the step open', async () => {
+    install(world({ home: { ok: false, message: 'head torque is off' } }))
+    renderFlow()
+    fireEvent.click(await screen.findByRole('button', { name: 'Home camera' }))
+    await confirm('Home camera')
+    await screen.findByText('head torque is off')
+    expect(step(4).getByText('Finish step 3 first.')).toBeTruthy()
+  })
+
+  it('without the General Home camera the step is optional and points to the General section', async () => {
+    install(world())
+    renderFlow({ canHomeHead: false })
+    await screen.findByText(/Home the camera from the Head tab/)
+    expect(screen.queryByRole('button', { name: 'Home camera' })).toBeNull()
+    expect(step(3).getByText('Optional')).toBeTruthy()
+  })
+
+  it('the board step shows the head camera preview and Board is down unlocks the sweep', async () => {
+    install(world())
+    renderFlow({ canHomeHead: false, headCamera: PREVIEW })
+    const img = await screen.findByRole('img', { name: 'head camera' })
+    expect(img.getAttribute('src')).toBe('data:image/jpeg;base64,AAAA')
+    expect(step(4).getByText(/flat on the floor, close to the robot, fully visible/)).toBeTruthy()
+    fireEvent.click(step(4).getByRole('button', { name: 'Board is down' }))
+    expect(step(5).getByRole('button', { name: 'Start sweep' })).toBeTruthy()
+  })
+
+  it('without a preview the board step says to check the Head tab', async () => {
+    install(world())
+    renderFlow({ canHomeHead: false })
+    await screen.findByText(/No head camera preview here: check the board in the Head tab/)
+  })
+
+  it('Start sweep posts and polls the session while it runs; Stop ends it', async () => {
+    vi.useFakeTimers()
+    const w = world()
+    install(w)
+    renderFlow({ canHomeHead: false })
     await act(async () => {})
+    fireEvent.click(screen.getByRole('button', { name: 'Board is down' }))
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Start sweep' }))
     })
-    expect(w.calls).toContain('POST /api/calibration/rgbd/floor/sweep/start')
-    expect(screen.getByText(/Pose 3 of 15/)).toBeTruthy()
-    expect(screen.getByText(/12 observations/)).toBeTruthy()
-    expect(screen.getByText(/1 skipped/)).toBeTruthy()
-    const before = w.calls.filter((c) => c.endsWith('/state')).length
+    expect(w.calls).toContain(`POST ${B}/sweep/start`)
+    expect(screen.getByText(/Placement 1 of 3: pose 4 of 10, 11 views, 8 depth planes, 0 skipped - sweeping/)).toBeTruthy()
+    expect(screen.getByText(/Board located at x 0.551 m, y 0.049 m, yaw 17.2 deg/)).toBeTruthy()
+    const before = w.calls.filter((c) => c === `GET ${B}/state`).length
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(FLOOR_POLL_MS * 2)
+      await vi.advanceTimersByTimeAsync(GROUND_POLL_MS * 2)
     })
-    expect(w.calls.filter((c) => c.endsWith('/state')).length).toBeGreaterThan(before)
+    expect(w.calls.filter((c) => c === `GET ${B}/state`).length).toBeGreaterThan(before)
+    expect(screen.getByText('more-fits disabled')).toBeTruthy()
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
     })
-    expect(w.calls).toContain('POST /api/calibration/rgbd/floor/sweep/stop')
-    expect(screen.getByRole('button', { name: 'Compute' }).hasAttribute('disabled')).toBe(false)
+    expect(w.calls).toContain(`POST ${B}/sweep/stop`)
+    expect(step(5).getByText('Done')).toBeTruthy()
   })
 
-  it('compute shows the table with current, fitted, delta, sigma and the residuals', async () => {
-    const w = world()
+  it('awaiting a placement shows the hint and Next placement posts', async () => {
+    const w = world({ state: { ...idleState, sweep: nodeSweep } })
     install(w)
-    render(<CameraGroundFlow />)
-    const btn = await ready()
+    renderFlow({ canHomeHead: false, headCamera: PREVIEW })
+    await screen.findByText(/move the board to a new place on the floor/)
+    expect(screen.getByText(/1 of 3 placements done/)).toBeTruthy()
+    expect(step(5).getByRole('img', { name: 'head camera' })).toBeTruthy()
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Next placement' }))
+    })
+    expect(w.calls).toContain(`POST ${B}/sweep/next-placement`)
+    expect(screen.getByText(/Placement 2 of 3: pose 1 of 10/)).toBeTruthy()
+  })
+
+  it('Next placement is off once every placement is done and while a placement runs', async () => {
+    install(world({ state: { ...idleState, sweep: { ...nodeSweep, placements_done: 3 } } }))
+    renderFlow({ canHomeHead: false })
+    expect((await screen.findByRole('button', { name: 'Next placement' })).hasAttribute('disabled')).toBe(true)
+    cleanup()
+    install(world({ state: { ...idleState, sweep: sweepingSweep } }))
+    renderFlow({ canHomeHead: false })
+    expect((await screen.findByRole('button', { name: 'Next placement' })).hasAttribute('disabled')).toBe(true)
+  })
+
+  it('a refused start shows the node message on the sweep step', async () => {
+    install(world({ refuse: '/sweep/start', refusal: 'a floor sweep is running; stop it first' }))
+    renderFlow({ canHomeHead: false })
+    fireEvent.click(await screen.findByRole('button', { name: 'Board is down' }))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Start sweep' }))
+    })
+    expect(step(5).getByText('a floor sweep is running; stop it first')).toBeTruthy()
+  })
+
+  it('a finished session from the node opens Compute; the result is polled until done and gated', async () => {
+    const w = world({ state: sessionDone(), results: [{ ...nodeRunning, id: RID, session: SID }, { ...doneResult, id: RID, session: SID }] })
+    install(w)
+    renderFlow()
+    await computeDone()
+    expect(w.calls).toContain(`POST ${B}/sessions/${SID}/compute`)
+    expect(w.calls.filter((c) => c === `GET ${B}/sessions/${SID}/results/${RID}`).length).toBeGreaterThan(1)
+    const gate = step(7)
+    expect(gate.getByText('Plausible')).toBeTruthy()
+    expect(gate.getByText(/board placements 1 are fewer than the advisory 2/)).toBeTruthy()
+    expect(within(gate.getByRole('row', { name: /^mount_yaw_deg/ })).getByText('held')).toBeTruthy()
+    expect(within(gate.getByRole('row', { name: /^floor height 1 m ahead of the head/ })).getByText('+-0.3 mm')).toBeTruthy()
+    expect(gate.getByRole('table', { name: 'Board placements' })).toBeTruthy()
+  })
+
+  it('a compute that failed shows its error on the compute step', async () => {
+    install(world({ state: sessionDone(), results: [{ ...nodeRunning, id: RID, session: SID, state: 'failed', error: 'no views' }] }))
+    renderFlow()
+    const btn = await screen.findByRole('button', { name: 'Compute' })
+    await waitFor(() => expect(btn.hasAttribute('disabled')).toBe(false))
     await act(async () => {
       fireEvent.click(btn)
     })
-    expect(w.calls).toContain('POST /api/calibration/rgbd/floor/sessions/floor-20261021-120000/compute')
-    const row = (name: string) => within(screen.getByRole('row', { name: new RegExp(name) }))
-    // mount z: 350 -> 380 mm, change +30, sigma 0.4 mm
-    expect(row('Mount z').getByText('350.0')).toBeTruthy()
-    expect(row('Mount z').getByText('380.0')).toBeTruthy()
-    expect(row('Mount z').getByText('+30.0')).toBeTruthy()
-    expect(row('Mount z').getByText('0.4')).toBeTruthy()
-    expect(row('Mount roll').getByText('1.500')).toBeTruthy()
-    expect(row('Mount pitch').getAllByText('-3.000')).toHaveLength(2)
-    expect(row('Tilt zero').getByText('+2.000')).toBeTruthy()
-    expect(row('Tilt roll').getByText('+1.200')).toBeTruthy()
-    expect(row('Tilt roll').getByText('0.030')).toBeTruthy()
-    expect(screen.getByText(/Checked against the limits \(pose mean\): Height RMS 2.1 mm, Normal RMS 0.12 deg/)).toBeTruthy()
-    expect(screen.getByText(/Per observation \(not limited\): Height RMS 4.3 mm, Normal RMS 0.9 deg/)).toBeTruthy()
-    expect(screen.getByText('Plausible')).toBeTruthy()
-    expect(within(screen.getByRole('row', { name: /^camera height/ })).getByText('+-0.4 mm')).toBeTruthy()
-    // per-pose residual and skipped reason
-    expect(screen.getByRole('row', { name: /-60.0.*12.0.*3.*1.9.*0.10/ })).toBeTruthy()
-    expect(screen.getByText(/no valid plane/)).toBeTruthy()
+    await waitFor(() => expect(step(6).getByText('no views')).toBeTruthy())
   })
 
-  it('shows a partly blocked skipped pose with its reason', async () => {
-    const reason = 'partly blocked: 2 of 5 clouds'
-    install(world({ result: { ...resultFx, skipped: [{ pose: 4, pan_deg: 30, tilt_deg: 10, reason }] } }))
-    render(<CameraGroundFlow />)
-    const compute = await ready()
-    await act(async () => {
-      fireEvent.click(compute)
-    })
-    expect(screen.getByText(new RegExp(`Skipped pose 4.*${reason}`))).toBeTruthy()
-  })
-
-  it('renders an older result without tilt roll and observation RMS', async () => {
-    const { tilt_roll_deg: _t, ...params } = resultFx.params
-    const { observation_height_rms_mm: _h, observation_normal_rms_deg: _n, ...old } = resultFx
-    install(world({ result: { ...old, params } }))
-    render(<CameraGroundFlow />)
-    const compute = await ready()
-    await act(async () => {
-      fireEvent.click(compute)
-    })
-    expect(screen.getByText('Plausible')).toBeTruthy()
-    expect(screen.queryByRole('row', { name: /Tilt roll/ })).toBeNull()
-    expect(screen.queryByText(/Per observation/)).toBeNull()
-    expect(screen.getByText(/pose mean\): Height RMS 2.1 mm/)).toBeTruthy()
-  })
-
-  it('Accept is disabled for a failed result and shows the failed limits', async () => {
-    install(world({ result: FAILED }))
-    render(<CameraGroundFlow />)
-    const compute = await ready()
-    await act(async () => {
-      fireEvent.click(compute)
-    })
+  it('a refused result cannot be accepted and names the refusal with value against limit', async () => {
+    install(world({ state: sessionDone(), results: [{ ...refusedResult, id: RID, session: SID }] }))
+    renderFlow()
+    await computeDone()
     expect(screen.getByText('Not plausible')).toBeTruthy()
-    expect(screen.getByText(/height RMS 9 mm exceeds 5 mm/)).toBeTruthy()
+    expect(screen.getByText(/head mount height change 120 mm .*value 120 mm, limit 100 mm/)).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Accept' }).hasAttribute('disabled')).toBe(true)
   })
 
-  it('Accept for a passed result confirms, applies and shows the unit restart state', async () => {
-    const w = world()
+  it('Accept confirms, applies the head chain and shows the unit restart state', async () => {
+    const w = world({ state: sessionDone() })
     install(w)
-    render(<CameraGroundFlow />)
-    const compute = await ready()
-    await act(async () => {
-      fireEvent.click(compute)
-    })
-    await accept()
-    expect(w.calls).toContain('POST /api/calibration/rgbd/floor/sessions/floor-20261021-120000/results/r-20261021-123000/apply')
-    expect(screen.getByText(/ros2-head_camera_cpp.service/)).toBeTruthy()
-    expect(screen.getByText(/restarted/)).toBeTruthy()
+    renderFlow()
+    await computeDone()
+    fireEvent.click(screen.getByRole('button', { name: 'Accept' }))
+    await confirm('Accept')
+    expect(w.calls).toContain(`POST ${B}/sessions/${SID}/results/${RID}/accept`)
+    await screen.findByText(/Applied result r-20261109-040000 \(ground board\)\. Units: unit-a.service restarted \(active\)\./)
     expect(screen.getByText('Accepted')).toBeTruthy()
   })
 
-  it('Decline applies nothing', async () => {
-    const w = world()
+  it('a refused accept shows the node message on the gate', async () => {
+    install(world({ state: sessionDone(), refuse: '/accept', refusal: 'no accepted D435 intrinsics check' }))
+    renderFlow()
+    await computeDone()
+    fireEvent.click(screen.getByRole('button', { name: 'Accept' }))
+    await confirm('Accept')
+    await screen.findByText('no accepted D435 intrinsics check')
+    expect(screen.queryByText('Accepted')).toBeNull()
+  })
+
+  it('Decline posts the decline and applies nothing', async () => {
+    const w = world({ state: sessionDone() })
     install(w)
-    render(<CameraGroundFlow />)
-    const compute = await ready()
+    renderFlow()
+    await computeDone()
     await act(async () => {
-      fireEvent.click(compute)
+      fireEvent.click(screen.getByRole('button', { name: 'Decline' }))
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Decline' }))
+    expect(w.calls).toContain(`POST ${B}/sessions/${SID}/results/${RID}/decline`)
     expect(screen.getByText('Declined')).toBeTruthy()
-    expect(w.calls.some((c) => c.endsWith('/apply'))).toBe(false)
+    expect(w.calls.some((c) => c.endsWith('/accept'))).toBe(false)
   })
 
-  it('shows the currently applied head chain', async () => {
-    install(world({ applied: stateFx.applied }))
-    render(<CameraGroundFlow />)
-    await screen.findByText(/Applied head chain/)
-    expect(screen.getByText(/floor-20261021-120000/)).toBeTruthy()
-    expect(screen.getByText(/r-20261021-123000/)).toBeTruthy()
-    expect(screen.getByText(/height RMS 2.1 mm, normal RMS 0.12 deg/)).toBeTruthy()
+  it('shows the head chain in effect and the accepted ground board result with its verification', async () => {
+    install(world({ state: { ...nodeState, sweep: doneSweep } }))
+    renderFlow()
+    await screen.findByText(/Head chain in effect: ground board, session ground-20261109-033000, result r-20261109-040000/)
+    expect(screen.getByText(/Accepted ground board result r-20261109-040000 .*RMS 0.42 px.*not verified yet/)).toBeTruthy()
   })
 
-  it('shows errors from the node and from a malformed body', async () => {
-    const w = world({ failNext: '/compute' })
+  it('verification is open once a head chain is applied: start posts and polls; pass and fail per pose with values vs limits', async () => {
+    const w = world({ state: { ...nodeState, sweep: doneSweep, verify: failedVerify } })
     install(w)
-    render(<CameraGroundFlow />)
-    const compute = await ready()
+    renderFlow()
+    const verify = await screen.findByRole('table', { name: 'Ground verification poses' })
+    const rows = within(verify).getAllByRole('row')
+    expect(within(rows[1]).getByText('Passed')).toBeTruthy()
+    expect(within(rows[1]).getByText(/height 3.0 mm \(limit 10.0 mm\) ok/)).toBeTruthy()
+    expect(within(rows[2]).getByText('Failed')).toBeTruthy()
+    expect(within(rows[2]).getByText(/height 15.0 mm \(limit 10.0 mm\) failed/)).toBeTruthy()
+    expect(step(8).getByText('Verification failed')).toBeTruthy()
     await act(async () => {
-      fireEvent.click(compute)
+      fireEvent.click(step(8).getByRole('button', { name: 'Start verification' }))
     })
-    expect(screen.getByText('compute exploded')).toBeTruthy()
-    cleanup()
-    install(world({ result: { id: 'x' } }))
-    render(<CameraGroundFlow />)
-    const compute2 = await ready()
+    expect(w.calls).toContain(`POST ${B}/verify/start`)
+    expect(step(8).getByText(/measuring/)).toBeTruthy()
     await act(async () => {
-      fireEvent.click(compute2)
+      fireEvent.click(step(8).getByRole('button', { name: 'Stop verification' }))
     })
-    expect(screen.getByText('Unexpected floor fit response from the robot')).toBeTruthy()
-    expect(screen.queryByText('Plausible')).toBeNull()
+    expect(w.calls).toContain(`POST ${B}/verify/stop`)
   })
 
-  it('shows a sweep error from the node state', async () => {
-    install(world({ sweep: { ...IDLE, status: 'error', error: 'head did not reach the pose' } }))
-    render(<CameraGroundFlow />)
-    await screen.findByText(/head did not reach the pose/)
+  it('a passed verification marks the last step done', async () => {
+    install(world({ state: { ...nodeState, sweep: doneSweep } }))
+    renderFlow()
+    await waitFor(() => expect(step(8).getByText('Verification passed')).toBeTruthy())
+    expect(step(8).getByText('Done')).toBeTruthy()
+  })
+
+  it('verification is locked without an applied head chain', async () => {
+    install(world())
+    renderFlow()
+    await screen.findByText('d435-check')
+    expect(step(8).queryByRole('button', { name: 'Start verification' })).toBeNull()
+  })
+
+  it('a compute running on the node after a page reload is polled to its result', async () => {
+    const compute = { running: true, session_id: SID, result_id: RID, started_at: '2026-11-09T04:00:01+00:00', error: null }
+    const w = world({ state: sessionDone({ compute }) })
+    install(w)
+    renderFlow()
+    await screen.findByText('Plausible')
+    expect(w.calls).toContain(`GET ${B}/sessions/${SID}/results/${RID}`)
+    expect(w.calls).not.toContain(`POST ${B}/sessions/${SID}/compute`)
+  })
+
+  it('shows a state the node cannot give as an error', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ok: false, message: 'calibration node unreachable' }), { status: 503 })))
+    renderFlow()
+    await screen.findByText(/calibration node unreachable/)
   })
 })

@@ -26,7 +26,7 @@ export interface AccuracyExample {
   unit: string
 }
 
-/** The applied head chain a fit held fixed: source floor_fit, head_arm, arm_offsets or urdf. */
+/** The applied head chain a fit held fixed: source floor_fit, head_arm, arm_offsets, ground_board or urdf. */
 export interface ArmCameraHeadChain {
   source: string | null
   session: string | null
@@ -48,7 +48,7 @@ export interface ArmCameraApplied {
 export interface ArmCameraState {
   /** The applied arm-camera record, null while none is applied. */
   applied: ArmCameraApplied | null
-  /** Which fit wrote the applied head chain (floor_fit, head_arm, arm_offsets, urdf), null when unknown. */
+  /** Which fit wrote the applied head chain (floor_fit, head_arm, arm_offsets, ground_board, urdf), null when unknown. */
   head_chain_source: string | null
   ready: boolean
   reason: string | null
@@ -138,20 +138,23 @@ export interface ArmCameraAccept {
   units: ArmCameraUnit[]
 }
 
-type Check = (v: unknown) => boolean
-type Shape = Record<string, Check>
-const isBool: Check = (v) => typeof v === 'boolean'
-const isNum0: Check = isNullOr(isNum)
+/** A runtime check of one value. */
+export type Check = (v: unknown) => boolean
+/** A body shape: one check per key. */
+export type Shape = Record<string, Check>
+export const isBool: Check = (v) => typeof v === 'boolean'
+/** A finite number or null (the node sends non-finite numbers as null). */
+export const isNum0: Check = isNullOr(isNum)
 const RESULT_STATES: ArmCameraResultState[] = ['running', 'done', 'failed']
 
 /** Name of the first key of `v` that is missing or has the wrong type (`a.b` for nested shapes), or null. */
-function badKey(v: unknown, shape: Shape): string | null {
+export function badKey(v: unknown, shape: Shape): string | null {
   if (!isObj(v)) return '(body)'
   return Object.keys(shape).find((k) => !(k in v) || !shape[k](v[k])) ?? null
 }
 
 /** A check that the value fits `shape`. */
-const fits =
+export const fits =
   (shape: Shape): Check =>
   (v) =>
     badKey(v, shape) === null

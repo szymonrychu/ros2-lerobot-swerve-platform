@@ -12,6 +12,7 @@ import Typography from '@mui/material/Typography'
 import { ConfirmDialog } from '../layout/ConfirmDialog'
 import { TOUCH_TARGET_PX } from '../theme'
 import { pairAccuracy, type ArmCameraCheck, type ArmCameraReport } from './armCameraApi'
+import { GROUND_GAUGE_PARAMS, type GroundReport } from './groundBoardApi'
 import type { FloorParam, FloorResult } from './headFloorApi'
 
 const M_TO_MM = 1000
@@ -291,6 +292,69 @@ export function armCameraGate(report: ArmCameraReport): GateReport {
         label: 'Held-out tool error',
         current: measured(current.heldout_tool_mm, 1, 'mm'),
         next: measured(s.heldout_tool_mm, 1, 'mm'),
+      },
+      ...report.comparison.shift_examples.map((e) => ({
+        label: `Shift of the ${e.label}`,
+        current: '-',
+        next: measured(e.value, 1, e.unit),
+      })),
+    ],
+    notes: report.notes,
+  }
+}
+
+/** Decimals of a ground board parameter by its unit (mm and deg). */
+const GROUND_DIGITS: Record<string, number> = { mm: 2, deg: 3 }
+
+/**
+ * Gate of a ground board fit report (camera to ground from the board on the floor): refusals and warnings with value
+ * against limit, the score with the depth cross-check, the accuracy examples paired (1 sigma and 95 %), every head
+ * parameter in mm and deg (the head mount gauge shown as held), the comparison of the applied chain scored on this
+ * session with the new one (corner RMS and the depth cross-check), the shift examples and the fit notes.
+ *
+ * @param report - the report of a done result
+ * @returns the gate report
+ */
+export function groundBoardGate(report: GroundReport): GateReport {
+  const s = report.score
+  const current = report.comparison.current_score
+  const { fitted, applied } = report.cross_check
+  return {
+    plausible: report.plausible,
+    refusals: report.refusals.map(checkText),
+    warnings: report.warnings.map(checkText),
+    score: [
+      { label: 'RMS', value: measured(s.rms_px, 2, 'px') },
+      { label: 'Held-out RMS', value: measured(s.heldout_rms_px, 2, 'px') },
+      { label: 'Views', value: String(s.views) },
+      { label: 'Head poses', value: String(s.poses) },
+      { label: 'Board placements', value: String(s.placements) },
+      { label: 'Depth floor height RMS', value: measured(s.floor_height_rms_mm, 1, 'mm') },
+      { label: 'Depth floor normal RMS', value: measured(s.floor_normal_rms_deg, 2, 'deg') },
+    ],
+    params: report.params.map((p) => ({
+      name: p.name,
+      value: p.value,
+      sigma: p.sigma,
+      held: GROUND_GAUGE_PARAMS.includes(p.name),
+      unit: p.unit,
+      applied: p.applied_value,
+      change: p.change,
+      digits: GROUND_DIGITS[p.unit] ?? DEFAULT_DIGITS,
+    })),
+    accuracy: pairAccuracy(report.accuracy_examples),
+    comparison: [
+      { label: 'RMS', current: measured(current.rms_px, 2, 'px'), next: measured(s.rms_px, 2, 'px') },
+      { label: 'Held-out RMS', current: measured(current.heldout_rms_px, 2, 'px'), next: measured(s.heldout_rms_px, 2, 'px') },
+      {
+        label: 'Depth floor height RMS',
+        current: measured(applied.height_rms_mm, 1, 'mm'),
+        next: measured(fitted.height_rms_mm, 1, 'mm'),
+      },
+      {
+        label: 'Depth floor normal RMS',
+        current: measured(applied.normal_rms_deg, 2, 'deg'),
+        next: measured(fitted.normal_rms_deg, 2, 'deg'),
       },
       ...report.comparison.shift_examples.map((e) => ({
         label: `Shift of the ${e.label}`,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { subscribedTopics } from './subscription'
+import { calibrateHeadCameraTopic, subscribedTopics, withTopic } from './subscription'
 import { AppConfig, TabConfig } from '../types'
 
 const map = { id: 'm', type: 'map_nav', label: 'Map', map_topic: '/map', goal_topic: '/goal' } as TabConfig
@@ -93,5 +93,20 @@ describe('head RGB-D on demand', () => {
     expect(subscribedTopics(cfg([m]), m)).not.toContain(GROUND[1])
     expect(subscribedTopics(cfg([m]), m, false, false, false, false, true)).toEqual(expect.arrayContaining(GROUND))
     expect(subscribedTopics(cfg([h]), h, false, false, false, false, true)).not.toContain(GROUND[1])
+  })
+})
+
+describe('head camera preview of the Calibrate page', () => {
+  it('names the head tab colour stream', () => {
+    expect(calibrateHeadCameraTopic(cfg([map, rgbd, head]))).toBe('/h/rgb')
+  })
+  it('is null without a head tab or without its colour stream', () => {
+    expect(calibrateHeadCameraTopic(cfg([map, rgbd]))).toBeNull()
+    expect(calibrateHeadCameraTopic(cfg([{ ...head, rgb_camera_topic: undefined }]))).toBeNull()
+  })
+  it('adds the topic to a subscription once, sorted', () => {
+    expect(withTopic(['/b', '/d'], '/c')).toEqual(['/b', '/c', '/d'])
+    expect(withTopic(['/b', '/c'], '/c')).toEqual(['/b', '/c'])
+    expect(withTopic(['/b'], null)).toEqual(['/b'])
   })
 })

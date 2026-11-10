@@ -5,6 +5,8 @@ import { GeneralSection } from './GeneralSection'
 import * as generalApi from './generalApi'
 import * as headArmApi from './headArmApi'
 import * as headFloorApi from './headFloorApi'
+import * as groundBoardApi from './groundBoardApi'
+import { idleState as GROUND_IDLE, sweepingSweep } from './groundBoardFixtures'
 import type { HeadArmSequence } from './headArmApi'
 
 const SEQ: HeadArmSequence = {
@@ -25,6 +27,7 @@ const SEQ: HeadArmSequence = {
 }
 
 function stubSequence(seq: Partial<HeadArmSequence> = {}) {
+  vi.spyOn(groundBoardApi, 'getGroundState').mockResolvedValue({ ok: true, value: GROUND_IDLE })
   vi.spyOn(headFloorApi, 'getFloorState').mockResolvedValue({
     ok: true,
     value: { sweep: { running: false, session_id: null, pose: 0, total: 0, observations: 0, skipped: 0, status: 'idle', error: null }, applied: null },
@@ -138,6 +141,21 @@ describe('GeneralSection', () => {
     render(<GeneralSection actions={ALL} rgbd />)
     await waitFor(() => expect((screen.getByRole('button', { name: 'Home camera' }) as HTMLButtonElement).disabled).toBe(true))
     expect((screen.getByRole('button', { name: 'Home arm' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('Home camera is off while a ground board session or a ground verification moves the head', async () => {
+    for (const value of [
+      { ...GROUND_IDLE, sweep: sweepingSweep },
+      { ...GROUND_IDLE, verify: { ...GROUND_IDLE.verify, running: true, status: 'measuring' as const } },
+    ]) {
+      stubSequence()
+      vi.spyOn(groundBoardApi, 'getGroundState').mockResolvedValue({ ok: true, value })
+      render(<GeneralSection actions={ALL} rgbd />)
+      await waitFor(() => expect((screen.getByRole('button', { name: 'Home camera' }) as HTMLButtonElement).disabled).toBe(true))
+      expect((screen.getByRole('button', { name: 'Home arm' }) as HTMLButtonElement).disabled).toBe(false)
+      cleanup()
+      vi.restoreAllMocks()
+    }
   })
 
   it('without the RGB-D node it does not read the sequence', async () => {

@@ -38,7 +38,7 @@ import { GPS_BASE_STATUS_KEY, baseGpsStatus, roverGpsStatus } from './gps/gpsSta
 import type { BaseGpsPayload, RoverGpsPayload } from './gps/gpsStatus'
 import { StateBanner } from './components/StateBanner'
 import { useRosBridge } from './hooks/useRosBridge'
-import { subscribedTopics } from './hooks/subscription'
+import { calibrateHeadCameraTopic, subscribedTopics, withTopic } from './hooks/subscription'
 import { CalibratePage } from './calibrate/CalibratePage'
 import { clearCalibrateHash, isCalibrateHash, openCalibrate } from './calibrate/calibrateRoute'
 import { tabBarMode } from './layout/tabBarMode'
@@ -175,8 +175,13 @@ export default function App() {
   const [headRgbdWanted, setHeadRgbdWanted] = useState(false) // RGB-D view of the open head tab
   const [headRgbdCloudWanted, setHeadRgbdCloudWanted] = useState(false) // Head RGB-D layer of the open map tab
   const [groundWanted, setGroundWanted] = useState(false) // Ground layer of the open map tab
+  // The Calibrate page previews the head camera (the board check of Camera to ground) while it is open.
+  const headCameraTopic = calibrating && config ? calibrateHeadCameraTopic(config) : null
   const subscription = config
-    ? subscribedTopics(config, activeTabConfig, obstaclesWanted, map3dCloudWanted, headRgbdWanted, headRgbdCloudWanted, groundWanted)
+    ? withTopic(
+        subscribedTopics(config, activeTabConfig, obstaclesWanted, map3dCloudWanted, headRgbdWanted, headRgbdCloudWanted, groundWanted),
+        headCameraTopic,
+      )
     : []
   const { topicData, connected, publish } = useRosBridge(subscription, (e) =>
     setErrorToast(e.message)
@@ -332,7 +337,12 @@ export default function App() {
             </Centered>
           }
         >
-          {calibrating && <CalibratePage onBack={() => setCalibrating(false)} />}
+          {calibrating && (
+            <CalibratePage
+              onBack={() => setCalibrating(false)}
+              headCamera={headCameraTopic ? { topic: headCameraTopic, data: topicData[headCameraTopic] } : null}
+            />
+          )}
           {!calibrating && tab && renderTab(tab, topicData, publish, battery, tilt, { items: poiItems, onShowOnMap: showOnMap, photos: poiPhotos }, pendingFocus, clearPendingFocus, setObstaclesWanted, setMap3dCloudWanted, setHeadRgbdWanted, setHeadRgbdCloudWanted, setGroundWanted)}
         </Suspense>
       </Box>

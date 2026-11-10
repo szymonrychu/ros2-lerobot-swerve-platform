@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import { GateReport, QualityGate, armCameraGate, checkText, floorGate } from './QualityGate'
+import { GateReport, QualityGate, armCameraGate, checkText, floorGate, groundBoardGate } from './QualityGate'
 import type { ArmCameraReport } from './armCameraApi'
 import type { FloorResult } from './headFloorApi'
 import { doneResult, nodeResult, refusedResult } from './armCameraFixtures'
+import type { GroundReport } from './groundBoardApi'
+import { doneResult as groundDone, nodeResult as groundNode, refusedResult as groundRefused } from './groundBoardFixtures'
 
 const doneReport = doneResult.report as ArmCameraReport
 const nodeReport = nodeResult.report as ArmCameraReport
@@ -192,5 +194,58 @@ describe('floorGate', () => {
     const gate = floorGate({ ...RESULT, passed: false, failed_limits: ['height RMS 9 mm above 5 mm'] })
     expect(gate.plausible).toBe(false)
     expect(gate.refusals).toEqual(['height RMS 9 mm above 5 mm'])
+  })
+})
+
+describe('groundBoardGate', () => {
+  const done = groundDone.report as GroundReport
+  const node = groundNode.report as GroundReport
+
+  it('maps the ground board report of the node contract: refusals and warnings with value against limit', () => {
+    const gate = groundBoardGate(node)
+    expect(gate.plausible).toBe(true)
+    expect(gate.refusals).toEqual([checkText(node.refusals[0])])
+    expect(gate.refusals[0]).toContain('value 120 mm, limit 100 mm')
+    expect(gate.warnings).toEqual([checkText(node.warnings[0])])
+    expect(gate.notes).toEqual(node.notes)
+  })
+
+  it('scores the corner RMS, the held-out RMS, the counts and the depth cross-check', () => {
+    const labels = Object.fromEntries(groundBoardGate(node).score.map((s) => [s.label, s.value]))
+    expect(labels).toEqual({
+      RMS: '0.42 px',
+      'Held-out RMS': '0.42 px',
+      Views: '69',
+      'Head poses': '69',
+      'Board placements': '3',
+      'Depth floor height RMS': '1.6 mm',
+      'Depth floor normal RMS': '0.22 deg',
+    })
+  })
+
+  it('pairs the accuracy examples (1 sigma and 95 %)', () => {
+    expect(groundBoardGate(done).accuracy).toEqual([
+      { label: 'floor height 1 m ahead of the head', sigma: node.accuracy_examples[0].value, p95: 0.25, unit: 'mm' },
+    ])
+  })
+
+  it('marks the head mount gauge as held and keeps a fitted sigma', () => {
+    const params = Object.fromEntries(groundBoardGate(done).params.map((p) => [p.name, p]))
+    expect(params.mount_yaw_deg).toMatchObject({ held: true, sigma: null, change: 0 })
+    expect(params.mount_x_m).toMatchObject({ held: true, unit: 'mm', applied: 150 })
+    expect(params.tilt_zero_deg).toMatchObject({ held: false, sigma: 0.01, applied: 0.6, change: 0.6 })
+  })
+
+  it('compares the applied chain on this session with the new one, the shifts and the depth cross-check', () => {
+    const rows = groundBoardGate(node).comparison
+    expect(rows[0]).toEqual({ label: 'RMS', current: '5.43 px', next: '0.42 px' })
+    expect(rows[1]).toEqual({ label: 'Held-out RMS', current: '8.48 px', next: '0.42 px' })
+    expect(rows).toContainEqual({ label: 'Depth floor height RMS', current: '1.5 mm', next: '1.6 mm' })
+    expect(rows).toContainEqual({ label: 'Depth floor normal RMS', current: '0.94 deg', next: '0.22 deg' })
+    expect(rows).toContainEqual({ label: 'Shift of the floor height 1 m ahead of the head', current: '-', next: '-1.0 mm' })
+  })
+
+  it('a refused report is not plausible', () => {
+    expect(groundBoardGate(groundRefused.report as GroundReport).plausible).toBe(false)
   })
 })

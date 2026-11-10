@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { GENERAL_ACTIONS, abortCalibration, runGeneralAction } from './generalApi'
+import { idleState as GROUND_IDLE } from './groundBoardFixtures'
 
 const SEQ_IDLE = {
   running: false,
@@ -29,6 +30,8 @@ interface Running {
   sweep?: boolean
   d435?: boolean
   csi?: string | null
+  groundSweep?: boolean
+  groundVerify?: boolean
 }
 
 /** Fake node: states per `running`, every POST answered with the idle state of its family; records the POST urls. */
@@ -42,6 +45,13 @@ function fakeNode(running: Running, failing: string[] = []): string[] {
       if (url.includes('/head-arm/')) {
         const sequence = { ...SEQ_IDLE, ...(init?.method === 'POST' ? {} : running.headArm) }
         return new Response(JSON.stringify(url.endsWith('/state') ? { sequence, applied: null } : sequence))
+      }
+      if (url.includes('/ground-board/')) {
+        const get = init?.method !== 'POST'
+        const sweep = { ...GROUND_IDLE.sweep, running: get && running.groundSweep === true }
+        const verify = { ...GROUND_IDLE.verify, running: get && running.groundVerify === true }
+        if (url.endsWith('/state')) return new Response(JSON.stringify({ ...GROUND_IDLE, sweep, verify }))
+        return new Response(JSON.stringify(url.includes('/verify/') ? verify : sweep))
       }
       if (url.includes('/floor/')) {
         const sweep = { ...SWEEP_IDLE, running: init?.method !== 'POST' && running.sweep === true }
@@ -122,6 +132,16 @@ describe('abortCalibration', () => {
       '/api/calibration/rgbd/floor/sweep/stop',
     ])
     expect(r.stopped.sort()).toEqual(['D435 capture', 'back camera capture', 'floor sweep'])
+  })
+
+  it('stops a ground board session and a ground verification', async () => {
+    const posts = fakeNode({ groundSweep: true, groundVerify: true })
+    const r = await abortCalibration()
+    expect(posts.sort()).toEqual([
+      '/api/calibration/rgbd/ground-board/sweep/stop',
+      '/api/calibration/rgbd/ground-board/verify/stop',
+    ])
+    expect(r.stopped.sort()).toEqual(['ground board session', 'ground verification'])
   })
 
   it('a state that cannot be read is reported and the others are still stopped', async () => {

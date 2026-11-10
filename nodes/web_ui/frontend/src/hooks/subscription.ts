@@ -79,3 +79,25 @@ export function subscribedTopics(
   }
   return [...topics].sort()
 }
+
+/**
+ * The head camera colour stream the Calibrate page previews (the board check of Camera to ground): the
+ * rgb_camera_topic of the first head tab.
+ *
+ * @param config - app config
+ * @returns the topic, null when no head tab names one
+ */
+export function calibrateHeadCameraTopic(config: AppConfig): string | null {
+  return config.tabs.find((t) => t.type === 'head' && t.rgb_camera_topic)?.rgb_camera_topic ?? null
+}
+
+/**
+ * A subscription with one more topic (kept once, sorted like subscribedTopics).
+ *
+ * @param topics - the subscription
+ * @param topic - the topic to add, null for none
+ * @returns the new subscription
+ */
+export function withTopic(topics: string[], topic: string | null): string[] {
+  return topic === null || topics.includes(topic) ? topics : [...topics, topic].sort()
+}
