@@ -1192,7 +1192,7 @@ head_rgbd_calibration service group only); the shared MCP token that claude_agen
 answers 503 while the token file is missing or short. `release_control` has no board argument and keeps refusing every
 carried object. The body is `{"mount": {"xyz": [x, y, z], "rpy": [r, p, y]}}` and nothing else: the board outline,
 clearances and floor height are mcp_server's own `calibration_board:` config (board squares, `outline_margin_m`,
-`lattice_spacing_m` 0.005, `handle_boxes_mm`, `margin_m` 0.065, `min_height_m` 0.06, the configured `mount_*`), pinned equal to
+`lattice_spacing_m` 0.005, `handle_boxes_mm`, `margin_m` 0.015, `min_height_m` 0.06, the configured `mount_*`), pinned equal to
 head_rgbd_calibration's by `tests/test_board_park_config.py`; a mount further than `mount_tolerance_m` (30 mm) or `mount_tolerance_deg` (10 deg)
 from the configured one answers 400. `ControlManager.park_calibration_board` then ignores the `holding load` reason alone
 (a held grasp or a `carried_object_radius_m` record still refuses, naming only those reasons), requires the arm lease,
@@ -1207,7 +1207,7 @@ the ARM board, the 6x5 ChArUco board with 28 mm squares held in the gripper by i
 "Calibration boards"): `squares_x` 6, `squares_y` 5, `square_mm` 28.0, `thickness_mm` 4.0, `outline_margin_m` 0.01,
 `lattice_spacing_m` 0.005, `mount_xyz_m` (-0.0794, 0.187949, -0.118113) and `mount_rpy_rad` (3.141593, 0, 0) (the handle CAD
 seed of head_rgbd_calibration's `fit.board_mount`, from `markers/charuco-arm-6x5-28mm.json`), `mount_tolerance_m`
-0.03, `mount_tolerance_deg` 10, `margin_m` 0.065 (0.005 margin + 0.05 CAD-seed-mount allowance + 0.01 sag) and
+0.03, `mount_tolerance_deg` 10, `margin_m` 0.015 (0.005 margin + 0.01 sag, no CAD-seed-mount allowance) and
 `min_height_m` 0.06. `handle_boxes_mm` (default the three boxes of the JSON `handle_envelope_mm`, mm in the board
 frame) is the handle material beyond the plate, all on the pattern side (z < 0) past the plate's bottom edge: the post
 `[[71.5, 175.7, -42], [100.05, 200.3, -6]]`, the gusset `[[80, 145.7, -42], [88, 175.7, -6]]` and the tab

@@ -288,15 +288,19 @@ def test_arm_sequence_defaults() -> None:
     assert seq.confirm_timeout_s == 600.0
     assert seq.head_offsets_deg == [(0, 0), (10, 0), (-10, 0), (0, -3)]
     assert seq.pose_check == PoseCheckConfig()
-    assert seq.provisional_margin_m == 0.05
+    assert seq.provisional_margin_m == 0.0
     assert len(seq.tier0_poses) >= 8 and len(seq.tier1_poses) >= 8 and len(seq.tier2_poses) >= 12
     assert ArmSequenceConfig() == seq
 
 
 def test_arm_sequence_board_margin() -> None:
+    """The shipped mount adds provisional_margin_m (0 by default, user decision 2026-11-10), a fitted mount never."""
     seq = NodeConfig().arm_sequence
-    assert seq.board_margin_m(nominal_mount=True) == pytest.approx(0.005 + 0.05)
+    assert seq.board_margin_m(nominal_mount=True) == pytest.approx(0.005)
     assert seq.board_margin_m(nominal_mount=False) == pytest.approx(0.005)
+    provisional = seq.model_copy(update={"provisional_margin_m": 0.02})
+    assert provisional.board_margin_m(nominal_mount=True) == pytest.approx(0.005 + 0.02)
+    assert provisional.board_margin_m(nominal_mount=False) == pytest.approx(0.005)
 
 
 @pytest.mark.parametrize("speed", [0.0, -0.1, 0.31])
