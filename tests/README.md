@@ -77,7 +77,8 @@ stick mount.
 ### `test_arm_calibration_file.py`
 
 The accepted arm calibration file (`shared/ros2_common/head_rgbd_calibration/arm_calibration_file.py`): what the
-head_rgbd_calibration accept writes to `applied/arm_calibration.json` and mcp_server applies at runtime.
+head_rgbd_calibration accept writes to `applied/arm_calibration.json` and mcp_server, filter_node and web_ui apply at
+runtime.
 
 | Test | Description |
 |------|-------------|
@@ -97,6 +98,29 @@ head_rgbd_calibration accept writes to `applied/arm_calibration.json` and mcp_se
 | `test_an_unreadable_marker_or_zero_record_is_refused` | A non-JSON marker or zero record is refused as unreadable. |
 | `test_the_zero_record_sits_next_to_the_marker` | `zero_record_path` is `zero_changed.json` in the marker's directory. |
 | `test_the_bridge_writes_the_zero_record_the_readers_read` | feetech_servos `neutral.py` names the same `ZERO_RECORD_FILE`. |
+
+### `test_applied_arm_calibration.py`
+
+The accepted arm calibration at runtime (`shared/ros2_common/head_rgbd_calibration/applied_arm_calibration.py`): the
+`applied.json` identity, the merge over a configured arm model and the reload state shared by mcp_server, filter_node
+and web_ui.
+
+| Test | Description |
+|------|-------------|
+| `test_the_identity_is_mtime_size_and_inode` | `applied_marker_identity` is `(mtime_ns, size, inode)` of `applied.json`. |
+| `test_no_dir_or_no_marker_has_no_identity` | No directory, an empty or a missing directory: None. |
+| `test_without_a_calibration_the_baseline_is_copied` | `calibrated_settings(baseline, None)` is an equal deep copy. |
+| `test_the_calibration_sets_exactly_the_fitted_fields_and_keeps_the_type` | The merge sets joint offsets, base pose and mount height, keeps every other field (tool point) and the `ArmModelSettings` type. |
+| `test_a_calibration_the_arm_model_refuses_raises` | A base z above the model's 1 m limit raises `ValidationError`. |
+| `test_assign_copies_the_fitted_fields_in_place` | `assign_calibration` copies the fitted fields into the target, nested models copied. |
+| `test_the_baseline_is_a_snapshot_in_use_until_a_calibration_is_used` | The baseline and current settings are snapshots; nothing is loaded and no identity is seen yet. |
+| `test_changed_follows_the_marker_identity` | `changed()` is false without a file, true after an accept, false again until applied.json changes or is removed. |
+| `test_an_atomic_replace_within_one_mtime_tick_is_a_change` | An atomic replace keeping mtime_ns is a change (inode). |
+| `test_read_merges_the_accepted_calibration` | `read()` returns the merged settings and the accepted calibration. |
+| `test_read_without_an_accepted_calibration_gives_the_baseline` | Without applied_dir or with nothing accepted, `read()` gives the baseline and None. |
+| `test_read_of_a_broken_file_raises` | A broken `arm_calibration.json` raises `ArmCalibrationError` naming it. |
+| `test_same_and_use_track_the_calibration_in_use` | `same` compares with the calibration in use; `use` records the new one and returns the old settings. |
+| `test_the_consumer_modules_import_no_opencv` | Importing the runtime module and the file contract loads neither cv2 nor scipy. |
 
 ### `test_ground_board_fit.py`
 

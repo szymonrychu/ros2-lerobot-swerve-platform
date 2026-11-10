@@ -5,6 +5,8 @@ from typing import Self
 import cv2
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .arm_calibration_file import ARM_JOINT_NAMES
+
 
 class StrictModel(BaseModel):
     """Base model that rejects unknown keys."""
@@ -145,7 +147,6 @@ class FloorFitConfig(StrictModel):
     huber_scale: float = Field(default=1.0, gt=0)
 
 
-ARM_JOINT_NAMES = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll")
 DEFAULT_JOINT_OFFSETS_RAD = {
     "shoulder_pan": 0.0182,
     "shoulder_lift": -0.0345,

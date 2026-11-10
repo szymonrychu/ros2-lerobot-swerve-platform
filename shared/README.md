@@ -497,7 +497,9 @@ Config: `HeadArmFitConfig.arm_camera` (`ArmCameraFitConfig`, with `ArmCameraBoun
 ### Accepted arm calibration file
 
 `ros2_common/head_rgbd_calibration/arm_calibration_file.py`: the format of `applied/arm_calibration.json`, written by
-the head_rgbd_calibration accept and applied at runtime by mcp_server. `ArmCalibrationFile` (pydantic, report fields
+the head_rgbd_calibration accept and applied at runtime by mcp_server, filter_node's self-collision guard and the web_ui
+3D arm view. It imports no OpenCV (`ARM_JOINT_NAMES` is defined here; `config` takes it from here), so the light
+consumers can use it. `ArmCalibrationFile` (pydantic, report fields
 ignored) holds `session`, `result`, `accepted_at`, `captured_from` (the session's earliest still, timezone aware),
 `joint_offsets_rad` (exactly the five arm joints, finite) and `base_in_base_link` (`x`, `y`, `z`, `yaw`, finite).
 `arm_settings_update()` gives the mcp_server `arm:` values it overrides, exactly `ARM_SETTINGS_FIELDS`
@@ -511,6 +513,27 @@ the follower bridge's stale marker (a `joint_offsets` re-zero `saved_at`) and it
 cleared); a time within one second of the capture counts as after it, an unreadable file or a timeless joint_offsets
 marker is a refusal. The head_rgbd_calibration accept refuses on it; mcp_server clears `joint_offsets` only when it
 passes. Tests: `tests/test_arm_calibration_file.py`.
+
+### Accepted arm calibration at runtime
+
+`ros2_common/head_rgbd_calibration/applied_arm_calibration.py`: the reload state of the accepted arm calibration,
+shared by mcp_server (`arm_calibration.ArmCalibrationWatcher`), filter_node (`arm_calibration.GuardCalibration`) and
+web_ui (`arm_calibration`, the `/api/arm/calibration` route). No OpenCV or scipy is imported.
+
+- `applied_marker_identity(applied_dir)`: `(mtime_ns, size, inode)` of `applied.json`, None without a directory or
+  file. The one reload key: the inode catches the accept's atomic replace even within one coarse mtime tick.
+- `calibrated_settings(baseline, calibration)`: the configured arm model (any pydantic model with the
+  `ARM_SETTINGS_FIELDS`, e.g. arm_collision `ArmModelSettings` or mcp_server `ArmSettings`) with the accepted
+  calibration's fields, validated as the baseline's type (a copy of the baseline for None). The tool point stays
+  configured.
+- `assign_calibration(target, source)`: copies the `ARM_SETTINGS_FIELDS` into a settings object in place.
+- `AppliedArmCalibration(baseline, applied_dir)`: `baseline`, `applied_dir`, `stamp`, `loaded` (the accepted
+  calibration in use, None for the configured values) and `current` (the settings in use); `changed()` (the identity
+  differs from the last call, which it remembers), `read()` (merged settings and calibration; raises
+  `ArmCalibrationError` or `ValidationError`), `same(calibration)` and `use(settings, calibration)` (returns the old
+  settings). When and how a change is swapped into a running model and how it is logged is the consumer's.
+
+Tests: `tests/test_applied_arm_calibration.py`.
 
 ## Ground board fit
 

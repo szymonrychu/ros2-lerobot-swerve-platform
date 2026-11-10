@@ -1,5 +1,5 @@
-"""applied/arm_calibration.json: the accepted arm to camera calibration (head_rgbd_calibration writes it, mcp_server
-reads it).
+"""applied/arm_calibration.json: the accepted arm to camera calibration (head_rgbd_calibration writes it; mcp_server,
+filter_node's guard and web_ui read it through applied_arm_calibration).
 
 The head_rgbd_calibration accept writes `arm_calibration.json` into the applied directory and then the
 `arm_calibration` record ({session, result, accepted_at, score}) of `applied.json`, the commit point of every apply. The
@@ -23,9 +23,11 @@ from typing import Any
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from .config import ARM_JOINT_NAMES
 from .urdf_text import APPLIED_MARKER_FILE
 
+# The five kinematic arm joints of the calibration (gripper excluded). Defined here, not in .config, so this module and
+# its consumers (filter_node, web_ui) import no OpenCV; .config takes it from here.
+ARM_JOINT_NAMES = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll")
 ARM_CALIBRATION_FILE = "arm_calibration.json"
 ARM_CALIBRATION_KEY = "arm_calibration"  # the applied.json record of the accepted arm calibration
 # mcp_server `arm:` keys the accepted calibration overrides (arm_base_height_m is the arm base z: mcp_server requires
