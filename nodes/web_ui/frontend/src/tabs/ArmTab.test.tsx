@@ -8,6 +8,7 @@ import { TabConfig } from '../types'
 import ArmTab from './ArmTab'
 import { tabTopics } from '../hooks/subscription'
 import { designViolations, SOURCES } from '../layout/designRules'
+import { configuredArmCalibration, effectiveArmCalibration, type ArmCalibration } from '../arm/armCalibration'
 
 const servoMock = vi.hoisted(() => ({ groups: [] as unknown[], notConfigured: false }))
 vi.mock('../calibrate/servoApi', async (orig) => ({
@@ -24,9 +25,17 @@ function setServo(id: string, kind: 'released' | 'enabled' | 'unknown' | 'none')
   }]
 }
 
+// The calibration poll (GET /api/arm/calibration) is the hook's own test (arm/armCalibrationApi.test.ts); here it
+// answers synchronously so the fetch assertions below see only the tab's own calls.
+const calibrationMock = vi.hoisted(() => ({ calibration: null as null | ArmCalibration }))
+vi.mock('../arm/armCalibrationApi', async (orig) => ({
+  ...(await orig<typeof import('../arm/armCalibrationApi')>()),
+  useArmCalibration: (offset?: readonly [number, number, number]) => calibrationMock.calibration ?? configuredArmCalibration(offset),
+}))
 
 const viewMock = vi.hoisted(() => ({
   props: null as null | {
+    calibration: ArmCalibration
     dragDisabledReason: string | null
     publish: (t: string, m: string, d: unknown) => void
     onArmReady: (r: boolean) => void
@@ -216,6 +225,30 @@ describe('ArmTab drag reason', () => {
     renderTab(SOURCE, publish)
     viewMock.props?.publish('/cmd', 'sensor_msgs/JointState', {})
     expect(publish).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('ArmTab arm calibration', () => {
+  afterEach(() => {
+    calibrationMock.calibration = null
+  })
+
+  it('draws with the configured arm_offset while nothing is accepted', () => {
+    setViewport(1400)
+    renderTab({})
+    expect(viewMock.props?.calibration).toEqual(configuredArmCalibration(TAB.arm_offset))
+  })
+
+  it('hands an accepted calibration to the arm view', () => {
+    setViewport(1400)
+    const accepted = effectiveArmCalibration(undefined, {
+      session: 's', result: 'r', accepted_at: '2026-11-09T12:20:00Z',
+      joint_offsets_rad: { shoulder_pan: 0.03, shoulder_lift: -0.02, elbow_flex: -0.09, wrist_flex: 0.08, wrist_roll: -0.07 },
+      base_in_base_link: { x: 0.061, y: -0.048, z: 0.102, yaw: 0.01 },
+    })
+    calibrationMock.calibration = accepted
+    renderTab({})
+    expect(viewMock.props?.calibration).toBe(accepted)
   })
 })
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
@@ -11,17 +11,18 @@ import { ToolButton, ToolGroup } from '../components/ToolButton'
 import { InteractiveArm } from '../components3d/InteractiveArm'
 import { RobotModel } from '../components3d/RobotModel'
 import { GraspPreview } from '../grasp/GraspPreview'
-import { DEFAULT_ARM_OFFSET } from '../grasp/grasp'
+import { baseLinkPointToArm, mountYaw, type ArmMount } from '../grasp/grasp'
 import type { GraspPreviewData } from '../grasp/useGrasp'
 import type { Vec2 } from '../map/mapMath'
 import { isClick } from '../poi/editor'
-import { rosToThree } from '../map3d/coords'
+import { rosToThree, rosYawToThreeY } from '../map3d/coords'
 import { SCENE_COLORS } from '../map3d/palette'
 import { TOKENS } from '../theme'
 import { TabConfig } from '../types'
+import { toUrdfJointStates, type ArmCalibration } from './armCalibration'
 import { WAITING_REASON } from './armControls'
 import { ARM_CAMERA_MODES, applyArmCamera, type ArmCameraMode } from './armView.ts'
-import { armViewGroundY, pickArmViewGround } from './armViewPick'
+import { pickArmViewGround } from './armViewPick'
 
 const MODE_LABELS: Record<ArmCameraMode, string> = {
   'side-left': 'Side L',
@@ -47,7 +48,7 @@ interface JointStates {
 }
 
 interface PickLayerProps {
-  armOffset: readonly [number, number, number]
+  armOffset: ArmMount
   onPick: (point: Vec2) => void
 }
 
@@ -90,6 +91,8 @@ function PickLayer({ armOffset, onPick }: PickLayerProps) {
 
 interface SceneProps {
   tab: TabConfig
+  /** Arm mount and joint offsets the arm is drawn with (the accepted calibration, else the tab's arm_offset). */
+  calibration: ArmCalibration
   armJoints: JointStates | undefined
   mode: ArmCameraMode | null
   publish: (topic: string, msgType: string, data: unknown) => void
@@ -102,12 +105,16 @@ interface SceneProps {
 }
 
 /** Scene contents: the arm, the floor, the grasp preview, the camera glue and the orbit controls (inside the Canvas). */
-function ArmScene({ tab, armJoints, mode, publish, draggable, onArmReady, pickMode, onPick, graspPreview }: SceneProps) {
+function ArmScene({ tab, calibration, armJoints, mode, publish, draggable, onArmReady, pickMode, onPick, graspPreview }: SceneProps) {
   const { invalidate, camera } = useThree()
   const orbitRef = useRef<OrbitControlsImpl | null>(null)
   const robotRef = useRef<URDFRobot | null>(null)
-  const armOffset = tab.arm_offset ?? DEFAULT_ARM_OFFSET
-  const baseLinkOrigin = rosToThree({ x: -armOffset[0], y: -armOffset[1], z: -armOffset[2] })
+  const mount = calibration.mount
+  // base_link in the arm frame (the arm root is the origin): its origin and its yaw relative to the arm.
+  const baseLinkOrigin = useMemo(() => rosToThree(baseLinkPointToArm({ x: 0, y: 0, z: 0 }, mount)), [mount])
+  const baseLinkRotation = useMemo((): [number, number, number] => [0, rosYawToThreeY(-mountYaw(mount)), 0], [mount])
+  // The URDF is posed in URDF angles: measured + the calibration's joint offsets.
+  const urdfJoints = useMemo(() => toUrdfJointStates(armJoints, calibration.jointOffsets), [armJoints, calibration.jointOffsets])
 
   const onRobotLoaded = useCallback(
     (robot: URDFRobot | null) => {
@@ -118,7 +125,7 @@ function ArmScene({ tab, armJoints, mode, publish, draggable, onArmReady, pickMo
   )
 
   // Joint updates: RobotModel applies setJointValue in its effect, the next frame glues the camera to the result.
-  useEffect(() => invalidate(), [armJoints, mode, invalidate])
+  useEffect(() => invalidate(), [urdfJoints, mode, mount, invalidate])
 
   // Leaving a glued mode hands the camera back to the orbit controls with the world up vector.
   useEffect(() => {
@@ -145,7 +152,8 @@ function ArmScene({ tab, armJoints, mode, publish, draggable, onArmReady, pickMo
         (draggable && !pickMode && tab.arm_command_topic ? (
           <InteractiveArm
             urdfFile={tab.arm_urdf}
-            liveJointStates={armJoints}
+            liveJointStates={urdfJoints}
+            jointOffsets={calibration.jointOffsets}
             commandTopic={tab.arm_command_topic}
             publish={publish}
             orbitRef={orbitRef}
@@ -153,13 +161,14 @@ function ArmScene({ tab, armJoints, mode, publish, draggable, onArmReady, pickMo
             onRobotLoaded={onRobotLoaded}
           />
         ) : (
-          <RobotModel urdfFile={tab.arm_urdf} jointStates={armJoints} onRobotLoaded={onRobotLoaded} />
+          <RobotModel urdfFile={tab.arm_urdf} jointStates={urdfJoints} onRobotLoaded={onRobotLoaded} />
         ))}
-      <gridHelper args={[FLOOR_GRID_SIZE_M, FLOOR_GRID_DIVISIONS, SCENE_COLORS.gridCentre, SCENE_COLORS.gridLine]} position={[baseLinkOrigin[0], armViewGroundY(armOffset), baseLinkOrigin[2]]} />
-      <group position={baseLinkOrigin}>
+      {/* base_link content: the floor grid (base_link z = 0) and the grasp preview, placed by the mount. */}
+      <group position={baseLinkOrigin} rotation={baseLinkRotation}>
+        <gridHelper args={[FLOOR_GRID_SIZE_M, FLOOR_GRID_DIVISIONS, SCENE_COLORS.gridCentre, SCENE_COLORS.gridLine]} />
         <GraspPreview data={graspPreview} />
       </group>
-      {pickMode && <PickLayer armOffset={armOffset} onPick={onPick} />}
+      {pickMode && <PickLayer armOffset={mount} onPick={onPick} />}
       <OrbitControls ref={orbitRef} enabled={mode === null} enableDamping={false} />
     </>
   )
@@ -167,6 +176,8 @@ function ArmScene({ tab, armJoints, mode, publish, draggable, onArmReady, pickMo
 
 interface Props {
   tab: TabConfig
+  /** Arm mount and joint offsets to draw with (useArmCalibration: the accepted calibration, else the tab's arm_offset). */
+  calibration: ArmCalibration
   topicData: Record<string, unknown>
   publish: (topic: string, msgType: string, data: unknown) => void
   /** Why the arm cannot be dragged (shown on the view), or null while it can. */
@@ -185,7 +196,8 @@ interface Props {
  * The Arm tab's own 3D view: the follower arm from arm_joint_states_topic with camera modes glued to the arm
  * (side left, side right, above). Picking the active mode again frees the camera for orbiting.
  *
- * @param tab - tab config (arm_urdf, arm_joint_states_topic, arm_command_topic, arm_offset)
+ * @param tab - tab config (arm_urdf, arm_joint_states_topic, arm_command_topic)
+ * @param calibration - arm mount and joint offsets the arm, the floor, the pick and the grasp preview are placed with
  * @param topicData - latest payload per topic
  * @param publish - ROS publish helper for the draggable arm
  * @param dragDisabledReason - why dragging is off, or null; the display-only arm is drawn for any reason but waiting
@@ -194,7 +206,7 @@ interface Props {
  * @param onPick - receives the picked base_link floor point
  * @param graspPreview - grasp preview drawn in base_link coordinates, or null
  */
-export default function ArmView({ tab, topicData, publish, dragDisabledReason, onArmReady, pickMode, onPick, graspPreview }: Props) {
+export default function ArmView({ tab, calibration, topicData, publish, dragDisabledReason, onArmReady, pickMode, onPick, graspPreview }: Props) {
   const [mode, setMode] = useState<ArmCameraMode | null>(DEFAULT_MODE)
   const armJoints = topicData[tab.arm_joint_states_topic ?? ''] as JointStates | undefined
   return (
@@ -207,6 +219,7 @@ export default function ArmView({ tab, topicData, publish, dragDisabledReason, o
       >
         <ArmScene
           tab={tab}
+          calibration={calibration}
           armJoints={armJoints}
           mode={mode}
           publish={publish}

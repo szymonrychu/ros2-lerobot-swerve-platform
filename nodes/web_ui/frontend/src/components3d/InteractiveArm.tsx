@@ -4,6 +4,7 @@ import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib'
 import * as THREE from 'three'
 import type { URDFRobot, URDFJoint } from 'urdf-loader'
 import { RobotModel } from './RobotModel'
+import { toMeasuredPositions } from '../arm/armCalibration'
 import { findLink } from '../arm/armView.ts'
 import log from '../logging'
 import { solveCCDIK } from './ccdIKSolver'
@@ -95,7 +96,10 @@ interface AxisArrowEntry {
 
 interface Props {
   urdfFile: string
+  /** Live joint states in URDF angles (measured + jointOffsets, arm/armCalibration.ts toUrdfJointStates). */
   liveJointStates?: JointStates
+  /** Joint zero offsets (rad, urdf = measured + offset): commands are published in measured angles. */
+  jointOffsets: Readonly<Record<string, number>>
   position?: [number, number, number]
   commandTopic: string
   publish: (topic: string, msgType: string, data: unknown) => void
@@ -126,6 +130,7 @@ function closestPointOnLine(
 export function InteractiveArm({
   urdfFile,
   liveJointStates,
+  jointOffsets,
   position,
   commandTopic,
   publish,
@@ -139,6 +144,8 @@ export function InteractiveArm({
   visibleRef.current = visible
   const cameraRef = useRef<THREE.Camera>(camera)
   cameraRef.current = camera
+  const jointOffsetsRef = useRef(jointOffsets)
+  jointOffsetsRef.current = jointOffsets
 
   // Ghost robot ref - shows commanded position, hosts rings
   const ghostRobotRef = useRef<URDFRobot | null>(null)
@@ -190,7 +197,8 @@ export function InteractiveArm({
     const robot = ghostRobotRef.current
     if (!robot) return null
     const names = Object.keys(robot.joints)
-    const positions = names.map((n) => commandedRef.current[n] ?? 0)
+    // The ghost arm moves in URDF angles; the follower takes measured ones (measured = urdf - offset).
+    const positions = toMeasuredPositions(names, commandedRef.current, jointOffsetsRef.current)
     return { name: names, position: positions, velocity: [], effort: [] }
   }, [])
 

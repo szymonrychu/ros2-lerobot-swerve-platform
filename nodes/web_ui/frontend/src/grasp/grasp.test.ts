@@ -3,6 +3,7 @@ import {
   ADVANCED_PARAMS,
   armPointToBaseLink,
   baseLinkPointToArm,
+  mountYaw,
   buildGraspRequest,
   canExecute,
   DEFAULT_ARM_OFFSET,
@@ -159,6 +160,23 @@ describe('frames', () => {
     expect(p.x).toBeCloseTo(0.2)
     expect(p.y).toBeCloseTo(0.1)
     expect(p.z).toBeCloseTo(-0.15)
+  })
+
+  it('a mount yaw rotates arm-frame points about z before the mount shift (accepted calibration)', () => {
+    const yawed = [0.15, -0.04, 0.15, Math.PI / 2] as const
+    const p = armPointToBaseLink({ x: 0.2, y: 0.1, z: -0.15 }, yawed)
+    expect(p.x).toBeCloseTo(0.05)
+    expect(p.y).toBeCloseTo(0.16)
+    expect(p.z).toBeCloseTo(0)
+    const back = baseLinkPointToArm(p, yawed)
+    expect(back.x).toBeCloseTo(0.2)
+    expect(back.y).toBeCloseTo(0.1)
+    expect(back.z).toBeCloseTo(-0.15)
+  })
+
+  it('mountYaw is 0 for a mount without one', () => {
+    expect(mountYaw(MOUNT)).toBe(0)
+    expect(mountYaw([0, 0, 0.1, 0.02])).toBe(0.02)
   })
 
   it('tabs without an arm_offset mount the arm at the measured mount (mcp_server arm.base_in_base_link)', () => {

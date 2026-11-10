@@ -9,6 +9,7 @@ import type { TabConfig } from '../types'
 import ArmTab from '../tabs/ArmTab'
 import ArmView from './ArmView.tsx'
 import { ARM_CAMERA_MODES } from './armView.ts'
+import { configuredArmCalibration, effectiveArmCalibration, type ArmCalibration } from './armCalibration'
 
 const JOINTS = '/arm/joint_states'
 const canvasEl = vi.hoisted(() => {
@@ -23,6 +24,7 @@ const mocks = vi.hoisted(() => ({
   frameloop: [] as string[],
   armProps: [] as Record<string, unknown>[],
   modelRenders: [] as number[],
+  modelProps: [] as Record<string, unknown>[],
 }))
 
 /** Camera 2 m above the arm root looking straight down. */
@@ -61,8 +63,9 @@ vi.mock('../grasp/GraspPreview', () => ({
   },
 }))
 vi.mock('../components3d/RobotModel', () => ({
-  RobotModel: () => {
+  RobotModel: (props: Record<string, unknown>) => {
     mocks.modelRenders.push(1)
+    mocks.modelProps.push(props)
     return null
   },
 }))
@@ -82,6 +85,7 @@ interface ViewOptions {
   pickMode?: boolean
   onPick?: (point: { x: number; y: number }) => void
   graspPreview?: { box: null; waypoints: [] } | null
+  calibration?: ArmCalibration
 }
 
 function view(topicData: Record<string, unknown>, reason: string | null = null, onArmReady: (ready: boolean) => void = vi.fn(), extra: ViewOptions = {}) {
@@ -89,6 +93,7 @@ function view(topicData: Record<string, unknown>, reason: string | null = null, 
     <ThemeProvider theme={theme}>
       <ArmView
         tab={TAB}
+        calibration={extra.calibration ?? configuredArmCalibration(TAB.arm_offset)}
         topicData={topicData}
         publish={vi.fn()}
         dragDisabledReason={reason}
@@ -109,6 +114,7 @@ beforeEach(() => {
   mocks.frameloop.length = 0
   mocks.armProps.length = 0
   mocks.modelRenders.length = 0
+  mocks.modelProps.length = 0
   mocks.previews.length = 0
 })
 afterEach(cleanup)
@@ -226,5 +232,54 @@ describe('ArmTab', () => {
     )
     const view = await screen.findByTestId('arm-view')
     expect(screen.getByTestId('arm-view-slot').contains(view)).toBe(true)
+  })
+})
+
+describe('ArmView arm calibration', () => {
+  const OFFSETS = { shoulder_pan: 0.03, shoulder_lift: -0.02, elbow_flex: -0.09, wrist_flex: 0.08, wrist_roll: -0.07 }
+  const ACCEPTED = effectiveArmCalibration(undefined, {
+    session: 's', result: 'r', accepted_at: '2026-11-09T12:20:00Z', joint_offsets_rad: OFFSETS,
+    base_in_base_link: { x: 0.07, y: -0.04, z: 0.104, yaw: 0.02 },
+  })
+  const MEASURED = { name: ['shoulder_pan', 'elbow_flex', 'gripper'], position: [0.1, 1.0, 0.5] }
+
+  it('the draggable arm is posed in URDF angles and gets the offsets to publish measured commands', () => {
+    render(view({ [JOINTS]: MEASURED }, null, vi.fn(), { calibration: ACCEPTED }))
+    const props = last(mocks.armProps)
+    const live = props.liveJointStates as { name: string[]; position: number[] }
+    expect(live.name).toEqual(MEASURED.name)
+    expect(live.position[0]).toBeCloseTo(0.13)
+    expect(live.position[1]).toBeCloseTo(0.91)
+    expect(live.position[2]).toBe(0.5)
+    expect(props.jointOffsets).toEqual(OFFSETS)
+  })
+
+  it('the display-only arm is posed in URDF angles', () => {
+    render(view({ [JOINTS]: MEASURED }, 'Arm held by the agent', vi.fn(), { calibration: ACCEPTED }))
+    const states = last(mocks.modelProps).jointStates as { position: number[] }
+    expect(states.position[1]).toBeCloseTo(0.91)
+  })
+
+  it('without an accepted calibration the arm gets the measured joint states unchanged', () => {
+    render(view({ [JOINTS]: MEASURED }))
+    expect(last(mocks.armProps).liveJointStates).toBe(MEASURED)
+    expect(last(mocks.armProps).jointOffsets).toEqual({})
+  })
+
+  it('a pick under the arm root is the accepted mount in base_link', () => {
+    const onPick = vi.fn()
+    render(view({}, null, vi.fn(), { pickMode: true, onPick, calibration: ACCEPTED }))
+    canvasEl.dispatchEvent(new MouseEvent('pointerdown', { clientX: 100, clientY: 100, button: 0, bubbles: true }))
+    window.dispatchEvent(new MouseEvent('pointerup', { clientX: 100, clientY: 100, button: 0 }))
+    const p = onPick.mock.calls[0][0]
+    expect(p.x).toBeCloseTo(0.07)
+    expect(p.y).toBeCloseTo(-0.04)
+  })
+
+  it('a new calibration redraws the view', () => {
+    const { rerender } = render(view({}))
+    mocks.invalidate.mockClear()
+    rerender(view({}, null, vi.fn(), { calibration: ACCEPTED }))
+    expect(mocks.invalidate).toHaveBeenCalled()
   })
 })

@@ -1,14 +1,14 @@
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { ReleasedBannerView, releasedLabel } from '../calibrate/ReleasedBanner'
 import { useServoGroups } from '../calibrate/servoApi'
 import ArmJogPanel from '../arm/ArmJogPanel'
 import ArmActions from '../arm/ArmActions'
+import { useArmCalibration } from '../arm/armCalibrationApi'
 import { BASE_LINK_POSE } from '../arm/armViewPick'
 import { activeSourceOf, armControlState, drivePoseOf, guardStateOf, releasedJoints } from '../arm/armControls'
 import { CameraStream } from '../components/CameraStream'
-import { DEFAULT_ARM_OFFSET } from '../grasp/grasp'
 import { GraspPanel } from '../grasp/GraspPanel'
 import { useGrasp } from '../grasp/useGrasp'
 import { useLayout } from '../layout/useLayout'
@@ -42,8 +42,9 @@ export default function ArmTab({ tab, topicData, publish }: Props) {
   const releasedList = releasedJoints(servo, 'arm')
   const [armReady, setArmReady] = useState(false)
   const [action, setAction] = useState<ActionResult>({ state: 'idle', message: '' })
-  const armMount = useMemo(() => tab.arm_offset ?? DEFAULT_ARM_OFFSET, [tab.arm_offset])
-  const grasp = useGrasp({ tabId: tab.id, topicData, mount: armMount, notify: setAction })
+  // The accepted arm calibration (else the tab's arm_offset): the drawn arm, the floor pick and the grasp preview.
+  const calibration = useArmCalibration(tab.arm_offset)
+  const grasp = useGrasp({ tabId: tab.id, topicData, mount: calibration.mount, notify: setAction })
   const [graspOpen, setGraspOpen] = useState(false)
   const { cancelPick, applyClick } = grasp
   // Closing the grasp panel (or a limp arm, which takes no grasp) ends the pick.
@@ -97,6 +98,7 @@ export default function ArmTab({ tab, topicData, publish }: Props) {
           <Suspense fallback={null}>
             <ArmView
               tab={tab}
+              calibration={calibration}
               topicData={topicData}
               publish={guardedPublish}
               dragDisabledReason={drag.disabled ? drag.reason : null}

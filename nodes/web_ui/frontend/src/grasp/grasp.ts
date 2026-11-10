@@ -8,8 +8,11 @@ import type { Pose2D, Vec2 } from '../map/mapMath'
 import { rosToThree } from '../map3d/coords'
 import type { ThreeTuple } from '../map3d/coords'
 
-/** Arm mount in base_link [x, y, z] metres (tab arm_offset); the mount has no yaw. */
-export type ArmMount = readonly [number, number, number]
+/**
+ * Arm mount in base_link: [x, y, z] metres (tab arm_offset, no yaw) or [x, y, z, yaw] with the yaw about z in radians
+ * (an accepted arm calibration, arm/armCalibration.ts).
+ */
+export type ArmMount = readonly [number, number, number] | readonly [number, number, number, number]
 
 /** Mount used when a tab has no arm_offset: the arm mount measured on the robot 2026-10-10 (mcp_server arm.base_in_base_link). */
 export const DEFAULT_ARM_OFFSET: [number, number, number] = [0.0592, -0.05, 0.100]
@@ -304,14 +307,41 @@ export interface Vec3 {
   z: number
 }
 
-/** Arm-frame point (arm base, z up) to base_link. */
-export function armPointToBaseLink(p: Vec3, mount: ArmMount): Vec3 {
-  return { x: p.x + mount[0], y: p.y + mount[1], z: p.z + mount[2] }
+/**
+ * Yaw of an arm mount about z.
+ *
+ * @param mount - arm mount
+ * @returns the yaw in radians, 0 for a mount without one
+ */
+export function mountYaw(mount: ArmMount): number {
+  return mount[3] ?? 0
 }
 
-/** base_link point to the arm frame. */
+/**
+ * Rotate a horizontal vector about z (exact for a zero yaw).
+ *
+ * @param x - x component
+ * @param y - y component
+ * @param yaw - rotation in radians
+ * @returns the rotated [x, y]
+ */
+function rotateZ(x: number, y: number, yaw: number): [number, number] {
+  if (yaw === 0) return [x, y]
+  const c = Math.cos(yaw)
+  const s = Math.sin(yaw)
+  return [c * x - s * y, s * x + c * y]
+}
+
+/** Arm-frame point (arm base, z up) to base_link: rotated by the mount yaw, then moved by the mount. */
+export function armPointToBaseLink(p: Vec3, mount: ArmMount): Vec3 {
+  const [x, y] = rotateZ(p.x, p.y, mountYaw(mount))
+  return { x: x + mount[0], y: y + mount[1], z: p.z + mount[2] }
+}
+
+/** base_link point to the arm frame (the inverse of armPointToBaseLink). */
 export function baseLinkPointToArm(p: Vec3, mount: ArmMount): Vec3 {
-  return { x: p.x - mount[0], y: p.y - mount[1], z: p.z - mount[2] }
+  const [x, y] = rotateZ(p.x - mount[0], p.y - mount[1], -mountYaw(mount))
+  return { x, y, z: p.z - mount[2] }
 }
 
 /** Map-frame point to base_link for the robot pose (x, y, yaw in the map). */

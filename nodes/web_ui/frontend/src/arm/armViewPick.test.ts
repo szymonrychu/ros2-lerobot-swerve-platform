@@ -17,6 +17,12 @@ describe('armViewHitToBaseLink', () => {
     expect(p?.y).toBeCloseTo(0.05)
   })
 
+  it('rotates a hit by the mount yaw of an accepted calibration', () => {
+    const p = armViewHitToBaseLink({ x: 0.2, y: 0 }, [0.0592, -0.05, 0.1, Math.PI / 2])
+    expect(p?.x).toBeCloseTo(0.0592)
+    expect(p?.y).toBeCloseTo(0.15)
+  })
+
   it('keeps a hit above the horizon null', () => {
     expect(armViewHitToBaseLink(null, OFFSET)).toBeNull()
   })
