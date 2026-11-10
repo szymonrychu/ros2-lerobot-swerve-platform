@@ -509,8 +509,8 @@ nothing is accepted (no `applied.json` or no record; a file without its record i
 `ArmCalibrationError` for an unreadable `applied.json` or a named file that is missing, invalid or of another result.
 `zero_change_refusal(marker, since)` tells whether the servo zero may have changed at or after a capture time: it reads
 the follower bridge's stale marker (a `joint_offsets` re-zero `saved_at`) and its zero change record
-(`zero_record_path(marker)`, `zero_changed.json`, `changed_at` of the last neutral save or zero restore, never
-cleared); a time within one second of the capture counts as after it, an unreadable file or a timeless joint_offsets
+(`zero_record_path(marker)`, `zero_changed.json`, `changed_at` of the last neutral save, zero restore or
+`calibrate_servos.py` zero change, never cleared); a time within one second of the capture counts as after it, an unreadable file or a timeless joint_offsets
 marker is a refusal. The head_rgbd_calibration accept refuses on it; mcp_server clears `joint_offsets` only when it
 passes. Tests: `tests/test_arm_calibration_file.py`.
 

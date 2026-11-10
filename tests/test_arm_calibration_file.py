@@ -217,5 +217,5 @@ def test_the_zero_record_sits_next_to_the_marker() -> None:
 
 def test_the_bridge_writes_the_zero_record_the_readers_read() -> None:
     """feetech_servos (its own venv, not importable here) names the same file next to its stale marker."""
-    neutral = (Path(__file__).resolve().parents[1] / "nodes/bridges/feetech_servos/neutral.py").read_text()
-    assert f'ZERO_RECORD_FILE = "{ZERO_RECORD_FILE}"' in neutral
+    writer = (Path(__file__).resolve().parents[1] / "nodes/bridges/feetech_servos/zero_record.py").read_text()
+    assert f'ZERO_RECORD_FILE = "{ZERO_RECORD_FILE}"' in writer

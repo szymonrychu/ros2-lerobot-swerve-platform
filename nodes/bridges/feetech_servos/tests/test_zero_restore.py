@@ -22,7 +22,7 @@ from feetech_servos import zero_restore as zero_restore_module
 from feetech_servos.bridge_cycle import BridgeCycle
 from feetech_servos.calib_event import CalibEventLog
 from feetech_servos.config import JointEntry, JointGroup, ZeroRestoreConfig
-from feetech_servos.neutral import STALE_ITEMS, ZERO_RECORD_FILE, NeutralControl, write_stale_marker
+from feetech_servos.neutral import NeutralControl
 from feetech_servos.registers import (
     STS_LOCK,
     STS_MAX_ANGLE_LIMIT_L,
@@ -33,6 +33,7 @@ from feetech_servos.registers import (
     get_register_entry_by_name,
 )
 from feetech_servos.torque_control import TorqueControl, torque_state_payload
+from feetech_servos.zero_record import STALE_ITEMS, ZERO_RECORD_FILE, write_stale_marker
 from feetech_servos.zero_restore import (
     OFFSET_MAX_STEPS,
     STILL_SAMPLE_INTERVAL_S,

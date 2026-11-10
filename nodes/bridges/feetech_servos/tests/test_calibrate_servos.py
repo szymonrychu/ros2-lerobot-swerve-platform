@@ -252,7 +252,14 @@ def test_calibrate_missing_joint_exits(tmp_path: Path) -> None:
             assert m.main() == 1
 
 
-def test_center_defines_middle_sets_symmetric_limits(capsys) -> None:
+def swerve_bridge_config(tmp_path: Path) -> str:
+    """Bridge config of a bus whose servo 33 is in a group without neutral_stale_marker (no zero change record)."""
+    path = tmp_path / "base_servos.yaml"
+    path.write_text("namespace: swerve_drive\ndevice: /dev/tty\njoint_names:\n  - name: fl_steer\n    id: 33\n")
+    return str(path)
+
+
+def test_center_defines_middle_sets_symmetric_limits(capsys, tmp_path: Path) -> None:
     """center: stores current position as 2048, then writes limits 2048 -/+ range; prints JSON summary."""
     import calibrate_servos as m
 
@@ -270,7 +277,18 @@ def test_center_defines_middle_sets_symmetric_limits(capsys) -> None:
             with patch.object(
                 sys,
                 "argv",
-                ["calibrate_servos", "center", "--device", "/dev/tty", "--id", "33", "--range-steps", "1024"],
+                [
+                    "calibrate_servos",
+                    "center",
+                    "--device",
+                    "/dev/tty",
+                    "--id",
+                    "33",
+                    "--range-steps",
+                    "1024",
+                    "--bridge-config",
+                    swerve_bridge_config(tmp_path),
+                ],
             ):
                 assert m.main() == 0
     mock_servo.UnLockEprom.assert_called_with(33)
@@ -280,7 +298,7 @@ def test_center_defines_middle_sets_symmetric_limits(capsys) -> None:
     assert data == {"id": 33, "before": 123, "after": 2048, "min": 1024, "max": 3072}
 
 
-def test_center_fails_when_position_not_centred(capsys) -> None:
+def test_center_fails_when_position_not_centred(capsys, tmp_path: Path) -> None:
     """center exits 1 and writes no limits when the servo does not read ~2048 after DefineMiddle."""
     import calibrate_servos as m
 
@@ -289,8 +307,10 @@ def test_center_fails_when_position_not_centred(capsys) -> None:
     write = MagicMock(return_value=True)
     with patch.object(m, "ST3215", return_value=mock_servo), patch.object(m, "time"):
         with patch.object(m, "read_register", side_effect=[123] + [500] * 20), patch.object(m, "write_register", write):
-            with patch.object(sys, "argv", ["calibrate_servos", "center", "--device", "/dev/tty", "--id", "33"]):
+            argv = ["calibrate_servos", "center", "--device", "/dev/tty", "--id", "33"]
+            with patch.object(sys, "argv", [*argv, "--bridge-config", swerve_bridge_config(tmp_path)]):
                 assert m.main() == 1
+    mock_servo.DefineMiddle.assert_called_once_with(33)
     write.assert_not_called()
 
 

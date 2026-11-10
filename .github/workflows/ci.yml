@@ -6,9 +6,12 @@ on:
   pull_request:
     branches: [main]
 
+# Every job sets timeout-minutes to about 3x its typical duration on main (GitHub's default is 360), so a stalled
+# step fails the job instead of holding the runner; tests/test_ci_workflow.py requires it.
 jobs:
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6.8.0
@@ -20,6 +23,7 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6.8.0
@@ -31,6 +35,7 @@ jobs:
 
   lint-ansible:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6.8.0
@@ -44,6 +49,7 @@ jobs:
 
   nodes:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -91,7 +97,10 @@ jobs:
 
   cpp:
     # amd64 runner; scripts/cpp-node-test.sh builds its image for the native platform (arm64 on the Mac, like the Pi).
+    # 60 min, not 3x a typical 3 to 10 min run: on a slow runner day the image build alone took up to 54 min
+    # (run 42744433547) and those jobs passed.
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:

@@ -464,9 +464,9 @@ def accept_arm_camera(
         {arm_calibration: {session, result, accepted_at, score}, units: [{name, active_state, restarted}]}.
 
     Raises:
-        NotApplicable: the result is not done, not plausible, was declined, was fitted against a head chain that is
-            no longer applied, was captured before the last arm re-zero (or the re-zero time is unknown), or does not
-            validate as an ArmCalibrationFile.
+        NotApplicable: checked in this order (as the ground board accept): the result is not done, was declined or
+            is not plausible; it was captured before the last arm re-zero (or the re-zero time is unknown) or does
+            not validate as an ArmCalibrationFile; it was fitted against a head chain that is no longer applied.
         InvalidId, NotFound: unknown or malformed ids.
     """
     with DECISION_LOCK:
