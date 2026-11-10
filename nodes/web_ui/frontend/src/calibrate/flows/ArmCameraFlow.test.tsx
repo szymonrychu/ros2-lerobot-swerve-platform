@@ -231,6 +231,38 @@ describe('ArmCameraFlow', () => {
     expect(m.boardAttached).toHaveBeenCalled()
   })
 
+  it('Grab board: Board attached is reachable in a fresh run before the still session (session_id null)', async () => {
+    setState(seq({ phase: 'waiting_board', running: true, session_id: null }))
+    m.boardAttached.mockResolvedValue(ok(seq({ running: true, phase: 'capturing', session_id: SID })))
+    await renderFlow(false)
+    expect(within(step(2)).getByText('Done')).toBeTruthy()
+    const attached = within(step(3)).getByRole('button', { name: 'Board attached' }) as HTMLButtonElement
+    expect(attached.disabled).toBe(false)
+    await click('Board attached', step(3))
+    expect(m.boardAttached).toHaveBeenCalled()
+  })
+
+  it('Resume capture (board on) shows only while holding with the board on and posts after the confirm', async () => {
+    setState(seq({ ...HOLDING, board_on: true }))
+    m.resumeBoardOn.mockResolvedValue(ok(seq({ running: true, phase: 'moving_to_base', session_id: null, board_on: true })))
+    await renderFlow(false)
+    await click('Resume capture (board on)', step(7))
+    expect(within(dialog()).getByText(/never opens/)).toBeTruthy()
+    await confirmIn('Resume')
+    expect(m.resumeBoardOn).toHaveBeenCalledWith(true)
+    expect(screen.queryByRole('button', { name: 'Resume capture (board on)' })).toBeNull()
+  })
+
+  it.each([
+    ['holding without the board on', { ...HOLDING, board_on: false }],
+    ['idle with the board on', { board_on: true }],
+    ['capturing with the board on', { running: true, phase: 'capturing', session_id: SID, board_on: true }],
+  ])('Resume capture (board on) is not offered %s', async (_name, over) => {
+    setState(seq(over))
+    await renderFlow(false)
+    expect(screen.queryByRole('button', { name: 'Resume capture (board on)' })).toBeNull()
+  })
+
   it('Capture shows the tier progress, the skip reasons and Stop', async () => {
     setState(seq({ running: true, phase: 'capturing', session_id: SID, tier: 1, arm_pose: 7, total_poses: 24, captured: 30, status: 'capturing tier 1', skipped: { 'inside D435 min-Z': 3, 'outside colour FOV': 2 } }))
     m.stopSequence.mockResolvedValue(ok(HOLDING))

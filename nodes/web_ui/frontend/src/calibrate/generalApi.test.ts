@@ -16,6 +16,7 @@ const SEQ_IDLE = {
   error: null,
   big_joints: [],
   waiting_since: null,
+  board_on: false,
   board_record: null,
   events: [],
 }

@@ -30,6 +30,10 @@ MSG_SWEEP_RUNNING = "a floor sweep is running; stop it first"
 MSG_COMPUTE_RUNNING = "a compute is running; wait for it to finish"
 MSG_CAPTURE_RUNNING = "a capture is running; stop it first"
 MSG_NEEDS_CONFIRM = "the base move needs confirm=true: it moves the arm joints (no board attached)"
+MSG_NEEDS_RESUME_CONFIRM = (
+    "resume with the board on needs confirm=true: it moves the arm with the board to the base pose (the gripper keeps"
+    " its measured angle)"
+)
 MSG_NEEDS_PARK_CONFIRM = (
     "park needs confirm=true: the arm moves to its park pose (the board may stay on when the path is clear)"
 )
@@ -103,7 +107,8 @@ def head_arm_router(
     """Routes of the guided head-from-arm calibration.
 
     Args:
-        sequencer: The capture sequence (state, move_to_base, board_attached, allow_big_joints, park, stop).
+        sequencer: The capture sequence (state, move_to_base, resume_with_board, board_attached, allow_big_joints,
+            park, stop).
         capture: RGB-D capture controller (blocks a sequence start while it runs).
         sweep: Floor sweep (blocks a sequence start while it runs).
         job: RGB-D compute job (blocks a sequence start while it runs).
@@ -135,14 +140,8 @@ def head_arm_router(
             return error_response(HTTP_BAD_REQUEST, str(exc))
         return None
 
-    @router.get("/state")
-    def state() -> dict[str, Any]:
-        return {"sequence": sequencer.state(), "applied": applied_head_chain(cfg)}
-
-    @router.post("/sequence/base")
-    def sequence_base(body: ConfirmRequest | None = None) -> Any:
-        if not (body and body.confirm):
-            return error_response(HTTP_BAD_REQUEST, MSG_NEEDS_CONFIRM)
+    def others_running() -> Any:
+        """The 409 response when a sequence, capture, floor sweep or compute runs, else None."""
         for running, message in (
             (sequencer.state()["running"], MSG_SEQUENCE_RUNNING),
             (capture.state()["running"], MSG_CAPTURE_RUNNING),
@@ -151,7 +150,27 @@ def head_arm_router(
         ):
             if running:
                 return error_response(HTTP_CONFLICT, message)
+        return None
+
+    @router.get("/state")
+    def state() -> dict[str, Any]:
+        return {"sequence": sequencer.state(), "applied": applied_head_chain(cfg)}
+
+    @router.post("/sequence/base")
+    def sequence_base(body: ConfirmRequest | None = None) -> Any:
+        if not (body and body.confirm):
+            return error_response(HTTP_BAD_REQUEST, MSG_NEEDS_CONFIRM)
+        if (refused := others_running()) is not None:
+            return refused
         return step(sequencer.move_to_base, True)
+
+    @router.post("/sequence/resume-board-on")
+    def sequence_resume_board_on(body: ConfirmRequest | None = None) -> Any:
+        if not (body and body.confirm):
+            return error_response(HTTP_BAD_REQUEST, MSG_NEEDS_RESUME_CONFIRM)
+        if (refused := others_running()) is not None:
+            return refused
+        return step(sequencer.resume_with_board, True)
 
     @router.post("/sequence/board-attached")
     def sequence_board_attached() -> Any:

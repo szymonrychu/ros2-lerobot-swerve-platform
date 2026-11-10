@@ -41,6 +41,7 @@ STATE_DOC = {
     "error": None,
     "big_joints": ["elbow_flex", "shoulder_lift", "shoulder_pan"],
     "waiting_since": None,
+    "board_on": True,
     "board_record": {
         "file": "/var/lib/ros2/head_rgbd_calibration/head_arm_board.json",
         "session_id": "calib-20261023-074418",
@@ -80,6 +81,9 @@ class FakeSequencer:
 
     def board_attached(self) -> dict[str, Any]:
         return self.act("board_attached")
+
+    def resume_with_board(self, confirmed: bool) -> dict[str, Any]:
+        return self.act("resume_with_board", confirmed)
 
     def allow_big_joints(self, confirmed: bool) -> dict[str, Any]:
         return self.act("allow_big_joints", confirmed)
@@ -190,6 +194,31 @@ def test_board_attached_and_wrong_phase(parts: SimpleNamespace) -> None:
     assert parts.sequencer.calls == [("board_attached", None)]
     parts.sequencer.error = Busy("accepted in phase waiting_board only")
     assert parts.client.post("/api/head-arm/sequence/board-attached").status_code == 409
+
+
+@pytest.mark.parametrize("body", [None, {}, {"confirm": False}])
+def test_resume_board_on_needs_confirm(parts: SimpleNamespace, body: dict[str, Any] | None) -> None:
+    response = parts.client.post("/api/head-arm/sequence/resume-board-on", json=body)
+    assert response.status_code == 400
+    assert response.json()["ok"] is False and "confirm" in response.json()["message"]
+    assert parts.sequencer.calls == []
+
+
+def test_resume_board_on_passes_confirm_and_maps_refusals(parts: SimpleNamespace) -> None:
+    response = parts.client.post("/api/head-arm/sequence/resume-board-on", json={"confirm": True})
+    assert response.status_code == 200
+    assert parts.sequencer.calls == [("resume_with_board", True)]
+    parts.sequencer.error = Busy("accepted only while holding with the board on")
+    response = parts.client.post("/api/head-arm/sequence/resume-board-on", json={"confirm": True})
+    assert (response.status_code, response.json()["message"]) == (409, "accepted only while holding with the board on")
+
+
+@pytest.mark.parametrize("blocker", ["sequencer", "capture", "sweep", "job"])
+def test_resume_board_on_conflicts_while_something_runs(parts: SimpleNamespace, blocker: str) -> None:
+    getattr(parts, blocker).running = True
+    response = parts.client.post("/api/head-arm/sequence/resume-board-on", json={"confirm": True})
+    assert response.status_code == 409
+    assert parts.sequencer.calls == []
 
 
 @pytest.mark.parametrize("body", [None, {}, {"confirm": False}])

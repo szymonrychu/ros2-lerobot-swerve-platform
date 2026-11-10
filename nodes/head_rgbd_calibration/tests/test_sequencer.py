@@ -75,6 +75,7 @@ STATE_KEYS = {
     "error",
     "big_joints",
     "waiting_since",
+    "board_on",
     "board_record",
     "events",
 }
@@ -1422,3 +1423,145 @@ def test_events_are_bounded_to_the_newest(tmp_path: Path) -> None:
     state = rig.finish()
     assert len(state["events"]) == EVENT_LIMIT
     assert state["events"][0]["message"].startswith("park done")
+
+
+JAW_EPS_RAD = 1e-9
+
+
+def record_confirm_phases(rig: Rig) -> list[str]:
+    """Record the phase of every confirm wait of the sequencer (wraps wait_confirm).
+
+    Args:
+        rig (Rig): The rig.
+
+    Returns:
+        list[str]: The phases waited in, appended as the worker enters them.
+    """
+    phases: list[str] = []
+    original = rig.seq.wait_confirm
+
+    def wrapped(phase: str, message: str, ready: Callable[[], bool]) -> None:
+        phases.append(phase)
+        original(phase, message, ready)
+
+    rig.seq.wait_confirm = wrapped  # type: ignore[method-assign]
+    return phases
+
+
+def test_resume_with_board_is_refused_unless_holding_with_the_board_on(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, small_cfg())
+    with pytest.raises(ValueError, match="confirmed=True"):
+        rig.seq.resume_with_board(confirmed=False)
+    with pytest.raises(Busy, match="holding with the board on"):
+        rig.seq.resume_with_board(confirmed=True)
+    assert rig.robot.calls == []
+
+    # Running (the board confirm of a normal sequence): refused, the sequence goes on.
+    rig.seq.move_to_base(confirmed=True)
+    rig.wait_phase(WAITING_BOARD)
+    with pytest.raises(Busy, match="running"):
+        rig.seq.resume_with_board(confirmed=True)
+    rig.seq.stop()
+    assert rig.finish()["phase"] == IDLE
+    with pytest.raises(Busy, match="holding with the board on"):
+        rig.seq.resume_with_board(confirmed=True)
+
+    # Holding without the board on: refused.
+    with rig.seq.lock:
+        rig.seq.phase = HOLDING
+        rig.seq.board_on = False
+    calls = len(rig.robot.calls)
+    with pytest.raises(Busy, match="holding with the board on"):
+        rig.seq.resume_with_board(confirmed=True)
+    assert len(rig.robot.calls) == calls
+
+    # Holding with the board on but blocked: refused, still holding.
+    rig = Rig(tmp_path, small_cfg())
+    rig.run_to_holding()
+    rig.blocked_reason = "an RGB-D capture is running"
+    calls = len(rig.robot.calls)
+    with pytest.raises(Busy, match="RGB-D capture"):
+        rig.seq.resume_with_board(confirmed=True)
+    state = rig.seq.state()
+    assert (state["phase"], state["board_on"], state["running"]) == (HOLDING, True, False)
+    assert len(rig.robot.calls) == calls
+
+    # An unusable URDF: refused before any call, still holding.
+    rig.blocked_reason = None
+    rig.head_urdf = "<robot"
+    with pytest.raises(SequenceError, match="URDF"):
+        rig.seq.resume_with_board(confirmed=True)
+    state = rig.seq.state()
+    assert (state["phase"], state["board_on"], state["running"]) == (HOLDING, True, False)
+    assert len(rig.robot.calls) == calls
+
+
+def test_resume_with_board_keeps_the_jaws_and_skips_the_board_confirm(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, small_cfg())
+    seq_cfg = rig.cfg.arm_sequence
+    first = rig.run_to_holding()
+    assert (first["phase"], first["board_on"]) == (HOLDING, True)
+    jaw = seq_cfg.handle_contact_rad - 0.01  # the taped board: the jaw rests a bit closed past the CAD contact
+    rig.robot.positions[GRIPPER] = jaw
+    first_run = rig.seq.run_id
+    moves_before = rig.robot.count("move_arm_joints")
+    sessions_before = len(rig.capture.sessions)
+    phases = record_confirm_phases(rig)
+
+    started = rig.seq.resume_with_board(confirmed=True)
+    assert started["running"] is True and started["session_id"] is None
+    assert rig.seq.run_id != first_run and rig.seq.run_id.startswith("seq-")
+    rig.wait_phase(WAITING_BIG_JOINTS)
+    rig.seq.allow_big_joints(True)
+    state = rig.finish()
+
+    assert WAITING_BOARD not in phases and phases == [WAITING_BIG_JOINTS]
+    moves = [m["targets"] for m in rig.robot.named("move_arm_joints")[moves_before:]]
+    assert moves[0] == {**seq_cfg.base_pose, GRIPPER: pytest.approx(jaw)}
+    gripper_targets = [m[GRIPPER] for m in moves if GRIPPER in m]
+    assert gripper_targets == [pytest.approx(jaw)]
+    assert all(target <= jaw + JAW_EPS_RAD for target in gripper_targets)
+    assert seq_cfg.insert_gripper_rad not in gripper_targets
+    assert all(set(m) != {GRIPPER} for m in moves)  # no handle grip
+    assert moves[-1] == seq_cfg.base_pose  # back to the base pose, the gripper untouched
+    assert len(rig.capture.sessions) == sessions_before + 1
+    assert rig.capture.stills
+    assert (state["phase"], state["board_on"], state["error"]) == (HOLDING, True, None)
+    assert state["session_id"] == SESSION and state["captured"] > 0
+    assert "Press Park" in state["status"]
+    assert any("resumed with the board on" in message for message in event_messages(state))
+    assert_held_not_parked(rig)
+    assert rig.robot.count("get_control_state") == 0
+
+
+def test_resume_with_board_path_check_refusal_moves_nothing(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, small_cfg())
+    rig.run_to_holding()
+    moves_before = rig.robot.count("move_arm_joints")
+    rig.robot.measured = {**HOME_POSE, "shoulder_lift": 3.0, GRIPPER: 0.05}
+    rig.seq.resume_with_board(confirmed=True)
+    state = rig.finish()
+    assert rig.robot.count("move_arm_joints") == moves_before
+    assert (state["phase"], state["board_on"]) == (HOLDING, True)
+    assert "base pose (board on)" in state["error"] and "joint_limits" in state["error"]
+    assert_held_not_parked(rig)
+
+    # No measured gripper angle: the jaws cannot be kept, nothing moves.
+    rig.robot.measured = {**HOME_POSE}
+    rig.seq.resume_with_board(confirmed=True)
+    state = rig.finish()
+    assert rig.robot.count("move_arm_joints") == moves_before
+    assert (state["phase"], state["board_on"]) == (HOLDING, True)
+    assert "no gripper angle" in state["error"]
+
+
+def test_resume_with_board_stopped_keeps_holding_with_the_board_on(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, small_cfg())
+    rig.run_to_holding()
+    stills = len(rig.capture.stills)
+    press_stop_on(rig, stills + 1)
+    rig.seq.resume_with_board(confirmed=True)
+    state = rig.finish()
+    assert (state["phase"], state["board_on"]) == (HOLDING, True)
+    assert "stopped" in state["status"]
+    assert_held_not_parked(rig)

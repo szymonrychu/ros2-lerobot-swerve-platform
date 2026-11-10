@@ -34,6 +34,7 @@ import {
   listHeadArmSessions,
   moveToBase,
   park,
+  resumeBoardOn,
   stopSequence,
 } from '../headArmApi'
 import { useServoGroups } from '../servoApi'
@@ -77,7 +78,7 @@ export function acceptText(answer: ArmCameraAccept): string {
   return `Applied result ${answer.arm_calibration.result}.${units.length ? ` Units: ${units.join(', ')}.` : ''}`
 }
 
-type Dialog = 'home' | 'base' | 'big' | 'park' | 'parkBoard' | null
+type Dialog = 'home' | 'base' | 'big' | 'park' | 'parkBoard' | 'resume' | null
 type StepId = 'home' | 'open' | 'grab' | 'capture' | 'compute' | 'gate' | 'park'
 type Errors = Partial<Record<StepId, string>>
 
@@ -185,6 +186,9 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
 
   const phase = sequence?.phase ?? PHASE_IDLE
   const sid = sequence?.session_id ?? null
+  // The sequence belongs to a live run: a fresh run has no capture session until Board attached (session_id null),
+  // a run the user closed with Start a new run keeps its session id and no longer counts.
+  const liveRun = sid === null || sid !== closedSid
   const captured =
     sid !== null && sid !== closedSid && (sequence?.captured ?? 0) > 0 && !running && !CAPTURE_PHASES.includes(phase)
   // The fits of More fits run on the live session, or on the newest one when the node has none (after a restart).
@@ -260,6 +264,8 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
   const moveBlocked = busy || zeroStale || notReady !== null
   // mcp_server refuses Home arm while the node's board record exists: park with the board or clear the record first.
   const boardRecorded = (sequence?.board_record ?? null) !== null
+  // Holding with the board on (taped or gripped): the capture may resume without opening the jaws.
+  const canResume = phase === PHASE_HOLDING && !running && sequence?.board_on === true
   const snippet = typeof result?.calibration?.snippet === 'string' ? result.calibration.snippet : null
 
   return (
@@ -316,7 +322,7 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
               id: 'home',
               title: 'Home arm',
               optional: !canHomeArm,
-              done: homed || (phase !== PHASE_IDLE && sid !== closedSid) || captured,
+              done: homed || (phase !== PHASE_IDLE && liveRun) || captured,
               see: 'The arm folds to its stored home pose and stops; nothing on the gripper.',
               error: errors.home,
               children: (
@@ -344,7 +350,7 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
             {
               id: 'open',
               title: 'Open gripper',
-              done: (AT_BASE_PHASES.includes(phase) && sid !== closedSid) || captured,
+              done: (AT_BASE_PHASES.includes(phase) && liveRun) || captured,
               see: 'The arm stands in the calibration base pose with the gripper open to the insert width. Keep the area clear.',
               error: errors.open,
               children: (
@@ -356,7 +362,7 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
             {
               id: 'grab',
               title: 'Grab board',
-              done: (GRABBED_PHASES.includes(phase) && sid !== closedSid) || captured,
+              done: (GRABBED_PHASES.includes(phase) && liveRun) || captured,
               see: 'The jaws close on the handle; the events report the grip seated, without slack. The wrist poses start.',
               error: errors.grab,
               children: (
@@ -482,6 +488,11 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
                   <Button variant="contained" sx={target} disabled={busy || phase !== PHASE_HOLDING} onClick={() => setDialog('park')}>
                     Park arm
                   </Button>
+                  {canResume && (
+                    <Button variant="outlined" sx={target} disabled={moveBlocked} onClick={() => setDialog('resume')}>
+                      Resume capture (board on)
+                    </Button>
+                  )}
                   {parked && (
                     <Button variant="outlined" sx={target} onClick={restart}>
                       Start a new run
@@ -525,6 +536,14 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
         confirmLabel="Park"
         onCancel={() => setDialog(null)}
         onConfirm={() => void parkArm(false)}
+      />
+      <ConfirmDialog
+        open={dialog === 'resume'}
+        title="Resume the capture with the board on?"
+        body={`The arm moves with the board to the base pose (${BASE_JOINTS.filter((j) => j !== 'gripper').join(', ')}); the gripper stays at its measured angle and never opens. Then the capture tiers run again in a new session. Keep the area around the arm clear.`}
+        confirmLabel="Resume"
+        onCancel={() => setDialog(null)}
+        onConfirm={() => void step('park', () => resumeBoardOn(true))}
       />
       <ConfirmDialog
         open={dialog === 'parkBoard'}
