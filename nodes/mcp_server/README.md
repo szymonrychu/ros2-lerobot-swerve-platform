@@ -262,7 +262,7 @@ The camera hangs on `d435_color_frame` with a zero mount, so its pose is the app
 CURRENT measured `head_pan` / `head_tilt`. `pixel_to_ground` and `mark_candidate_points` with `camera: "head"` therefore
 return floor points with `approximate_intrinsics: false`; an Apply on the Calibrate page reaches them without a restart.
 
-The applied head chain is reloaded, not read once: `AppliedHeadKinematics` (`mcp_server/head.py`, `head.applied_dir`, default `/var/lib/ros2/head_rgbd_calibration/applied`) builds `HeadKinematics` from the repo `head.urdf` with `apply_overrides` (the `head_chain.json` of the floor fit or of the head-from-arm fit, then `tof_joint.json`) and compares the mtime of `applied/applied.json` on each `current()` call. A new, changed or removed marker rebuilds it on the next call, with a log line naming the applied session and result; a failed rebuild is logged and the previous kinematics stay. So an Apply of either fit moves `head_look_at`, the head limits, the head camera pose and the pixel-to-floor maths without restarting mcp_server. The head camera is mounted on `d435_color_frame` (zero mount; the applied chain supplies its pose at the measured `head_pan` / `head_tilt`), with the D435 factory colour intrinsics.
+The applied head chain is reloaded, not read once: `AppliedHeadKinematics` (`mcp_server/head.py`, `head.applied_dir`, default `/var/lib/ros2/head_rgbd_calibration/applied`) builds `HeadKinematics` from the repo `head.urdf` with `apply_overrides` (the `head_chain.json` of the floor fit or of the head-from-arm fit, then `tof_joint.json`) and compares the mtime, size and inode of `applied/applied.json` on each `current()` call (the inode catches the atomic replace of two applies within one coarse mtime tick). A new, changed or removed marker rebuilds it on the next call, with a log line naming the applied session and result; a failed rebuild is logged and the previous kinematics stay. So an Apply of either fit moves `head_look_at`, the head limits, the head camera pose and the pixel-to-floor maths without restarting mcp_server. The head camera is mounted on `d435_color_frame` (zero mount; the applied chain supplies its pose at the measured `head_pan` / `head_tilt`), with the D435 factory colour intrinsics.
 
 - Picture sizes: `get_camera_image` returns `limits.default_camera_px` on the longest side at the camera's calibrated
   aspect: 384x216 for `head` (`camera_scene.default_picture_size` / `picture_sizes`; before the first CameraInfo the
@@ -2008,7 +2008,12 @@ regenerated 2026-10-10 with the grid calibration (the stair case moved from -0.2
 plans) and again for the jaw clearance, which moved every centred plan by design (shoulder_pan 0.03 to 0.05 rad, the
 open angle of every case, scoop arm joints unchanged). Each case keeps its `baseline`, which the current plan must
 match within 2e-3 rad (0.1 deg, far below the arm's backlash). The speed tests (feasible angled and auto golden scenarios and auto on the
-reference 4 cm cube under 1 s, scoop 3 s, unreachable 0.2 s) are skipped with `GRASP_SPEED_SKIP=1`.
+reference 4 cm cube under 1 s, scoop 3 s, unreachable 0.2 s) and the reach envelope's 20 s budget measure the CPU time of
+the working thread (`tests/speed_budget.py`), so a loaded or CPU-throttled host does not fail them; the budgets assume a
+dev Mac or CI runner core, so on a slower host (the RPi 5, a shared x86 pod about 5x slower per core) skip them with
+`MCP_SPEED_SKIP=1`. `test_ported_kernel_is_faster_than_its_python_median` always compares the C++ kernel with the
+Python reference timed on the same host, and with the report's Python median only on the report's machine (Darwin
+arm64).
 
 Regenerating the golden plans after a planner change that moves them by design (check the sim matrix first):
 

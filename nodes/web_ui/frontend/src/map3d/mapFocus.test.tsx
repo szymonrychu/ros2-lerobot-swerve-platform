@@ -15,6 +15,11 @@ import { consumeFocus, resolveFocus, whenController } from './mapFocus'
 import mapFocusSource from './mapFocus.ts?raw'
 import mapSceneSource from './MapScene.tsx?raw'
 
+// These tests render the whole MapNavTab in jsdom: about 1 s per render and up to 0.7 s per role query on a loaded
+// machine (every accessibility check runs getComputedStyle over MUI's emotion styles), so a test with a dialog and a
+// few queries can pass the 5 s default there. Measured worst case 7 s at load 18 on 12 cores.
+vi.setConfig({ testTimeout: 20_000 })
+
 const mocks = vi.hoisted(() => ({
   centerOn: vi.fn(),
   /** ms after mount at which the mocked scene exposes its controller; null = never. */

@@ -814,6 +814,8 @@ cd nodes/web_ui/frontend && npm install && npm run dev
 cd nodes/web_ui/frontend && npm run build
 ```
 
+Frontend test speed: import MUI components from their own path (`@mui/material/Button`), never from the `@mui/material` barrel, which loads all of MUI (about 7 s per vitest worker on a loaded machine); eslint's `no-restricted-imports` refuses the barrel. The tests that render the whole `App` or `MapNavTab` (`CalibrateRouting`, `StateBanner`, `MapNavTab.toolbar`, `MapSidebar`, `mapFocus`) load it once in a `beforeAll` with its own timeout and raise their test timeout to 20 s with `vi.setConfig`: a full render takes about 1 s and a role query up to 0.7 s in jsdom on a loaded machine.
+
 ## Deploy
 
 After code changes, run from repo root:

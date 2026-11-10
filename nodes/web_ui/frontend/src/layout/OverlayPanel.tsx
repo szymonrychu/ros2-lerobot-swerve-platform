@@ -5,7 +5,10 @@
  * MapSidebar it is a stacked section of the docked column instead (in flow, full width, divider below).
  */
 import type { CSSProperties, ReactNode } from 'react'
-import { Box, IconButton, Typography, useMediaQuery } from '@mui/material'
+import Box from '@mui/material/Box'
+import IconButton from '@mui/material/IconButton'
+import Typography from '@mui/material/Typography'
+import useMediaQuery from '@mui/material/useMediaQuery'
 import CloseIcon from '@mui/icons-material/Close'
 import { PANEL_BG, TOKENS, TOUCH_TARGET_PX } from '../theme'
 import { useDockedInSidebar } from './MapSidebar'

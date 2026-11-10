@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ThemeProvider } from '@mui/material/styles'
 import { StateBanner } from './StateBanner'
@@ -7,6 +7,11 @@ import { theme } from '../theme'
 import { designViolations, SOURCES } from '../layout/designRules'
 import { TILT_GUARD_STATE_KEY } from '../tilt/tiltStatus'
 import type { AppConfig } from '../types'
+
+// These tests render the whole App in jsdom: about 1 s per render and up to 0.7 s per role query on a loaded
+// machine (every accessibility check runs getComputedStyle over MUI's emotion styles), so a test with a dialog and a
+// few queries can pass the 5 s default there. Measured worst case 7 s at load 18 on 12 cores.
+vi.setConfig({ testTimeout: 20_000 })
 
 let topicData: Record<string, unknown> = {}
 let viewportWidth = 1400
@@ -48,6 +53,14 @@ async function renderApp() {
   )
   await screen.findByRole('tablist')
 }
+
+// The first render would pay the cold import of App (MUI and the whole component tree, seconds on a loaded
+// machine) inside a test's 5 s budget; load it once here, with its own timeout.
+beforeAll(async () => {
+  vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => undefined })
+  await import('../App')
+  vi.unstubAllGlobals()
+}, 60_000)
 
 beforeEach(() => {
   topicData = {}

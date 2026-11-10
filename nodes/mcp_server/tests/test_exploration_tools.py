@@ -10,6 +10,7 @@ from ros2_common.battery import BatteryConfig, BatteryGuard
 from mcp_server.config import ExplorationSettings, McpServerConfig
 from mcp_server.tools import ALWAYS_ALLOWED_TOOLS, build_mcp_server
 
+from .fakes import frozen_battery_guard
 from .test_frontier_tools import FrontierRobot, room
 from .test_tools import TOKEN, call
 
@@ -29,7 +30,7 @@ def make_server(robot: FrontierRobot, guard: BatteryGuard | None = None) -> Any:
 
 
 def make_guard(voltage: float | None) -> BatteryGuard:
-    guard = BatteryGuard.from_config(BatteryConfig())
+    guard = frozen_battery_guard()
     if voltage is not None:
         guard.update(voltage)
     return guard

@@ -297,8 +297,9 @@ def read_calibration_info(applied_dir: Path | None) -> CalibrationInfo:
 class AppliedHeadKinematics:
     """Head kinematics on the repo URDF with the applied calibration overrides, rebuilt when the marker changes.
 
-    The marker is ``applied_dir/applied.json``: a new, changed or removed marker (mtime_ns) triggers a rebuild on the
-    next ``current()`` call, so an apply reaches the running server without a restart.
+    The marker is ``applied_dir/applied.json``: a new, changed or removed marker (mtime_ns, size, inode) triggers a
+    rebuild on the next ``current()`` call, so an apply reaches the running server without a restart. The inode
+    catches head_rgbd_calibration's atomic replace even when two applies share one coarse mtime tick.
     """
 
     def __init__(self, urdf_path: Path, applied_dir: Path | None) -> None:
@@ -318,18 +319,19 @@ class AppliedHeadKinematics:
         self.kinematics = self.build()
         self.info = read_calibration_info(applied_dir)
 
-    def marker_stamp(self) -> int | None:
-        """Modification time of the applied marker.
+    def marker_stamp(self) -> tuple[int, int, int] | None:
+        """Identity of the applied marker's current version.
 
         Returns:
-            int | None: mtime_ns, or None when there is no applied_dir or no marker.
+            tuple[int, int, int] | None: (mtime_ns, size, inode), or None when there is no applied_dir or no marker.
         """
         if self.applied_dir is None:
             return None
         try:
-            return (self.applied_dir / APPLIED_MARKER_FILE).stat().st_mtime_ns
+            st = (self.applied_dir / APPLIED_MARKER_FILE).stat()
         except OSError:
             return None
+        return (st.st_mtime_ns, st.st_size, st.st_ino)
 
     def marker_fields(self) -> tuple[str, str]:
         """Session and result named by the applied marker, for the reload log line.

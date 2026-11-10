@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
-from ros2_common.battery import BatteryConfig, BatteryGuard
+from ros2_common.battery import BatteryGuard
 from ros2_common.maps import Localisation, MapStatus
 
 from mcp_server.approach_tools import SENSOR_TOOL_NAMES as APPROACH_TOOL_NAMES
@@ -17,6 +17,7 @@ from mcp_server.config import McpServerConfig, load_config
 from mcp_server.models import Map3dCloud
 from mcp_server.tools import ALWAYS_ALLOWED_TOOLS, MOTION_TOOLS, TOOL_NAMES, build_mcp_server
 
+from .fakes import frozen_battery_guard
 from .test_frontier_tools import room
 from .test_tools import TOKEN, FakeRobot, call, take
 
@@ -104,7 +105,7 @@ ALLOWED_ARGS: dict[str, dict[str, Any]] = {
 
 def make_guard(voltage: float | None) -> BatteryGuard:
     """Guard with default thresholds, optionally already fed one reading."""
-    guard = BatteryGuard.from_config(BatteryConfig())
+    guard = frozen_battery_guard()
     if voltage is not None:
         guard.update(voltage)
     return guard

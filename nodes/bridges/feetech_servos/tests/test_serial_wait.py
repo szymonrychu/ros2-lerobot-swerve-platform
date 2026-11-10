@@ -6,6 +6,15 @@ the real library against a pty pair (a fake serial device) and prove that after
 ``use_blocking_reads`` the wait blocks in the kernel, a missing servo still times
 out with ``COMM_RX_TIMEOUT`` within the library's packet timeout, and a reply is
 still received promptly.
+
+The wall-clock bounds measure the wait logic, but on a loaded machine (CI, parallel suites) a thread that wakes
+from a 1 ms blocking read waits for a CPU, often for several ms, and the fake bus thread can answer late. So:
+the reading thread's run-queue wait (Linux ``/proc/thread-self/schedstat``; 0 where it does not exist) is taken off
+its wall time, because that is the scheduler's delay and not the wait logic's; a read the fake bus answered after the
+library's deadline is a void sample; and each timing test takes up to ``TIMING_ATTEMPTS`` samples on fresh pty pairs.
+Every sample must hold the load-independent properties (result code, ``readPort`` call count, the reading thread's
+own CPU time) and the timing bound must hold for at least one. A wait that is slow by construction (a busy-wait, a
+longer serial timeout) misses the bound in every sample and still fails.
 """
 
 import importlib
@@ -15,6 +24,8 @@ import sys
 import threading
 import time
 from collections.abc import Iterator
+from dataclasses import dataclass
+from pathlib import Path
 from types import ModuleType
 from typing import Any
 from unittest.mock import MagicMock
@@ -38,6 +49,10 @@ MAX_READ_CALLS_PER_TIMEOUT = 200
 TIMEOUT_SLACK_S = 0.005
 REPLY_DELAY_S = 0.003
 POLL_S = 0.01
+PROMPT_REPLY_SLACK_S = 0.010
+TIMING_ATTEMPTS = 5
+THREAD_SCHEDSTAT = Path("/proc/thread-self/schedstat")
+NS_PER_S = 1e9
 
 
 @pytest.fixture
@@ -73,6 +88,7 @@ class FakeBus:
         self.device = os.ttyname(self.slave_fd)
         self.reply_id = reply_id
         self.ports: list[Any] = []
+        self.reply_times: list[float] = []
         self.stopped = threading.Event()
         self.thread = threading.Thread(target=self.serve, daemon=True)
         self.thread.start()
@@ -91,6 +107,7 @@ class FakeBus:
                     params = list(MODEL_NUMBER.to_bytes(2, "little"))[: packet[6]]
                     time.sleep(REPLY_DELAY_S)
                     os.write(self.master_fd, status_packet(self.reply_id, params))
+                    self.reply_times.append(time.perf_counter())
 
     def close(self) -> None:
         """Stop the reader thread, close the serial ports opened on the bus, then both pty ends."""
@@ -145,14 +162,6 @@ def silent_bus() -> Iterator[FakeBus]:
     bus.close()
 
 
-@pytest.fixture
-def answering_bus() -> Iterator[FakeBus]:
-    """Fake bus where PRESENT_SERVO_ID answers register reads."""
-    bus = FakeBus(reply_id=PRESENT_SERVO_ID)
-    yield bus
-    bus.close()
-
-
 def test_use_blocking_reads_sets_positive_port_timeout(st3215_lib: dict[str, ModuleType], silent_bus: FakeBus) -> None:
     handler, _ = open_handler(st3215_lib, silent_bus)
     assert handler.portHandler.ser.timeout == 0  # the library default: non-blocking reads
@@ -161,35 +170,100 @@ def test_use_blocking_reads_sets_positive_port_timeout(st3215_lib: dict[str, Mod
     assert 0 < SERIAL_READ_TIMEOUT_S <= 0.002
 
 
-def test_missing_servo_waits_without_spinning_and_still_times_out(
-    st3215_lib: dict[str, ModuleType], silent_bus: FakeBus
-) -> None:
-    handler, calls = open_handler(st3215_lib, silent_bus)
-    use_blocking_reads(handler)
-    start = time.perf_counter()
-    cpu_start = time.process_time()
-    _, result, _ = handler.read2ByteTxRx(MISSING_SERVO_ID, MODEL_NUMBER_ADDRESS)
-    elapsed = time.perf_counter() - start
-    cpu = time.process_time() - cpu_start
-    assert result == st3215_lib["values"].COMM_RX_TIMEOUT
-    assert calls[0] <= MAX_READ_CALLS_PER_TIMEOUT
-    # The library's packet timeout for a 2-byte read: tx time of (2 + 6) + 3 bytes + LATENCY_TIMER ms.
-    lib_timeout_s = (handler.portHandler.tx_time_per_byte * 11 + st3215_lib["values"].LATENCY_TIMER) / 1000.0
-    assert lib_timeout_s <= elapsed <= lib_timeout_s + SERIAL_READ_TIMEOUT_S + TIMEOUT_SLACK_S
-    assert cpu < elapsed / 2  # blocked in the kernel, not burning the wait
+def runqueue_wait_s() -> float:
+    """Time the calling thread has spent runnable but waiting for a CPU.
+
+    :return: seconds (the second field of Linux ``/proc/thread-self/schedstat``), 0.0 where the file does not exist
+        (macOS), so the timing bounds then apply to the raw wall time.
+    """
+    if not THREAD_SCHEDSTAT.exists():
+        return 0.0
+    return int(THREAD_SCHEDSTAT.read_text().split()[1]) / NS_PER_S
 
 
-def test_present_servo_reply_received_promptly(st3215_lib: dict[str, ModuleType], answering_bus: FakeBus) -> None:
-    handler, calls = open_handler(st3215_lib, answering_bus)
-    use_blocking_reads(handler)
-    start = time.perf_counter()
-    model, result, error = handler.read2ByteTxRx(PRESENT_SERVO_ID, MODEL_NUMBER_ADDRESS)
-    elapsed = time.perf_counter() - start
-    assert result == st3215_lib["values"].COMM_SUCCESS
-    assert error == 0
-    assert model == MODEL_NUMBER
-    assert calls[0] <= MAX_READ_CALLS_PER_TIMEOUT
-    assert elapsed < REPLY_DELAY_S + 0.010
+@dataclass(frozen=True)
+class ReadSample:
+    """One blocking ``read2ByteTxRx`` on a fresh fake bus."""
+
+    result: int
+    error: int
+    model: int
+    read_calls: int
+    elapsed_s: float
+    runqueue_wait_s: float
+    thread_cpu_s: float
+    lib_timeout_s: float
+    reply_after_s: float | None
+
+    @property
+    def wait_s(self) -> float:
+        """Wall time of the read without the reading thread's run-queue wait.
+
+        :return: seconds.
+        """
+        return self.elapsed_s - self.runqueue_wait_s
+
+
+def sample_read(lib: dict[str, ModuleType], reply_id: int | None, servo_id: int) -> ReadSample:
+    """Read MODEL_NUMBER_ADDRESS of ``servo_id`` with blocking reads on a fresh pty pair.
+
+    :param lib: modules from the ``st3215_lib`` fixture.
+    :param reply_id: servo ID the fake bus answers, or None for a silent bus.
+    :param servo_id: servo ID to read.
+    :return: the read's outcome, wall time, the reading thread's run-queue wait and CPU time, the library's packet
+        timeout and when (after the request started) the fake bus wrote its reply (None when it did not reply).
+    """
+    bus = FakeBus(reply_id=reply_id)
+    try:
+        handler, calls = open_handler(lib, bus)
+        use_blocking_reads(handler)
+        start = time.perf_counter()
+        cpu_start = time.thread_time()
+        runqueue_start = runqueue_wait_s()
+        model, result, error = handler.read2ByteTxRx(servo_id, MODEL_NUMBER_ADDRESS)
+        elapsed = time.perf_counter() - start
+        runqueue = runqueue_wait_s() - runqueue_start
+        cpu = time.thread_time() - cpu_start
+        # The library's packet timeout for a 2-byte read: tx time of (2 + 6) + 3 bytes + LATENCY_TIMER ms.
+        lib_timeout_s = (handler.portHandler.tx_time_per_byte * 11 + lib["values"].LATENCY_TIMER) / 1000.0
+    finally:
+        bus.close()
+    reply_after = bus.reply_times[0] - start if bus.reply_times else None
+    return ReadSample(result, error, model, calls[0], elapsed, runqueue, cpu, lib_timeout_s, reply_after)
+
+
+def test_missing_servo_waits_without_spinning_and_still_times_out(st3215_lib: dict[str, ModuleType]) -> None:
+    timeout_result = st3215_lib["values"].COMM_RX_TIMEOUT
+    samples: list[ReadSample] = []
+    for _ in range(TIMING_ATTEMPTS):
+        sample = sample_read(st3215_lib, None, MISSING_SERVO_ID)
+        samples.append(sample)
+        assert sample.result == timeout_result
+        assert sample.read_calls <= MAX_READ_CALLS_PER_TIMEOUT
+        assert sample.elapsed_s >= sample.lib_timeout_s
+        assert sample.thread_cpu_s < sample.elapsed_s / 2  # blocked in the kernel, not burning the wait
+        if sample.wait_s <= sample.lib_timeout_s + SERIAL_READ_TIMEOUT_S + TIMEOUT_SLACK_S:
+            return
+    pytest.fail(f"every missing-servo read overshot the library timeout: {samples}")
+
+
+def test_present_servo_reply_received_promptly(st3215_lib: dict[str, ModuleType]) -> None:
+    success = st3215_lib["values"].COMM_SUCCESS
+    samples: list[ReadSample] = []
+    for _ in range(TIMING_ATTEMPTS):
+        sample = sample_read(st3215_lib, PRESENT_SERVO_ID, PRESENT_SERVO_ID)
+        samples.append(sample)
+        assert sample.read_calls <= MAX_READ_CALLS_PER_TIMEOUT
+        if sample.result != success:
+            # Only a reply the fake bus wrote after the library's deadline may be missed.
+            assert sample.reply_after_s is None or sample.reply_after_s > sample.lib_timeout_s, sample
+            continue
+        assert sample.error == 0
+        assert sample.model == MODEL_NUMBER
+        # Returned within the slack of the fake bus writing the reply (nominally REPLY_DELAY_S after the request).
+        if sample.reply_after_s is not None and sample.wait_s < sample.reply_after_s + PROMPT_REPLY_SLACK_S:
+            return
+    pytest.fail(f"no reply was returned promptly: {samples}")
 
 
 def test_use_blocking_reads_without_port_is_noop() -> None:

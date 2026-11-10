@@ -1,5 +1,10 @@
 /** The one confirm pattern for destructive actions: a modal with Cancel and an error-coloured confirm button. */
-import { Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from '@mui/material'
+import Button from '@mui/material/Button'
+import Dialog from '@mui/material/Dialog'
+import DialogActions from '@mui/material/DialogActions'
+import DialogContent from '@mui/material/DialogContent'
+import DialogContentText from '@mui/material/DialogContentText'
+import DialogTitle from '@mui/material/DialogTitle'
 
 export interface ConfirmDialogProps {
   /** Closed dialogs render nothing. */

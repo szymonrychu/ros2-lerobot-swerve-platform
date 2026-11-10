@@ -10,9 +10,9 @@ import pytest
 
 from feetech_servos.sync_read import SYNC_READ_LENGTH_WITH_CURRENT, ServoState
 
-from .ros_stubs import FakeRclpy, install_ros_stubs
+from .ros_stubs import FakeRclpy, install_service_stubs
 
-install_ros_stubs("sensor_msgs", "sensor_msgs.msg", "std_msgs", "std_msgs.msg")
+install_service_stubs()
 
 STAMP_NS = 5_000_000_123
 CURRENT_RAW = 154

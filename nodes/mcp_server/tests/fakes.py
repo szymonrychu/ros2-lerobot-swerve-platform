@@ -8,6 +8,7 @@ from typing import Any
 
 import numpy as np
 from pydantic import ValidationError
+from ros2_common.battery import BatteryConfig, BatteryGuard
 from ros2_common.lookups import INDEX_FILE, LookupRecord
 from ros2_common.maps import MapResult, MapStatus
 from ros2_common.photos import PHOTO_KIND, PhotoAdd, PhotoSelector, photo_as_poi
@@ -27,6 +28,22 @@ from mcp_server.topdown import TopdownInputs
 
 JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper")
 STEER_JOINTS = ("fl_steer", "fr_steer", "rl_steer", "rr_steer")
+FROZEN_BATTERY_CLOCK_S = 0.0
+
+
+def frozen_battery_guard() -> BatteryGuard:
+    """The default battery guard on a frozen clock, so a reading cannot go stale while a test builds the server.
+
+    BatteryGuard.from_config uses time.monotonic and a 5 s stale_s; building an MCP server takes seconds on a loaded
+    machine, after which a reading fed before it reads as unknown (cutoff None) instead of the fed state.
+
+    Returns:
+        BatteryGuard: Guard with the BatteryConfig defaults and a clock fixed at FROZEN_BATTERY_CLOCK_S.
+    """
+    config = BatteryConfig()
+    return BatteryGuard(
+        config.cells, config.cutoff_cell_v, config.resume_cell_v, config.stale_s, clock=lambda: FROZEN_BATTERY_CLOCK_S
+    )
 
 
 class FakeArmBackend:

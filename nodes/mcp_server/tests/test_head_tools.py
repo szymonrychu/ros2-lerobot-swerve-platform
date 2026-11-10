@@ -8,7 +8,6 @@ from typing import Any
 import numpy as np
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
-from ros2_common.battery import BatteryConfig, BatteryGuard
 
 from mcp_server import head_tools
 from mcp_server.config import McpServerConfig
@@ -16,6 +15,7 @@ from mcp_server.head_kinematics import HeadKinematics
 from mcp_server.models import BasePose
 from mcp_server.tools import INSTRUCTIONS, MOTION_TOOLS, RATE_SUBSYSTEMS, TOOL_NAMES, TOOL_SUBSYSTEM, build_mcp_server
 
+from .fakes import frozen_battery_guard
 from .test_tools import TOKEN, FakeRobot, call, take
 
 HEAD_TOOLS = ("set_head_angles", "head_look_at", "head_home")
@@ -73,7 +73,7 @@ def test_allowed_with_either_lease_alone(server: Any, robot: FakeRobot, name: st
 @pytest.mark.parametrize("name", HEAD_TOOLS)
 def test_refused_under_battery_cutoff(tmp_path: Path, name: str) -> None:
     robot = FakeRobot(tmp_path)
-    guard = BatteryGuard.from_config(BatteryConfig())
+    guard = frozen_battery_guard()
     guard.update(8.21)
     server = build_mcp_server(robot, McpServerConfig(), TOKEN, guard)
     take(server)
