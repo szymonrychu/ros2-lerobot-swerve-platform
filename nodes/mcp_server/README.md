@@ -1372,7 +1372,9 @@ stale}`, where `stale` lists `joint_offsets` and/or `home`.
 ## Accepted arm calibration
 
 The Calibrate page's arm to camera Accept applies its calibration to the running server; Decline keeps the one in
-use. `mcp_server/arm_calibration.py` (`ArmCalibrationWatcher`) reads `arm.applied_dir` (default
+use. `mcp_server/arm_calibration.py` (`ArmCalibrationWatcher`, built on the shared ros2_common
+`head_rgbd_calibration/applied_arm_calibration.py` reload state that filter_node's guard and web_ui use too) reads
+`arm.applied_dir` (default
 `/var/lib/ros2/head_rgbd_calibration/applied`, the head_rgbd_calibration `state_dir/applied`, the same directory the
 head chain comes from; `null` disables the override):
 
@@ -1383,7 +1385,7 @@ head chain comes from; `null` disables the override):
   `floor_z_m` follows). The tool point (`tool_offset_m`, not fitted) and every other `arm:` key stay configured. The
   merged block is validated as `ArmSettings`.
 - When: at startup before the arm model is built (`RosRobot.__init__`), and on the 0.25 s monitor tick whenever the
-  identity of `applied.json` changed: mtime, size and inode (`arm_calibration.applied_marker_identity`, the same key
+  identity of `applied.json` changed: mtime, size and inode (ros2_common `applied_marker_identity`, the same key
   as the head chain reload, so an atomic replace within one coarse mtime tick reloads both; no thread of its own). A changed applied.json that
   names the same calibration (a head chain apply) logs `unchanged` and swaps nothing.
 - Idle point: `ArmController.swap_calibration` takes the arm motion lock without waiting. While a motion runs (any

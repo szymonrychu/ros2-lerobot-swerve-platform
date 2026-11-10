@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Literal, Protocol
 
 from pydantic import BaseModel
+from ros2_common.head_rgbd_calibration.applied_arm_calibration import MarkerIdentity, applied_marker_identity
 from ros2_common.head_rgbd_calibration.urdf_text import (
     APPLIED_MARKER_FILE,
     HEAD_CHAIN_FILE,
@@ -21,7 +22,6 @@ from ros2_common.head_rgbd_calibration.urdf_text import (
 )
 
 from .arm import JointSample
-from .arm_calibration import MarkerIdentity, applied_marker_identity
 from .config import HeadSettings
 from .head_kinematics import HeadKinematics
 from .models import HeadAngles
@@ -321,8 +321,8 @@ class AppliedHeadKinematics:
         self.info = read_calibration_info(applied_dir)
 
     def marker_stamp(self) -> MarkerIdentity | None:
-        """Identity of the applied marker's current version (arm_calibration.applied_marker_identity, the same key as
-        the arm calibration reload).
+        """Identity of the applied marker's current version (ros2_common applied_marker_identity, the same key as the
+        arm calibration reload).
 
         Returns:
             MarkerIdentity | None: (mtime_ns, size, inode), or None when there is no applied_dir or no marker.
