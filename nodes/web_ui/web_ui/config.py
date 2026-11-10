@@ -770,6 +770,9 @@ class AppConfig(BaseModel):
     gps_status: GpsStatusConfig | None = None  # absent: no GPS status chips
     calibration: CalibrationConfig | None = None  # absent: the Calibrate page is off, /api/calibration/* answers 404
     head_applied_calibration_dir: str | None = None  # applied head chain dir; None serves head URDFs as files
+    # head_rgbd_calibration applied dir read by GET /api/arm/calibration (the accepted arm calibration of the 3D arm
+    # view); None answers nothing accepted (the tabs' arm_offset, no joint offsets).
+    arm_applied_calibration_dir: str | None = None
     ground_recorder: GroundRecorderConfig = GroundRecorderConfig()  # /api/ground/recordings; off by default
     models_dir: str | None = None  # printable PDF/3MF files served at /models/{name}; absent: /api/models answers 404
     # Nav goals are refused when the cached tilt guard state is older than this many seconds (the guard sends 1 Hz).

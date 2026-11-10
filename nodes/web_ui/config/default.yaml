@@ -17,6 +17,11 @@ gps_status:
 # Applied head calibration (head_chain.json, tof_joint.json) laid over the served head URDF; null serves the file as is.
 head_applied_calibration_dir: null
 
+# Applied directory of head_rgbd_calibration read by GET /api/arm/calibration: an accepted arm to camera calibration
+# there (arm_calibration.json, named by applied.json) moves the 3D arm views (arm mount and joint offsets) without a
+# restart; null answers nothing accepted (the tab's arm_offset, no joint offsets).
+arm_applied_calibration_dir: null
+
 # Ground recorder (operator tool, idle until POST /api/ground/recordings): records the head D435 cloud, the D435 depth
 # camera model, the /head_rgbd depth + RGB pairs, IMU, head and /ground/state with the TF at each message stamp into npz
 # files for ground replay. Off by default; see README.
