@@ -1,0 +1,47 @@
+{
+  "status": "done",
+  "id": "verify-20261109-041500",
+  "head_chain": {
+    "source": "ground_board",
+    "session": "ground-20261109-033000",
+    "result": "r-20261109-040000"
+  },
+  "result": {
+    "session": "ground-20261109-033000",
+    "result": "r-20261109-040000"
+  },
+  "pose": 3,
+  "total": 3,
+  "poses": [
+    {
+      "pose": 0,
+      "pan_deg": 0.0,
+      "tilt_deg": 30.0,
+      "reached": {
+        "pan_deg": 0.02,
+        "tilt_deg": 29.98
+      },
+      "samples": 210,
+      "plane_samples": 210,
+      "height_m": 0.003,
+      "plane_vs_base_deg": 0.2,
+      "obstacle_points": 2.0,
+      "obstacle_points_max": 5,
+      "drop_points": 0.0,
+      "drop_points_max": 0,
+      "checks": [
+        {
+          "name": "height_m",
+          "value": 0.003,
+          "limit": 0.01,
+          "ok": true
+        }
+      ],
+      "passed": true,
+      "error": null
+    }
+  ],
+  "passed": true,
+  "error": null,
+  "running": false
+}

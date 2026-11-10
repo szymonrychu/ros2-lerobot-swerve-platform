@@ -134,7 +134,13 @@ def serpentine_grid(pan_deg: list[float], tilt_deg: list[float]) -> list[tuple[f
 
 
 class FloorSweep:
-    """Runs one floor sweep at a time on a worker thread."""
+    """Runs one floor sweep at a time on a worker thread.
+
+    The ground board sweep and its verification (ground_sweep.py, ground_verify.py) subclass it for the head motion
+    (command, reach and stillness, restore) and the subscription handling; `flow` names their telemetry flow.
+    """
+
+    flow = FLOW
 
     def __init__(
         self,
@@ -268,7 +274,7 @@ class FloorSweep:
                 self.running = False
                 self.status = ERROR
                 self.error = str(exc)
-            calib_event(LOG, FLOW, None, SWEEP_STEP, ERROR, logging.ERROR, str(exc), error_type=type(exc).__name__)
+            calib_event(LOG, self.flow, None, SWEEP_STEP, ERROR, logging.ERROR, str(exc), error_type=type(exc).__name__)
             raise
         with self.lock:
             self.session_id = run.session_id
@@ -276,7 +282,7 @@ class FloorSweep:
             self.status = "running"
         calib_event(
             LOG,
-            FLOW,
+            self.flow,
             run.session_id,
             SWEEP_STEP,
             "start",
@@ -525,7 +531,7 @@ class FloorSweep:
                 self.error = error
         calib_event(
             LOG,
-            FLOW,
+            self.flow,
             run.session_id,
             SWEEP_STEP,
             final,
@@ -577,7 +583,7 @@ class FloorSweep:
                     self.observation_count = len(run.observations)
                 calib_event(
                     LOG,
-                    FLOW,
+                    self.flow,
                     run.session_id,
                     "pose",
                     "observed",
@@ -621,7 +627,7 @@ class FloorSweep:
             self.skipped_count = len(run.skipped)
         calib_event(
             LOG,
-            FLOW,
+            self.flow,
             run.session_id,
             "pose",
             "skipped",
@@ -643,7 +649,7 @@ class FloorSweep:
                 if self.clock() - began >= self.floor.move_timeout_s:
                     calib_event(
                         LOG,
-                        FLOW,
+                        self.flow,
                         run.session_id,
                         "restore",
                         "unconfirmed",
@@ -654,9 +660,9 @@ class FloorSweep:
                     )
                     return
                 self.sleep(POLL_S)
-            calib_event(LOG, FLOW, run.session_id, "restore", "ok", target=restored)
+            calib_event(LOG, self.flow, run.session_id, "restore", "ok", target=restored)
         except Exception as exc:  # the handles are still released by the caller
-            calib_event(LOG, FLOW, run.session_id, "restore", ERROR, logging.ERROR, f"{type(exc).__name__}: {exc}")
+            calib_event(LOG, self.flow, run.session_id, "restore", ERROR, logging.ERROR, f"{type(exc).__name__}: {exc}")
 
     def write(self, run: Run) -> None:
         """Write observations.json atomically (also after a stop or an error: the poses done so far)."""
@@ -685,9 +691,9 @@ class FloorSweep:
             try:
                 self.node.destroy_subscription(sub)
             except Exception as exc:  # keep destroying the rest
-                calib_event(LOG, FLOW, run_id, "release", ERROR, logging.ERROR, f"subscription: {exc}")
+                calib_event(LOG, self.flow, run_id, "release", ERROR, logging.ERROR, f"subscription: {exc}")
         if publisher is not None:
             try:
                 self.node.destroy_publisher(publisher)
             except Exception as exc:  # logged, the subscriptions are gone already
-                calib_event(LOG, FLOW, run_id, "release", ERROR, logging.ERROR, f"publisher: {exc}")
+                calib_event(LOG, self.flow, run_id, "release", ERROR, logging.ERROR, f"publisher: {exc}")

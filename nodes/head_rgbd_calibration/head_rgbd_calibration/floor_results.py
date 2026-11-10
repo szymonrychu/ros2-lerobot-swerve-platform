@@ -419,8 +419,8 @@ def applied_head_chain(cfg: NodeConfig) -> dict[str, Any] | None:
 
     Returns:
         {session, result, note, source, floor, joints: {name: {xyz, rpy}}}, None when the file is absent or invalid.
-        source ("floor" or "head_arm") and floor ({session, result} or None) come from the applied.json record when it
-        names the same session and result, else None.
+        source ("floor", "head_arm", "arm" or "ground_board") and floor ({session, result} or None) come from the
+        applied.json record when it names the same session and result, else None.
     """
     path = Path(cfg.state_dir) / APPLIED_DIR / HEAD_CHAIN_FILE
     try:

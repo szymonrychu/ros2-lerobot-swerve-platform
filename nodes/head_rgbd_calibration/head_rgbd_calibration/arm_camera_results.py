@@ -85,9 +85,14 @@ DATE_TIMESPEC = "seconds"
 NS_PER_S = 1e9
 URDF_SOURCE = "urdf"
 # applied.json head_chain record `source` -> the head chain source the arm to camera API names.
-HEAD_CHAIN_SOURCES = {"floor": "floor_fit", "head_arm": "head_arm", "arm": "arm_offsets"}
+HEAD_CHAIN_SOURCES = {
+    "floor": "floor_fit",
+    "head_arm": "head_arm",
+    "arm": "arm_offsets",
+    "ground_board": "ground_board",
+}
 NO_HEAD_CHAIN_REASON = (
-    "apply a head calibration first (floor fit or head-from-arm): the arm to camera fit holds the applied head chain "
+    "apply a head calibration first (floor fit, head-from-arm or ground board): the arm to camera fit holds the applied head chain "
     "fixed"
 )
 NO_RESULT_ERROR = "no such arm to camera result: {rid}"
@@ -113,8 +118,9 @@ def head_chain_source(cfg: NodeConfig) -> dict[str, str | None]:
         cfg: Node config (state_dir).
 
     Returns:
-        {source, session, result}: source "floor_fit", "head_arm" or "arm_offsets" from the applied.json head_chain
-        record (None when the record does not name the applied head_chain.json), "urdf" without an applied chain.
+        {source, session, result}: source "floor_fit", "head_arm", "arm_offsets" or "ground_board" from the
+        applied.json head_chain record (None when the record does not name the applied head_chain.json), "urdf"
+        without an applied chain.
     """
     applied = floor_results.applied_head_chain(cfg)
     if applied is None:

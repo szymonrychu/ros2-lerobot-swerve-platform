@@ -1,0 +1,16 @@
+{
+  "head_chain": {
+    "session": "ground-20261109-033000",
+    "result": "r-20261109-040000",
+    "applied_at": "2026-11-09T21:53:08.008387+00:00",
+    "source": "ground_board",
+    "floor": null
+  },
+  "units": [
+    {
+      "name": "unit-a.service",
+      "active_state": "active",
+      "restarted": true
+    }
+  ]
+}

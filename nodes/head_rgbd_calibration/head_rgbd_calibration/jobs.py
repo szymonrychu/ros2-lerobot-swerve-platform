@@ -3,7 +3,8 @@
 Telemetry: the child logs to its stderr in CHILD_LOG_FORMAT (compute.py); when it ends, every such line is re-logged in
 this process under its logger and level, so the child's calib_event lines reach the journal with its run id (the
 result id), and the other lines (a traceback) at WARNING. The job logs `child` start and end events (exit code,
-duration, error) of its flow: `d435_compute` for the D435 check, `arm_camera_compute` for the arm to camera fit.
+duration, error) of its flow: `d435_compute` for the D435 check, `arm_camera_compute` for the arm to camera fit,
+`ground_compute` for the ground board fit (on a ground_results.GroundStore).
 """
 
 import logging
@@ -14,10 +15,11 @@ import threading
 import time
 from collections.abc import Callable
 from datetime import datetime, timedelta
-from typing import IO, Any
+from pathlib import Path
+from typing import IO, Any, Protocol
 
 from head_rgbd_calibration.config import NodeConfig
-from head_rgbd_calibration.store import RESULT_FILE, TEMP_PREFIX, SessionStore
+from head_rgbd_calibration.store import RESULT_FILE, TEMP_PREFIX
 from head_rgbd_calibration.telemetry import calib_event, forward_child_log
 
 LOGGER = logging.getLogger(__name__)
@@ -31,6 +33,18 @@ FLOW = "d435_compute"
 CHILD_STEP = "child"
 
 
+class ResultStore(Protocol):
+    """What a ComputeJob needs of a store: SessionStore (head_rgbd sessions) and GroundStore (ground sessions)."""
+
+    def existing_session_dir(self, sid: str) -> Path: ...
+
+    def result_dir(self, sid: str, rid: str) -> Path: ...
+
+    def pose_ids(self, sid: str) -> list[str]: ...
+
+    def new_result_id(self, now: datetime) -> str: ...
+
+
 class Busy(RuntimeError):
     """A computation is already running (maps to 409)."""
 
@@ -42,7 +56,7 @@ class ComputeJob:
     def __init__(
         self,
         cfg: NodeConfig,
-        store: SessionStore,
+        store: ResultStore,
         popen: Callable[..., subprocess.Popen],
         clock: Callable[[], datetime],
         config_path: str,
@@ -53,7 +67,7 @@ class ComputeJob:
 
         Args:
             cfg: Node config (compute_timeout_s, compute_nice).
-            store: Session store (result directories).
+            store: Session store (result directories): a SessionStore or a GroundStore.
             popen: subprocess.Popen or a stand-in with the same call signature.
             clock: Returns the current time.
             config_path: Node config path handed to the child (HEAD_RGBD_CALIBRATION_CONFIG).

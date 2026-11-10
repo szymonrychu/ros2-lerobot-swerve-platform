@@ -377,3 +377,72 @@ class HeadArmFitConfig(StrictModel):
         if missing or extra:
             raise ValueError(f"joint_offsets_rad must name exactly the arm joints: missing {missing}, extra {extra}")
         return self
+
+
+class GroundBoardBounds(StrictModel):
+    """Physical plausibility bounds of the ground board fit (user decision 324): a result past any of them is refused
+    outright (it cannot be accepted), unlike the advisory `GroundBoardLimits`, which only warn.
+
+    Changes are against the applied head chain: `max_mount_move_mm` bounds the head mount z, `max_mount_turn_deg` the
+    head mount roll and pitch, `max_tilt_change_deg` the tilt zero and the tilt roll, `max_camera_move_mm` and
+    `max_camera_turn_deg` the D435 mount (d435_joint x, z and roll, yaw), `max_pan_axis_move_mm` the pan axis shift.
+    `max_board_distance_m` bounds the horizontal distance of each fitted board placement from the head mount (the
+    user lays the board close).
+    """
+
+    max_mount_move_mm: float = Field(default=100.0, gt=0)
+    max_mount_turn_deg: float = Field(default=10.0, gt=0)
+    max_tilt_change_deg: float = Field(default=10.0, gt=0)
+    max_camera_move_mm: float = Field(default=30.0, gt=0)
+    max_camera_turn_deg: float = Field(default=10.0, gt=0)
+    max_pan_axis_move_mm: float = Field(default=50.0, gt=0)
+    max_board_distance_m: float = Field(default=2.5, gt=0)
+
+
+class GroundBoardLimits(StrictModel):
+    """Advisory limits of the ground board fit: a result past any of them gets a warning, the user still decides.
+
+    `rms_px` and `holdout_rms_px` bound the corner RMS of the fit and the held-out views, `max_sigma_mm` and
+    `max_sigma_deg` the one-sigma uncertainty of every fitted length and angle, `min_views`, `min_poses` and
+    `min_placements` the coverage (a single placement leaves the pan axis and the camera mount weakly pinned),
+    `min_pan_span_deg` and `min_tilt_span_deg` the head angle spread, and `max_floor_height_rms_mm` and
+    `max_floor_normal_rms_deg` the depth floor plane cross-check (pose-mean residuals under the fitted chain, as the
+    floor fit limits). Every `holdout_every`-th distinct head pose (all its frames) is held out of the fit.
+    """
+
+    rms_px: float = Field(default=2.0, gt=0)
+    holdout_rms_px: float = Field(default=3.0, gt=0)
+    max_sigma_mm: float = Field(default=2.0, gt=0)
+    max_sigma_deg: float = Field(default=0.2, gt=0)
+    min_views: int = Field(default=30, ge=1)
+    min_poses: int = Field(default=12, ge=1)
+    min_placements: int = Field(default=2, ge=1)
+    min_pan_span_deg: float = Field(default=20.0, gt=0)
+    min_tilt_span_deg: float = Field(default=10.0, gt=0)
+    max_floor_height_rms_mm: float = Field(default=8.0, gt=0)
+    max_floor_normal_rms_deg: float = Field(default=1.0, gt=0)
+    holdout_every: int = Field(default=5, ge=2)
+
+
+class GroundBoardFitConfig(StrictModel):
+    """Ground board fit (ground_board_fit, user decisions 312, 324, 326): the FULL ChArUco board lying flat on the
+    floor, seen by the D435 colour camera over a pan/tilt sweep, gives the camera to ground head chain.
+
+    Free: the head mount z, roll, pitch, the tilt zero and tilt roll, the D435 mount x, z, roll, yaw
+    (`fit_camera_mount`), the pan axis x, y (`fit_pan_axis`) and per board placement its x, y and yaw on the floor.
+    Gauge (decision 326): the head mount x, y and yaw stay at the applied values (a free board on the floor cannot
+    tell a head shift or turn in the floor plane from a board shift or turn). `huber_f_scale_px` is the robust loss
+    scale of the corner residuals. Accuracy examples: the floor height `near_m` and `far_m` ahead of the head and the
+    obstacle position `far_m` ahead, with the head at home (`home_pan_deg`, `home_tilt_deg`).
+    """
+
+    board: BoardConfig = FULL_BOARD
+    fit_camera_mount: bool = True
+    fit_pan_axis: bool = True
+    huber_f_scale_px: float = Field(default=1.0, gt=0)
+    near_m: float = Field(default=1.0, gt=0)
+    far_m: float = Field(default=2.0, gt=0)
+    home_pan_deg: float = 0.0
+    home_tilt_deg: float = 30.0
+    limits: GroundBoardLimits = Field(default_factory=GroundBoardLimits)
+    bounds: GroundBoardBounds = Field(default_factory=GroundBoardBounds)
