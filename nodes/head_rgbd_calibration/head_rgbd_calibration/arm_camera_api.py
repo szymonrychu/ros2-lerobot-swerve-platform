@@ -3,9 +3,9 @@
 Capture reuses the head-arm sequence (/api/head-arm/sequence/*): a session here is a head_arm session. The compute runs
 in the arm to camera ComputeJob (a niced child) and answers 202 {result_id}; the result is polled. Errors use the
 common {ok: false, message} body: InvalidId and NotFound give 404 (unknown ids and results of another kind), a session
-that is not head_arm gives 400, a running sequence, ground board session or verification, or compute, a node not
-ready (no applied head chain), and an accept or decline of a result that is not done, not plausible, declined or
-accepted give 409.
+that is not head_arm gives 400, a running sequence, ground board session, verification or ground compute, an arm
+to camera compute, a node not ready (no applied head chain), and an accept or decline of a result that is not done,
+not plausible, declined or accepted give 409.
 """
 
 from collections.abc import Callable
@@ -51,7 +51,8 @@ def arm_camera_router(
         cfg: Node config (state_dir, restart_units, fit).
         run: subprocess.run-compatible callable for the unit states after an accept.
         blocked: Returns why a compute may not start now besides the sequence (a ground board session or
-            verification moves the head), else None; None checks nothing more.
+            verification moves the head, a ground compute is a second heavy child), else None; None checks nothing
+            more.
 
     Returns:
         APIRouter: POST /sessions/{sid}/compute, GET /sessions/{sid}/results/{rid}, POST .../accept, POST .../decline

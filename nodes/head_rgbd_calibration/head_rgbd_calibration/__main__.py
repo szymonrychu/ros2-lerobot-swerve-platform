@@ -285,7 +285,13 @@ def main() -> int:
             store,
             cfg,
             subprocess.run,
-            lambda: first_running([(ground_sweep, REASON_GROUND_SWEEP), (ground_verify, REASON_GROUND_VERIFY)]),
+            lambda: first_running(
+                [
+                    (ground_sweep, REASON_GROUND_SWEEP),
+                    (ground_verify, REASON_GROUND_VERIFY),
+                    (ground_job, REASON_GROUND_COMPUTE),
+                ]
+            ),
         )
     )
     app.include_router(

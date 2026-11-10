@@ -1126,7 +1126,8 @@ Mutual exclusion: a ground session or verification does not start while a captur
 compute, a ground compute, a head-arm sequence, a floor sweep or the other one runs; a ground compute does not start
 while a ground session, a verification, a floor sweep, a head-arm sequence or an arm to camera compute runs; a floor
 sweep and a head-arm sequence do not start while a ground session, verification or compute runs; an arm to camera
-compute does not start while a ground session or verification runs.
+compute does not start while a ground session, verification or compute runs (two heavy fit children never run at
+once).
 
 ### API contract
 
