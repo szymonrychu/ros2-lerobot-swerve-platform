@@ -3,7 +3,9 @@
 import json
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
+
+from feetech_servos.registers import EEPROM_LOCKED, EEPROM_UNLOCKED, STS_LOCK
 
 scripts_dir = Path(__file__).resolve().parent.parent / "scripts"
 if str(scripts_dir) not in sys.path:
@@ -265,6 +267,7 @@ def test_center_defines_middle_sets_symmetric_limits(capsys, tmp_path: Path) -> 
 
     mock_servo = MagicMock()
     mock_servo.DefineMiddle.return_value = True
+    mock_servo.write1ByteTxRx.return_value = (0, 0)
     written: list[tuple[str, int]] = []
 
     def fake_write(_servo, _sid, entry, value, _cache) -> bool:
@@ -291,7 +294,10 @@ def test_center_defines_middle_sets_symmetric_limits(capsys, tmp_path: Path) -> 
                 ],
             ):
                 assert m.main() == 0
-    mock_servo.UnLockEprom.assert_called_with(33)
+    assert mock_servo.write1ByteTxRx.call_args_list == [
+        call(33, STS_LOCK, EEPROM_UNLOCKED),
+        call(33, STS_LOCK, EEPROM_LOCKED),
+    ]
     mock_servo.DefineMiddle.assert_called_once_with(33)
     assert written == [("min_angle_limit", 1024), ("max_angle_limit", 3072)]
     data = json.loads(capsys.readouterr().out.strip())
@@ -304,6 +310,7 @@ def test_center_fails_when_position_not_centred(capsys, tmp_path: Path) -> None:
 
     mock_servo = MagicMock()
     mock_servo.DefineMiddle.return_value = True
+    mock_servo.write1ByteTxRx.return_value = (0, 0)
     write = MagicMock(return_value=True)
     with patch.object(m, "ST3215", return_value=mock_servo), patch.object(m, "time"):
         with patch.object(m, "read_register", side_effect=[123] + [500] * 20), patch.object(m, "write_register", write):

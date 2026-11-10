@@ -46,6 +46,9 @@ DEFAULT_NEUTRAL_MAX_SHIFT_DEG = 15.0
 # zero_restore block defaults (see ZeroRestoreConfig). An offset change above max_change_deg needs the explicit confirm
 # (zero_restore_apply_confirmed), as a large neutral shift does.
 DEFAULT_ZERO_MAX_CHANGE_DEG = 15.0
+# A planned change above refuse_change_deg refuses the dry run: zero restore repairs a slightly shifted zero, a larger
+# change is a new home pose (Set home, or Record neutral and save). Must exceed max_change_deg.
+DEFAULT_ZERO_REFUSE_CHANGE_DEG = 45.0
 DEFAULT_ZERO_STILL_WINDOW_S = 1.0
 DEFAULT_ZERO_STILL_TOLERANCE_STEPS = 3
 DEFAULT_ZERO_VERIFY_TOLERANCE_STEPS = 3
@@ -55,6 +58,7 @@ ZERO_RESTORE_REQUIRED_KEYS = ("reference_file", "record_dir", "seed_reference_ra
 ZERO_RESTORE_KEYS = (
     *ZERO_RESTORE_REQUIRED_KEYS,
     "max_change_deg",
+    "refuse_change_deg",
     "still_window_s",
     "still_tolerance_steps",
     "verify_tolerance_steps",
@@ -125,6 +129,7 @@ class ZeroRestoreConfig:
         seed_reference_rad: joint name -> resting reading (rad, joint frame) used while no reference file exists;
             names exactly the restore joints (position joints minus neutral_exclude_joints).
         max_change_deg: An offset change above this (degrees) needs zero_restore_apply_confirmed.
+        refuse_change_deg: An offset change above this (degrees) refuses the dry run; above max_change_deg.
         still_window_s: Dry run and save_rest_reference sample present_position over this window (seconds).
         still_tolerance_steps: Largest spread of present_position over the still window (steps).
         verify_tolerance_steps: After a write present_position must read within this many steps of the target.
@@ -136,6 +141,7 @@ class ZeroRestoreConfig:
     record_dir: str
     seed_reference_rad: dict[str, float]
     max_change_deg: float = DEFAULT_ZERO_MAX_CHANGE_DEG
+    refuse_change_deg: float = DEFAULT_ZERO_REFUSE_CHANGE_DEG
     still_window_s: float = DEFAULT_ZERO_STILL_WINDOW_S
     still_tolerance_steps: int = DEFAULT_ZERO_STILL_TOLERANCE_STEPS
     verify_tolerance_steps: int = DEFAULT_ZERO_VERIFY_TOLERANCE_STEPS
@@ -556,6 +562,7 @@ def parse_zero_restore(raw: object, namespace: str, restore_names: list[str]) ->
         return None
     numbers = {
         "max_change_deg": raw.get("max_change_deg", DEFAULT_ZERO_MAX_CHANGE_DEG),
+        "refuse_change_deg": raw.get("refuse_change_deg", DEFAULT_ZERO_REFUSE_CHANGE_DEG),
         "still_window_s": raw.get("still_window_s", DEFAULT_ZERO_STILL_WINDOW_S),
         "plan_max_age_s": raw.get("plan_max_age_s", DEFAULT_ZERO_PLAN_MAX_AGE_S),
     }
@@ -568,6 +575,14 @@ def parse_zero_restore(raw: object, namespace: str, restore_names: list[str]) ->
     bad += [k for k, v in counts.items() if not (isinstance(v, int) and not isinstance(v, bool) and v >= 0)]
     if bad:
         LOGGER.warning("/%s: zero_restore %s must be positive numbers (steps: integers >= 0)", namespace, bad)
+        return None
+    if numbers["refuse_change_deg"] <= numbers["max_change_deg"]:
+        LOGGER.warning(
+            "/%s: zero_restore refuse_change_deg %r must be above max_change_deg %r",
+            namespace,
+            numbers["refuse_change_deg"],
+            numbers["max_change_deg"],
+        )
         return None
     return ZeroRestoreConfig(
         reference_file=paths["reference_file"].strip(),

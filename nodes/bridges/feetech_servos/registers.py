@@ -41,6 +41,9 @@ STS_GOAL_SPEED_L = 46
 # Torque_Limit (RAM): 0..1000 = 0.1 % of max torque; initialised from max_torque_limit at power-on.
 STS_TORQUE_LIMIT_L = 48
 STS_LOCK = 55
+# Lock register values: 0 opens the EEPROM for writes, 1 closes it.
+EEPROM_UNLOCKED = 0
+EEPROM_LOCKED = 1
 STS_PRESENT_POSITION_L = 56
 STS_PRESENT_SPEED_L = 58
 STS_PRESENT_LOAD_L = 60
@@ -74,7 +77,7 @@ class RegisterEntry:
     size: int  # 1 or 2
     name: str
     read_only: bool
-    eprom: bool  # if writable and in EPROM, use UnLockEprom -> write -> LockEprom
+    eprom: bool  # if writable and in EPROM, use unlock_eeprom -> write -> lock_eeprom
 
 
 # Full register map: address, size, name, read_only, eprom. Order matches typical docs.
@@ -271,9 +274,8 @@ def write_register(
         return False
     if last_written.get(entry.name) == value:
         return True  # avoid unnecessary write
-    if entry.eprom:
-        if servo.UnLockEprom(sts_id) != 0:
-            return False
+    if entry.eprom and not unlock_eeprom(servo, sts_id):
+        return False
     try:
         if entry.size == 1:
             comm, err = servo.write1ByteTxRx(sts_id, entry.address, value)
@@ -285,7 +287,38 @@ def write_register(
         return True
     finally:
         if entry.eprom:
-            servo.LockEprom(sts_id)
+            lock_eeprom(servo, sts_id)
+
+
+def unlock_eeprom(servo: Any, sts_id: int) -> bool:
+    """Open the servo EEPROM for writes and read the servo's status reply.
+
+    st3215 UnLockEprom sends the lock write without reading the reply; the servo answers anyway and PortHandler
+    clearPort never drops received bytes, so the orphan reply would be taken as the answer to the next request.
+
+    Args:
+        servo (Any): ST3215-compatible bus (write1ByteTxRx).
+        sts_id (int): Servo ID.
+
+    Returns:
+        bool: True when the servo acknowledged the write without error.
+    """
+    comm, err = servo.write1ByteTxRx(sts_id, STS_LOCK, EEPROM_UNLOCKED)
+    return comm == COMM_SUCCESS and err == 0
+
+
+def lock_eeprom(servo: Any, sts_id: int) -> bool:
+    """Close the servo EEPROM and read the servo's status reply (see unlock_eeprom).
+
+    Args:
+        servo (Any): ST3215-compatible bus (write1ByteTxRx).
+        sts_id (int): Servo ID.
+
+    Returns:
+        bool: True when the servo acknowledged the write without error.
+    """
+    comm, err = servo.write1ByteTxRx(sts_id, STS_LOCK, EEPROM_LOCKED)
+    return comm == COMM_SUCCESS and err == 0
 
 
 def get_register_entry_by_name(name: str) -> RegisterEntry | None:

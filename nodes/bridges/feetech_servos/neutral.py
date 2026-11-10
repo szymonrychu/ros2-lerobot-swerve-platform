@@ -9,7 +9,7 @@ save_neutral_confirmed service; nothing written, torque and capture unchanged), 
 NEUTRAL_MOVE_TOLERANCE_STEPS since the record (nothing written). Then every velocity joint of this bus is stopped
 (zero goal_speed acknowledged): the save stalls this bridge's loop (~0.6 s per joint) and its velocity watchdog cannot
 run meanwhile. Per joint, in config order (the sequence of scripts/calibrate_servos.py cmd_center): read the angle
-limits, UnLockEprom, DefineMiddle, settle, LockEprom (always), verify present ~2048, restore the pre-centre limits if
+limits, unlock_eeprom, DefineMiddle, settle, lock_eeprom (always), verify present ~2048, restore the pre-centre limits if
 DefineMiddle moved them, refresh the bridge command limits of EEPROM-limited joints. When every joint saved, torque is
 enabled holding the present position (TorqueControl.enable). Any failure aborts the remaining joints and keeps torque
 off on the whole group. A group with neutral_stale_marker gets the stale marker JSON for every joint whose centre
@@ -35,7 +35,7 @@ from feetech_mapping.command_mapping import STEP_CENTER
 
 from .calib_event import OUTCOME_FAILED, OUTCOME_OK, OUTCOME_REFUSED, OUTCOME_START, CalibEventLog, new_run_id
 from .config import JointEntry, JointGroup
-from .registers import get_register_entry_by_name, read_register, write_register
+from .registers import get_register_entry_by_name, lock_eeprom, read_register, unlock_eeprom, write_register
 from .torque_control import PRESENT_REGISTER, TORQUE_OFF, TORQUE_REGISTER, TorqueControl, read_present_position
 from .zero_record import utc_now_iso, write_zero_change
 
@@ -503,7 +503,7 @@ class NeutralControl:
             return CentreOutcome(None, None, "angle limit read failed, centre not changed", middle_sent=False)
         cache = self.torque.last_written.setdefault(sid, {})
         cache.pop(TORQUE_REGISTER, None)  # DefineMiddle writes torque_enable = 128 behind the cache
-        servo.UnLockEprom(sid)
+        unlock_eeprom(servo, sid)
         try:
             try:
                 defined = servo.DefineMiddle(sid)
@@ -513,7 +513,7 @@ class NeutralControl:
                 return CentreOutcome(None, None, "DefineMiddle failed")
             self.sleep(CENTER_SETTLE_S)
         finally:
-            servo.LockEprom(sid)
+            lock_eeprom(servo, sid)
 
         after = self.verify_centre(sid)
         if after is None or abs(after - STEP_CENTER) > CENTER_TOLERANCE_STEPS:
@@ -525,7 +525,7 @@ class NeutralControl:
         if after_limits is None:
             return CentreOutcome(after, None, "centre changed, angle limits not restored: limit readback failed")
         if after_limits != before_limits:
-            servo.UnLockEprom(sid)
+            unlock_eeprom(servo, sid)
             try:
                 for entry, value in ((self.min_entry, before_limits[0]), (self.max_entry, before_limits[1])):
                     cache.pop(entry.name, None)
@@ -534,7 +534,7 @@ class NeutralControl:
                             after, None, f"centre changed, angle limits not restored: {entry.name} write failed"
                         )
             finally:
-                servo.LockEprom(sid)
+                lock_eeprom(servo, sid)
             after_limits, _ = self.read_limits_settled(sid, before_limits)
             if after_limits != before_limits:
                 reason = (

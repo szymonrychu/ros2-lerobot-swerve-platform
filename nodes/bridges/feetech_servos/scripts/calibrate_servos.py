@@ -36,8 +36,10 @@ from registers import (  # noqa: E402
     REGISTER_MAP,
     RegisterEntry,
     get_register_entry_by_name,
+    lock_eeprom,
     read_all_registers,
     read_register,
+    unlock_eeprom,
     write_register,
 )
 from zero_record import ZERO_RECORD_FILE, record_dir_refusal, utc_now_iso, write_zero_change  # noqa: E402
@@ -593,13 +595,13 @@ def cmd_center(servo: Any, args: argparse.Namespace) -> int:
     if zero is None:
         return 1
     before = read_register(servo, sid, pos_entry)
-    servo.UnLockEprom(sid)
+    unlock_eeprom(servo, sid)
     try:
         error = define_middle(servo, sid)
         if error is None:
             time.sleep(CENTER_SETTLE_S)
     finally:
-        servo.LockEprom(sid)
+        lock_eeprom(servo, sid)
     after = None
     if error is None:
         for _ in range(CENTER_READ_ATTEMPTS):
