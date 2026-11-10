@@ -643,17 +643,22 @@ calibration:
       move_to_neutral_service: /arm/move_to_neutral  # arm only, mcp_server Trigger; unset = no Move to neutral pose button
       move_to_neutral_timeout_s: 30.0    # > 0, a motion like arm home (same default as arm_service_timeout_s)
       set_home_service: /arm/set_home    # arm only, mcp_server Trigger (the Arm tab Set home); unset = no Set home step
+      home_pose_hint: "Pointing straight forward, folded in half, gripper jaws open 90 deg."  # optional reference pose text
 ```
+
+`home_pose_hint` is shown as "Home pose: ..." on the group card where the hand-posed pose is recorded: the Arm zero
+restore and Set home steps for a group with `zero_restore` or `set_home_service`, else the Record neutral step (the
+arm's neutral is all joints at 0, not its home, so its hint stays off Record neutral).
 
 The bridge keeps an always-on subscription (reliable, transient_local, depth 1) per group's state topic and caches the
 latest parsed payload; unparsable payloads are logged and dropped.
 
 - `GET /servos` returns `{groups: [{id, label, neutral, state, age_s, stale, calibration_stale, zero_restore,
-  move_to_neutral, set_home}]}`. `state` is the `torque_state` payload (null until the first sample; it carries the bridge's
+  move_to_neutral, set_home, home_pose_hint}]}`. `state` is the `torque_state` payload (null until the first sample; it carries the bridge's
   `zero_restore` plan / result for a group with a zero_restore block), `stale` is true when there is no sample or it is
   older than `state_stale_s`, `calibration_stale` lists the marker file's `stale` items (null without a marker),
-  `zero_restore` is the group flag, `move_to_neutral` is true when `move_to_neutral_service` is set and `set_home`
-  when `set_home_service` is set.
+  `zero_restore` is the group flag, `move_to_neutral` is true when `move_to_neutral_service` is set, `set_home`
+  when `set_home_service` is set and `home_pose_hint` is the configured text (null when unset).
 - `POST /servos/{group_id}/{action}` with action `release`, `enable`, `record`, `save` or `save_confirmed` calls the
   matching Trigger (`save_confirmed` -> `save_neutral_confirmed`) and answers `{ok, message}`: 200 on success, 409 when
   the service refuses (also `save` of a recorded shift above the bridge's `neutral_max_shift_deg`), 404 for an unknown

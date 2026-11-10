@@ -70,6 +70,7 @@ def groups(marker: Path | None = None) -> list[ServoGroupConfig]:
             zero_restore=True,
             move_to_neutral_service="/arm/move_to_neutral",
             set_home_service="/arm/set_home",
+            home_pose_hint="pointing straight forward",
         ),
         ServoGroupConfig(id="head", label="Head", namespace="head"),
     ]
@@ -138,11 +139,12 @@ def test_get_fresh_stale_missing_and_marker(tmp_path: Path) -> None:
     assert arm == {
         "id": "arm", "label": "Arm", "neutral": True, "state": STATE, "age_s": 1.0, "stale": False,
         "calibration_stale": ["joint_offsets", "home"], "zero_restore": True, "move_to_neutral": True,
-        "set_home": True,
+        "set_home": True, "home_pose_hint": "pointing straight forward",
     }  # fmt: skip
     assert head["stale"] is True and head["age_s"] == 11.0 and head["calibration_stale"] is None
     assert head["neutral"] is False
     assert head["zero_restore"] is False and head["move_to_neutral"] is False and head["set_home"] is False
+    assert head["home_pose_hint"] is None
 
 
 def test_get_missing_sample_and_marker_absent(tmp_path: Path) -> None:

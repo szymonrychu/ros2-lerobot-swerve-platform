@@ -1,7 +1,14 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { SET_HOME_NO_READINGS_REASON, SET_HOME_STALE_REASON, SET_HOME_TEXT, ServoNeutral, markerState } from './ServoNeutral'
+import {
+  SET_HOME_NO_READINGS_REASON,
+  SET_HOME_STALE_REASON,
+  SET_HOME_TEXT,
+  ServoNeutral,
+  homeHintShown,
+  markerState,
+} from './ServoNeutral'
 import type { ServoGroup, TorqueState } from './servoApi'
 
 function state(joints: Record<string, number>, capture: TorqueState['neutral_capture'] = null): TorqueState {
@@ -67,7 +74,47 @@ const btn = (label: string, name: string) => {
   return within(card(label)).getByRole('button', { name })
 }
 
+describe('homeHintShown', () => {
+  const arm = group('arm', { zero_restore: true, set_home: true, home_pose_hint: 'folded' })
+  const head = group('head', { home_pose_hint: 'forward' })
+
+  it('shows the arm hint at the zero restore and Set home steps, never at Record neutral', () => {
+    expect(homeHintShown(arm, ['zero'])).toBe(true)
+    expect(homeHintShown(arm, ['home'])).toBe(true)
+    expect(homeHintShown(arm, ['torque'])).toBe(false)
+    expect(homeHintShown(arm, ['move'])).toBe(false)
+  })
+
+  it('shows a group without zero restore or Set home the hint at Record neutral', () => {
+    expect(homeHintShown(head, ['torque'])).toBe(true)
+    expect(homeHintShown(head, ['move'])).toBe(false)
+    expect(homeHintShown({ ...head, neutral: false }, ['torque'])).toBe(false)
+  })
+
+  it('shows nothing without a hint', () => {
+    expect(homeHintShown(group('head'), ['torque'])).toBe(false)
+    expect(homeHintShown(group('head', { home_pose_hint: null }), ['torque'])).toBe(false)
+  })
+})
+
 describe('ServoNeutral', () => {
+  it('shows the home pose hint per group at the step recording the hand-posed pose', async () => {
+    groups = [
+      group('arm', { zero_restore: true, set_home: true, home_pose_hint: 'Folded in half.' }),
+      group('head', { home_pose_hint: 'Pointing forward.' }),
+      group('base', { home_pose_hint: 'Wheels straight.' }),
+    ]
+    mockFetch()
+    render(<ServoNeutral parts={['torque']} />)
+    await inCard('Head')
+    expect(within(card('Head')).getByText('Home pose: Pointing forward.')).toBeTruthy()
+    expect(within(card('Base')).getByText('Home pose: Wheels straight.')).toBeTruthy()
+    expect(within(card('Arm')).queryByText(/Home pose:/)).toBeNull()
+    cleanup()
+    render(<ServoNeutral parts={['home']} />)
+    expect(within(await inCard('Arm')).getByText('Home pose: Folded in half.')).toBeTruthy()
+  })
+
   it('shows chip states', async () => {
     groups = [
       group('arm'),
