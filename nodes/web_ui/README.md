@@ -875,7 +875,8 @@ Accept, and an Accept shows without a restart:
   `useArmCalibration`, polling every 5 s while the page is visible; `arm/armCalibration.ts`: `toArmCalibration` and the
   pure maths). The arm mount is the served `base_in_base_link` (x, y, z and yaw) and the URDF is posed in URDF angles
   (`urdf = measured + joint_offsets_rad`, the gripper has none); the draggable arm turns its angles back
-  (`measured = urdf - offset`) before it publishes. The views have no mount of their own: until the first answer (or
+  (`measured = urdf - offset`) before it publishes, always with the offsets its commanded angles were taken with (a
+  calibration arriving mid-drag applies from the next live sync after the drag). The views have no mount of their own: until the first answer (or
   without `arm_calibration`) the Arm tab shows "Waiting for the arm calibration" instead of the arm view and the map
   tab draws no arm. A failed poll keeps the last answer. Used by the Arm tab (`ArmTab` -> `ArmView`: arm, floor grid,
   floor pick and grasp preview) and the map tab 3D view (`MapScene`).
@@ -885,7 +886,9 @@ Accept, and an Accept shows without a restart:
 - Tests: backend `tests/test_arm_calibration.py`; vitest `arm/armCalibrationApi.test.ts`, `arm/armCalibration.test.ts`,
   `arm/ArmView.test.tsx` (URDF angles for both arms with the configured and the accepted offsets, offsets handed to
   the draggable arm, the pick on the accepted mount, a redraw on a new calibration), `tabs/ArmTab.test.tsx` (the
-  configured and the accepted calibration reach the view, no view before the first answer), `grasp/grasp.test.ts` and
+  configured and the accepted calibration reach the view, no view before the first answer),
+  `components3d/InteractiveArm.test.tsx` (a calibration arriving mid-drag: commands convert with the offsets the
+  commanded angles were taken with, untouched joints keep their measured angles), `grasp/grasp.test.ts` and
   `arm/armViewPick.test.ts` (mount yaw).
 
 ### Drive pose (Arm and Map tabs)

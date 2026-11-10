@@ -144,8 +144,6 @@ export function InteractiveArm({
   visibleRef.current = visible
   const cameraRef = useRef<THREE.Camera>(camera)
   cameraRef.current = camera
-  const jointOffsetsRef = useRef(jointOffsets)
-  jointOffsetsRef.current = jointOffsets
 
   // Ghost robot ref - shows commanded position, hosts rings
   const ghostRobotRef = useRef<URDFRobot | null>(null)
@@ -160,7 +158,11 @@ export function InteractiveArm({
   const jointSpheresRef = useRef<Map<string, THREE.Mesh>>(new Map())
   // Map from sphere uuid -> IK_JOINTS index (for hit testing)
   const sphereByUuidRef = useRef<Map<string, number>>(new Map())
+  // Commanded URDF angles and the joint offsets they were taken with: both change together in the live re-sync only
+  // (never during a drag), so a command is always turned back into measured angles with its own offsets even when a
+  // new arm calibration arrives mid-drag.
   const commandedRef = useRef<Record<string, number>>({})
+  const commandedOffsetsRef = useRef<Readonly<Record<string, number>>>(jointOffsets)
   const lastPublishRef = useRef<number>(0)
   const hasInitialStateRef = useRef<boolean>(false)
 
@@ -177,6 +179,7 @@ export function InteractiveArm({
     for (let i = 0; i < liveJointStates.name.length; i++) {
       commandedRef.current[liveJointStates.name[i]] = liveJointStates.position[i]
     }
+    commandedOffsetsRef.current = jointOffsets
     setGhostJointStates(liveJointStates)
     if (!hasInitialStateRef.current) {
       hasInitialStateRef.current = true
@@ -185,7 +188,7 @@ export function InteractiveArm({
     }
     const robot = ghostRobotRef.current
     if (robot) updateArrowPositions(robot)
-  }, [liveJointStates, onReady])
+  }, [liveJointStates, jointOffsets, onReady])
 
   const setGhostBodyOpacity = useCallback((opacity: number) => {
     for (const mesh of ghostBodyMeshesRef.current) {
@@ -197,8 +200,9 @@ export function InteractiveArm({
     const robot = ghostRobotRef.current
     if (!robot) return null
     const names = Object.keys(robot.joints)
-    // The ghost arm moves in URDF angles; the follower takes measured ones (measured = urdf - offset).
-    const positions = toMeasuredPositions(names, commandedRef.current, jointOffsetsRef.current)
+    // The ghost arm moves in URDF angles; the follower takes measured ones (measured = urdf - offset), converted with
+    // the offsets the commanded angles were taken with.
+    const positions = toMeasuredPositions(names, commandedRef.current, commandedOffsetsRef.current)
     return { name: names, position: positions, velocity: [], effort: [] }
   }, [])
 
