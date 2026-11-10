@@ -234,6 +234,43 @@ def test_a_new_accept_replaces_the_previous_one(tmp_path: Path) -> None:
     assert watcher.loaded is not None and watcher.loaded.result == "r-2"
 
 
+def test_an_atomic_accept_within_one_mtime_tick_reloads(tmp_path: Path) -> None:
+    """head_rgbd_calibration replaces applied.json atomically; a rewrite with an equal mtime_ns still reloads.
+
+    File timestamps come from the kernel's coarse clock, so two accepts within one tick share mtime_ns: the watcher
+    keys on (mtime_ns, size, inode) like the head chain reload.
+    """
+    cfg = config(tmp_path)
+    accept(cfg.arm.applied_dir)
+    watcher = ArmCalibrationWatcher(cfg.arm)
+    watcher.startup(cfg.arm)
+    arm = controller(cfg)
+    marker = cfg.arm.applied_dir / APPLIED_MARKER_FILE
+    old = marker.stat()
+    newer = {**OFFSETS, "elbow_flex": -0.12}
+    accept(cfg.arm.applied_dir, result="r-2", offsets=newer)
+    replacement = cfg.arm.applied_dir / "applied.json.tmp"
+    replacement.write_text(marker.read_text())
+    os.replace(replacement, marker)
+    os.utime(marker, ns=(old.st_atime_ns, old.st_mtime_ns))
+    assert marker.stat().st_mtime_ns == old.st_mtime_ns
+    watcher.tick(arm.swap_calibration)
+    assert arm.kin.offsets == newer
+    assert watcher.loaded is not None and watcher.loaded.result == "r-2"
+
+
+def test_both_reloads_share_one_marker_identity(tmp_path: Path) -> None:
+    """The arm calibration watcher and the head chain provider key on the same applied.json identity."""
+    cfg = config(tmp_path)
+    accept(cfg.arm.applied_dir)
+    marker = cfg.arm.applied_dir / APPLIED_MARKER_FILE
+    st = marker.stat()
+    assert arm_calibration.applied_marker_identity(cfg.arm.applied_dir) == (st.st_mtime_ns, st.st_size, st.st_ino)
+    assert arm_calibration.applied_marker_identity(tmp_path / "missing") is None
+    assert arm_calibration.applied_marker_identity(None) is None
+    assert ArmCalibrationWatcher(cfg.arm).marker_stamp() == arm_calibration.applied_marker_identity(cfg.arm.applied_dir)
+
+
 def test_an_invalid_reload_keeps_the_previous_values(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     cfg = config(tmp_path)
     accept(cfg.arm.applied_dir)

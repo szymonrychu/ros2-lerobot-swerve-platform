@@ -21,6 +21,7 @@ from ros2_common.head_rgbd_calibration.urdf_text import (
 )
 
 from .arm import JointSample
+from .arm_calibration import MarkerIdentity, applied_marker_identity
 from .config import HeadSettings
 from .head_kinematics import HeadKinematics
 from .models import HeadAngles
@@ -319,19 +320,14 @@ class AppliedHeadKinematics:
         self.kinematics = self.build()
         self.info = read_calibration_info(applied_dir)
 
-    def marker_stamp(self) -> tuple[int, int, int] | None:
-        """Identity of the applied marker's current version.
+    def marker_stamp(self) -> MarkerIdentity | None:
+        """Identity of the applied marker's current version (arm_calibration.applied_marker_identity, the same key as
+        the arm calibration reload).
 
         Returns:
-            tuple[int, int, int] | None: (mtime_ns, size, inode), or None when there is no applied_dir or no marker.
+            MarkerIdentity | None: (mtime_ns, size, inode), or None when there is no applied_dir or no marker.
         """
-        if self.applied_dir is None:
-            return None
-        try:
-            st = (self.applied_dir / APPLIED_MARKER_FILE).stat()
-        except OSError:
-            return None
-        return (st.st_mtime_ns, st.st_size, st.st_ino)
+        return applied_marker_identity(self.applied_dir)
 
     def marker_fields(self) -> tuple[str, str]:
         """Session and result named by the applied marker, for the reload log line.

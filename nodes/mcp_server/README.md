@@ -464,7 +464,7 @@ K, a synthetic aligned depth image of a small object is drawn there, and `pixel_
 `residual {kind: head_arm, holdout_board_mm, holdout_rms_px, rms_px}`: the held-out board centre distance between arm
 forward kinematics and the camera through the fitted chain, which is the camera-to-arm accuracy in mm. A floor-fit chain
 carries none. `AppliedHeadKinematics.calibration()` reads it with the `applied.json` record (reloaded with the chain on
-the marker mtime) and every camera-to-arm result reports it in `calibration`: `applied`, `source` (`head_arm` or
+the marker identity) and every camera-to-arm result reports it in `calibration`: `applied`, `source` (`head_arm` or
 `floor`), `session`, `result`, `applied_at`, `residual_mm` (null when unknown), `gate_mm` and `within_gate` (null when
 the residual is unknown).
 
@@ -483,7 +483,7 @@ the agent sets `position_source`; the skills and the prompt tell it to. A manual
 Page (`web_ui` Calibrate, #/calibrate) -> `/api/calibration/rgbd/*` proxy (`rgbd_timeout_s` 600: the fit runs inside the
 request) -> `head_rgbd_calibration` node -> `shared/ros2_common/head_rgbd_calibration` fit -> `applied/head_chain.json`
 + `applied/applied.json` (marker written last, so a reload sees the new chain) -> this server rebuilds its head
-kinematics on the marker mtime without a restart (`AppliedHeadKinematics`), `head_state_publisher` and web_ui read the same
+kinematics on the marker identity (mtime, size, inode) without a restart (`AppliedHeadKinematics`), `head_state_publisher` and web_ui read the same
 directory. Steps: RGB-D section, run a D435 intrinsics check and press Accept check (creates `applied.json`; Apply of the
 chain refuses without it); Head floor fit and Apply (the start chain and the cross-check); Head from arm: attach the
 board, start the sequence, Compute, read `holdout_board_mm` (the page shows it as the held-out board error) and Apply;
@@ -1383,7 +1383,8 @@ head chain comes from; `null` disables the override):
   `floor_z_m` follows). The tool point (`tool_offset_m`, not fitted) and every other `arm:` key stay configured. The
   merged block is validated as `ArmSettings`.
 - When: at startup before the arm model is built (`RosRobot.__init__`), and on the 0.25 s monitor tick whenever the
-  mtime of `applied.json` changed (the head chain's reload trigger, no thread of its own). A changed applied.json that
+  identity of `applied.json` changed: mtime, size and inode (`arm_calibration.applied_marker_identity`, the same key
+  as the head chain reload, so an atomic replace within one coarse mtime tick reloads both; no thread of its own). A changed applied.json that
   names the same calibration (a head chain apply) logs `unchanged` and swaps nothing.
 - Idle point: `ArmController.swap_calibration` takes the arm motion lock without waiting. While a motion runs (any
   caller: tool, queue, grasp, home or neutral service) nothing changes and the swap is retried on the next tick; during

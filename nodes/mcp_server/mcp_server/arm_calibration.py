@@ -2,7 +2,8 @@
 
 The head_rgbd_calibration accept writes applied/arm_calibration.json and then the `arm_calibration` record of
 applied/applied.json (ros2_common `arm_calibration_file`). Like the head chain (head.AppliedHeadKinematics), the
-applied.json modification time is the reload trigger, checked without a thread of its own: `startup` loads it before
+applied.json identity (mtime_ns, size, inode; `applied_marker_identity`, shared with the head chain) is the reload
+trigger, checked without a thread of its own: `startup` loads it before
 the arm model is built, `tick` (the monitor timer, every 0.25 s) re-reads it when applied.json changed.
 
 The accepted calibration overrides exactly `ARM_SETTINGS_FIELDS` of the configured arm block (joint offsets, arm base
@@ -55,6 +56,8 @@ FLOW = "arm_calibration"
 CONFIG_SOURCE = "config"  # the `source` of a load without an accepted calibration (client.yml arm: values)
 STALE_OFFSETS_ITEM = "joint_offsets"
 DEFERRED_REASON = "an arm motion is running: the calibration is applied at the next idle point"
+
+MarkerIdentity = tuple[int, int, int]  # applied.json (mtime_ns, size, inode)
 # Swaps the arm model to new arm settings at an idle point; False while a motion runs (ArmController.swap_calibration).
 SwapFn = Callable[[ArmSettings, ArmCalibrationInUse | None], bool]
 
@@ -118,6 +121,27 @@ def calibrated_arm(baseline: ArmSettings, calibration: ArmCalibrationFile | None
     return ArmSettings.model_validate({**baseline.model_dump(), **calibration.arm_settings_update()})
 
 
+def applied_marker_identity(applied_dir: Path | None) -> MarkerIdentity | None:
+    """Identity of the applied marker's (applied.json) current version, the one reload key of the applied dir.
+
+    The arm calibration watcher and the head chain provider (head.AppliedHeadKinematics) both key on it. The inode
+    catches head_rgbd_calibration's atomic replace even when two writes share one coarse mtime tick.
+
+    Args:
+        applied_dir (Path | None): Applied calibration directory; None disables the override.
+
+    Returns:
+        MarkerIdentity | None: (mtime_ns, size, inode), None without applied_dir or applied.json.
+    """
+    if applied_dir is None:
+        return None
+    try:
+        st = (applied_dir / APPLIED_MARKER_FILE).stat()
+    except OSError:
+        return None
+    return (st.st_mtime_ns, st.st_size, st.st_ino)
+
+
 def assign_calibration(target: ArmSettings, source: ArmSettings) -> None:
     """Copy the calibrated fields into the shared arm settings object in place (every holder of the config sees them).
 
@@ -142,7 +166,7 @@ class ArmCalibrationWatcher:
         self.baseline = configured.model_copy(deep=True)
         self.applied_dir: Path | None = configured.applied_dir
         self.marker_path: Path | None = configured.calibration_stale_marker
-        self.stamp: int | None = None
+        self.stamp: MarkerIdentity | None = None
         self.loaded: ArmCalibrationFile | None = None  # the accepted calibration in use, None for the configured one
         self.current = self.baseline.model_copy(deep=True)  # arm settings in use
         # A validated change waiting for the idle point: (settings, calibration, telemetry run id); and whether its
@@ -150,18 +174,13 @@ class ArmCalibrationWatcher:
         self.pending: tuple[ArmSettings, ArmCalibrationFile | None, str] | None = None
         self.deferred_logged = False
 
-    def marker_stamp(self) -> int | None:
-        """Modification time of applied.json.
+    def marker_stamp(self) -> MarkerIdentity | None:
+        """Identity of applied.json's current version (see applied_marker_identity).
 
         Returns:
-            int | None: mtime_ns, None without applied_dir or applied.json.
+            MarkerIdentity | None: (mtime_ns, size, inode), None without applied_dir or applied.json.
         """
-        if self.applied_dir is None:
-            return None
-        try:
-            return (self.applied_dir / APPLIED_MARKER_FILE).stat().st_mtime_ns
-        except OSError:
-            return None
+        return applied_marker_identity(self.applied_dir)
 
     def read(self, run_id: str) -> tuple[ArmSettings, ArmCalibrationFile | None] | None:
         """Read and validate the accepted calibration; a failure is logged (calib_event failed) and gives None.
