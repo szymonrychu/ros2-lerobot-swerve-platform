@@ -2,7 +2,8 @@
 # Build and test one in-repo C++ (ament_cmake) package in a ros:jazzy-ros-base container, the same way on the Mac
 # (native arm64, the Pi's architecture) and in CI (amd64):
 #   1. build or reuse the local image from scripts/cpp-node-test.Dockerfile (colcon plus the rosdep keys of every
-#      in-repo C++ package; tagged by a hash of the Dockerfile and all package.xml files);
+#      in-repo C++ package; tagged by a hash of the Dockerfile and all package.xml files; build output streamed with
+#      --progress=plain);
 #   2. mount the repo read-only and copy shared/ros2_common_cpp, nodes/*_cpp, .clang-format and the Nav2 BT XMLs
 #      (nodes/nav2_bringup/behavior_trees) into /ws/src,
 #      keeping the repo layout (packages find the root .clang-format at ../../.clang-format);
@@ -82,10 +83,8 @@ if docker image inspect "$IMAGE" >/dev/null 2>&1; then
   echo "== image $IMAGE (reused)"
 else
   echo "== building image $IMAGE from $DOCKERFILE (native $(uname -m))"
-  docker build -t "$IMAGE" "$CONTEXT" >"$CONTEXT/build.log" 2>&1 || {
-    tail -40 "$CONTEXT/build.log" >&2
-    fail "docker build of $IMAGE failed"
-  }
+  # Plain progress, streamed live: a slow or stalled step (image pull, apt, rosdep) shows in the log as it happens.
+  docker build --progress=plain -t "$IMAGE" "$CONTEXT" || fail "docker build of $IMAGE failed"
 fi
 
 # --- 2-4. workspace, build, test ------------------------------------------------------------------------------------

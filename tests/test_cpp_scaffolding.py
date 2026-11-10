@@ -111,6 +111,7 @@ def test_script_usage_and_result_line_contract() -> None:
         assert step in text, step
     assert ":ro" in text, "the repo must be mounted read-only"
     assert "--platform" not in text, "the image runs on the native platform (arm64 Mac, amd64 CI)"
+    assert 'docker build --progress=plain -t "$IMAGE" "$CONTEXT" ||' in text, "the image build streams plain progress"
 
 
 def test_script_without_arguments_prints_usage_and_exits_2() -> None:

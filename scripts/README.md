@@ -238,7 +238,8 @@ package (the directory name equals the `package.xml` name).
    ros:jazzy-ros-base` on the native platform (arm64 on an Apple Silicon Mac, the Pi's architecture; amd64 in CI),
    plus colcon and the rosdep keys of every in-repo C++ package. The tag is a hash of the Dockerfile and every
    `package.xml`, so the image is rebuilt only when a dependency changes. The Dockerfile also maps the rosdep key
-   `prometheus-cpp` (no upstream rule) to apt `prometheus-cpp-dev`.
+   `prometheus-cpp` (no upstream rule) to apt `prometheus-cpp-dev`. The build streams its output live
+   (`docker build --progress=plain`), so a slow or stalled step (image pull, apt, rosdep) is visible in the CI log.
 2. Mounts the repo read-only at `/repo` and copies `shared/ros2_common_cpp`, `nodes/*_cpp` and `.clang-format` into
    `/ws/src`, keeping the repo layout.
 3. `rosdep install`, then `colcon build --packages-up-to <pkg> --cmake-args -DBUILD_TESTING=ON
@@ -250,7 +251,8 @@ package (the directory name equals the `package.xml` name).
 Exits non-zero on any build, test or lint failure, and always ends with one line `cpp-node-test: <pkg> PASS` or
 `cpp-node-test: <pkg> FAIL`. An unknown package exits 2 and lists the known ones. It generalizes the container
 pattern of `probe-mppi-overlay-docker.sh` (`docker run --rm -i`, repo mounted `:ro`, inline script on stdin). The root
-poe tasks `test-cpp` and `lint-cpp` run it for every C++ package, and the `cpp` CI job runs it per package.
+poe tasks `test-cpp` and `lint-cpp` run it for every C++ package, and the `cpp` CI job runs it per package (job
+`timeout-minutes: 30`, about 3x a typical run of 3 to 10 minutes including a fresh image build).
 
 ```bash
 mkdir -p .logs && ./scripts/cpp-node-test.sh ros2_common_cpp 2>&1 | tee .logs/cpp-node-test.log | tail -20
