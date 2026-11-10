@@ -622,7 +622,9 @@ floor apply starting right after its read lands after it), a failed result refus
   blocked start are refused, a floor fit chain is verified without a result record, a stop restores the head.
 - `tests/test_ground_api.py` - the `/api/ground-board/*` routes with fake session and verification objects and an
   inline job: the compute, result, sessions, running result, accept and state bodies against the
-  `ground_board_*.json` fixtures; the sweep and verify routes and their 409 / 400 refusals; 404 for unknown sessions,
+  `ground_board_*.json` fixtures (a plausible result without refusals against `ground_board_result.json`, an
+  implausible one with its refusals against `ground_board_result_implausible.json`, and each fixture is plausible
+  exactly without refusals); the sweep and verify routes and their 409 / 400 refusals; 404 for unknown sessions,
   results and a result of another kind; 409 while blocked or busy, for accept or decline of a running result, accept of
   a declined or implausible result, accept while a ground verification or session runs and decline of an accepted
   one.

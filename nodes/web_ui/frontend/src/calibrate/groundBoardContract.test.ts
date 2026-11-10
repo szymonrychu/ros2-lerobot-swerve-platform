@@ -16,6 +16,7 @@ import {
 import acceptFx from '../../../../head_rgbd_calibration/tests/fixtures/api/ground_board_accept.json'
 import computeFx from '../../../../head_rgbd_calibration/tests/fixtures/api/ground_board_compute.json'
 import resultFx from '../../../../head_rgbd_calibration/tests/fixtures/api/ground_board_result.json'
+import implausibleFx from '../../../../head_rgbd_calibration/tests/fixtures/api/ground_board_result_implausible.json'
 import runningFx from '../../../../head_rgbd_calibration/tests/fixtures/api/ground_board_result_running.json'
 import sessionsFx from '../../../../head_rgbd_calibration/tests/fixtures/api/ground_board_sessions.json'
 import stateFx from '../../../../head_rgbd_calibration/tests/fixtures/api/ground_board_state.json'
@@ -33,6 +34,7 @@ describe('ground board client against the node contract fixtures', () => {
     expect(badGroundSweep(sweepFx)).toBeNull()
     expect(badGroundVerify(verifyFx)).toBeNull()
     expect(badGroundResult(resultFx)).toBeNull()
+    expect(badGroundResult(implausibleFx)).toBeNull()
     expect(badGroundResult(runningFx)).toBeNull()
     expect(badGroundAccept(acceptFx)).toBeNull()
     expect(badGroundSessions(sessionsFx)).toBeNull()
@@ -59,9 +61,11 @@ describe('ground board client against the node contract fixtures', () => {
     ['compute', computeFx],
     ['result', resultFx],
     ['result', runningFx],
+    ['result', implausibleFx],
+    ['report', implausibleFx.report],
     ['headChain', resultFx.head_chain],
     ['report', report],
-    ['check', report.refusals[0]],
+    ['check', implausibleFx.report.refusals[0]],
     ['check', report.warnings[0]],
     ['score', report.score],
     ['param', report.params[0]],
@@ -80,6 +84,12 @@ describe('ground board client against the node contract fixtures', () => {
     ['session', sessionsFx[0]],
   ])('the %s shape has exactly the fixture keys', (shape, fixture) => {
     expect(keys(GROUND_BOARD_SHAPES[shape])).toEqual(keys(fixture))
+  })
+
+  it('has a done result fixture for each case, plausible exactly when it has no refusal', () => {
+    expect([report.plausible, report.refusals]).toEqual([true, []])
+    expect(implausibleFx.report.plausible).toBe(false)
+    expect(implausibleFx.report.refusals.length).toBeGreaterThan(0)
   })
 
   it('names the first bad key of a body that drifted', () => {

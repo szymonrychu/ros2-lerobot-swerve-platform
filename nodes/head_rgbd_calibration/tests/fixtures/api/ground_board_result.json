@@ -15,15 +15,7 @@
   },
   "report": {
     "plausible": true,
-    "refusals": [
-      {
-        "name": "mount_move_mm",
-        "value": 120.0,
-        "limit": 100.0,
-        "unit": "mm",
-        "message": "head mount height change 120 mm is over the 100 mm plausibility bound"
-      }
-    ],
+    "refusals": [],
     "warnings": [
       {
         "name": "min_placements",

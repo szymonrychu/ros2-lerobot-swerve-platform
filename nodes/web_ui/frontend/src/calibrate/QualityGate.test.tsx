@@ -200,14 +200,19 @@ describe('floorGate', () => {
 describe('groundBoardGate', () => {
   const done = groundDone.report as GroundReport
   const node = groundNode.report as GroundReport
+  const refused = groundRefused.report as GroundReport
 
-  it('maps the ground board report of the node contract: refusals and warnings with value against limit', () => {
+  it('maps the ground board reports of the node contract: refusals and warnings with value against limit', () => {
     const gate = groundBoardGate(node)
     expect(gate.plausible).toBe(true)
-    expect(gate.refusals).toEqual([checkText(node.refusals[0])])
-    expect(gate.refusals[0]).toContain('value 120 mm, limit 100 mm')
+    expect(gate.refusals).toEqual([])
     expect(gate.warnings).toEqual([checkText(node.warnings[0])])
     expect(gate.notes).toEqual(node.notes)
+    const refusedGate = groundBoardGate(refused)
+    expect(refusedGate.plausible).toBe(false)
+    expect(refusedGate.refusals).toEqual([checkText(refused.refusals[0])])
+    expect(refusedGate.refusals[0]).toContain('value 120 mm, limit 100 mm')
+    expect(refusedGate.warnings).toEqual([checkText(refused.warnings[0])])
   })
 
   it('scores the corner RMS, the held-out RMS, the counts and the depth cross-check', () => {

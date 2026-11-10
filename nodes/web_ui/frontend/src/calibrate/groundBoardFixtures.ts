@@ -7,6 +7,7 @@
  */
 import acceptJson from '../../../../head_rgbd_calibration/tests/fixtures/api/ground_board_accept.json'
 import resultJson from '../../../../head_rgbd_calibration/tests/fixtures/api/ground_board_result.json'
+import implausibleJson from '../../../../head_rgbd_calibration/tests/fixtures/api/ground_board_result_implausible.json'
 import runningJson from '../../../../head_rgbd_calibration/tests/fixtures/api/ground_board_result_running.json'
 import sessionsJson from '../../../../head_rgbd_calibration/tests/fixtures/api/ground_board_sessions.json'
 import stateJson from '../../../../head_rgbd_calibration/tests/fixtures/api/ground_board_state.json'
@@ -25,6 +26,7 @@ import type {
 /** The node's fixtures as they are. */
 export const nodeAccept = acceptJson as GroundAccept
 export const nodeResult = resultJson as GroundResult
+export const nodeImplausible = implausibleJson as GroundResult
 export const nodeRunning = runningJson as GroundResult
 export const nodeSessions = sessionsJson as GroundSession[]
 export const nodeState = stateJson as GroundState
@@ -34,13 +36,11 @@ export const nodeVerify = verifyJson as GroundVerifyState
 const nodeReport = nodeResult.report as GroundReport
 const example = nodeReport.accuracy_examples[0]
 
-/** A plausible done result: no refusals, the accuracy example with its 95 % twin, the gauge-held mount yaw. */
+/** A plausible done result (no refusals): the accuracy example with its 95 % twin, the gauge-held mount yaw. */
 export const doneResult: GroundResult = {
   ...nodeResult,
   report: {
     ...nodeReport,
-    plausible: true,
-    refusals: [],
     accuracy_examples: [example, { ...example, label: example.label.replace(', 1 sigma', ', 95 %'), value: 0.25 }],
     params: [
       ...nodeReport.params,
@@ -51,11 +51,7 @@ export const doneResult: GroundResult = {
 }
 
 /** A done result the node refuses: not plausible, with the node's refusal. */
-export const refusedResult: GroundResult = {
-  ...nodeResult,
-  id: 'r-20261109-041000',
-  report: { ...nodeReport, plausible: false },
-}
+export const refusedResult: GroundResult = nodeImplausible
 
 /** No session, no verification, no compute: a fresh node. */
 export const idleSweep: GroundSweep = {
