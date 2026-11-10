@@ -492,6 +492,25 @@ def test_accept_refuses_a_fit_of_a_head_chain_no_longer_applied(tmp_path: Path) 
     assert arm_camera_state(scene.cfg)["applied"]["head_chain_changed"] is True
 
 
+def test_accept_refusals_come_in_check_order(tmp_path: Path) -> None:
+    """Like the ground board accept: the result's own state first, then the apply's prerequisite (no arm re-zero since
+    the capture), the applied head chain last."""
+    scene = Scene(tmp_path)
+    result = compute_arm_camera(scene.cfg, scene.store, scene.sid, SessionStore.new_result_id(NOW), NOW)
+    apply_head_chain(scene.state, "head_arm")  # another applied record: the fit's head chain is no longer applied
+    marker = json.loads((scene.state / "applied" / "applied.json").read_text())
+    marker["head_chain"]["result"] = "r-20261109-130000"
+    (scene.state / "applied" / "applied.json").write_text(json.dumps(marker))
+    assert arm_camera_results.head_chain_source(scene.cfg) != result["head_chain"]
+    after_capture = datetime.fromtimestamp(STAMP_NS / 1e9 + 60, tz=UTC).isoformat()
+    write_stale_marker(scene.cfg, ["joint_offsets"], after_capture)
+    with pytest.raises(NotApplicable, match="re-zero"):
+        accept_arm_camera(scene.cfg, scene.store, scene.sid, result["id"], LATER, fake_run)
+    decline_arm_camera(scene.store, scene.sid, result["id"], LATER)
+    with pytest.raises(NotApplicable, match="declined"):
+        accept_arm_camera(scene.cfg, scene.store, scene.sid, result["id"], LATER, fake_run)
+
+
 def test_a_head_chain_apply_after_the_accept_check_lands_after_the_accept(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -435,8 +435,9 @@ def accept_ground(
         restarted}]}.
 
     Raises:
-        NotApplicable: the result is not done, not plausible, was declined, was fitted against a head chain that is
-            no longer applied, or no D435 intrinsics check is accepted.
+        NotApplicable: checked in this order (as the arm to camera accept): the result is not done, was declined,
+            was already accepted or is not plausible; no D435 intrinsics check is accepted; the result was fitted
+            against a head chain that is no longer applied.
         InvalidId, NotFound: unknown or malformed ids.
     """
     with DECISION_LOCK:
