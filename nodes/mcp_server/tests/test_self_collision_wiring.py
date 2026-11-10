@@ -365,7 +365,7 @@ def test_get_arm_reach_reports_computing_while_the_envelope_is_not_ready(
 ) -> None:
     """The tool waits reach_wait_s for a running computation, then answers "computing" instead of an envelope."""
     release = threading.Event()
-    monkeypatch.setattr(ReachEnvelope, "compute", lambda self: release.wait(ENVELOPE_WAIT_S))
+    monkeypatch.setattr(ReachEnvelope, "compute", lambda self, stop=None, key=None: release.wait(ENVELOPE_WAIT_S))
     cfg = McpServerConfig(body_check=BodyCheckSettings(reach_wait_s=0.05))
     server = build_mcp_server(robot_at(tmp_path, clear_pose()), cfg, TOKEN)
     try:
@@ -398,9 +398,9 @@ def test_reach_envelope_computation_stays_within_its_cpu_budget(tmp_path: Path) 
     cpu_s: list[float] = []
     compute = envelope.compute
 
-    def timed_compute() -> None:
+    def timed_compute(stop: threading.Event | None = None, key: str | None = None) -> None:
         start = time.thread_time()
-        compute()
+        compute(stop, key)
         cpu_s.append(time.thread_time() - start)
 
     envelope.compute = timed_compute  # type: ignore[method-assign]
