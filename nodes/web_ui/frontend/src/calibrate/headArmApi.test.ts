@@ -8,11 +8,13 @@ import {
   clearBoardRecord,
   computeArm,
   computeHeadArm,
+  confirmGrip,
   getHeadArmResult,
   getHeadArmState,
   listHeadArmSessions,
   moveToBase,
   park,
+  resetGrip,
   resumeBoardOn,
   stopSequence,
 } from "./headArmApi";
@@ -238,6 +240,39 @@ describe("headArmApi", () => {
     expect(f).toHaveBeenCalledWith(`${B}/sessions/s/results/r/apply`, {
       method: "POST",
     });
+  });
+  it("confirmGrip and resetGrip post their path with confirm true", async () => {
+    const f = stub(200, stateFx.sequence);
+    expect(await confirmGrip()).toEqual({ ok: true, value: stateFx.sequence });
+    expect(f).toHaveBeenLastCalledWith(`${B}/grip/confirm`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ confirm: true }),
+    });
+    expect(await resetGrip()).toEqual({ ok: true, value: stateFx.sequence });
+    expect(f).toHaveBeenLastCalledWith(`${B}/grip/reset`, {
+      method: "POST",
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ confirm: true }),
+    });
+  });
+  it("rejects a sequence without grip or with a bad grip key, naming it", async () => {
+    const { grip: _g, ...noGrip } = stateFx.sequence;
+    stub(200, { sequence: noGrip, applied: null });
+    const a = await getHeadArmState();
+    expect(a.ok).toBe(false);
+    if (!a.ok) expect(a.message).toContain("grip");
+    stub(200, noGrip);
+    const b = await confirmGrip();
+    expect(b.ok).toBe(false);
+    if (!b.ok) expect(b.message).toContain("grip");
+    const { recorded_at: _r, ...noAt } = stateFx.sequence.grip;
+    stub(200, { ...stateFx.sequence, grip: noAt });
+    const c = await resetGrip();
+    expect(c.ok).toBe(false);
+    if (!c.ok) expect(c.message).toContain("grip");
+    stub(200, { ...stateFx.sequence, grip: { ...stateFx.sequence.grip, handle_contact_rad: "x" } });
+    expect((await confirmGrip()).ok).toBe(false);
   });
   it("rejects a state whose events are not {time, phase, level, message}", async () => {
     const bad = [{ time: "2026-11-09T10:00:00+00:00", phase: "capturing", level: "error" }];

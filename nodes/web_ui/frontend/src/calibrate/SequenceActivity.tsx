@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import Alert from '@mui/material/Alert'
 import AlertTitle from '@mui/material/AlertTitle'
 import Box from '@mui/material/Box'
@@ -28,8 +29,17 @@ export function eventTime(time: string): string {
  *
  * @param sequence - the sequence state of GET /head-arm/state
  * @param withStatus - show the status line; false where the caller's progress line already carries the status
+ * @param errorAction - optional action (a button) shown inside the error banner, only while an error is shown
  */
-export function SequenceActivity({ sequence, withStatus = true }: { sequence: HeadArmSequence; withStatus?: boolean }) {
+export function SequenceActivity({
+  sequence,
+  withStatus = true,
+  errorAction,
+}: {
+  sequence: HeadArmSequence
+  withStatus?: boolean
+  errorAction?: ReactNode
+}) {
   const newestError: HeadArmEvent | undefined = sequence.events.find((e) => e.level === LEVEL_ERROR)
   return (
     <Box sx={{ mt: 1 }}>
@@ -43,6 +53,7 @@ export function SequenceActivity({ sequence, withStatus = true }: { sequence: He
               {`at ${eventTime(newestError.time)}, phase ${newestError.phase}`}
             </Typography>
           )}
+          {errorAction}
         </Alert>
       )}
       {sequence.events.length === 0 ? (

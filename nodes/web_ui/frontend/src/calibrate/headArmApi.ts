@@ -39,6 +39,18 @@ export interface BoardRecord {
   problem: string | null;
 }
 
+/**
+ * The handle grip record of the node: the contact angle the sequence uses, where it came from (`config`, or
+ * `recorded` by Confirm correct grip with `recorded_at` set) and the config value it falls back to on Reset.
+ */
+export interface HeadArmGrip {
+  handle_contact_rad: number;
+  grip_rad: number;
+  source: "config" | "recorded" | string;
+  recorded_at: string | null;
+  config_handle_contact_rad: number;
+}
+
 /** Progress of the guided arm sequence. `skipped` maps each skip reason to its count; `arm_pose` is the 0-based pose index; tier and arm_pose are null while idle. */
 export interface HeadArmSequence {
   running: boolean;
@@ -59,6 +71,8 @@ export interface HeadArmSequence {
   board_on: boolean;
   /** The board record file at any age (mcp_server refuses Home arm while it exists); null without one. */
   board_record: BoardRecord | null;
+  /** The handle grip record (contact angle, its source and the config fallback). */
+  grip: HeadArmGrip;
   /** The newest recent events (start, step outcomes, errors, stops, park results), newest first. */
   events: HeadArmEvent[];
 }
@@ -199,6 +213,14 @@ export const BOARD_RECORD: Record<string, Check> = {
   offered: isBool,
   problem: isNullOr(isStr),
 };
+/** Keys of the grip record (HeadArmGrip). */
+const GRIP: Record<string, Check> = {
+  handle_contact_rad: isNum,
+  grip_rad: isNum,
+  source: isStr,
+  recorded_at: isNullOr(isStr),
+  config_handle_contact_rad: isNum,
+};
 const SEQUENCE: Record<string, Check> = {
   running: isBool,
   phase: isStr,
@@ -214,6 +236,7 @@ const SEQUENCE: Record<string, Check> = {
   waiting_since: isNullOr(isNum),
   board_on: isBool,
   board_record: isNullOr((r) => badKey(r, BOARD_RECORD) === null),
+  grip: (g) => badKey(g, GRIP) === null,
   events: isArrayOf(
     (e) =>
       badKey(e, { time: isStr, phase: isStr, level: isStr, message: isStr }) ===
@@ -392,6 +415,12 @@ export const resumeBoardOn = (confirm: boolean, boardGripped = false) =>
     post(boardGripped ? { confirm, board_gripped: true } : { confirm }),
     badSequence,
   );
+/** Records the measured gripper angle as the grip on this board; moves nothing (body `{confirm: true}`). */
+export const confirmGrip = () =>
+  request<HeadArmSequence>(`${BASE}/grip/confirm`, post({ confirm: true }), badSequence);
+/** Drops the recorded grip and goes back to the config value (body `{confirm: true}`). */
+export const resetGrip = () =>
+  request<HeadArmSequence>(`${BASE}/grip/reset`, post({ confirm: true }), badSequence);
 export const boardAttached = () =>
   request<HeadArmSequence>(
     `${BASE}/sequence/board-attached`,
