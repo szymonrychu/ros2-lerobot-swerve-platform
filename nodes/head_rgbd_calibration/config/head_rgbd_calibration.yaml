@@ -318,7 +318,9 @@ fit:
       max_offset_change_deg: 15.0 # any arm joint offset change, deg
       max_base_move_mm: 100.0 # arm base translation, mm
       max_base_turn_deg: 10.0 # arm base yaw change, deg
-      max_skew_mm: 10.0 # board seat shift against the CAD mount, mm
+      # Temporary: user decision 2026-11-11 (T-114 #399) to accept a fit with a 30.3 mm seat shift (reprinted handle);
+      # restore 10.0 after that accept.
+      max_skew_mm: 35.0 # board seat shift against the CAD mount, mm
       max_skew_deg: 10.0 # board seat turn against the CAD mount, deg
       max_sag_deg: 5.0 # sag at the reference torque, deg
       max_droop_mm: 5.0 # droop at the reference torque, mm

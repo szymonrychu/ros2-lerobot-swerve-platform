@@ -468,7 +468,8 @@ def test_fit_config_defaults_are_shipped(tmp_path: Path) -> None:
     assert cfg.fit.arm_camera == ArmCameraFitConfig()
     bounds = cfg.fit.arm_camera.bounds
     assert (bounds.max_offset_change_deg, bounds.max_base_move_mm, bounds.max_base_turn_deg) == (15.0, 100.0, 10.0)
-    assert (bounds.max_skew_mm, bounds.max_skew_deg) == (10.0, 10.0)
+    # Temporary: max_skew_mm 35.0 by user decision 2026-11-11 (T-114 #399); restore 10.0 after that accept.
+    assert (bounds.max_skew_mm, bounds.max_skew_deg) == (35.0, 10.0)
     assert math.isclose(cfg.fit.arm_camera.reach_m, 0.30) and math.isclose(cfg.fit.arm_camera.camera_distance_m, 0.5)
 
 
