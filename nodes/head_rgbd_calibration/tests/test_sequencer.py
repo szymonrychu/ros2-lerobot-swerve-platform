@@ -33,20 +33,29 @@ from head_rgbd_calibration.capture import StillOutcome
 from head_rgbd_calibration.config import NodeConfig
 from head_rgbd_calibration.robot_client import RawToolResult, RobotClient
 from head_rgbd_calibration.sequencer import (
+    CAPTURING,
     EVENT_LIMIT,
+    GRIP_CONTACT_MAX_RAD,
+    GRIP_CONTACT_MIN_RAD,
+    GRIP_RECORD_FILE,
     HOLDING,
     IDLE,
     MESSAGE_CLEARED,
+    MESSAGE_GRIP_CONFIRM,
+    MESSAGE_GRIP_RESET_CONFIRM,
     MESSAGE_NOTHING_TO_CLEAR,
     MESSAGE_SLACK_GRIP,
     MESSAGE_UNSEATED,
     REASON_TOO_OLD,
     REASON_UNKNOWN_SESSION,
+    SOURCE_CONFIG,
+    SOURCE_RECORDED,
     WAITING_BIG_JOINTS,
     WAITING_BOARD,
     Busy,
     SequenceError,
     Sequencer,
+    read_grip_record,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -77,6 +86,7 @@ STATE_KEYS = {
     "waiting_since",
     "board_on",
     "board_record",
+    "grip",
     "events",
 }
 EVENT_KEYS = {"time", "phase", "level", "message"}
@@ -138,6 +148,7 @@ class FakeRobot:
         reset_arm: reset.arm of a park release.
         jaw_after_close: Gripper angle get_arm_state reports after the gripper-only handle close (None: the gripper is
             not reported after it).
+        on_call: Called with the tool name before every call is answered (e.g. to start a move during a measure).
     """
 
     def __init__(self, log: list[tuple[str, str, dict[str, Any]]], jaw_after_close: float | None) -> None:
@@ -151,6 +162,7 @@ class FakeRobot:
         self.carrying: list[str] = []
         self.reset_arm = "homed"
         self.jaw_after_close = jaw_after_close
+        self.on_call: Callable[[str], None] | None = None
 
     def count(self, name: str) -> int:
         return sum(1 for called, _ in self.calls if called == name)
@@ -162,6 +174,8 @@ class FakeRobot:
         assert token == (BOARD_PARK_TOKEN if name == ADMIN_PARK_BOARD else TOKEN)
         self.calls.append((name, dict(args)))
         self.log.append(("robot", name, dict(args)))
+        if self.on_call is not None:
+            self.on_call(name)
         number = self.count(name)
         if self.errors.get(name) == number:
             return RawToolResult(True, f"{name} failed: injected tool error")
@@ -260,6 +274,7 @@ class Rig:
         board_file: Path | None = None,
         session_exists: Callable[[str | None], bool] | None = None,
         now: Callable[[], datetime] | None = None,
+        grip_file: Path | None = None,
     ) -> None:
         token = tmp_path / "token"
         token.write_text(f"MCP_SERVER_TOKEN={TOKEN}\n")
@@ -287,6 +302,7 @@ class Rig:
             board_file=board_file,
             session_exists=session_exists or (lambda session_id: session_id == SESSION),
             now=now or (lambda: NOW),
+            grip_file=grip_file,
         )
 
     def wait_phase(self, phase: str) -> dict[str, Any]:
@@ -1662,3 +1678,337 @@ def test_resume_from_idle_path_check_refusal_moves_nothing(tmp_path: Path) -> No
     assert (state["phase"], state["board_on"]) == (HOLDING, True)  # the user stated the board is gripped
     assert "base pose (board on)" in state["error"] and "joint_limits" in state["error"]
     assert_held_not_parked(rig)
+
+
+# grip record: the confirmed grip becomes the active handle contact
+
+
+def grip_path(tmp_path: Path) -> Path:
+    """The grip record file of a rig (in the state dir, as __main__ wires it)."""
+    return tmp_path / "state" / GRIP_RECORD_FILE
+
+
+def grip_rig(tmp_path: Path, cfg: NodeConfig | None = None) -> Rig:
+    """A rig that keeps the grip record in `grip_path(tmp_path)`."""
+    return Rig(tmp_path, cfg or small_cfg(), grip_file=grip_path(tmp_path))
+
+
+def recorded_rig(tmp_path: Path, contact: float) -> Rig:
+    """A rig with `contact` recorded from idle, then the robot back at its home pose with the jaws open.
+
+    Args:
+        tmp_path (Path): Test dir.
+        contact (float): The jaw angle the confirm measures (rad).
+
+    Returns:
+        Rig: The rig, idle, with the grip recorded.
+    """
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    rig = grip_rig(tmp_path)
+    rig.robot.positions[GRIPPER] = contact
+    rig.seq.confirm_grip(True)
+    rig.robot.positions = {**HOME_POSE, GRIPPER: 0.05}
+    return rig
+
+
+def write_grip(path: Path, contact: float, recorded_at: str = "2026-10-22T12:00:00+00:00") -> None:
+    """Write a grip record file as the node does."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"handle_contact_rad": contact, "recorded_at": recorded_at}))
+
+
+def test_confirm_grip_from_idle_records_measured_jaw(tmp_path: Path) -> None:
+    rig = grip_rig(tmp_path)
+    seq_cfg = rig.cfg.arm_sequence
+    contact = seq_cfg.handle_contact_rad - 0.005
+    rig.robot.positions[GRIPPER] = contact
+    state = rig.seq.confirm_grip(True)
+    assert state["grip"] == {
+        "handle_contact_rad": contact,
+        "grip_rad": pytest.approx(contact - seq_cfg.handle_squeeze_rad),
+        "source": SOURCE_RECORDED,
+        "recorded_at": NOW.isoformat(timespec="seconds"),
+        "config_handle_contact_rad": seq_cfg.handle_contact_rad,
+    }
+    record = read_grip_record(grip_path(tmp_path))
+    assert record.handle_contact_rad == contact and record.recorded_at == NOW
+    assert json.loads(grip_path(tmp_path).read_text()) == {
+        "handle_contact_rad": contact,
+        "recorded_at": NOW.isoformat(timespec="seconds"),
+    }
+    names = [name for name, _ in rig.robot.calls]
+    assert names == ["get_arm_state"]
+    assert not {"move_arm_joints", "set_head_angles", "take_control"} & set(names)
+    assert state["phase"] == IDLE and state["running"] is False
+    assert rig.seq.state()["running"] is False
+
+
+def test_confirm_grip_from_holding_after_unseated_refusal(tmp_path: Path) -> None:
+    rig = grip_rig(tmp_path)
+    seq_cfg = rig.cfg.arm_sequence
+    rig.run_to_capture(jaw_after_close=seq_cfg.grip_rad)
+    state = rig.finish()
+    assert state["phase"] == HOLDING and state["error"].startswith(MESSAGE_UNSEATED)
+    state = rig.seq.confirm_grip(True)
+    assert state["grip"]["handle_contact_rad"] == pytest.approx(seq_cfg.grip_rad)
+    assert state["grip"]["source"] == SOURCE_RECORDED
+    assert state["phase"] == HOLDING and state["board_on"] is True and state["running"] is False
+
+
+def test_confirm_grip_needs_confirm(tmp_path: Path) -> None:
+    rig = grip_rig(tmp_path)
+    with pytest.raises(ValueError, match="confirmed=True") as refused:
+        rig.seq.confirm_grip(False)
+    assert str(refused.value) == MESSAGE_GRIP_CONFIRM
+    assert rig.robot.calls == []
+    assert not grip_path(tmp_path).exists()
+    assert rig.seq.grip_state()["source"] == SOURCE_CONFIG
+
+
+def test_confirm_grip_refused_while_running(tmp_path: Path) -> None:
+    rig = grip_rig(tmp_path)
+    rig.seq.move_to_base(confirmed=True)
+    rig.wait_phase(WAITING_BOARD)
+    calls = len(rig.robot.calls)
+    with pytest.raises(Busy):
+        rig.seq.confirm_grip(True)
+    assert len(rig.robot.calls) == calls
+    assert not grip_path(tmp_path).exists()
+    rig.seq.stop()
+    rig.finish()
+
+
+def test_confirm_grip_refused_while_thread_alive(tmp_path: Path) -> None:
+    rig = grip_rig(tmp_path)
+    release = threading.Event()
+    thread = threading.Thread(target=release.wait, daemon=True)
+    thread.start()
+    rig.seq.thread = thread
+    try:
+        assert rig.seq.state()["running"] is False
+        with pytest.raises(Busy):
+            rig.seq.confirm_grip(True)
+        with pytest.raises(Busy):
+            rig.seq.reset_grip(True)
+    finally:
+        release.set()
+        thread.join()
+    assert rig.robot.calls == []
+
+
+@pytest.mark.parametrize("phase", [WAITING_BOARD, CAPTURING, WAITING_BIG_JOINTS])
+def test_confirm_grip_refused_in_other_phases(tmp_path: Path, phase: str) -> None:
+    rig = grip_rig(tmp_path)
+    rig.seq.phase = phase
+    with pytest.raises(Busy):
+        rig.seq.confirm_grip(True)
+    assert rig.robot.calls == []
+    assert rig.seq.state()["phase"] == phase and rig.seq.state()["running"] is False
+
+
+def test_confirm_grip_refuses_missing_gripper(tmp_path: Path) -> None:
+    rig = grip_rig(tmp_path)
+    rig.robot.positions.pop(GRIPPER)
+    with pytest.raises(SequenceError, match="no gripper angle"):
+        rig.seq.confirm_grip(True)
+    assert not grip_path(tmp_path).exists()
+    state = rig.seq.state()
+    assert state["grip"]["source"] == SOURCE_CONFIG and state["running"] is False
+    assert state["events"][0]["level"] == "warning"
+
+
+def test_confirm_grip_refuses_a_failed_measure(tmp_path: Path) -> None:
+    rig = grip_rig(tmp_path)
+    rig.robot.errors["get_arm_state"] = 1
+    with pytest.raises(SequenceError, match="injected tool error"):
+        rig.seq.confirm_grip(True)
+    assert not grip_path(tmp_path).exists()
+    assert rig.seq.state()["running"] is False
+
+
+@pytest.mark.parametrize("jaw", [GRIP_CONTACT_MIN_RAD - 0.0001, GRIP_CONTACT_MAX_RAD + 0.0001])
+def test_confirm_grip_refuses_out_of_range(tmp_path: Path, jaw: float) -> None:
+    assert (GRIP_CONTACT_MIN_RAD, GRIP_CONTACT_MAX_RAD) == (0.03, 0.30)
+    rig = grip_rig(tmp_path)
+    rig.robot.positions[GRIPPER] = jaw
+    with pytest.raises(SequenceError, match="outside"):
+        rig.seq.confirm_grip(True)
+    assert not grip_path(tmp_path).exists()
+    assert rig.seq.grip_state()["source"] == SOURCE_CONFIG
+    assert rig.seq.state()["running"] is False
+
+
+@pytest.mark.parametrize("jaw", [GRIP_CONTACT_MIN_RAD, GRIP_CONTACT_MAX_RAD])
+def test_confirm_grip_accepts_the_range_boundaries(tmp_path: Path, jaw: float) -> None:
+    rig = grip_rig(tmp_path)
+    rig.robot.positions[GRIPPER] = jaw
+    state = rig.seq.confirm_grip(True)
+    assert state["grip"]["handle_contact_rad"] == jaw and state["grip"]["source"] == SOURCE_RECORDED
+    assert read_grip_record(grip_path(tmp_path)).handle_contact_rad == jaw
+
+
+def test_confirm_grip_holds_a_claim_while_measuring(tmp_path: Path) -> None:
+    rig = grip_rig(tmp_path)
+    seen: list[Exception] = []
+    running: list[bool] = []
+
+    def start_a_move(name: str) -> None:
+        if name != "get_arm_state":
+            return
+        running.append(rig.seq.state()["running"])
+        try:
+            rig.seq.move_to_base(True)
+        except Busy as exc:
+            seen.append(exc)
+
+    rig.robot.on_call = start_a_move
+    state = rig.seq.confirm_grip(True)
+    assert running == [True]
+    assert len(seen) == 1
+    assert state["running"] is False and state["phase"] == IDLE
+    assert [name for name, _ in rig.robot.calls] == ["get_arm_state"]
+
+
+def test_confirm_grip_write_failure_keeps_config(tmp_path: Path) -> None:
+    (tmp_path / "state").write_text("not a directory")
+    rig = grip_rig(tmp_path)
+    contact = rig.cfg.arm_sequence.handle_contact_rad - 0.005
+    rig.robot.positions[GRIPPER] = contact
+    with pytest.raises(SequenceError, match="cannot write"):
+        rig.seq.confirm_grip(True)
+    grip = rig.seq.grip_state()
+    assert grip["source"] == SOURCE_CONFIG
+    assert grip["handle_contact_rad"] == rig.cfg.arm_sequence.handle_contact_rad
+    assert rig.seq.seq is rig.seq.config_seq
+    assert rig.seq.state()["running"] is False
+
+
+def test_startup_loads_grip_record(tmp_path: Path) -> None:
+    seq_cfg = small_cfg().arm_sequence
+    contact = seq_cfg.handle_contact_rad + 0.004
+    write_grip(grip_path(tmp_path), contact)
+    rig = grip_rig(tmp_path)
+    grip = rig.seq.grip_state()
+    assert grip["source"] == SOURCE_RECORDED
+    assert grip["handle_contact_rad"] == contact
+    assert grip["recorded_at"] == "2026-10-22T12:00:00+00:00"
+    assert grip["config_handle_contact_rad"] == seq_cfg.handle_contact_rad
+    assert rig.seq.seq.grip_rad == pytest.approx(contact - seq_cfg.handle_squeeze_rad)
+    assert rig.seq.config_seq.handle_contact_rad == seq_cfg.handle_contact_rad
+
+
+INVALID_SQUEEZE_RAD = 0.05  # a valid config with this squeeze refuses a contact at or below it
+INVALID_TOLERANCE_RAD = 0.06
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "not json",
+        json.dumps({"recorded_at": "2026-10-22T12:00:00+00:00"}),
+        json.dumps({"handle_contact_rad": 0.31, "recorded_at": "2026-10-22T12:00:00+00:00"}),
+        json.dumps({"handle_contact_rad": 0.08, "recorded_at": "2026-10-22T12:00:00"}),
+        json.dumps({"handle_contact_rad": INVALID_SQUEEZE_RAD, "recorded_at": "2026-10-22T12:00:00+00:00"}),
+    ],
+    ids=["not-json", "missing-key", "out-of-range", "naive-datetime", "refused-by-config"],
+)
+def test_startup_ignores_invalid_grip_record(tmp_path: Path, caplog: pytest.LogCaptureFixture, content: str) -> None:
+    cfg = small_cfg(handle_squeeze_rad=INVALID_SQUEEZE_RAD, grip_converge_tolerance_rad=INVALID_TOLERANCE_RAD)
+    assert cfg.arm_sequence.handle_contact_rad > INVALID_SQUEEZE_RAD
+    path = grip_path(tmp_path)
+    path.parent.mkdir(parents=True)
+    path.write_text(content)
+    with caplog.at_level(logging.INFO, logger=SEQUENCER_LOGGER):
+        rig = grip_rig(tmp_path, cfg)
+    grip = rig.seq.grip_state()
+    assert grip["source"] == SOURCE_CONFIG and grip["recorded_at"] is None
+    assert grip["handle_contact_rad"] == cfg.arm_sequence.handle_contact_rad
+    assert any(r.levelno == logging.WARNING and "grip_record" in r.getMessage() for r in caplog.records)
+
+
+def test_reset_grip_restores_config_and_deletes_file(tmp_path: Path) -> None:
+    rig = recorded_rig(tmp_path, small_cfg().arm_sequence.handle_contact_rad - 0.01)
+    assert grip_path(tmp_path).exists()
+    calls = len(rig.robot.calls)
+    state = rig.seq.reset_grip(True)
+    assert not grip_path(tmp_path).exists()
+    assert state["grip"]["source"] == SOURCE_CONFIG and state["grip"]["recorded_at"] is None
+    assert state["grip"]["handle_contact_rad"] == rig.cfg.arm_sequence.handle_contact_rad
+    assert rig.seq.seq is rig.seq.config_seq
+    assert len(rig.robot.calls) == calls
+
+
+def test_reset_grip_without_record_is_ok(tmp_path: Path) -> None:
+    rig = grip_rig(tmp_path)
+    state = rig.seq.reset_grip(True)
+    assert state["grip"]["source"] == SOURCE_CONFIG
+    corrupt = grip_path(tmp_path)
+    corrupt.parent.mkdir(parents=True)
+    corrupt.write_text("not json")
+    state = rig.seq.reset_grip(True)
+    assert state["grip"]["source"] == SOURCE_CONFIG and not corrupt.exists()
+    assert rig.robot.calls == []
+
+
+def test_reset_grip_refused_while_running(tmp_path: Path) -> None:
+    rig = recorded_rig(tmp_path, small_cfg().arm_sequence.handle_contact_rad - 0.01)
+    rig.seq.move_to_base(confirmed=True)
+    rig.wait_phase(WAITING_BOARD)
+    with pytest.raises(Busy):
+        rig.seq.reset_grip(True)
+    assert grip_path(tmp_path).exists()
+    assert rig.seq.grip_state()["source"] == SOURCE_RECORDED
+    rig.seq.stop()
+    rig.finish()
+
+
+def test_reset_grip_needs_confirm(tmp_path: Path) -> None:
+    rig = recorded_rig(tmp_path, small_cfg().arm_sequence.handle_contact_rad - 0.01)
+    with pytest.raises(ValueError, match="confirmed=True") as refused:
+        rig.seq.reset_grip(False)
+    assert str(refused.value) == MESSAGE_GRIP_RESET_CONFIRM
+    assert grip_path(tmp_path).exists() and rig.seq.grip_state()["source"] == SOURCE_RECORDED
+
+
+def test_recorded_contact_drives_handle_grip(tmp_path: Path) -> None:
+    seq_cfg = small_cfg().arm_sequence
+    contact = seq_cfg.handle_contact_rad - 0.01
+    squeeze = seq_cfg.handle_squeeze_rad
+    tolerance = seq_cfg.grip_converge_tolerance_rad
+
+    rig = recorded_rig(tmp_path / "seated", contact)
+    rig.run_to_capture(jaw_after_close=contact)
+    rig.wait_phase(WAITING_BIG_JOINTS)
+    moves = [m["targets"] for m in rig.robot.named("move_arm_joints")]
+    assert moves[1] == {GRIPPER: pytest.approx(contact - squeeze)}
+    rig.seq.stop()
+    rig.finish()
+
+    limit = contact - squeeze / 2
+    rig = recorded_rig(tmp_path / "unseated", contact)
+    rig.run_to_capture(jaw_after_close=limit - 1e-3)
+    error = rig.finish()["error"]
+    assert MESSAGE_UNSEATED in error and f"limit {limit:.4f} rad" in error
+
+    rig = recorded_rig(tmp_path / "slack", contact)
+    rig.run_to_capture(jaw_after_close=contact - squeeze + tolerance)
+    assert MESSAGE_SLACK_GRIP in rig.finish()["error"]
+
+
+def test_recorded_contact_drives_resume_from_idle_limit(tmp_path: Path) -> None:
+    seq_cfg = small_cfg().arm_sequence
+    contact = seq_cfg.handle_contact_rad - 0.01
+    tolerance = seq_cfg.grip_converge_tolerance_rad
+
+    rig = recorded_rig(tmp_path / "open", contact)
+    rig.robot.positions[GRIPPER] = contact + tolerance + 1e-3
+    with pytest.raises(SequenceError, match="gripper is open"):
+        rig.seq.resume_with_board(confirmed=True, board_gripped=True)
+    assert rig.robot.count("move_arm_joints") == 0
+
+    rig = recorded_rig(tmp_path / "closed", contact)
+    rig.robot.positions[GRIPPER] = contact + tolerance - 1e-3
+    started = rig.seq.resume_with_board(confirmed=True, board_gripped=True)
+    assert started["running"] is True
+    rig.seq.stop()
+    rig.finish()

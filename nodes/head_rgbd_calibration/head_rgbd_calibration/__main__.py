@@ -34,7 +34,7 @@ from head_rgbd_calibration.head_arm_api import head_arm_router
 from head_rgbd_calibration.head_arm_results import head_arm_session_exists, latest_board_mount
 from head_rgbd_calibration.jobs import ComputeJob
 from head_rgbd_calibration.robot_client import RobotClient
-from head_rgbd_calibration.sequencer import BOARD_RECORD_FILE, Sequencer
+from head_rgbd_calibration.sequencer import BOARD_RECORD_FILE, GRIP_RECORD_FILE, Sequencer
 from head_rgbd_calibration.store import SessionStore
 
 NODE_NAME = "head_rgbd_calibration"
@@ -251,6 +251,7 @@ def main() -> int:
         fitted_mount=lambda sid: latest_board_mount(store, sid),
         board_file=Path(cfg.state_dir) / BOARD_RECORD_FILE,
         session_exists=lambda sid: head_arm_session_exists(store, sid),
+        grip_file=Path(cfg.state_dir) / GRIP_RECORD_FILE,
     )
     ground_sweep = GroundSweep(
         node,

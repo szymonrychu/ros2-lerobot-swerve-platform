@@ -40,6 +40,8 @@ floor_fit/<sid>/                            floor sweep sessions ("Head floor fi
 ground_board/<sid>/                         ground board sessions ("Ground board calibration")
 applied/                                    applied.json, the applied head_chain.json and the accepted
                                             arm_calibration.json (arm to camera)
+head_arm_board.json                         board record of a board on the gripper ("The board record")
+head_arm_grip.json                          confirmed grip, the active handle contact ("The grip record")
 ```
 
 - Ids: session `calib-YYYYmmdd-HHMMSS` (`-N` when that second is taken), pose `001` (zero-padded from `next_pose`, never
@@ -504,7 +506,9 @@ journalctl -u ros2-head_rgbd_calibration -o cat --since today | grep -o 'calib_e
   as error).
 - `tests/test_sequencer_telemetry.py` - the head-arm journal over the sequencer rig: a full run under one `seq-` run id
   with every timed step, the measured joints, path checks, MCP results, the gripper reading against its limits, still
-  outcomes with their detail and the end counts; each UI event is exactly one journal line; an unseated handle names
+  outcomes with their detail and the end counts; each UI event is exactly one journal line; the grip record logs
+  `grip_record` `recorded` (measured_rad, previous_rad, file; a `grip-` run id), `refused` at WARNING, `reset`, and at
+  start `loaded` or `ignored` at WARNING; an unseated handle names
   `handle_grip` and the reason; a missing measured joint in the base move; a path-check refusal logs the start joints,
   the target and the violated entries; a move that does not converge logs the MCP result; a stop logs `stopped`; a
   board park logs its `park-` run, the carry reasons, the mount source and the MCP reset; a refused board park logs its
@@ -542,7 +546,7 @@ journalctl -u ros2-head_rgbd_calibration -o cat --since today | grep -o 'calib_e
   stop's warning event, park start / done / failed events (logged) and a refused park or start as error events, the
   list bounded to `EVENT_LIMIT` (`test_events_are_bounded_to_the_newest`); the gripper opens to `insert_gripper_rad` with the base
   move and closes alone to `grip_rad` after Board attached, a jaw closed past `contact - squeeze / 2` (unseated) or no
-  reported gripper angle stops the sequence holding the arm, the threshold boundary passes; the resume with the board on (refused unless holding with the board on, not running, not blocked and with usable URDFs; a new run whose only gripper target is the measured jaw angle, never `insert_gripper_rad` and no handle grip, no `waiting_board`, a new still session and the tiers, ending holding with the board on; a path check refusal or a missing gripper angle moves nothing; a stop keeps holding; from idle: refused without `board_gripped`, while running or blocked, and with open or unreported jaws (nothing moved, no board record), after a restart a run with the jaw kept, no `waiting_board`, the `board_confirmed` event and the restored mount, a path refusal moves nothing and ends holding); views inside the D435 min-Z or outside the colour FOV skipped with the reason and a pose with no usable view not visited (`test_poses_inside_min_z_are_skipped`), the wait for the colour camera_info; including Park with the board on (checked even when no load is reported, then the internal admin park; the board record shown at any age with `offered` true only fresh and for a stored session and `problem` naming why not, the stated-on Park, a stale record plus a non-board load refused; `clear_board_record` needs the confirm, removes an old record with a `board_record_clear` calib_event and no mcp_server call, returns a holding sequence to idle so Park is the plain park, says when there was no record, and is refused while a sequence runs): path-checked then moved at speed 0.1 and released with `park_calibration_board`, refused with the named rule when the sag margin eats the clearance, the fitted mount hook, another carried object and a load without this sequence's board still refused, a failed move keeps holding.
+  reported gripper angle stops the sequence holding the arm, the threshold boundary passes; the resume with the board on (refused unless holding with the board on, not running, not blocked and with usable URDFs; a new run whose only gripper target is the measured jaw angle, never `insert_gripper_rad` and no handle grip, no `waiting_board`, a new still session and the tiers, ending holding with the board on; a path check refusal or a missing gripper angle moves nothing; a stop keeps holding; from idle: refused without `board_gripped`, while running or blocked, and with open or unreported jaws (nothing moved, no board record), after a restart a run with the jaw kept, no `waiting_board`, the `board_confirmed` event and the restored mount, a path refusal moves nothing and ends holding); views inside the D435 min-Z or outside the colour FOV skipped with the reason and a pose with no usable view not visited (`test_poses_inside_min_z_are_skipped`), the wait for the colour camera_info; including Park with the board on (checked even when no load is reported, then the internal admin park; the board record shown at any age with `offered` true only fresh and for a stored session and `problem` naming why not, the stated-on Park, a stale record plus a non-board load refused; `clear_board_record` needs the confirm, removes an old record with a `board_record_clear` calib_event and no mcp_server call, returns a holding sequence to idle so Park is the plain park, says when there was no record, and is refused while a sequence runs): path-checked then moved at speed 0.1 and released with `park_calibration_board`, refused with the named rule when the sag margin eats the clearance, the fitted mount hook, another carried object and a load without this sequence's board still refused, a failed move keeps holding. The grip record (`test_confirm_grip_*`, `test_startup_*grip_record`, `test_reset_grip_*`, `test_recorded_contact_*`): the measured jaw recorded from idle (only get_arm_state, phase kept) or from holding after an unseated refusal, refused without the confirm, while running, with a live worker thread, in other phases, without a gripper angle, after a failed measure and outside 0.03 to 0.30 rad (boundaries accepted), a claim held while measuring (a base move then is Busy), a failed write keeps the config contact; a valid file loaded at start, an invalid one (not JSON, missing key, out of range, naive time, refused by the config) ignored; reset restores the config and deletes the file (idempotent, a corrupt one too, Busy while running, needs the confirm); the recorded contact drives the handle grip command, the unseated and slack limits and the resume-from-idle closed-jaw limit.
 - `tests/test_arm_pose_set.py` - the shipped arm pose set on the shipped and the applied (floor fit 2026-10-22) head
   URDF: tier rules, short transits, every pose and transit (home -> base -> tiers -> base) safe by `PoseChecker` with
   the board margin `margin_m + provisional_margin_m` (`test_every_pose_and_transit_is_safe`) and with the mount
@@ -772,7 +776,9 @@ the state): `idle`, `moving_to_base`, `waiting_board`, `capturing`, `waiting_big
    the finger tip stops at the shoulder, and presses Board attached (`POST .../sequence/board-attached`). The board
    record is written (see "The board record").
 3. Grip close (`Sequencer.close_on_handle`, phase `moving_to_base`, status "closing the gripper on the handle"): the
-   gripper alone moves to `grip_rad` (`handle_contact_rad - handle_squeeze_rad`), through the same checked move as every
+   gripper alone moves to `grip_rad` (`handle_contact_rad - handle_squeeze_rad`, where `handle_contact_rad` is the active
+   contact: the recorded grip when one exists, else the configured one; see "The grip record"; the numbers below are
+   those of the configured default), through the same checked move as every
    arm move. The squeeze (0.02 rad) is below the mcp_server gripper converge tolerance, so the move converges while the
    jaws still press on the handle and the target stays commanded. The effort limit is the servo `Torque_Limit` of the
    default grip profile (`move_arm_joints` has no per-call effort limit). Then the seat check: the measured gripper
@@ -783,7 +789,8 @@ the state): `idle`, `moving_to_base`, `waiting_board`, `capturing`, `waiting_big
    its settle tolerance as converged too, holds that target for `arm_settle_hold_s` and then relaxes the hold to the
    measured pose, which would leave the board hanging with no squeeze. So a measured gripper angle at or above
    `grip_rad + grip_converge_tolerance_rad` (0.1051 rad) stops the sequence the same way, saying the handle is thicker
-   than the CAD contact and that `arm_sequence.handle_contact_rad` must be set from the measured contact. A grip move
+   than the CAD contact and that `arm_sequence.handle_contact_rad` must be set from the measured contact (or the grip
+   recorded with the handle seated, "The grip record"). A grip move
    that fails or does not converge, or a `get_arm_state` without a gripper angle, stops it the same way.
 4. Phase `capturing`: a still session is started and the sequence waits up to `still.timeout_s` for its first colour
    camera_info (none fails the sequence, holding); tier 0 then tier 1 run.
@@ -1316,3 +1323,28 @@ stated the calibration board is off the gripper (nothing moved)", and the journa
 It answers the head-arm sequence state; 400 without the confirm, 409 while a head-arm sequence or park (or its worker
 thread) or an arm to camera compute runs. The Calibrate page offers it as "The board is already off the gripper: clear
 the record" behind a confirm, in the Arm to camera flow and in the General section.
+
+### The grip record
+
+The handle contact the sequence works with can be taken from the robot instead of the config: with the board handle
+seated up to the shoulder in the closed jaws, `Sequencer.confirm_grip(confirmed=True)` measures the gripper
+(`get_arm_state`, nothing moves) and records the angle, exactly as measured, as the active `handle_contact_rad` in
+`<state_dir>/head_arm_grip.json` (`{"handle_contact_rad": <rad>, "recorded_at": "<ISO 8601 with zone, seconds>"}`,
+written through a temp file and `os.replace`). From then on everything that reads the contact uses it: `grip_rad`
+(contact minus `handle_squeeze_rad`), the unseated limit (contact minus half the squeeze), the slack limit and the
+closed-jaw limit of a resume from idle (contact plus `grip_converge_tolerance_rad`). It is accepted only from `idle` or
+`holding` (e.g. after an unseated refusal) with no sequence, park or worker thread running (else `Busy`); while it
+measures it holds a short claim (`running`, a `grip-...` run id, phase and status unchanged) so a base move or Park
+started meanwhile is refused. A measured angle outside 0.03 to 0.30 rad (`GRIP_CONTACT_MIN_RAD`,
+`GRIP_CONTACT_MAX_RAD`, inclusive), one the `arm_sequence` validator refuses (e.g. at or below `handle_squeeze_rad`), no
+gripper angle, a failed `get_arm_state` or a failed write is refused (`SequenceError`) and the active contact stays
+as it was.
+
+A node start loads a valid record (logged as `grip_record` `loaded`); an unreadable, out-of-range, zone-less or
+config-refused record is ignored with a WARNING (`ignored`) and the configured contact stays active.
+`Sequencer.reset_grip(confirmed=True)` removes the file (a corrupt one too; without one it is a no-op that answers
+ok) and the configured contact is active again; it has the same `Busy` guard. Deploys never touch the file (it lives
+in `state_dir`) and the record never goes into the config files. `state()["grip"]` is
+`{handle_contact_rad, grip_rad, source ("config" | "recorded"), recorded_at, config_handle_contact_rad}`. Each
+record, refusal and reset is a `grip_record` calib_event and a recent event ("grip recorded: handle contact X rad (was
+Y rad); nothing moved").
