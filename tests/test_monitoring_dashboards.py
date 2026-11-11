@@ -91,7 +91,7 @@ ALLOWED_METRICS = (
     | {f"{h}_{suffix}" for h in NODE_CONTRACT_HISTOGRAMS for suffix in ("bucket", "sum", "count")}
     | {"up"}
 )
-ALLOWED_PREFIXES = ("node_", "container_", "rpi_throttled", "robot_node_")
+ALLOWED_PREFIXES = ("node_", "container_", "rpi_throttled", "robot_node_", "dds_watchdog_")
 
 REQUIRED_PANELS = [
     "Host CPU % by mode",
@@ -189,6 +189,8 @@ DASHBOARDS: dict[str, tuple[str, str, list[str]]] = {
             "Memory pressure",
             "Error log lines per unit",
             "Recent error log lines",
+            "DDS watchdog suspects",
+            "DDS watchdog restarts in window",
         ],
     ),
 }
@@ -658,6 +660,27 @@ def test_health_dashboard_queries() -> None:
     assert "rpi_throttled" in panel_exprs(dashboard, "Throttling")
     assert "node_filesystem_avail_bytes" in panel_exprs(dashboard, "Disk pressure")
     assert "node_memory_MemAvailable_bytes" in panel_exprs(dashboard, "Memory pressure")
+
+
+def test_health_dashboard_dds_watchdog_panels() -> None:
+    """A "DDS discovery watchdog" row with the suspect flag and the restarts of the picked host, per unit."""
+    dashboard = load_dashboard("robot-health.json")
+    panels = {p["title"]: p for p in panel_list(dashboard)}
+    rows = [p["title"] for p in dashboard["panels"] if p["type"] == "row"]
+    assert "DDS discovery watchdog" in rows
+    suspects = panels["DDS watchdog suspects"]
+    restarts = panels["DDS watchdog restarts in window"]
+    assert suspects["type"] == "timeseries"
+    assert restarts["type"] in ("barchart", "bargauge", "stat", "timeseries")
+    assert panel_exprs(dashboard, "DDS watchdog suspects") == 'sum by (unit) (dds_watchdog_suspect{host="$host"})'
+    assert panel_exprs(dashboard, "DDS watchdog restarts in window") == (
+        'sum by (unit) (increase(dds_watchdog_restarts_total{host="$host"}[$__range]))'
+    )
+    row_index = [p["title"] for p in dashboard["panels"]].index("DDS discovery watchdog")
+    assert [p["title"] for p in dashboard["panels"]][row_index + 1 : row_index + 3] == [
+        "DDS watchdog suspects",
+        "DDS watchdog restarts in window",
+    ]
 
 
 def test_health_dashboard_loki_panels() -> None:

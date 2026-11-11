@@ -74,7 +74,7 @@ checks the calibration too.
 
 **web_ui itself wedged.** `ros2-web_ui.service` can be a wedged unit. Its calibration sources then read as unknown (or
 the endpoint does not answer), so the watchdog is blocked for every unit, web_ui included, and never restarts it.
-Only the R2 alert (a unit blocked by calibration for over 10 minutes, added with the Grafana rules) catches this. Manual
+Only the R2 alert (below: a unit blocked for over 10 minutes) catches this. Manual
 recovery:
 
 1. Confirm no calibration is really running (the Calibrate page, or the servo torque state).
@@ -102,6 +102,32 @@ Written to the Alloy textfile collector (series carry `host`):
 
 A streak that keeps growing after a restart means the unit wedges again at once (the 300 s rate limit stops a loop):
 look at the unit's own logs.
+
+The Robot health dashboard (Grafana, folder Robot) has a "DDS discovery watchdog" row: suspect flag and restarts per
+unit of the picked host.
+
+## Alerts
+
+Three Grafana alert rules (folder Robot, group `dds-watchdog`, provisioned by `roles/monitoring`) watch these metrics.
+They are visible in Grafana only: no contact point or notification policy exists yet, so nothing is sent anywhere.
+
+- **R1 "DDS watchdog restarted a unit"** (warning): a unit was restarted by the watchdog in the last 10 minutes. The
+  watchdog already acted. Do nothing unless it repeats for the same unit; then it wedges again at once, so read
+  `journalctl -u dds-watchdog.service` and the unit's own log, and see Manual recovery for a polluted SLAM map.
+- **R2 "DDS wedge blocked by calibration"** (critical, label `route: agents`): a due restart has been held back for over
+  10 minutes (`dds_watchdog_restart_blocked_seconds > 600`). Check the Calibrate page: if a calibration really runs,
+  finish or cancel it and the watchdog restarts the unit by itself; if not, find out why the guard blocks (the
+  `not restarting <unit>: calibration <reason>` line in `journalctl -u dds-watchdog.service`). R2 can also fire without
+  a real calibration:
+  - The blocked timer keeps counting through a deploy-lock or rate-limit wait that follows a calibration hold, so a
+    long deploy right after a calibration can trip R2.
+  - If `ros2-web_ui.service` itself is wedged, its calibration sources read unknown, so the watchdog never restarts it
+    and R2 is the signal: restart web_ui by hand (above).
+  - On the server, an unreachable client also blocks (the server asks the client's web_ui for the calibration state, fail
+    closed): check that the client is up.
+- **R3 "DDS watchdog not running"** (warning): `dds_watchdog_last_run_timestamp_seconds` is over 300 s old for 2
+  minutes, so R1 and R2 are blind. Check `systemctl status dds-watchdog.timer dds-watchdog.service` on that host. A
+  host whose textfile is gone (watchdog disabled by the role) reports no series and does not fire.
 
 ## Manual recovery
 

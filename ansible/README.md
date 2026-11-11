@@ -857,7 +857,19 @@ Every `*.json` in `roles/monitoring/files/` is copied (one `with_fileglob` task)
 | `robot-agent.json` | Robot agent | Agent busy timeline, instructions by status, instruction duration p50/p95, turns and tool uses by tool, seconds since activity, watchdog fires and session resets, tokens and cost, MCP tool call rate, latency p50/p95 and errors per tool, motion queue depth, motion step statuses, robot events by severity, claude_agent and mcp_server CPU/memory |
 | `robot-slam.json` | Robot SLAM | slam_toolbox, nav2_bringup, robot_localization_ekf, rf2o_laser_odometry, laser_filter, rplidar_a1 unit CPU/memory; lidar scan rate, max gap and driver restarts; rf2o relay rate and rejections; swerve slip residual and odom rate; map updates and age; robot pose TF ok; nav goals by result and duration; IMU publish health and calibration; GPS fix quality, satellites, corrections and NTRIP throughput |
 | `robot-grasping.json` | Robot grasping | Grasp plans by mode/outcome, attempts by mode/result, success ratio, gripper effort, grip profile uses, floor guard slowdowns, arm motion steps by status, tracking error p50/p95, grasp tool latencies (plan_grasp, grasp_object, release_object, move_arm_cartesian, set_gripper), servo load, temperature, torque and voltage per arm joint, servo bus failures |
-| `robot-health.json` | Robot health | (per host) State of every ros2-* and monitoring unit, unit restarts in the window, node up/down and time since start, error counters per node (servo bus, IMU errors/reinits, GPS serial errors/NTRIP reconnects, camera drops/reopens, lidar restarts, web UI ws disconnects/stale topics, agent watchdog, MCP tool errors), throttling, temperature, disk and memory pressure; Loki: error-or-worse journal lines per unit (rate) and the recent error lines |
+| `robot-health.json` | Robot health | (per host) State of every ros2-* and monitoring unit, unit restarts in the window, node up/down and time since start, error counters per node (servo bus, IMU errors/reinits, GPS serial errors/NTRIP reconnects, camera drops/reopens, lidar restarts, web UI ws disconnects/stale topics, agent watchdog, MCP tool errors), throttling, temperature, disk and memory pressure, the DDS discovery watchdog (suspect flag and restarts per unit); Loki: error-or-worse journal lines per unit (rate) and the recent error lines |
+
+### Alert rules
+
+`roles/monitoring/templates/grafana-alerting.yaml.j2` is provisioned to `/etc/grafana/provisioning/alerting/robot.yaml` (Grafana alert-rule file provisioning, apiVersion 1; the task "Provision the alert rules" restarts Grafana on change). Folder **Robot**, group `dds-watchdog` (1 m), datasource `prometheus-robot`. Each rule is a query A, a reduce B and a threshold C (`> 0`) on it; a healthy host returns no series (NoData, treated as OK).
+
+| Rule (uid) | Fires when | Severity |
+|---|---|---|
+| R1 DDS watchdog restarted a unit (`dds-watchdog-restart`) | `sum by (host, unit) (increase(dds_watchdog_restarts_total[10m])) > 0` | warning |
+| R2 DDS wedge blocked by calibration (`dds-watchdog-blocked`) | `max by (host, unit) (dds_watchdog_restart_blocked_seconds) > 600`; label `route: agents` | critical |
+| R3 DDS watchdog not running (`dds-watchdog-stale`) | `time() - max by (host) (dds_watchdog_last_run_timestamp_seconds) > 300` for 2 m | warning |
+
+No contact point and no notification policy are provisioned: the rules are visible in Grafana only. The webhook that will route `route: agents` alerts to a diagnosis agent is a follow-up. See `docs/runbooks/dds-discovery-deadlock.md`. Tests: `tests/test_monitoring_role.py`.
 
 ## Connection tuning
 
