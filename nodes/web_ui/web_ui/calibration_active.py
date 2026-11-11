@@ -2,6 +2,12 @@
 
 The watchdog restarts ROS2 units wedged by a DDS discovery deadlock and must never do so during a calibration. It
 blocks when `active` is true or `unknown` is non-empty; a source that cannot be read is never treated as idle.
+
+Sources: the calibration node's state routes (rgbd:state, rgbd:head-arm, rgbd:floor, rgbd:ground-board, rgbd:csi and
+one rgbd:csi/<cam> per camera, each under its own SOURCE_TIMEOUT_S budget, the csi list and camera states sharing one),
+the cached servo torque_state of every servo group (servo:<id>), and the in-flight registry of the General and Servo
+action routes (general:<action>, general:servo/<group>/<action>). The IMU is not a source. In-flight entries are always
+reported (they cannot exist without a calibration block). Without rgbd_url the rgbd sources are skipped.
 """
 
 from __future__ import annotations
