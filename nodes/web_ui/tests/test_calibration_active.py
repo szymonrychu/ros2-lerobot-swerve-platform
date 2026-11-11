@@ -6,8 +6,11 @@ import asyncio
 import json
 import time
 from collections.abc import Callable
+from concurrent.futures import Future
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import patch
 
 import httpx
 import pytest
@@ -29,7 +32,7 @@ from web_ui.calibration_active import (
     rgbd_state_reasons,
     servo_group_reasons,
 )
-from web_ui.config import AppConfig, CalibrationConfig, ServoGroupConfig
+from web_ui.config import AppConfig, CalibrationConfig, CalibrationGeneralConfig, ServoGroupConfig
 
 RGBD_URL = "http://calib.test:18110"
 FIXTURE = Path(__file__).parent / "fixtures" / "api" / "calibration_active.json"
@@ -566,3 +569,87 @@ def test_fixture_matches_built_response() -> None:
     fixture = json.loads(FIXTURE.read_text())
     CalibrationActive.model_validate(fixture)
     assert body == fixture
+
+
+# --- in-flight hooks in the general and servo calibration routes ---------------------------------------------------
+
+
+class BlockingBridge:
+    """Bridge stand-in whose trigger futures stay pending until the test completes them (or raises on demand)."""
+
+    def __init__(self, exc: Exception | None = None) -> None:
+        self.exc = exc
+        self.futures: list[Future] = []
+
+    def servo_torque_sample(self, namespace: str) -> None:
+        return None
+
+    def trigger_async(self, service: str) -> Future:
+        future: Future = Future()
+        if self.exc is not None:
+            future.set_exception(self.exc)
+        self.futures.append(future)
+        return future
+
+
+def build_real_app(tmp_path: Path, bridge: Any) -> FastAPI:
+    from web_ui.server import build_app
+
+    cal = CalibrationConfig(
+        servo_groups=[ServoGroupConfig(id="arm", label="Arm", namespace="follower", set_home_service="/arm/set_home")],
+        general=CalibrationGeneralConfig(),
+    )
+    return build_app(
+        config=AppConfig(calibration=cal), urdf_dir=tmp_path, static_dir=tmp_path / "none", bridge_node=bridge
+    )
+
+
+async def flow_names(client: httpx.AsyncClient) -> list[str]:
+    body = (await client.get("/api/calibration/active")).json()
+    return [f["name"] for f in body["flows"] if f["name"].startswith("general:")]
+
+
+async def wait_for_future(bridge: BlockingBridge) -> Future:
+    for _ in range(200):
+        if bridge.futures:
+            return bridge.futures[0]
+        await asyncio.sleep(0.01)
+    raise AssertionError("trigger never called")
+
+
+@pytest.mark.parametrize(
+    ("url", "flow"),
+    [
+        ("/api/calibration/general/home_arm", "general:home_arm"),
+        ("/api/calibration/servos/arm/set_home", "general:servo/arm/set_home"),
+    ],
+)
+async def test_route_is_in_flight_while_pending(tmp_path: Path, url: str, flow: str) -> None:
+    bridge = BlockingBridge()
+    transport = httpx.ASGITransport(app=build_real_app(tmp_path, bridge))
+    async with httpx.AsyncClient(transport=transport, base_url="http://t") as client:
+        post = asyncio.create_task(client.post(url))
+        future = await wait_for_future(bridge)
+        body = (await client.get("/api/calibration/active")).json()
+        assert body["active"] is True
+        assert flow in [f["name"] for f in body["flows"]]
+        future.set_result(SimpleNamespace(success=True, message="ok"))
+        assert (await post).status_code == 200
+        assert await flow_names(client) == []
+
+
+@pytest.mark.parametrize("url", ["/api/calibration/general/home_arm", "/api/calibration/servos/arm/set_home"])
+async def test_route_whose_ros_call_raises_leaves_registry_empty(tmp_path: Path, url: str) -> None:
+    bridge = BlockingBridge(exc=RuntimeError("boom"))
+    transport = httpx.ASGITransport(app=build_real_app(tmp_path, bridge))
+    async with httpx.AsyncClient(transport=transport, base_url="http://t") as client:
+        assert (await client.post(url)).status_code == 500
+        assert await flow_names(client) == []
+
+
+@pytest.mark.parametrize("url", ["/api/calibration/general/nope", "/api/calibration/servos/arm/nope"])
+async def test_unknown_action_is_never_tracked(tmp_path: Path, url: str) -> None:
+    transport = httpx.ASGITransport(app=build_real_app(tmp_path, BlockingBridge()))
+    with patch.object(InFlightRegistry, "track", side_effect=AssertionError("tracked")):
+        async with httpx.AsyncClient(transport=transport, base_url="http://t") as client:
+            assert (await client.post(url)).status_code == 404
