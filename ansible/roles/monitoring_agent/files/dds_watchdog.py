@@ -7,9 +7,17 @@ that UDP port fills up. A unit is a suspect when such a thread exists and the po
 
 The detection functions read a /proc tree and a cgroup v2 tree, both passed in, so tests can use fixture trees. A run
 (run once by dds-watchdog.timer) samples every running ros2-*.service, counts consecutive suspect samples per unit in a
-state file, restarts a unit once its streak reaches the configured number of samples (unless a deploy is running or the
-unit was restarted recently) and writes metrics to the Alloy textfile collector. The state file and the textfile are
-replaced atomically (temp file + rename). The run exits non-zero only when the textfile cannot be written.
+state file, restarts a unit once its streak reaches the configured number of samples (unless a deploy is running, the
+unit was restarted recently, or a calibration runs) and writes metrics to the Alloy textfile collector. The state file
+and the textfile are replaced atomically (temp file + rename). The run exits non-zero only when the textfile cannot be
+written.
+
+Calibration guard (fail closed): only when a unit is due for a restart (streak reached, no fresh deploy lock, rate
+limit passed), the run asks web_ui's GET /api/calibration/active once (one retry on a transport error, redirects never
+followed). While a calibration flow is active, a source is unknown, or the answer is unreachable or malformed, nothing
+is restarted: the unit keeps its streak, the run logs a WARNING `not restarting <unit>: calibration <reason>` and
+records blocked_since, and the restart happens on the first run that sees idle while the unit is still a suspect. A
+healthy host makes no HTTP call. Dry run checks the calibration state too.
 
 Environment:
     DDS_WATCHDOG_PROC_ROOT: /proc directory (default /proc).
@@ -23,9 +31,15 @@ Environment:
     DDS_WATCHDOG_DEPLOY_LOCK_MAX_AGE_S: age in seconds after which the lock is stale (default 14400, the 240 minutes of
         ros2_deploy_lock_max_age_min that ros2-deploy-recover uses).
     DDS_WATCHDOG_DRY_RUN: "1", "true", "yes" or "on" (any case) only logs the restarts (default false).
+    DDS_WATCHDOG_CALIBRATION_URL: full URL of web_ui's GET /api/calibration/active (default
+        http://127.0.0.1/api/calibration/active, the client; the server uses http://client.ros2.lan/api/calibration/active).
+    DDS_WATCHDOG_CALIBRATION_TIMEOUT_S: socket timeout in seconds of each calibration request, may be fractional
+        (default 3; web_ui answers in under 1 s).
     SYSTEMCTL: systemctl binary (default "systemctl", looked up on PATH).
 """
 
+import functools
+import http.client
 import json
 import logging
 import os
@@ -34,7 +48,10 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Mapping
+import urllib.error
+import urllib.parse
+import urllib.request
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -58,6 +75,15 @@ DEFAULT_SYSTEMCTL = "systemctl"
 TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 SYSTEMCTL_TIMEOUT_S = 60.0
 UNIT_GLOB = "ros2-*.service"
+DEFAULT_CALIBRATION_URL = "http://127.0.0.1/api/calibration/active"
+DEFAULT_CALIBRATION_TIMEOUT_S = 3.0
+CALIBRATION_SCHEMES = frozenset({"http", "https"})
+CALIBRATION_ATTEMPTS = 2
+CALIBRATION_MAX_BODY_BYTES = 1048576
+CALIBRATION_FLOW_FIELDS = ("name", "reason")
+HTTP_OK = 200
+HTTP_REDIRECT_MIN = 300
+HTTP_REDIRECT_MAX = 399
 
 LOG = logging.getLogger("dds_watchdog")
 
@@ -205,6 +231,8 @@ class Config:
         deploy_lock_max_age_s (int): Age in seconds after which the deploy lock is stale.
         dry_run (bool): Log restarts instead of doing them.
         systemctl (str): systemctl binary.
+        calibration_url (str): Full URL of GET /api/calibration/active.
+        calibration_timeout_s (float): Socket timeout of each calibration request in seconds.
     """
 
     proc_root: Path
@@ -218,6 +246,8 @@ class Config:
     deploy_lock_max_age_s: int
     dry_run: bool
     systemctl: str
+    calibration_url: str
+    calibration_timeout_s: float
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str]) -> "Config":
@@ -230,7 +260,7 @@ class Config:
             Config: The settings.
 
         Raises:
-            ValueError: A numeric variable is not an integer.
+            ValueError: An integer variable is not an integer, or the calibration timeout is not a number.
         """
         return cls(
             proc_root=Path(environ.get("DDS_WATCHDOG_PROC_ROOT", DEFAULT_PROC_ROOT)),
@@ -246,6 +276,10 @@ class Config:
             deploy_lock_max_age_s=int(environ.get("DDS_WATCHDOG_DEPLOY_LOCK_MAX_AGE_S", DEFAULT_DEPLOY_LOCK_MAX_AGE_S)),
             dry_run=environ.get("DDS_WATCHDOG_DRY_RUN", "false").strip().lower() in TRUE_VALUES,
             systemctl=environ.get("SYSTEMCTL", DEFAULT_SYSTEMCTL),
+            calibration_url=environ.get("DDS_WATCHDOG_CALIBRATION_URL", DEFAULT_CALIBRATION_URL),
+            calibration_timeout_s=float(
+                environ.get("DDS_WATCHDOG_CALIBRATION_TIMEOUT_S", DEFAULT_CALIBRATION_TIMEOUT_S)
+            ),
         )
 
 
@@ -259,12 +293,15 @@ class UnitState:
         last_attempt (float): Epoch seconds of the last failed restart attempt (0 for never); a failed attempt starts
             the rate-limit window like a success does, but is not counted in restarts_total.
         restarts_total (int): Successful watchdog restarts.
+        blocked_since (float): Epoch seconds of the first run that held a due restart back for calibration (0 when not
+            blocked); cleared when the unit is restarted, stops being a suspect, or calibration is idle again.
     """
 
     streak: int = 0
     last_restart: float = 0.0
     last_attempt: float = 0.0
     restarts_total: int = 0
+    blocked_since: float = 0.0
 
 
 STATE_FIELD_TYPES: dict[str, tuple[type, ...]] = {
@@ -272,6 +309,7 @@ STATE_FIELD_TYPES: dict[str, tuple[type, ...]] = {
     "last_restart": (int, float),
     "last_attempt": (int, float),
     "restarts_total": (int,),
+    "blocked_since": (int, float),
 }
 
 
@@ -390,16 +428,153 @@ def deploy_lock_active(cfg: Config, now: float) -> bool:
         return False
 
 
-def restart_allowed(cfg: Config, unit_state: UnitState, now: float) -> bool:
-    """Decide whether a unit whose streak reached the limit may be restarted now.
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse every redirect, so a 3xx surfaces as an HTTPError instead of being followed (maybe to another host)."""
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: object,
+        code: int,
+        msg: str,
+        headers: object,
+        newurl: str,
+    ) -> None:
+        """Decline the redirect.
+
+        Args:
+            req (urllib.request.Request): Original request.
+            fp (object): Response body.
+            code (int): Redirect status.
+            msg (str): Status text.
+            headers (object): Response headers.
+            newurl (str): Redirect target.
+
+        Returns:
+            None: Always, which makes urllib raise HTTPError with the 3xx code.
+        """
+        return None
+
+
+def calibration_flows(payload: dict[str, object], key: str) -> list[dict[str, str]]:
+    """Validate one list of the calibration answer.
+
+    Args:
+        payload (dict[str, object]): Decoded answer.
+        key (str): "flows" or "unknown".
+
+    Returns:
+        list[dict[str, str]]: The entries, each with str name and reason.
+
+    Raises:
+        ValueError: The key is missing, not a list, or an entry is not an object with str name and str reason.
+    """
+    entries = payload.get(key)
+    if not isinstance(entries, list):
+        raise ValueError(f"{key} is {type(entries).__name__}, not a list")
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise ValueError(f"{key} entry is {type(entry).__name__}, not an object")
+        for field in CALIBRATION_FLOW_FIELDS:
+            if not isinstance(entry.get(field), str):
+                raise ValueError(f"{key} entry {field} is {type(entry.get(field)).__name__}, not a str")
+    return entries
+
+
+def parse_calibration(body: bytes) -> tuple[bool, str]:
+    """Decide from the body of a 200 answer of GET /api/calibration/active.
+
+    Args:
+        body (bytes): Response body, `{"active": bool, "flows": [{"name","reason"}], "unknown": [{"name","reason"}]}`.
+
+    Returns:
+        tuple[bool, str]: (blocked, reason): (True, "active: <flow names>") when a flow runs, (True, "unknown: <name>
+            (<reason>), ...") when a source is unreadable, (True, "malformed: <what>") when the body is not that shape
+            (also when active disagrees with flows), else (False, "idle").
+    """
+    try:
+        payload = json.loads(body)
+        if not isinstance(payload, dict):
+            raise ValueError(f"answer is {type(payload).__name__}, not an object")
+        active = payload.get("active")
+        if not isinstance(active, bool):
+            raise ValueError(f"active is {type(active).__name__}, not a bool")
+        flows = calibration_flows(payload, "flows")
+        unknown = calibration_flows(payload, "unknown")
+        if active != bool(flows):
+            raise ValueError(f"active is {active} with {len(flows)} flows")
+    except (ValueError, RecursionError) as exc:
+        return True, f"malformed: {exc}"
+    if active:
+        return True, "active: " + ", ".join(flow["name"] for flow in flows)
+    if unknown:
+        return True, "unknown: " + ", ".join(f"{entry['name']} ({entry['reason']})" for entry in unknown)
+    return False, "idle"
+
+
+def calibration_status(url: str, timeout_s: float) -> tuple[bool, str]:
+    """Ask web_ui whether a calibration runs; fail closed on anything but a valid idle answer.
+
+    One retry on a transport error (connection refused or reset, timeout); a non-200 status, a redirect (never
+    followed) or a bad body is not retried. Proxies from the environment are not used.
+
+    Args:
+        url (str): Full http(s) URL of GET /api/calibration/active.
+        timeout_s (float): Socket timeout of each attempt in seconds.
+
+    Returns:
+        tuple[bool, str]: (blocked, reason); reason is "idle" when not blocked, else "active: ...", "unknown: ...",
+            "unreachable: <error>" or "malformed: <what>".
+    """
+    if urllib.parse.urlsplit(url).scheme not in CALIBRATION_SCHEMES:
+        return True, f"malformed: url {url!r} is not http(s)"
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+    error = ""
+    for _ in range(CALIBRATION_ATTEMPTS):
+        try:
+            with opener.open(url, timeout=timeout_s) as response:
+                status = response.status
+                body = response.read(CALIBRATION_MAX_BODY_BYTES + 1)
+        except urllib.error.HTTPError as exc:
+            exc.close()
+            if HTTP_REDIRECT_MIN <= exc.code <= HTTP_REDIRECT_MAX:
+                return True, f"malformed: redirect {exc.code}"
+            return True, f"unreachable: HTTP {exc.code}"
+        except urllib.error.URLError as exc:
+            error = str(exc.reason)
+            continue
+        except (OSError, http.client.HTTPException) as exc:
+            error = str(exc) or type(exc).__name__
+            continue
+        except ValueError as exc:
+            return True, f"malformed: url {url!r}: {exc}"
+        if status != HTTP_OK:
+            return True, f"unreachable: HTTP {status}"
+        if len(body) > CALIBRATION_MAX_BODY_BYTES:
+            return True, f"malformed: body over {CALIBRATION_MAX_BODY_BYTES} bytes"
+        return parse_calibration(body)
+    return True, f"unreachable: {error}"
+
+
+def restart_allowed(
+    cfg: Config, unit: str, unit_state: UnitState, now: float, calibration: Callable[[], tuple[bool, str]]
+) -> bool:
+    """Decide whether a unit whose streak reached the limit may be restarted now (the single restart gate).
+
+    Checked in order: fresh deploy lock, rate limit, then calibration, so calibration is asked only for a unit that
+    would otherwise be restarted. When calibration blocks, blocked_since is set (first blocked run only); when it is
+    idle, blocked_since is cleared.
 
     Args:
         cfg (Config): Settings.
-        unit_state (UnitState): State of the unit.
+        unit (str): Unit name (for the log).
+        unit_state (UnitState): State of the unit; blocked_since is updated.
         now (float): Current epoch seconds.
+        calibration (Callable[[], tuple[bool, str]]): Returns (blocked, reason) of calibration_status, cached per run.
 
     Returns:
-        bool: True when no fresh deploy lock exists and the last restart attempt (successful or failed) is old enough.
+        bool: True when no fresh deploy lock exists, the last restart attempt (successful or failed) is old enough and
+            no calibration runs (an unreadable calibration state counts as running).
     """
     if deploy_lock_active(cfg, now):
         LOG.info("deploy lock %s is fresh, not restarting", cfg.deploy_lock)
@@ -408,6 +583,13 @@ def restart_allowed(cfg: Config, unit_state: UnitState, now: float) -> bool:
     if now - last < cfg.min_restart_interval_s:
         LOG.info("restart attempted %.0f s ago, rate limit holds the restart", now - last)
         return False
+    blocked, reason = calibration()
+    if blocked:
+        LOG.warning("not restarting %s: calibration %s", unit, reason)
+        if not unit_state.blocked_since:
+            unit_state.blocked_since = now
+        return False
+    unit_state.blocked_since = 0.0
     return True
 
 
@@ -441,6 +623,21 @@ def escape_label(value: str) -> str:
         str: Value with backslash, double quote and newline escaped.
     """
     return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+
+def blocked_seconds(unit_state: UnitState, now: float) -> float:
+    """Tell how long a due restart has been held back by calibration.
+
+    Args:
+        unit_state (UnitState): State of the unit.
+        now (float): Current epoch seconds.
+
+    Returns:
+        float: now - blocked_since (never negative), or 0 when not blocked.
+    """
+    if unit_state.blocked_since <= 0:
+        return 0.0
+    return max(0.0, now - unit_state.blocked_since)
 
 
 def metrics_text(now: float, units: list[str], state: dict[str, UnitState], suspects: set[str], up: bool = True) -> str:
@@ -481,6 +678,26 @@ def metrics_text(now: float, units: list[str], state: dict[str, UnitState], susp
         for unit, st in sorted(state.items())
         if st.restarts_total
     ]
+    lines += [
+        "# HELP dds_watchdog_restart_blocked 1 while a due restart of the unit is held back by calibration (running or"
+        " unreadable).",
+        "# TYPE dds_watchdog_restart_blocked gauge",
+    ]
+    lines += [
+        f'dds_watchdog_restart_blocked{{unit="{escape_label(unit)}",reason="calibration"}} '
+        f"{int(state[unit].blocked_since > 0)}"
+        for unit in units
+    ]
+    lines += [
+        "# HELP dds_watchdog_restart_blocked_seconds Seconds a due restart of the unit has been held back by"
+        " calibration, 0 when not blocked.",
+        "# TYPE dds_watchdog_restart_blocked_seconds gauge",
+    ]
+    lines += [
+        f'dds_watchdog_restart_blocked_seconds{{unit="{escape_label(unit)}"}} '
+        f"{round(blocked_seconds(state[unit], now), 3)}"
+        for unit in units
+    ]
     return "\n".join(lines) + "\n"
 
 
@@ -508,15 +725,17 @@ def run_once(cfg: Config, now: float) -> int:
     state_keep: dict[str, UnitState] = {}
     queues = rx_queues(cfg.proc_root)
     suspects: set[str] = set()
+    calibration = functools.cache(lambda: calibration_status(cfg.calibration_url, cfg.calibration_timeout_s))
     for unit in units:
         unit_state = state.get(unit, UnitState())
         evidence = scan_unit(cfg.proc_root, cfg.cgroup_root, unit, queues, cfg.rx_min_bytes)
         if evidence is None:
             unit_state.streak = 0
+            unit_state.blocked_since = 0.0
         else:
             suspects.add(unit)
             unit_state.streak += 1
-            if unit_state.streak >= cfg.samples and restart_allowed(cfg, unit_state, now):
+            if unit_state.streak >= cfg.samples and restart_allowed(cfg, unit, unit_state, now, calibration):
                 why = (
                     f"{unit}: thread dds.udp.{evidence.port} (pid {evidence.pid}) in {evidence.wchan}, "
                     f"rx_queue {evidence.rx_queue} B for {unit_state.streak} samples"

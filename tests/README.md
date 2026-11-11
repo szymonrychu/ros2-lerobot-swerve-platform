@@ -4076,7 +4076,7 @@ Static pins for `docs/runbooks/map3d-mapping.md` (3D mapping runbook re-based on
 
 ### `test_dds_watchdog.py`
 
-Imports `ansible/roles/monitoring_agent/files/dds_watchdog.py`, runs its detection core against fixture `/proc` and cgroup v2 trees (real values from the robot: healthy `dds.udp.7418`, wedged `dds.udp.7458` with rx 1001600, user-unicast `dds.udp.7459`). No ROS2, no root.
+Imports `ansible/roles/monitoring_agent/files/dds_watchdog.py`, runs its detection core against fixture `/proc` and cgroup v2 trees (real values from the robot: healthy `dds.udp.7418`, wedged `dds.udp.7458` with rx 1001600, user-unicast `dds.udp.7459`). No ROS2, no root. The calibration guard is tested against `CalibrationStub`, a threaded `http.server` on 127.0.0.1 (free port) that serves a configurable status, body, delay, redirect or dropped connection and counts requests; it answers idle by default, and every subprocess run points `DDS_WATCHDOG_CALIBRATION_URL` at it. `CALIB_FIXTURE` is a copy of web_ui's consumer fixture `nodes/web_ui/tests/fixtures/api/calibration_active.json`.
 
 | Test | Covers |
 |---|---|
@@ -4101,12 +4101,40 @@ Imports `ansible/roles/monitoring_agent/files/dds_watchdog.py`, runs its detecti
 | `test_dry_run_logs_without_restart` | Dry run (case-insensitive value) logs "would restart" (not "restarting", no doubled prefix), calls no restart and counts none. |
 | `test_failed_restart_not_counted` | A failing `systemctl restart` logs an error, counts no restart, keeps the streak, and the metrics are still written (exit 0). The failed attempt starts the rate-limit window: the next run does not call `systemctl`, a run after the interval retries. |
 | `test_corrupt_state_file_resets` | A corrupt, wrong-shaped or missing state file starts empty with a warning and exits 0. |
-| `test_wrong_type_state_resets` | Parametrized: valid JSON with wrong field types (null, string, bool, float, non-dict entry, unknown field) starts empty with a warning, exits 0 and leaks nothing into the metrics. |
-| `test_valid_state_is_kept` | A state file with correct types is used, not reset. |
+| `test_wrong_type_state_resets` | Parametrized: valid JSON with wrong field types (null, string, bool, float, non-dict entry, unknown field, a wrong-typed `blocked_since`) starts empty with a warning, exits 0 and leaks nothing into the metrics. |
+| `test_valid_state_is_kept` | A state file with correct types is used, not reset (also an older file without `last_attempt` and `blocked_since`). |
+| `test_state_with_blocked_since_is_kept` | A state file with `blocked_since` (float or int) loads without a reset and keeps the value. |
 | `test_list_units_failure_writes_up_zero` | A failing `systemctl list-units` exits 0, writes `dds_watchdog_up 0`, keeps the state file, scans and restarts nothing. |
-| `test_stopped_unit_keeps_restart_count` | A restarted unit that is no longer running drops its streak but keeps `restarts_total` and `last_restart`; the metric survives. |
-| `test_config_defaults` | `Config.from_env({})` equals the documented defaults. |
-| `test_label_values_are_escaped` | Backslash, double quote and newline in a unit name are escaped in all metric labels. |
-| `test_metrics_file_format` | HELP/TYPE lines for every metric, unit labels, trailing newline, no temp file left behind. |
+| `test_stopped_unit_keeps_restart_count` | A restarted unit that is no longer running drops its streak but keeps `restarts_total` and `last_restart`; the metric survives. Checks the exact state file entry (all fields, `blocked_since` 0.0). |
+| `test_config_defaults` | `Config.from_env({})` equals the documented defaults (calibration URL `http://127.0.0.1/api/calibration/active`, timeout 3.0). |
+| `test_config_calibration_from_env` | `DDS_WATCHDOG_CALIBRATION_URL` and a fractional `DDS_WATCHDOG_CALIBRATION_TIMEOUT_S` are read. |
+| `test_label_values_are_escaped` | Backslash, double quote and newline in a unit name are escaped in all metric labels, including `restart_blocked` and `restart_blocked_seconds`. |
+| `test_metrics_file_format` | HELP/TYPE lines for every metric (including `dds_watchdog_restart_blocked` and `dds_watchdog_restart_blocked_seconds`), unit labels, trailing newline, no temp file left behind. |
 | `test_healthy_host_writes_zero_suspects` | A healthy unit gives suspect 0, streak 0, no restart. |
 | `test_unwritable_textfile_exits_nonzero` | A missing textfile directory is the one case with exit code 1. |
+| `test_calibration_idle_allows_restart` | `calibration_status` on an idle answer returns `(False, "idle")` after one request. |
+| `test_calibration_active_blocks` | The consumer fixture blocks with `active: rgbd:head-arm, general:home_arm`. |
+| `test_calibration_unknown_only_blocks` | `active` false with one unknown source blocks with `unknown: servo:arm (torque_state stale)`. |
+| `test_calibration_http_500_blocks` | HTTP 500 blocks as `unreachable: HTTP 500` and is not retried. |
+| `test_calibration_non_200_success_blocks` | A 2xx other than 200 (203) blocks. |
+| `test_calibration_redirect_blocks` | A 302 to another host is not followed: blocked as `malformed: redirect 302`, one request. |
+| `test_calibration_timeout_blocks` | A handler sleeping past the timeout blocks as unreachable within about two timeouts (one retry). |
+| `test_calibration_connection_refused_blocks` | No listener on the port blocks as unreachable. |
+| `test_calibration_invalid_json_blocks` | A non-JSON 200 body blocks as malformed and is not retried. |
+| `test_calibration_deeply_nested_json_blocks` | JSON nested past the parser's recursion limit blocks as malformed instead of crashing the run. |
+| `test_calibration_oversized_body_blocks` | A body over 1 MiB blocks as malformed. |
+| `test_blocked_seconds_metric_keeps_precision` | A long block is written with millisecond precision, not in exponent notation. |
+| `test_calibration_bad_url_blocks` | An empty URL, `file://` or `ftp://` blocks as malformed without I/O. |
+| `test_calibration_wrong_types_blocks` | Parametrized: string `active`, `flows` not a list, an entry without `name` or `reason` or with a non-str one, a missing key, `active` disagreeing with `flows`, a non-object answer: all block as malformed. |
+| `test_calibration_retry_once_then_ok` | A connection closed without a response is retried once; the idle second answer is not blocked (two requests). |
+| `test_calibration_retries_only_once` | Two dropped connections block as unreachable after exactly two requests. |
+| `test_wedged_unit_not_restarted_during_calibration` | Subprocess runs with an active calibration: no `systemctl restart`, `not restarting <unit>: calibration active: ...` logged at WARNING (checked in-process with caplog), `dds_watchdog_restart_blocked{unit,reason="calibration"}` 1, streak kept. |
+| `test_unreachable_calibration_blocks_restart` | Fail closed end to end: an endpoint nobody listens on holds the restart (`calibration unreachable: ...`). |
+| `test_unknown_calibration_source_blocks_restart` | An unknown source with `active` false holds the restart end to end. |
+| `test_deferred_restart_after_calibration_ends` | Blocked on runs 3 and 4, idle on run 5: exactly one restart, blocked metrics back to 0, `blocked_since` cleared, no further restart. |
+| `test_blocked_seconds_metric_grows` | `blocked_since` is set on the first blocked run and kept on later ones; `dds_watchdog_restart_blocked_seconds` is now minus `blocked_since` (over 700 s after moving it back). |
+| `test_recovered_unit_clears_blocked` | A blocked unit that stops being a suspect clears `blocked_since` and its blocked metrics without a restart. |
+| `test_healthy_host_makes_no_http_calls` | A healthy unit and a suspect below the sample limit make no request; the first due run makes one. |
+| `test_deploy_lock_and_rate_limit_make_no_http_calls` | A fresh deploy lock and the rate limit hold the restart without asking the calibration endpoint. |
+| `test_one_calibration_call_per_run` | Two units due in the same run share one request and are both held back. |
+| `test_dry_run_still_checks_calibration` | Dry run asks the endpoint: blocked logs `not restarting ... calibration`, not `would restart`; idle then logs `would restart`. |
