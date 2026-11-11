@@ -4076,7 +4076,7 @@ Static pins for `docs/runbooks/map3d-mapping.md` (3D mapping runbook re-based on
 
 ### `test_dds_watchdog.py`
 
-Imports `ansible/roles/monitoring_agent/files/dds_watchdog.py`, runs its detection core against fixture `/proc` and cgroup v2 trees (real values from the robot: healthy `dds.udp.7418`, wedged `dds.udp.7458` with rx 1001600, user-unicast `dds.udp.7459`). No ROS2, no root. The calibration guard is tested against `CalibrationStub`, a threaded `http.server` on 127.0.0.1 (free port) that serves a configurable status, body, delay, redirect or dropped connection and counts requests; it answers idle by default, and every subprocess run points `DDS_WATCHDOG_CALIBRATION_URL` at it. `CALIB_FIXTURE` is a copy of web_ui's consumer fixture `nodes/web_ui/tests/fixtures/api/calibration_active.json`.
+Imports `ansible/roles/monitoring_agent/files/dds_watchdog.py`, runs its detection core against fixture `/proc` and cgroup v2 trees (real values from the robot: healthy `dds.udp.7418`, wedged `dds.udp.7458` with rx 1001600, user-unicast `dds.udp.7459`). No ROS2, no root. The calibration guard is tested against `CalibrationStub`, a threaded `http.server` on 127.0.0.1 (free port) that serves a configurable status, body (optionally a different `later_body` for every request after the first), delay, redirect or dropped connection and counts requests; it answers idle by default, and every subprocess run points `DDS_WATCHDOG_CALIBRATION_URL` at it. `CALIB_FIXTURE` is a copy of web_ui's consumer fixture `nodes/web_ui/tests/fixtures/api/calibration_active.json`.
 
 | Test | Covers |
 |---|---|
@@ -4108,6 +4108,7 @@ Imports `ansible/roles/monitoring_agent/files/dds_watchdog.py`, runs its detecti
 | `test_stopped_unit_keeps_restart_count` | A restarted unit that is no longer running drops its streak but keeps `restarts_total` and `last_restart`; the metric survives. Checks the exact state file entry (all fields, `blocked_since` 0.0). |
 | `test_config_defaults` | `Config.from_env({})` equals the documented defaults (calibration URL `http://127.0.0.1/api/calibration/active`, timeout 3.0). |
 | `test_config_calibration_from_env` | `DDS_WATCHDOG_CALIBRATION_URL` and a fractional `DDS_WATCHDOG_CALIBRATION_TIMEOUT_S` are read. |
+| `test_config_bad_calibration_timeout_uses_default` | Parametrized: `inf`, `-inf`, `nan`, `0`, `-1`, `abc` and an empty value log one WARNING naming `DDS_WATCHDOG_CALIBRATION_TIMEOUT_S` and fall back to 3.0 s instead of raising. |
 | `test_label_values_are_escaped` | Backslash, double quote and newline in a unit name are escaped in all metric labels, including `restart_blocked` and `restart_blocked_seconds`. |
 | `test_metrics_file_format` | HELP/TYPE lines for every metric (including `dds_watchdog_restart_blocked` and `dds_watchdog_restart_blocked_seconds`), unit labels, trailing newline, no temp file left behind. |
 | `test_healthy_host_writes_zero_suspects` | A healthy unit gives suspect 0, streak 0, no restart. |
@@ -4125,6 +4126,8 @@ Imports `ansible/roles/monitoring_agent/files/dds_watchdog.py`, runs its detecti
 | `test_calibration_oversized_body_blocks` | A body over 1 MiB blocks as malformed. |
 | `test_blocked_seconds_metric_keeps_precision` | A long block is written with millisecond precision, not in exponent notation. |
 | `test_calibration_bad_url_blocks` | An empty URL, `file://` or `ftp://` blocks as malformed without I/O. |
+| `test_calibration_malformed_url_never_raises` | Parametrized: an unterminated IPv6 bracket (`http://[::1/x`), a non-numeric port and a `gopher://` URL block as malformed instead of raising. |
+| `test_calibration_bad_timeout_never_raises` | Parametrized: `calibration_status` called directly with an infinite (OverflowError in the socket layer), NaN, 0 or negative timeout returns a result (blocked as malformed or unreachable, or idle) instead of raising. |
 | `test_calibration_wrong_types_blocks` | Parametrized: string `active`, `flows` not a list, an entry without `name` or `reason` or with a non-str one, a missing key, `active` disagreeing with `flows`, a non-object answer: all block as malformed. |
 | `test_calibration_retry_once_then_ok` | A connection closed without a response is retried once; the idle second answer is not blocked (two requests). |
 | `test_calibration_retries_only_once` | Two dropped connections block as unreachable after exactly two requests. |
@@ -4136,5 +4139,8 @@ Imports `ansible/roles/monitoring_agent/files/dds_watchdog.py`, runs its detecti
 | `test_recovered_unit_clears_blocked` | A blocked unit that stops being a suspect clears `blocked_since` and its blocked metrics without a restart. |
 | `test_healthy_host_makes_no_http_calls` | A healthy unit and a suspect below the sample limit make no request; the first due run makes one. |
 | `test_deploy_lock_and_rate_limit_make_no_http_calls` | A fresh deploy lock and the rate limit hold the restart without asking the calibration endpoint. |
-| `test_one_calibration_call_per_run` | Two units due in the same run share one request and are both held back. |
+| `test_one_calibration_call_per_run` | Two units due in the same run, both held back by an active calibration, share one request (no restart happened, so the answer is reused). |
 | `test_dry_run_still_checks_calibration` | Dry run asks the endpoint: blocked logs `not restarting ... calibration`, not `would restart`; idle then logs `would restart`. |
+| `test_calibration_rechecked_after_each_restart` | Two units due in one run; the stub answers idle to the first request and active to every later one. The first unit is restarted, the idle answer is not reused after that restart: the second unit asks again (two requests), is held back with `not restarting <unit2>: calibration active: ...` and its `restart_blocked` metric is 1. |
+| `test_malformed_url_run_saves_state_and_metrics` | A run with `DDS_WATCHDOG_CALIBRATION_URL=http://[::1/...` exits 0, restarts nothing, logs `calibration malformed: ...`, saves the streak (4 after 4 runs) and writes `restart_blocked` 1. |
+| `test_bad_timeout_run_uses_default` | Runs with `DDS_WATCHDOG_CALIBRATION_TIMEOUT_S=inf` exit 0, log the timeout warning, use 3 s and restart the wedged unit on the idle answer. |

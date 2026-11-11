@@ -260,6 +260,7 @@ class CalibrationStub:
         delay_s (float): Seconds to sleep before answering.
         drop_first (int): The first N requests are answered by closing the connection without a response.
         location (str | None): Location header to send (for redirects).
+        later_body (bytes | None): When set, the body of every request after the first (body answers the first).
         requests (int): Requests received so far.
         url (str): Full URL of the calibration endpoint on the stub.
     """
@@ -271,6 +272,7 @@ class CalibrationStub:
         self.delay_s = 0.0
         self.drop_first = 0
         self.location: str | None = None
+        self.later_body: bytes | None = None
         self.requests = 0
         self.lock = threading.Lock()
         stub = self
@@ -288,14 +290,15 @@ class CalibrationStub:
                     return
                 if stub.delay_s:
                     time.sleep(stub.delay_s)
+                body = stub.later_body if count > 1 and stub.later_body is not None else stub.body
                 self.send_response(stub.status)
                 if stub.location:
                     self.send_header("Location", stub.location)
                 self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(stub.body)))
+                self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 try:
-                    self.wfile.write(stub.body)
+                    self.wfile.write(body)
                 except OSError:
                     pass
 
@@ -446,6 +449,24 @@ def test_calibration_bad_url_blocks(wd: ModuleType) -> None:
         blocked, reason = wd.calibration_status(url, CALIB_TIMEOUT_S)
         assert blocked, url
         assert reason.startswith("malformed: "), reason
+
+
+@pytest.mark.parametrize("url", ["http://[::1/x", "http://[::1]:notaport/x", "gopher://127.0.0.1/x"])
+def test_calibration_malformed_url_never_raises(wd: ModuleType, url: str) -> None:
+    """An unterminated IPv6 bracket, a non-numeric port or an unsupported scheme blocks as malformed, never raises."""
+    blocked, reason = wd.calibration_status(url, CALIB_TIMEOUT_S)
+    assert blocked, url
+    assert reason.startswith("malformed: "), reason
+
+
+@pytest.mark.parametrize("timeout_s", [float("inf"), float("nan"), 0.0, -1.0])
+def test_calibration_bad_timeout_never_raises(wd: ModuleType, stub: CalibrationStub, timeout_s: float) -> None:
+    """A timeout urllib or the socket rejects (inf overflows time_t, nan, 0, negative) blocks, never raises."""
+    blocked, reason = wd.calibration_status(stub.url, timeout_s)
+    if blocked:
+        assert reason.startswith(("malformed: ", "unreachable: ")), reason
+    else:
+        assert reason == "idle"
 
 
 WRONG_CALIBRATION_BODIES: list[object] = [
@@ -854,6 +875,19 @@ def test_config_calibration_from_env(wd: ModuleType) -> None:
     assert cfg.calibration_timeout_s == 2.5
 
 
+@pytest.mark.parametrize("value", ["inf", "-inf", "nan", "0", "-1", "abc", ""])
+def test_config_bad_calibration_timeout_uses_default(
+    wd: ModuleType, caplog: pytest.LogCaptureFixture, value: str
+) -> None:
+    """A non-finite, non-positive or non-numeric calibration timeout logs a WARNING and falls back to 3 s."""
+    with caplog.at_level(logging.WARNING, logger="dds_watchdog"):
+        cfg = wd.Config.from_env({"DDS_WATCHDOG_CALIBRATION_TIMEOUT_S": value})
+    assert cfg.calibration_timeout_s == 3.0
+    assert [r.levelname for r in caplog.records if "DDS_WATCHDOG_CALIBRATION_TIMEOUT_S" in r.getMessage()] == [
+        "WARNING"
+    ]
+
+
 def test_label_values_are_escaped(wd: ModuleType) -> None:
     """Backslash, double quote and newline in a unit name are escaped per the Prometheus text format."""
     unit = 'ros2-we\\ird"\nname.service'
@@ -1108,3 +1142,44 @@ def test_dry_run_still_checks_calibration(host: Harness) -> None:
     assert "would restart" in proc.stdout
     assert host.restarts() == []
     assert metric_value(host.metrics(), blocked_series()) == 0
+
+
+def test_calibration_rechecked_after_each_restart(host: Harness) -> None:
+    """Two units due in one run: the idle answer is not reused after a restart. The stub answers idle to the first
+    request and active to every later one, so the first unit is restarted and the second is held back."""
+    add_thread(host.root / "proc", 200, 200, "dds.udp.7460", "futex_wait_queue")
+    write_net(host.root / "proc", "udp", [*WEDGED_ROWS, udp_row(1, 7460, 1001600)])
+    add_procs(host.root / "sys/fs/cgroup", UNIT2, [200])
+    host.units_file.write_text(f"{UNIT} loaded active running a\n{UNIT2} loaded active running b\n")
+    host.calib.later_body = json.dumps(CALIB_FIXTURE).encode()
+    for _ in range(3):
+        proc = host.run()
+        assert proc.returncode == 0, proc.stderr
+    assert host.restarts() == [UNIT]
+    assert host.calib.requests == 2
+    assert f"not restarting {UNIT2}: calibration active: rgbd:head-arm, general:home_arm" in proc.stdout
+    text = host.metrics()
+    assert metric_value(text, blocked_series(UNIT2)) == 1
+    assert metric_value(text, blocked_series()) == 0
+
+
+def test_malformed_url_run_saves_state_and_metrics(host: Harness) -> None:
+    """A URL urllib cannot parse never crashes the run: no restart, the streak is saved, the blocked metric is 1."""
+    for _ in range(4):
+        proc = host.run(DDS_WATCHDOG_CALIBRATION_URL="http://[::1/api/calibration/active")
+        assert proc.returncode == 0, proc.stderr
+    assert host.restarts() == []
+    assert f"not restarting {UNIT}: calibration malformed: " in proc.stdout
+    assert json.loads(host.state_file.read_text())[UNIT]["streak"] == 4
+    assert metric_value(host.metrics(), blocked_series()) == 1
+
+
+def test_bad_timeout_run_uses_default(host: Harness) -> None:
+    """An infinite calibration timeout never crashes the run: it warns, uses 3 s and the idle answer allows the
+    restart."""
+    for _ in range(3):
+        proc = host.run(DDS_WATCHDOG_CALIBRATION_TIMEOUT_S="inf")
+        assert proc.returncode == 0, proc.stderr
+    assert "DDS_WATCHDOG_CALIBRATION_TIMEOUT_S" in proc.stdout
+    assert host.restarts() == [UNIT]
+    assert json.loads(host.state_file.read_text())[UNIT]["restarts_total"] == 1

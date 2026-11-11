@@ -13,11 +13,14 @@ and the textfile are replaced atomically (temp file + rename). The run exits non
 written.
 
 Calibration guard (fail closed): only when a unit is due for a restart (streak reached, no fresh deploy lock, rate
-limit passed), the run asks web_ui's GET /api/calibration/active once (one retry on a transport error, redirects never
-followed). While a calibration flow is active, a source is unknown, or the answer is unreachable or malformed, nothing
-is restarted: the unit keeps its streak, the run logs a WARNING `not restarting <unit>: calibration <reason>` and
-records blocked_since, and the restart happens on the first run that sees idle while the unit is still a suspect. A
-healthy host makes no HTTP call. Dry run checks the calibration state too.
+limit passed), the run asks web_ui's GET /api/calibration/active (one retry on a transport error, redirects never
+followed). The answer is reused for later due units of the same run only until a restart: after every systemctl
+restart the next due unit asks again, so a calibration started during a restart is seen. While a calibration flow is
+active, a source is unknown, or the answer is unreachable or malformed, nothing is restarted: the unit keeps its
+streak, the run logs a WARNING `not restarting <unit>: calibration <reason>` and records blocked_since, and the restart
+happens on the first run that sees idle while the unit is still a suspect. A healthy host makes no HTTP call. Dry run
+checks the calibration state too. A URL that cannot be parsed or any other unexpected error of the request blocks as
+malformed and never crashes the run.
 
 Environment:
     DDS_WATCHDOG_PROC_ROOT: /proc directory (default /proc).
@@ -34,7 +37,8 @@ Environment:
     DDS_WATCHDOG_CALIBRATION_URL: full URL of web_ui's GET /api/calibration/active (default
         http://127.0.0.1/api/calibration/active, the client; the server uses http://client.ros2.lan/api/calibration/active).
     DDS_WATCHDOG_CALIBRATION_TIMEOUT_S: socket timeout in seconds of each calibration request, may be fractional
-        (default 3; web_ui answers in under 1 s).
+        (default 3; web_ui answers in under 1 s). A non-numeric, non-finite or non-positive value logs a WARNING and
+        uses the default.
     SYSTEMCTL: systemctl binary (default "systemctl", looked up on PATH).
 """
 
@@ -42,6 +46,7 @@ import functools
 import http.client
 import json
 import logging
+import math
 import os
 import re
 import subprocess
@@ -260,7 +265,7 @@ class Config:
             Config: The settings.
 
         Raises:
-            ValueError: An integer variable is not an integer, or the calibration timeout is not a number.
+            ValueError: An integer variable is not an integer.
         """
         return cls(
             proc_root=Path(environ.get("DDS_WATCHDOG_PROC_ROOT", DEFAULT_PROC_ROOT)),
@@ -277,10 +282,34 @@ class Config:
             dry_run=environ.get("DDS_WATCHDOG_DRY_RUN", "false").strip().lower() in TRUE_VALUES,
             systemctl=environ.get("SYSTEMCTL", DEFAULT_SYSTEMCTL),
             calibration_url=environ.get("DDS_WATCHDOG_CALIBRATION_URL", DEFAULT_CALIBRATION_URL),
-            calibration_timeout_s=float(
-                environ.get("DDS_WATCHDOG_CALIBRATION_TIMEOUT_S", DEFAULT_CALIBRATION_TIMEOUT_S)
-            ),
+            calibration_timeout_s=calibration_timeout(environ.get("DDS_WATCHDOG_CALIBRATION_TIMEOUT_S")),
         )
+
+
+def calibration_timeout(raw: str | None) -> float:
+    """Parse DDS_WATCHDOG_CALIBRATION_TIMEOUT_S; a bad value never stops the watchdog.
+
+    Args:
+        raw (str | None): Value of the variable, None when it is not set.
+
+    Returns:
+        float: The timeout in seconds when it is a finite number above 0, else DEFAULT_CALIBRATION_TIMEOUT_S (with a
+            WARNING when a value was set).
+    """
+    if raw is None:
+        return DEFAULT_CALIBRATION_TIMEOUT_S
+    try:
+        value = float(raw)
+    except ValueError:
+        value = math.nan
+    if math.isfinite(value) and value > 0:
+        return value
+    LOG.warning(
+        "DDS_WATCHDOG_CALIBRATION_TIMEOUT_S=%r is not a finite number above 0, using %s s",
+        raw,
+        DEFAULT_CALIBRATION_TIMEOUT_S,
+    )
+    return DEFAULT_CALIBRATION_TIMEOUT_S
 
 
 @dataclass
@@ -516,7 +545,8 @@ def calibration_status(url: str, timeout_s: float) -> tuple[bool, str]:
     """Ask web_ui whether a calibration runs; fail closed on anything but a valid idle answer.
 
     One retry on a transport error (connection refused or reset, timeout); a non-200 status, a redirect (never
-    followed) or a bad body is not retried. Proxies from the environment are not used.
+    followed) or a bad body is not retried. Proxies from the environment are not used. Never raises: a URL that cannot
+    be parsed and any other non-transport error (e.g. OverflowError from an infinite timeout) block as malformed.
 
     Args:
         url (str): Full http(s) URL of GET /api/calibration/active.
@@ -526,7 +556,11 @@ def calibration_status(url: str, timeout_s: float) -> tuple[bool, str]:
         tuple[bool, str]: (blocked, reason); reason is "idle" when not blocked, else "active: ...", "unknown: ...",
             "unreachable: <error>" or "malformed: <what>".
     """
-    if urllib.parse.urlsplit(url).scheme not in CALIBRATION_SCHEMES:
+    try:
+        scheme = urllib.parse.urlsplit(url).scheme
+    except ValueError as exc:
+        return True, f"malformed: url {url!r}: {exc}"
+    if scheme not in CALIBRATION_SCHEMES:
         return True, f"malformed: url {url!r} is not http(s)"
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
     error = ""
@@ -543,11 +577,13 @@ def calibration_status(url: str, timeout_s: float) -> tuple[bool, str]:
         except urllib.error.URLError as exc:
             error = str(exc.reason)
             continue
+        except http.client.InvalidURL as exc:
+            return True, f"malformed: url {url!r}: {exc}"
         except (OSError, http.client.HTTPException) as exc:
             error = str(exc) or type(exc).__name__
             continue
-        except ValueError as exc:
-            return True, f"malformed: url {url!r}: {exc}"
+        except Exception as exc:  # fail closed: anything else blocks and must not crash the run
+            return True, f"malformed: {type(exc).__name__}: {exc}"
         if status != HTTP_OK:
             return True, f"unreachable: HTTP {status}"
         if len(body) > CALIBRATION_MAX_BODY_BYTES:
@@ -570,7 +606,8 @@ def restart_allowed(
         unit (str): Unit name (for the log).
         unit_state (UnitState): State of the unit; blocked_since is updated.
         now (float): Current epoch seconds.
-        calibration (Callable[[], tuple[bool, str]]): Returns (blocked, reason) of calibration_status, cached per run.
+        calibration (Callable[[], tuple[bool, str]]): Returns (blocked, reason) of calibration_status; run_once
+            caches it until the next systemctl restart of the run.
 
     Returns:
         bool: True when no fresh deploy lock exists, the last restart attempt (successful or failed) is old enough and
@@ -725,6 +762,8 @@ def run_once(cfg: Config, now: float) -> int:
     state_keep: dict[str, UnitState] = {}
     queues = rx_queues(cfg.proc_root)
     suspects: set[str] = set()
+    # One request serves the due units of a run until a restart; the cache is cleared after every restart_unit call,
+    # so no unit is restarted on an answer read before another unit's restart (which can take up to 60 s).
     calibration = functools.cache(lambda: calibration_status(cfg.calibration_url, cfg.calibration_timeout_s))
     for unit in units:
         unit_state = state.get(unit, UnitState())
@@ -744,7 +783,9 @@ def run_once(cfg: Config, now: float) -> int:
                     LOG.warning("would restart %s (dry run)", why)
                 else:
                     LOG.warning("restarting %s", why)
-                    if restart_unit(cfg, unit):
+                    restarted = restart_unit(cfg, unit)
+                    calibration.cache_clear()
+                    if restarted:
                         unit_state.restarts_total += 1
                         unit_state.last_restart = now
                         unit_state.streak = 0
