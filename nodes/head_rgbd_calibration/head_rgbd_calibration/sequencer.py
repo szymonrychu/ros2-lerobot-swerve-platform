@@ -46,8 +46,16 @@ board record mount, else the configured one; the same path check from the measur
 holding with the board on. A refusal in the worker (path check, no gripper angle) ends holding with the board on, as
 the user stated it is on.
 
+Grip record (`confirm_grip`, confirmed; nothing moves): from `idle` or `holding` with nothing running, the user states the
+board handle is seated in the closed jaws; the measured gripper angle (get_arm_state, recorded as measured) becomes the
+active `handle_contact_rad`, written atomically to `grip_file` (GRIP_RECORD_FILE in state_dir) and loaded at the next
+start (an invalid record is ignored with a WARNING). `self.seq` is the active arm sequence config (`config_seq` with the
+recorded contact), so `grip_rad`, the unseated and slack limits and the closed-jaw limit of a resume from idle all
+follow it. While it measures it holds a short claim (`running`, a `grip-...` run id, phase and status kept), so a
+sequence or park start is refused. `reset_grip` (confirmed) removes the file and makes `config_seq` active again.
+
 Threads (as floor_sweep.py): `move_to_base`, `resume_with_board`, `board_attached`, `allow_big_joints`, `stop`, `park`,
-`clear_board_record` and `state` run on HTTP threads; one worker thread runs the sequence or the park. `lock` guards the shared fields and is only held for
+`clear_board_record`, `confirm_grip`, `reset_grip` and `state` run on HTTP threads; one worker thread runs the sequence or the park. `lock` guards the shared fields and is only held for
 short updates (never across a tool call or `blocked`); the worker waits through the injected `sleep` and measures
 every wait on the injected `clock`.
 
@@ -57,7 +65,7 @@ its message (errors at ERROR, stops and skipped poses at WARNING) and kept in a 
 EVENT_LIMIT events, `state()["events"]` (newest first), so the Calibrate page shows why a sequence ended.
 
 Telemetry (telemetry.py): the journal lines of this module are `calib_event`s of flow `head_arm` under the run id of the
-sequence (`seq-...`), park (`park-...`) or board record clear (`board-...`), plus the traceback of an unexpected exception; a UI event is that same line
+sequence (`seq-...`), park (`park-...`), board record clear (`board-...`) or grip record (`grip-...`), plus the traceback of an unexpected exception; a UI event is that same line
 (append_event), never a second one. The
 worker steps are timed (start, ok, stopped or error with the exception and the step's inputs), and the measured joints
 (get_arm_state), path checks (start, target, gripper, every violated entry), MCP results (status, message, result),
@@ -79,6 +87,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationError
 from ros2_common.camera_geometry import CameraIntrinsics
 from ros2_common.head_rgbd_calibration.arm_pose_check import BOARD_LINK, GRIPPER_JOINT, PoseChecker
 from ros2_common.head_rgbd_calibration.chain import UrdfChain, pose_from_xyz_rpy
@@ -87,7 +96,7 @@ from ros2_common.head_rgbd_calibration.floor_fit import PAN_JOINT, TILT_JOINT
 from ros2_common.head_rgbd_calibration.head_arm_fit import aim_head, board_centre
 
 from head_rgbd_calibration.capture import CaptureController, StillOutcome
-from head_rgbd_calibration.config import BIG_JOINTS, CAD_BOARD_RPY, CAD_BOARD_XYZ, NodeConfig
+from head_rgbd_calibration.config import BIG_JOINTS, CAD_BOARD_RPY, CAD_BOARD_XYZ, ArmSequenceConfig, NodeConfig
 from head_rgbd_calibration.robot_client import RobotClient, ToolResult
 from head_rgbd_calibration.telemetry import calib_event, new_run_id, step_timer
 
@@ -115,7 +124,8 @@ MESSAGE_BOARD = "Seat the arm board handle in the gripper jaws up to the shoulde
 MESSAGE_UNSEATED = "the gripper closed past the handle contact: seat the handle up to the shoulder and start again"
 MESSAGE_SLACK_GRIP = (
     "the gripper stopped short of the commanded grip by the mcp_server converge tolerance or more, so the clamp would"
-    " relax: the handle is thicker than the CAD contact; set arm_sequence.handle_contact_rad from the measured contact"
+    " relax: the handle is thicker than the configured contact;"
+    " with the handle seated, record the measured contact with Confirm correct grip (POST /api/head-arm/grip/confirm)"
 )
 MESSAGE_STATE_BOARD = "; if the calibration board is on the gripper, state that the board is on and press Park again"
 MESSAGE_PARK = "Press Park (the board may stay on when its park path is clear)"
@@ -151,6 +161,24 @@ MESSAGE_CLEAR_CONFIRM = (
 )
 MESSAGE_CLEARED = "board record cleared: the user stated the calibration board is off the gripper (nothing moved)"
 MESSAGE_NOTHING_TO_CLEAR = "no board record to clear (nothing moved)"
+GRIP_RECORD_FILE = "head_arm_grip.json"  # in state_dir, next to the board record
+GRIP_CONTACT_MIN_RAD = 0.03  # a recordable handle contact (rad, inclusive)
+GRIP_CONTACT_MAX_RAD = 0.30
+GRIP_STEP = "grip_record"
+SOURCE_CONFIG = "config"
+SOURCE_RECORDED = "recorded"
+MESSAGE_GRIP_CONFIRM = (
+    "recording the grip needs confirmed=True: the user states the board handle is seated in the closed jaws; the"
+    " measured gripper angle becomes the handle contact (nothing moves)"
+)
+MESSAGE_GRIP_RESET_CONFIRM = (
+    "resetting the grip record needs confirmed=True: the handle contact returns to the configured"
+    " arm_sequence.handle_contact_rad (nothing moves)"
+)
+MESSAGE_GRIP_PHASE = (
+    "the grip record can change only while idle or holding, with no sequence or park running: stop it or let it end"
+    " first"
+)
 
 
 class SequenceError(RuntimeError):
@@ -290,6 +318,37 @@ def carrying_reasons(result: ToolResult) -> list[str]:
     return [str(reason) for reason in carrying.get("reasons") or []] or ["carrying"]
 
 
+class GripRecord(BaseModel):
+    """The confirmed grip: the measured gripper angle on the seated handle, the active handle contact.
+
+    Attributes:
+        handle_contact_rad (float): Handle contact (rad), GRIP_CONTACT_MIN_RAD to GRIP_CONTACT_MAX_RAD.
+        recorded_at (AwareDatetime): When the user confirmed it (with a zone).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    handle_contact_rad: float = Field(ge=GRIP_CONTACT_MIN_RAD, le=GRIP_CONTACT_MAX_RAD)
+    recorded_at: AwareDatetime
+
+
+def read_grip_record(path: Path) -> GripRecord:
+    """Read and check a grip record file.
+
+    Args:
+        path (Path): The record `{handle_contact_rad, recorded_at}` (Sequencer grip_file).
+
+    Returns:
+        GripRecord: The checked record.
+
+    Raises:
+        OSError: The file cannot be read.
+        ValueError: The content is not a valid record (pydantic ValidationError: not JSON, a missing or extra key, a
+            contact out of range, a time without a zone).
+    """
+    return GripRecord.model_validate_json(path.read_text())
+
+
 def read_board_record(path: Path) -> dict[str, Any]:
     """Read and check a board record file.
 
@@ -332,6 +391,7 @@ class Sequencer:
         board_file: Path | None = None,
         session_exists: Callable[[str | None], bool] | None = None,
         now: Callable[[], datetime] | None = None,
+        grip_file: Path | None = None,
     ) -> None:
         """Create an idle sequencer (nothing is called until move_to_base or park).
 
@@ -354,6 +414,9 @@ class Sequencer:
                 user must still state that the board is on (park(board_on=True)) before a board park. None: not kept.
             session_exists: Whether a capture session id is a stored head_arm session (default: any id).
             now: Wall clock (default: datetime.now(UTC)); stamps and ages the board record.
+            grip_file (Path | None): JSON record `{handle_contact_rad, recorded_at}` of the confirmed grip
+                (confirm_grip); a valid one at start replaces `arm_sequence.handle_contact_rad` everywhere until
+                reset_grip removes it. None: a confirmed grip is kept in memory only (lost on a restart).
         """
         self.board_file = board_file
         self.session_exists = session_exists or (lambda session_id: session_id is not None)
@@ -362,7 +425,10 @@ class Sequencer:
         self.capture = capture
         self.robot = robot
         self.cfg = cfg
-        self.seq = cfg.arm_sequence
+        self.config_seq: ArmSequenceConfig = cfg.arm_sequence
+        self.seq: ArmSequenceConfig = cfg.arm_sequence
+        self.grip_file = grip_file
+        self.grip_recorded_at: str | None = None
         self.head_urdf = head_urdf
         self.arm_urdf = arm_urdf
         self.blocked = blocked
@@ -389,6 +455,7 @@ class Sequencer:
         self.run_id: str | None = None
         self.current_step: str | None = None
         self.restore_board()
+        self.restore_grip()
 
     def restore_board(self) -> None:
         """Offer the board record of a previous run: only a fresh one of a stored session, never as the state itself.
@@ -532,6 +599,248 @@ class Sequencer:
                 file=None if self.board_file is None else str(self.board_file),
                 record=previous,
                 phase_after=self.phase,
+            )
+        return self.state()
+
+    def grip_problem(self) -> str | None:
+        """Why the grip record cannot change now, or None when it can (the caller holds `lock`).
+
+        Returns:
+            str | None: MESSAGE_GRIP_PHASE with the phase while a sequence, park or grip measure runs, the worker thread
+                is alive, or the phase is neither idle nor holding; else None.
+        """
+        alive = self.thread is not None and self.thread.is_alive()
+        if self.running or alive or self.phase not in (IDLE, HOLDING):
+            return f"{MESSAGE_GRIP_PHASE} (phase {self.phase}, running {self.running or alive})"
+        return None
+
+    def with_contact(self, contact: float) -> ArmSequenceConfig:
+        """The configured arm sequence with another handle contact, checked by its own validator.
+
+        Args:
+            contact (float): Handle contact (rad).
+
+        Returns:
+            ArmSequenceConfig: `config_seq` with `handle_contact_rad` = contact (grip_rad follows).
+
+        Raises:
+            ValidationError: The config refuses the contact (e.g. at or below `handle_squeeze_rad`).
+        """
+        return ArmSequenceConfig.model_validate({**self.config_seq.model_dump(), "handle_contact_rad": contact})
+
+    def restore_grip(self) -> None:
+        """Load the grip record of a previous confirm: a valid one becomes the active handle contact.
+
+        An unreadable, invalid or out-of-range record, or one the arm sequence config refuses, is ignored (logged at
+        WARNING); the configured contact stays active and the file stays until reset_grip or a new confirm.
+        """
+        if self.grip_file is None or not self.grip_file.is_file():
+            return
+        try:
+            record = read_grip_record(self.grip_file)
+            seq = self.with_contact(record.handle_contact_rad)
+        except (OSError, ValueError) as exc:
+            self.log(GRIP_STEP, "ignored", logging.WARNING, f"unusable: {exc}", file=self.grip_file)
+            return
+        self.seq = seq
+        self.grip_recorded_at = record.recorded_at.isoformat(timespec="seconds")
+        self.log(
+            GRIP_STEP,
+            "loaded",
+            file=self.grip_file,
+            handle_contact_rad=record.handle_contact_rad,
+            grip_rad=seq.grip_rad,
+            recorded_at=self.grip_recorded_at,
+            config_handle_contact_rad=self.config_seq.handle_contact_rad,
+        )
+
+    def grip_state(self) -> dict[str, Any]:
+        """The active handle contact and where it comes from.
+
+        Returns:
+            dict[str, Any]: {handle_contact_rad (float), grip_rad (float), source ("config" or "recorded"),
+                recorded_at (str | None, ISO 8601 of the confirm), config_handle_contact_rad (float)}.
+        """
+        recorded = self.grip_recorded_at is not None
+        return {
+            "handle_contact_rad": self.seq.handle_contact_rad,
+            "grip_rad": self.seq.grip_rad,
+            "source": SOURCE_RECORDED if recorded else SOURCE_CONFIG,
+            "recorded_at": self.grip_recorded_at,
+            "config_handle_contact_rad": self.config_seq.handle_contact_rad,
+        }
+
+    def confirm_grip(self, confirmed: bool) -> dict[str, Any]:
+        """The user states the board handle is seated in the closed jaws: record the measured gripper angle as the
+        active handle contact (grip_rad, the unseated and slack limits and the closed-jaw limit of a resume follow).
+
+        Nothing moves: only get_arm_state is called. While it measures the sequencer holds a short claim (`running`,
+        a new `grip-...` run id; phase and status unchanged), so a sequence or park start is refused meanwhile. The
+        value is recorded as measured; the file is written atomically before the new contact becomes active.
+
+        Args:
+            confirmed (bool): The user confirmed the handle is seated in the closed jaws.
+
+        Returns:
+            dict[str, Any]: The state() after the record.
+
+        Raises:
+            ValueError: Not confirmed (nothing is called).
+            Busy: A sequence, park or grip measure runs, the worker thread is alive, or the phase is neither idle nor
+                holding (nothing is called).
+            SequenceError: get_arm_state fails or reports no gripper angle, the angle is outside GRIP_CONTACT_MIN_RAD
+                to GRIP_CONTACT_MAX_RAD or refused by the arm sequence config, or the file cannot be written (the
+                active contact is unchanged).
+        """
+        if not confirmed:
+            raise ValueError(MESSAGE_GRIP_CONFIRM)
+        with self.lock:
+            problem = self.grip_problem()
+            if problem is not None:
+                raise Busy(problem)
+            self.running = True
+            self.run_id = new_run_id("grip", self.now())
+            previous = self.seq.handle_contact_rad
+        try:
+            try:
+                jaw, seq = self.measured_contact()
+            except SequenceError as exc:
+                self.event(
+                    logging.WARNING,
+                    f"grip not recorded: {exc}; nothing moved",
+                    GRIP_STEP,
+                    "refused",
+                    reason=str(exc),
+                    previous_rad=previous,
+                )
+                raise
+            stamp = self.now().isoformat(timespec="seconds")
+            file = None if self.grip_file is None else str(self.grip_file)
+            try:
+                self.write_grip(GripRecord(handle_contact_rad=jaw, recorded_at=datetime.fromisoformat(stamp)))
+            except OSError as exc:
+                self.event(
+                    logging.ERROR,
+                    f"grip not recorded: cannot write {file}: {exc}; nothing moved",
+                    GRIP_STEP,
+                    "error",
+                    reason=str(exc),
+                    measured_rad=jaw,
+                    previous_rad=previous,
+                    file=file,
+                )
+                raise SequenceError(f"cannot write the grip record {file}: {exc}") from exc
+            with self.lock:
+                self.seq = seq
+                self.grip_recorded_at = stamp
+                self.append_event(
+                    logging.INFO,
+                    f"grip recorded: handle contact {jaw:.4f} rad (was {previous:.4f} rad); nothing moved",
+                    GRIP_STEP,
+                    "recorded",
+                    measured_rad=jaw,
+                    previous_rad=previous,
+                    grip_rad=seq.grip_rad,
+                    file=file,
+                    recorded_at=stamp,
+                )
+        finally:
+            with self.lock:
+                self.running = False
+        return self.state()
+
+    def measured_contact(self) -> tuple[float, ArmSequenceConfig]:
+        """Measure the gripper (get_arm_state) and check it as a handle contact (nothing moves).
+
+        Returns:
+            tuple[float, ArmSequenceConfig]: The measured gripper angle (rad, as reported) and the arm sequence config
+                with it as `handle_contact_rad`.
+
+        Raises:
+            SequenceError: get_arm_state fails or reports no gripper angle, the angle is outside GRIP_CONTACT_MIN_RAD
+                to GRIP_CONTACT_MAX_RAD, or the arm sequence config refuses it.
+        """
+        try:
+            jaw = self.measured().get(GRIPPER_JOINT)
+        except StepFailed as exc:
+            raise SequenceError(str(exc)) from exc
+        if jaw is None:
+            raise SequenceError("get_arm_state reports no gripper angle: cannot record the grip")
+        if not GRIP_CONTACT_MIN_RAD <= jaw <= GRIP_CONTACT_MAX_RAD:
+            raise SequenceError(
+                f"the measured gripper angle {jaw:.4f} rad is outside {GRIP_CONTACT_MIN_RAD:g} to "
+                f"{GRIP_CONTACT_MAX_RAD:g} rad: not a handle seated in the jaws"
+            )
+        try:
+            return jaw, self.with_contact(jaw)
+        except ValidationError as exc:
+            raise SequenceError(f"the arm sequence config refuses a handle contact of {jaw:.4f} rad: {exc}") from exc
+
+    def write_grip(self, record: GripRecord) -> None:
+        """Write the grip record atomically (a temp file, then os.replace); no-op without a grip_file.
+
+        Args:
+            record (GripRecord): The record to write.
+
+        Raises:
+            OSError: The directory or the file cannot be written (the previous file, if any, is unchanged).
+        """
+        if self.grip_file is None:
+            return
+        self.grip_file.parent.mkdir(parents=True, exist_ok=True)
+        temp = self.grip_file.with_name(self.grip_file.name + ".tmp")
+        content = {
+            "handle_contact_rad": record.handle_contact_rad,
+            "recorded_at": record.recorded_at.isoformat(timespec="seconds"),
+        }
+        temp.write_text(json.dumps(content))
+        os.replace(temp, self.grip_file)
+
+    def reset_grip(self, confirmed: bool) -> dict[str, Any]:
+        """Remove the grip record (a corrupt one too): the configured handle contact is active again. Nothing moves.
+
+        Args:
+            confirmed (bool): The user confirmed the reset.
+
+        Returns:
+            dict[str, Any]: The state() after the reset (also without a record: the reset is idempotent).
+
+        Raises:
+            ValueError: Not confirmed (nothing changes).
+            Busy: A sequence, park or grip measure runs, the worker thread is alive, or the phase is neither idle nor
+                holding.
+            SequenceError: The file cannot be removed (logged; the active contact is unchanged).
+        """
+        if not confirmed:
+            raise ValueError(MESSAGE_GRIP_RESET_CONFIRM)
+        with self.lock:
+            problem = self.grip_problem()
+            if problem is not None:
+                raise Busy(problem)
+            self.run_id = new_run_id("grip", self.now())
+            previous = self.seq.handle_contact_rad
+            had_record = self.grip_recorded_at is not None
+            file = None if self.grip_file is None else str(self.grip_file)
+            try:
+                if self.grip_file is not None:
+                    self.grip_file.unlink(missing_ok=True)
+            except OSError as exc:
+                self.append_event(
+                    logging.ERROR, f"grip record not reset: {exc}", GRIP_STEP, "error", reason=str(exc), file=file
+                )
+                raise SequenceError(f"cannot remove the grip record {self.grip_file}: {exc}") from exc
+            self.seq = self.config_seq
+            self.grip_recorded_at = None
+            self.append_event(
+                logging.INFO,
+                f"grip record reset: handle contact {self.seq.handle_contact_rad:.4f} rad from the config"
+                f"{f' (was {previous:.4f} rad)' if had_record else ''}; nothing moved",
+                GRIP_STEP,
+                "reset",
+                previous_rad=previous,
+                had_record=had_record,
+                handle_contact_rad=self.seq.handle_contact_rad,
+                file=file,
             )
         return self.state()
 
@@ -690,6 +999,7 @@ class Sequencer:
                 "waiting_since": self.waiting_since,
                 "board_on": self.board_on,
                 "board_record": self.board_record_state(),
+                "grip": self.grip_state(),
                 "events": [dict(e) for e in reversed(self.events)],
             }
 

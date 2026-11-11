@@ -3,6 +3,7 @@
 Uses the sequencer rig of test_sequencer.py (fake mcp_server transport, fake still capture, injected clock).
 """
 
+import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -10,7 +11,13 @@ from typing import Any
 import pytest
 
 from head_rgbd_calibration.capture import StillOutcome
-from head_rgbd_calibration.sequencer import MESSAGE_UNSEATED, SequenceError
+from head_rgbd_calibration.sequencer import (
+    GRIP_CONTACT_MAX_RAD,
+    GRIP_RECORD_FILE,
+    GRIP_STEP,
+    MESSAGE_UNSEATED,
+    SequenceError,
+)
 from head_rgbd_calibration.telemetry import EVENT_PREFIX, events_in
 from tests.test_sequencer import (
     BOARD_LOAD,
@@ -31,6 +38,12 @@ FLOW = "head_arm"
 def sequencer_events(caplog: pytest.LogCaptureFixture) -> list[dict[str, Any]]:
     """The calib_event payloads the sequencer logged."""
     return events_in(r for r in caplog.records if r.name == SEQUENCER_LOGGER)
+
+
+def levels(caplog: pytest.LogCaptureFixture, step: str, outcome: str) -> list[int]:
+    """The logging levels of the sequencer's calib_events of one step and outcome."""
+    records = [r for r in caplog.records if r.name == SEQUENCER_LOGGER]
+    return [r.levelno for r in records for e in events_in([r]) if e["step"] == step and e["outcome"] == outcome]
 
 
 def find(events: list[dict[str, Any]], step: str, outcome: str | None = None) -> list[dict[str, Any]]:
@@ -206,3 +219,48 @@ def test_no_token_reaches_the_log(tmp_path: Path, caplog: pytest.LogCaptureFixtu
         rig.finish()
     text = "\n".join(r.getMessage() for r in caplog.records)
     assert TOKEN not in text and BOARD_PARK_TOKEN not in text
+
+
+def test_confirm_grip_logs_event(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    assert GRIP_STEP == "grip_record"
+    grip_file = tmp_path / "state" / GRIP_RECORD_FILE
+    rig = Rig(tmp_path, small_cfg(), grip_file=grip_file)
+    config_contact = rig.cfg.arm_sequence.handle_contact_rad
+    contact = config_contact - 0.005
+    with caplog.at_level(logging.INFO, logger=SEQUENCER_LOGGER):
+        rig.robot.positions[GRIPPER] = GRIP_CONTACT_MAX_RAD + 0.001
+        with pytest.raises(SequenceError):
+            rig.seq.confirm_grip(True)
+        rig.robot.positions[GRIPPER] = contact
+        rig.seq.confirm_grip(True)
+        rig.seq.reset_grip(True)
+    events = sequencer_events(caplog)
+    refused = find(events, GRIP_STEP, "refused")
+    assert len(refused) == 1 and levels(caplog, GRIP_STEP, "refused") == [logging.WARNING]
+    assert refused[0]["run_id"].startswith("grip-")
+    recorded = find(events, GRIP_STEP, "recorded")
+    assert len(recorded) == 1 and levels(caplog, GRIP_STEP, "recorded") == [logging.INFO]
+    data = recorded[0]["data"]
+    assert data["measured_rad"] == pytest.approx(contact, abs=1e-6)
+    assert data["previous_rad"] == pytest.approx(config_contact, abs=1e-6)
+    assert data["file"] == str(grip_file)
+    assert recorded[0]["run_id"].startswith("grip-")
+    assert find(events, GRIP_STEP, "reset")
+    assert "nothing moved" in rig.seq.state()["events"][1]["message"]
+
+
+def test_startup_grip_record_logs_loaded_or_ignored(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    grip_file = tmp_path / "state" / GRIP_RECORD_FILE
+    grip_file.parent.mkdir(parents=True)
+    contact = small_cfg().arm_sequence.handle_contact_rad + 0.002
+    grip_file.write_text(json.dumps({"handle_contact_rad": contact, "recorded_at": "2026-10-22T12:00:00+00:00"}))
+    with caplog.at_level(logging.INFO, logger=SEQUENCER_LOGGER):
+        Rig(tmp_path, small_cfg(), grip_file=grip_file)
+    loaded = find(sequencer_events(caplog), GRIP_STEP, "loaded")
+    assert len(loaded) == 1 and loaded[0]["data"]["handle_contact_rad"] == pytest.approx(contact, abs=1e-6)
+    caplog.clear()
+    grip_file.write_text("not json")
+    with caplog.at_level(logging.INFO, logger=SEQUENCER_LOGGER):
+        Rig(tmp_path, small_cfg(), grip_file=grip_file)
+    ignored = find(sequencer_events(caplog), GRIP_STEP, "ignored")
+    assert len(ignored) == 1 and levels(caplog, GRIP_STEP, "ignored") == [logging.WARNING]
