@@ -268,10 +268,10 @@ def request_app() -> FastAPI:
     def state() -> dict[str, Any]:
         return {"ok": True}
 
-    @app.post("/api/park")
-    def park(body: dict[str, Any]) -> Any:
+    @app.post("/api/home")
+    def home(body: dict[str, Any]) -> Any:
         if not body.get("confirm"):
-            return JSONResponse(status_code=400, content={"ok": False, "message": "park needs confirm=true"})
+            return JSONResponse(status_code=400, content={"ok": False, "message": "home needs confirm=true"})
         return {"ok": True}
 
     @app.post("/api/raw")
@@ -290,20 +290,20 @@ def test_request_telemetry_logs_mutating_requests_with_params_and_outcome(caplog
     client = TestClient(request_app(), raise_server_exceptions=False)
     with caplog.at_level(logging.INFO, logger="head_rgbd_calibration.telemetry"):
         client.get("/api/state")
-        client.post("/api/park?x=1&token=abc", json={"confirm": True, "board_on": True, "token": "secret"})
-        client.post("/api/park", json={"confirm": False})
+        client.post("/api/home?x=1&token=abc", json={"confirm": True, "board_on": True, "token": "secret"})
+        client.post("/api/home", json={"confirm": False})
         client.post("/api/crash")
     events = events_in(caplog.records)
     assert [(e["step"], e["outcome"]) for e in events] == [
-        ("POST /api/park", "ok"),
-        ("POST /api/park", "refused"),
+        ("POST /api/home", "ok"),
+        ("POST /api/home", "refused"),
         ("POST /api/crash", "error"),
     ]
     assert all(e["flow"] == "api" for e in events)
     assert events[0]["data"]["body"] == {"confirm": True, "board_on": True, "token": REDACTED}
     assert events[0]["data"]["query"] == {"x": "1", "token": REDACTED}
     assert events[0]["data"]["status"] == 200
-    assert events[1]["reason"] == "park needs confirm=true"
+    assert events[1]["reason"] == "home needs confirm=true"
     assert events[1]["data"]["status"] == 400
     assert events[2]["reason"] == "RuntimeError: compute exploded"
     assert [r.levelno for r in caplog.records if r.getMessage().startswith(EVENT_PREFIX)] == [

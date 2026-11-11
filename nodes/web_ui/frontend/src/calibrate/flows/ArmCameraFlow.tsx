@@ -36,7 +36,7 @@ import {
   getHeadArmState,
   listHeadArmSessions,
   moveToBase,
-  park,
+  home,
   resetGrip,
   resumeBoardOn,
   stopSequence,
@@ -55,11 +55,11 @@ const PHASE_IDLE = 'idle'
 const PHASE_WAITING_BOARD = 'waiting_board'
 const PHASE_WAITING_BIG = 'waiting_big_joints'
 const PHASE_HOLDING = 'holding'
-const PHASE_PARKING = 'parking'
+const PHASE_HOMING = 'homing'
 /** Phases from the base pose on: the gripper is open at the insert width or the board is in. */
-const AT_BASE_PHASES = ['waiting_board', 'capturing', 'waiting_big_joints', 'returning_to_base', 'holding', 'parking']
+const AT_BASE_PHASES = ['waiting_board', 'capturing', 'waiting_big_joints', 'returning_to_base', 'holding', 'homing']
 /** Phases after Board attached. */
-const GRABBED_PHASES = ['capturing', 'waiting_big_joints', 'returning_to_base', 'holding', 'parking']
+const GRABBED_PHASES = ['capturing', 'waiting_big_joints', 'returning_to_base', 'holding', 'homing']
 /** Phases of a capture still in progress. */
 const CAPTURE_PHASES = ['moving_to_base', 'waiting_board', 'capturing', 'waiting_big_joints', 'returning_to_base']
 /** Starts of the sequence errors raised when the measured grip does not match the configured contact (sequencer.py). */
@@ -74,7 +74,7 @@ const INTRO =
   'The arm joint offsets and arm base are fitted from the head D435: the head D435 watches the ARM board held by its handle in the jaws while the arm moves it through checked poses. Needs a camera-to-ground result (applied head chain) and an arm zero that is not stale, or one just set by a servo calibration. Robot not driving.'
 const ACCEPT_BODY =
   'Records the arm-to-camera calibration (the arm joint offsets and arm base) as the applied one and restarts its consumer units. The same calibration as a client.yml snippet is shown below the report for review.'
-const PARK_HINT = 'press Park (board is on the gripper) in step 1 (Park arm in step 7 while the sequence holds).'
+const HOME_HINT = 'press Home (board is on the gripper) in step 1 (Home in step 7 while the sequence holds).'
 const HEAD_CHAIN_CHANGED_TEXT =
   'The head chain changed since the applied arm-to-camera calibration was fitted: it no longer matches the camera. Run this flow again.'
 
@@ -89,9 +89,9 @@ export function acceptText(answer: ArmCameraAccept): string {
   return `Applied result ${answer.arm_calibration.result}.${units.length ? ` Units: ${units.join(', ')}.` : ''}`
 }
 
-type Dialog = 'home' | 'base' | 'big' | 'park' | 'parkBoard' | 'resume' | 'resumeIdle' | 'grip' | 'gripReset' | null
+type Dialog = 'homeArm' | 'base' | 'big' | 'home' | 'homeBoard' | 'resume' | 'resumeIdle' | 'grip' | 'gripReset' | null
 // 'banner' is the Confirm correct grip button in the error banner: step 3 is locked then, so its answer shows there.
-type StepId = 'home' | 'open' | 'grab' | 'capture' | 'compute' | 'gate' | 'park' | 'banner'
+type StepId = 'homeArm' | 'open' | 'grab' | 'capture' | 'compute' | 'gate' | 'home' | 'banner'
 type Errors = Partial<Record<StepId, string>>
 
 /**
@@ -120,7 +120,7 @@ function GripLine({ grip }: { grip: HeadArmGrip }) {
 
 /**
  * Flow 4, arm to camera: 1 Home arm, 2 Open gripper (base pose, insert width), 3 Grab board, 4 Capture (tiers, the
- * shoulder and elbow consent), 5 Compute, 6 the quality gate, 7 Park. Runs the head-arm sequence of
+ * shoulder and elbow consent), 5 Compute, 6 the quality gate, 7 Home (the node's board-aware Home, not the General Home arm). Runs the head-arm sequence of
  * head_rgbd_calibration and its arm-camera fit.
  *
  * @param canHomeArm - the General Home arm action is offered (else step 1 is optional and points to the Arm tab)
@@ -143,7 +143,7 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
   const [result, setResult] = useState<ArmCameraResult | null>(null)
   const [decision, setDecision] = useState<GateDecision>(null)
   const [decisionMessage, setDecisionMessage] = useState<string | null>(null)
-  const [parkRequested, setParkRequested] = useState(false)
+  const [homeRequested, setHomeRequested] = useState(false)
   // Session of a run the user closed with Start a new run: its capture no longer counts for steps 1-4.
   const [closedSid, setClosedSid] = useState<string | null>(null)
   const lastSid = useRef<string | null>(null)
@@ -234,14 +234,14 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
     return r.ok
   }
 
-  const home = async () => {
+  const homeArm = async () => {
     setDialog(null)
     setBusy(true)
     const r = await runGeneralAction('home_arm')
     setBusy(false)
     const ok = r.ok && r.value.ok
     setHomed(ok)
-    setErrors((e) => ({ ...e, home: ok ? undefined : r.ok ? r.value.message : r.message }))
+    setErrors((e) => ({ ...e, homeArm: ok ? undefined : r.ok ? r.value.message : r.message }))
   }
 
   const phase = sequence?.phase ?? PHASE_IDLE
@@ -253,9 +253,9 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
     sid !== null && sid !== closedSid && (sequence?.captured ?? 0) > 0 && !running && !CAPTURE_PHASES.includes(phase)
   // The fits of More fits run on the live session, or on the newest one when the node has none (after a restart).
   const session = sid !== null ? sessions.find((s) => s.id === sid) ?? null : sessions[sessions.length - 1] ?? null
-  const parked = parkRequested && phase === PHASE_IDLE && !running && !sequence?.error
+  const homedWithBoard = homeRequested && phase === PHASE_IDLE && !running && !sequence?.error
 
-  // A new capture session starts a new run: the previous result, decision and park no longer apply.
+  // A new capture session starts a new run: the previous result, decision and Home no longer apply.
   useEffect(() => {
     if (sid === null || sid === lastSid.current) return
     const first = lastSid.current === null
@@ -265,7 +265,7 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
     setResult(null)
     setDecision(null)
     setDecisionMessage(null)
-    setParkRequested(false)
+    setHomeRequested(false)
     setErrors({})
   }, [sid])
 
@@ -300,8 +300,8 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
     }
   }
 
-  const parkArm = async (boardOn: boolean) => {
-    if (await step('park', () => (boardOn ? park(true, true) : park(true)))) setParkRequested(true)
+  const homeFlow = async (boardOn: boolean) => {
+    if (await step('home', () => (boardOn ? home(true, true) : home(true)))) setHomeRequested(true)
   }
 
   const restart = () => {
@@ -311,7 +311,7 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
     setResult(null)
     setDecision(null)
     setDecisionMessage(null)
-    setParkRequested(false)
+    setHomeRequested(false)
     setErrors({})
   }
 
@@ -326,7 +326,7 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
   const skipped = Object.values(sequence?.skipped ?? {}).reduce((acc, n) => acc + n, 0)
   const bigJoints = sequence?.big_joints.length ? sequence.big_joints : BIG_JOINTS
   const moveBlocked = busy || zeroBlocked || notReady !== null
-  // mcp_server refuses Home arm while the node's board record exists: park with the board or clear the record first.
+  // mcp_server refuses Home arm while the node's board record exists: Home with the board or clear the record first.
   const boardRecorded = (sequence?.board_record ?? null) !== null
   // Holding with the board on (taped or gripped): the capture may resume without opening the jaws.
   const canResume = phase === PHASE_HOLDING && !running && sequence?.board_on === true
@@ -402,10 +402,10 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
       <BoardRecordNotice
         record={sequence?.board_record ?? null}
         running={running}
-        parkHint={PARK_HINT}
+        homeHint={HOME_HINT}
         onCleared={(s) => {
           setSequence(s)
-          setErrors((e) => ({ ...e, home: undefined, park: undefined }))
+          setErrors((e) => ({ ...e, homeArm: undefined, home: undefined }))
         }}
       />
       {sequence && <SequenceActivity sequence={sequence} withStatus={!sid} errorAction={
@@ -430,12 +430,12 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
           label="Arm to camera calibration steps"
           steps={[
             {
-              id: 'home',
+              id: 'homeArm',
               title: 'Home arm',
               optional: !canHomeArm,
               done: homed || (phase !== PHASE_IDLE && liveRun) || captured,
               see: 'The arm folds to its stored home pose and stops; nothing on the gripper.',
-              error: errors.home,
+              error: errors.homeArm,
               children: (
                 <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                   {canHomeArm ? (
@@ -443,7 +443,7 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
                       variant="contained"
                       sx={target}
                       disabled={busy || zeroBlocked || running || phase !== PHASE_IDLE || boardRecorded}
-                      onClick={() => setDialog('home')}
+                      onClick={() => setDialog('homeArm')}
                     >
                       Home arm
                     </Button>
@@ -451,8 +451,8 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
                     <Typography variant="body2">Home the arm from the Arm tab, then continue.</Typography>
                   )}
                   {phase === PHASE_IDLE && (
-                    <Button variant="outlined" sx={target} disabled={busy} onClick={() => setDialog('parkBoard')}>
-                      Park (board is on the gripper)
+                    <Button variant="outlined" sx={target} disabled={busy} onClick={() => setDialog('homeBoard')}>
+                      Home (board is on the gripper)
                     </Button>
                   )}
                   {canResumeFromIdle && (
@@ -534,7 +534,7 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
                     variant="outlined"
                     color="error"
                     sx={target}
-                    disabled={phase === PHASE_PARKING || (!running && !CAPTURE_PHASES.includes(phase))}
+                    disabled={phase === PHASE_HOMING || (!running && !CAPTURE_PHASES.includes(phase))}
                     onClick={() => void step('capture', stopSequence)}
                   >
                     Stop
@@ -595,28 +595,28 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
               ) : null,
             },
             {
-              id: 'park',
-              title: 'Park',
-              done: parked,
-              alwaysOpen: phase === PHASE_HOLDING || parkRequested,
-              see: 'The arm parks with the board (its path is checked with it); remove the board afterwards.',
-              error: errors.park,
+              id: 'home',
+              title: 'Home',
+              done: homedWithBoard,
+              alwaysOpen: phase === PHASE_HOLDING || homeRequested,
+              see: 'The arm moves to its stored home with the board (its path is checked with it); remove the board afterwards.',
+              error: errors.home,
               children: (
                 <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                  <Button variant="contained" sx={target} disabled={busy || phase !== PHASE_HOLDING} onClick={() => setDialog('park')}>
-                    Park arm
+                  <Button variant="contained" sx={target} disabled={busy || phase !== PHASE_HOLDING} onClick={() => setDialog('home')}>
+                    Home
                   </Button>
                   {canResume && (
                     <Button variant="outlined" sx={target} disabled={moveBlocked} onClick={() => setDialog('resume')}>
                       Resume capture (board on)
                     </Button>
                   )}
-                  {parked && (
+                  {homedWithBoard && (
                     <Button variant="outlined" sx={target} onClick={restart}>
                       Start a new run
                     </Button>
                   )}
-                  {gripButtons('park')}
+                  {gripButtons('home')}
                   {sequence && <GripLine grip={sequence.grip} />}
                 </Box>
               ),
@@ -626,12 +626,12 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
       </Box>
       <MoreFits session={session} disabled={running} />
       <ConfirmDialog
-        open={dialog === 'home'}
+        open={dialog === 'homeArm'}
         title="Home the arm?"
         body="The arm moves to its stored home pose. Keep the area around the arm clear."
         confirmLabel="Home arm"
         onCancel={() => setDialog(null)}
-        onConfirm={() => void home()}
+        onConfirm={() => void homeArm()}
       />
       <ConfirmDialog
         open={dialog === 'base'}
@@ -650,12 +650,12 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
         onConfirm={() => void step('capture', () => allowBigJoints(true))}
       />
       <ConfirmDialog
-        open={dialog === 'park'}
-        title="Park the arm?"
-        body="The arm moves to its park pose, with the board on the gripper or not. Park is refused, naming the rule, when the board would hit the floor, the body or the head."
-        confirmLabel="Park"
+        open={dialog === 'home'}
+        title="Home the arm, board on or off?"
+        body="The Arm to camera flow's Home: the arm moves to its stored home, with the board on the gripper or not (General Home arm is refused while the board is on). Home is refused, naming the rule, when the board would hit the floor, the body or the head."
+        confirmLabel="Home"
         onCancel={() => setDialog(null)}
-        onConfirm={() => void parkArm(false)}
+        onConfirm={() => void homeFlow(false)}
       />
       <ConfirmDialog
         open={dialog === 'resume'}
@@ -663,7 +663,7 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
         body={`The arm moves with the board to the base pose (${BASE_JOINTS.filter((j) => j !== 'gripper').join(', ')}); the gripper stays at its measured angle and never opens. Then the capture tiers run again in a new session. Keep the area around the arm clear.`}
         confirmLabel="Resume"
         onCancel={() => setDialog(null)}
-        onConfirm={() => void step('park', () => resumeBoardOn(true))}
+        onConfirm={() => void step('home', () => resumeBoardOn(true))}
       />
       <ConfirmDialog
         open={dialog === 'resumeIdle'}
@@ -671,7 +671,7 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
         body={`Use this only when the calibration board is gripped in the gripper jaws (taped or seated), for example after a node restart. The jaws will not open: the gripper stays at its measured angle, and the node refuses when it reads the jaws open. The arm moves with the board to the base pose (${BASE_JOINTS.filter((j) => j !== 'gripper').join(', ')}), then the capture tiers run again in a new session. Keep the area around the arm clear.`}
         confirmLabel="The board is gripped: resume"
         onCancel={() => setDialog(null)}
-        onConfirm={() => void step('home', () => resumeBoardOn(true, true))}
+        onConfirm={() => void step('homeArm', () => resumeBoardOn(true, true))}
       />
       <ConfirmDialog
         open={dialog === 'grip'}
@@ -690,16 +690,16 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
         onConfirm={() => void step(gripStep, resetGrip)}
       />
       <ConfirmDialog
-        open={dialog === 'parkBoard'}
+        open={dialog === 'homeBoard'}
         title="The calibration board is on the gripper"
-        body={`Use this when the arm still holds the board but this page lost the sequence (for example after a restart). The board is recorded as on the gripper, the park path is checked with it, and Park is refused, naming the rule, when the board would hit the floor, the body or the head.${
+        body={`Use this when the arm still holds the board but this page lost the sequence (for example after a restart). The board is recorded as on the gripper, the home path is checked with it, and Home is refused, naming the rule, when the board would hit the floor, the body or the head.${
           sequence?.board_record?.offered
             ? ` The node remembers a board attached in session ${sequence.board_record.session_id ?? 'unknown'} at ${sequence.board_record.clipped_at ?? 'an unknown time'}: confirm it is still on the gripper.`
             : ''
         }`}
-        confirmLabel="Park with the board"
+        confirmLabel="Home with the board"
         onCancel={() => setDialog(null)}
-        onConfirm={() => void parkArm(true)}
+        onConfirm={() => void homeFlow(true)}
       />
     </Box>
   )

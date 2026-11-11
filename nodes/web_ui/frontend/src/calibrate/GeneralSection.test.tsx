@@ -144,7 +144,11 @@ describe('GeneralSection', () => {
     expect((screen.getByRole('button', { name: 'Close gripper' }) as HTMLButtonElement).disabled).toBe(true)
     expect((screen.getByRole('button', { name: 'Home camera' }) as HTMLButtonElement).disabled).toBe(true)
     expect((screen.getByRole('button', { name: 'Home steering servos' }) as HTMLButtonElement).disabled).toBe(false)
-    expect(screen.getByText(/Abort the running calibration first/)).toBeTruthy()
+    expect(
+      screen.getByText(
+        'Arm and camera moves are off: a calibration sequence runs or the arm holds the board. Abort the running calibration first; with the board on the gripper, home the arm with Home in the Arm to camera flow (step 7).',
+      ),
+    ).toBeTruthy()
   })
 
   it('Home arm stays on and opens its confirm after a servo calibration, with the redo info and the zero shift', async () => {
@@ -174,9 +178,9 @@ describe('GeneralSection', () => {
     }
   })
 
-  it('arm moves are off while the arm holds the board or parks', async () => {
-    for (const phase of ['holding', 'parking']) {
-      stubSequence({ running: phase === 'parking', phase })
+  it('arm moves are off while the arm holds the board or homes', async () => {
+    for (const phase of ['holding', 'homing']) {
+      stubSequence({ running: phase === 'homing', phase })
       render(<GeneralSection actions={ALL} rgbd />)
       await waitFor(() => expect((screen.getByRole('button', { name: 'Open gripper' }) as HTMLButtonElement).disabled).toBe(true))
       expect((screen.getByRole('button', { name: 'Home arm' }) as HTMLButtonElement).disabled).toBe(true)
@@ -199,7 +203,7 @@ describe('GeneralSection', () => {
     const run = vi.spyOn(generalApi, 'runGeneralAction')
     render(<GeneralSection actions={ALL} rgbd />)
     const notice = await screen.findByRole('region', { name: 'Board record' })
-    expect(within(notice).getByText(/Park \(board is on the gripper\) in the Arm to camera flow/)).toBeTruthy()
+    expect(within(notice).getByText(/Home \(board is on the gripper\) in the Arm to camera flow/)).toBeTruthy()
     expect((screen.getByRole('button', { name: 'Home arm' }) as HTMLButtonElement).disabled).toBe(true)
     expect((screen.getByRole('button', { name: 'Open gripper' }) as HTMLButtonElement).disabled).toBe(false)
     fireEvent.click(within(notice).getByRole('button', { name: 'The board is already off the gripper: clear the record' }))

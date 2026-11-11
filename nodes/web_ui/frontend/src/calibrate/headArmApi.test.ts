@@ -13,7 +13,7 @@ import {
   getHeadArmState,
   listHeadArmSessions,
   moveToBase,
-  park,
+  home,
   resetGrip,
   resumeBoardOn,
   stopSequence,
@@ -123,14 +123,14 @@ describe("headArmApi", () => {
     expect(f).toHaveBeenLastCalledWith(`${B}/sequence/stop`, {
       method: "POST",
     });
-    await park(true);
-    expect(f).toHaveBeenLastCalledWith(`${B}/park`, {
+    await home(true);
+    expect(f).toHaveBeenLastCalledWith(`${B}/home`, {
       method: "POST",
       headers: JSON_HEADERS,
       body: JSON.stringify({ confirm: true, board_on: false }),
     });
-    await park(true, true);
-    expect(f).toHaveBeenLastCalledWith(`${B}/park`, {
+    await home(true, true);
+    expect(f).toHaveBeenLastCalledWith(`${B}/home`, {
       method: "POST",
       headers: JSON_HEADERS,
       body: JSON.stringify({ confirm: true, board_on: true }),
@@ -144,11 +144,11 @@ describe("headArmApi", () => {
       "/api/calibration/rgbd/arm-camera/board-record/clear",
       { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ confirm: true }) },
     );
-    stub(409, { ok: false, message: "a head-arm sequence or park is running" });
+    stub(409, { ok: false, message: "a head-arm sequence or Home is running" });
     expect(await clearBoardRecord()).toEqual({
       ok: false,
       status: 409,
-      message: "a head-arm sequence or park is running",
+      message: "a head-arm sequence or Home is running",
     });
   });
   it("the board record shape has exactly the fixture keys and accepts an unreadable record", async () => {
@@ -312,7 +312,7 @@ describe("headArmApi", () => {
       message: "the base move needs confirm=true",
     });
     stub(409, { reason: "busy" });
-    expect(await park(true)).toEqual({
+    expect(await home(true)).toEqual({
       ok: false,
       status: 409,
       message: "busy",

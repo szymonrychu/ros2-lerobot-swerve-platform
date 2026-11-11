@@ -12,7 +12,7 @@ import { getState, stopCapture } from './rgbdApi'
 const BASE = '/api/calibration/general'
 /** Sequence phases that wait for the user: the sequence is live and Abort stops it. */
 const WAITING_PHASES = ['waiting_board', 'waiting_big_joints']
-const PARKING_PHASE = 'parking'
+const HOMING_PHASE = 'homing'
 /** Any CSI camera: the state carries the latest capture of every camera. */
 const CSI_STATE_CAMERA = 'front'
 
@@ -85,8 +85,8 @@ const STOPPERS: Stopper[] = [
       const s = await getHeadArmState()
       if (!s.ok) return { error: s.message }
       const seq = s.value.sequence
-      // The node never interrupts a park: a parking sequence is not stopped.
-      const live = (seq.running && seq.phase !== PARKING_PHASE) || WAITING_PHASES.includes(seq.phase)
+      // The node never interrupts a Home: a homing sequence is not stopped.
+      const live = (seq.running && seq.phase !== HOMING_PHASE) || WAITING_PHASES.includes(seq.phase)
       return { live, stop: async () => done(await stopSequence()) }
     },
   },
@@ -131,7 +131,7 @@ const STOPPERS: Stopper[] = [
 
 /**
  * Abort calibration: stop every running sequence, sweep (floor and ground board), ground verification and capture. The head-arm sequence stop HOLDS the arm where it
- * is (no park). A state that cannot be read is reported and the others are still stopped.
+ * is (no Home move). A state that cannot be read is reported and the others are still stopped.
  *
  * @returns what was stopped and the errors
  */

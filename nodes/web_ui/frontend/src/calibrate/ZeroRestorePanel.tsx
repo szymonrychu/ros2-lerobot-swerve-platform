@@ -1,6 +1,6 @@
 /**
  * Guided "Arm zero restore" panel of the arm servo card: torque off, dry run, apply (with the large-change confirm),
- * result, re-enable torque, then Park. The bridge (feetech follower) does the work; this panel only shows its
+ * result, re-enable torque, then Home. The bridge (feetech follower) does the work; this panel only shows its
  * torque_state `zero_restore` and posts one action per step.
  */
 import { useEffect, useState } from 'react'
@@ -33,7 +33,7 @@ export const STEP_EXPECT = {
   apply: 'Writes the new offsets: the arm does not move and torque stays off. Each joint is verified and rolled back on a mismatch.',
   enable: 'The arm holds its pose.',
 }
-export const PARK_HINT = '5. Then Park the arm on the head-arm card.'
+export const HOME_HINT = '5. Then home the arm with Home arm in the General section.'
 export const LARGE_CHANGE_CONFIRM = 'The arm rests folded on its rest and the large change is intended'
 const APPLY_TEXT = 'Writes the planned offsets into the servo EEPROM. Torque stays off; re-enable it afterwards.'
 const LARGE_CHANGE_TEXT =
@@ -366,7 +366,7 @@ export function ZeroRestorePanel({ group, released, known, busy, onRun, onReleas
             </Button>,
             STEP_EXPECT.enable,
           )}
-          <Typography variant="body2" sx={{ mb: 1 }}>{PARK_HINT}</Typography>
+          <Typography variant="body2" sx={{ mb: 1 }}>{HOME_HINT}</Typography>
           <Button variant="outlined" sx={btn} disabled={busy || referenceReason !== null} onClick={() => setDialog('rest_reference')}>
             Save current pose as rest reference
           </Button>

@@ -270,7 +270,7 @@ def test_board_record_clear_is_refused_while_an_arm_to_camera_compute_runs(tmp_p
 
 
 @pytest.mark.parametrize(
-    ("error", "status"), [(SequenceBusy("a head-arm sequence or park is running"), 409), (SequenceError("cannot"), 400)]
+    ("error", "status"), [(SequenceBusy("a head-arm sequence or Home is running"), 409), (SequenceError("cannot"), 400)]
 )
 def test_board_record_clear_maps_the_sequencer_refusals(tmp_path: Path, error: Exception, status: int) -> None:
     parts = board_parts(tmp_path)

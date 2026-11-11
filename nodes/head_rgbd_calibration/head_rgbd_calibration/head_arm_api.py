@@ -39,8 +39,8 @@ MSG_NEEDS_BOARD_GRIPPED = (
     "resume from idle needs board_gripped=true: state that the calibration board is gripped in the jaws (taped or"
     " seated); the jaws will not open"
 )
-MSG_NEEDS_PARK_CONFIRM = (
-    "park needs confirm=true: the arm moves to its park pose (the board may stay on when the path is clear)"
+MSG_NEEDS_HOME_CONFIRM = (
+    "home needs confirm=true: the arm moves to its home pose (the board may stay on when the path is clear)"
 )
 MSG_NEEDS_GRIP_CONFIRM = (
     "grip confirm needs confirm=true: state that the board handle is seated in the closed jaws; the measured gripper"
@@ -51,8 +51,8 @@ MSG_NEEDS_GRIP_RESET_CONFIRM = (
 )
 
 
-class ParkRequest(BaseModel):
-    """Body of POST /api/head-arm/park: `board_on` states the calibration board is on the gripper (recorded)."""
+class HomeRequest(BaseModel):
+    """Body of POST /api/head-arm/home: `board_on` states the calibration board is on the gripper (recorded)."""
 
     confirm: bool = False
     board_on: bool = False
@@ -128,7 +128,7 @@ def head_arm_router(
 
     Args:
         sequencer: The capture sequence (state, move_to_base, resume_with_board, board_attached, allow_big_joints,
-            park, stop, confirm_grip, reset_grip).
+            home, stop, confirm_grip, reset_grip).
         capture: RGB-D capture controller (blocks a sequence start while it runs).
         sweep: Floor sweep (blocks a sequence start while it runs).
         job: RGB-D compute job (blocks a sequence start while it runs).
@@ -223,11 +223,11 @@ def head_arm_router(
     def sequence_stop() -> dict[str, Any]:
         return sequencer.stop()
 
-    @router.post("/park")
-    def park(body: ParkRequest | None = None) -> Any:
+    @router.post("/home")
+    def home(body: HomeRequest | None = None) -> Any:
         if not (body and body.confirm):
-            return error_response(HTTP_BAD_REQUEST, MSG_NEEDS_PARK_CONFIRM)
-        return step(sequencer.park, True, body.board_on)
+            return error_response(HTTP_BAD_REQUEST, MSG_NEEDS_HOME_CONFIRM)
+        return step(sequencer.home, True, body.board_on)
 
     @router.get("/sessions")
     def sessions() -> list[dict[str, Any]]:

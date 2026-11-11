@@ -39,6 +39,7 @@ from head_rgbd_calibration.sequencer import (
     GRIP_CONTACT_MIN_RAD,
     GRIP_RECORD_FILE,
     HOLDING,
+    HOMING,
     IDLE,
     MESSAGE_CLEARED,
     MESSAGE_GRIP_CONFIRM,
@@ -68,6 +69,15 @@ HOME_POSE: dict[str, float] = {
     for name, value in yaml.safe_load(FOOTPRINT_YAML.read_text())["parked_arm_joints"].items()
     if name in ARM_JOINT_NAMES
 }
+# The home stored by the servo calibration on 2026-11-11 (client /var/lib/ros2/arm/home.yaml).
+CALIBRATED_HOME: dict[str, float] = {
+    "shoulder_pan": 0.0,
+    "shoulder_lift": -math.pi / 2,
+    "elbow_flex": math.pi / 2,
+    "wrist_flex": 0.0,
+    "wrist_roll": 0.0,
+}
+STORED_HOME_GRIPPER = -0.14419419406125028
 TOKEN = "seq-token"
 NOW = datetime(2026, 10, 23, 8, 0, 0, tzinfo=UTC)
 SESSION = "head-arm-20261022-120000"
@@ -145,7 +155,7 @@ class FakeRobot:
         head_status: 1-based set_head_angles call number -> status other than converged.
         measured: Overrides the measured positions get_arm_state reports (None: the commanded ones).
         carrying: Reasons get_control_state reports in arm.carrying (empty: not carrying).
-        reset_arm: reset.arm of a park release.
+        reset_arm: reset.arm of a home release.
         jaw_after_close: Gripper angle get_arm_state reports after the gripper-only handle close (None: the gripper is
             not reported after it).
         on_call: Called with the tool name before every call is answered (e.g. to start a move during a measure).
@@ -274,11 +284,14 @@ class Rig:
         board_file: Path | None = None,
         session_exists: Callable[[str | None], bool] | None = None,
         now: Callable[[], datetime] | None = None,
+        home: dict[str, float] | None = None,
         grip_file: Path | None = None,
     ) -> None:
         token = tmp_path / "token"
         token.write_text(f"MCP_SERVER_TOKEN={TOKEN}\n")
-        base = cfg or NodeConfig()
+        self.home_file = tmp_path / "home.yaml"  # mcp_server's stored home, as its home_store writes it
+        self.write_home(home or HOME_POSE)
+        base = (cfg or NodeConfig()).model_copy(update={"arm_home_file": str(self.home_file)})
         board_token = tmp_path / "board_park_token"
         board_token.write_text("board-park-token\n")
         robot_cfg = base.robot.model_copy(update={"token_file": str(token), "board_park_token_file": str(board_token)})
@@ -304,6 +317,14 @@ class Rig:
             now=now or (lambda: NOW),
             grip_file=grip_file,
         )
+
+    def write_home(self, home: dict[str, float]) -> None:
+        """Store an arm home (with a gripper entry, as mcp_server's Set home does) in the rig's home file.
+
+        Args:
+            home (dict[str, float]): The five arm joints, rad.
+        """
+        self.home_file.write_text(yaml.safe_dump({"joints": {**home, GRIPPER: STORED_HOME_GRIPPER}}, sort_keys=False))
 
     def wait_phase(self, phase: str) -> dict[str, Any]:
         return self.wait_for(lambda s: s["phase"] == phase)
@@ -375,7 +396,7 @@ def expected_aim(cfg: NodeConfig, joints: dict[str, float], head_urdf: str = HEA
     return math.degrees(pan), math.degrees(tilt)
 
 
-def assert_held_not_parked(rig: Rig) -> None:
+def assert_held_not_homed(rig: Rig) -> None:
     releases = rig.robot.named("release_control")
     assert releases, "the sequence never released the arm"
     assert all(args["keep_position"] is True for args in releases)
@@ -418,7 +439,7 @@ def test_full_run_call_order(tmp_path: Path) -> None:
     rig.seq.allow_big_joints(True)
     state = rig.finish()
     assert state["phase"] == HOLDING
-    assert "Press Park" in state["status"]
+    assert "Press Home" in state["status"]
     assert state["error"] is None
     assert state["session_id"] == SESSION
 
@@ -567,7 +588,7 @@ def test_path_check_refusal_sends_nothing(tmp_path: Path) -> None:
     assert rig.robot.count("set_head_angles") == 0
     assert state["phase"] == IDLE
     assert "base pose" in state["error"] and "joint_limits" in state["error"]
-    assert_held_not_parked(rig)
+    assert_held_not_homed(rig)
 
     # A measured arm joint missing: nothing is commanded.
     rig = Rig(tmp_path, small_cfg())
@@ -576,7 +597,7 @@ def test_path_check_refusal_sends_nothing(tmp_path: Path) -> None:
     state = rig.finish()
     assert rig.robot.count("move_arm_joints") == 0
     assert "elbow_flex" in state["error"]
-    assert_held_not_parked(rig)
+    assert_held_not_homed(rig)
 
     # A scripted pose whose path fails the check (wrist_roll beyond the URDF limit): stop before that pose.
     seq = NodeConfig().arm_sequence
@@ -593,7 +614,7 @@ def test_path_check_refusal_sends_nothing(tmp_path: Path) -> None:
     assert state["phase"] == HOLDING
     assert "tier 0 pose 1" in state["error"] and "joint_limits" in state["error"]
     assert state["arm_pose"] == 1 and state["tier"] == 0
-    assert_held_not_parked(rig)
+    assert_held_not_homed(rig)
 
 
 def press_stop_on(rig: Rig, number: int) -> None:
@@ -662,7 +683,7 @@ def test_every_exit_holds_position(tmp_path: Path, exit_kind: str) -> None:
                 seq.stop()
     state = rig.finish()
     assert state["phase"] == expected_phase
-    assert_held_not_parked(rig)
+    assert_held_not_homed(rig)
     assert rig.robot.count("get_control_state") == 0
     if exit_kind.startswith("end"):
         assert state["error"] is None
@@ -680,26 +701,26 @@ def test_every_exit_holds_position(tmp_path: Path, exit_kind: str) -> None:
     else:
         assert "confirm_timeout_s" in state["error"]
     if expected_phase == HOLDING:
-        assert "Press Park" in state["status"]
+        assert "Press Home" in state["status"]
 
 
-def test_park_needs_confirm(tmp_path: Path) -> None:
+def test_home_needs_confirm(tmp_path: Path) -> None:
     rig = Rig(tmp_path, small_cfg())
     with pytest.raises(ValueError, match="confirm"):
-        rig.seq.park(confirmed=False)
+        rig.seq.home(confirmed=False)
     assert rig.robot.calls == []
     rig.run_to_holding()
     calls_before = len(rig.robot.calls)
     with pytest.raises(ValueError, match="confirm"):
-        rig.seq.park(confirmed=False)
+        rig.seq.home(confirmed=False)
     assert len(rig.robot.calls) == calls_before
     assert all(args["keep_position"] is True for args in rig.robot.named("release_control"))
 
-    rig.seq.park(confirmed=True)
+    rig.seq.home(confirmed=True)
     state = rig.finish()
     assert state["phase"] == IDLE
     assert state["error"] is None
-    # The sequence clipped the board: the park is the checked board park, never the plain one.
+    # The sequence clipped the board: the Home is the checked board home, never the plain one.
     assert [name for name, _ in rig.robot.calls[calls_before:]] == [
         "get_control_state",
         "get_arm_state",
@@ -710,23 +731,23 @@ def test_park_needs_confirm(tmp_path: Path) -> None:
     assert "homed" in state["status"]
 
 
-def test_park_failure_keeps_holding(tmp_path: Path) -> None:
+def test_home_failure_keeps_holding(tmp_path: Path) -> None:
     rig = Rig(tmp_path, small_cfg())
     rig.run_to_holding()
     rig.robot.reset_arm = "failed: timeout"
-    rig.seq.park(confirmed=True)
+    rig.seq.home(confirmed=True)
     state = rig.finish()
     assert state["phase"] == HOLDING
     assert "failed: timeout" in state["error"]
 
 
-def test_park_refused_while_carrying(tmp_path: Path) -> None:
+def test_home_refused_while_carrying(tmp_path: Path) -> None:
     rig = Rig(tmp_path, small_cfg())
     rig.run_to_holding()
     rig.robot.carrying = ["last grasp held an object"]
     calls_before = len(rig.robot.calls)
     with pytest.raises(SequenceError, match="last grasp held an object") as refused:
-        rig.seq.park(confirmed=True)
+        rig.seq.home(confirmed=True)
     assert not isinstance(refused.value, Busy)
     assert [name for name, _ in rig.robot.calls[calls_before:]] == ["get_control_state"]
     state = rig.seq.state()
@@ -734,7 +755,7 @@ def test_park_refused_while_carrying(tmp_path: Path) -> None:
     assert "last grasp held an object" in state["error"]
 
     rig.robot.carrying = []
-    rig.seq.park(confirmed=True)
+    rig.seq.home(confirmed=True)
     assert rig.finish()["phase"] == IDLE
     for _, args in rig.robot.calls:
         assert RADIUS_KEY not in args
@@ -743,19 +764,19 @@ def test_park_refused_while_carrying(tmp_path: Path) -> None:
 BOARD_LOAD = "holding load: jaw -0.040 rad (0.125 rad short of closed), gripper load 200"
 
 
-def park_calls(rig: Rig, since: int) -> list[str]:
+def home_calls(rig: Rig, since: int) -> list[str]:
     return [name for name, _ in rig.robot.calls[since:]]
 
 
-def test_park_with_the_board_on_is_checked_moved_then_parked_through_the_internal_route(tmp_path: Path) -> None:
+def test_home_with_the_board_on_is_checked_moved_then_homed_through_the_internal_route(tmp_path: Path) -> None:
     rig = Rig(tmp_path, small_cfg())
     rig.run_to_holding()
     rig.robot.carrying = [BOARD_LOAD]  # the jaw clamps the board's stick: the live run's refusal
     before = len(rig.robot.calls)
-    rig.seq.park(confirmed=True)
+    rig.seq.home(confirmed=True)
     state = rig.finish()
     assert state["phase"] == IDLE and state["error"] is None
-    assert park_calls(rig, before) == [
+    assert home_calls(rig, before) == [
         "get_control_state",
         "get_arm_state",
         "take_control",
@@ -764,8 +785,8 @@ def test_park_with_the_board_on_is_checked_moved_then_parked_through_the_interna
     ]
     seq_cfg = rig.cfg.arm_sequence
     move = rig.robot.named("move_arm_joints")[-1]
-    assert move == {"targets": seq_cfg.park_pose, "speed_scale": seq_cfg.speed_scale} and seq_cfg.speed_scale == 0.1
-    # No release_control after the sequence's hold: the park is the admin route, which checks the board itself.
+    assert move == {"targets": HOME_POSE, "speed_scale": seq_cfg.speed_scale} and seq_cfg.speed_scale == 0.1
+    # No release_control after the sequence's hold: the Home is the admin route, which checks the board itself.
     assert all(args["keep_position"] is True for args in rig.robot.named("release_control"))
     mount = rig.cfg.fit.board_mount
     assert rig.robot.named(ADMIN_PARK_BOARD)[-1] == {
@@ -774,83 +795,125 @@ def test_park_with_the_board_on_is_checked_moved_then_parked_through_the_interna
     assert "homed" in state["status"]
 
 
-def test_park_with_the_board_on_is_checked_even_when_no_load_is_reported(tmp_path: Path) -> None:
+def test_home_with_the_board_on_moves_to_the_stored_home_read_at_each_press(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, small_cfg(), home=CALIBRATED_HOME)
+    rig.run_to_holding()
+    rig.robot.carrying = [BOARD_LOAD]
+    rig.seq.home(confirmed=True)
+    assert rig.finish()["phase"] == IDLE
+    # The five arm joints of the stored home; its gripper entry is no target (the jaw keeps holding the handle).
+    assert rig.robot.named("move_arm_joints")[-1]["targets"] == CALIBRATED_HOME
+    # A re-calibration stores a new home: the next press reads it.
+    rig.write_home(HOME_POSE)
+    rig.run_to_holding()
+    rig.robot.carrying = [BOARD_LOAD]
+    rig.seq.home(confirmed=True)
+    assert rig.finish()["phase"] == IDLE
+    assert rig.robot.named("move_arm_joints")[-1]["targets"] == HOME_POSE
+
+
+@pytest.mark.parametrize("stored", ["missing", "invalid"])
+def test_home_with_the_board_on_refuses_without_a_valid_stored_home(tmp_path: Path, stored: str) -> None:
+    rig = Rig(tmp_path, small_cfg())
+    rig.run_to_holding()
+    rig.robot.carrying = [BOARD_LOAD]
+    if stored == "missing":
+        rig.home_file.unlink()
+        expected = (
+            f"no stored arm home at {rig.home_file}: store the arm home (Set home: Calibrate > Servo calibration, "
+            "Advanced / repair, or the Arm tab) first"
+        )
+    else:
+        rig.home_file.write_text(yaml.safe_dump({"joints": {"shoulder_pan": 0.0}}))
+        expected = f"invalid arm home {rig.home_file}: missing joint shoulder_lift"
+    before = len(rig.robot.calls)
+    with pytest.raises(SequenceError) as refused:
+        rig.seq.home(confirmed=True)
+    assert not isinstance(refused.value, Busy)
+    assert expected in str(refused.value)
+    assert home_calls(rig, before) == ["get_control_state"]  # nothing moved, the arm keeps holding
+    state = rig.seq.state()
+    assert state["phase"] == HOLDING and state["running"] is False
+    assert expected in state["error"]
+
+
+def test_home_with_the_board_on_is_checked_even_when_no_load_is_reported(tmp_path: Path) -> None:
     rig = Rig(tmp_path, small_cfg(park_board_sag_margin_m=1.0))
     rig.run_to_holding()
     assert rig.robot.carrying == []  # board_on from the sequence, but the load reads zero: still the checked flow
     before = len(rig.robot.calls)
-    with pytest.raises(SequenceError, match="Park refused by the path check"):
-        rig.seq.park(confirmed=True)
-    assert park_calls(rig, before) == ["get_control_state", "get_arm_state"]
+    with pytest.raises(SequenceError, match="Home refused by the path check"):
+        rig.seq.home(confirmed=True)
+    assert home_calls(rig, before) == ["get_control_state", "get_arm_state"]
     rig2 = Rig(tmp_path, small_cfg())
     rig2.run_to_holding()
-    rig2.seq.park(confirmed=True)
+    rig2.seq.home(confirmed=True)
     assert rig2.finish()["phase"] == IDLE
     assert rig2.robot.named(ADMIN_PARK_BOARD) and rig2.robot.count("move_arm_joints") > 0
 
 
-def test_park_without_any_board_is_the_plain_park(tmp_path: Path) -> None:
-    rig = Rig(tmp_path, small_cfg())  # nothing carried and no board stated: mcp_server's plain park
-    rig.seq.park(confirmed=True)
+def test_home_without_any_board_is_the_plain_home(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, small_cfg())  # nothing carried and no board stated: mcp_server's plain home (release_control)
+    rig.seq.home(confirmed=True)
     assert rig.finish()["phase"] == IDLE
     assert rig.robot.calls[-1] == ("release_control", {"subsystem": "arm", "keep_position": False})
     assert rig.robot.count(ADMIN_PARK_BOARD) == 0
 
 
 @pytest.mark.parametrize("sag", [0.2, 1.0])
-def test_park_with_the_board_refused_when_the_board_path_hits_the_floor_body_or_head(
+def test_home_with_the_board_refused_when_the_board_path_hits_the_floor_body_or_head(
     tmp_path: Path, sag: float
 ) -> None:
     rig = Rig(tmp_path, small_cfg(park_board_sag_margin_m=sag))
     rig.run_to_holding()
     rig.robot.carrying = [BOARD_LOAD]
     before = len(rig.robot.calls)
-    with pytest.raises(SequenceError, match="Park refused by the path check") as refused:
-        rig.seq.park(confirmed=True)
+    with pytest.raises(SequenceError, match="Home refused by the path check") as refused:
+        rig.seq.home(confirmed=True)
     assert not isinstance(refused.value, Busy)
     assert re.search(r"min_board_height_m|board_clearance|board_link_clearance", str(refused.value))
-    assert park_calls(rig, before) == ["get_control_state", "get_arm_state"]  # the arm stays holding
+    assert home_calls(rig, before) == ["get_control_state", "get_arm_state"]  # the arm stays holding
     state = rig.seq.state()
     assert state["phase"] == HOLDING and state["running"] is False
     assert "path check" in state["error"]
 
 
-def test_park_with_the_board_refused_by_mcp_server_keeps_holding(tmp_path: Path) -> None:
+def test_home_with_the_board_refused_by_mcp_server_keeps_holding(tmp_path: Path) -> None:
     rig = Rig(tmp_path, small_cfg())
     rig.run_to_holding()
     rig.robot.carrying = [BOARD_LOAD]
     rig.robot.errors[ADMIN_PARK_BOARD] = 1
-    rig.seq.park(confirmed=True)
+    rig.seq.home(confirmed=True)
     state = rig.finish()
     assert state["phase"] == HOLDING and "injected tool error" in state["error"]
     assert rig.robot.named("release_control")[-1] == {"subsystem": "arm", "keep_position": True}
 
 
-def test_park_with_the_board_failing_move_keeps_holding(tmp_path: Path) -> None:
+def test_home_with_the_board_failing_move_keeps_holding(tmp_path: Path) -> None:
     rig = Rig(tmp_path, small_cfg())
     rig.run_to_holding()
     rig.robot.carrying = [BOARD_LOAD]
     moves = rig.robot.count("move_arm_joints")
     rig.robot.move_status[moves + 1] = "timeout"
-    rig.seq.park(confirmed=True)
+    rig.seq.home(confirmed=True)
     state = rig.finish()
     assert state["phase"] == HOLDING and "did not converge" in state["error"]
     assert rig.robot.count(ADMIN_PARK_BOARD) == 0
     assert rig.robot.named("release_control")[-1] == {"subsystem": "arm", "keep_position": True}
 
 
-def test_park_with_the_board_sends_the_fitted_mount_to_mcp_server(tmp_path: Path) -> None:
+def test_home_with_the_board_sends_the_fitted_mount_to_mcp_server(tmp_path: Path) -> None:
     mount = small_cfg().fit.board_mount
     fitted = {"xyz": [mount.xyz_init[0] + 0.004, mount.xyz_init[1], mount.xyz_init[2]], "rpy": list(mount.rpy_init)}
     rig = Rig(tmp_path, small_cfg(), fitted_mount=lambda session_id: fitted)
     rig.run_to_holding()
     rig.robot.carrying = [BOARD_LOAD]
-    rig.seq.park(confirmed=True)
+    rig.seq.home(confirmed=True)
     assert rig.finish()["phase"] == IDLE
     assert rig.robot.named(ADMIN_PARK_BOARD)[-1] == {"mount": fitted}
 
 
-def test_park_with_the_board_uses_the_fitted_mount_when_a_result_exists(tmp_path: Path) -> None:
+def test_home_with_the_board_uses_the_fitted_mount_when_a_result_exists(tmp_path: Path) -> None:
     seen: list[str | None] = []
     far = {"xyz": [2.0, 0.0, 0.5], "rpy": [0.0, 0.0, 0.0]}  # a mount that puts the board far off the gripper
 
@@ -862,7 +925,7 @@ def test_park_with_the_board_uses_the_fitted_mount_when_a_result_exists(tmp_path
     rig.run_to_holding()
     rig.robot.carrying = [BOARD_LOAD]
     with pytest.raises(SequenceError, match="path check"):
-        rig.seq.park(confirmed=True)
+        rig.seq.home(confirmed=True)
     assert seen == [SESSION]
 
 
@@ -874,21 +937,21 @@ def test_park_with_the_board_uses_the_fitted_mount_when_a_result_exists(tmp_path
         [BOARD_LOAD, "last grasp held an object"],
     ],
 )
-def test_park_with_another_carried_object_is_still_refused(tmp_path: Path, reasons: list[str]) -> None:
+def test_home_with_another_carried_object_is_still_refused(tmp_path: Path, reasons: list[str]) -> None:
     rig = Rig(tmp_path, small_cfg())
     rig.run_to_holding()
     rig.robot.carrying = reasons
     before = len(rig.robot.calls)
     with pytest.raises(SequenceError, match="mcp_server reports carrying"):
-        rig.seq.park(confirmed=True)
-    assert park_calls(rig, before) == ["get_control_state"]
+        rig.seq.home(confirmed=True)
+    assert home_calls(rig, before) == ["get_control_state"]
 
 
-def test_park_with_a_load_but_no_board_from_this_sequence_is_refused(tmp_path: Path) -> None:
+def test_home_with_a_load_but_no_board_from_this_sequence_is_refused(tmp_path: Path) -> None:
     rig = Rig(tmp_path, small_cfg())  # no sequence ran and the user did not state the board
     rig.robot.carrying = [BOARD_LOAD]
     with pytest.raises(SequenceError, match="mcp_server reports carrying"):
-        rig.seq.park(confirmed=True)
+        rig.seq.home(confirmed=True)
     assert [name for name, _ in rig.robot.calls] == ["get_control_state"]
 
 
@@ -919,13 +982,13 @@ def test_board_record_is_written_with_the_session_and_pre_fills_after_a_restart(
         "problem": None,
     }
     with pytest.raises(SequenceError, match="state that the board is on") as refused:
-        fresh.seq.park(confirmed=True)
+        fresh.seq.home(confirmed=True)
     assert "mcp_server reports carrying" in str(refused.value)
     assert [name for name, _ in fresh.robot.calls] == ["get_control_state"]
-    fresh.seq.park(confirmed=True, board_on=True)  # the fresh confirmation in the UI
+    fresh.seq.home(confirmed=True, board_on=True)  # the fresh confirmation in the UI
     assert fresh.finish()["phase"] == IDLE
     assert fresh.robot.named(ADMIN_PARK_BOARD)
-    assert not board_file.exists()  # a completed park clears it
+    assert not board_file.exists()  # a completed Home clears it
 
 
 def test_stale_board_record_is_ignored_and_a_non_board_load_is_refused(tmp_path: Path) -> None:
@@ -940,7 +1003,7 @@ def test_stale_board_record_is_ignored_and_a_non_board_load_is_refused(tmp_path:
     assert (shown["session_id"], shown["age_s"]) == (SESSION, max_age + 60)
     assert (shown["offered"], shown["problem"]) == (False, REASON_TOO_OLD)
     with pytest.raises(SequenceError, match="mcp_server reports carrying"):
-        fresh.seq.park(confirmed=True)
+        fresh.seq.home(confirmed=True)
     assert [name for name, _ in fresh.robot.calls] == ["get_control_state"]
 
 
@@ -958,14 +1021,14 @@ def test_board_record_of_another_session_is_ignored(tmp_path: Path) -> None:
     assert unreadable["problem"].startswith("unreadable: ")
 
 
-def test_restored_board_park_is_still_path_checked(tmp_path: Path) -> None:
+def test_restored_board_home_is_still_path_checked(tmp_path: Path) -> None:
     board_file = tmp_path / "board.json"
     rig = Rig(tmp_path, small_cfg(), board_file=board_file)
     rig.run_to_holding()
     fresh = after_restart(rig, tmp_path, board_file, cfg=small_cfg(park_board_sag_margin_m=1.0))
     fresh.robot.carrying = [BOARD_LOAD]
     with pytest.raises(SequenceError, match="path check"):
-        fresh.seq.park(confirmed=True, board_on=True)
+        fresh.seq.home(confirmed=True, board_on=True)
     assert board_file.exists()  # the arm still holds the board: the record stays for the retry
 
 
@@ -974,16 +1037,16 @@ def test_user_states_the_board_is_on_and_it_is_recorded_then_path_checked(tmp_pa
     rig = Rig(tmp_path, small_cfg(), board_file=board_file)  # a node that never saw the clip (deploy while holding)
     rig.robot.carrying = [BOARD_LOAD]
     with pytest.raises(SequenceError, match="state that the board is on"):
-        rig.seq.park(confirmed=True)
+        rig.seq.home(confirmed=True)
     assert not board_file.exists()
-    rig.seq.park(confirmed=True, board_on=True)
+    rig.seq.home(confirmed=True, board_on=True)
     state = rig.finish()
     assert state["phase"] == IDLE and rig.robot.named(ADMIN_PARK_BOARD)
     assert not board_file.exists()
     rig2 = Rig(tmp_path, small_cfg(park_board_sag_margin_m=1.0), board_file=board_file)
     rig2.robot.carrying = [BOARD_LOAD]
     with pytest.raises(SequenceError, match="path check"):
-        rig2.seq.park(confirmed=True, board_on=True)
+        rig2.seq.home(confirmed=True, board_on=True)
     assert json.loads(board_file.read_text())["session_id"] is None
 
 
@@ -1026,16 +1089,16 @@ def test_clear_board_record_removes_an_old_record_without_any_motion(
     assert len(cleared) == 1 and '"run_id":"board-' in cleared[0] and str(board_file) in cleared[0]
 
 
-def test_clear_board_record_after_a_held_sequence_returns_to_idle_and_park_is_plain(tmp_path: Path) -> None:
+def test_clear_board_record_after_a_held_sequence_returns_to_idle_and_home_is_plain(tmp_path: Path) -> None:
     board_file = tmp_path / "board.json"
     rig = Rig(tmp_path, small_cfg(), board_file=board_file)
     assert rig.run_to_holding()["phase"] == HOLDING
     state = rig.seq.clear_board_record(confirmed=True)
     assert state["phase"] == IDLE and not board_file.exists()
     since = len(rig.robot.calls)
-    rig.seq.park(confirmed=True)  # the board is off: the plain park, no board route
+    rig.seq.home(confirmed=True)  # the board is off: the plain home, no board route
     rig.finish()
-    assert ADMIN_PARK_BOARD not in park_calls(rig, since)
+    assert ADMIN_PARK_BOARD not in home_calls(rig, since)
 
 
 def test_clear_board_record_without_a_record_says_so(tmp_path: Path) -> None:
@@ -1062,7 +1125,7 @@ def test_clear_board_record_is_refused_while_a_sequence_runs(tmp_path: Path) -> 
 def test_no_call_carries_a_radius(tmp_path: Path) -> None:
     rig = Rig(tmp_path, small_cfg())
     rig.run_to_holding(allow=False)
-    rig.seq.park(confirmed=True)
+    rig.seq.home(confirmed=True)
     rig.finish()
     assert rig.robot.calls
     for _, args in rig.robot.calls:
@@ -1136,7 +1199,7 @@ def test_busy(tmp_path: Path) -> None:
     with pytest.raises(Busy, match="RGB-D capture"):
         rig.seq.move_to_base(confirmed=True)
     with pytest.raises(Busy, match="RGB-D capture"):
-        rig.seq.park(confirmed=True)
+        rig.seq.home(confirmed=True)
     assert rig.robot.calls == []
     assert rig.seq.state()["running"] is False
 
@@ -1148,13 +1211,13 @@ def test_busy(tmp_path: Path) -> None:
     with pytest.raises(Busy, match="running"):
         rig.seq.move_to_base(confirmed=True)
     with pytest.raises(Busy, match="running"):
-        rig.seq.park(confirmed=True)
+        rig.seq.home(confirmed=True)
     rig.seq.board_attached()
     rig.wait_phase(WAITING_BIG_JOINTS)
     rig.seq.allow_big_joints(False)
     assert rig.finish()["phase"] == HOLDING
-    # Holding with the board on: a new base move waits for the board removal and Park.
-    with pytest.raises(Busy, match="Park"):
+    # Holding with the board on: a new base move waits for the board removal and Home.
+    with pytest.raises(Busy, match="Home"):
         rig.seq.move_to_base(confirmed=True)
 
 
@@ -1327,7 +1390,7 @@ def test_sequence_needs_the_colour_camera_info(tmp_path: Path) -> None:
     assert state["phase"] == HOLDING
     assert "no colour camera_info" in state["error"] and "6 s" in state["error"]
     assert rig.robot.count("move_arm_joints") == 2 and rig.capture.stills == []  # base pose and handle grip
-    assert_held_not_parked(rig)
+    assert_held_not_homed(rig)
 
 
 def event_messages(state: dict[str, Any], level: str | None = None) -> list[str]:
@@ -1391,30 +1454,31 @@ def test_stopped_sequence_records_a_warning_event(tmp_path: Path) -> None:
     assert event_messages(state, "warning")[-1] == "sequence stopped"
 
 
-def test_park_outcomes_are_recorded_as_events(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+def test_home_outcomes_are_recorded_as_events(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     rig = Rig(tmp_path, small_cfg())
     rig.run_to_holding()
     rig.robot.reset_arm = "failed: timeout"
     with caplog.at_level(logging.INFO, logger=SEQUENCER_LOGGER):
-        rig.seq.park(confirmed=True)
+        rig.seq.home(confirmed=True)
         state = rig.finish()
     assert state["events"][0]["level"] == "error"
     assert (
-        state["events"][0]["message"].startswith("park failed: ") and "failed: timeout" in state["events"][0]["message"]
+        state["events"][0]["message"].startswith("home failed: ") and "failed: timeout" in state["events"][0]["message"]
     )
     assert any(r.levelno >= logging.WARNING and "failed: timeout" in r.getMessage() for r in caplog.records)
-    assert any(m.startswith("park started") for m in event_messages(state))
+    assert any(m.startswith("home started") for m in event_messages(state))
+    assert [e["phase"] for e in state["events"] if e["message"].startswith("home started")] == [HOMING]
     rig.robot.reset_arm = "homed"
-    rig.seq.park(confirmed=True)
+    rig.seq.home(confirmed=True)
     state = rig.finish()
-    assert state["events"][0]["level"] == "info" and state["events"][0]["message"].startswith("park done: parked")
+    assert state["events"][0]["level"] == "info" and state["events"][0]["message"].startswith("home done: homed")
 
 
-def test_park_refusal_is_recorded_as_an_error_event(tmp_path: Path) -> None:
+def test_home_refusal_is_recorded_as_an_error_event(tmp_path: Path) -> None:
     rig = Rig(tmp_path, small_cfg())
     rig.robot.carrying = ["last grasp held an object"]
     with pytest.raises(SequenceError, match="mcp_server reports carrying"):
-        rig.seq.park(confirmed=True)
+        rig.seq.home(confirmed=True)
     newest = rig.seq.state()["events"][0]
     assert newest["level"] == "error" and "mcp_server reports carrying" in newest["message"]
 
@@ -1433,12 +1497,12 @@ def test_events_are_bounded_to_the_newest(tmp_path: Path) -> None:
     rig.robot.carrying = ["last grasp held an object"]
     for _ in range(EVENT_LIMIT + 5):
         with pytest.raises(SequenceError):
-            rig.seq.park(confirmed=True)
+            rig.seq.home(confirmed=True)
     rig.robot.carrying = []
-    rig.seq.park(confirmed=True)
+    rig.seq.home(confirmed=True)
     state = rig.finish()
     assert len(state["events"]) == EVENT_LIMIT
-    assert state["events"][0]["message"].startswith("park done")
+    assert state["events"][0]["message"].startswith("home done")
 
 
 JAW_EPS_RAD = 1e-9
@@ -1544,9 +1608,9 @@ def test_resume_with_board_keeps_the_jaws_and_skips_the_board_confirm(tmp_path: 
     assert rig.capture.stills
     assert (state["phase"], state["board_on"], state["error"]) == (HOLDING, True, None)
     assert state["session_id"] == SESSION and state["captured"] > 0
-    assert "Press Park" in state["status"]
+    assert "Press Home" in state["status"]
     assert any("resumed with the board on" in message for message in event_messages(state))
-    assert_held_not_parked(rig)
+    assert_held_not_homed(rig)
     assert rig.robot.count("get_control_state") == 0
 
 
@@ -1560,7 +1624,7 @@ def test_resume_with_board_path_check_refusal_moves_nothing(tmp_path: Path) -> N
     assert rig.robot.count("move_arm_joints") == moves_before
     assert (state["phase"], state["board_on"]) == (HOLDING, True)
     assert "base pose (board on)" in state["error"] and "joint_limits" in state["error"]
-    assert_held_not_parked(rig)
+    assert_held_not_homed(rig)
 
     # No measured gripper angle: the jaws cannot be kept, nothing moves.
     rig.robot.measured = {**HOME_POSE}
@@ -1580,7 +1644,7 @@ def test_resume_with_board_stopped_keeps_holding_with_the_board_on(tmp_path: Pat
     state = rig.finish()
     assert (state["phase"], state["board_on"]) == (HOLDING, True)
     assert "stopped" in state["status"]
-    assert_held_not_parked(rig)
+    assert_held_not_homed(rig)
 
 
 def test_resume_from_idle_is_refused_without_board_gripped_or_while_running_or_blocked(tmp_path: Path) -> None:
@@ -1660,13 +1724,13 @@ def test_resume_from_idle_after_a_restart_keeps_the_jaws_and_skips_the_board_con
     assert all(set(m) != {GRIPPER} for m in moves)  # no handle grip
     assert len(fresh.capture.sessions) == 1 and fresh.capture.stills
     assert (state["phase"], state["board_on"], state["error"]) == (HOLDING, True, None)
-    assert "Press Park" in state["status"]
-    assert fresh.seq.recorded_mount == record["mount"]  # the park path check falls back to the restored mount
+    assert "Press Home" in state["status"]
+    assert fresh.seq.recorded_mount == record["mount"]  # the home path check falls back to the restored mount
     assert json.loads(board_file.read_text())["session_id"] == SESSION
     assert any("board confirmed gripped by the user (from idle" in m for m in event_messages(state))
     confirmed = [r.getMessage() for r in caplog.records if "board_confirmed" in r.getMessage()]
     assert confirmed and "from_phase" in confirmed[0] and "idle" in confirmed[0]
-    assert_held_not_parked(fresh)
+    assert_held_not_homed(fresh)
 
 
 def test_resume_from_idle_path_check_refusal_moves_nothing(tmp_path: Path) -> None:
@@ -1677,7 +1741,7 @@ def test_resume_from_idle_path_check_refusal_moves_nothing(tmp_path: Path) -> No
     assert rig.robot.count("move_arm_joints") == 0
     assert (state["phase"], state["board_on"]) == (HOLDING, True)  # the user stated the board is gripped
     assert "base pose (board on)" in state["error"] and "joint_limits" in state["error"]
-    assert_held_not_parked(rig)
+    assert_held_not_homed(rig)
 
 
 # grip record: the confirmed grip becomes the active handle contact

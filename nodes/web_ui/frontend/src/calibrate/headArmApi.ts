@@ -16,7 +16,7 @@ import {
 
 const BASE = "/api/calibration/rgbd/head-arm";
 
-/** One recent sequence or park event of the node (logged there too); `level` is info, warning or error. */
+/** One recent sequence or Home event of the node (logged there too); `level` is info, warning or error. */
 export interface HeadArmEvent {
   /** ISO 8601 time of the event (node clock, UTC). */
   time: string;
@@ -27,7 +27,7 @@ export interface HeadArmEvent {
 
 /**
  * The node's board record (`<state_dir>/head_arm_board.json`), shown whatever its age. `offered`: fresh and of a stored
- * session, so a board park may use it (the user still confirms the board is on); `problem` says why not (too old, not a
+ * session, so a Home with the board may use it (the user still confirms the board is on); `problem` says why not (too old, not a
  * stored head_arm session, unreadable: the other fields are then null).
  */
 export interface BoardRecord {
@@ -73,7 +73,7 @@ export interface HeadArmSequence {
   board_record: BoardRecord | null;
   /** The handle grip record (contact angle, its source and the config fallback). */
   grip: HeadArmGrip;
-  /** The newest recent events (start, step outcomes, errors, stops, park results), newest first. */
+  /** The newest recent events (start, step outcomes, errors, stops, Home results), newest first. */
   events: HeadArmEvent[];
 }
 
@@ -436,16 +436,16 @@ export const allowBigJoints = (confirm: boolean) =>
   );
 export const stopSequence = () =>
   request<HeadArmSequence>(`${BASE}/sequence/stop`, POST, badSequence);
-/** Parks the arm (the board may stay on when its park path is clear); `confirm` is the user's confirm, `boardOn` states the board is on the gripper (recorded). */
-export const park = (confirm: boolean, boardOn = false) =>
+/** The Arm to camera flow's Home: moves the arm to the stored home (the board may stay on when its home path is clear); `confirm` is the user's confirm, `boardOn` states the board is on the gripper (recorded). */
+export const home = (confirm: boolean, boardOn = false) =>
   request<HeadArmSequence>(
-    `${BASE}/park`,
+    `${BASE}/home`,
     post({ confirm, board_on: boardOn }),
     badSequence,
   );
 /**
  * The user states the calibration board is already off the gripper: the node removes its board record (nothing moves;
- * POST /api/calibration/rgbd/arm-camera/board-record/clear). Refused while a head-arm sequence, a park or an arm to
+ * POST /api/calibration/rgbd/arm-camera/board-record/clear). Refused while a head-arm sequence, a Home or an arm to
  * camera compute runs; answers the head-arm sequence.
  */
 export const clearBoardRecord = () =>

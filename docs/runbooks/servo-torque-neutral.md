@@ -127,8 +127,8 @@ Steps (one button each; the panel says what to expect under every button):
    arm joint readings."). mcp_server enforces the stale zero for every caller (Arm tab, MCP tool, direct service call):
    "set home refused: the arm zero is stale (joint_offsets); run the zero restore first (arm re-zero at ...)". Seeing
    it means the zero restore (step 3) did not complete: run it, then Set home again.
-6. Park the arm: General section **Home arm** (or the Arm to camera flow's Park when it holds the board). Expect: it
-   parks on its rest without a jump. Mismatch: stop the motion from the Arm tab or the agent's stop and report
+6. Home the arm: General section **Home arm** (or the Arm to camera flow's **Home**, step 7, when it holds the board).
+   Expect: it moves to its stored home without a jump. Mismatch: stop the motion from the Arm tab or the agent's stop and report
    (**Abort calibration** stops calibration captures and sequences only, not a Home arm motion).
 
 Optional, once the zero is right: with the arm resting folded and torque off, **Save current pose as rest reference**
@@ -171,7 +171,7 @@ The Calibrate page shows each recorded shift on the card (a large one in red wit
 confirm, which then warns, names the joints and needs the checkbox "The large shift is intended: save it" before
 **Save large shift** calls `save_neutral_confirmed`. The bridge journal logs the refusal and every confirmed large shift
 at WARNING. A large shift almost always means the pose was wrong at Record neutral (incident 2026-11-09: recorded in the
-folded pose, elbow_flex +1030 steps / +90.5 deg, shoulder_lift -933 steps; Park could not converge afterwards): cancel,
+folded pose, elbow_flex +1030 steps / +90.5 deg, shoulder_lift -933 steps; Park, now the Arm to camera flow's Home, could not converge afterwards): cancel,
 put the joints in the neutral pose, record again.
 
 Bench check (after deploying `lerobot_follower`, `base_servos` and `web_ui`; head pan as the least dramatic joint):

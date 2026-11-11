@@ -1679,6 +1679,9 @@ ros2_nodes:
       # Arm re-zero stale marker of the follower bridge; the arm to camera accept is refused while it lists joint_offsets
       # for a re-zero at or after the session's first still (null: no check).
       arm_stale_marker: /var/lib/ros2/arm/calibration_stale.json
+      # mcp_server's stored arm home (its arm.home_file, written by Set home), read at each Home with the board on as
+      # its target.
+      arm_home_file: /var/lib/ros2/arm/home.yaml
       # HTTP API bind address (web_ui proxies to it).
       http_host: 127.0.0.1
       # HTTP API port.
@@ -2063,9 +2066,7 @@ ros2_nodes:
         confirm_timeout_s: 600.0 # an unanswered confirm ends the sequence (arm held), s (> 0)
         head_offsets_deg: [[0.0, 0.0], [10.0, 0.0], [-10.0, 0.0], [0.0, -3.0]] # (pan, tilt) added to the aimed head, deg; tilt -3 (up) fits the D435 colour FOV
         provisional_margin_m: 0.0 # extra board margin while board_mount is the CAD seed, m (>= 0); 0 by user decision 2026-11-10
-        # Parked arm (gen_nav_footprint.yaml parked_arm_joints): the target of Park with the board on.
-        park_pose: {shoulder_pan: -0.003, shoulder_lift: -1.35, elbow_flex: 1.578, wrist_flex: -0.1, wrist_roll: -1.637}
-        park_board_sag_margin_m: 0.01 # added to the board floor, body and head clearances of the Park path check (board sags under its weight), m (>= 0)
+        park_board_sag_margin_m: 0.01 # added to the board floor, body and head clearances of the Home path check (board sags under its weight), m (>= 0)
         board_record_max_age_s: 7200.0 # a board-clipped record older than this is ignored at start-up, s (> 0)
         # FK pose check before every arm command (shared core arm_pose_check); its body is the packaged robot body
         # (shared/arm_collision/arm_collision/robot_body.yaml, loaded by the BodyConfig defaults).
@@ -2166,7 +2167,7 @@ ros2_nodes:
       # Large-shift save guard: save_neutral is refused (nothing written, torque unchanged) when a recorded joint
       # shift exceeds this many degrees; the Calibrate page then asks for an explicit confirm and saves through
       # save_neutral_confirmed. Incident 2026-11-09: a neutral recorded in the folded pose shifted elbow_flex by
-      # +90.5 deg and Park could not converge. base_servos and the head group keep the bridge default (15 deg).
+      # +90.5 deg and Park (now Home) could not converge. base_servos and the head group keep the bridge default (15 deg).
       neutral_max_shift_deg: 15.0
       # Arm zero restore (web UI Calibrate page "Arm zero restore"): rewrites each arm servo's EEPROM offset so the
       # resting folded arm (torque off) reads its rest reference again, without moving it. The reference file
@@ -3288,7 +3289,7 @@ ros2_nodes:
         # Latest successful servo calibration record of lerobot_follower (its servo_calibration record_dir).
         servo_calibration_record: /var/lib/ros2/arm/servo_calibration-follower-latest.json
         # head_rgbd_calibration board record (<its state_dir>/head_arm_board.json): written on Board attached, removed by
-        # a successful park; /arm/home is refused while it exists (the calibration board is on the gripper).
+        # a successful Home of the Arm to camera flow; /arm/home is refused while it exists (the board is on).
         calibration_board_record: /var/lib/ros2/head_rgbd_calibration/head_arm_board.json
         # head_rgbd_calibration applied/ (its state_dir): an accepted arm to camera calibration there
         # (arm_calibration.json, named by applied.json) overrides joint_offsets_rad, base_in_base_link and

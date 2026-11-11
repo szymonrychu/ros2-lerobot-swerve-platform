@@ -42,7 +42,7 @@ EXECUTOR_KINDS = ("events", "single_threaded")
 DEFAULT_EXECUTOR = "single_threaded"
 # A recorded neutral shift (present - 2048) above this many degrees on any joint refuses save_neutral; only
 # save_neutral_confirmed (the UI's explicit large-shift confirm) saves it. Incident 2026-11-09: a neutral recorded in the
-# folded pose shifted elbow_flex by +90.5 deg and Park could no longer converge.
+# folded pose shifted elbow_flex by +90.5 deg and the Arm to camera Park (now Home) could no longer converge.
 DEFAULT_NEUTRAL_MAX_SHIFT_DEG = 15.0
 # zero_restore block defaults (see ZeroRestoreConfig). An offset change above max_change_deg needs the explicit confirm
 # (zero_restore_apply_confirmed), as a large neutral shift does.
