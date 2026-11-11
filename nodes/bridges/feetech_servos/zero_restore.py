@@ -25,12 +25,15 @@ minus neutral_exclude_joints (the gripper is never touched):
   wrong re-zero is wrong again, one recorded before it is right again); without such a marker a change beyond
   plan_tolerance_steps marks joint_offsets and home stale (it is a re-zero of calibrations taken in the old zero); a
   failed apply marks them stale for every joint whose offset may have changed.
-- servo calibration guard: dry_run and apply are refused (nothing written, the stale marker untouched) while the zero
-  change record names a servo calibration as the latest zero change (servo_calibration_refusal): that zero was set on
-  purpose, a restore would not bring an old zero back and must never clear joint_offsets (the arm-to-camera
-  calibration was taken in the old zero and has to be redone). An unreadable record refuses too.
+- servo calibration guard: dry_run and apply are refused (nothing written, the stale marker untouched) while the arm
+  zero came from a servo calibration (servo_calibration_refusal): the stale marker's servo_calibration_at (persistent,
+  survives a later neutral save or CLI change) or, failing that, the zero change record naming it as the latest
+  source. That zero was set on purpose, a restore would not bring an old zero back and must never clear joint_offsets
+  (the arm-to-camera calibration was taken in the old zero and has to be redone). An unreadable marker or record
+  refuses too, naming the file to fix or delete and the arm-to-camera redo.
 - save_rest_reference(namespace): stores the present readings (rad) of a released, still arm as the reference file;
-  refused while the stale marker lists joint_offsets (the zero is suspect then).
+  refused while the stale marker lists joint_offsets (the zero is suspect then; after a servo calibration the text
+  names the arm-to-camera redo instead of a zero restore).
 
 Every step logs a calib_event line (flows "zero_restore" and "rest_reference"). bridge.py runs the services on the
 loop thread (the sole bus owner); tests drive them over an emulated bus.
@@ -74,6 +77,8 @@ from .torque_control import PRESENT_REGISTER, TORQUE_OFF, TorqueControl
 from .zero_record import (
     SOURCE_FIELD,
     SOURCE_SERVO_CALIBRATION,
+    ZERO_RECORD_FILE,
+    read_servo_calibration_at,
     read_stale_items,
     read_zero_change,
     record_zero_change,
@@ -242,6 +247,7 @@ class GroupState:
         reference: Cached reference (status); refreshed by every dry run and save.
         reference_error: Why the reference file is invalid; None when valid.
         stale_joint_offsets: Cached "joint_offsets in the stale marker" flag.
+        servo_calibration_at: Cached servo_calibration_at of the stale marker (None: none or unreadable).
         marker_checked: Monotonic time of the last marker read (None = never).
         loaded: The reference was loaded once (status before any dry run).
     """
@@ -251,6 +257,7 @@ class GroupState:
     reference: dict[str, Any] | None = None
     reference_error: str | None = None
     stale_joint_offsets: bool = False
+    servo_calibration_at: str | None = None
     marker_checked: float | None = None
     loaded: bool = False
 
@@ -305,7 +312,7 @@ class ZeroRestoreControl:
 
         Returns:
             dict[str, Any]: {"zero_restore": None} without a zero_restore block, else {"zero_restore": {
-                "max_change_deg", "reference", "reference_error", "stale_joint_offsets", "plan", "last_result"}}.
+                "max_change_deg", "reference", "reference_error", "stale_joint_offsets", "servo_calibration_at", "plan", "last_result"}}.
         """
         group = self.torque.groups.get(namespace)
         if group is None or group.zero_restore is None:
@@ -315,6 +322,7 @@ class ZeroRestoreControl:
         if state.marker_checked is None or now - state.marker_checked >= MARKER_REFRESH_S:
             state.marker_checked = now
             state.stale_joint_offsets = self.zero_suspect(group)
+            state.servo_calibration_at = self.marker_servo_calibration_at(group)
         plan = state.plan
         return {
             "zero_restore": {
@@ -322,6 +330,7 @@ class ZeroRestoreControl:
                 "reference": state.reference,
                 "reference_error": state.reference_error,
                 "stale_joint_offsets": state.stale_joint_offsets,
+                "servo_calibration_at": state.servo_calibration_at,
                 "plan": None if plan is None else self.plan_payload(group, plan),
                 "last_result": state.last_result,
             }
@@ -379,27 +388,66 @@ class ZeroRestoreControl:
         items = read_stale_items(Path(group.neutral_stale_marker))
         return items is not None and STALE_JOINT_OFFSETS in items
 
-    def servo_calibration_refusal(self, group: JointGroup) -> str | None:
-        """Why a zero restore must not run because the latest zero change was a servo calibration (None when it may).
+    def marker_servo_calibration_at(self, group: JointGroup) -> str | None:
+        """The servo calibration time the group's stale marker names (status; an unreadable marker gives None).
 
         Args:
             group (JointGroup): The group.
 
         Returns:
-            str | None: The refusal text; None without a stale marker path, without a zero change record, or when
-                the record names another source.
+            str | None: The marker's servo_calibration_at; None without a marker path, marker or field, or when the
+                marker is unreadable.
         """
         if group.neutral_stale_marker is None:
             return None
         try:
-            record = read_zero_change(Path(group.neutral_stale_marker))
+            return read_servo_calibration_at(Path(group.neutral_stale_marker))
+        except ValueError:
+            return None
+
+    def servo_calibration_refusal(self, group: JointGroup) -> str | None:
+        """Why a zero restore must not run because the arm zero came from a servo calibration (None when it may).
+
+        Checks, in order: the stale marker's servo_calibration_at (persistent: a later neutral save or CLI change does
+        not clear it), the zero change record's source (marker-less or older stores), an unreadable record.
+
+        Args:
+            group (JointGroup): The group.
+
+        Returns:
+            str | None: The refusal text, with its remedy; None without a stale marker path, or when neither the
+                marker nor the record names a servo calibration.
+        """
+        if group.neutral_stale_marker is None:
+            return None
+        marker = Path(group.neutral_stale_marker)
+        redo = "redo the arm-to-camera calibration"
+        try:
+            marker_at = read_servo_calibration_at(marker)
         except ValueError as exc:
-            return f"{exc}: the source of the last arm zero change is unknown; nothing written"
+            return (
+                f"{exc}: whether the arm zero came from a servo calibration is unknown; nothing written. Fix or "
+                f"delete the stale marker {marker} (the next zero change rewrites it); after a servo calibration, "
+                f"{redo} instead"
+            )
+        if marker_at is not None:
+            return (
+                f"the arm zero was set by a servo calibration at {marker_at}; zero restore would not restore it - "
+                f"{redo}; nothing written"
+            )
+        try:
+            record = read_zero_change(marker)
+        except ValueError as exc:
+            return (
+                f"{exc}: the source of the last arm zero change is unknown; nothing written. Fix or delete "
+                f"{marker.with_name(ZERO_RECORD_FILE)} (the next zero change rewrites it); after a servo "
+                f"calibration, {redo} instead"
+            )
         if record is None or record.get(SOURCE_FIELD) != SOURCE_SERVO_CALIBRATION:
             return None
         return (
             f"the arm zero was set by a servo calibration at {record.get('changed_at') or 'an unknown time'}; zero "
-            "restore would not restore it - redo the arm-to-camera calibration; nothing written"
+            f"restore would not restore it - {redo}; nothing written"
         )
 
     def plan_payload(self, group: JointGroup, plan: Plan) -> dict[str, Any]:
@@ -1029,6 +1077,11 @@ class ZeroRestoreControl:
         if group is None:
             return refuse(refusal)
         if self.zero_suspect(group):
+            if self.marker_servo_calibration_at(group) is not None:
+                return refuse(
+                    "the stale marker lists joint_offsets after a servo calibration: the zero is new on purpose and "
+                    "a reference taken now would be wrong; redo the arm-to-camera calibration first"
+                )
             return refuse(
                 "the stale marker lists joint_offsets: the zero is suspect, so a reference taken now would be wrong; "
                 "restore the zero first"
