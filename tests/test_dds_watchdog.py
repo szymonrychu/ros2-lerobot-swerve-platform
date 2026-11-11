@@ -524,8 +524,9 @@ class Harness:
     Attributes:
         root (Path): Scratch directory.
         env (dict[str, str]): Environment of the runs.
-        restarts_log (Path): One line per `systemctl restart` call.
-        fail_flag (Path): When it exists, the fake `systemctl restart` exits 1.
+        restarts_log (Path): One line per `systemctl try-restart` call (the unit).
+        verbs_log (Path): One line per call (the systemctl verb used).
+        fail_flag (Path): When it exists, the fake `systemctl try-restart` exits 1.
         list_fail_flag (Path): When it exists, the fake `systemctl list-units` exits 1.
         list_empty_flag (Path): When it exists, the fake `systemctl list-units` prints no unit.
         units_file (Path): When it exists, the fake `systemctl list-units` prints it instead of the one test unit.
@@ -544,6 +545,7 @@ class Harness:
         bindir = root / "bin"
         bindir.mkdir()
         self.restarts_log = root / "restarts.log"
+        self.verbs_log = root / "verbs.log"
         self.fail_flag = root / "fail-restart"
         self.list_fail_flag = root / "fail-list"
         self.list_empty_flag = root / "empty-list"
@@ -555,7 +557,8 @@ class Harness:
             f"  list-units) [ -e {self.list_fail_flag} ] && exit 1; [ -e {self.list_empty_flag} ] && exit 0; "
             f"if [ -e {self.units_file} ]; then cat {self.units_file}; exit 0; fi; "
             f'echo "{UNIT} loaded active running ROS2 test unit" ;;\n'
-            f'  restart) echo "$2" >> {self.restarts_log}; [ -e {self.fail_flag} ] && exit 1; exit 0 ;;\n'
+            f'  try-restart) echo "$1" >> {self.verbs_log}; echo "$2" >> {self.restarts_log}; '
+            f"[ -e {self.fail_flag} ] && exit 1; exit 0 ;;\n"
             "esac\n"
         )
         fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
@@ -734,6 +737,16 @@ def test_dry_run_logs_without_restart(host: Harness) -> None:
     assert f'dds_watchdog_streak{{unit="{UNIT}"}} 3' in text
 
 
+def test_restart_uses_try_restart(host: Harness) -> None:
+    """The restart command is `systemctl try-restart`, so a unit stopped on purpose (an RTK survey-in stops the base
+    unit) between the scan and the restart stays stopped."""
+    for _ in range(3):
+        proc = host.run()
+        assert proc.returncode == 0, proc.stderr
+    assert host.restarts() == [UNIT]
+    assert host.verbs_log.read_text().split() == ["try-restart"]
+
+
 def test_failed_restart_not_counted(host: Harness) -> None:
     """A failing systemctl restart logs an error, counts nothing, keeps the streak and still writes metrics."""
     host.fail_flag.write_text("")
@@ -741,7 +754,7 @@ def test_failed_restart_not_counted(host: Harness) -> None:
         proc = host.run()
     assert proc.returncode == 0
     assert host.restarts() == [UNIT]
-    assert f"systemctl restart {UNIT} failed" in proc.stdout
+    assert f"systemctl try-restart {UNIT} failed" in proc.stdout
     text = host.metrics()
     assert f'dds_watchdog_restarts_total{{unit="{UNIT}"}} 0' in text
     assert f'dds_watchdog_streak{{unit="{UNIT}"}} 3' in text
@@ -1181,6 +1194,24 @@ def test_calibration_rechecked_after_each_restart(host: Harness) -> None:
     text = host.metrics()
     assert metric_value(text, blocked_series(UNIT2)) == 1
     assert metric_value(text, blocked_series()) == 0
+
+
+def test_calibration_rechecked_after_failed_restart(host: Harness) -> None:
+    """Two units due in one run and the first restart fails: the idle answer is still not reused. The stub answers
+    idle to the first request and active to later ones, so the second unit is held back after 2 requests."""
+    add_thread(host.root / "proc", 200, 200, "dds.udp.7460", "futex_wait_queue")
+    write_net(host.root / "proc", "udp", [*WEDGED_ROWS, udp_row(1, 7460, 1001600)])
+    add_procs(host.root / "sys/fs/cgroup", UNIT2, [200])
+    host.units_file.write_text(f"{UNIT} loaded active running a\n{UNIT2} loaded active running b\n")
+    host.calib.later_body = json.dumps(CALIB_FIXTURE).encode()
+    host.fail_flag.write_text("")
+    for _ in range(3):
+        proc = host.run()
+        assert proc.returncode == 0, proc.stderr
+    assert host.restarts() == [UNIT]
+    assert host.calib.requests == 2
+    assert f"systemctl try-restart {UNIT} failed" in proc.stdout
+    assert f"not restarting {UNIT2}: calibration active: rgbd:head-arm, general:home_arm" in proc.stdout
 
 
 def test_malformed_url_run_saves_state_and_metrics(host: Harness) -> None:

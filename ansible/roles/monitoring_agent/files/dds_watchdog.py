@@ -15,7 +15,7 @@ written.
 Calibration guard (fail closed): only when a unit is due for a restart (streak reached, no fresh deploy lock, rate
 limit passed), the run asks web_ui's GET /api/calibration/active (one retry on a transport error, redirects never
 followed). The answer is reused for later due units of the same run only until a restart: after every systemctl
-restart the next due unit asks again, so a calibration started during a restart is seen. While a calibration flow is
+try-restart the next due unit asks again, so a calibration started during a restart is seen. While a calibration flow is
 active, a source is unknown, or the answer is unreachable or malformed, nothing is restarted: the unit keeps its
 streak, the run logs a WARNING `not restarting <unit>: calibration <reason>` and records blocked_since, and the restart
 happens on the first run that sees idle while the unit is still a suspect. A healthy host makes no HTTP call. Dry run
@@ -624,7 +624,7 @@ def restart_allowed(
         unit_state (UnitState): State of the unit; blocked_since is updated.
         now (float): Current epoch seconds.
         calibration (Callable[[], tuple[bool, str]]): Returns (blocked, reason) of calibration_status; run_once
-            caches it until the next systemctl restart of the run.
+            caches it until the next systemctl try-restart of the run.
         cap_reached (bool): The run already used up max_restarts_per_run; the unit waits for the next run.
 
     Returns:
@@ -654,21 +654,27 @@ def restart_allowed(
 
 
 def restart_unit(cfg: Config, unit: str) -> bool:
-    """Restart a unit with systemctl.
+    """Restart a unit with `systemctl try-restart`, which restarts only a running unit.
+
+    A unit stopped on purpose after the scan (rtk_calibrate.sh stops ros2-gps_rtk_base for a survey-in) stays stopped.
 
     Args:
         cfg (Config): Settings.
         unit (str): Unit name.
 
     Returns:
-        bool: True when systemctl succeeded.
+        bool: True when systemctl succeeded (also for a unit that was not running and so not restarted).
     """
     try:
         subprocess.run(
-            [cfg.systemctl, "restart", unit], capture_output=True, text=True, check=True, timeout=SYSTEMCTL_TIMEOUT_S
+            [cfg.systemctl, "try-restart", unit],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=SYSTEMCTL_TIMEOUT_S,
         )
     except (OSError, subprocess.SubprocessError) as exc:
-        LOG.error("systemctl restart %s failed: %s", unit, exc)
+        LOG.error("systemctl try-restart %s failed: %s", unit, exc)
         return False
     return True
 

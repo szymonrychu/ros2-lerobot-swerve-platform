@@ -2907,7 +2907,7 @@ The server stack `ansible/roles/monitoring` (Mimir + Loki + Grafana on the serve
 | `test_dds_watchdog_alert_rules` | The alert file is apiVersion 1 with only `groups` (no contact point, policy or mute timing); group `dds-watchdog` in folder Robot, 1m; R1 `dds-watchdog-restart`, R2 `dds-watchdog-blocked` (label `route: agents`), R3 `dds-watchdog-stale`: titles, PromQL, `for`, severity, noData OK, execErr Error, runbook path in the description. |
 | `test_alert_rules_evaluate` | Each rule's condition names a threshold expression that chains through a reduce to the Prometheus query A on `prometheus-robot` (instant, positive relative time range); refIds are unique and match their models; uids are valid; rules are not paused. |
 | `test_alert_rule_labels_and_metrics_match_the_watchdog_script` | Every `dds_watchdog_*` metric in a rule is written by `dds_watchdog.py`, and each `by (...)` label is `host` (added by Alloy) or a label of that series. |
-| `test_alert_rule_description_explains_r2_caveats` | R2's description names the deploy-lock/rate-limit wait after a calibration, a wedged web_ui (unknown sources), and the unreachable client on the server. |
+| `test_alert_rule_description_explains_r2_caveats` | R2's description names the deploy-lock wait after a calibration (no rate-limit wait: it cannot follow a calibration hold), a wedged web_ui (unknown sources), and the unreachable client on the server. |
 | `test_services_restart_when_a_config_is_newer_than_their_start` | After starting, a shell task restarts mimir / loki / grafana-server when their config, drop-in or `monitoring.slice` is newer than the start; it runs between the start and the readiness wait. |
 | `test_readiness_checks` | Waits for Mimir `/ready`, Loki `/ready`, Grafana `/api/health` and `/grafana/api/health` through nginx, at least 2 min. |
 | `test_disabled_stack_stops_its_services` | `monitoring_enabled: false` stops and disables mimir, loki and grafana-server. |
@@ -4122,7 +4122,8 @@ Imports `ansible/roles/monitoring_agent/files/dds_watchdog.py`, runs its detecti
 | `test_old_deploy_lock_is_ignored` | A stale deploy lock does not block. |
 | `test_rate_limit_blocks_second_restart` | A still-wedged unit is not restarted again within the minimum interval; it is once the interval passed. |
 | `test_dry_run_logs_without_restart` | Dry run (case-insensitive value) logs "would restart" (not "restarting", no doubled prefix), calls no restart and counts none. |
-| `test_failed_restart_not_counted` | A failing `systemctl restart` logs an error, counts no restart, keeps the streak, and the metrics are still written (exit 0). The failed attempt starts the rate-limit window: the next run does not call `systemctl`, a run after the interval retries. |
+| `test_restart_uses_try_restart` | The restart command is `systemctl try-restart`, so a unit stopped on purpose (RTK survey-in) between scan and restart stays stopped. |
+| `test_failed_restart_not_counted` | A failing `systemctl try-restart` logs an error, counts no restart, keeps the streak, and the metrics are still written (exit 0). The failed attempt starts the rate-limit window: the next run does not call `systemctl`, a run after the interval retries. |
 | `test_corrupt_state_file_resets` | A corrupt, wrong-shaped or missing state file starts empty with a warning and exits 0. |
 | `test_wrong_type_state_resets` | Parametrized: valid JSON with wrong field types (null, string, bool, float, non-dict entry, unknown field, a wrong-typed `blocked_since`) starts empty with a warning, exits 0 and leaks nothing into the metrics. |
 | `test_valid_state_is_kept` | A state file with correct types is used, not reset (also an older file without `last_attempt` and `blocked_since`). |
@@ -4156,7 +4157,7 @@ Imports `ansible/roles/monitoring_agent/files/dds_watchdog.py`, runs its detecti
 | `test_calibration_wrong_types_blocks` | Parametrized: string `active`, `flows` not a list, an entry without `name` or `reason` or with a non-str one, a missing key, `active` disagreeing with `flows`, a non-object answer: all block as malformed. |
 | `test_calibration_retry_once_then_ok` | A connection closed without a response is retried once; the idle second answer is not blocked (two requests). |
 | `test_calibration_retries_only_once` | Two dropped connections block as unreachable after exactly two requests. |
-| `test_wedged_unit_not_restarted_during_calibration` | Subprocess runs with an active calibration: no `systemctl restart`, `not restarting <unit>: calibration active: ...` logged at WARNING (checked in-process with caplog), `dds_watchdog_restart_blocked{unit,reason="calibration"}` 1, streak kept. |
+| `test_wedged_unit_not_restarted_during_calibration` | Subprocess runs with an active calibration: no `systemctl try-restart`, `not restarting <unit>: calibration active: ...` logged at WARNING (checked in-process with caplog), `dds_watchdog_restart_blocked{unit,reason="calibration"}` 1, streak kept. |
 | `test_unreachable_calibration_blocks_restart` | Fail closed end to end: an endpoint nobody listens on holds the restart (`calibration unreachable: ...`). |
 | `test_unknown_calibration_source_blocks_restart` | An unknown source with `active` false holds the restart end to end. |
 | `test_deferred_restart_after_calibration_ends` | Blocked on runs 3 and 4, idle on run 5: exactly one restart, blocked metrics back to 0, `blocked_since` cleared, no further restart. |
@@ -4167,10 +4168,11 @@ Imports `ansible/roles/monitoring_agent/files/dds_watchdog.py`, runs its detecti
 | `test_one_calibration_call_per_run` | Two units due in the same run, both held back by an active calibration, share one request (no restart happened, so the answer is reused). |
 | `test_dry_run_still_checks_calibration` | Dry run asks the endpoint: blocked logs `not restarting ... calibration`, not `would restart`; idle then logs `would restart`. |
 | `test_calibration_rechecked_after_each_restart` | Two units due in one run; the stub answers idle to the first request and active to every later one. The first unit is restarted, the idle answer is not reused after that restart: the second unit asks again (two requests), is held back with `not restarting <unit2>: calibration active: ...` and its `restart_blocked` metric is 1. |
+| `test_calibration_rechecked_after_failed_restart` | Two units due, the first `systemctl try-restart` fails; the stub answers idle to the first request and active to later ones. The second unit is not restarted, there are 2 requests and `not restarting <unit2>: calibration active: ...` is logged (regression guard for the failed-restart path; passes against the pre-existing code). |
 | `test_malformed_url_run_saves_state_and_metrics` | A run with `DDS_WATCHDOG_CALIBRATION_URL=http://[::1/...` exits 0, restarts nothing, logs `calibration malformed: ...`, saves the streak (4 after 4 runs) and writes `restart_blocked` 1. |
 | `test_bad_timeout_run_uses_default` | Runs with `DDS_WATCHDOG_CALIBRATION_TIMEOUT_S=inf` exit 0, log the timeout warning, use 3 s and restart the wedged unit on the idle answer. |
 | `test_restart_cap_limits_restarts_per_run` | 5 due units, default cap 3: exactly 3 restarts; the other 2 keep their streak (3), get no calibration GET (3 requests), log `not restarting <unit>: restart cap 3 per run reached` and have `restart_blocked` 0; the next run restarts them. |
-| `test_restart_cap_counts_failed_restarts` | With a failing `systemctl restart`, 5 due units still give only 3 restart calls. |
+| `test_restart_cap_counts_failed_restarts` | With a failing `systemctl try-restart`, 5 due units still give only 3 restart calls. |
 | `test_restart_cap_counts_dry_run` | Dry run with 5 due units logs `would restart` 3 times and the cap line twice; nothing is restarted. |
 | `test_restart_cap_from_env` | `DDS_WATCHDOG_MAX_RESTARTS_PER_RUN=1` restarts one of three due units. |
 | `test_restart_cap_does_not_count_blocked_units` | Units held back by calibration do not use up the cap and are never logged as cap-skipped. |

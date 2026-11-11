@@ -45,12 +45,12 @@ sudo ss -uapn | grep -E ':74[1-9][0-9]|:75[0-9][0-9]|:760[0-8]'   # Recv-Q of th
 `dds-watchdog.timer` runs `dds-watchdog.service` (root, `monitoring.slice`) 60 s after boot and then every 10 s. Each
 run samples every running `ros2-*.service`. A unit is a suspect when a metatraffic thread has wchan `futex_wait_queue`
 and its port's rx_queue (the larger of `/proc/net/udp` and `udp6`) is at least 262144 bytes. After 3 consecutive suspect
-runs the unit is restarted with `systemctl restart`, at most once per 300 s per unit and at most 3 units per run (`DDS_WATCHDOG_MAX_RESTARTS_PER_RUN`; a failed restart
+runs the unit is restarted with `systemctl try-restart` (a unit stopped meanwhile, e.g. `rtk_calibrate.sh` stopping `ros2-gps_rtk_base`, stays stopped), at most once per 300 s per unit and at most 3 units per run (`DDS_WATCHDOG_MAX_RESTARTS_PER_RUN`; a failed restart
 and a dry-run "would restart" count too). Further due units keep their streak, are logged at INFO as
 `not restarting <unit>: restart cap 3 per run reached` and are restarted by the next run 10 s later; the cap bounds the
 run time (`TimeoutStartSec` is derived from it) and is not a calibration block. It restarts nothing while
 `/var/lib/ros2-deploy/deploy.lock` is younger than 14400 s (the deploy-recover max age) or while a calibration is
-active (below). A failed `systemctl restart` is logged, not counted, and retried after the rate limit. The state
+active (below). A failed `systemctl try-restart` is logged, not counted, and retried after the rate limit. The state
 (streaks, restart times) is in `/var/lib/dds-watchdog/state.json`; the metrics file is
 `/var/lib/alloy/textfile/dds_watchdog.prom`. Logs: `journalctl -u dds-watchdog.service`.
 
@@ -119,8 +119,8 @@ They are visible in Grafana only: no contact point or notification policy exists
   finish or cancel it and the watchdog restarts the unit by itself; if not, find out why the guard blocks (the
   `not restarting <unit>: calibration <reason>` line in `journalctl -u dds-watchdog.service`). R2 can also fire without
   a real calibration:
-  - The blocked timer keeps counting through a deploy-lock or rate-limit wait that follows a calibration hold, so a
-    long deploy right after a calibration can trip R2.
+  - The blocked timer keeps counting through a deploy-lock wait that follows a calibration hold, so a long deploy
+    right after a calibration can trip R2.
   - If `ros2-web_ui.service` itself is wedged, its calibration sources read unknown, so the watchdog never restarts it
     and R2 is the signal: restart web_ui by hand (above).
   - On the server, an unreachable client also blocks (the server asks the client's web_ui for the calibration state, fail

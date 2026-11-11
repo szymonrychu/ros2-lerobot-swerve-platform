@@ -102,8 +102,8 @@ groups:
             {% raw %}The DDS watchdog wants to restart {{ $labels.unit }} on {{ $labels.host }} (deadlocked Fast DDS
             discovery thread) but has been held back for over 10 minutes by a calibration that is running, or whose
             state cannot be read (it fails closed). Check the Calibrate page. Caveats: the blocked timer keeps
-            counting through a deploy-lock or rate-limit wait that follows a calibration hold, so a long deploy right
-            after a calibration can trip this alert without a calibration being active. If ros2-web_ui.service itself
+            counting through a deploy-lock wait that follows a calibration hold, so a long deploy right after a
+            calibration can trip this alert without a calibration being active. If ros2-web_ui.service itself
             is wedged, its calibration sources read unknown, so the watchdog never restarts it and this alert is the
             signal: restart web_ui by hand. On the server, an unreachable client also blocks the restart (the server
             asks the client's web_ui). Runbook: docs/runbooks/dds-discovery-deadlock.md.{% endraw %}

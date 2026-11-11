@@ -551,9 +551,11 @@ def test_alert_rule_labels_and_metrics_match_the_watchdog_script() -> None:
 
 def test_alert_rule_description_explains_r2_caveats() -> None:
     """R2 tells the reader about the three ways it fires without a wedge: deploy lock wait after a calibration, a
-    wedged web_ui, and an unreachable client on the server."""
+    wedged web_ui, and an unreachable client on the server. It does not name a rate-limit wait (that case cannot
+    follow a calibration hold)."""
     text = alert_rules()["dds-watchdog-blocked"]["annotations"]["description"]
-    assert "deploy" in text and "rate" in text and "calibration" in text
+    assert "deploy" in text and "calibration" in text
+    assert "rate-limit" not in text
     assert "web_ui" in text and "unknown" in text
     assert "client" in text and "unreachable" in text
 
