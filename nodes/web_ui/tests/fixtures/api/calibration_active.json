@@ -1,0 +1,10 @@
+{
+  "active": true,
+  "flows": [
+    {"name": "rgbd:head-arm", "reason": "sequence.phase=collect"},
+    {"name": "general:home_arm", "reason": "1 request(s) in flight"}
+  ],
+  "unknown": [
+    {"name": "servo:arm", "reason": "torque_state stale"}
+  ]
+}
