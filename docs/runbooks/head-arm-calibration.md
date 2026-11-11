@@ -77,7 +77,8 @@ mcp_server kills it; ask first). Telemetry only through topic_scraper_api /
    not slip or rotate in the jaws.
 3. Calibrate page, tab **Arm to camera** (deep link `#/calibrate/arm-camera`), robot docked, user watching. The
    precondition banner must not show "Not ready" (a camera-to-ground result, i.e. an applied head chain, is needed) or
-   "Arm zero is stale" (restore it in the Servo home flow first). Steps: 1 **Home arm** (confirm), 2 **Open gripper**
+   "Arm zero is stale" (after an accidental re-zero restore it in Servo calibration, Advanced / repair; after a servo
+   calibration store the arm-to-camera calibration must be redone, see the feetech_servos README). Steps: 1 **Home arm** (confirm), 2 **Open gripper**
    (confirm naming the joints: base pose, gripper open to `insert_gripper_rad`), 3 the user seats the ARM board handle
    in the jaws up to the shoulder and presses **Board attached**: the gripper closes on the handle (seat and slack
    checks in the events log), tiers 0 and 1 start, 4 **Capture**: ask before **Allow shoulder and elbow moves**
