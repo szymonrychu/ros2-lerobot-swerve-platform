@@ -455,7 +455,7 @@ Events per flow:
 
 | Flow | run_id | Steps (outcomes) |
 |---|---|---|
-| `head_arm` | `seq-...` | `sequence` (start with every gating config value; done, stopped or error with `failed_step`, session, counts), timed `take_control`, `base_move`, `wait_board`, `handle_grip`, `still_session`, `camera_info` (intrinsics), `pose` (target, captured, skipped; `not_visited` when every view is skipped), `wait_big_joints` (`allowed`), `return_to_base`; `get_arm_state` (measured joints), `path_check` (ok or refused with start, target, gripper and every violated entry), `move_arm_joints` and `set_head_angles` (MCP status, message, result), `tool_error`, `gripper_measured` (seated, unseated, slack against the limits), `view` skipped (head command, rule), `still` stored or skipped (pose id, corners, board ids, still-window stats, joint stamp gaps), `board_attached`, `big_joints`, `hold`, `board_record` (offered, ignored, written) |
+| `head_arm` | `seq-...` | `sequence` (start with every gating config value; done, stopped or error with `failed_step`, session, counts), timed `take_control`, `base_move`, `wait_board`, `handle_grip`, `still_session`, `camera_info` (intrinsics), `pose` (target, captured, skipped; `not_visited` when every view is skipped), `wait_big_joints` (`allowed`), `return_to_base`; `get_arm_state` (measured joints), `path_check` (ok or refused with start, target, gripper, `head_model` band or envelope with its `head_region`, and every violated entry), `head_move_check` (ok or refused before each `set_head_angles`: measured joints, target pan/tilt, held head, `head_model` span or envelope, entries), `move_arm_joints` and `set_head_angles` (MCP status, message, result), `tool_error`, `gripper_measured` (seated, unseated, slack against the limits), `view` skipped (head command, rule, `head_clearance` included), `still` stored or skipped (pose id, corners, board ids, still-window stats, joint stamp gaps), `board_attached`, `big_joints`, `hold`, `board_record` (offered, ignored, written) |
 | `head_arm` | `park-...` | `park` (start with mount, refused, done or error with the MCP `reset`), `control_state` (carry reasons), `park_path_check` (mount source, margins, entries), timed `park_take_control`, `park_move`, `park_release`, `hold` |
 | `head_arm_still` | session id | `still_session` start and stopped |
 | `floor_sweep` | session id | `sweep` start (grid, config, start pan/tilt), refused start (error), `pose` observed (reached pan/tilt, plane heights, RMS, inliers, dropped clouds) or skipped (reason, last measured pan/tilt), `restore`, `release`, `sweep` done, stopped or error with counts |
@@ -542,7 +542,7 @@ journalctl -u ros2-head_rgbd_calibration -o cat --since today | grep -o 'calib_e
   stop's warning event, park start / done / failed events (logged) and a refused park or start as error events, the
   list bounded to `EVENT_LIMIT` (`test_events_are_bounded_to_the_newest`); the gripper opens to `insert_gripper_rad` with the base
   move and closes alone to `grip_rad` after Board attached, a jaw closed past `contact - squeeze / 2` (unseated) or no
-  reported gripper angle stops the sequence holding the arm, the threshold boundary passes; the resume with the board on (refused unless holding with the board on, not running, not blocked and with usable URDFs; a new run whose only gripper target is the measured jaw angle, never `insert_gripper_rad` and no handle grip, no `waiting_board`, a new still session and the tiers, ending holding with the board on; a path check refusal or a missing gripper angle moves nothing; a stop keeps holding; from idle: refused without `board_gripped`, while running or blocked, and with open or unreported jaws (nothing moved, no board record), after a restart a run with the jaw kept, no `waiting_board`, the `board_confirmed` event and the restored mount, a path refusal moves nothing and ends holding); views inside the D435 min-Z or outside the colour FOV skipped with the reason and a pose with no usable view not visited (`test_poses_inside_min_z_are_skipped`), the wait for the colour camera_info; including Park with the board on (checked even when no load is reported, then the internal admin park; the board record shown at any age with `offered` true only fresh and for a stored session and `problem` naming why not, the stated-on Park, a stale record plus a non-board load refused; `clear_board_record` needs the confirm, removes an old record with a `board_record_clear` calib_event and no mcp_server call, returns a holding sequence to idle so Park is the plain park, says when there was no record, and is refused while a sequence runs): path-checked then moved at speed 0.1 and released with `park_calibration_board`, refused with the named rule when the sag margin eats the clearance, the fitted mount hook, another carried object and a load without this sequence's board still refused, a failed move keeps holding.
+  reported gripper angle stops the sequence holding the arm, the threshold boundary passes; the resume with the board on (refused unless holding with the board on, not running, not blocked and with usable URDFs; a new run whose only gripper target is the measured jaw angle, never `insert_gripper_rad` and no handle grip, no `waiting_board`, a new still session and the tiers, ending holding with the board on; a path check refusal or a missing gripper angle moves nothing; a stop keeps holding; from idle: refused without `board_gripped`, while running or blocked, and with open or unreported jaws (nothing moved, no board record), after a restart a run with the jaw kept, no `waiting_board`, the `board_confirmed` event and the restored mount, a path refusal moves nothing and ends holding); views inside the D435 min-Z or outside the colour FOV skipped with the reason and a pose with no usable view not visited (`test_poses_inside_min_z_are_skipped`), the head model of the checks (the envelope for the base move, the handle grip and tier 0 pose 0, then the band about the last converged head command; a resume starts with the envelope; a head move that does not converge drops the band; a head move refused by `check_head_move` skipped with `head_clearance` and never commanded; a pose whose every planned view is refused not visited with `head_clearance`; on the live head of 2026-11-11 the run reaches tier 2 pose 0, which the envelope refused; the board park keeps the envelope with the head held), the wait for the colour camera_info; including Park with the board on (checked even when no load is reported, then the internal admin park; the board record shown at any age with `offered` true only fresh and for a stored session and `problem` naming why not, the stated-on Park, a stale record plus a non-board load refused; `clear_board_record` needs the confirm, removes an old record with a `board_record_clear` calib_event and no mcp_server call, returns a holding sequence to idle so Park is the plain park, says when there was no record, and is refused while a sequence runs): path-checked then moved at speed 0.1 and released with `park_calibration_board`, refused with the named rule when the sag margin eats the clearance, the fitted mount hook, another carried object and a load without this sequence's board still refused, a failed move keeps holding.
 - `tests/test_arm_pose_set.py` - the shipped arm pose set on the shipped and the applied (floor fit 2026-10-22) head
   URDF: tier rules, short transits, every pose and transit (home -> base -> tiers -> base) safe by `PoseChecker` with
   the board margin `margin_m + provisional_margin_m` (`test_every_pose_and_transit_is_safe`) and with the mount
@@ -808,6 +808,32 @@ named rules are quoted); then `move_arm_joints` at `arm_sequence.speed_scale` (0
 planned again at the measured joints and each one that is not skipped is taken. A head move that does not converge is
 skipped; each view waits `settle_s` and then the still rule above. The state carries `captured` and `skipped`
 (reason -> count). The tier and big-joint confirm structure is unchanged by these skips.
+
+Head model of the checks (`Sequencer.held_head`): the sequencer holds the head at the measured pan/tilt of the last
+converged `set_head_angles` of the run (the commanded angles when the result reports none). It is unknown at every run
+start (a resume too, whatever an earlier run held) and again after a head move that did not converge or failed. Which
+model each check uses:
+
+- Arm moves (`checked_move`: base, resume base, handle grip, tier poses, return): held, the real head shapes over the
+  band of +-`pose_check.head_band_deg` (15 deg) about the held pan/tilt (`PoseChecker.head_band`); not held, the
+  full-range head envelope. In practice the base move, the resume base move, the handle grip and the move to tier 0
+  pose 0 use the envelope, every later move the band. The `path_check` journal line names `head_model` (`band` with its
+  `head_region`, or `envelope`).
+- View planning (`plan_views`, at the target and again at the measured joints): after the head limits and
+  `check_view`, `PoseChecker.check_head_move` over the band about the view's aim; a violation skips the view with the
+  reason `head_clearance` (counted in `skipped` like the other reasons; a pose whose every view is skipped is not
+  visited).
+- Each head move (`Sequencer.view`, just before `set_head_angles`): `check_head_move` at the measured joints over the
+  span from the held pan/tilt to the aim (`PoseChecker.head_span`), the envelope when the head is not held (the first
+  head move of a run); a refusal skips the view with `head_clearance` and nothing is commanded (journal line
+  `head_move_check`). The head is never commanded outside a region it was checked with.
+- The board park (`check_board_park_path`) and mcp_server's park and home legs: the full-range envelope, unchanged.
+
+The envelope is used where the head is not held, so its known limit applies there (refused from a pan-axis delta of
+about 38 mm on; today 8.2 mm worst clearance, 3.2 mm over `margin_m`): see "Known limit" in "Pose set and its tests"
+below. Anything that moves the head outside the sequencer (another lease holder, mcp_server homing the head on a release
+without `keep_position`) is not covered by the band; the reset at every run start and the envelope of the park keep the
+conservative model there.
 
 Safety and the holding exits: nothing moves without its confirm, enforced in the routes and again in the sequencer.
 Every exit of the sequence (done, stop, tool error, exception, unanswered confirm after `confirm_timeout_s` 600 s)
@@ -1314,7 +1340,8 @@ sequencer reads `get_control_state`:
 - Board on (whatever the load reads): the path from the measured joints to `arm_sequence.park_pose` is checked with
   `PoseChecker` and the board outline of the newest fitted `board_mount` of the session
   (`head_arm_results.latest_board_mount`), else the recorded mount, else `fit.board_mount`, with
-  `park_board_sag_margin_m` added to the board floor (`min_board_height_m`), body and head clearances. A violation
+  `park_board_sag_margin_m` added to the board floor (`min_board_height_m`), body and head clearances (the head is the
+  full-range envelope, never the band of a held head: see "Known limit" in "Pose set and its tests"). A violation
   refuses with the named rules ("Park refused by the path check with the board on ...") and the arm keeps holding. A pass
   moves to `park_pose` through the guarded `move_arm_joints` at `arm_sequence.speed_scale` (0.1), then calls mcp_server's
   internal `POST /admin/park_calibration_board` with the board mount as the only content (`robot.board_park_token_file`,

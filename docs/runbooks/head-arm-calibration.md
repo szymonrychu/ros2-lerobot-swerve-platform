@@ -43,6 +43,13 @@ not be filled in by an agent.
 - Least dramatic joints first. Any pose moving shoulder_pan, shoulder_lift or elbow needs the user's
   explicit OK at run time (UI confirmation).
 - Every scripted pose is FK-checked against self-collision with the robot body and head.
+- Head model of the checks: once the head is held (a converged head move of this run), arm moves are
+  checked against the real head shapes within +-15 deg (`head_band_deg`) of the held pan/tilt, and every
+  head move against the arm before it is commanded (span from the held pan/tilt to the aim); a planned or
+  refused head move skips the view with the reason `head_clearance` and is never commanded. Where the head
+  is not held (run start, a resume, after a head move that did not converge) and for the board park, the
+  full-range head envelope is used. Details: `nodes/head_rgbd_calibration/README.md`, "The sequence"
+  ("Head model of the checks").
 - Known limit (decision T-114 #369): where the head is not held (base pose, home -> base, base -> tier 0
   pose 0, the first head move, the board park) the check uses the full-range head envelope, which refuses
   these moves from a pan-axis delta of about 38 mm on (the fit accepts up to 50 mm): fail safe, but no
@@ -151,13 +158,18 @@ run went wrong:
    the step's inputs and the exception.
 3. Look at the step just before the failure:
    - `path_check` `refused`: `data.entries` names every violated rule with its value, limit and path fraction,
-     `data.start` the measured joints and `data.target` the commanded pose (nothing moved).
+     `data.start` the measured joints and `data.target` the commanded pose (nothing moved); `data.head_model` is
+     `band` (with `data.head_region`, the held head +-`head_band_deg`) or `envelope` (the head not held: see the
+     known limit under "Arm safety (H2)").
+   - `head_move_check` `refused`: a head move that would hit the arm or the board; `data.entries` (`head_clearance:
+     ...`), the measured `joints`, the target `pan_deg`/`tilt_deg`, `held_head_rad` and `head_model` (`span` or
+     `envelope`); the view is counted under `head_clearance` and the head was not commanded.
    - `move_arm_joints` or `set_head_angles` with an outcome other than `converged`: `data.message` and `data.result`
      are mcp_server's answer (tracking error, positions); `tool_error` is a failed or unreachable tool call.
    - `gripper_measured` `unseated` or `slack`: `measured_rad` against `unseated_below_rad` and `slack_from_rad`.
    - `still` `skipped`: `reason` (no board, joints stale, not still) and `data.detail` (corner count, board ids, the
      window's colour MAD against `rgb_mad_limit`, the moving joint and its range, the joint stamp gaps).
-   - `view` `skipped`: the head command and the violated view rule (min-Z, FOV, head limits).
+   - `view` `skipped`: the head command and the violated view rule (min-Z, FOV, head limits, `head_clearance`).
    - `park_path_check` `refused`: the mount used (`fitted`, `recorded` or `configured`), the margins and the entries.
 4. A compute that failed: `select(.flow=="head_arm_compute")` (or `arm_compute`, `floor_compute`, `d435_compute`) shows
    the `inputs` (views per tier and head offset, corner counts, intrinsics, floor reference) and the `result` with every
