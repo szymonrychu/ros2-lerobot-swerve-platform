@@ -17,6 +17,7 @@
 - **State reads:** present position and speed of all servos are read with one sync read per cycle (per-servo fallback for missing replies: one 4-, 6- or 15-byte read of that servo). When `publish_effort_joints` is set, the sync read covers 6 bytes from address 56 (present_position, present_speed, present_load are contiguous), so `JointState.effort` comes from the same reply instead of extra single reads per effort joint (decoded identically). `JointState.velocity` is in rad/s (decoded from the sign-magnitude speed register). A sync read that times out (one servo did not answer) still keeps every reply that arrived: only the servos missing from it get the per-servo fallback read (before, a failed transaction re-read every servo one by one, so one dead servo cost a sync timeout plus N single reads, ~100 ms per cycle on the client bus). A servo that fails `read_failure_limit` cycles in a row is backed off: it is left out of the sync read (its ~50 ms reply timeout no longer stalls the healthy arm and wheels every cycle) and probed with one single read every `read_retry_interval_s`; once it answers it rejoins the sync read. Each reading is stamped with the time its read was requested, and a group's `JointState.header.stamp` is the oldest of its readings (fallback reads come after the sync read, so the stamp never claims fresher data than it carries). If any joint of a group cannot be read, that group's sample is skipped for the cycle, and without a bus nothing is published (no placeholder data). The periodic `servo_registers` dump reads one servo per control cycle, so the loop and the wheel watchdog never stall; each servo's register table is read with two block reads (`REGISTER_BLOCKS` in `registers.py`: addresses 3-49 and 55-70, the undocumented 50-54 gap is skipped) instead of ~43 single reads, and decoded to the same values and JSON (a block that fails leaves its registers out, as the failed single reads did). `log_joint_updates` skips velocity-mode joints.
 - **Serial wait (`serial_wait.py`):** the st3215 library opens the port with `timeout=0` and polls `readPort` in a loop without sleeping, so each bus round trip spun a CPU core while the reply was in flight (~0.45 core on the parked follower). After `ST3215(device)` the bridge calls `use_blocking_reads(servo)`, which sets the pyserial read timeout to `SERIAL_READ_TIMEOUT_S` (1 ms): each read blocks in the kernel until the requested bytes arrive. The vendored library is not modified. A reply is returned as soon as its bytes arrive (round-trip latency unchanged), and a missing servo still times out with `COMM_RX_TIMEOUT` at the library's packet timeout (~50 ms), at most 1 ms later. Measured on the dev machine over a pty pair (300 two-byte reads, reply after 1 ms): CPU 0.400 s to 0.025 s for the same 0.39 s wall time, median round trip 1.311 ms in both; one missing-servo timeout: CPU 51 ms to 0.8 ms. Control rate, publish rates and the registers read are unchanged.
 - **Executor (`executor`, top level, optional):** `single_threaded` (default, `rclpy.executors.SingleThreadedExecutor`) or `events` (`rclpy.experimental.EventsExecutor`, far less Python executor overhead). `make_executor(kind)` in `bridge.py` builds it; any other value makes the config invalid. The client instances (`lerobot_follower`, `base_servos`) set `events` in `group_vars/client.yml`; the server's leader bridge keeps the default. **Rollback:** set `executor: single_threaded` for the node in `group_vars/client.yml` and redeploy the node. The EventsExecutor ignores callback groups; the bridge creates no callback group and never uses a MultiThreadedExecutor (one default group, one thread), so nothing changes in callback ordering. The cycle loop polls with `executor.spin_once(timeout_sec=0.0)` (see **Control loop**). In the rclpy 7.1.12 source (`rclpy/src/rclpy/events_executor/`), `spin_once(t)` calls `EventsExecutor::spin(t, stop_after_user_callback=true)`, which runs `EventsQueue::Run(now + t)`; with `t = 0` and an empty queue `cv_.wait_until` returns at once and `Run` returns, so the call does not block when nothing is ready (it stops after the first user callback, matching the drain loop). If the context is shut down it raises `ExternalShutdownException`, which the run function already handles.
+- **Servo calibration (`servo_calibration`, per group, optional):** block of the pydantic `ServoCalibrationConfig` (see [Servo calibration](#servo-calibration-servo_calibrationpy), below); a group with the block gets the six `calibration_*` services and the `servo_calibration` status key. Unknown keys are rejected.
 - **Config path:** Set `FEETECH_SERVOS_CONFIG` to the config file path, or deploy to `/etc/ros2/feetech_servos/config.yaml`.
 
 Example format:
@@ -202,7 +203,7 @@ The arm zero restore (below) updates the marker after every apply.
 
 Zero change record: every save that sent DefineMiddle to a joint (also a failed one: the zero may have moved) writes
 `zero_changed.json` next to the marker (same directory, atomic: `{"version": 1, "group": "follower", "changed_at":
-"<saved_at>"}`), before the marker; the zero restore writes it, also before its marker update, whenever an apply
+"<saved_at>"}`, plus `"source": "servo_calibration"` when a servo calibration store wrote it), before the marker; the zero restore writes it, also before its marker update, whenever an apply
 changed the zero (the joint_offsets restore, a change beyond `plan_tolerance_steps`, a failed apply whose offset write
 was sent and not rolled back, a limits failure included). A restore whose changes all stay within
 `plan_tolerance_steps` writes neither (the same zero by definition). A failed record write is named in the answer
@@ -230,7 +231,8 @@ the group's position joints minus `neutral_exclude_joints` (the gripper is never
 
 - `/<ns>/servo/zero_restore_dry_run`: refused unless every restore joint is released (gated, cached torque 0) and
   reads `torque_enable` 0 on the bus, the arm is still (`present_position` sampled every 0.1 s over `still_window_s`,
-  spread within `still_tolerance_steps`) and the reference is valid. Reads the offset and the angle limits and plans,
+  spread within `still_tolerance_steps`) and the reference is valid. Dry run and apply also refuse while the latest
+  zero change was a servo calibration ([Servo calibration](#servo-calibration-servo_calibrationpy)). Reads the offset and the angle limits and plans,
   per joint, target, offset change and new offset. The offset only matters modulo 4096, so `offset_before + change`
   is wrapped into -2048..2047 (`wrap_offset_steps`; e.g. 2469 is written as -1627, -2242 as 1854): the present reading,
   and so the reference file and the angle limits, are the same either way. The one wrapped value the register cannot
@@ -317,10 +319,131 @@ number) makes the whole config invalid.
 
 Every step of the neutral record/save (flow `neutral`), the zero restore (`zero_restore`: dry_run, apply,
 confirm_large_change, joint_write, joint_verify, rollback, limits, record, marker_update) and the rest reference
-(`rest_reference`) logs one line `calib_event {"flow", "run_id", "step", "outcome", "reason", "data", "duration_s"}`
+(`rest_reference`) and of the servo calibration (flow `servo_calibration`) logs one line `calib_event {"flow", "run_id", "step", "outcome", "reason", "data", "duration_s"}`
 (compact JSON) at INFO (`start`, `ok`), WARNING (`refused`) or ERROR (`failed`); `data` holds the per-joint readings,
 targets, offsets, limits and torque. One `run_id` ties the lines of one service call together. The journal is the
 only sink: `journalctl -u ros2-lerobot_follower | grep calib_event`.
+
+## Servo calibration (`servo_calibration.py`)
+
+One calibration flow for the arm (`follower`), the head (`head`) and the base steering (`swerve_drive`, the four `*_steer`
+servos; wheel-mode drive servos are never touched). It sets each joint's **home** by writing the servo EEPROM offset so
+the hand-posed joint reads its configured target, and the joint **limits** by writing the EEPROM min/max angle from a
+captured range of motion. It never uses DefineMiddle (that forces home = 2048, wrong for the folded arm). Hardware moves,
+torque changes and EEPROM writes happen only on a user click in the web UI "Servo calibration" tab. The leader arm
+(server) is out of scope: after an arm calibration teleop needs the leader re-zeroed in the same pose.
+
+Config block per group (`ServoCalibrationConfig`, pydantic, `extra=forbid`), defaults in brackets:
+
+| Key | Meaning |
+|---|---|
+| `home_reference_rad` | joint -> reading (rad, joint frame) at the physical home; names exactly the position joints minus `offset_exclude_joints`. Arm: shoulder_pan 0, shoulder_lift -pi/2, elbow_flex +pi/2, wrist_flex 0, wrist_roll 0; head 0/0; steering 0 |
+| `offset_exclude_joints` | joints whose offset is left alone (arm: `gripper`; its limits are still captured) |
+| `record_dir` | directory of the JSON records |
+| `full_turn_joints` / `full_turn_min_deg` | joints that must sweep a full turn (arm: `wrist_roll`) / minimum sweep [340] |
+| `min_range_deg` [20], `margin_deg` [2], `wrap_guard_deg` [5] | smallest accepted range, inward margin of the stored limits, closest allowed distance to the 0/4095 wrap |
+| `max_change_deg` [15] | an offset change above this needs the confirm |
+| `still_window_s` [1.0], `still_tolerance_steps` [3] | joint is still when `present_position` spreads at most this over the window |
+| `verify_tolerance_steps` [3] | read-back tolerance after an offset write |
+| `plan_max_age_s` [300] | a store refuses an older plan |
+| `capture_status_interval_s` [0.25] | status refresh period while capturing |
+| `required_travel_rad` | joint -> `[lo, hi]` travel the joint must cover (steering +-1.5708, head pan +-1.5708, tilt -0.5236..0.7854) |
+
+Services (`std_srvs/Trigger`, answered on the loop thread, `/<ns>/servo/...`):
+
+- `calibration_record_home`: every calibration joint released and reading torque 0 on the bus, still check, snapshot of
+  the present readings and offsets. Nothing is written. Discards the group's capture and plan. The loop stalls for the
+  still window (bus wheels are stopped first).
+- `calibration_capture_start` / `calibration_capture_stop`: needs a recorded home and torque off. Once per loop after the
+  sync read the bridge folds each joint's min/max (no extra bus traffic). The fold is unwrapped relative to home, so a
+  joint crossing 0/4095 in the old frame stays continuous. It pauses while torque is on. Head and steering can capture
+  at the same time (one bus process).
+- `calibration_plan`: computes the per-joint plan from the home and the capture (a home-only plan is allowed), stores
+  it with a `run_id` and answers success only when no joint has a problem. Nothing is written.
+- `calibration_store`: applies the plan. Refuses a plan with `needs_confirm`.
+- `calibration_store_confirmed`: the same, accepting `needs_confirm` (no cap).
+- Torque off and Re-enable reuse `release_torque` / `enable_torque`; torque stays off after a store.
+
+Plan checks (`calibration_plan.py`, pure; any problem refuses the store and writes nothing). With `t` the target in steps
+and `min_rel` / `max_rel` the captured extremes relative to home, the new-frame extremes are `lo = t + min_rel`,
+`hi = t + max_rel`:
+
+- range `hi - lo` at least `min_range_deg` (a `full_turn_joints` joint is exempt only when its sweep is at least
+  `full_turn_min_deg`; a smaller sweep gets the normal checks and limits);
+- home inside the range;
+- no wrap: `lo >= guard` and `hi <= 4095 - guard`;
+- stored limits `(lo + margin_deg, hi - margin_deg)` (inward, so the servo stops short of the hard stop), min < max;
+- a `full_turn_joints` joint with a range of at least `full_turn_min_deg` keeps 0..4095;
+- new offset `wrap_offset_steps(offset_before + change)`, wrapped from the current offset so repeated calibrations never
+  accumulate past +-2047; a result of -2048 is not encodable and refuses the joint;
+- without a capture the existing limits are shifted by `-change` (same physical travel); a shift leaving 0..4095 is a
+  problem;
+- `needs_confirm` is true when `|change|` exceeds `max_change_deg` OR the new limits are narrower than
+  `required_travel_rad`.
+
+Store order (spec 3.5): refused unless the plan's `run_id` is the one the page showed, the plan is younger than
+`plan_max_age_s`, the group is released with torque 0 read on the bus, the joints are still, and the offsets and limits
+re-read equal the plan's before values. Then per joint in config order, skipping a joint whose offset and limits are
+unchanged (EEPROM is written only on change): re-read torque and `p0`; write the offset, settle 0.5 s and verify
+`present_position` against the **predicted** reading `p0 - change` (not the target, the joint need not be at home);
+write min then max limit; read back offset and limits. A failure rolls that joint back to its old offset and limits,
+stops, and reports the joint and the rollback outcome; joints already written stay written (each was verified) and are
+listed in the record.
+
+After the loop: `command_limits` are refreshed for joints without a config override. A joint whose config override
+(`command_min_steps` / `command_max_steps`, e.g. the head and gripper in `client.yml`) is wider than the new hardware
+limits keeps clamping commands as configured and is reported in `override_notes` ("override still clamps commands; the
+servo now stops at X"); overrides are never changed automatically. Then the arm bookkeeping and the records.
+
+Arm bookkeeping (a store that changed any arm offset): the stale marker lists `joint_offsets` and `home` (the arm to
+camera calibration must be redone), including a joint whose offset is unknown after a failed rollback, and
+`zero_changed.json` is written with `"source": "servo_calibration"` (`zero_record.SOURCE_SERVO_CALIBRATION`; the other
+writers leave the field out). The zero restore rest reference is converted into the new frame (each joint
+`steps(ref) - change`) for the joints whose offset change was verified; the other joints keep their reference. Without
+a reference file (zero restore would fall back to the old-frame `seed_reference_rad`) the file is written from the seed
+converted the same way, in the `save_rest_reference` format. A pending zero restore plan is dropped. mcp_server then sets
+the arm home from the record (see its README, `/arm/set_home_from_calibration`). Head and steering have no marker.
+
+Zero restore after a servo calibration: while the latest zero change record names the servo calibration as its source,
+`zero_restore_dry_run` and `zero_restore_apply` refuse ("the arm zero was set by a servo calibration at <time>; zero
+restore would not restore it - redo the arm-to-camera calibration; nothing written"): the new zero is deliberate, so a
+restore would bring nothing back, and its marker update must never clear `joint_offsets` (that would make mcp_server
+trust `joint_offsets_rad` fitted in the old zero). An unreadable zero change record refuses too. A later zero change of
+another source (neutral save, CLI) replaces the record and lifts the refusal; the converted rest reference then restores
+the servo calibration frame.
+
+**After an arm store the arm-to-camera calibration must be redone.** `joint_offsets` stays stale until mcp_server
+applies an arm-to-camera calibration captured after the store. While it is stale the web UI disables Home arm, Move to
+base and Resume in the arm-camera flow, and mcp_server refuses `/arm/home` and `move_to_neutral`, so the capture
+cannot be driven from the UI. How to redo it while `joint_offsets` is stale (for example allowing arm motion after a
+servo calibration store) is an **open decision** for the user (a hardware-safety call); nothing is unblocked
+automatically.
+
+Records: every store writes `<record_dir>/servo_calibration-<YYYYmmddTHHMMSSZ>-<run_id>.json` (plan, per-joint outcome
+with offsets and limits before and after, failure, not attempted joints, override notes, bookkeeping errors). Only on a
+full success (no joint failure and no bookkeeping error) is `<record_dir>/servo_calibration-<ns>-latest.json` also
+written. Record dirs: `/var/lib/ros2/arm` (arm) and `/var/lib/ros2/base_servos` (head and steering; created by
+`ansible/playbooks/tasks/base_servos_state_dir.yml`). Journal lines use the `servo_calibration` flow of `calib_event`.
+
+Status: `/<ns>/torque_state` carries `servo_calibration` (the key is absent for a group without a block) with `config` (the key numbers),
+`home` (recorded time, steps and rad per joint), `capture` (`running`, `paused`, `samples`, per joint
+`present_steps`, `min_steps`, `max_steps`, `range_deg`; absent until sampled), `plan` (`run_id`, `created_at`,
+`needs_confirm`, `ok`, per joint payload with problems) and `last_result` (store outcome). The snapshot is rebuilt at
+most every `capture_status_interval_s`, so it publishes at most 4 Hz while capturing. No placeholder values: fields
+stay `null` until real readings exist.
+
+**Caveat, limit semantics are inferred.** The STS3215 angle limits are believed to apply to the present position after
+the offset (inferred from LeRobot, not documented). Verify on the head first (pan limit, `/head/joint_states` and the
+commands stopping at the new limits via the topic_scraper workflow), then steering, then the arm.
+
+Tests (`tests/`): `test_servo_offsets.py` (offset encode/decode/wrap math), `offset_bus.py` (the `OffsetPort`
+emulated bus with offset semantics, shared helper), `test_calibration_plan.py` (every plan check), `test_calibration_records.py`
+(record files, rest reference conversion, the seed written when the file is absent), `test_servo_calibration.py`
+(services over the emulated bus: refusals, happy stores, rollback, write-only-on-change, records, arm bookkeeping with
+the zero change source, a zero restore plan of about 0 after an arm store with and without a reference file, zero restore
+refused after an arm store, status, observe hook), plus the
+calibration cases in `test_config.py`, `test_torque_services.py`, `test_torque_loop.py` and `test_torque_control.py` (`test_zero_restore.py` now imports the offset helpers from `servo_offsets.py`). Root test
+`tests/test_servo_calibration_config.py` pins the `client.yml` wiring.
 
 ## Bench findings
 

@@ -15,7 +15,7 @@ import type { HeadCameraPreview } from './GroundBoard'
 import { ArmCameraFlow } from './flows/ArmCameraFlow'
 import { CameraGroundFlow } from './flows/CameraGroundFlow'
 import { ImuFlow } from './flows/ImuFlow'
-import { ServoHomeFlow } from './flows/ServoHomeFlow'
+import { ServoCalibrationFlow } from './flows/ServoCalibrationFlow'
 
 /** Body of GET /api/calibration/config: which calibration flows and General actions this robot offers. */
 export interface CalibrationConfig {
@@ -28,7 +28,7 @@ export interface CalibrationConfig {
 
 /** Tab label and section title of each flow. */
 const FLOWS: Record<FlowId, { tab: string; title: string }> = {
-  'servo-home': { tab: 'Servo home', title: 'Servo home calibration' },
+  'servo-calibration': { tab: 'Servo calibration', title: 'Servo calibration' },
   imu: { tab: 'IMU', title: 'IMU calibration' },
   'camera-ground': { tab: 'Camera to ground', title: 'Camera to ground calibration' },
   'arm-camera': { tab: 'Arm to camera', title: 'Arm to camera calibration' },
@@ -67,7 +67,7 @@ async function loadConfig(): Promise<LoadState> {
  */
 export function offeredFlows(config: CalibrationConfig): FlowId[] {
   const offered: Record<FlowId, boolean> = {
-    'servo-home': config.servos,
+    'servo-calibration': config.servos,
     imu: config.imu,
     'camera-ground': config.rgbd,
     'arm-camera': config.rgbd,
@@ -156,7 +156,7 @@ export function CalibratePage({ onBack, headCamera = null, onHeadCameraWanted }:
                 <Typography variant="h6" component="h2" sx={{ mb: 1 }}>
                   {FLOWS[flow].title}
                 </Typography>
-                {flow === 'servo-home' && <ServoHomeFlow />}
+                {flow === 'servo-calibration' && <ServoCalibrationFlow />}
                 {flow === 'imu' && <ImuFlow />}
                 {flow === 'camera-ground' && (
                   <CameraGroundFlow

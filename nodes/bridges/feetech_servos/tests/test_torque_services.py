@@ -9,8 +9,9 @@ from unittest.mock import MagicMock
 import pytest
 
 from feetech_servos.bridge_cycle import drain_callbacks
-from feetech_servos.config import JointGroup
+from feetech_servos.config import JointGroup, ServoCalibrationConfig
 from feetech_servos.registers import STS_TORQUE_ENABLE, read_all_registers
+from feetech_servos.servo_calibration import ServoCalibrationControl
 from feetech_servos.torque_control import TorqueControl, torque_state_payload
 
 from .ros_stubs import install_service_stubs
@@ -19,6 +20,10 @@ from .test_torque_control import ARM, GROUPS, HEAD, SWERVE, Rig, make_rig
 install_service_stubs()
 
 INTERVAL_S = 1.0
+CALIBRATION_SERVICES = {
+    f"/head/servo/calibration_{name}"
+    for name in ("record_home", "capture_start", "capture_stop", "plan", "store", "store_confirmed")
+}
 
 
 class RecordingNode:
@@ -244,3 +249,51 @@ def test_register_dump_showing_torque_zero_changes_the_state(bridge_module: Modu
     assert len(states) == 2
     assert states[-1]["joints"] == {"shoulder_pan": 1, "wrist_roll": 1, "gripper": 0}
     assert states[-1]["released"] is False
+
+
+def head_with_block() -> JointGroup:
+    """The head group with a servo_calibration block."""
+    config = ServoCalibrationConfig(home_reference_rad={"head_pan": 0.0, "head_tilt": 0.0}, record_dir="/nonexistent")
+    return JointGroup("head", list(HEAD.joints), servo_calibration=config)
+
+
+def make_calibration_wiring(bridge_module: ModuleType, group: JointGroup) -> tuple[Wiring, MagicMock]:
+    """Wiring of one group with a servo calibration control whose store is a mock."""
+    wiring = make_wiring(bridge_module, [group])
+    calibration = ServoCalibrationControl(wiring.control, {}, {})
+    calibration.store = MagicMock(return_value=SimpleNamespace(success=True, message="stored"))
+    wiring.reporter = bridge_module.setup_torque_interfaces(
+        wiring.node, [group], wiring.control, wiring.callbacks_run, 0.0, None, None, calibration
+    )
+    return wiring, calibration.store
+
+
+def test_calibration_services_created_for_group_with_block(bridge_module: ModuleType) -> None:
+    wiring, _ = make_calibration_wiring(bridge_module, head_with_block())
+    assert CALIBRATION_SERVICES <= set(wiring.node.services)
+
+
+def test_no_calibration_services_without_block(bridge_module: ModuleType) -> None:
+    wiring, _ = make_calibration_wiring(bridge_module, HEAD)
+    assert not any("calibration" in name for name in wiring.node.services)
+
+
+def test_store_confirmed_service_passes_confirm(bridge_module: ModuleType) -> None:
+    wiring, store = make_calibration_wiring(bridge_module, head_with_block())
+    response = wiring.call("/head/servo/calibration_store_confirmed")
+    wiring.call("/head/servo/calibration_store")
+    wiring.spin()
+    assert response.success is True
+    assert [c.args + tuple(c.kwargs.items()) for c in store.call_args_list] == [
+        ("head", ("confirmed", True)),
+        ("head",),
+    ]
+
+
+def test_torque_state_carries_servo_calibration(bridge_module: ModuleType) -> None:
+    wiring, _ = make_calibration_wiring(bridge_module, head_with_block())
+    wiring.reporter.step(0.0, 1)
+    assert wiring.states("head")[0]["servo_calibration"]["config"]["margin_deg"] == 2
+    plain, _ = make_calibration_wiring(bridge_module, HEAD)
+    plain.reporter.step(0.0, 1)
+    assert "servo_calibration" not in plain.states("head")[0]

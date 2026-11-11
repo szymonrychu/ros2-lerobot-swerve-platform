@@ -25,6 +25,10 @@ minus neutral_exclude_joints (the gripper is never touched):
   wrong re-zero is wrong again, one recorded before it is right again); without such a marker a change beyond
   plan_tolerance_steps marks joint_offsets and home stale (it is a re-zero of calibrations taken in the old zero); a
   failed apply marks them stale for every joint whose offset may have changed.
+- servo calibration guard: dry_run and apply are refused (nothing written, the stale marker untouched) while the zero
+  change record names a servo calibration as the latest zero change (servo_calibration_refusal): that zero was set on
+  purpose, a restore would not bring an old zero back and must never clear joint_offsets (the arm-to-camera
+  calibration was taken in the old zero and has to be redone). An unreadable record refuses too.
 - save_rest_reference(namespace): stores the present readings (rad) of a released, still arm as the reference file;
   refused while the stale marker lists joint_offsets (the zero is suspect then).
 
@@ -42,29 +46,43 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from feetech_mapping.command_mapping import STEPS_PER_REVOLUTION, position_to_raw_steps, steps_to_radians
+from feetech_mapping.command_mapping import position_to_raw_steps, steps_to_radians
 
 from .calib_event import OUTCOME_FAILED, OUTCOME_OK, OUTCOME_REFUSED, OUTCOME_START, CalibEventLog, new_run_id
 from .config import JointEntry, JointGroup, ZeroRestoreConfig
-from .neutral import MAX_LIMIT_REGISTER, MIN_LIMIT_REGISTER, NeutralResult, names_text, stop_bus_wheels
-from .registers import get_register_entry_by_name, read_register, write_register
-from .torque_control import GOAL_REGISTER, PRESENT_REGISTER, TORQUE_OFF, TORQUE_REGISTER, TorqueControl
-from .zero_record import read_stale_items, record_zero_change, set_stale_items, write_json_atomic, write_stale_marker
+from .neutral import NeutralResult, names_text, stop_bus_wheels
+from .servo_offsets import (
+    CACHE_CLEARED_REGISTERS,
+    HALF_TURN_STEPS,
+    OFFSET_MAX_STEPS,
+    OFFSET_REGISTER,
+    SETTLE_S,
+    decode_offset,
+    offset_delta_steps,
+    read_limits,
+    read_retried,
+    read_torques,
+    sample_still,
+    steps_to_degrees,
+    torque_refusals,
+    verify_present,
+    wrap_offset_steps,
+    write_limits,
+    write_offset,
+)
+from .torque_control import PRESENT_REGISTER, TORQUE_OFF, TorqueControl
+from .zero_record import (
+    SOURCE_FIELD,
+    SOURCE_SERVO_CALIBRATION,
+    read_stale_items,
+    read_zero_change,
+    record_zero_change,
+    set_stale_items,
+    write_json_atomic,
+    write_stale_marker,
+)
 
 LOGGER = logging.getLogger(__name__)
-DEGREES_PER_TURN = 360.0
-HALF_TURN_STEPS = STEPS_PER_REVOLUTION // 2
-# STS3215 offset register: sign-magnitude, magnitude in bits 0-10, sign (negative) in bit 11.
-OFFSET_SIGN_BIT = 0x800
-OFFSET_MAGNITUDE_MASK = 0x7FF
-OFFSET_MAX_STEPS = OFFSET_MAGNITUDE_MASK
-OFFSET_VALID_BITS = OFFSET_SIGN_BIT | OFFSET_MAGNITUDE_MASK
-OFFSET_REGISTER = "offset"
-READ_ATTEMPTS = 3
-SETTLE_S = 0.5
-VERIFY_READ_ATTEMPTS = 10
-VERIFY_RETRY_SLEEP_S = 0.1
-STILL_SAMPLE_INTERVAL_S = 0.1
 MARKER_REFRESH_S = 1.0
 REFERENCE_VERSION = 1
 RECORD_PREFIX = "zero_restore-"
@@ -75,159 +93,6 @@ FLOW_RESTORE = "zero_restore"
 FLOW_REFERENCE = "rest_reference"
 SOURCE_SEED = "seed"
 SOURCE_FILE = "file"
-# Registers whose cached value is stale after an offset write (the next write must reach the servo).
-CACHE_CLEARED_REGISTERS = (OFFSET_REGISTER, GOAL_REGISTER, TORQUE_REGISTER, MIN_LIMIT_REGISTER, MAX_LIMIT_REGISTER)
-
-
-def encode_offset(steps: int) -> int:
-    """Encode an offset in steps as the STS3215 sign-magnitude register value.
-
-    Args:
-        steps (int): Offset, -2047..2047.
-
-    Returns:
-        int: Raw register value (bit 11 set for negative, magnitude in bits 0-10).
-
-    Raises:
-        ValueError: |steps| > 2047 (never clamped).
-    """
-    if abs(steps) > OFFSET_MAX_STEPS:
-        raise ValueError(f"offset {steps} outside +-{OFFSET_MAX_STEPS}")
-    return (-steps | OFFSET_SIGN_BIT) if steps < 0 else steps
-
-
-def wrap_offset_steps(steps: int) -> int:
-    """Wrap an offset into one turn around zero; the offset only matters modulo 4096.
-
-    Args:
-        steps (int): Offset in steps, any value.
-
-    Returns:
-        int: The equivalent offset in -2048..2047 (-2048, i.e. +-2048, is not encodable: encode_offset refuses it).
-    """
-    return (steps + HALF_TURN_STEPS) % STEPS_PER_REVOLUTION - HALF_TURN_STEPS
-
-
-def decode_offset(raw: int) -> int:
-    """Decode a raw STS3215 offset register value.
-
-    Args:
-        raw (int): Raw 2-byte value.
-
-    Returns:
-        int: Offset in steps (0x800, negative zero, is 0).
-
-    Raises:
-        ValueError: Bits above the sign bit are set (not an offset value).
-    """
-    if raw & ~OFFSET_VALID_BITS:
-        raise ValueError(f"offset register 0x{raw:04x} has bits above bit 11 set")
-    magnitude = raw & OFFSET_MAGNITUDE_MASK
-    return -magnitude if raw & OFFSET_SIGN_BIT else magnitude
-
-
-def steps_to_degrees(steps: float) -> float:
-    """Convert servo steps to degrees.
-
-    Args:
-        steps (float): Steps (4096 per turn).
-
-    Returns:
-        float: Degrees.
-    """
-    return steps * DEGREES_PER_TURN / STEPS_PER_REVOLUTION
-
-
-def offset_delta_steps(present: int, target: int) -> int:
-    """Offset change that makes a resting servo reading present read target (present = encoder - offset).
-
-    Args:
-        present (int): Current present_position (0..4095).
-        target (int): Wanted present_position (0..4095).
-
-    Returns:
-        int: present - target, the short way round the 0/4095 wrap (-2048..2047).
-    """
-    return (present - target + HALF_TURN_STEPS) % STEPS_PER_REVOLUTION - HALF_TURN_STEPS
-
-
-def read_retried(servo: Any, servo_id: int, register: str, attempts: int = READ_ATTEMPTS) -> int | None:
-    """Read one register by name, retrying a failed read.
-
-    Args:
-        servo (Any): ST3215-compatible bus.
-        servo_id (int): Servo ID.
-        register (str): Register name (feetech_servos.registers).
-        attempts (int): Maximum reads.
-
-    Returns:
-        int | None: Raw value, or None when every read failed.
-    """
-    entry = get_register_entry_by_name(register)
-    for _ in range(attempts):
-        value = read_register(servo, servo_id, entry)
-        if value is not None:
-            return value
-    return None
-
-
-def read_limits(servo: Any, servo_id: int) -> tuple[int, int] | None:
-    """Read (min_angle_limit, max_angle_limit).
-
-    Args:
-        servo (Any): ST3215-compatible bus.
-        servo_id (int): Servo ID.
-
-    Returns:
-        tuple[int, int] | None: The limits, or None when a read failed.
-    """
-    low = read_retried(servo, servo_id, MIN_LIMIT_REGISTER)
-    high = read_retried(servo, servo_id, MAX_LIMIT_REGISTER)
-    return None if low is None or high is None else (low, high)
-
-
-def read_torques(servo: Any, joints: list[JointEntry]) -> dict[str, int | None]:
-    """Read torque_enable of each joint from the bus (never the cache).
-
-    Args:
-        servo (Any): ST3215-compatible bus.
-        joints (list[JointEntry]): Joints to read.
-
-    Returns:
-        dict[str, int | None]: joint name -> torque_enable, None when the read failed.
-    """
-    return {j.name: read_retried(servo, j.id, TORQUE_REGISTER) for j in joints}
-
-
-def torque_refusals(torques: dict[str, int | None]) -> list[str]:
-    """Name every joint whose torque_enable is not verified 0.
-
-    Args:
-        torques (dict[str, int | None]): joint name -> torque_enable reading (read_torques).
-
-    Returns:
-        list[str]: "<name> (torque_enable N)" or "<name> (torque read failed)" per refused joint.
-    """
-    refused = []
-    for name, torque in torques.items():
-        if torque is None:
-            refused.append(f"{name} (torque read failed)")
-        elif torque != TORQUE_OFF:
-            refused.append(f"{name} (torque_enable {torque})")
-    return refused
-
-
-def still_spreads(samples: list[dict[str, int]]) -> dict[str, int]:
-    """Per joint, the largest wrap-aware distance of any sample from the first one.
-
-    Args:
-        samples (list[dict[str, int]]): present_position readings over the still window, oldest first.
-
-    Returns:
-        dict[str, int]: joint name -> spread in steps.
-    """
-    first = samples[0]
-    return {name: max(abs(offset_delta_steps(s[name], first[name])) for s in samples) for name in first}
 
 
 def load_reference(config: ZeroRestoreConfig, names: list[str]) -> tuple[dict[str, Any] | None, str | None]:
@@ -477,6 +342,18 @@ class ZeroRestoreControl:
             self.refresh_reference(group, state)
         return state
 
+    def forget_plan(self, namespace: str) -> None:
+        """Drop the group's dry run and reload its rest reference on next use (a servo calibration changed both).
+
+        Args:
+            namespace (str): Group namespace.
+        """
+        state = self.states.get(namespace)
+        if state is not None:
+            state.plan = None
+            state.loaded = False
+            state.marker_checked = None
+
     def refresh_reference(self, group: JointGroup, state: GroupState) -> None:
         """Reload the reference into the state.
 
@@ -501,6 +378,29 @@ class ZeroRestoreControl:
             return False
         items = read_stale_items(Path(group.neutral_stale_marker))
         return items is not None and STALE_JOINT_OFFSETS in items
+
+    def servo_calibration_refusal(self, group: JointGroup) -> str | None:
+        """Why a zero restore must not run because the latest zero change was a servo calibration (None when it may).
+
+        Args:
+            group (JointGroup): The group.
+
+        Returns:
+            str | None: The refusal text; None without a stale marker path, without a zero change record, or when
+                the record names another source.
+        """
+        if group.neutral_stale_marker is None:
+            return None
+        try:
+            record = read_zero_change(Path(group.neutral_stale_marker))
+        except ValueError as exc:
+            return f"{exc}: the source of the last arm zero change is unknown; nothing written"
+        if record is None or record.get(SOURCE_FIELD) != SOURCE_SERVO_CALIBRATION:
+            return None
+        return (
+            f"the arm zero was set by a servo calibration at {record.get('changed_at') or 'an unknown time'}; zero "
+            "restore would not restore it - redo the arm-to-camera calibration; nothing written"
+        )
 
     def plan_payload(self, group: JointGroup, plan: Plan) -> dict[str, Any]:
         """torque_state plan of a group.
@@ -556,25 +456,9 @@ class ZeroRestoreControl:
             tuple[dict[str, int] | None, str]: (joint name -> steps, "") or (None, refusal reason).
         """
         config = group.zero_restore
-        joints = restore_joints(group)
-        count = round(config.still_window_s / STILL_SAMPLE_INTERVAL_S) + 1
-        samples: list[dict[str, int]] = []
-        for index in range(count):
-            if index:
-                self.sleep(STILL_SAMPLE_INTERVAL_S)
-            sample = {j.name: read_retried(self.torque.servo, j.id, PRESENT_REGISTER) for j in joints}
-            unread = [n for n, v in sample.items() if v is None]
-            if unread:
-                return None, f"present_position read failed: {names_text(unread)}"
-            samples.append(sample)
-        moved = {n: s for n, s in still_spreads(samples).items() if s > config.still_tolerance_steps}
-        if moved:
-            text = ", ".join(f"{n} moved {s} steps" for n, s in moved.items())
-            return None, (
-                f"arm not still: {text} (tolerance {config.still_tolerance_steps}) over "
-                f"{config.still_window_s:g} s; rest it and try again"
-            )
-        return samples[-1], ""
+        return sample_still(
+            self.torque.servo, restore_joints(group), config.still_window_s, config.still_tolerance_steps, self.sleep
+        )
 
     # --- dry run ------------------------------------------------------------------------------------------------
 
@@ -598,6 +482,9 @@ class ZeroRestoreControl:
             return refuse(refusal)
         state = self.state(group)
         state.plan = None
+        servo_calibration = self.servo_calibration_refusal(group)
+        if servo_calibration is not None:
+            return refuse(servo_calibration)
         joints = restore_joints(group)
         torques = read_torques(self.torque.servo, joints)
         refused = torque_refusals(torques)
@@ -610,39 +497,7 @@ class ZeroRestoreControl:
         if presents is None:
             return refuse(refusal)
         config = group.zero_restore
-        planned: dict[str, JointPlan] = {}
-        problems: list[str] = []
-        for joint in joints:
-            raw_offset = read_retried(self.torque.servo, joint.id, OFFSET_REGISTER)
-            limits = read_limits(self.torque.servo, joint.id)
-            if raw_offset is None or limits is None:
-                problems.append(f"{joint.name}: offset/limit read failed")
-                continue
-            try:
-                offset_before = decode_offset(raw_offset)
-            except ValueError as exc:
-                problems.append(f"{joint.name}: {exc}")
-                continue
-            target = position_to_raw_steps(state.reference["joints"][joint.name], joint.inverted)
-            change = offset_delta_steps(presents[joint.name], target)
-            new_offset = wrap_offset_steps(offset_before + change)
-            if abs(new_offset) > OFFSET_MAX_STEPS:
-                problems.append(
-                    f"{joint.name}: new offset +-{HALF_TURN_STEPS} cannot be encoded (max +-{OFFSET_MAX_STEPS}); "
-                    "move the joint a little and dry run again"
-                )
-                continue
-            planned[joint.name] = JointPlan(
-                id=joint.id,
-                inverted=joint.inverted,
-                present_steps=presents[joint.name],
-                target_steps=target,
-                offset_before_steps=offset_before,
-                offset_change_steps=change,
-                new_offset_steps=new_offset,
-                limits=limits,
-                exceeds_max_change=abs(steps_to_degrees(change)) > config.max_change_deg,
-            )
+        planned, problems = self.plan_joints(group, state.reference, presents)
         if problems:
             return refuse("; ".join(problems) + "; nothing written")
         plan = Plan(run_id, self.monotonic(), self.now_iso(), state.reference["source"], planned)
@@ -673,6 +528,56 @@ class ZeroRestoreControl:
         LOGGER.info(message)
         return NeutralResult(True, message)
 
+    def plan_joints(
+        self, group: JointGroup, reference: dict[str, Any], presents: dict[str, int]
+    ) -> tuple[dict[str, JointPlan], list[str]]:
+        """Plan the offset change of every restore joint from its present reading and the reference (bus reads only).
+
+        Args:
+            group (JointGroup): Group with a zero_restore block.
+            reference (dict[str, Any]): load_reference result ("joints": restore joint -> rad).
+            presents (dict[str, int]): restore joint -> present_position steps (the still reading).
+
+        Returns:
+            tuple[dict[str, JointPlan], list[str]]: joint name -> plan, and one problem text per joint that cannot be
+                planned (offset or limit read failed, undecodable offset, unencodable new offset).
+        """
+        config = group.zero_restore
+        planned: dict[str, JointPlan] = {}
+        problems: list[str] = []
+        for joint in restore_joints(group):
+            raw_offset = read_retried(self.torque.servo, joint.id, OFFSET_REGISTER)
+            limits = read_limits(self.torque.servo, joint.id)
+            if raw_offset is None or limits is None:
+                problems.append(f"{joint.name}: offset/limit read failed")
+                continue
+            try:
+                offset_before = decode_offset(raw_offset)
+            except ValueError as exc:
+                problems.append(f"{joint.name}: {exc}")
+                continue
+            target = position_to_raw_steps(reference["joints"][joint.name], joint.inverted)
+            change = offset_delta_steps(presents[joint.name], target)
+            new_offset = wrap_offset_steps(offset_before + change)
+            if abs(new_offset) > OFFSET_MAX_STEPS:
+                problems.append(
+                    f"{joint.name}: new offset +-{HALF_TURN_STEPS} cannot be encoded (max +-{OFFSET_MAX_STEPS}); "
+                    "move the joint a little and dry run again"
+                )
+                continue
+            planned[joint.name] = JointPlan(
+                id=joint.id,
+                inverted=joint.inverted,
+                present_steps=presents[joint.name],
+                target_steps=target,
+                offset_before_steps=offset_before,
+                offset_change_steps=change,
+                new_offset_steps=new_offset,
+                limits=limits,
+                exceeds_max_change=abs(steps_to_degrees(change)) > config.max_change_deg,
+            )
+        return planned, problems
+
     # --- apply --------------------------------------------------------------------------------------------------
 
     def apply(self, namespace: str, confirmed: bool = False) -> NeutralResult:
@@ -698,6 +603,10 @@ class ZeroRestoreControl:
         if group is None:
             return refuse(refusal)
         state = self.state(group)
+        servo_calibration = self.servo_calibration_refusal(group)
+        if servo_calibration is not None:
+            state.plan = None
+            return refuse(servo_calibration)
         config = group.zero_restore
         plan = state.plan
         if plan is None:
@@ -930,7 +839,7 @@ class ZeroRestoreControl:
         return False, f"old offset {old} REWRITE NOT VERIFIED ({detail}{ack})"
 
     def write_offset(self, servo_id: int, steps: int) -> bool:
-        """Write the offset register (write_register unlocks and relocks the EEPROM around it).
+        """Write the offset register through the servo's write cache.
 
         Args:
             servo_id (int): Servo ID.
@@ -940,9 +849,7 @@ class ZeroRestoreControl:
             bool: True when the write was acknowledged.
         """
         cache = self.torque.last_written.setdefault(servo_id, {})
-        cache.pop(OFFSET_REGISTER, None)
-        entry = get_register_entry_by_name(OFFSET_REGISTER)
-        return write_register(self.torque.servo, servo_id, entry, encode_offset(steps), cache)
+        return write_offset(self.torque.servo, cache, servo_id, steps)
 
     def verify_present(self, servo_id: int, target: int, tolerance: int) -> int | None:
         """Read present_position until it is within tolerance of target.
@@ -955,17 +862,7 @@ class ZeroRestoreControl:
         Returns:
             int | None: The last reading (in tolerance when verified), None when every read failed.
         """
-        entry = get_register_entry_by_name(PRESENT_REGISTER)
-        last = None
-        for attempt in range(VERIFY_READ_ATTEMPTS):
-            reading = read_register(self.torque.servo, servo_id, entry)
-            if reading is not None:
-                last = reading
-                if abs(offset_delta_steps(reading, target)) <= tolerance:
-                    return reading
-            if attempt < VERIFY_READ_ATTEMPTS - 1:
-                self.sleep(VERIFY_RETRY_SLEEP_S)
-        return last
+        return verify_present(self.torque.servo, servo_id, target, tolerance, self.sleep)
 
     def restore_limits(self, servo_id: int, wanted: tuple[int, int]) -> tuple[int, int] | None:
         """Write the angle limits back when they read differently from wanted (as neutral.py after a centre).
@@ -977,15 +874,8 @@ class ZeroRestoreControl:
         Returns:
             tuple[int, int] | None: The limits read at the end (None when a read failed).
         """
-        servo = self.torque.servo
-        limits = read_limits(servo, servo_id)
-        if limits == wanted:
-            return limits
         cache = self.torque.last_written.setdefault(servo_id, {})
-        for name, value in ((MIN_LIMIT_REGISTER, wanted[0]), (MAX_LIMIT_REGISTER, wanted[1])):
-            cache.pop(name, None)
-            write_register(servo, servo_id, get_register_entry_by_name(name), value, cache)
-        return read_limits(servo, servo_id)
+        return write_limits(self.torque.servo, cache, servo_id, wanted)
 
     def write_record(
         self,

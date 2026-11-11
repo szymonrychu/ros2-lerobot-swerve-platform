@@ -403,6 +403,12 @@
             _deploy_node_name: jetson_bridge_cpp
           tags: [jetson_bridge_cpp, apt, python, build, config]
 
+        - name: base_servos servo calibration record directory
+          ansible.builtin.include_tasks:
+            file: tasks/base_servos_state_dir.yml
+            apply:
+              tags: [base_servos]
+          tags: [base_servos, setup]
         - name: Deploy lerobot_follower
           ansible.builtin.include_tasks:
             file: tasks/resolve_and_deploy.yml

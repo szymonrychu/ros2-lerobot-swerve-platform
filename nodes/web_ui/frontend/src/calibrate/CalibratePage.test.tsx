@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { CalibratePage } from './CalibratePage'
 
-vi.mock('./flows/ServoHomeFlow', () => ({ ServoHomeFlow: () => <div>servo-home-flow</div> }))
+vi.mock('./flows/ServoCalibrationFlow', () => ({ ServoCalibrationFlow: () => <div>servo-calibration-flow</div> }))
 vi.mock('./flows/ImuFlow', () => ({ ImuFlow: () => <div>imu-flow</div> }))
 vi.mock('./flows/CameraGroundFlow', () => ({
   CameraGroundFlow: ({
@@ -76,9 +76,9 @@ describe('CalibratePage', () => {
     respond(200, ALL)
     render(<CalibratePage onBack={() => {}} />)
     await loaded()
-    expect(tabs().map((t) => t.textContent)).toEqual(['Servo home', 'IMU', 'Camera to ground', 'Arm to camera'])
-    expect(screen.getByText('Servo home calibration')).toBeTruthy()
-    expect(screen.getByText('servo-home-flow')).toBeTruthy()
+    expect(tabs().map((t) => t.textContent)).toEqual(['Servo calibration', 'IMU', 'Camera to ground', 'Arm to camera'])
+    expect(screen.getByText('Servo calibration', { selector: 'h2' })).toBeTruthy()
+    expect(screen.getByText('servo-calibration-flow')).toBeTruthy()
     expect(screen.queryByText('imu-flow')).toBeNull()
   })
 
@@ -89,7 +89,7 @@ describe('CalibratePage', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Arm to camera' }))
     expect(screen.getByText('Arm to camera calibration')).toBeTruthy()
     expect(screen.getByText('arm-camera-flow home=true')).toBeTruthy()
-    expect(screen.queryByText('servo-home-flow')).toBeNull()
+    expect(screen.queryByText('servo-calibration-flow')).toBeNull()
     expect(window.location.hash).toBe('#/calibrate/arm-camera')
   })
 
@@ -150,7 +150,7 @@ describe('CalibratePage', () => {
     respond(200, { servos: true })
     render(<CalibratePage onBack={() => {}} />)
     await loaded()
-    expect(tabs().map((t) => t.textContent)).toEqual(['Servo home'])
+    expect(tabs().map((t) => t.textContent)).toEqual(['Servo calibration'])
   })
 
   it('shows the General section on top with the offered actions', async () => {

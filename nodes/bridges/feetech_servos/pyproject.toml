@@ -8,6 +8,7 @@ dependencies = [
     "pyyaml>=6.0",
     "st3215>=0.4.0",
     "numpy>=1.26.0",
+    "pydantic>=2.6",
     "ros2-metrics",
     "feetech-mapping",
 ]

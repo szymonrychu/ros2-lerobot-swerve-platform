@@ -15,7 +15,7 @@ describe('servoApi', () => {
   it('fetchServoGroups returns the groups', async () => {
     const group = {
       id: 'arm', label: 'Arm', neutral: true, state: null, age_s: null, stale: true, calibration_stale: null,
-      zero_restore: true, move_to_neutral: true, set_home: true,
+      zero_restore: true, move_to_neutral: true, set_home: true, servo_calibration: false,
     }
     respond(200, { groups: [group] })
     const r = await fetchServoGroups()
@@ -42,7 +42,8 @@ describe('servoApi', () => {
 
   it.each([
     'release', 'enable', 'record', 'save', 'save_confirmed', 'zero_restore_dry_run', 'zero_restore_apply',
-    'zero_restore_apply_confirmed', 'save_rest_reference', 'move_to_neutral',
+    'zero_restore_apply_confirmed', 'save_rest_reference', 'move_to_neutral', 'calibration_record_home',
+    'calibration_capture_start', 'calibration_capture_stop', 'calibration_plan',
   ] as const)('servoAction posts %s', async (action) => {
     respond(200, { ok: true, message: 'done' })
     const r = await servoAction('arm', action)
@@ -56,6 +57,25 @@ describe('servoApi', () => {
     expect(fetch).toHaveBeenCalledWith('/api/calibration/servos/arm/zero_restore_apply_confirmed?plan_run_id=a%20b%2F1', {
       method: 'POST',
     })
+  })
+
+  it('servoAction posts calibration_store with plan_run_id', async () => {
+    respond(200, { ok: true, message: 'stored' })
+    await servoAction('arm', 'calibration_store', 'run-1')
+    expect(fetch).toHaveBeenCalledWith('/api/calibration/servos/arm/calibration_store?plan_run_id=run-1', {
+      method: 'POST',
+    })
+    await servoAction('arm', 'calibration_store_confirmed', 'run-2')
+    expect(fetch).toHaveBeenCalledWith('/api/calibration/servos/arm/calibration_store_confirmed?plan_run_id=run-2', {
+      method: 'POST',
+    })
+  })
+
+  it('servoAction returns home_set', async () => {
+    respond(200, { ok: true, message: 'stored', home_set: true })
+    const r = await servoAction('arm', 'calibration_store_confirmed', 'run-2')
+    expect(r).toEqual({ ok: true, value: { ok: true, message: 'stored', home_set: true } })
+    if (r.ok) expect(r.value.home_set).toBe(true)
   })
 
   it('a refused action (409) surfaces the backend message', async () => {

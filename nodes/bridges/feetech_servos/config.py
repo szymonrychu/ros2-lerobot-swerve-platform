@@ -9,6 +9,7 @@ from pathlib import Path
 
 import yaml
 from feetech_mapping.command_mapping import STEP_CENTER, STEPS_PER_RADIAN
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_CONFIG_PATH = Path("/etc/ros2/feetech_servos/config.yaml")
@@ -51,6 +52,17 @@ DEFAULT_ZERO_STILL_TOLERANCE_STEPS = 3
 DEFAULT_ZERO_VERIFY_TOLERANCE_STEPS = 3
 DEFAULT_ZERO_PLAN_MAX_AGE_S = 60.0
 DEFAULT_ZERO_PLAN_TOLERANCE_STEPS = 5
+# servo_calibration block defaults (see ServoCalibrationConfig).
+DEFAULT_CAL_MIN_RANGE_DEG = 20.0
+DEFAULT_CAL_MARGIN_DEG = 2.0
+DEFAULT_CAL_WRAP_GUARD_DEG = 5.0
+DEFAULT_CAL_FULL_TURN_MIN_DEG = 340.0
+DEFAULT_CAL_MAX_CHANGE_DEG = 15.0
+DEFAULT_CAL_STILL_WINDOW_S = 1.0
+DEFAULT_CAL_STILL_TOLERANCE_STEPS = 3
+DEFAULT_CAL_VERIFY_TOLERANCE_STEPS = 3
+DEFAULT_CAL_PLAN_MAX_AGE_S = 300.0
+DEFAULT_CAL_CAPTURE_STATUS_INTERVAL_S = 0.25
 ZERO_RESTORE_REQUIRED_KEYS = ("reference_file", "record_dir", "seed_reference_rad")
 ZERO_RESTORE_KEYS = (
     *ZERO_RESTORE_REQUIRED_KEYS,
@@ -143,6 +155,48 @@ class ZeroRestoreConfig:
     plan_tolerance_steps: int = DEFAULT_ZERO_PLAN_TOLERANCE_STEPS
 
 
+class ServoCalibrationConfig(BaseModel):
+    """Servo calibration of a group (the `servo_calibration` block): home offset and travel limits per joint.
+
+    Attributes:
+        home_reference_rad: joint name -> reading (rad, joint frame) the joint has at the physical home; names exactly
+            the position joints minus offset_exclude_joints.
+        offset_exclude_joints: Position joints whose offset is left alone (limits are still captured).
+        record_dir: Directory of the JSON records written by every calibration run.
+        min_range_deg: A captured range narrower than this (degrees) is refused.
+        margin_deg: Captured limits are pulled inward by this many degrees.
+        wrap_guard_deg: A limit this close (degrees) to the 0/4095 wrap is refused.
+        full_turn_joints: Position joints that must sweep a full turn during the capture.
+        full_turn_min_deg: Minimum sweep (degrees) of a full turn joint.
+        max_change_deg: An offset change above this (degrees) needs the explicit confirm.
+        still_window_s: Readings are sampled over this window (seconds) to decide the joint is still.
+        still_tolerance_steps: Largest spread of present_position over the still window (steps).
+        verify_tolerance_steps: After a write present_position must read within this many steps of the prediction.
+        plan_max_age_s: Store refuses a plan older than this (seconds).
+        capture_status_interval_s: Period of the capture status publication (seconds).
+        required_travel_rad: joint name -> (lo, hi) travel (rad) the joint is needed to cover; narrower captured
+            limits need the explicit confirm.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    home_reference_rad: dict[str, float]
+    offset_exclude_joints: list[str] = Field(default_factory=list)
+    record_dir: str
+    min_range_deg: float = Field(DEFAULT_CAL_MIN_RANGE_DEG, gt=0)
+    margin_deg: float = Field(DEFAULT_CAL_MARGIN_DEG, gt=0)
+    wrap_guard_deg: float = Field(DEFAULT_CAL_WRAP_GUARD_DEG, gt=0)
+    full_turn_joints: list[str] = Field(default_factory=list)
+    full_turn_min_deg: float = Field(DEFAULT_CAL_FULL_TURN_MIN_DEG, gt=0)
+    max_change_deg: float = Field(DEFAULT_CAL_MAX_CHANGE_DEG, gt=0)
+    still_window_s: float = Field(DEFAULT_CAL_STILL_WINDOW_S, gt=0)
+    still_tolerance_steps: int = Field(DEFAULT_CAL_STILL_TOLERANCE_STEPS, ge=0)
+    verify_tolerance_steps: int = Field(DEFAULT_CAL_VERIFY_TOLERANCE_STEPS, ge=0)
+    plan_max_age_s: float = Field(DEFAULT_CAL_PLAN_MAX_AGE_S, gt=0)
+    capture_status_interval_s: float = Field(DEFAULT_CAL_CAPTURE_STATUS_INTERVAL_S, gt=0)
+    required_travel_rad: dict[str, tuple[float, float]] = Field(default_factory=dict)
+
+
 @dataclass
 class JointGroup:
     """Joints published under one topic namespace.
@@ -156,6 +210,7 @@ class JointGroup:
         neutral_max_shift_deg: save_neutral is refused when a recorded joint shift exceeds this (degrees); only
             save_neutral_confirmed saves it.
         zero_restore: Arm zero restore services of this group (zero_restore_* and save_rest_reference); None = none.
+        servo_calibration: Servo calibration services of this group (calibration_*); None = none.
     """
 
     namespace: str
@@ -165,6 +220,7 @@ class JointGroup:
     neutral_stale_marker: str | None = None
     neutral_max_shift_deg: float = DEFAULT_NEUTRAL_MAX_SHIFT_DEG
     zero_restore: ZeroRestoreConfig | None = None
+    servo_calibration: ServoCalibrationConfig | None = None
 
     @property
     def neutral_joints(self) -> list[JointEntry]:
@@ -236,6 +292,7 @@ class BridgeConfig:
         neutral_stale_marker: Stale marker path written after a primary-group neutral save; None = no marker.
         neutral_max_shift_deg: Primary-group recorded shift (degrees) above which save_neutral needs the confirm.
         zero_restore: Primary-group arm zero restore; None = none.
+        servo_calibration: Primary-group servo calibration; None = none.
     """
 
     namespace: str
@@ -272,6 +329,7 @@ class BridgeConfig:
     neutral_stale_marker: str | None = None
     neutral_max_shift_deg: float = DEFAULT_NEUTRAL_MAX_SHIFT_DEG
     zero_restore: ZeroRestoreConfig | None = None
+    servo_calibration: ServoCalibrationConfig | None = None
 
     @property
     def groups(self) -> list[JointGroup]:
@@ -284,6 +342,7 @@ class BridgeConfig:
             neutral_stale_marker=self.neutral_stale_marker,
             neutral_max_shift_deg=self.neutral_max_shift_deg,
             zero_restore=self.zero_restore,
+            servo_calibration=self.servo_calibration,
         )
         return [primary, *self.extra_groups]
 
@@ -597,6 +656,69 @@ def parse_group_zero_restore(
     return block is not None, block
 
 
+def calibration_joints(group: JointGroup) -> list[JointEntry]:
+    """Joints a servo calibration covers: the group's position joints, in config order.
+
+    Args:
+        group (JointGroup): The joint group.
+
+    Returns:
+        list[JointEntry]: Position-mode joints.
+    """
+    return [j for j in group.joints if j.mode == "position"]
+
+
+def parse_group_servo_calibration(
+    item: dict, namespace: str, joints: list[JointEntry]
+) -> tuple[bool, ServoCalibrationConfig | None]:
+    """Parse the optional servo_calibration block of a group mapping.
+
+    Args:
+        item (dict): Raw group mapping (top level or an extra_groups entry).
+        namespace (str): Group namespace.
+        joints (list[JointEntry]): The group's joints.
+
+    Returns:
+        tuple[bool, ServoCalibrationConfig | None]: (valid, block); (True, None) when absent, (False, None) when
+            invalid (schema error or a cross-field rule broken; logged).
+    """
+    if "servo_calibration" not in item:
+        return True, None
+    raw = item["servo_calibration"]
+    if not isinstance(raw, dict):
+        LOGGER.warning("/%s: servo_calibration must be a mapping, got %r", namespace, raw)
+        return False, None
+    try:
+        block = ServoCalibrationConfig.model_validate(raw)
+    except ValidationError as exc:
+        LOGGER.warning("/%s: servo_calibration invalid: %s", namespace, exc)
+        return False, None
+    position = [j.name for j in joints if j.mode == "position"]
+    unknown = {
+        "offset_exclude_joints": [n for n in block.offset_exclude_joints if n not in position],
+        "full_turn_joints": [n for n in block.full_turn_joints if n not in position],
+        "required_travel_rad": [n for n in block.required_travel_rad if n not in position],
+    }
+    unknown = {key: names for key, names in unknown.items() if names}
+    if unknown:
+        LOGGER.warning("/%s: servo_calibration names must be position joints, got %s", namespace, unknown)
+        return False, None
+    expected = restore_joint_names(joints, block.offset_exclude_joints)
+    if sorted(block.home_reference_rad) != sorted(expected):
+        LOGGER.warning(
+            "/%s: servo_calibration home_reference_rad must give exactly %s, got %s",
+            namespace,
+            expected,
+            sorted(block.home_reference_rad),
+        )
+        return False, None
+    inverted = [n for n, (lo, hi) in block.required_travel_rad.items() if not lo < hi]
+    if inverted:
+        LOGGER.warning("/%s: servo_calibration required_travel_rad needs lo < hi for %s", namespace, inverted)
+        return False, None
+    return True, block
+
+
 def restore_joint_names(joints: list[JointEntry], exclude: list[str]) -> list[str]:
     """Names of the joints a neutral save or zero restore covers: position joints minus the excluded ones.
 
@@ -644,6 +766,9 @@ def parse_extra_groups(raw_groups: object, primary_namespace: str, seen_ids: set
         valid, zero_restore = parse_group_zero_restore(item, namespace, restore_joint_names(joints, exclude))
         if not valid:
             return None
+        valid, servo_calibration = parse_group_servo_calibration(item, namespace, joints)
+        if not valid:
+            return None
         groups.append(
             JointGroup(
                 namespace=namespace,
@@ -653,6 +778,7 @@ def parse_extra_groups(raw_groups: object, primary_namespace: str, seen_ids: set
                 neutral_stale_marker=marker,
                 neutral_max_shift_deg=max_shift,
                 zero_restore=zero_restore,
+                servo_calibration=servo_calibration,
             )
         )
     return groups
@@ -697,6 +823,9 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         return None
     neutral_enabled, neutral_exclude_joints, neutral_stale_marker, neutral_max_shift_deg = neutral
     valid, zero_restore = parse_group_zero_restore(data, namespace, restore_joint_names(joints, neutral_exclude_joints))
+    if not valid:
+        return None
+    valid, servo_calibration = parse_group_servo_calibration(data, namespace, joints)
     if not valid:
         return None
     device = data.get("device")
@@ -845,6 +974,7 @@ def load_config(path: Path | None = None) -> BridgeConfig | None:
         neutral_stale_marker=neutral_stale_marker,
         neutral_max_shift_deg=neutral_max_shift_deg,
         zero_restore=zero_restore,
+        servo_calibration=servo_calibration,
     )
 
 

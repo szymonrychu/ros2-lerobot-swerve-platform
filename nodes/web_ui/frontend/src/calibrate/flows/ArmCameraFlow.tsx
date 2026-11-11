@@ -58,7 +58,8 @@ const AT_BASE_PHASES = ['waiting_board', 'capturing', 'waiting_big_joints', 'ret
 const GRABBED_PHASES = ['capturing', 'waiting_big_joints', 'returning_to_base', 'holding', 'parking']
 /** Phases of a capture still in progress. */
 const CAPTURE_PHASES = ['moving_to_base', 'waiting_board', 'capturing', 'waiting_big_joints', 'returning_to_base']
-const STALE_ZERO_TEXT = 'Arm zero is stale (joint_offsets): restore it in Servo home calibration first.'
+const STALE_ZERO_TEXT =
+  'Arm zero is stale (joint_offsets). After an accidental re-zero, restore it in Servo calibration, Advanced / repair. After a servo calibration store, the arm-to-camera calibration must be redone (see the feetech_servos README).'
 const INTRO =
   'The arm joint offsets and arm base are fitted from the head D435: the head D435 watches the ARM board held by its handle in the jaws while the arm moves it through checked poses. Needs a camera-to-ground result (applied head chain) and a fresh arm zero. Robot not driving.'
 const ACCEPT_BODY =

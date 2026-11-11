@@ -79,6 +79,7 @@ function arm(released: boolean, zr: ZeroRestoreState | null, over: Partial<Servo
     zero_restore: true,
     move_to_neutral: true,
     set_home: true,
+    servo_calibration: false,
     ...over,
   }
 }

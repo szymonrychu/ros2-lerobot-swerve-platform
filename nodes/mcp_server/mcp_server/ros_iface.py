@@ -950,6 +950,9 @@ class RosRobot:
         )
         self.node.create_service(Trigger, t.home_service, self.on_home, callback_group=self.group)
         self.node.create_service(Trigger, t.set_home_service, self.on_set_home, callback_group=self.group)
+        self.node.create_service(
+            Trigger, t.set_home_from_calibration_service, self.on_set_home_from_calibration, callback_group=self.group
+        )
         self.node.create_service(Trigger, t.move_to_neutral_service, self.on_move_to_neutral, callback_group=self.group)
         self.node.create_service(Trigger, t.gripper_open_service, self.on_gripper_open, callback_group=self.group)
         self.node.create_service(Trigger, t.gripper_close_service, self.on_gripper_close, callback_group=self.group)
@@ -2067,6 +2070,25 @@ class RosRobot:
             pose = self.arm.set_home()
             response.success = True
             response.message = f"home stored at {self.cfg.arm.home_file}: {pose}"
+        except ArmError as exc:
+            response.success = False
+            response.message = str(exc)
+        return response
+
+    def on_set_home_from_calibration(self, _request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
+        """/arm/set_home_from_calibration: store the home from the latest servo calibration record.
+
+        Args:
+            _request (Trigger.Request): Empty request.
+            response (Trigger.Response): Response to fill.
+
+        Returns:
+            Trigger.Response: success and message.
+        """
+        try:
+            pose = self.arm.set_home_from_calibration()
+            response.success = True
+            response.message = f"home stored from the servo calibration record at {self.cfg.arm.home_file}: {pose}"
         except ArmError as exc:
             response.success = False
             response.message = str(exc)

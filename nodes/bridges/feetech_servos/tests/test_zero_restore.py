@@ -8,7 +8,7 @@ now reads reference - shift. The gripper is excluded (neutral_exclude_joints) an
 import importlib
 import json
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
@@ -32,23 +32,21 @@ from feetech_servos.registers import (
     STS_TORQUE_ENABLE,
     get_register_entry_by_name,
 )
+from feetech_servos.servo_offsets import STILL_SAMPLE_INTERVAL_S, decode_offset, encode_offset, steps_to_degrees
 from feetech_servos.torque_control import TorqueControl, torque_state_payload
-from feetech_servos.zero_record import STALE_ITEMS, ZERO_RECORD_FILE, write_stale_marker
-from feetech_servos.zero_restore import (
-    OFFSET_MAX_STEPS,
-    STILL_SAMPLE_INTERVAL_S,
-    ZeroRestoreControl,
-    decode_offset,
-    encode_offset,
-    load_reference,
-    offset_delta_steps,
-    steps_to_degrees,
-    wrap_offset_steps,
+from feetech_servos.zero_record import (
+    SOURCE_SERVO_CALIBRATION,
+    STALE_ITEMS,
+    ZERO_RECORD_FILE,
+    record_zero_change,
+    write_stale_marker,
 )
+from feetech_servos.zero_restore import ZeroRestoreControl, load_reference
 
+from .offset_bus import LIMITS, Clock, OffsetPort
 from .ros_stubs import install_service_stubs
 from .sts_bus import StsPacket, put_word, register_table
-from .test_neutral import FakeServo, NeutralPort, word
+from .test_neutral import FakeServo, word
 from .test_torque_services import RecordingNode
 
 SEED = {"shoulder_pan": -0.018, "shoulder_lift": -1.542, "elbow_flex": 1.516, "wrist_flex": 0.862, "wrist_roll": -0.072}
@@ -66,92 +64,10 @@ GRIPPER_ID = 6
 INCIDENT_SHIFT = {"shoulder_pan": -11, "shoulder_lift": -901, "elbow_flex": 1029, "wrist_flex": -47, "wrist_roll": 14}
 ORIGINAL_OFFSET = {"shoulder_pan": 120, "shoulder_lift": -300, "elbow_flex": 450, "wrist_flex": -20, "wrist_roll": 0}
 SMALL_SHIFT = {"shoulder_pan": -11, "shoulder_lift": 20, "elbow_flex": -30, "wrist_flex": -47, "wrist_roll": 14}
-LIMITS = {1: (500, 3500), 2: (0, 4095), 3: (0, 4095), 4: (0, 4095), 5: (0, 4095), 6: (1900, 3377)}
 STALE_COMMAND_LIMITS = (0, 4095)
 NOW = datetime(2026, 11, 9, 12, 0, 0, tzinfo=UTC)
 RECORD_GLOB = "zero_restore-20261109T120000Z-*.json"
 STEP_RAD = 2 * math.pi / STEPS_PER_REVOLUTION
-
-
-@dataclass
-class OffsetPort(NeutralPort):
-    """NeutralPort whose servos read present_position = (encoder - offset) mod 4096, like the STS3215.
-
-    Attributes:
-        encoder: servo_id -> raw encoder steps of the resting arm (the arm never moves).
-        offset_sign: +1 for the STS3215 semantics; -1 models a servo adding the offset (wrong convention).
-        stuck_offset: Servos acknowledging offset writes without storing them.
-        limit_shift_on_offset: Steps the angle limit registers move by on an offset write.
-        jitter: servo_id -> per-read present_position deltas (popped per read; the arm trembling).
-        torque_on_after_offset: servo_id -> servo whose torque turns on after that servo's offset write.
-        unacked_offset: Servos storing an offset write without sending the status reply.
-        drop_offset_reads_after_writes: servo_id -> offset writes after which its offset reads never answer.
-        offset_writes_seen: servo_id -> offset writes received so far.
-    """
-
-    encoder: dict[int, int] = field(default_factory=dict)
-    offset_sign: int = 1
-    stuck_offset: set[int] = field(default_factory=set)
-    limit_shift_on_offset: int = 0
-    jitter: dict[int, list[int]] = field(default_factory=dict)
-    torque_on_after_offset: dict[int, int] = field(default_factory=dict)
-    unacked_offset: set[int] = field(default_factory=set)
-    drop_offset_reads_after_writes: dict[int, int] = field(default_factory=dict)
-    offset_writes_seen: dict[int, int] = field(default_factory=dict)
-
-    def refresh_present(self, servo_id: int) -> None:
-        """Recompute present_position of one servo from its encoder and offset register."""
-        table = self.servos[servo_id]
-        offset = decode_offset(word(table, STS_OFS_L))
-        put_word(table, STS_PRESENT_POSITION_L, (self.encoder[servo_id] - self.offset_sign * offset) % 4096)
-
-    def apply(self, packet: StsPacket) -> None:
-        """Apply the instruction, then model the offset register's effect and the configured faults."""
-        sid, params = packet.servo_id, packet.params
-        if packet.instruction == INST_READ and params[0] == STS_PRESENT_POSITION_L and self.jitter.get(sid):
-            table = self.servos[sid]
-            true_value = word(table, STS_PRESENT_POSITION_L)
-            put_word(table, STS_PRESENT_POSITION_L, true_value + self.jitter[sid].pop(0))
-            super().apply(packet)
-            put_word(table, STS_PRESENT_POSITION_L, true_value)
-            return
-        is_offset_write = packet.instruction == INST_WRITE and params and params[0] == STS_OFS_L
-        is_offset_read = packet.instruction == INST_READ and params[0] == STS_OFS_L
-        if is_offset_read and self.offset_writes_seen.get(sid, 0) >= self.drop_offset_reads_after_writes.get(
-            sid, 10**9
-        ):
-            return
-        if is_offset_write:
-            self.offset_writes_seen[sid] = self.offset_writes_seen.get(sid, 0) + 1
-        if is_offset_write and sid in self.unacked_offset:
-            self.servos[sid][STS_OFS_L : STS_OFS_L + 2] = bytes(params[1:3])
-            self.events.append((sid, "offset", decode_offset(word(self.servos[sid], STS_OFS_L))))
-            self.refresh_present(sid)
-            return
-        if is_offset_write and sid in self.stuck_offset:
-            self.events.append((sid, "offset", word(bytearray(params[1:3]), 0)))
-            self.reply(sid, [])
-            return
-        super().apply(packet)
-        if is_offset_write and sid in self.servos:
-            self.events.append((sid, "offset", decode_offset(word(self.servos[sid], STS_OFS_L))))
-            self.refresh_present(sid)
-            if self.limit_shift_on_offset:
-                table = self.servos[sid]
-                put_word(table, STS_MIN_ANGLE_LIMIT_L, LIMITS[sid][0] + self.limit_shift_on_offset)
-                put_word(table, STS_MAX_ANGLE_LIMIT_L, LIMITS[sid][1] - self.limit_shift_on_offset)
-            if sid in self.torque_on_after_offset:
-                self.servos[self.torque_on_after_offset[sid]][STS_TORQUE_ENABLE] = 1
-
-
-@dataclass
-class Clock:
-    """Injected monotonic clock."""
-
-    now: float = 1000.0
-
-    def __call__(self) -> float:
-        return self.now
 
 
 @dataclass
@@ -276,69 +192,6 @@ def plan_of(rig: Rig) -> dict[str, Any]:
 
 
 # --- sign-magnitude offset encoding (STS3215: magnitude bits 0-10, sign bit 11) --------------------------------------
-
-
-@pytest.mark.parametrize(
-    ("steps", "raw"),
-    [(0, 0x000), (1, 0x001), (-1, 0x801), (901, 0x385), (-1029, 0xC05), (2047, 0x7FF), (-2047, 0xFFF)],
-)
-def test_offset_encoding_round_trip(steps: int, raw: int) -> None:
-    assert encode_offset(steps) == raw
-    assert decode_offset(raw) == steps
-
-
-def test_negative_zero_decodes_to_zero() -> None:
-    assert decode_offset(0x800) == 0
-
-
-@pytest.mark.parametrize("steps", [2048, -2048, 4000])
-def test_encode_rejects_magnitude_over_2047(steps: int) -> None:
-    with pytest.raises(ValueError):
-        encode_offset(steps)
-
-
-@pytest.mark.parametrize("raw", [0x1000, 0xF000])
-def test_decode_rejects_bits_above_sign(raw: int) -> None:
-    with pytest.raises(ValueError):
-        decode_offset(raw)
-
-
-def test_offset_max_is_2047() -> None:
-    assert OFFSET_MAX_STEPS == 2047
-
-
-def test_offset_delta_is_present_minus_target() -> None:
-    assert offset_delta_steps(2949, 2048) == 901
-    assert offset_delta_steps(1019, 2048) == -1029
-
-
-def test_offset_delta_takes_the_short_way_across_the_wrap() -> None:
-    assert offset_delta_steps(10, 4090) == 16
-    assert offset_delta_steps(4090, 10) == -16
-
-
-@pytest.mark.parametrize(
-    ("steps", "wrapped"),
-    [(2469, -1627), (-2242, 1854), (-2601, 1495), (0, 0), (2047, 2047), (-2047, -2047), (2048, -2048), (-2048, -2048)],
-)
-def test_wrap_offset_steps(steps: int, wrapped: int) -> None:
-    assert wrap_offset_steps(steps) == wrapped
-    assert (steps - wrapped) % STEPS_PER_REVOLUTION == 0
-
-
-@pytest.mark.parametrize("steps", [2469, -2242, -2601])
-def test_wrapped_user_offsets_encode(steps: int) -> None:
-    assert decode_offset(encode_offset(wrap_offset_steps(steps))) == wrap_offset_steps(steps)
-
-
-def test_wrapped_2048_is_not_encodable() -> None:
-    with pytest.raises(ValueError):
-        encode_offset(wrap_offset_steps(2048))
-
-
-def test_steps_to_degrees() -> None:
-    assert steps_to_degrees(1024) == 90.0
-    assert steps_to_degrees(-901) == pytest.approx(-79.189, abs=1e-3)
 
 
 # --- reference --------------------------------------------------------------------------------------------------------
@@ -558,6 +411,60 @@ def test_dry_run_logs_calib_events(tmp_path: Path) -> None:
     assert data["joints"]["elbow_flex"]["limits"] == [0, 4095]
     assert data["torque"] == {name: 0 for name in SEED}
     assert len({e["run_id"] for e in events}) == 1
+
+
+# --- servo calibration guard ------------------------------------------------------------------------------------------
+
+
+def write_servo_calibration_change(rig: Rig) -> None:
+    """Leave the files an arm servo calibration store writes: the zero change record (its source) and the marker."""
+    record_zero_change(rig.marker, "follower", "2026-11-09T11:00:00+00:00", SOURCE_SERVO_CALIBRATION)
+    write_stale_marker(rig.marker, "follower", "2026-11-09T11:00:00+00:00", {"elbow_flex": (450, 528)})
+
+
+def test_dry_run_refused_after_a_servo_calibration(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path)
+    write_servo_calibration_change(rig)
+    marker_before = rig.marker.read_text()
+    result = rig.zero.dry_run("follower")
+    assert result.success is False
+    assert "set by a servo calibration at 2026-11-09T11:00:00+00:00" in result.message
+    assert "redo the arm-to-camera calibration" in result.message
+    assert "nothing written" in result.message
+    assert plan_or_none(rig) is None
+    assert rig.marker.read_text() == marker_before
+
+
+def test_apply_refused_after_a_servo_calibration_keeps_joint_offsets_stale(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path, shift=SMALL_SHIFT)
+    write_marker(rig)
+    assert rig.zero.dry_run("follower").success
+    write_servo_calibration_change(rig)
+    marker_before = rig.marker.read_text()
+    result = rig.zero.apply("follower", confirmed=True)
+    assert result.success is False
+    assert "set by a servo calibration" in result.message
+    assert rig.offset_writes() == []
+    assert rig.marker.read_text() == marker_before
+    assert "joint_offsets" in json.loads(rig.marker.read_text())["stale"]
+    assert plan_or_none(rig) is None
+    assert not list(Path(rig.config.record_dir).glob(RECORD_GLOB))
+
+
+def test_dry_run_allowed_after_a_zero_change_of_another_source(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path)
+    record_zero_change(rig.marker, "follower", "2026-11-09T11:00:00+00:00")
+    assert rig.zero.dry_run("follower").success
+
+
+def test_dry_run_refused_on_an_unreadable_zero_change_record(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path)
+    rig.marker.parent.mkdir(parents=True, exist_ok=True)
+    rig.marker.with_name(ZERO_RECORD_FILE).write_text("{not json")
+    result = rig.zero.dry_run("follower")
+    assert result.success is False
+    assert "source of the last arm zero change is unknown" in result.message
+    assert plan_or_none(rig) is None
 
 
 # --- apply ------------------------------------------------------------------------------------------------------------
