@@ -2,7 +2,8 @@
 
 The node reads the file mcp_server's `arm.home_file` names (config `arm_home_file`) instead of keeping its own copy of
 the home, so a re-stored home is the board Home target at the next press. Only the five arm joints are returned; the
-gripper entry is dropped (the gripper keeps its own angle while the board is held).
+gripper entry is dropped (the gripper keeps its own angle while the board is held). Every `joints` entry, the gripper
+and any other joint included, must be a finite number (no booleans, strings or NaN/inf), or the whole file is refused.
 """
 
 import math
@@ -14,7 +15,10 @@ from ros2_common.head_rgbd_calibration.config import ARM_JOINT_NAMES
 
 NO_JOINTS = "no `joints` mapping of joint name -> rad"
 NO_JOINTS_ERRORS = ("missing", "dict_type")
-MESSAGE_NO_HOME = "no stored arm home at {path}: store the arm home (Calibrate > General, Set home) first"
+MESSAGE_NO_HOME = (
+    "no stored arm home at {path}: store the arm home (Set home: Calibrate > Servo calibration, Advanced / repair, or "
+    "the Arm tab) first"
+)
 
 
 class ArmHomeError(RuntimeError):
@@ -38,6 +42,9 @@ class ArmHomeFile(BaseModel):
 
         Returns:
             object: `joints`, unchanged.
+
+        Raises:
+            ValueError: An entry (any joint, the gripper included) is a boolean or not an int or float.
         """
         if isinstance(joints, dict):
             for name, value in joints.items():
@@ -55,6 +62,10 @@ class ArmHomeFile(BaseModel):
 
         Returns:
             dict[str, float]: `joints`, unchanged.
+
+        Raises:
+            ValueError: An arm joint is missing, or an entry (any joint, the gripper included) is NaN or infinite; the
+                message lists every problem.
         """
         errors = [f"missing joint {name}" for name in ARM_JOINT_NAMES if name not in joints]
         errors += [

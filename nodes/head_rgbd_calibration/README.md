@@ -1299,7 +1299,8 @@ sequencer reads `get_control_state`:
 - Board not on: the plain `release_control` home; a holding load is refused as ever, with a hint to state the board.
 - Board on (whatever the load reads): the stored home is read from `arm_home_file` (mcp_server's `home.yaml`, fresh at
   each press, so a re-stored home is the next target; the five arm joints, the gripper entry ignored). A missing or
-  invalid file refuses naming the file ("store the arm home (Calibrate > General, Set home) first") and nothing moves.
+  invalid file refuses naming the file ("store the arm home (Set home: Calibrate > Servo calibration, Advanced / repair,
+  or the Arm tab) first") and nothing moves.
   The path from the measured joints to that home is checked with `PoseChecker` and the board outline of the newest fitted `board_mount` of the session
   (`head_arm_results.latest_board_mount`), else the recorded mount, else `fit.board_mount`, with
   `park_board_sag_margin_m` added to the board floor (`min_board_height_m`), body and head clearances. A violation

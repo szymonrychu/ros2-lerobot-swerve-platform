@@ -6,8 +6,8 @@ Order: `move_to_base` (confirmed; no board) -> the user seats the board handle, 
 2) -> tier 2 -> back to the base pose -> `holding` -> `home` (confirmed) -> `idle`. Home works with the board on (design
 D63, easy retries): the whole path from the measured joints to the stored home (`arm_home_file`, read at the press) is
 checked with the board outline (the latest fitted board_mount when a result exists, else the configured one) and
-`park_board_sag_margin_m` added to the board floor, body and head clearances; a pass moves there at `speed_scale` and finishes through mcp_server's
-internal `POST /admin/park_calibration_board` (own token, the board mount as the only request content): mcp_server
+`park_board_sag_margin_m` added to the board floor, body and head clearances; a pass moves there at `speed_scale` and
+finishes through mcp_server's internal `POST /admin/park_calibration_board` (own token, the board mount as the only request content): mcp_server
 ignores the holding load of the gripped board handle and nothing else, and re-checks the board on every home leg from
 the measured joints. The agent-facing `release_control` has no board argument.
 
@@ -1341,8 +1341,8 @@ class Sequencer:
         Board not on (this sequence did not attach it and the user did not state it): the plain home, refused by
         mcp_server's carry reasons as ever. Board on (the sequence attached it, or `board_on`): whatever the load
         reads, the stored home is read from `arm_home_file`, the path to it is checked with the board outline and the
-        sag margin, the arm moves there and mcp_server's internal board park finishes it (it checks the board again on its home legs). Any carry reason
-        other than the holding load of the gripped board handle refuses.
+        sag margin, the arm moves there and mcp_server's internal board park finishes it (it checks the board again on
+        its home legs). Any carry reason other than the holding load of the gripped board handle refuses.
 
         Args:
             confirmed: The user confirmed the home move.

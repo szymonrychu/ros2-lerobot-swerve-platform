@@ -819,7 +819,10 @@ def test_home_with_the_board_on_refuses_without_a_valid_stored_home(tmp_path: Pa
     rig.robot.carrying = [BOARD_LOAD]
     if stored == "missing":
         rig.home_file.unlink()
-        expected = f"no stored arm home at {rig.home_file}: store the arm home (Calibrate > General, Set home) first"
+        expected = (
+            f"no stored arm home at {rig.home_file}: store the arm home (Set home: Calibrate > Servo calibration, "
+            "Advanced / repair, or the Arm tab) first"
+        )
     else:
         rig.home_file.write_text(yaml.safe_dump({"joints": {"shoulder_pan": 0.0}}))
         expected = f"invalid arm home {rig.home_file}: missing joint shoulder_lift"

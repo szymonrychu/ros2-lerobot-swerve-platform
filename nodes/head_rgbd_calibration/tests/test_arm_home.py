@@ -50,7 +50,8 @@ def test_a_missing_file_asks_to_store_a_home(tmp_path: Path) -> None:
     with pytest.raises(ArmHomeError) as refused:
         load_arm_home(path)
     assert str(refused.value) == (
-        f"no stored arm home at {path}: store the arm home (Calibrate > General, Set home) first"
+        f"no stored arm home at {path}: store the arm home (Set home: Calibrate > Servo calibration, Advanced / repair, "
+        "or the Arm tab) first"
     )
 
 
