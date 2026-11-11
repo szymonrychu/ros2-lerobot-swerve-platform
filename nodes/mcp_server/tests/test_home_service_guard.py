@@ -79,6 +79,7 @@ def test_home_service_refused_while_carrying_names_the_reason(robot: FakeRobot) 
     ok, message = ctl.home_service_call()
     assert ok is False
     assert message.startswith("arm home refused: the gripper carries") and "last grasp" in message
+    assert message.endswith("(home the calibration board with the Calibrate page Arm to camera flow step 7 Home)")
     assert len(robot.arm_backend.commands) == commands and robot.arm_backend.releases == 0
 
 
@@ -145,7 +146,7 @@ def test_home_service_refused_while_the_board_record_exists_without_a_lease_or_l
     ok, message = ctl.home_service_call()
     assert ok is False
     assert message.startswith("arm home refused: the calibration board is on the gripper")
-    assert "calib-20261109-120000" in message and "2026-11-09T12:00:00+00:00" in message and "Park" in message
+    assert "calib-20261109-120000" in message and "2026-11-09T12:00:00+00:00" in message and "step 7 Home" in message
     assert len(robot.arm_backend.commands) == commands and robot.arm_backend.releases == 0
 
 
@@ -158,7 +159,7 @@ def test_home_service_board_refusal_names_the_record_and_both_ways_to_clear_it(r
     assert ok is False
     assert str(robot.arm.cfg.arm.calibration_board_record) in message
     assert "session None, attached at 2026-11-09T18:44:15+00:00" in message
-    assert "Park (board is on the gripper)" in message
+    assert "(step 7 Home, or step 1 Home (board is on the gripper))" in message
     assert "Board already off: clear the record on the Calibrate page" in message
 
 

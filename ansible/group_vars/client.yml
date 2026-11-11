@@ -3289,7 +3289,7 @@ ros2_nodes:
         # Latest successful servo calibration record of lerobot_follower (its servo_calibration record_dir).
         servo_calibration_record: /var/lib/ros2/arm/servo_calibration-follower-latest.json
         # head_rgbd_calibration board record (<its state_dir>/head_arm_board.json): written on Board attached, removed by
-        # a successful park; /arm/home is refused while it exists (the calibration board is on the gripper).
+        # a successful Home of the Arm to camera flow; /arm/home is refused while it exists (the board is on).
         calibration_board_record: /var/lib/ros2/head_rgbd_calibration/head_arm_board.json
         # head_rgbd_calibration applied/ (its state_dir): an accepted arm to camera calibration there
         # (arm_calibration.json, named by applied.json) overrides joint_offsets_rad, base_in_base_link and
