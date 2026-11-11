@@ -398,7 +398,10 @@ servo now stops at X"); overrides are never changed automatically. Then the arm 
 Arm bookkeeping (a store that changed any arm offset): the stale marker lists `joint_offsets` and `home` (the arm to
 camera calibration must be redone), including a joint whose offset is unknown after a failed rollback, and
 `zero_changed.json` is written with `"source": "servo_calibration"` (`zero_record.SOURCE_SERVO_CALIBRATION`; the other
-writers leave the field out). The zero restore rest reference is converted into the new frame (each joint
+writers leave the field out) and the arm stale marker gets `"servo_calibration_at"` (`zero_record.SERVO_CALIBRATION_AT_FIELD`,
+equal to the marker `saved_at` and the record `changed_at`), a persistent "the zero came from a servo calibration"
+reason: only a store sets it, every other writer (neutral save, calibrate_servos CLI) carries it over, and a marker
+without it means "not a servo calibration" (`zero_record.read_servo_calibration_at`). The zero restore rest reference is converted into the new frame (each joint
 `steps(ref) - change`) for the joints whose offset change was verified; the other joints keep their reference. Without
 a reference file (zero restore would fall back to the old-frame `seed_reference_rad`) the file is written from the seed
 converted the same way, in the `save_rest_reference` format. A pending zero restore plan is dropped. mcp_server then sets

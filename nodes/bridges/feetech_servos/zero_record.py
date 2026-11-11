@@ -6,6 +6,9 @@ restore, and scripts/calibrate_servos.py) writes them the same way:
 - The stale marker (a group's `neutral_stale_marker`, e.g. /var/lib/ros2/arm/calibration_stale.json):
   {version, group, saved_at, joints: {name: {before_steps, after_steps}}, stale: [items]}. Items are the calibrations
   taken in the old zero (STALE_ITEMS: joint_offsets, home); mcp_server and web_ui read it, mcp_server clears items.
+  The marker also carries "servo_calibration_at" (SERVO_CALIBRATION_AT_FIELD, ISO-8601, equal to saved_at of the store)
+  when the zero change came from a servo calibration store: it is set only by that writer, carried over by every other
+  writer (a neutral save or the CLI after a store keeps it) and absent otherwise (never null; read_servo_calibration_at).
 - The zero change record (ZERO_RECORD_FILE next to the marker): {version, group, changed_at} plus "source" for a
   writer that names itself (SOURCE_SERVO_CALIBRATION: the servo calibration store), replaced on every zero change and
   kept when the marker is cleared. Zero restore refuses while the latest change came from a servo calibration (a
@@ -32,6 +35,7 @@ ZERO_RECORD_FILE = "zero_changed.json"  # next to the stale marker: the time of 
 ZERO_RECORD_VERSION = 1
 SOURCE_FIELD = "source"  # zero change record field naming the writer (absent: neutral save, zero restore, CLI)
 SOURCE_SERVO_CALIBRATION = "servo_calibration"
+SERVO_CALIBRATION_AT_FIELD = "servo_calibration_at"  # marker field: time of the servo calibration store (absent: none)
 
 
 def utc_now_iso() -> str:
@@ -44,7 +48,11 @@ def utc_now_iso() -> str:
 
 
 def merge_marker(
-    existing: dict[str, Any] | None, group: str, saved_at: str, joints: dict[str, tuple[int, int]]
+    existing: dict[str, Any] | None,
+    group: str,
+    saved_at: str,
+    joints: dict[str, tuple[int, int]],
+    source: str | None = None,
 ) -> dict[str, Any]:
     """Build the stale marker content, merging the joints of an existing marker.
 
@@ -53,21 +61,29 @@ def merge_marker(
         group (str): Namespace of the saved group.
         saved_at (str): ISO-8601 UTC time of the save.
         joints (dict[str, tuple[int, int]]): joint name -> (before_steps, after_steps) of the joints whose centre changed.
+        source (str | None): Writer of the change; SOURCE_SERVO_CALIBRATION sets SERVO_CALIBRATION_AT_FIELD to saved_at.
 
     Returns:
-        dict[str, Any]: {"version", "group", "saved_at", "joints", "stale"}; stale is reset to both STALE_ITEMS.
+        dict[str, Any]: {"version", "group", "saved_at", "joints", "stale"}; stale is reset to both STALE_ITEMS. Plus
+            SERVO_CALIBRATION_AT_FIELD when source is SOURCE_SERVO_CALIBRATION or the existing marker has it as a str.
     """
     old_joints = existing.get("joints") if isinstance(existing, dict) else None
     merged = dict(old_joints) if isinstance(old_joints, dict) else {}
     for name, (before, after) in joints.items():
         merged[name] = {"before_steps": before, "after_steps": after}
-    return {
+    marker: dict[str, Any] = {
         "version": MARKER_VERSION,
         "group": group,
         "saved_at": saved_at,
         "joints": merged,
         "stale": list(STALE_ITEMS),
     }
+    carried = existing.get(SERVO_CALIBRATION_AT_FIELD) if isinstance(existing, dict) else None
+    if source == SOURCE_SERVO_CALIBRATION:
+        marker[SERVO_CALIBRATION_AT_FIELD] = saved_at
+    elif isinstance(carried, str):
+        marker[SERVO_CALIBRATION_AT_FIELD] = carried
+    return marker
 
 
 def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
@@ -137,6 +153,23 @@ def read_stale_items(path: Path) -> list[str] | None:
         LOGGER.error("%s; treating every item as stale", exc)
         return list(STALE_ITEMS)
     return None if data is None else [str(item) for item in data["stale"]]
+
+
+def read_servo_calibration_at(path: Path) -> str | None:
+    """Time of the servo calibration store the stale marker records.
+
+    Args:
+        path (Path): Marker path.
+
+    Returns:
+        str | None: SERVO_CALIBRATION_AT_FIELD; None when there is no marker or it has no string field.
+
+    Raises:
+        ValueError: The marker exists but is unreadable, not JSON or not a valid marker (read_marker_json).
+    """
+    data = read_marker_json(path)
+    value = None if data is None else data.get(SERVO_CALIBRATION_AT_FIELD)
+    return value if isinstance(value, str) else None
 
 
 def set_stale_items(path: Path, items: list[str], group: str, saved_at: str | None) -> None:
@@ -213,7 +246,9 @@ def read_zero_change(marker: Path) -> dict[str, Any] | None:
     return data
 
 
-def write_stale_marker(path: Path, group: str, saved_at: str, joints: dict[str, tuple[int, int]]) -> None:
+def write_stale_marker(
+    path: Path, group: str, saved_at: str, joints: dict[str, tuple[int, int]], source: str | None = None
+) -> None:
     """Write (merge) the stale marker atomically: temp file in the same directory, then os.replace.
 
     Missing parent directories are created. An existing marker that is not valid JSON is replaced.
@@ -223,6 +258,7 @@ def write_stale_marker(path: Path, group: str, saved_at: str, joints: dict[str, 
         group (str): Namespace of the saved group.
         saved_at (str): ISO-8601 UTC time of the save.
         joints (dict[str, tuple[int, int]]): joint name -> (before_steps, after_steps).
+        source (str | None): Writer of the change (merge_marker); None for every writer but the servo calibration.
 
     Raises:
         OSError: When the directory, the temp file or the replace fails.
@@ -233,7 +269,7 @@ def write_stale_marker(path: Path, group: str, saved_at: str, joints: dict[str, 
             existing = json.loads(path.read_text())
         except json.JSONDecodeError:
             LOGGER.warning("stale marker %s is not valid JSON; replacing it", path)
-    write_json_atomic(path, merge_marker(existing, group, saved_at, joints))
+    write_json_atomic(path, merge_marker(existing, group, saved_at, joints, source))
 
 
 def write_zero_change(
@@ -250,7 +286,8 @@ def write_zero_change(
         group (str): Group namespace.
         changed_at (str): ISO-8601 UTC time of the change (utc_now_iso).
         joints (dict[str, tuple[int, int]]): joint name -> (before_steps, after_steps) of the verified changes.
-        source (str | None): Writer named in the zero change record (record_zero_change); None leaves it out.
+        source (str | None): Writer named in the zero change record (record_zero_change) and the marker (merge_marker);
+            None leaves it out.
 
     Returns:
         list[str]: "stale marker not written: ..." and / or "zero change record not written: ..." for each failed
@@ -263,7 +300,7 @@ def write_zero_change(
         record_error = f"zero change record not written: {type(exc).__name__}: {exc}"
     if joints:
         try:
-            write_stale_marker(marker, group, changed_at, joints)
+            write_stale_marker(marker, group, changed_at, joints, source)
         except OSError as exc:
             marker_error = f"stale marker not written: {type(exc).__name__}: {exc}"
     return [e for e in (marker_error, record_error) if e is not None]

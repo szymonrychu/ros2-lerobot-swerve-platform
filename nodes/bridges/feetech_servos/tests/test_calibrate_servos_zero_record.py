@@ -149,6 +149,28 @@ def test_center_of_an_arm_joint_writes_the_record_and_the_marker(tmp_path: Path)
     assert content["saved_at"] == record(tmp_path)["changed_at"]
 
 
+def test_cli_zero_change_keeps_servo_calibration_at(tmp_path: Path) -> None:
+    (tmp_path / "arm").mkdir()
+    (tmp_path / "arm" / MARKER_NAME).write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "group": "follower",
+                "saved_at": "2026-10-01T00:00:00+00:00",
+                "joints": {},
+                "stale": [],
+                "servo_calibration_at": "2026-10-01T00:00:00+00:00",
+            }
+        )
+    )
+    bus = FakeBus({3: 2600})
+    assert run(bus, ["center", "--device", DEVICE, "--id", "3", "--bridge-config", str(bridge_config(tmp_path))]) == 0
+    content = marker(tmp_path)
+    assert content["servo_calibration_at"] == "2026-10-01T00:00:00+00:00"
+    assert content["stale"] == ["joint_offsets", "home"]
+    assert "source" not in record(tmp_path)
+
+
 def test_center_not_verified_writes_only_the_record(tmp_path: Path) -> None:
     bus = FakeBus({3: 2600})
     bus.centre_to = 500

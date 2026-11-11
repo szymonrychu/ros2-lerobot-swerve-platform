@@ -941,6 +941,15 @@ def test_arm_store_marks_joint_offsets_and_home_stale(tmp_path: Path) -> None:
     assert zero_change["changed_at"] == "2026-11-10T12:00:00+00:00"
 
 
+def test_arm_store_writes_servo_calibration_at(tmp_path: Path) -> None:
+    extra = arm_extra(tmp_path)
+    rig = planned_rig(tmp_path, head_extra=extra)
+    assert rig.cal.store("head").success
+    marker = json.loads(Path(extra["neutral_stale_marker"]).read_text())
+    record = json.loads((tmp_path / "servo_calibration-head-latest.json").read_text())
+    assert marker["servo_calibration_at"] == record["changed_at"]
+
+
 def test_marker_saved_at_equals_record_changed_at(tmp_path: Path) -> None:
     extra = arm_extra(tmp_path)
     rig = planned_rig(tmp_path, head_extra=extra)
