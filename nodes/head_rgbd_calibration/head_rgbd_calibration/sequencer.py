@@ -27,6 +27,16 @@ error, exception, confirm timeout) stops the still capture and releases the arm 
 a checked pose and mcp_server keeps the head where it is. The sequence never homes on its own and never sends
 `carried_object_radius_m`.
 
+Head model of the checks (the head is real, not a full-range envelope, once its pan/tilt is known): `held_head` is the
+measured pan/tilt (the commanded one when the result carries none) of the last converged `set_head_angles` of the run;
+it is None at every run start (a resume too) and after a head move that did not converge or failed. An arm move checks
+its path with the real head shapes over `PoseChecker.head_band(held_head)` when the head is held, else with the
+full-range envelope (the base move, the resume base move, the handle grip and the move to tier 0 pose 0). A view is
+also skipped with the reason `head_clearance` when the head cannot move about its aim at the arm pose
+(`check_head_move` over `head_band(aim)`), and every head move is checked again just before `set_head_angles` from the
+measured joints over `head_span(held_head, aim)` (the envelope when not held): a refusal skips the view with that
+reason and nothing is commanded. Home with the board on keeps the full-range envelope.
+
 Resume with the board on (`resume_with_board`, confirmed): from `holding` with the board on (a stopped or ended
 sequence; the board may be taped into the jaws), a new run (new run id) moves to the base pose through the same path
 check from the measured joints with the board on, commanding the gripper to its measured angle (never
@@ -89,7 +99,13 @@ from typing import Any
 import numpy as np
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationError
 from ros2_common.camera_geometry import CameraIntrinsics
-from ros2_common.head_rgbd_calibration.arm_pose_check import BOARD_LINK, GRIPPER_JOINT, PoseChecker
+from ros2_common.head_rgbd_calibration.arm_pose_check import (
+    BOARD_LINK,
+    GRIPPER_JOINT,
+    HEAD_CLEARANCE_RULE,
+    HeadRegion,
+    PoseChecker,
+)
 from ros2_common.head_rgbd_calibration.chain import UrdfChain, pose_from_xyz_rpy
 from ros2_common.head_rgbd_calibration.config import ARM_JOINT_NAMES
 from ros2_common.head_rgbd_calibration.floor_fit import PAN_JOINT, TILT_JOINT
@@ -121,6 +137,7 @@ MAX_QUOTED_ENTRIES = 3
 TIER_COUNT = 3
 BIG_JOINT_TIER = 2
 REASON_STOPPED = "stopped"
+REASON_HEAD_CLEARANCE = HEAD_CLEARANCE_RULE  # skip reason of a view whose head move would hit the arm or board
 MESSAGE_BOARD = "Seat the arm board handle in the gripper jaws up to the shoulder, then press Board attached"
 MESSAGE_UNSEATED = "the gripper closed past the handle contact: seat the handle up to the shoulder and start again"
 MESSAGE_SLACK_GRIP = (
@@ -455,6 +472,7 @@ class Sequencer:
         self.events: deque[dict[str, str]] = deque(maxlen=EVENT_LIMIT)
         self.run_id: str | None = None
         self.current_step: str | None = None
+        self.held_head: tuple[float, float] | None = None  # (pan, tilt) rad of the last converged head move of the run
         self.restore_board()
         self.restore_grip()
 
@@ -1670,6 +1688,8 @@ class Sequencer:
             resume (bool): Resume with the board on: the base move keeps the gripper at its measured angle, and the
                 board confirm and the handle grip are skipped.
         """
+        with self.lock:
+            self.held_head = None  # never a band from an earlier run: the head may have moved since
         with self.timed("take_control"):
             self.call(self.robot.take_arm(), "take_control")
         self.check_alive()
@@ -1890,8 +1910,24 @@ class Sequencer:
             raise StepFailed(f"get_arm_state reports no measured {', '.join(missing)}; nothing was moved")
         return {name: float(positions[name]) for name in BASE_JOINTS if isinstance(positions.get(name), int | float)}
 
+    def head_region(self, plan: Plan) -> HeadRegion | None:
+        """The region the held head stays in during an arm move.
+
+        Args:
+            plan (Plan): The sequence plan (its checker's head limits and `head_band_deg`).
+
+        Returns:
+            HeadRegion | None: `head_band` about `held_head`, None (the full-range envelope) when the head is not held.
+        """
+        with self.lock:
+            held = self.held_head
+        return None if held is None else plan.checker.head_band(*held)
+
     def checked_move(self, plan: Plan, pose: dict[str, float], label: str, targets: dict[str, float]) -> None:
         """Check the path from the measured joints to `pose`, then command `targets`; refusals stop before it.
+
+        The path is checked with the real head over the band about the held head (`head_region`), else with the
+        full-range head envelope.
 
         Args:
             plan: The sequence plan.
@@ -1905,7 +1941,8 @@ class Sequencer:
         """
         start = self.measured()
         gripper = max(start.get(GRIPPER_JOINT, self.seq.grip_rad), self.seq.grip_rad)
-        entries = plan.checker.check_path(start, pose, gripper)
+        head = self.head_region(plan)
+        entries = plan.checker.check_path(start, pose, gripper, head=head)
         self.log(
             "path_check",
             "refused" if entries else "ok",
@@ -1915,6 +1952,8 @@ class Sequencer:
             start=start,
             target=pose,
             gripper_rad=gripper,
+            head_model="envelope" if head is None else "band",
+            head_region=None if head is None else {"pan_rad": head.pan_rad, "tilt_rad": head.tilt_rad},
             entries=entries,
         )
         if entries:
@@ -1960,10 +1999,12 @@ class Sequencer:
             intrinsics: Colour intrinsics of the still session.
 
         Returns:
-            list[View]: One per head offset; a view outside the head limits, inside the D435 min-Z or outside the
-                colour FOV carries its reason.
+            list[View]: One per head offset; a view outside the head limits, inside the D435 min-Z, outside the
+                colour FOV or whose head cannot move about its aim at `joints` (`head_clearance`, the real head over
+                `head_band(aim)`) carries its reason.
         """
         camera_frame = self.cfg.camera_frame
+        gripper = max(joints.get(GRIPPER_JOINT, self.seq.grip_rad), self.seq.grip_rad)
         centre = (plan.checker.link_poses(joints)[BOARD_LINK] @ plan.board_centre)[:3]
         pan, tilt = aim_head(plan.head, centre, camera_frame)
         views = []
@@ -1972,9 +2013,10 @@ class Sequencer:
             detail = f"pan {pan_deg:.2f} deg, tilt {tilt_deg:.2f} deg"
             reason = outside_head_limits(plan.head, pan_deg, tilt_deg)
             if reason is None:
-                entries = plan.checker.check_view(
-                    joints, math.radians(pan_deg), math.radians(tilt_deg), intrinsics, camera_frame
-                )
+                aim = (math.radians(pan_deg), math.radians(tilt_deg))
+                entries = plan.checker.check_view(joints, *aim, intrinsics, camera_frame)
+                if not entries:
+                    entries = plan.checker.check_head_move(joints, gripper, plan.checker.head_band(*aim))
                 if entries:
                     reason = entries[0].partition(": ")[0]
                     detail = f"{detail}: {'; '.join(entries)}"
@@ -2016,13 +2058,14 @@ class Sequencer:
                 self.checked_move(plan, pose, label, pose)
                 with self.lock:
                     before = (self.captured, sum(self.skipped.values()))
-                for view in self.plan_views(plan, self.measured(), intrinsics):
+                joints = self.measured()
+                for view in self.plan_views(plan, joints, intrinsics):
                     self.check_alive()
                     where = f"tier {tier} arm pose {index} head offset {view.offset}"
                     if view.reason is not None:
                         self.count_skipped(view.reason, f"{where}: {view.detail}", view)
                         continue
-                    self.view(index, tier, view.offset, view.pan_deg, view.tilt_deg)
+                    self.view(plan, joints, index, tier, view.offset, view.pan_deg, view.tilt_deg)
                 with self.lock:
                     captured, skipped = self.captured - before[0], sum(self.skipped.values()) - before[1]
                 fields.update(captured=captured, skipped=skipped, **where_pose)
@@ -2036,15 +2079,73 @@ class Sequencer:
                 **where_pose,
             )
 
-    def view(self, index: int, tier: int, offset: int, pan_deg: float, tilt_deg: float) -> None:
-        """One view that passed the checks: aim, settle and capture a still."""
+    def view(
+        self,
+        plan: Plan,
+        joints: dict[str, float],
+        index: int,
+        tier: int,
+        offset: int,
+        pan_deg: float,
+        tilt_deg: float,
+    ) -> None:
+        """One view that passed the checks: check the head move, aim, settle and capture a still.
+
+        The head move from the held head to the aim is checked against the arm standing at `joints`
+        (`check_head_move` over `head_span(held_head, aim)`, the full-range envelope when the head is not held); a
+        refusal skips the view with REASON_HEAD_CLEARANCE and commands nothing. A converged move holds the head at its
+        measured angles (the commanded ones when none are reported); any other outcome leaves it not held.
+
+        Args:
+            plan (Plan): The sequence plan.
+            joints (dict[str, float]): Measured arm joints (the gripper too when reported) the views were planned at.
+            index (int): Arm pose index.
+            tier (int): Tier of the pose.
+            offset (int): Head offset index.
+            pan_deg (float): Commanded head_pan (deg).
+            tilt_deg (float): Commanded head_tilt (deg).
+        """
         where = f"tier {tier} arm pose {index} head offset {offset}"
         place = {"tier": tier, "arm_pose": index, "head_offset": offset}
+        aim = (math.radians(pan_deg), math.radians(tilt_deg))
+        with self.lock:
+            held = self.held_head
+        head = None if held is None else plan.checker.head_span(held, aim)
+        gripper = max(joints.get(GRIPPER_JOINT, self.seq.grip_rad), self.seq.grip_rad)
+        entries = plan.checker.check_head_move(joints, gripper, head)
+        self.log(
+            "head_move_check",
+            "refused" if entries else "ok",
+            logging.WARNING if entries else logging.INFO,
+            f"{len(entries)} violated entries" if entries else None,
+            joints=joints,
+            gripper_rad=gripper,
+            held_head_rad=held,
+            pan_deg=pan_deg,
+            tilt_deg=tilt_deg,
+            head_model="envelope" if head is None else "span",
+            head_region=None if head is None else {"pan_rad": head.pan_rad, "tilt_rad": head.tilt_rad},
+            entries=entries,
+            **place,
+        )
+        if entries:
+            detail = f"{where}: pan {pan_deg:.2f} deg, tilt {tilt_deg:.2f} deg: {'; '.join(entries)}"
+            self.count_skipped(REASON_HEAD_CLEARANCE, detail)
+            return
+        with self.lock:
+            self.held_head = None  # unknown until the move converges (a tool error leaves it unknown)
         result = self.call(self.robot.set_head_angles(pan_deg, tilt_deg), f"set_head_angles at {where}")
         status, message = self.log_motion("set_head_angles", result, pan_deg=pan_deg, tilt_deg=tilt_deg, **place)
         if status != CONVERGED:
             self.count_skipped(f"head move {status}", f"{where}: {message}")
             return
+        measured = (result.data or {}).get("measured")
+        if isinstance(measured, dict) and all(
+            isinstance(measured.get(k), int | float) for k in ("pan_deg", "tilt_deg")
+        ):
+            aim = (math.radians(measured["pan_deg"]), math.radians(measured["tilt_deg"]))
+        with self.lock:
+            self.held_head = aim
         self.sleep(self.seq.settle_s)
         self.check_alive()
         began = self.clock()

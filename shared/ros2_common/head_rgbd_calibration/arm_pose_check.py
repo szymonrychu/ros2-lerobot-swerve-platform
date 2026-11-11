@@ -4,8 +4,16 @@ Every pose is evaluated in the robot base_link (x forward, y left, z up from the
 `urdf = measured + offset` (`HeadArmFitConfig.joint_offsets_rad`) and is placed by `arm_in_robot_base(
 fit.base_in_base_link)`. The body is the client.yml mcp_server `body` block (boxes and vertical cylinders, the same
 geometry choices as mcp_server `body_model.py` / `self_collision.py`: exact point signed distances, link capsules
-between FK link origins, the upper arm exempt from the crossbar it stands on); the head is a vertical cylinder about the
-pan axis of the given head URDF that contains the head at every pan/tilt inside that URDF's limits (`head_envelope`).
+between FK link origins, the upper arm exempt from the crossbar it stands on). The head has two models:
+
+- the full-range envelope (`head_envelope`, the default): a vertical cylinder about the head mount (`head_mount_joint`
+  x, y) of the given head URDF that contains the head at every pan/tilt inside that URDF's limits;
+- the real head over a pan/tilt region (`HeadRegion`, `head_region_boxes`): the head URDF's collision (else visual)
+  primitives as boxes, posed at pan/tilt samples covering the region and inflated to contain the head between them,
+  as oriented boxes named `head <link>`. `PoseChecker.head_band` (a held head) and `PoseChecker.head_span` (a head
+  move) build the regions; `PoseChecker.check_head_move` checks the standing arm against the head alone.
+
+Each obstacle name is reported once, with its worst clearance.
 
 Distances are signed (negative = penetration). Every obstacle is convex, so the distance along a capsule axis is a
 convex function of the axis parameter: its minimum is found by golden-section search, vectorised over every capsule
@@ -24,6 +32,7 @@ the board rules compare against the board margin plus that bound (`lattice_miss_
 import math
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Self
 
@@ -66,6 +75,9 @@ HEAD_MOUNT_JOINT = "head_mount_joint"
 HEAD_PAN = "head_pan"
 HEAD_TILT = "head_tilt"
 HEAD_SAMPLE_STEP_RAD = math.radians(15.0)
+HEAD_REGION_STEP_RAD = math.radians(5.0)  # largest pan/tilt step between the posed real-head boxes of a region
+HEAD_CLEARANCE_RULE = "head_clearance"
+HEAD_REGION_PREFIX = "head "  # the region boxes of a head link are named f"head {link}"
 RIM_SIDES = 32  # cylinder visuals as circumscribed polygons: their vertices bound the round rim from outside
 GOLDEN_RATIO = (math.sqrt(5.0) - 1.0) / 2.0
 GOLDEN_ITERATIONS = 48  # shrinks the bracket below 1e-10 of the capsule length
@@ -78,6 +90,7 @@ D435_MIN_Z_MARGIN_M = 0.05
 ROBOT_BODY_FILE = Path(__file__).resolve().parents[2] / "arm_collision" / "arm_collision" / "robot_body.yaml"
 
 Vec3 = tuple[float, float, float]
+UNIT_CUBE = np.array([[sx, sy, sz] for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)], dtype=float)
 
 
 class BoxObstacle(StrictModel):
@@ -158,6 +171,7 @@ class PoseCheckConfig(StrictModel):
     board_spacing_m: float = Field(default=0.005, ge=MIN_SPACING_M)  # largest gap of the board lattice, <= margin_m
     d435_min_z_m: float = Field(default=D435_MIN_Z_M, ge=0)
     d435_min_z_margin_m: float = Field(default=D435_MIN_Z_MARGIN_M, ge=0)
+    head_band_deg: float = Field(default=15.0, gt=0.0, le=45.0)  # +- band about a held head (`PoseChecker.head_band`)
 
     @model_validator(mode="after")
     def check_crossbar(self) -> Self:
@@ -247,9 +261,10 @@ def visual_hull_points(urdf_text: str) -> dict[str, np.ndarray]:
 
 
 def head_envelope(head_urdf: str, cfg: PoseCheckConfig) -> CylinderObstacle:
-    """Vertical cylinder about the head pan axis that contains the head at every pan/tilt inside the URDF limits.
+    """Vertical cylinder about the head mount that contains the head at every pan/tilt inside the URDF limits.
 
-    The axis is the x, y of `head_mount_joint` in the given URDF (pass the applied chain), the bottom the crossbar
+    The axis is centred on the x, y of `head_mount_joint` in the given URDF (pass the applied chain), not on the pan
+    axis (a pan origin off the mount is covered by the radius growth below), the bottom the crossbar
     top, the top the mount z plus `head_height_m`, the radius `head_radius_m`; both grow to contain the hull points of
     every head visual (a link without visuals by its origin) at pan and tilt sampled at the URDF limits and every
     15 deg between. The growth adds the largest arc sag between samples, so the head between them is contained too.
@@ -304,17 +319,191 @@ def head_envelope(head_urdf: str, cfg: PoseCheckConfig) -> CylinderObstacle:
     )
 
 
-class ObstacleSet:
-    """Boxes and vertical cylinders as arrays, for signed distances of many points to every obstacle at once."""
+@dataclass(frozen=True)
+class OrientedBox:
+    """Box of any orientation in base_link.
 
-    def __init__(self, boxes: list[BoxObstacle], cylinders: list[CylinderObstacle]) -> None:
+    Attributes:
+        name: Obstacle name.
+        pose: 4x4 pose of the box centre and axes in base_link.
+        half: (3,) half sizes along the box axes (m).
+    """
+
+    name: str
+    pose: np.ndarray
+    half: np.ndarray
+
+
+@dataclass(frozen=True)
+class HeadShape:
+    """One collision (else visual) primitive of a head link as a box.
+
+    Attributes:
+        link: Head URDF link the shape belongs to.
+        local: 4x4 pose of the box centre and axes in the link frame.
+        half: (3,) half sizes (m).
+    """
+
+    link: str
+    local: np.ndarray
+    half: np.ndarray
+
+
+@dataclass(frozen=True)
+class HeadRegion:
+    """A head pan/tilt region: closed ranges (lo, hi) in rad, lo <= hi.
+
+    Attributes:
+        pan_rad: head_pan range (rad).
+        tilt_rad: head_tilt range (rad).
+    """
+
+    pan_rad: tuple[float, float]
+    tilt_rad: tuple[float, float]
+
+    def __post_init__(self) -> None:
+        """Refuse a range with lo above hi.
+
+        Raises:
+            ValueError: A range is reversed.
+        """
+        for label, (lo, hi) in (("pan_rad", self.pan_rad), ("tilt_rad", self.tilt_rad)):
+            if lo > hi:
+                raise ValueError(f"head region {label} lower {lo} is above upper {hi}")
+
+
+def head_shapes(head_urdf: str) -> list[HeadShape]:
+    """The head primitives as boxes: a link's collision elements if it has any, else its visuals.
+
+    A box is itself, a cylinder the box circumscribing it (2r x 2r x length), a sphere the cube 2r; a link without
+    geometry gives nothing.
+
+    Args:
+        head_urdf: Head URDF XML.
+
+    Returns:
+        list[HeadShape]: Shapes in link and element order.
+
+    Raises:
+        ValueError: An element has a mesh or an unknown geometry.
+    """
+    out: list[HeadShape] = []
+    for link in ET.fromstring(head_urdf).findall("link"):
+        name = link.get("name", "")
+        elements = link.findall("collision") or link.findall("visual")
+        for element in elements:
+            origin = element.find("origin")
+            xyz = parse_vec(None if origin is None else origin.get("xyz"), (0.0, 0.0, 0.0))
+            rpy = parse_vec(None if origin is None else origin.get("rpy"), (0.0, 0.0, 0.0))
+            geometry = element.find("geometry")
+            shape = None if geometry is None or len(geometry) == 0 else geometry[0]
+            if shape is not None and shape.tag == "box":
+                half = np.array(parse_vec(shape.get("size"), (0.0, 0.0, 0.0))) / 2.0
+            elif shape is not None and shape.tag == "cylinder":
+                radius = float(shape.get("radius", 0.0))
+                half = np.array([radius, radius, float(shape.get("length", 0.0)) / 2.0])
+            elif shape is not None and shape.tag == "sphere":
+                half = np.full(3, float(shape.get("radius", 0.0)))
+            else:
+                kind = None if shape is None else shape.tag
+                raise ValueError(f"head link {name}: {element.tag} geometry {kind!r} has no box (mesh or unknown)")
+            out.append(HeadShape(link=name, local=pose_from_xyz_rpy(xyz, rpy), half=half))
+    return out
+
+
+def region_samples(lower: float, upper: float) -> np.ndarray:
+    """Samples of a region range: one for a degenerate range, else `limit_samples` at HEAD_REGION_STEP_RAD.
+
+    Args:
+        lower: Range lower end (rad).
+        upper: Range upper end (rad).
+
+    Returns:
+        np.ndarray: The samples (rad).
+    """
+    return np.array([lower]) if upper <= lower else limit_samples(lower, upper, HEAD_REGION_STEP_RAD)
+
+
+def head_region_boxes(head_urdf_chain: UrdfChain, shapes: list[HeadShape], region: HeadRegion) -> list[OrientedBox]:
+    """The head shapes posed over a pan/tilt region, inflated to contain them between the samples.
+
+    Each shape is posed at every pan (tilt) sample of the region (both ends included, no step over
+    HEAD_REGION_STEP_RAD) of the joints it hangs from; a static shape is posed once. A point of a shape at any
+    pan/tilt of the region is within `rho_pan * dpan / 2 + rho_tilt * dtilt / 2` of the same point at the nearest
+    sample (a rotation by theta moves a point at distance r from the axis by at most r * theta), so every box grows
+    by that on each half size. d is the actual sample spacing; rho_pan bounds the distance of the shape's box corners
+    from the head_pan origin over every tilt (the corner distance from the head_tilt origin plus the tilt origin's
+    distance from the pan origin), rho_tilt is the corner distance from the head_tilt origin; zero for a joint the
+    link does not hang from.
+
+    Args:
+        head_urdf_chain: Head URDF chain (the applied one).
+        shapes: Head shapes (`head_shapes`).
+        region: The pan/tilt region.
+
+    Returns:
+        list[OrientedBox]: The boxes, shape by shape, each named f"head {link}".
+    """
+    pans, tilts = region_samples(*region.pan_rad), region_samples(*region.tilt_rad)
+    dpan = float(np.max(np.diff(pans), initial=0.0))
+    dtilt = float(np.max(np.diff(tilts), initial=0.0))
+    pan_child = head_urdf_chain.joints[HEAD_PAN].child
+    tilt_child = head_urdf_chain.joints[HEAD_TILT].child
+    zero = {HEAD_PAN: 0.0, HEAD_TILT: 0.0}
+    pan_origin = head_urdf_chain.transform(pan_child, zero)[:3, 3]
+    tilt_origin = head_urdf_chain.transform(tilt_child, zero)[:3, 3]
+    tilt_lever = float(np.linalg.norm(tilt_origin - pan_origin))
+    out: list[OrientedBox] = []
+    for shape in shapes:
+        joints = set(head_urdf_chain.joint_names(shape.link))
+        at_zero = head_urdf_chain.transform(shape.link, zero) @ shape.local
+        corners = (UNIT_CUBE * shape.half) @ at_zero[:3, :3].T + at_zero[:3, 3]
+        rho_tilt = float(np.linalg.norm(corners - tilt_origin, axis=1).max()) if HEAD_TILT in joints else 0.0
+        if HEAD_PAN not in joints:
+            rho_pan = 0.0
+        elif HEAD_TILT in joints:
+            rho_pan = rho_tilt + tilt_lever
+        else:
+            rho_pan = float(np.linalg.norm(corners - pan_origin, axis=1).max())
+        shape_pans = pans if HEAD_PAN in joints else pans[:1]
+        shape_tilts = tilts if HEAD_TILT in joints else tilts[:1]
+        half = shape.half + (rho_pan * dpan + rho_tilt * dtilt) / 2.0
+        for pan in shape_pans:
+            for tilt in shape_tilts:
+                pose = head_urdf_chain.transform(shape.link, {HEAD_PAN: float(pan), HEAD_TILT: float(tilt)})
+                out.append(OrientedBox(name=f"{HEAD_REGION_PREFIX}{shape.link}", pose=pose @ shape.local, half=half))
+    return out
+
+
+class ObstacleSet:
+    """Boxes, vertical cylinders and oriented boxes as arrays, for signed distances of many points to every obstacle
+    at once."""
+
+    def __init__(
+        self,
+        boxes: list[BoxObstacle],
+        cylinders: list[CylinderObstacle],
+        oriented: list[OrientedBox] | None = None,
+    ) -> None:
         """Stack the obstacle dimensions.
 
         Args:
             boxes: Box obstacles (first in `names`).
             cylinders: Cylinder obstacles (after the boxes).
+            oriented: Oriented boxes (after the cylinders); None for none.
         """
-        self.names = [b.name for b in boxes] + [c.name for c in cylinders]
+        oriented = oriented or []
+        self.names = [b.name for b in boxes] + [c.name for c in cylinders] + [o.name for o in oriented]
+        self.unique_names = list(dict.fromkeys(self.names))
+        index = {name: i for i, name in enumerate(self.unique_names)}
+        group = np.array([index[n] for n in self.names], dtype=int)
+        self.name_order = np.argsort(group, kind="stable")
+        self.name_starts = np.searchsorted(group[self.name_order], np.arange(len(self.unique_names)))
+        self.n_boxes, self.n_cylinders = len(boxes), len(cylinders)
+        self.ori_rotation = np.array([o.pose[:3, :3] for o in oriented], dtype=float).reshape(-1, 3, 3)
+        self.ori_centre = np.array([o.pose[:3, 3] for o in oriented], dtype=float).reshape(-1, 3)
+        self.ori_half = np.array([o.half for o in oriented], dtype=float).reshape(-1, 3)
+        self.ori_radius = np.linalg.norm(self.ori_half, axis=1)  # bounding sphere radius about the centre
         self.box_centre = np.array([b.center for b in boxes], dtype=float).reshape(-1, 3)
         self.box_half = np.array([b.size for b in boxes], dtype=float).reshape(-1, 3) / 2.0
         self.cyl_xy = np.array([(c.x, c.y) for c in cylinders], dtype=float).reshape(-1, 2)
@@ -331,15 +520,80 @@ class ObstacleSet:
         Returns:
             np.ndarray: (..., n_obstacles) distances (m), obstacles in `names` order.
         """
-        p = np.asarray(points, dtype=float)[..., None, :]
-        q = np.abs(p - self.box_centre) - self.box_half
-        box = np.linalg.norm(np.maximum(q, 0.0), axis=-1) + np.minimum(q.max(axis=-1), 0.0)
-        radial = np.linalg.norm(p[..., :2] - self.cyl_xy, axis=-1) - self.cyl_radius
-        vertical = np.abs(p[..., 2] - self.cyl_mid) - self.cyl_half
+        p = np.asarray(points, dtype=float)
+        flat = oriented_distances(p.reshape(-1, 3), self.ori_rotation, self.ori_centre, self.ori_half)
+        oriented = flat.reshape(*p.shape[:-1], len(self.ori_half))
+        return np.concatenate([self.body_distances(p[..., None, :], p[..., None, :]), oriented], axis=-1)
+
+    def paired_distances(self, points: np.ndarray) -> np.ndarray:
+        """Signed distance of the k-th point of the last-but-one axis to the k-th obstacle.
+
+        Args:
+            points: (..., n_obstacles, 3) points in base_link (m), one per obstacle in `names` order.
+
+        Returns:
+            np.ndarray: (..., n_obstacles) distances (m).
+        """
+        p = np.asarray(points, dtype=float)
+        nb, nc = self.n_boxes, self.n_cylinders
+        local = np.einsum("...ni,nij->...nj", p[..., nb + nc :, :] - self.ori_centre, self.ori_rotation)
+        oriented = box_distances(np.abs(local) - self.ori_half)
+        return np.concatenate([self.body_distances(p[..., :nb, :], p[..., nb : nb + nc, :]), oriented], axis=-1)
+
+    def worst_point_clearances(self, points: np.ndarray, cutoff: float) -> np.ndarray:
+        """Smallest signed distance of a point set to each obstacle name, exact below `cutoff`.
+
+        Broad phase for the many oriented boxes: a box whose bounding sphere keeps `cutoff` or more from the bounding
+        sphere of the points gets that sphere gap instead of its exact distance. The gap is a lower bound of the
+        distance and not below `cutoff`, so every value below `cutoff` is the exact smallest distance of its name.
+
+        Args:
+            points: (N, 3) points in base_link (m), N >= 1.
+            cutoff: Distance below which the values must be exact (m).
+
+        Returns:
+            np.ndarray: (n_unique,) distances in `unique_names` order (m).
+        """
+        p = np.asarray(points, dtype=float)
+        centre = p.mean(axis=0)
+        spread = float(np.linalg.norm(p - centre, axis=1).max())
+        gap = np.linalg.norm(self.ori_centre - centre, axis=1) - spread - self.ori_radius
+        near = gap < cutoff
+        oriented = gap.copy()
+        oriented[near] = oriented_distances(p, self.ori_rotation[near], self.ori_centre[near], self.ori_half[near]).min(
+            axis=0
+        )
+        body = self.body_distances(p[:, None, :], p[:, None, :]).min(axis=0)
+        return self.worst_by_name(np.concatenate([body, oriented]))
+
+    def body_distances(self, p_box: np.ndarray, p_cyl: np.ndarray) -> np.ndarray:
+        """Signed distances of points broadcast against the axis-aligned boxes and the cylinders.
+
+        Args:
+            p_box: (..., n_boxes or 1, 3) points for the boxes (m).
+            p_cyl: (..., n_cylinders or 1, 3) points for the cylinders (m).
+
+        Returns:
+            np.ndarray: (..., n_boxes + n_cylinders) distances (m), in `names` order.
+        """
+        box = box_distances(np.abs(p_box - self.box_centre) - self.box_half)
+        radial = np.linalg.norm(p_cyl[..., :2] - self.cyl_xy, axis=-1) - self.cyl_radius
+        vertical = np.abs(p_cyl[..., 2] - self.cyl_mid) - self.cyl_half
         cyl = np.hypot(np.maximum(radial, 0.0), np.maximum(vertical, 0.0)) + np.minimum(
             np.maximum(radial, vertical), 0.0
         )
         return np.concatenate([box, cyl], axis=-1)
+
+    def worst_by_name(self, distances: np.ndarray) -> np.ndarray:
+        """The smallest distance per obstacle name.
+
+        Args:
+            distances: (..., n_obstacles) distances in `names` order (m).
+
+        Returns:
+            np.ndarray: (..., n_unique) distances in `unique_names` order (m).
+        """
+        return np.minimum.reduceat(distances[..., self.name_order], self.name_starts, axis=-1)
 
     def segment_distances(self, a: np.ndarray, b: np.ndarray) -> np.ndarray:
         """Smallest signed distance along each segment a -> b to every obstacle (golden-section over the convex
@@ -355,10 +609,9 @@ class ObstacleSet:
         a = np.asarray(a, dtype=float)[:, None, :]
         d = np.asarray(b, dtype=float)[:, None, :] - a
         count = len(self.names)
-        index = np.arange(count)
 
         def at(t: np.ndarray) -> np.ndarray:
-            return self.distances(a + d * t[..., None])[:, index, index]
+            return self.paired_distances(a + d * t[..., None])
 
         lo, hi = np.zeros((a.shape[0], count)), np.ones((a.shape[0], count))
         x1, x2 = hi - GOLDEN_RATIO * (hi - lo), lo + GOLDEN_RATIO * (hi - lo)
@@ -374,6 +627,39 @@ class ObstacleSet:
             x1, x2 = x1_new, x2_new
         ends = np.minimum(at(np.zeros_like(lo)), at(np.ones_like(lo)))
         return np.minimum(np.minimum(f1, f2), ends)
+
+
+def oriented_distances(points: np.ndarray, rotation: np.ndarray, centre: np.ndarray, half: np.ndarray) -> np.ndarray:
+    """Exact signed distance of every point to every oriented box (negative inside).
+
+    The local point of box k is `(p - t_k) @ R_k`; each local axis is one matrix product over every point and box,
+    and the box formula runs on (N, n) slabs per axis (no reduction over a length-3 axis).
+
+    Args:
+        points: (N, 3) points in base_link (m).
+        rotation: (n, 3, 3) box axes (columns) in base_link.
+        centre: (n, 3) box centres in base_link (m).
+        half: (n, 3) box half sizes (m).
+
+    Returns:
+        np.ndarray: (N, n) distances (m).
+    """
+    offset = np.einsum("ni,nij->nj", centre, rotation)  # t_k @ R_k
+    q = [np.abs(points @ rotation[:, :, j].T - offset[:, j]) - half[:, j] for j in range(3)]
+    outside = np.sqrt(sum(np.square(np.maximum(qj, 0.0)) for qj in q))
+    return outside + np.minimum(np.maximum(np.maximum(q[0], q[1]), q[2]), 0.0)
+
+
+def box_distances(q: np.ndarray) -> np.ndarray:
+    """Signed box distance from the per-axis excess q = |local point| - half (exact, negative inside).
+
+    Args:
+        q: (..., 3) per-axis excess (m).
+
+    Returns:
+        np.ndarray: (...) distances (m).
+    """
+    return np.linalg.norm(np.maximum(q, 0.0), axis=-1) + np.minimum(q.max(axis=-1), 0.0)
 
 
 def point_segment_distances(points: np.ndarray, a: np.ndarray, b: np.ndarray) -> np.ndarray:
@@ -486,8 +772,12 @@ class PoseChecker:
         self.board_margin_m = cfg.margin_m if board_margin_m is None else board_margin_m
         self.board_threshold_m = self.board_margin_m + lattice_miss_bound(cfg.board_spacing_m)
         self.base = arm_in_robot_base(fit.base_in_base_link.model_dump())
+        self.head_urdf = head_urdf
         self.envelope = head_envelope(head_urdf, cfg)
         self.obstacles = ObstacleSet(list(cfg.body.boxes), [*cfg.body.cylinders, self.envelope])
+        self.envelope_only = ObstacleSet([], [self.envelope])
+        self.shapes: list[HeadShape] | None = None  # the head shapes, parsed on the first region
+        self.region_cache: dict[HeadRegion, tuple[ObstacleSet, ObstacleSet]] = {}
         self.board_local = np.vstack(
             [board_points_local(fit, cfg.board_spacing_m), handle_box_points_local(fit, cfg.board_spacing_m)]
         )
@@ -515,16 +805,180 @@ class PoseChecker:
         gripper = self.link_poses(joints)[BOARD_LINK]
         return self.board_local @ gripper[:3, :3].T + gripper[:3, 3]
 
-    def check_pose(self, joints: dict[str, float], gripper_rad: float, rolling: bool) -> list[str]:
+    def region_sets(self, region: HeadRegion) -> tuple[ObstacleSet, ObstacleSet]:
+        """The obstacle sets of a head region, cached per region.
+
+        Args:
+            region: The head pan/tilt region.
+
+        Returns:
+            tuple[ObstacleSet, ObstacleSet]: The body (boxes, cylinders incl. its static head cylinder) plus the
+                region's head boxes, and the region's head boxes alone.
+
+        Raises:
+            ValueError: A head shape has a mesh or an unknown geometry.
+        """
+        if region not in self.region_cache:
+            if self.shapes is None:
+                self.shapes = head_shapes(self.head_urdf)
+            boxes = head_region_boxes(self.head, self.shapes, region)
+            body = self.cfg.body
+            self.region_cache[region] = (
+                ObstacleSet(list(body.boxes), list(body.cylinders), boxes),
+                ObstacleSet([], [], boxes),
+            )
+        return self.region_cache[region]
+
+    def region_obstacles(self, region: HeadRegion | None) -> ObstacleSet:
+        """The obstacles of check_pose: body and envelope (None) or body and the region's head boxes.
+
+        Args:
+            region: The head region, or None for the full-range envelope.
+
+        Returns:
+            ObstacleSet: The obstacles (cached per region).
+        """
+        return self.obstacles if region is None else self.region_sets(region)[0]
+
+    def head_region_range(self, joint: str, lower: float, upper: float) -> tuple[float, float]:
+        """A head joint range widened by +-`head_band_deg`, the widening clipped to the head URDF limits.
+
+        Only the band extension is clipped: the returned range always contains [lower, upper], even when that
+        lies past a URDF limit (servo overshoot, calibration offset).
+
+        Args:
+            joint: head_pan or head_tilt.
+            lower: Range lower end (rad).
+            upper: Range upper end (rad).
+
+        Returns:
+            tuple[float, float]: The (lo, hi) range (rad).
+        """
+        band = math.radians(self.cfg.head_band_deg)
+        lo, hi = lower - band, upper + band
+        limits = self.head.limits(joint)
+        if limits is not None:
+            lo, hi = max(lo, min(limits[0], lower)), min(hi, max(limits[1], upper))
+        return (lo, hi)
+
+    def head_band(self, pan_rad: float, tilt_rad: float) -> HeadRegion:
+        """The region of a held head: +-`head_band_deg` about its pan/tilt, the band clipped to the head URDF limits
+        (the region always contains the given pan/tilt, even past a limit).
+
+        Args:
+            pan_rad: Held head_pan (rad).
+            tilt_rad: Held head_tilt (rad).
+
+        Returns:
+            HeadRegion: The band.
+        """
+        return HeadRegion(
+            pan_rad=self.head_region_range(HEAD_PAN, pan_rad, pan_rad),
+            tilt_rad=self.head_region_range(HEAD_TILT, tilt_rad, tilt_rad),
+        )
+
+    def head_span(self, start: tuple[float, float], target: tuple[float, float]) -> HeadRegion:
+        """The region of a head move: the (pan, tilt) rectangle spanned by start and target, +-`head_band_deg`,
+        the band clipped to the head URDF limits (the joints may move independently). The region always contains
+        both endpoints, even past a limit.
+
+        Args:
+            start: (pan, tilt) before the move (rad).
+            target: (pan, tilt) after the move (rad).
+
+        Returns:
+            HeadRegion: The span.
+        """
+        (p0, t0), (p1, t1) = start, target
+        return HeadRegion(
+            pan_rad=self.head_region_range(HEAD_PAN, min(p0, p1), max(p0, p1)),
+            tilt_rad=self.head_region_range(HEAD_TILT, min(t0, t1), max(t0, t1)),
+        )
+
+    def clearance_entries(
+        self,
+        poses: dict[str, np.ndarray],
+        board: np.ndarray,
+        obstacles: ObstacleSet,
+        board_rule: str,
+        link_rule: str,
+    ) -> list[str]:
+        """Board lattice and link capsule clearances to the obstacles, one entry per part and obstacle name (worst).
+
+        Args:
+            poses: Link poses (`link_poses`).
+            board: (N, 3) board points in base_link (m).
+            obstacles: The obstacles.
+            board_rule: Rule of the board entries.
+            link_rule: Rule of the capsule entries.
+
+        Returns:
+            list[str]: Board entries, then capsule entries (the upper arm never against the crossbar).
+        """
+        cfg = self.cfg
+        entries = []
+        margin = f"margin_m {mm(cfg.margin_m)}"
+        miss = mm(self.board_threshold_m - self.board_margin_m)
+        board_margin = f"board_margin_m {mm(self.board_margin_m)} + lattice miss bound {miss}"
+        names = obstacles.unique_names
+        board_clear = obstacles.worst_point_clearances(board, self.board_threshold_m)
+        for name, clearance in zip(names, board_clear, strict=True):
+            if clearance < self.board_threshold_m:
+                entries.append(f"{board_rule}: board to {name} clearance {mm(clearance)} < {board_margin}")
+        starts = np.array([poses[start][:3, 3] for _, start, _ in CAPSULES])
+        ends = np.array([poses[end][:3, 3] for _, _, end in CAPSULES])
+        link_clear = obstacles.worst_by_name(obstacles.segment_distances(starts, ends)) - cfg.link_radius_m
+        for (part, _, _), row in zip(CAPSULES, link_clear, strict=True):
+            for name, clearance in zip(names, row, strict=True):
+                if part == UPPER_ARM and name == CROSSBAR:
+                    continue
+                if clearance < cfg.margin_m:
+                    entries.append(f"{link_rule}: {part} to {name} clearance {mm(clearance)} < {margin}")
+        return entries
+
+    def check_head_move(self, joints: Mapping[str, float], gripper_rad: float, head: HeadRegion | None) -> list[str]:
+        """Check the arm standing at `joints` against the head alone, the head anywhere in a region (a head move).
+
+        Link capsules keep `margin_m`, the board lattice the board threshold, from the region's head boxes (or the
+        full-range envelope when `head` is None); the body is not checked here.
+
+        Args:
+            joints: Measured angle (rad) of every arm joint (other keys are ignored).
+            gripper_rad: Gripper angle (rad) held, as in `check_pose`; the checked links and the board are on the
+                gripper_link side and do not move with it.
+            head: The head region the head moves through, or None for the full-range envelope.
+
+        Returns:
+            list[str]: Violations, each f"{HEAD_CLEARANCE_RULE}: <part or board> to <head obstacle> clearance ...";
+                empty when the head can move there.
+
+        Raises:
+            ValueError: An arm joint is missing.
+        """
+        missing = [name for name in ARM_JOINT_NAMES if name not in joints]
+        if missing:
+            raise ValueError(f"pose is missing arm joints: {', '.join(missing)}")
+        obstacles = self.envelope_only if head is None else self.region_sets(head)[1]
+        poses = self.link_poses(joints)
+        gripper = poses[BOARD_LINK]
+        board = self.board_local @ gripper[:3, :3].T + gripper[:3, 3]
+        return self.clearance_entries(poses, board, obstacles, HEAD_CLEARANCE_RULE, HEAD_CLEARANCE_RULE)
+
+    def check_pose(
+        self, joints: dict[str, float], gripper_rad: float, rolling: bool, head: HeadRegion | None = None
+    ) -> list[str]:
         """Check one arm pose with the board on the gripper.
 
         Args:
             joints: Measured angle (rad) of every arm joint (other keys are ignored).
             gripper_rad: Gripper angle (rad) held during the move.
             rolling: True when wrist_roll changes on this move.
+            head: The region the head stays in (the real head shapes over it, no envelope), or None for the
+                full-range envelope.
 
         Returns:
-            list[str]: Violations, each "<rule>: <part> ... <clearance>"; empty when the pose is safe.
+            list[str]: Violations, each "<rule>: <part> ... <clearance>", one per part and obstacle name (the
+                worst); empty when the pose is safe.
 
         Raises:
             ValueError: An arm joint is missing.
@@ -560,25 +1014,15 @@ class PoseChecker:
         board_z = float(board[:, 2].min())
         if board_z < cfg.min_board_height_m:
             entries.append(f"min_board_height_m: board point height {mm(board_z)} < {mm(cfg.min_board_height_m)}")
-        margin = f"margin_m {mm(cfg.margin_m)}"
         miss = mm(self.board_threshold_m - self.board_margin_m)
         board_margin = f"board_margin_m {mm(self.board_margin_m)} + lattice miss bound {miss}"
-        for name, clearance in zip(self.obstacles.names, self.obstacles.distances(board).min(axis=0), strict=True):
-            if clearance < self.board_threshold_m:
-                entries.append(f"board_clearance: board to {name} clearance {mm(clearance)} < {board_margin}")
-        starts = np.array([poses[start][:3, 3] for _, start, _ in CAPSULES])
-        ends = np.array([poses[end][:3, 3] for _, _, end in CAPSULES])
-        link_clear = self.obstacles.segment_distances(starts, ends) - cfg.link_radius_m
-        for (part, _, _), row in zip(CAPSULES, link_clear, strict=True):
-            for name, clearance in zip(self.obstacles.names, row, strict=True):
-                if part == UPPER_ARM and name == CROSSBAR:
-                    continue
-                if clearance < cfg.margin_m:
-                    entries.append(f"link_clearance: {part} to {name} clearance {mm(clearance)} < {margin}")
-        for (part, _, _), start, end in zip(CAPSULES, starts, ends, strict=True):
+        obstacles = self.region_obstacles(head)
+        entries += self.clearance_entries(poses, board, obstacles, "board_clearance", "link_clearance")
+        for part, start, end in CAPSULES:
             if part not in BOARD_LINK_PARTS:
                 continue
-            clearance = float(point_segment_distances(board, start, end).min()) - cfg.link_radius_m
+            a, b = poses[start][:3, 3], poses[end][:3, 3]
+            clearance = float(point_segment_distances(board, a, b).min()) - cfg.link_radius_m
             if clearance < self.board_threshold_m:
                 entries.append(f"board_link_clearance: board to {part} clearance {mm(clearance)} < {board_margin}")
         return entries
@@ -664,13 +1108,20 @@ class PoseChecker:
                 )
         return entries
 
-    def check_path(self, start: dict[str, float], target: dict[str, float], gripper_rad: float) -> list[str]:
+    def check_path(
+        self,
+        start: dict[str, float],
+        target: dict[str, float],
+        gripper_rad: float,
+        head: HeadRegion | None = None,
+    ) -> list[str]:
         """Check the joint-linear path start -> target, sampled with no joint step over `path_step_rad`.
 
         Args:
             start: Measured start angles (rad) of every arm joint (other keys are ignored).
             target: Target angles (rad) of every arm joint (other keys are ignored).
             gripper_rad: Gripper angle (rad) held during the move.
+            head: The region the head stays in during the move, or None for the full-range envelope (`check_pose`).
 
         Returns:
             list[str]: Every violation of every sample, each ending "at path fraction <f>"; empty when safe.
@@ -689,5 +1140,7 @@ class PoseChecker:
         for i in range(count + 1):
             fraction = i / count
             sample = {name: start[name] + delta[name] * fraction for name in ARM_JOINT_NAMES}
-            entries += [f"{e} {PATH_FRACTION} {fraction:.3f}" for e in self.check_pose(sample, gripper_rad, rolling)]
+            entries += [
+                f"{e} {PATH_FRACTION} {fraction:.3f}" for e in self.check_pose(sample, gripper_rad, rolling, head)
+            ]
         return entries

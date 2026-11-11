@@ -22,7 +22,7 @@ from typing import Any
 import numpy as np
 import pytest
 import yaml
-from ros2_common.head_rgbd_calibration.arm_pose_check import PoseChecker
+from ros2_common.head_rgbd_calibration.arm_pose_check import HEAD_CLEARANCE_RULE, HeadRegion, PoseChecker
 from ros2_common.head_rgbd_calibration.chain import UrdfChain, arm_in_robot_base, pose_from_xyz_rpy
 from ros2_common.head_rgbd_calibration.charuco import board_corners_3d
 from ros2_common.head_rgbd_calibration.config import ARM_JOINT_NAMES
@@ -103,7 +103,7 @@ EVENT_KEYS = {"time", "phase", "level", "message"}
 SEQUENCER_LOGGER = "head_rgbd_calibration.sequencer"
 BIG_JOINTS = ["elbow_flex", "shoulder_lift", "shoulder_pan"]
 RADIUS_KEY = "carried_object_radius_m"
-WAIT_S = 20.0
+WAIT_S = 60.0  # wall-clock budget of a rig wait: the full 33-pose run builds real-head regions (~1 s per pose)
 GRIPPER = "gripper"
 ADMIN_PARK_BOARD = "/admin/park_calibration_board"
 BOARD_PARK_TOKEN = "board-park-token"
@@ -122,6 +122,10 @@ WIDE_K = np.array([[100.0, 0.0, 320.0], [0.0, 100.0, 180.0], [0.0, 0.0, 1.0]])  
 D435_FOCAL_PX = 320.0 / math.tan(math.radians(69.0 / 2))  # nominal D435 colour, 69 deg across 640 px
 D435_K = np.array([[D435_FOCAL_PX, 0.0, 320.0], [0.0, D435_FOCAL_PX, 180.0], [0.0, 0.0, 1.0]])
 IMAGE_SIZE = (640, 360)
+LIVE_HEAD_URDF = (
+    Path(__file__).resolve().parent / "fixtures" / "head_2026-11-11.urdf"
+).read_text()  # live applied head
+HEAD_REFUSAL = "head_clearance: forearm to head clearance -1.0 mm < margin_m 5.0 mm"  # a stubbed head-move refusal
 
 
 def camera_info(k: np.ndarray) -> CameraInfoData:
@@ -153,6 +157,8 @@ class FakeRobot:
         errors: Tool name -> 1-based call number answered with a tool error.
         move_status: 1-based move_arm_joints call number -> status other than converged.
         head_status: 1-based set_head_angles call number -> status other than converged.
+        head_offset_deg: (pan, tilt) deg added to the commanded head angles in the measured ones set_head_angles
+            reports (the head settles off the command).
         measured: Overrides the measured positions get_arm_state reports (None: the commanded ones).
         carrying: Reasons get_control_state reports in arm.carrying (empty: not carrying).
         reset_arm: reset.arm of a home release.
@@ -168,6 +174,7 @@ class FakeRobot:
         self.errors: dict[str, int] = {}
         self.move_status: dict[int, str] = {}
         self.head_status: dict[int, str] = {}
+        self.head_offset_deg: tuple[float, float] = (0.0, 0.0)
         self.measured: dict[str, float] | None = None
         self.carrying: list[str] = []
         self.reset_arm = "homed"
@@ -208,7 +215,11 @@ class FakeRobot:
         if name == "set_head_angles":
             status = self.head_status.get(number, "converged")
             angles = {"pan_deg": args["pan_deg"], "tilt_deg": args["tilt_deg"]}
-            return RawToolResult(False, "ok", {"status": status, "commanded": angles, "measured": angles})
+            measured = {
+                "pan_deg": args["pan_deg"] + self.head_offset_deg[0],
+                "tilt_deg": args["tilt_deg"] + self.head_offset_deg[1],
+            }
+            return RawToolResult(False, "ok", {"status": status, "commanded": angles, "measured": measured})
         if name == "release_control":
             keep = args["keep_position"]
             reset = {"arm": "kept", "head": "kept"} if keep else {"arm": self.reset_arm, "head": "homed"}
@@ -1742,6 +1753,232 @@ def test_resume_from_idle_path_check_refusal_moves_nothing(tmp_path: Path) -> No
     assert (state["phase"], state["board_on"]) == (HOLDING, True)  # the user stated the board is gripped
     assert "base pose (board on)" in state["error"] and "joint_limits" in state["error"]
     assert_held_not_homed(rig)
+
+
+def spy_check_path(monkeypatch: pytest.MonkeyPatch, rig: Rig) -> None:
+    """Record every PoseChecker.check_path call of the rig (target and head region) in rig.log, in call order.
+
+    Args:
+        monkeypatch (pytest.MonkeyPatch): Patches PoseChecker.check_path for the test.
+        rig (Rig): The rig whose log receives ("check", "check_path", {"target", "head"}) entries.
+    """
+    original = PoseChecker.check_path
+
+    def spy(
+        self: PoseChecker,
+        start: dict[str, float],
+        target: dict[str, float],
+        gripper_rad: float,
+        head: HeadRegion | None = None,
+    ) -> list[str]:
+        rig.log.append(("check", "check_path", {"target": dict(target), "head": head}))
+        return original(self, start, target, gripper_rad, head=head)
+
+    monkeypatch.setattr(PoseChecker, "check_path", spy)
+
+
+def path_heads(rig: Rig, since: int = 0) -> list[tuple[HeadRegion | None, tuple[float, float] | None]]:
+    """The head region of every check_path after log entry `since`, with the last converged head command before it.
+
+    Args:
+        rig (Rig): The rig (spy_check_path installed).
+        since (int): Log index to start from (a later run's checks).
+
+    Returns:
+        list[tuple[HeadRegion | None, tuple[float, float] | None]]: (head passed to check_path, (pan, tilt) deg of the
+            set_head_angles answered just before it in this window, None when none was).
+    """
+    out: list[tuple[HeadRegion | None, tuple[float, float] | None]] = []
+    last: tuple[float, float] | None = None
+    for source, name, args in rig.log[since:]:
+        if (source, name) == ("robot", "set_head_angles"):
+            last = (args["pan_deg"], args["tilt_deg"])
+        elif (source, name) == ("check", "check_path"):
+            out.append((args["head"], last))
+    return out
+
+
+def rig_checker(rig: Rig) -> PoseChecker:
+    """A pose checker on the rig's arm and head URDFs (its head_band is the sequencer's)."""
+    return PoseChecker(ARM_URDF, rig.head_urdf, rig.cfg.fit, rig.cfg.arm_sequence.pose_check)
+
+
+def band_deg(checker: PoseChecker, pan_tilt_deg: tuple[float, float]) -> HeadRegion:
+    """head_band about a (pan, tilt) in degrees."""
+    return checker.head_band(math.radians(pan_tilt_deg[0]), math.radians(pan_tilt_deg[1]))
+
+
+def test_first_moves_use_the_envelope_then_the_held_head_band(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    rig = Rig(tmp_path, small_cfg())
+    spy_check_path(monkeypatch, rig)
+    state = rig.run_to_holding()
+    assert state["error"] is None
+    heads = path_heads(rig)
+    # base move, handle grip, tier 0 pose 0: the head is not held yet, so the full-range envelope
+    assert [head for head, _ in heads[:3]] == [None, None, None]
+    assert all(last is None for _, last in heads[:3])
+    checker = rig_checker(rig)
+    # every later move (tier poses and the return): the band about the last converged head command
+    assert len(heads) == 3 + len(tier_poses(rig.cfg))
+    for head, last in heads[3:]:
+        assert last is not None
+        assert head == band_deg(checker, last)
+
+
+def test_held_head_band_follows_the_measured_head_angles(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    offset = (3.0, -2.0)  # deg: the head converges a few degrees off the command
+    rig = Rig(tmp_path, small_cfg())
+    rig.robot.head_offset_deg = offset
+    spy_check_path(monkeypatch, rig)
+    state = rig.run_to_holding()
+    assert state["error"] is None
+    heads = path_heads(rig)
+    checker = rig_checker(rig)
+    assert len(heads) == 3 + len(tier_poses(rig.cfg))
+    for head, last in heads[3:]:
+        assert last is not None
+        measured = (last[0] + offset[0], last[1] + offset[1])
+        assert head == band_deg(checker, measured)  # the band about where the head is, not where it was sent
+        assert head != band_deg(checker, last)
+
+
+def test_resume_starts_with_the_envelope(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    rig = Rig(tmp_path, small_cfg())
+    spy_check_path(monkeypatch, rig)
+    rig.run_to_holding()
+    assert rig.seq.held_head is not None  # the previous run ended with the head held
+    since = len(rig.log)
+    rig.seq.resume_with_board(confirmed=True)
+    rig.wait_phase(WAITING_BIG_JOINTS)
+    rig.seq.allow_big_joints(True)
+    state = rig.finish()
+    assert state["error"] is None
+    heads = path_heads(rig, since)
+    assert [head for head, _ in heads[:2]] == [None, None]  # resume base move, tier 0 pose 0
+    checker = rig_checker(rig)
+    assert heads[2][1] is not None and heads[2][0] == band_deg(checker, heads[2][1])
+
+
+def test_unconverged_head_move_drops_the_band(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = small_cfg()
+    offsets = len(cfg.arm_sequence.head_offsets_deg)
+    rig = Rig(tmp_path, cfg)
+    rig.robot.head_status[offsets] = "timeout"  # the last view of tier 0 pose 0
+    spy_check_path(monkeypatch, rig)
+    state = rig.run_to_holding()
+    assert any("timeout" in reason for reason in state["skipped"])
+    heads = path_heads(rig)
+    assert heads[3][0] is None  # tier 0 pose 1: the head did not converge, so it is not held
+    checker = rig_checker(rig)
+    assert heads[4][1] is not None and heads[4][0] == band_deg(checker, heads[4][1])  # tier 1 pose 0: held again
+
+
+def test_view_whose_head_move_hits_the_arm_is_skipped_and_not_commanded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cfg = small_cfg()
+    offsets = len(cfg.arm_sequence.head_offsets_deg)
+    rig = Rig(tmp_path, cfg)
+    original = PoseChecker.check_head_move
+    refused: list[HeadRegion | None] = []
+
+    def stub(self: PoseChecker, joints: dict[str, float], gripper_rad: float, head: HeadRegion | None) -> list[str]:
+        # the views' plan never checks the envelope: the first envelope check is the first head move of the run
+        if head is None and not refused:
+            refused.append(head)
+            return [HEAD_REFUSAL]
+        return original(self, joints, gripper_rad, head)
+
+    monkeypatch.setattr(PoseChecker, "check_head_move", stub)
+    state = rig.run_to_holding()
+    assert refused == [None]
+    assert state["error"] is None
+    assert state["skipped"] == {HEAD_CLEARANCE_RULE: 1}
+    total = offsets * len(tier_poses(cfg))
+    assert rig.robot.count("set_head_angles") == total - 1
+    assert (0, 0, 0) not in rig.capture.stills  # tier 0 arm pose 0 head offset 0: skipped, never commanded
+    assert len(rig.capture.stills) == total - 1
+
+
+def test_plan_views_skip_reason_head_clearance(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = small_cfg()
+    seq_cfg = cfg.arm_sequence
+    refused_pose = seq_cfg.tier0_poses[1]
+    rig = Rig(tmp_path, cfg)
+    original = PoseChecker.check_head_move
+
+    def stub(self: PoseChecker, joints: dict[str, float], gripper_rad: float, head: HeadRegion | None) -> list[str]:
+        if all(joints[name] == refused_pose[name] for name in ARM_JOINT_NAMES):
+            return [HEAD_REFUSAL]
+        return original(self, joints, gripper_rad, head)
+
+    monkeypatch.setattr(PoseChecker, "check_head_move", stub)
+    state = rig.run_to_holding()
+    assert state["error"] is None
+    assert state["skipped"] == {HEAD_CLEARANCE_RULE: len(seq_cfg.head_offsets_deg)}
+    assert refused_pose not in [m["targets"] for m in rig.robot.named("move_arm_joints")]
+    assert any(
+        "tier 0 pose 1" in message and "not visited" in message and HEAD_CLEARANCE_RULE in message
+        for message in event_messages(state)
+    )
+
+
+def test_plan_views_limits_rule_precedes_head_clearance(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An aim outside the head limits is skipped with the limits reason and never reaches check_head_move."""
+    out_of_limits_deg = 400.0
+    cfg = small_cfg(head_offsets_deg=[(0.0, 0.0), (out_of_limits_deg, 0.0)])
+    rig = Rig(tmp_path, cfg)
+    checked_pans_deg: list[float] = []
+    original = PoseChecker.check_head_move
+
+    def spy(self: PoseChecker, joints: dict[str, float], gripper_rad: float, head: HeadRegion | None) -> list[str]:
+        if head is not None:
+            checked_pans_deg.append(math.degrees(head.pan_rad[1]))
+        return original(self, joints, gripper_rad, head)
+
+    monkeypatch.setattr(PoseChecker, "check_head_move", spy)
+    state = rig.run_to_holding()
+    assert state["error"] is None
+    limit_skips = {reason: n for reason, n in state["skipped"].items() if "outside the URDF head limits" in reason}
+    assert sum(limit_skips.values()) == len(tier_poses(cfg))
+    assert HEAD_CLEARANCE_RULE not in state["skipped"]
+    assert checked_pans_deg
+    assert all(abs(pan) < out_of_limits_deg / 2 for pan in checked_pans_deg)
+
+
+def test_live_head_tier2_transit_passes_with_the_band(tmp_path: Path) -> None:
+    # main refused tier 1 pose 8 -> tier 2 pose 0 on the live head (upper arm to the full-range envelope)
+    seq_cfg = NodeConfig().arm_sequence
+    cfg = small_cfg(tier1_poses=seq_cfg.tier1_poses, tier2_poses=seq_cfg.tier2_poses[:1])
+    rig = Rig(tmp_path, cfg)
+    rig.head_urdf = LIVE_HEAD_URDF
+    state = rig.run_to_holding(allow=True)
+    assert "tier 2 pose 0" not in (state["error"] or "")
+    assert state["error"] is None
+    assert seq_cfg.tier2_poses[0] in [m["targets"] for m in rig.robot.named("move_arm_joints")]
+    assert 2 in {tier for _, tier, _ in rig.capture.stills}
+
+
+def test_board_home_keeps_the_envelope(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, small_cfg())
+    rig.head_urdf = LIVE_HEAD_URDF
+    seq_cfg = rig.cfg.arm_sequence
+    start = {**seq_cfg.tier2_poses[1], GRIPPER: seq_cfg.grip_rad}
+    rig.robot.measured = start
+    pan, tilt = expected_aim(rig.cfg, seq_cfg.tier2_poses[1], LIVE_HEAD_URDF)
+    rig.seq.held_head = (math.radians(pan), math.radians(tilt))
+    with pytest.raises(SequenceError, match="Home refused by the path check") as refused:
+        rig.seq.home(confirmed=True, board_on=True)
+    assert "to head clearance" in str(refused.value)  # the full-range envelope
+    assert rig.robot.count("move_arm_joints") == 0
+    # the band about the held head would have passed (the Home check's sag margins, as check_board_home_path)
+    sag = seq_cfg.park_board_sag_margin_m
+    pose_check = seq_cfg.pose_check.model_copy(
+        update={"min_board_height_m": seq_cfg.pose_check.min_board_height_m + sag}
+    )
+    checker = PoseChecker(ARM_URDF, LIVE_HEAD_URDF, rig.cfg.fit, pose_check, seq_cfg.board_margin_m(True) + sag)
+    band = checker.head_band(*rig.seq.held_head)
+    assert checker.check_path(start, HOME_POSE, seq_cfg.grip_rad, head=band) == []
 
 
 # grip record: the confirmed grip becomes the active handle contact
