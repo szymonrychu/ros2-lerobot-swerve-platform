@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -110,9 +110,15 @@ export function ServoCalibrationCard({
       setBusy(false)
     }
   }
-  // A new plan (other run_id) makes the previous store outcome stale.
+  // A new plan (other non-null run_id) makes the previous store outcome stale. The bridge drops the plan right
+  // after a store, so the plan going null must keep the outcome note.
   const shownRunId = plan?.run_id ?? null
-  useEffect(() => setOutcome(null), [shownRunId])
+  const lastRunId = useRef<string | null>(null)
+  useEffect(() => {
+    if (shownRunId === null) return
+    if (lastRunId.current !== null && lastRunId.current !== shownRunId) setOutcome(null)
+    lastRunId.current = shownRunId
+  }, [shownRunId])
   const store = () => {
     if (plan === null) return
     if (plan.needs_confirm) setConfirmRunId(plan.run_id)

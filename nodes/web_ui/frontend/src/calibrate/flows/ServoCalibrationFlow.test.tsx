@@ -53,6 +53,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   vi.useRealTimers()
+  vi.doUnmock('./ServoHomeFlow')
   vi.unstubAllGlobals()
 })
 
@@ -83,21 +84,28 @@ describe('ServoCalibrationFlow', () => {
   it('polls faster while a capture runs', async () => {
     groups = [group('head')]
     vi.useFakeTimers({ shouldAdvanceTime: true })
-    render(<ServoCalibrationFlow />)
+    // The mounted ServoHomeFlow has its own 1 s poll; stub it so fetchCount counts only the flow's poll.
+    vi.resetModules()
+    vi.doMock('./ServoHomeFlow', () => ({ ServoHomeFlow: () => null }))
+    const { ServoCalibrationFlow: StubbedFlow } = await import('./ServoCalibrationFlow')
+    render(<StubbedFlow />)
     await screen.findByRole('heading', { name: 'Head', level: 3 })
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(3000)
-    })
-    const slow = fetchCount
-    expect(slow).toBeLessThanOrEqual(8)
+    const window = async (ms: number): Promise<number> => {
+      const start = fetchCount
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(ms)
+      })
+      return fetchCount - start
+    }
+    // Slow: one poll per SERVO_POLL_MS (1000 ms), so about 4 in 4 s.
+    const slow = await window(4000)
+    expect(slow).toBeGreaterThanOrEqual(3)
+    expect(slow).toBeLessThanOrEqual(5)
     groups = [group('head', {}, true)]
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1100)
-    })
-    const before = fetchCount
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1000)
-    })
-    expect(fetchCount - before).toBeGreaterThanOrEqual(3)
+    await window(1100)
+    // Fast: one poll per CAPTURE_POLL_MS (250 ms), so about 16 in 4 s.
+    const fast = await window(4000)
+    expect(fast).toBeGreaterThanOrEqual(13)
+    expect(fast).toBeLessThanOrEqual(19)
   })
 })

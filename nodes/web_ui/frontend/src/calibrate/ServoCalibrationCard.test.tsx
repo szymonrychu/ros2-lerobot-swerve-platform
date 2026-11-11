@@ -120,6 +120,18 @@ describe('ServoCalibrationCard', () => {
     await waitFor(() => expect(screen.queryByText('stored')).toBeNull())
   })
 
+  it('the store outcome stays when the bridge drops the plan after a store, and a later new plan clears it', async () => {
+    const onAction = ok()
+    const view = render(<ServoCalibrationCard group={group({ home: true, plan: plan() })} onAction={onAction} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Store' }))
+    expect(await screen.findByText('stored')).toBeTruthy()
+    view.rerender(<ServoCalibrationCard group={group({ home: true, plan: null })} onAction={onAction} />)
+    await new Promise((r) => setTimeout(r, 50))
+    expect(screen.getByText('stored')).toBeTruthy()
+    view.rerender(<ServoCalibrationCard group={group({ home: true, plan: plan({ run_id: 'p2' }) })} onAction={onAction} />)
+    await waitFor(() => expect(screen.queryByText('stored')).toBeNull())
+  })
+
   it('re-enable torque is visible while released and calls enable', async () => {
     const onAction = ok()
     render(<ServoCalibrationCard group={group()} onAction={onAction} />)
