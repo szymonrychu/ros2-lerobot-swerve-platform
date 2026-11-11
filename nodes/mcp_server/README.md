@@ -109,7 +109,7 @@ Arm tab Home, the Calibrate page General Home arm (`/api/calibration/general/hom
   covers the board in the jaws with no lease held and a relaxed grip (the `holding` phase after a run, a failed park, a
   node restart): "arm home refused: the calibration board is on the gripper by the board record <path> (session <id>,
   attached at <time>) - the home route is not checked with it. Board still on: park it from the Calibrate page Arm to
-  camera flow (Park arm, or Park (board is on the gripper)). Board already off: clear the record on the Calibrate page
+  camera flow (Home, or Home (board is on the gripper)). Board already off: clear the record on the Calibrate page
   (The board is already off the gripper: clear the record)". The clear is head_rgbd_calibration's
   `POST /api/arm-camera/board-record/clear` (no motion; it logs a `board_record_clear` calib_event), so a board taken
   off by hand without a park does not block Home for good;

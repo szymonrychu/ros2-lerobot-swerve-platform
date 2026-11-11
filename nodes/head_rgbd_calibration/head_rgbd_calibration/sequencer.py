@@ -550,7 +550,8 @@ class Sequencer:
         """The user states the calibration board is already off the gripper: remove the board record, move nothing.
 
         Refused while a sequence or a Home runs (its worker may still write the record). A holding phase (the
-        sequence ended with the board on) returns to idle: the board is off, so Home and Home arm need no board path.
+        sequence ended with the board on) returns to idle: the board is off, so the flow's Home and the arm Home
+        (`/arm/home`) need no board path.
 
         Args:
             confirmed (bool): The user confirmed the board is off the gripper.
