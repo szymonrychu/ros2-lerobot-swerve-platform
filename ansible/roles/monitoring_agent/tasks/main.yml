@@ -237,3 +237,11 @@
   when:
     - not (monitoring_agent_enabled | bool and monitoring_agent_dds_watchdog_enabled | bool)
     - "'dds-watchdog.service' in ansible_facts.services"
+
+# A frozen textfile would keep exporting its last values (a blocked or suspect unit) and keep an alert firing.
+- name: Remove the DDS watchdog metrics (monitoring_agent_enabled or monitoring_agent_dds_watchdog_enabled is false)
+  ansible.builtin.file:
+    path: "{{ monitoring_agent_textfile_dir }}/dds_watchdog.prom"
+    state: absent
+  when:
+    - not (monitoring_agent_enabled | bool and monitoring_agent_dds_watchdog_enabled | bool)

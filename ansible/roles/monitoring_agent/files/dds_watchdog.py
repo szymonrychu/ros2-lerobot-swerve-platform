@@ -22,6 +22,13 @@ happens on the first run that sees idle while the unit is still a suspect. A hea
 checks the calibration state too. A URL that cannot be parsed or any other unexpected error of the request blocks as
 malformed and never crashes the run.
 
+Restart cap: one run restarts at most DDS_WATCHDOG_MAX_RESTARTS_PER_RUN units (default 3), which bounds the run time
+(each restart can take SYSTEMCTL_TIMEOUT_S plus the calibration requests, and the service has a TimeoutStartSec). A due
+unit counts toward the cap once it reaches the restart, whether the restart succeeds or fails, and also in a dry run.
+Further due units are not restarted that run: they keep their streak, the run logs an INFO line
+`not restarting <unit>: restart cap <N> per run reached`, asks no calibration state for them and does not count them
+as calibration-blocked; the next run handles them.
+
 Environment:
     DDS_WATCHDOG_PROC_ROOT: /proc directory (default /proc).
     DDS_WATCHDOG_CGROUP_ROOT: cgroup v2 mount (default /sys/fs/cgroup).
@@ -39,6 +46,7 @@ Environment:
     DDS_WATCHDOG_CALIBRATION_TIMEOUT_S: socket timeout in seconds of each calibration request, may be fractional
         (default 3; web_ui answers in under 1 s). A non-numeric, non-finite or non-positive value logs a WARNING and
         uses the default.
+    DDS_WATCHDOG_MAX_RESTARTS_PER_RUN: most units one run restarts (default 3); further due units wait for the next run.
     SYSTEMCTL: systemctl binary (default "systemctl", looked up on PATH).
 """
 
@@ -77,6 +85,7 @@ DEFAULT_MIN_RESTART_INTERVAL_S = 300
 DEFAULT_DEPLOY_LOCK = "/var/lib/ros2-deploy/deploy.lock"
 DEFAULT_DEPLOY_LOCK_MAX_AGE_S = 14400
 DEFAULT_SYSTEMCTL = "systemctl"
+DEFAULT_MAX_RESTARTS_PER_RUN = 3
 TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 SYSTEMCTL_TIMEOUT_S = 60.0
 UNIT_GLOB = "ros2-*.service"
@@ -238,6 +247,7 @@ class Config:
         systemctl (str): systemctl binary.
         calibration_url (str): Full URL of GET /api/calibration/active.
         calibration_timeout_s (float): Socket timeout of each calibration request in seconds.
+        max_restarts_per_run (int): Most units one run restarts (or would restart in a dry run).
     """
 
     proc_root: Path
@@ -253,6 +263,7 @@ class Config:
     systemctl: str
     calibration_url: str
     calibration_timeout_s: float
+    max_restarts_per_run: int
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str]) -> "Config":
@@ -283,6 +294,7 @@ class Config:
             systemctl=environ.get("SYSTEMCTL", DEFAULT_SYSTEMCTL),
             calibration_url=environ.get("DDS_WATCHDOG_CALIBRATION_URL", DEFAULT_CALIBRATION_URL),
             calibration_timeout_s=calibration_timeout(environ.get("DDS_WATCHDOG_CALIBRATION_TIMEOUT_S")),
+            max_restarts_per_run=int(environ.get("DDS_WATCHDOG_MAX_RESTARTS_PER_RUN", DEFAULT_MAX_RESTARTS_PER_RUN)),
         )
 
 
@@ -593,13 +605,18 @@ def calibration_status(url: str, timeout_s: float) -> tuple[bool, str]:
 
 
 def restart_allowed(
-    cfg: Config, unit: str, unit_state: UnitState, now: float, calibration: Callable[[], tuple[bool, str]]
+    cfg: Config,
+    unit: str,
+    unit_state: UnitState,
+    now: float,
+    calibration: Callable[[], tuple[bool, str]],
+    cap_reached: bool,
 ) -> bool:
     """Decide whether a unit whose streak reached the limit may be restarted now (the single restart gate).
 
-    Checked in order: fresh deploy lock, rate limit, then calibration, so calibration is asked only for a unit that
-    would otherwise be restarted. When calibration blocks, blocked_since is set (first blocked run only); when it is
-    idle, blocked_since is cleared.
+    Checked in order: fresh deploy lock, rate limit, restart cap, then calibration, so calibration is asked only for a
+    unit that would otherwise be restarted. When calibration blocks, blocked_since is set (first blocked run only); when
+    it is idle, blocked_since is cleared.
 
     Args:
         cfg (Config): Settings.
@@ -608,10 +625,12 @@ def restart_allowed(
         now (float): Current epoch seconds.
         calibration (Callable[[], tuple[bool, str]]): Returns (blocked, reason) of calibration_status; run_once
             caches it until the next systemctl restart of the run.
+        cap_reached (bool): The run already used up max_restarts_per_run; the unit waits for the next run.
 
     Returns:
-        bool: True when no fresh deploy lock exists, the last restart attempt (successful or failed) is old enough and
-            no calibration runs (an unreadable calibration state counts as running).
+        bool: True when no fresh deploy lock exists, the last restart attempt (successful or failed) is old enough, the
+            restart cap of the run is not reached and no calibration runs (an unreadable calibration state counts as
+            running).
     """
     if deploy_lock_active(cfg, now):
         LOG.info("deploy lock %s is fresh, not restarting", cfg.deploy_lock)
@@ -619,6 +638,10 @@ def restart_allowed(
     last = max(unit_state.last_restart, unit_state.last_attempt)
     if now - last < cfg.min_restart_interval_s:
         LOG.info("restart attempted %.0f s ago, rate limit holds the restart", now - last)
+        return False
+    if cap_reached:
+        LOG.info("not restarting %s: restart cap %d per run reached", unit, cfg.max_restarts_per_run)
+        unit_state.blocked_since = 0.0
         return False
     blocked, reason = calibration()
     if blocked:
@@ -762,6 +785,7 @@ def run_once(cfg: Config, now: float) -> int:
     state_keep: dict[str, UnitState] = {}
     queues = rx_queues(cfg.proc_root)
     suspects: set[str] = set()
+    restarts_this_run = 0
     # One request serves the due units of a run until a restart; the cache is cleared after every restart_unit call,
     # so no unit is restarted on an answer read before another unit's restart (which can take up to 60 s).
     calibration = functools.cache(lambda: calibration_status(cfg.calibration_url, cfg.calibration_timeout_s))
@@ -774,7 +798,11 @@ def run_once(cfg: Config, now: float) -> int:
         else:
             suspects.add(unit)
             unit_state.streak += 1
-            if unit_state.streak >= cfg.samples and restart_allowed(cfg, unit, unit_state, now, calibration):
+            cap_reached = restarts_this_run >= cfg.max_restarts_per_run
+            if unit_state.streak >= cfg.samples and restart_allowed(
+                cfg, unit, unit_state, now, calibration, cap_reached
+            ):
+                restarts_this_run += 1
                 why = (
                     f"{unit}: thread dds.udp.{evidence.port} (pid {evidence.pid}) in {evidence.wchan}, "
                     f"rx_queue {evidence.rx_queue} B for {unit_state.streak} samples"

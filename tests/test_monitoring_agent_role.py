@@ -37,8 +37,6 @@ WATCHDOG_CALIBRATION_URL = {
     "client": "http://127.0.0.1/api/calibration/active",
     "server": "http://client.ros2.lan/api/calibration/active",
 }
-# Worst case of one run: list-units (60 s) + 3 due units x (restart 60 s + calibration GET 2 x 3 s) = 258 s, rounded up.
-WATCHDOG_MIN_START_TIMEOUT_S = 258
 
 METRICS_PUSH = {"client": "http://server.ros2.lan:9009/api/v1/push", "server": "http://127.0.0.1:9009/api/v1/push"}
 LOGS_PUSH = {
@@ -621,13 +619,69 @@ def test_dds_watchdog_calibration_url_per_host(host: str) -> None:
     )
 
 
+def watchdog_script_constant(name: str) -> float:
+    """Read a numeric module-level constant of dds_watchdog.py (e.g. SYSTEMCTL_TIMEOUT_S = 60.0).
+
+    Args:
+        name (str): Constant name.
+
+    Returns:
+        float: Its value.
+    """
+    match = re.search(rf"^{name} = ([0-9.]+)$", WATCHDOG_SCRIPT.read_text(), re.MULTILINE)
+    assert match, f"{name} not found in {WATCHDOG_SCRIPT}"
+    return float(match.group(1))
+
+
 @pytest.mark.parametrize("host", HOSTS)
 def test_dds_watchdog_start_timeout_bounds_a_run(host: str) -> None:
-    """TimeoutStartSec is rendered from a role default and covers the script's worst case per run (258 s)."""
+    """TimeoutStartSec is rendered from a role default and covers the worst case of one run, computed from the
+    script's own constants: list-units + cap x (restart + calibration attempts x timeout)."""
     service = watchdog_service(host)
-    default = role_defaults(AGENT_DIR)["monitoring_agent_dds_watchdog_start_timeout_s"]
-    assert service["TimeoutStartSec"] == [str(default)]
-    assert int(default) >= WATCHDOG_MIN_START_TIMEOUT_S
+    variables = watchdog_vars(host)
+    systemctl_s = watchdog_script_constant("SYSTEMCTL_TIMEOUT_S")
+    attempts = watchdog_script_constant("CALIBRATION_ATTEMPTS")
+    cap = int(variables["monitoring_agent_dds_watchdog_max_restarts_per_run"])
+    calibration_s = float(variables["monitoring_agent_dds_watchdog_calibration_timeout_s"])
+    worst_case = systemctl_s + cap * (systemctl_s + attempts * calibration_s)
+    assert int(variables["monitoring_agent_dds_watchdog_start_timeout_s"]) >= worst_case
+    assert service["TimeoutStartSec"] == [str(variables["monitoring_agent_dds_watchdog_start_timeout_s"])]
+    assert int(service["TimeoutStartSec"][0]) > worst_case
+
+
+@pytest.mark.parametrize("host", HOSTS)
+def test_dds_watchdog_start_timeout_follows_the_cap_and_the_timeout(host: str) -> None:
+    """A larger cap or calibration timeout raises TimeoutStartSec (it is derived, not typed in)."""
+    base = int(watchdog_service(host)["TimeoutStartSec"][0])
+    env = jinja_env()
+    merged = watchdog_vars(host)
+    template = role_defaults(AGENT_DIR)["monitoring_agent_dds_watchdog_start_timeout_s"]
+    for key, value in (
+        ("monitoring_agent_dds_watchdog_max_restarts_per_run", 6),
+        ("monitoring_agent_dds_watchdog_calibration_timeout_s", 10),
+    ):
+        assert int(env.from_string(template).render(**{**merged, key: value})) > base
+
+
+@pytest.mark.parametrize("host", HOSTS)
+def test_dds_watchdog_service_comment_states_the_formula_not_a_total(host: str) -> None:
+    """The unit comment names the formula; it holds no hard-coded total next to an interpolated timeout."""
+    text = agent("dds-watchdog.service.j2", host, **watchdog_vars(host))
+    assert "max_restarts_per_run x" in text
+    assert "258" not in text
+
+
+@pytest.mark.parametrize("host", HOSTS)
+def test_dds_watchdog_max_restarts_per_run_is_rendered(host: str) -> None:
+    """The cap default is 3 and reaches the unit as DDS_WATCHDOG_MAX_RESTARTS_PER_RUN."""
+    assert role_defaults(AGENT_DIR)["monitoring_agent_dds_watchdog_max_restarts_per_run"] == 3
+    assert watchdog_env(host)["DDS_WATCHDOG_MAX_RESTARTS_PER_RUN"] == "3"
+
+
+def test_dds_watchdog_deploy_lock_max_age_is_cast_to_int() -> None:
+    """A string ros2_deploy_lock_max_age_min (-e on the command line) still gives minutes x 60, not '240' x 60."""
+    template = role_defaults(AGENT_DIR)["monitoring_agent_dds_watchdog_deploy_lock_max_age_s"]
+    assert jinja_env().from_string(template).render(ros2_deploy_lock_max_age_min="240") == "14400"
 
 
 def test_dds_watchdog_defaults() -> None:
@@ -718,6 +772,18 @@ def test_alloy_and_timer_started_then_guarded_then_checked() -> None:
     ready = next(t for t in tasks if t.get("name") == "Wait until Alloy answers")
     assert resolve(ready["ansible.builtin.uri"]["url"], "client") == "http://127.0.0.1:12345/-/ready"
     assert names.index(start["name"]) < names.index(guard[0]["name"]) < names.index(ready["name"])
+
+
+def test_disabling_the_watchdog_removes_its_textfile() -> None:
+    """When the watchdog or the agent is off, dds_watchdog.prom is removed so a frozen value cannot keep an alert
+    firing; the task does not depend on the service being known."""
+    tasks = role_tasks(AGENT_DIR, ("main.yml",))
+    remove = next(t for t in tasks if t.get("name", "").startswith("Remove the DDS watchdog metrics"))
+    assert remove["ansible.builtin.file"] == {
+        "path": "{{ monitoring_agent_textfile_dir }}/dds_watchdog.prom",
+        "state": "absent",
+    }
+    assert remove["when"] == ["not (monitoring_agent_enabled | bool and monitoring_agent_dds_watchdog_enabled | bool)"]
 
 
 def test_disabled_agent_stops_alloy_and_timer() -> None:

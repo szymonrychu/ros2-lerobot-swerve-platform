@@ -6,10 +6,9 @@ Description=Restart ros2 units whose Fast DDS discovery thread is deadlocked (do
 Type=oneshot
 Slice=monitoring.slice
 Nice={{ monitoring_agent_nice }}
-# Worst case of one run: systemctl list-units (60 s) + 3 units due at once x (systemctl restart 60 s + calibration GET
-# of 2 attempts x the {{ monitoring_agent_dds_watchdog_calibration_timeout_s }} s timeout) = 258 s with the default 3 s. This bounds a run that a
-# huge calibration timeout would stall. The value is monitoring_agent_dds_watchdog_start_timeout_s; raise it together
-# with the calibration timeout.
+# TimeoutStartSec bounds a run: 60 s (systemctl list-units) + max_restarts_per_run x (60 s systemctl restart + 2
+# calibration attempts x the calibration timeout) + a 30 s margin (see the role defaults). The cap on restarts per run
+# makes this a real bound. Raise monitoring_agent_dds_watchdog_start_timeout_s together with a larger timeout or cap.
 TimeoutStartSec={{ monitoring_agent_dds_watchdog_start_timeout_s }}
 Environment=DDS_WATCHDOG_PROC_ROOT={{ monitoring_agent_dds_watchdog_proc_root }}
 Environment=DDS_WATCHDOG_CGROUP_ROOT={{ monitoring_agent_dds_watchdog_cgroup_root }}
@@ -18,6 +17,7 @@ Environment=DDS_WATCHDOG_TEXTFILE={{ monitoring_agent_textfile_dir }}/dds_watchd
 Environment=DDS_WATCHDOG_SAMPLES={{ monitoring_agent_dds_watchdog_samples }}
 Environment=DDS_WATCHDOG_RX_MIN_BYTES={{ monitoring_agent_dds_watchdog_rx_min_bytes }}
 Environment=DDS_WATCHDOG_MIN_RESTART_INTERVAL_S={{ monitoring_agent_dds_watchdog_min_restart_interval_s }}
+Environment=DDS_WATCHDOG_MAX_RESTARTS_PER_RUN={{ monitoring_agent_dds_watchdog_max_restarts_per_run }}
 Environment=DDS_WATCHDOG_DEPLOY_LOCK={{ monitoring_agent_dds_watchdog_deploy_lock }}
 Environment=DDS_WATCHDOG_DEPLOY_LOCK_MAX_AGE_S={{ monitoring_agent_dds_watchdog_deploy_lock_max_age_s }}
 Environment=DDS_WATCHDOG_DRY_RUN={{ monitoring_agent_dds_watchdog_dry_run | lower }}

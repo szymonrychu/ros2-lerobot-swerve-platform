@@ -2952,12 +2952,17 @@ The server stack `ansible/roles/monitoring` (Mimir + Loki + Grafana on the serve
 | `test_dds_watchdog_renders_every_config_variable` | (client, server) one `Environment=` line for every variable `Config.from_env` in `files/dds_watchdog.py` reads, and no other. |
 | `test_dds_watchdog_deploy_lock_follows_the_deploy_variables` | (client, server) the lock path and max age come from `group_vars/all.yml` (`ros2_deploy_lock`, `ros2_deploy_lock_max_age_min` x 60 = 14400). |
 | `test_dds_watchdog_calibration_url_per_host` | The client renders `http://127.0.0.1/api/calibration/active` (the role default), the server `http://client.ros2.lan/api/calibration/active` (set in `group_vars/server.yml`). |
-| `test_dds_watchdog_start_timeout_bounds_a_run` | (client, server) `TimeoutStartSec` is rendered from `monitoring_agent_dds_watchdog_start_timeout_s` and is at least the 258 s worst case of one run (list-units 60 s + 3 x (restart 60 s + 2 x 3 s calibration GET)). |
+| `test_dds_watchdog_start_timeout_bounds_a_run` | (client, server) `TimeoutStartSec` is the rendered `monitoring_agent_dds_watchdog_start_timeout_s` and exceeds the worst case computed from `SYSTEMCTL_TIMEOUT_S` and `CALIBRATION_ATTEMPTS` parsed out of `dds_watchdog.py` plus the cap and calibration timeout: list-units + cap x (restart + attempts x timeout). |
+| `test_dds_watchdog_start_timeout_follows_the_cap_and_the_timeout` | (client, server) a larger cap (6) or calibration timeout (10) raises the derived `TimeoutStartSec`. |
+| `test_dds_watchdog_service_comment_states_the_formula_not_a_total` | (client, server) the unit comment names the formula (`max_restarts_per_run x`) and holds no hard-coded total such as 258. |
+| `test_dds_watchdog_max_restarts_per_run_is_rendered` | (client, server) the role default is 3 and the unit sets `DDS_WATCHDOG_MAX_RESTARTS_PER_RUN=3`. |
+| `test_dds_watchdog_deploy_lock_max_age_is_cast_to_int` | A string `ros2_deploy_lock_max_age_min` (`-e` on the command line) still renders 14400, not the string repeated 60 times. |
 | `test_dds_watchdog_defaults` | Role defaults: enabled, 3 samples, 262144 bytes, 300 s between restarts, dry run false, calibration timeout 3. |
 | `test_dds_watchdog_unit_not_named_ros2` | Only `dds-watchdog.service` and `dds-watchdog.timer` templates exist; no task names a `ros2-` watchdog unit (deploy tooling stops and restarts `ros2-*`). |
 | `test_dds_watchdog_in_start_and_disable_loops` | The timer is enabled and started after the handlers flush when the watchdog is enabled; a separate task stops and disables it when the watchdog or the agent is off, probed through `dds-watchdog.service`. |
 | `test_dds_watchdog_state_dir_task` | `/var/lib/dds-watchdog` is created 0750 root; `dds_watchdog.py` is copied to `/usr/local/lib/monitoring` (0755); both units are installed from templates, notify "Reload systemd", only when enabled. |
 | `test_alloy_and_timer_started_then_guarded_then_checked` | Alloy and the timer start, then a shell task restarts alloy when `/etc/default/alloy`, its config, drop-in or `monitoring.slice` is newer than its start, then `/-/ready` is awaited. |
+| `test_disabling_the_watchdog_removes_its_textfile` | A task removes `dds_watchdog.prom` when the watchdog or the agent is off, so a frozen value cannot keep an alert firing. |
 | `test_disabled_agent_stops_alloy_and_timer` | `monitoring_agent_enabled: false` stops and disables alloy and the timer. |
 | `test_cleanup_runs_on_the_robot_only` | `monitoring_agent_remove_local_stack` is true on the client, false on the server; main.yml includes `remove_local_stack.yml` under it. |
 | `test_cleanup_stops_and_disables_prometheus_and_grafana_when_present` | Stop + disable of prometheus and grafana-server only while service_facts still knows them. |
@@ -4116,7 +4121,7 @@ Imports `ansible/roles/monitoring_agent/files/dds_watchdog.py`, runs its detecti
 | `test_state_with_blocked_since_is_kept` | A state file with `blocked_since` (float or int) loads without a reset and keeps the value. |
 | `test_list_units_failure_writes_up_zero` | A failing `systemctl list-units` exits 0, writes `dds_watchdog_up 0`, keeps the state file, scans and restarts nothing. |
 | `test_stopped_unit_keeps_restart_count` | A restarted unit that is no longer running drops its streak but keeps `restarts_total` and `last_restart`; the metric survives. Checks the exact state file entry (all fields, `blocked_since` 0.0). |
-| `test_config_defaults` | `Config.from_env({})` equals the documented defaults (calibration URL `http://127.0.0.1/api/calibration/active`, timeout 3.0). |
+| `test_config_defaults` | `Config.from_env({})` equals the documented defaults (calibration URL `http://127.0.0.1/api/calibration/active`, timeout 3.0, 3 restarts per run). |
 | `test_config_calibration_from_env` | `DDS_WATCHDOG_CALIBRATION_URL` and a fractional `DDS_WATCHDOG_CALIBRATION_TIMEOUT_S` are read. |
 | `test_config_bad_calibration_timeout_uses_default` | Parametrized: `inf`, `-inf`, `nan`, `0`, `-1`, `abc` and an empty value log one WARNING naming `DDS_WATCHDOG_CALIBRATION_TIMEOUT_S` and fall back to 3.0 s instead of raising. |
 | `test_label_values_are_escaped` | Backslash, double quote and newline in a unit name are escaped in all metric labels, including `restart_blocked` and `restart_blocked_seconds`. |
@@ -4154,3 +4159,9 @@ Imports `ansible/roles/monitoring_agent/files/dds_watchdog.py`, runs its detecti
 | `test_calibration_rechecked_after_each_restart` | Two units due in one run; the stub answers idle to the first request and active to every later one. The first unit is restarted, the idle answer is not reused after that restart: the second unit asks again (two requests), is held back with `not restarting <unit2>: calibration active: ...` and its `restart_blocked` metric is 1. |
 | `test_malformed_url_run_saves_state_and_metrics` | A run with `DDS_WATCHDOG_CALIBRATION_URL=http://[::1/...` exits 0, restarts nothing, logs `calibration malformed: ...`, saves the streak (4 after 4 runs) and writes `restart_blocked` 1. |
 | `test_bad_timeout_run_uses_default` | Runs with `DDS_WATCHDOG_CALIBRATION_TIMEOUT_S=inf` exit 0, log the timeout warning, use 3 s and restart the wedged unit on the idle answer. |
+| `test_restart_cap_limits_restarts_per_run` | 5 due units, default cap 3: exactly 3 restarts; the other 2 keep their streak (3), get no calibration GET (3 requests), log `not restarting <unit>: restart cap 3 per run reached` and have `restart_blocked` 0; the next run restarts them. |
+| `test_restart_cap_counts_failed_restarts` | With a failing `systemctl restart`, 5 due units still give only 3 restart calls. |
+| `test_restart_cap_counts_dry_run` | Dry run with 5 due units logs `would restart` 3 times and the cap line twice; nothing is restarted. |
+| `test_restart_cap_from_env` | `DDS_WATCHDOG_MAX_RESTARTS_PER_RUN=1` restarts one of three due units. |
+| `test_restart_cap_does_not_count_blocked_units` | Units held back by calibration do not use up the cap and are never logged as cap-skipped. |
+| `test_config_max_restarts_from_env` | The cap is read as an integer from the environment; a non-integer raises `ValueError` like the other integer settings. |

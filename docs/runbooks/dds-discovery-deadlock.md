@@ -9,7 +9,7 @@ metrics and the manual recovery. Roles and variables: `ansible/README.md` (ROS2 
 
 On 2026-11-11 the `robot_localization_ekf` process wedged. It kept running but received no measurements, so its odom
 pose ran away at about 0.25 m/s while the robot stood still. slam_toolbox chased it with map->odom, lidar marks smeared
-through the odom-frame costmaps and the SLAM map grew to 126 x 53 m. Five other units were wedged the same way
+through the odom-frame costmaps and the SLAM map grew to 126 x 53 m. Four other units were wedged the same way
 (head_state_publisher, gps_rtk_rover, joint_state_throttle_follower, map3d_uplink). Restarting them fixed it.
 
 Expect: costmaps smeared, a ballooning SLAM map, an odometry that moves while the robot stands, a node that is
@@ -31,8 +31,8 @@ wedge is that thread sitting in `futex_wait_queue` while its UDP receive queue i
 
 ```bash
 pid=$(systemctl show -p MainPID --value ros2-robot_localization_ekf.service)
-for t in /proc/$pid/task/*; do printf '%s %s %s\n' "$(basename $t)" "$(cat $t/comm)" "$(cat $t/wchan)"; done | grep dds.udp
-ss -uapn | grep -E ':74[1-9][0-9]|:75[0-9][0-9]|:760[0-8]'   # Recv-Q of the metatraffic ports
+sudo sh -c "for t in /proc/$pid/task/*; do printf '%s %s %s\n' \"\$(basename \$t)\" \"\$(cat \$t/comm)\" \"\$(cat \$t/wchan)\"; done" | grep dds.udp
+sudo ss -uapn | grep -E ':74[1-9][0-9]|:75[0-9][0-9]|:760[0-8]'   # Recv-Q of the metatraffic ports (user traffic ports in the range also match; read the ones of the wedged pid)
 ```
 
 - Healthy: wchan `__skb_wait_for_more_packets`, Recv-Q 0.
@@ -45,7 +45,10 @@ ss -uapn | grep -E ':74[1-9][0-9]|:75[0-9][0-9]|:760[0-8]'   # Recv-Q of the met
 `dds-watchdog.timer` runs `dds-watchdog.service` (root, `monitoring.slice`) 60 s after boot and then every 10 s. Each
 run samples every running `ros2-*.service`. A unit is a suspect when a metatraffic thread has wchan `futex_wait_queue`
 and its port's rx_queue (the larger of `/proc/net/udp` and `udp6`) is at least 262144 bytes. After 3 consecutive suspect
-runs the unit is restarted with `systemctl restart`, at most once per 300 s per unit. It restarts nothing while
+runs the unit is restarted with `systemctl restart`, at most once per 300 s per unit and at most 3 units per run (`DDS_WATCHDOG_MAX_RESTARTS_PER_RUN`; a failed restart
+and a dry-run "would restart" count too). Further due units keep their streak, are logged at INFO as
+`not restarting <unit>: restart cap 3 per run reached` and are restarted by the next run 10 s later; the cap bounds the
+run time (`TimeoutStartSec` is derived from it) and is not a calibration block. It restarts nothing while
 `/var/lib/ros2-deploy/deploy.lock` is younger than 14400 s (the deploy-recover max age) or while a calibration is
 active (below). A failed `systemctl restart` is logged, not counted, and retried after the rate limit. The state
 (streaks, restart times) is in `/var/lib/dds-watchdog/state.json`; the metrics file is

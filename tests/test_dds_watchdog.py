@@ -860,6 +860,7 @@ def test_config_defaults(wd: ModuleType) -> None:
         systemctl="systemctl",
         calibration_url="http://127.0.0.1/api/calibration/active",
         calibration_timeout_s=3.0,
+        max_restarts_per_run=3,
     )
 
 
@@ -1183,3 +1184,108 @@ def test_bad_timeout_run_uses_default(host: Harness) -> None:
     assert "DDS_WATCHDOG_CALIBRATION_TIMEOUT_S" in proc.stdout
     assert host.restarts() == [UNIT]
     assert json.loads(host.state_file.read_text())[UNIT]["restarts_total"] == 1
+
+
+# ---- restart cap per run ----
+
+
+def add_wedged_units(host: Harness, count: int) -> list[str]:
+    """Make `count` running units wedged (the fixture unit plus extra ones), each with its own pid and port.
+
+    Args:
+        host (Harness): The fake host.
+        count (int): Number of wedged units in total (at least 1).
+
+    Returns:
+        list[str]: Unit names in `systemctl list-units` order.
+    """
+    units = [UNIT]
+    rows = list(WEDGED_ROWS)
+    for i in range(1, count):
+        name = f"ros2-extra{i}.service"
+        port = 7458 + 2 * i
+        add_thread(host.root / "proc", 100 + 100 * i, 100 + 100 * i, f"dds.udp.{port}", "futex_wait_queue")
+        add_procs(host.root / "sys/fs/cgroup", name, [100 + 100 * i])
+        rows.append(udp_row(i, port, 1001600))
+        units.append(name)
+    write_net(host.root / "proc", "udp", rows)
+    host.units_file.write_text("".join(f"{u} loaded active running x\n" for u in units))
+    return units
+
+
+def streaks(host: Harness) -> dict[str, int]:
+    """Read the streak of every unit from the state file.
+
+    Args:
+        host (Harness): The fake host.
+
+    Returns:
+        dict[str, int]: Unit name to streak.
+    """
+    return {u: v["streak"] for u, v in json.loads(host.state_file.read_text()).items()}
+
+
+def test_restart_cap_limits_restarts_per_run(host: Harness) -> None:
+    """5 due units with the default cap 3: 3 restarts, the other 2 keep their streak, get no calibration GET and are
+    not counted as calibration-blocked; the next run restarts them."""
+    units = add_wedged_units(host, 5)
+    for _ in range(3):
+        proc = host.run()
+        assert proc.returncode == 0, proc.stderr
+    assert host.restarts() == units[:3]
+    assert host.calib.requests == 3
+    for skipped in units[3:]:
+        assert f"not restarting {skipped}: restart cap 3 per run reached" in proc.stdout
+        assert streaks(host)[skipped] == 3
+        assert metric_value(host.metrics(), blocked_series(skipped)) == 0
+        assert metric_value(host.metrics(), blocked_seconds_series(skipped)) == 0
+    assert "restart cap" not in "".join(line for line in proc.stdout.splitlines() if units[0] in line)
+    proc = host.run()
+    assert host.restarts() == units
+    assert host.calib.requests == 5
+
+
+def test_restart_cap_counts_failed_restarts(host: Harness) -> None:
+    """A failed restart uses up the cap as well."""
+    units = add_wedged_units(host, 5)
+    host.fail_flag.touch()
+    for _ in range(3):
+        host.run()
+    assert host.restarts() == units[:3]
+
+
+def test_restart_cap_counts_dry_run(host: Harness) -> None:
+    """Dry run logs "would restart" for at most the cap per run."""
+    units = add_wedged_units(host, 5)
+    for _ in range(3):
+        proc = host.run(DDS_WATCHDOG_DRY_RUN="1")
+    assert proc.stdout.count("would restart") == 3
+    assert proc.stdout.count("restart cap 3 per run reached") == 2
+    assert host.restarts() == []
+    assert streaks(host)[units[4]] == 3
+
+
+def test_restart_cap_from_env(host: Harness) -> None:
+    """DDS_WATCHDOG_MAX_RESTARTS_PER_RUN changes the cap."""
+    units = add_wedged_units(host, 3)
+    for _ in range(3):
+        host.run(DDS_WATCHDOG_MAX_RESTARTS_PER_RUN="1")
+    assert host.restarts() == units[:1]
+
+
+def test_restart_cap_does_not_count_blocked_units(host: Harness) -> None:
+    """Units held back by calibration (not restarted) do not use up the cap."""
+    units = add_wedged_units(host, 4)
+    host.calib.set_json(CALIB_FIXTURE)
+    for _ in range(3):
+        proc = host.run()
+    assert host.restarts() == []
+    assert "restart cap" not in proc.stdout
+    assert metric_value(host.metrics(), blocked_series(units[3])) == 1
+
+
+def test_config_max_restarts_from_env(wd: ModuleType) -> None:
+    """The cap is read from the environment as an integer and a non-integer fails like the other integer settings."""
+    assert wd.Config.from_env({"DDS_WATCHDOG_MAX_RESTARTS_PER_RUN": "5"}).max_restarts_per_run == 5
+    with pytest.raises(ValueError):
+        wd.Config.from_env({"DDS_WATCHDOG_MAX_RESTARTS_PER_RUN": "many"})
