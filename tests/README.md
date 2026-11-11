@@ -4076,7 +4076,7 @@ Static pins for `docs/runbooks/map3d-mapping.md` (3D mapping runbook re-based on
 
 ### `test_dds_watchdog.py`
 
-Imports `ansible/roles/monitoring_agent/files/dds_watchdog.py` and runs its detection core against fixture `/proc` and cgroup v2 trees (real values from the robot: healthy `dds.udp.7418`, wedged `dds.udp.7458` with rx 1001600, user-unicast `dds.udp.7459`). No ROS2, no root.
+Imports `ansible/roles/monitoring_agent/files/dds_watchdog.py`, runs its detection core against fixture `/proc` and cgroup v2 trees (real values from the robot: healthy `dds.udp.7418`, wedged `dds.udp.7458` with rx 1001600, user-unicast `dds.udp.7459`). No ROS2, no root.
 
 | Test | Covers |
 |---|---|
@@ -4093,3 +4093,14 @@ Imports `ansible/roles/monitoring_agent/files/dds_watchdog.py` and runs its dete
 | `test_scan_unit_ignores_user_unicast_port` | An odd-offset thread is ignored even when futex-blocked with a full queue. |
 | `test_scan_unit_tolerates_vanished_pid` | A pid without a `/proc` entry is skipped; the rest is scanned. |
 | `test_scan_unit_tolerates_vanished_thread_files` | A thread dir without `comm`/`wchan` is skipped. |
+| `test_three_suspect_runs_restart_once` | Run as a subprocess against fake roots and a fake `systemctl` on PATH: runs 1-2 only count, run 3 restarts the unit once and the metrics show `restarts_total` 1. |
+| `test_gap_resets_streak` | A healthy sample between suspect samples resets the streak; no restart. |
+| `test_fresh_deploy_lock_blocks_restart` | A deploy lock younger than the max age holds the restart back. |
+| `test_old_deploy_lock_is_ignored` | A stale deploy lock does not block. |
+| `test_rate_limit_blocks_second_restart` | A still-wedged unit is not restarted again within the minimum interval; it is once the interval passed. |
+| `test_dry_run_logs_without_restart` | Dry run (case-insensitive value) logs "would restart", calls no restart and counts none. |
+| `test_failed_restart_not_counted` | A failing `systemctl restart` logs an error, counts no restart, keeps the streak, and the metrics are still written (exit 0). |
+| `test_corrupt_state_file_resets` | A corrupt, wrong-shaped or missing state file starts empty with a warning and exits 0. |
+| `test_metrics_file_format` | HELP/TYPE lines for every metric, unit labels, trailing newline, no temp file left behind. |
+| `test_healthy_host_writes_zero_suspects` | A healthy unit gives suspect 0, streak 0, no restart. |
+| `test_unwritable_textfile_exits_nonzero` | A missing textfile directory is the one case with exit code 1. |

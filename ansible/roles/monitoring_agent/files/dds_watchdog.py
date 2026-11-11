@@ -5,15 +5,37 @@ A wedged participant keeps its process alive but its metatraffic receive thread 
 7410..7608 at an even offset) sits in futex_wait_queue instead of the socket receive path, while the kernel queue of
 that UDP port fills up. A unit is a suspect when such a thread exists and the port's rx_queue is at least a threshold.
 
-This module holds the pure detection functions: they read a /proc tree and a cgroup v2 tree, both passed in, so tests
-can use fixture trees.
+The detection functions read a /proc tree and a cgroup v2 tree, both passed in, so tests can use fixture trees. A run
+(run once by dds-watchdog.timer) samples every running ros2-*.service, counts consecutive suspect samples per unit in a
+state file, restarts a unit once its streak reaches the configured number of samples (unless a deploy is running or the
+unit was restarted recently) and writes metrics to the Alloy textfile collector. The state file and the textfile are
+replaced atomically (temp file + rename). The run exits non-zero only when the textfile cannot be written.
 
-Environment: none (the detection functions take their inputs as arguments).
+Environment:
+    DDS_WATCHDOG_PROC_ROOT: /proc directory (default /proc).
+    DDS_WATCHDOG_CGROUP_ROOT: cgroup v2 mount (default /sys/fs/cgroup).
+    DDS_WATCHDOG_STATE_FILE: JSON state file (default /var/lib/dds-watchdog/state.json).
+    DDS_WATCHDOG_TEXTFILE: metrics output file (default /var/lib/alloy/textfile/dds_watchdog.prom).
+    DDS_WATCHDOG_SAMPLES: consecutive suspect samples before a restart (default 3).
+    DDS_WATCHDOG_RX_MIN_BYTES: smallest rx_queue in bytes that counts as full (default 262144).
+    DDS_WATCHDOG_MIN_RESTART_INTERVAL_S: minimum seconds between watchdog restarts of one unit (default 300).
+    DDS_WATCHDOG_DEPLOY_LOCK: deploy lock file (default /var/lib/ros2-deploy/deploy.lock).
+    DDS_WATCHDOG_DEPLOY_LOCK_MAX_AGE_S: age in seconds after which the lock is stale (default 14400, the 240 minutes of
+        ros2_deploy_lock_max_age_min that ros2-deploy-recover uses).
+    DDS_WATCHDOG_DRY_RUN: "1", "true", "yes" or "on" (any case) only logs the restarts (default false).
+    SYSTEMCTL: systemctl binary (default "systemctl", looked up on PATH).
 """
 
+import json
 import logging
+import os
 import re
-from dataclasses import dataclass
+import subprocess
+import sys
+import tempfile
+import time
+from collections.abc import Mapping
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 METATRAFFIC_PORT_MIN = 7410
@@ -23,6 +45,19 @@ WEDGED_WCHAN = "futex_wait_queue"
 COMM_RE = re.compile(r"dds\.udp\.(\d+)")
 UDP_TABLES = ("udp", "udp6")
 SLICE = "system.slice"
+DEFAULT_PROC_ROOT = "/proc"
+DEFAULT_CGROUP_ROOT = "/sys/fs/cgroup"
+DEFAULT_STATE_FILE = "/var/lib/dds-watchdog/state.json"
+DEFAULT_TEXTFILE = "/var/lib/alloy/textfile/dds_watchdog.prom"
+DEFAULT_SAMPLES = 3
+DEFAULT_RX_MIN_BYTES = 262144
+DEFAULT_MIN_RESTART_INTERVAL_S = 300
+DEFAULT_DEPLOY_LOCK = "/var/lib/ros2-deploy/deploy.lock"
+DEFAULT_DEPLOY_LOCK_MAX_AGE_S = 14400
+DEFAULT_SYSTEMCTL = "systemctl"
+TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
+SYSTEMCTL_TIMEOUT_S = 60.0
+UNIT_GLOB = "ros2-*.service"
 
 LOG = logging.getLogger("dds_watchdog")
 
@@ -152,3 +187,320 @@ def scan_unit(
                 LOG.debug("suspect %s pid %d tid %d port %d rx %d", unit, pid, tid, port, rx)
                 return WedgeEvidence(unit=unit, pid=pid, tid=tid, port=port, rx_queue=rx, wchan=wchan)
     return None
+
+
+@dataclass(frozen=True)
+class Config:
+    """Settings of one run.
+
+    Attributes:
+        proc_root (Path): The /proc directory.
+        cgroup_root (Path): The cgroup v2 mount.
+        state_file (Path): JSON state file.
+        textfile (Path): Metrics output file.
+        samples (int): Consecutive suspect samples before a restart.
+        rx_min_bytes (int): Smallest rx_queue in bytes that counts as full.
+        min_restart_interval_s (int): Minimum seconds between watchdog restarts of one unit.
+        deploy_lock (Path): Deploy lock file.
+        deploy_lock_max_age_s (int): Age in seconds after which the deploy lock is stale.
+        dry_run (bool): Log restarts instead of doing them.
+        systemctl (str): systemctl binary.
+    """
+
+    proc_root: Path
+    cgroup_root: Path
+    state_file: Path
+    textfile: Path
+    samples: int
+    rx_min_bytes: int
+    min_restart_interval_s: int
+    deploy_lock: Path
+    deploy_lock_max_age_s: int
+    dry_run: bool
+    systemctl: str
+
+    @classmethod
+    def from_env(cls, environ: Mapping[str, str]) -> "Config":
+        """Build the settings from environment variables, with the defaults of the module docstring.
+
+        Args:
+            environ (Mapping[str, str]): Environment, e.g. os.environ.
+
+        Returns:
+            Config: The settings.
+
+        Raises:
+            ValueError: A numeric variable is not an integer.
+        """
+        return cls(
+            proc_root=Path(environ.get("DDS_WATCHDOG_PROC_ROOT", DEFAULT_PROC_ROOT)),
+            cgroup_root=Path(environ.get("DDS_WATCHDOG_CGROUP_ROOT", DEFAULT_CGROUP_ROOT)),
+            state_file=Path(environ.get("DDS_WATCHDOG_STATE_FILE", DEFAULT_STATE_FILE)),
+            textfile=Path(environ.get("DDS_WATCHDOG_TEXTFILE", DEFAULT_TEXTFILE)),
+            samples=int(environ.get("DDS_WATCHDOG_SAMPLES", DEFAULT_SAMPLES)),
+            rx_min_bytes=int(environ.get("DDS_WATCHDOG_RX_MIN_BYTES", DEFAULT_RX_MIN_BYTES)),
+            min_restart_interval_s=int(
+                environ.get("DDS_WATCHDOG_MIN_RESTART_INTERVAL_S", DEFAULT_MIN_RESTART_INTERVAL_S)
+            ),
+            deploy_lock=Path(environ.get("DDS_WATCHDOG_DEPLOY_LOCK", DEFAULT_DEPLOY_LOCK)),
+            deploy_lock_max_age_s=int(environ.get("DDS_WATCHDOG_DEPLOY_LOCK_MAX_AGE_S", DEFAULT_DEPLOY_LOCK_MAX_AGE_S)),
+            dry_run=environ.get("DDS_WATCHDOG_DRY_RUN", "false").strip().lower() in TRUE_VALUES,
+            systemctl=environ.get("SYSTEMCTL", DEFAULT_SYSTEMCTL),
+        )
+
+
+@dataclass
+class UnitState:
+    """Persistent per-unit state.
+
+    Attributes:
+        streak (int): Consecutive suspect samples.
+        last_restart (float): Epoch seconds of the last successful watchdog restart (0 for never).
+        restarts_total (int): Successful watchdog restarts.
+    """
+
+    streak: int = 0
+    last_restart: float = 0.0
+    restarts_total: int = 0
+
+
+def write_atomic(path: Path, text: str) -> None:
+    """Replace a file atomically: write a temp file in the same directory, then rename it over the target.
+
+    Args:
+        path (Path): Target file.
+        text (str): New content.
+    """
+    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w") as handle:
+            handle.write(text)
+        os.chmod(tmp, 0o644)
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
+def load_state(path: Path) -> dict[str, UnitState]:
+    """Read the state file.
+
+    Args:
+        path (Path): JSON state file.
+
+    Returns:
+        dict[str, UnitState]: Unit name -> state; empty (with a warning) when the file is missing or corrupt.
+    """
+    try:
+        raw = json.loads(path.read_text())
+        return {unit: UnitState(**fields) for unit, fields in raw.items()}
+    except FileNotFoundError:
+        LOG.warning("no state file %s, starting empty", path)
+    except (OSError, ValueError, TypeError, AttributeError) as exc:
+        LOG.warning("unreadable state file %s, starting empty: %s", path, exc)
+    return {}
+
+
+def save_state(path: Path, state: dict[str, UnitState]) -> None:
+    """Write the state file atomically, creating its directory.
+
+    Args:
+        path (Path): JSON state file.
+        state (dict[str, UnitState]): Unit name -> state.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_atomic(path, json.dumps({unit: asdict(unit_state) for unit, unit_state in state.items()}, indent=1))
+
+
+def running_ros2_units(systemctl: str) -> list[str]:
+    """List the running ros2-*.service units.
+
+    Args:
+        systemctl (str): systemctl binary.
+
+    Returns:
+        list[str]: Unit names (first column of `systemctl list-units`).
+
+    Raises:
+        OSError: The binary could not be run.
+        subprocess.SubprocessError: It failed or timed out.
+    """
+    proc = subprocess.run(
+        [systemctl, "list-units", UNIT_GLOB, "--state=running", "--no-legend", "--plain"],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=SYSTEMCTL_TIMEOUT_S,
+    )
+    return [line.split()[0] for line in proc.stdout.splitlines() if line.strip()]
+
+
+def deploy_lock_active(cfg: Config, now: float) -> bool:
+    """Tell whether a deploy is running.
+
+    Args:
+        cfg (Config): Settings.
+        now (float): Current epoch seconds.
+
+    Returns:
+        bool: True when the deploy lock exists and is younger than the max age.
+    """
+    try:
+        return now - cfg.deploy_lock.stat().st_mtime < cfg.deploy_lock_max_age_s
+    except OSError:
+        return False
+
+
+def restart_allowed(cfg: Config, unit_state: UnitState, now: float) -> bool:
+    """Decide whether a unit whose streak reached the limit may be restarted now.
+
+    Args:
+        cfg (Config): Settings.
+        unit_state (UnitState): State of the unit.
+        now (float): Current epoch seconds.
+
+    Returns:
+        bool: True when no fresh deploy lock exists and the last restart is old enough.
+    """
+    if deploy_lock_active(cfg, now):
+        LOG.info("deploy lock %s is fresh, not restarting", cfg.deploy_lock)
+        return False
+    if now - unit_state.last_restart < cfg.min_restart_interval_s:
+        LOG.info("restarted %.0f s ago, rate limit holds the restart", now - unit_state.last_restart)
+        return False
+    return True
+
+
+def restart_unit(cfg: Config, unit: str) -> bool:
+    """Restart a unit with systemctl.
+
+    Args:
+        cfg (Config): Settings.
+        unit (str): Unit name.
+
+    Returns:
+        bool: True when systemctl succeeded.
+    """
+    try:
+        subprocess.run(
+            [cfg.systemctl, "restart", unit], capture_output=True, text=True, check=True, timeout=SYSTEMCTL_TIMEOUT_S
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        LOG.error("systemctl restart %s failed: %s", unit, exc)
+        return False
+    return True
+
+
+def metrics_text(now: float, units: list[str], state: dict[str, UnitState], suspects: set[str]) -> str:
+    """Render the metrics in the Prometheus text exposition format.
+
+    Args:
+        now (float): Current epoch seconds.
+        units (list[str]): Running ros2 units of this run.
+        state (dict[str, UnitState]): State after the run.
+        suspects (set[str]): Units that were a suspect in this sample.
+
+    Returns:
+        str: Metrics text, newline terminated.
+    """
+    lines = [
+        "# HELP dds_watchdog_up 1 when the last watchdog run completed.",
+        "# TYPE dds_watchdog_up gauge",
+        "dds_watchdog_up 1",
+        "# HELP dds_watchdog_last_run_timestamp_seconds Unix time of the last watchdog run.",
+        "# TYPE dds_watchdog_last_run_timestamp_seconds gauge",
+        f"dds_watchdog_last_run_timestamp_seconds {now}",
+        "# HELP dds_watchdog_suspect 1 when the unit has a wedged DDS discovery thread in this sample.",
+        "# TYPE dds_watchdog_suspect gauge",
+    ]
+    lines += [f'dds_watchdog_suspect{{unit="{unit}"}} {int(unit in suspects)}' for unit in units]
+    lines += [
+        "# HELP dds_watchdog_streak Consecutive suspect samples of the unit.",
+        "# TYPE dds_watchdog_streak gauge",
+    ]
+    lines += [f'dds_watchdog_streak{{unit="{unit}"}} {state[unit].streak}' for unit in units]
+    lines += [
+        "# HELP dds_watchdog_restarts_total Restarts of the unit by the watchdog.",
+        "# TYPE dds_watchdog_restarts_total counter",
+    ]
+    lines += [
+        f'dds_watchdog_restarts_total{{unit="{unit}"}} {st.restarts_total}'
+        for unit, st in sorted(state.items())
+        if st.restarts_total
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def run_once(cfg: Config, now: float) -> int:
+    """Run one cycle: sample the units, update streaks, restart wedged units, save the state, write the metrics.
+
+    Args:
+        cfg (Config): Settings.
+        now (float): Current epoch seconds.
+
+    Returns:
+        int: Exit code (0, or 1 when the textfile could not be written).
+    """
+    state = load_state(cfg.state_file)
+    try:
+        units = running_ros2_units(cfg.systemctl)
+    except (OSError, subprocess.SubprocessError) as exc:
+        LOG.error("listing ros2 units failed: %s", exc)
+        units = []
+        state_keep = state
+    else:
+        state_keep = {}
+    queues = rx_queues(cfg.proc_root)
+    suspects: set[str] = set()
+    for unit in units:
+        unit_state = state.get(unit, UnitState())
+        evidence = scan_unit(cfg.proc_root, cfg.cgroup_root, unit, queues, cfg.rx_min_bytes)
+        if evidence is None:
+            unit_state.streak = 0
+        else:
+            suspects.add(unit)
+            unit_state.streak += 1
+            if unit_state.streak >= cfg.samples and restart_allowed(cfg, unit_state, now):
+                LOG.warning(
+                    "dds_watchdog: restarting %s: thread dds.udp.%d (pid %d) in %s, rx_queue %d B for %d samples",
+                    unit,
+                    evidence.port,
+                    evidence.pid,
+                    evidence.wchan,
+                    evidence.rx_queue,
+                    unit_state.streak,
+                )
+                if cfg.dry_run:
+                    LOG.warning("dds_watchdog: would restart %s (dry run)", unit)
+                elif restart_unit(cfg, unit):
+                    unit_state.restarts_total += 1
+                    unit_state.last_restart = now
+                    unit_state.streak = 0
+        state_keep[unit] = unit_state
+    for unit, unit_state in state.items():
+        if unit not in state_keep and unit_state.restarts_total:
+            state_keep[unit] = UnitState(0, unit_state.last_restart, unit_state.restarts_total)
+    try:
+        save_state(cfg.state_file, state_keep)
+    except OSError as exc:
+        LOG.error("cannot write state file %s: %s", cfg.state_file, exc)
+    try:
+        write_atomic(cfg.textfile, metrics_text(now, units, state_keep, suspects))
+    except OSError as exc:
+        LOG.error("cannot write textfile %s: %s", cfg.textfile, exc)
+        return 1
+    return 0
+
+
+def main() -> int:
+    """Run one watchdog cycle with the settings from the environment.
+
+    Returns:
+        int: Exit code of run_once.
+    """
+    logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s", stream=sys.stdout)
+    return run_once(Config.from_env(os.environ), time.time())
+
+
+if __name__ == "__main__":
+    sys.exit(main())

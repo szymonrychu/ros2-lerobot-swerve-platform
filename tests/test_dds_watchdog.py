@@ -1,6 +1,12 @@
 """dds_watchdog detection core: wedged Fast DDS discovery threads found from /proc and cgroup v2 (fixture trees)."""
 
 import importlib.util
+import json
+import os
+import stat
+import subprocess
+import sys
+import time
 from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
@@ -218,3 +224,253 @@ def test_scan_unit_tolerates_vanished_thread_files(wd: ModuleType, fake_root: Ca
     proc, cgroup = fake_root([WEDGED], [udp_row(1, 7458, 1001600)])
     (proc / "100" / "task" / "50").mkdir()
     assert wd.scan_unit(proc, cgroup, UNIT, wd.rx_queues(proc), RX_MIN) is not None
+
+
+# ---- run cycle: subprocess runs against fake roots and a fake systemctl ----
+
+WEDGED_ROWS = [udp_row(0, 7458, 1001600)]
+
+
+class Harness:
+    """A fake host for subprocess runs of the script.
+
+    Attributes:
+        root (Path): Scratch directory.
+        env (dict[str, str]): Environment of the runs.
+        restarts_log (Path): One line per `systemctl restart` call.
+        fail_flag (Path): When it exists, the fake `systemctl restart` exits 1.
+    """
+
+    def __init__(self, root: Path) -> None:
+        """Create the fake systemctl and the default environment.
+
+        Args:
+            root (Path): Scratch directory.
+        """
+        self.root = root
+        bindir = root / "bin"
+        bindir.mkdir()
+        self.restarts_log = root / "restarts.log"
+        self.fail_flag = root / "fail-restart"
+        fake = bindir / "systemctl"
+        fake.write_text(
+            "#!/bin/sh\n"
+            f'case "$1" in\n'
+            f'  list-units) echo "{UNIT} loaded active running ROS2 test unit" ;;\n'
+            f'  restart) echo "$2" >> {self.restarts_log}; [ -e {self.fail_flag} ] && exit 1; exit 0 ;;\n'
+            "esac\n"
+        )
+        fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+        self.textfile = root / "textfile" / "dds_watchdog.prom"
+        self.textfile.parent.mkdir()
+        self.state_file = root / "state" / "state.json"
+        self.env = {
+            **os.environ,
+            "PATH": f"{bindir}:{os.environ['PATH']}",
+            "SYSTEMCTL": str(fake),
+            "DDS_WATCHDOG_PROC_ROOT": str(root / "proc"),
+            "DDS_WATCHDOG_CGROUP_ROOT": str(root / "sys/fs/cgroup"),
+            "DDS_WATCHDOG_STATE_FILE": str(self.state_file),
+            "DDS_WATCHDOG_TEXTFILE": str(self.textfile),
+            "DDS_WATCHDOG_DEPLOY_LOCK": str(root / "deploy.lock"),
+            "DDS_WATCHDOG_RX_MIN_BYTES": str(RX_MIN),
+        }
+
+    def set_threads(self, threads: list[tuple[str, str]], rows: list[str]) -> None:
+        """Replace the fake proc and cgroup tree of the unit (pid 100).
+
+        Args:
+            threads (list[tuple[str, str]]): (comm, wchan) per thread.
+            rows (list[str]): udp rows.
+        """
+        proc = self.root / "proc"
+        if proc.exists():
+            subprocess.run(["rm", "-rf", str(proc)], check=True)
+        for i, (comm, wchan) in enumerate(threads):
+            add_thread(proc, 100, 100 + i, comm, wchan)
+        write_net(proc, "udp", rows)
+        add_procs(self.root / "sys/fs/cgroup", UNIT, [100])
+
+    def run(self, **env: str) -> subprocess.CompletedProcess[str]:
+        """Run the script once.
+
+        Args:
+            **env (str): Extra environment variables.
+
+        Returns:
+            subprocess.CompletedProcess[str]: The finished run.
+        """
+        return subprocess.run(
+            [sys.executable, str(SCRIPT)], env={**self.env, **env}, capture_output=True, text=True, check=False
+        )
+
+    def restarts(self) -> list[str]:
+        """List the units passed to `systemctl restart`.
+
+        Returns:
+            list[str]: Unit names, one per call.
+        """
+        return self.restarts_log.read_text().split() if self.restarts_log.exists() else []
+
+    def metrics(self) -> str:
+        """Read the textfile.
+
+        Returns:
+            str: Its content.
+        """
+        return self.textfile.read_text()
+
+
+@pytest.fixture
+def host(tmp_path: Path) -> Harness:
+    """A fake host with a wedged unit.
+
+    Args:
+        tmp_path (Path): pytest temp dir.
+
+    Returns:
+        Harness: The host.
+    """
+    harness = Harness(tmp_path)
+    harness.set_threads([WEDGED], WEDGED_ROWS)
+    return harness
+
+
+def test_three_suspect_runs_restart_once(host: Harness) -> None:
+    """Runs 1 and 2 only count; run 3 restarts the unit once and the metrics show one restart."""
+    for _ in range(2):
+        assert host.run().returncode == 0
+    assert host.restarts() == []
+    assert f'dds_watchdog_streak{{unit="{UNIT}"}} 2' in host.metrics()
+    proc = host.run()
+    assert proc.returncode == 0, proc.stderr
+    assert host.restarts() == [UNIT]
+    assert (
+        f"restarting {UNIT}: thread dds.udp.7458 (pid 100) in futex_wait_queue, rx_queue 1001600 B for 3 samples"
+        in proc.stdout
+    )
+    text = host.metrics()
+    assert f'dds_watchdog_restarts_total{{unit="{UNIT}"}} 1' in text
+    assert f'dds_watchdog_streak{{unit="{UNIT}"}} 0' in text
+
+
+def test_gap_resets_streak(host: Harness) -> None:
+    """A healthy sample between suspect samples resets the streak, so no restart happens."""
+    host.run()
+    host.run()
+    host.set_threads([HEALTHY], [udp_row(0, 7418, 0)])
+    host.run()
+    assert f'dds_watchdog_streak{{unit="{UNIT}"}} 0' in host.metrics()
+    host.set_threads([WEDGED], WEDGED_ROWS)
+    host.run()
+    host.run()
+    assert host.restarts() == []
+
+
+def test_fresh_deploy_lock_blocks_restart(host: Harness) -> None:
+    """A deploy lock younger than the max age holds the restart back; the streak stays at the limit."""
+    (host.root / "deploy.lock").write_text("")
+    for _ in range(4):
+        host.run()
+    assert host.restarts() == []
+    assert f'dds_watchdog_streak{{unit="{UNIT}"}} 4' in host.metrics()
+
+
+def test_old_deploy_lock_is_ignored(host: Harness) -> None:
+    """A deploy lock older than the max age does not block the restart."""
+    lock = host.root / "deploy.lock"
+    lock.write_text("")
+    old = time.time() - 7200
+    os.utime(lock, (old, old))
+    for _ in range(3):
+        host.run(DDS_WATCHDOG_DEPLOY_LOCK_MAX_AGE_S="3600")
+    assert host.restarts() == [UNIT]
+
+
+def test_rate_limit_blocks_second_restart(host: Harness) -> None:
+    """After a restart, a still-wedged unit is not restarted again within the minimum interval."""
+    for _ in range(9):
+        host.run()
+    assert host.restarts() == [UNIT]
+    state = json.loads(host.state_file.read_text())
+    state[UNIT]["last_restart"] -= 301
+    host.state_file.write_text(json.dumps(state))
+    for _ in range(3):
+        host.run()
+    assert host.restarts() == [UNIT, UNIT]
+    assert f'dds_watchdog_restarts_total{{unit="{UNIT}"}} 2' in host.metrics()
+
+
+def test_dry_run_logs_without_restart(host: Harness) -> None:
+    """Dry run (value parsed case-insensitively) logs "would restart" and changes no counter."""
+    for _ in range(3):
+        proc = host.run(DDS_WATCHDOG_DRY_RUN="Yes")
+    assert "would restart" in proc.stdout
+    assert host.restarts() == []
+    text = host.metrics()
+    assert "dds_watchdog_restarts_total{" not in text
+    assert f'dds_watchdog_streak{{unit="{UNIT}"}} 3' in text
+
+
+def test_failed_restart_not_counted(host: Harness) -> None:
+    """A failing systemctl restart logs an error, counts nothing, keeps the streak and still writes metrics."""
+    host.fail_flag.write_text("")
+    for _ in range(3):
+        proc = host.run()
+    assert proc.returncode == 0
+    assert host.restarts() == [UNIT]
+    assert f"systemctl restart {UNIT} failed" in proc.stdout
+    text = host.metrics()
+    assert "dds_watchdog_restarts_total{" not in text
+    assert f'dds_watchdog_streak{{unit="{UNIT}"}} 3' in text
+    assert "dds_watchdog_up 1" in text
+
+
+def test_corrupt_state_file_resets(host: Harness) -> None:
+    """A corrupt state file starts empty with a warning and exits 0; a missing one too."""
+    host.state_file.parent.mkdir()
+    host.state_file.write_text("{not json")
+    proc = host.run()
+    assert proc.returncode == 0
+    assert "starting empty" in proc.stdout
+    assert f'dds_watchdog_streak{{unit="{UNIT}"}} 1' in host.metrics()
+    host.state_file.write_text('["wrong", "shape"]')
+    assert host.run().returncode == 0
+    host.state_file.unlink()
+    proc = host.run()
+    assert proc.returncode == 0 and "starting empty" in proc.stdout
+
+
+def test_metrics_file_format(host: Harness) -> None:
+    """The textfile has HELP and TYPE lines, unit labels, and ends with a newline; no temp file is left behind."""
+    host.run()
+    text = host.metrics()
+    assert text.endswith("\n")
+    for name, kind in [
+        ("dds_watchdog_up", "gauge"),
+        ("dds_watchdog_last_run_timestamp_seconds", "gauge"),
+        ("dds_watchdog_suspect", "gauge"),
+        ("dds_watchdog_streak", "gauge"),
+        ("dds_watchdog_restarts_total", "counter"),
+    ]:
+        assert f"# HELP {name} " in text
+        assert f"# TYPE {name} {kind}" in text
+    assert f'dds_watchdog_suspect{{unit="{UNIT}"}} 1' in text
+    assert sorted(p.name for p in host.textfile.parent.iterdir()) == ["dds_watchdog.prom"]
+
+
+def test_healthy_host_writes_zero_suspects(host: Harness) -> None:
+    """A healthy unit gives suspect 0 and streak 0, and is never restarted."""
+    host.set_threads([HEALTHY], [udp_row(0, 7418, 0)])
+    for _ in range(4):
+        assert host.run().returncode == 0
+    text = host.metrics()
+    assert f'dds_watchdog_suspect{{unit="{UNIT}"}} 0' in text
+    assert f'dds_watchdog_streak{{unit="{UNIT}"}} 0' in text
+    assert host.restarts() == []
+
+
+def test_unwritable_textfile_exits_nonzero(host: Harness) -> None:
+    """The only non-zero exit: the textfile directory is missing."""
+    proc = host.run(DDS_WATCHDOG_TEXTFILE=str(host.root / "missing" / "x.prom"))
+    assert proc.returncode == 1
