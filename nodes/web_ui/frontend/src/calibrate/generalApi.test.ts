@@ -102,11 +102,11 @@ describe('abortCalibration', () => {
     expect(r).toEqual({ stopped: [], errors: [] })
   })
 
-  it('stops a running head-arm sequence (it holds the arm, never parks)', async () => {
+  it('stops a running head-arm sequence (it holds the arm, never homes)', async () => {
     const posts = fakeNode({ headArm: { running: true, phase: 'tier' } })
     const r = await abortCalibration()
     expect(posts).toEqual(['/api/calibration/rgbd/head-arm/sequence/stop'])
-    expect(posts.some((p) => p.includes('park'))).toBe(false)
+    expect(posts.some((p) => p.includes('home'))).toBe(false)
     expect(r.stopped).toEqual(['arm-camera capture'])
   })
 
@@ -118,8 +118,8 @@ describe('abortCalibration', () => {
     }
   })
 
-  it('a park in progress is not stopped (the node never interrupts a park)', async () => {
-    const posts = fakeNode({ headArm: { running: true, phase: 'parking' } })
+  it('a Home in progress is not stopped (the node never interrupts a Home)', async () => {
+    const posts = fakeNode({ headArm: { running: true, phase: 'homing' } })
     const r = await abortCalibration()
     expect(posts).toEqual([])
     expect(r.stopped).toEqual([])

@@ -22,7 +22,7 @@ const SAVE_TEXT = 'Writes the new neutral into the servo EEPROM.'
 const ARM_SAVE_TEXT =
   'Arm joint offsets and the stored home become stale until re-calibrated. Teleop needs the leader arm re-zeroed in the same pose.'
 const LARGE_SHIFT_TEXT =
-  'A large shift usually means the joints were not in the neutral pose when it was recorded (for example the folded arm). Saving it moves every later pose and Park by that angle. Record again in the neutral pose unless the shift is intended.'
+  'A large shift usually means the joints were not in the neutral pose when it was recorded (for example the folded arm). Saving it moves every later pose and Home by that angle. Record again in the neutral pose unless the shift is intended.'
 const LARGE_SHIFT_CONFIRM = 'The large shift is intended: save it'
 export const MOVE_TO_NEUTRAL_TEXT = 'The arm moves to the neutral pose: all joints at 0. Keep the area clear.'
 export const SET_HOME_TEXT =

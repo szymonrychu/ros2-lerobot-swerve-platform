@@ -459,17 +459,18 @@ def test_arm_sequence_grip_defaults_come_from_the_handle() -> None:
     assert seq.insert_gripper_rad == 0.4
 
 
-def test_park_pose_is_the_parked_arm_and_sag_margin_defaults() -> None:
-    parked = yaml.safe_load((REPO_ROOT / "scripts" / "gen_nav_footprint.yaml").read_text())["parked_arm_joints"]
+def test_arm_home_file_is_the_mcp_server_home_and_sag_margin_defaults() -> None:
+    assert NodeConfig().arm_home_file == "/var/lib/ros2/arm/home.yaml"
+    assert load_config(SHIPPED).arm_home_file == "/var/lib/ros2/arm/home.yaml"
     seq = NodeConfig().arm_sequence
-    assert seq.park_pose == {name: parked[name] for name in ARM_JOINT_NAMES}
     assert seq.park_board_sag_margin_m == 0.01
     assert load_config(SHIPPED).arm_sequence.park_board_sag_margin_m == 0.01
 
 
-def test_park_pose_names_every_arm_joint_and_sag_margin_is_not_negative() -> None:
-    pose = {k: v for k, v in NodeConfig().arm_sequence.park_pose.items() if k != "wrist_roll"}
-    with pytest.raises(ValueError, match="park_pose: missing joint wrist_roll"):
+def test_park_pose_is_no_config_key_and_sag_margin_is_not_negative() -> None:
+    assert not hasattr(NodeConfig().arm_sequence, "park_pose")
+    pose = dict.fromkeys(ARM_JOINT_NAMES, 0.0)
+    with pytest.raises(ValidationError, match="park_pose"):
         NodeConfig.model_validate({"arm_sequence": sequence_with(park_pose=pose)})
     with pytest.raises(ValueError):
         NodeConfig.model_validate({"arm_sequence": sequence_with(park_board_sag_margin_m=-0.001)})

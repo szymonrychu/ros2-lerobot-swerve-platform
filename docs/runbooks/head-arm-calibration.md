@@ -48,14 +48,14 @@ not be filled in by an agent.
   head move against the arm before it is commanded (span from the held pan/tilt to the aim); a planned or
   refused head move skips the view with the reason `head_clearance` and is never commanded. Where the head
   is not held (run start, a resume, after a head move that did not converge or a head tool error, which
-  also stops the run) and for the board park, the
+  also stops the run) and for Home with the board on, the
   full-range head envelope is used. Details: `nodes/head_rgbd_calibration/README.md`, "The sequence"
   ("Head model of the checks").
 - Known limit (decision T-114 #369): where the head is not held (base pose, home -> base, the handle grip,
   base -> tier 0 pose 0, the first head move, any move after a head move that did not converge or a head
-  tool error, the board park) the check uses the full-range head envelope, which refuses
+  tool error, Home with the board on) the check uses the full-range head envelope, which refuses
   these moves from a pan-axis delta of about 38 mm on (the fit accepts up to 50 mm): fail safe, but no
-  capture and no board park. Today's head: 8.2 mm worst clearance, 3.2 mm over `margin_m`. Follow-up:
+  capture and no Home with the board on. Today's head: 8.2 mm worst clearance, 3.2 mm over `margin_m`. Follow-up:
   hold the head at a fixed aim before those moves, or lower `max_pan_axis_delta_mm`. Details:
   `nodes/head_rgbd_calibration/README.md`, "Pose set and its tests".
 - Wrist roll only half-open and lifted; negative elbow stretches.
@@ -82,7 +82,7 @@ mcp_server kills it; ask first). Telemetry only through topic_scraper_api /
    the run (the pose set needs re-planning for that mount). Commit, redeploy head_rgbd_calibration.
 2b. Dry run without the board: Open gripper (step 2) and press Board attached with nothing in the jaws: the grip
    close must stop the sequence with "the gripper closed past the handle contact: seat the handle up to the shoulder
-   and start again" (the seat check), holding the arm (phase `holding`). Record the measured angle it quotes. Park.
+   and start again" (the seat check), holding the arm (phase `holding`). Record the measured angle it quotes. Home (step 7).
 2c. Grip close with the board (gripper only, decision 264): Open gripper (step 2), seat the handle up to the shoulder,
    press Board attached. The gripper closes to `grip_rad`; the sequence must pass the seat check (measured at least
    `handle_contact_rad - handle_squeeze_rad / 2`) and the slack check (measured below `grip_rad +
@@ -103,10 +103,10 @@ mcp_server kills it; ask first). Telemetry only through topic_scraper_api /
    (confirm) or **Skip them**; record views, arm poses and skipped reasons. The head-from-arm fit of this procedure is
    in step 5 under **More fits on this session** (**Compute head from arm**): record RMS, held-out RMS, board error,
    each parameter with sigma and its change from the applied floor chain, and the floor cross-check. **Abort
-   calibration** in the General section stops the sequence at any time and holds the arm where it is (no park).
+   calibration** in the General section stops the sequence at any time and holds the arm where it is (no Home move).
 4. **Apply head from arm** on a passed result; the units restart. The arm-to-camera fit itself is step 5 **Compute**
    and step 6 **Check and accept** (Accept confirms and applies, Decline keeps the current calibration; Accept is off
-   with the reasons when the report is not plausible); then step 7 **Park** (confirm), the user removes the board.
+   with the reasons when the report is not plausible); then step 7 **Home** (confirm: the arm moves to the stored home with the board), the user removes the board.
    Check TF with topic_scraper_api (enable it first) and the
    web UI head pose; `/ground/state` at home stays within 0.01 m height.
 5. Live yaw and x/y check: arm at the base pose without the board, `head_look_at` on the tool point;
@@ -118,30 +118,30 @@ Retry notes: speed_scale stays 0.1 (fragile mount). A pose refused by the path c
 skipped with its reason, not forced. After a long hold (about 4 h) the gripper servo can drop off the
 bus under the board load: park with the board (D63) and take the board out of the jaws between sessions. A seat-check
 refusal ("closed past the handle contact") means the post was not in the jaws up to the shoulder. The sequence ends in
-phase `holding` (the board counts as attached): take the board out of the jaws, press Park (step 7, open whenever the
-arm holds the board; the checked board park),
+phase `holding` (the board counts as attached): take the board out of the jaws, press Home (step 7, open whenever the
+arm holds the board; the checked board Home),
 then Open gripper again (step 2: base pose, gripper at `insert_gripper_rad`), reseat the handle and retry. A page that
-lost the sequence (restart) offers **Park (board is on the gripper)** in step 1.
+lost the sequence (restart) offers **Home (board is on the gripper)** in step 1.
 
-Board record: from Board attached until a completed park the node keeps
+Board record: from Board attached until a completed Home the node keeps
 `/var/lib/ros2/head_rgbd_calibration/head_arm_board.json`, and mcp_server refuses `/arm/home` (Home arm everywhere) while
 it exists, whatever its age; the refusal names the file and both ways out. The Calibrate page shows the record in the
 General section and above the Arm to camera steps, with its session (or "without a capture session"), attach time and
-age, and disables Home arm while it exists. Board still on the gripper: **Park (board is on the gripper)** (step 1) or
-**Park arm** (step 7 while holding). Board already off (taken out by hand without a park): **The board is already off
+age, and disables Home arm while it exists. Board still on the gripper: **Home (board is on the gripper)** (step 1) or
+**Home** (step 7 while holding). Board already off (taken out by hand without a Home): **The board is already off
 the gripper: clear the record** and confirm. Nothing moves; the node removes the file, logs a `board_record_clear`
 calib_event (run id `board-...`, the removed record in `data.record`) and a recent event, and a `holding` sequence
-returns to idle. The clear is refused while a head-arm sequence or park or an arm to camera compute runs. Never delete
+returns to idle. The clear is refused while a head-arm sequence or Home or an arm to camera compute runs. Never delete
 the file by hand on the robot while the board may still be in the jaws.
 
-Where errors show: a sequence or park that ends with an error shows it on the Calibrate page in the red banner
+Where errors show: a sequence or Home that ends with an error shows it on the Calibrate page in the red banner
 **Last head-arm error** (Arm to camera flow, above its steps; a refused button shows its message on its own step) with the time and phase it happened
 in, and the **Recent head-arm events** log below it lists the newest 50 events (start, each step and pose outcome,
-errors, stops, park results), newest first. Each of these events is one `calib_event` line in the node journal (errors at
+errors, stops, Home results), newest first. Each of these events is one `calib_event` line in the node journal (errors at
 ERROR, stops at WARNING), next to the step telemetry the page does not show; read it through the deploy tooling, never
 an ad-hoc probe (see "Reading a failed run from the journal" below).
-Read the message before retrying; never re-record the servo neutral to make a failing Park converge (incident
-2026-11-09: a neutral re-recorded in the folded pose shifted elbow_flex by +90.5 deg and Park could no longer converge;
+Read the message before retrying; never re-record the servo neutral to make a failing Home converge (incident
+2026-11-09, history: a neutral re-recorded in the folded pose shifted elbow_flex by +90.5 deg and Park, now Home, could no longer converge;
 the bridge now refuses such a save without the explicit large-shift confirm, `docs/runbooks/servo-torque-neutral.md`).
 
 ### Grip contact does not match the board
@@ -152,13 +152,13 @@ thicker than the configured `handle_contact_rad`. Nothing needs editing in the c
 
 1. Seat the handle up to the shoulder in the jaws by hand and check it by eye. After these two errors the sequence is `holding` with the board on (the board was confirmed before the grip check); step 3 Grab board is locked then (Board attached works only in `waiting_board`), so the only reachable button is the one in the banner.
 2. Press **Confirm correct grip** (in the red **Last head-arm error** banner for these two errors, where its refusal is also shown; step 3 Grab
-   board and step 7 Park have it too, but step 3 only while its run is live) and confirm "The handle is seated correctly: record the measured gripper angle as the grip on
+   board and step 7 Home have it too, but step 3 only while its run is live) and confirm "The handle is seated correctly: record the measured gripper angle as the grip on
    this board (nothing moves)". The node measures the jaw, records it as the handle contact in
    `<state_dir>/head_arm_grip.json` (kept across restarts and deploys, never templated by Ansible) and answers with the
    new grip. It refuses a contact outside 0.03 to 0.30 rad and any call while something moves.
-3. The line under Grab board and Park reads "Handle contact <rad> rad (recorded at <time>)"; "(config value)" means no
+3. The line under Grab board and Home reads "Handle contact <rad> rad (recorded at <time>)"; "(config value)" means no
    record. After a confirm from the banner the red banner stays (the node keeps the error) and a green "Grip recorded:
-   handle contact <rad> rad" line appears next to its button. To get a fresh grip, press Park, then Open gripper and
+   handle contact <rad> rad" line appears next to its button. To get a fresh grip, press Home, then Open gripper and
    Board attached. Resume capture (board on) keeps the jaw as it is and skips the seat and slack checks.
 4. **Reset to config value** (shown only while a record exists, own confirm, nothing moves) deletes the record and goes
    back to the configured contact, e.g. for a different board. Both buttons stay disabled while the sequence runs or a
@@ -177,9 +177,9 @@ run went wrong:
 1. List the runs and their ends: `journalctl -u ros2-head_rgbd_calibration -o cat --since today | grep -o
    'calib_event {.*' | cut -d' ' -f2- | jq -c 'select(.flow=="head_arm" and .step=="sequence")'`. The `error` event
    names `failed_step`, the `reason` (the same text as the red banner), the phase it ended in, the session id and the
-   counts; a `park` event does the same for a park (`run_id` `park-...`).
+   counts; a `home` event does the same for a Home (`run_id` `home-...`).
 2. Take that `run_id` and read the whole run in order: `... | jq -c 'select(.run_id=="seq-...")'`. The last `error`
-   event of a timed step (`base_move`, `handle_grip`, `pose`, `return_to_base`, `park_move`, `park_release`, ...) carries
+   event of a timed step (`base_move`, `handle_grip`, `pose`, `return_to_base`, `home_move`, `home_release`, ...) carries
    the step's inputs and the exception.
 3. Look at the step just before the failure:
    - `path_check` `refused`: `data.entries` names every violated rule with its value, limit and path fraction,
@@ -195,7 +195,7 @@ run went wrong:
    - `still` `skipped`: `reason` (no board, joints stale, not still) and `data.detail` (corner count, board ids, the
      window's colour MAD against `rgb_mad_limit`, the moving joint and its range, the joint stamp gaps).
    - `view` `skipped`: the head command and the violated view rule (min-Z, FOV, head limits, `head_clearance`).
-   - `park_path_check` `refused`: the mount used (`fitted`, `recorded` or `configured`), the margins and the entries.
+   - `home_path_check` `refused`: the mount used (`fitted`, `recorded` or `configured`), the margins and the entries.
 4. A compute that failed: `select(.flow=="head_arm_compute")` (or `arm_compute`, `floor_compute`, `d435_compute`) shows
    the `inputs` (views per tier and head offset, corner counts, intrinsics, floor reference) and the `result` with every
    limit check (`value`, `limit`, `ok`) and the worst views; an apply is `head_chain_apply` (files written, unit states).
@@ -232,7 +232,7 @@ Calibration session `calib-20261023-074418`: speed_scale 0.1, board mass 214 g, 
   y 0.77 mm.
 - Applied 11:52; survives reboot.
 - Incident: after about 4 h holding the board (load 200) gripper servo 6 dropped off the bus and the
-  robot was power-cycled; the arm returned to rest. Park with the board (D63) was added and reviewed.
+  robot was power-cycled; the arm returned to rest. Park with the board (D63) was added and reviewed (history; the flow button is now Home).
 
 ## Arm to camera calibration (T-99)
 
@@ -244,7 +244,7 @@ gauges: `nodes/head_rgbd_calibration/README.md` ("Arm to camera calibration").
    /api/arm-camera/state` must say `ready: true`; `head_chain_source` names which chain is held fixed. Without one the
    compute is refused (409) with "apply a head calibration first".
 2. Capture: the same head-arm sequence as steps 3 above (Move to base pose, seat the ARM board, Board attached, tiers,
-   ask before "Allow elbow and shoulder moves", Park). No extra arm moves: the fit only reads the stored views.
+   ask before "Allow elbow and shoulder moves", Home). No extra arm moves: the fit only reads the stored views.
 3. Compute: `POST /api/arm-camera/sessions/{sid}/compute` (202 `{result_id}`), then poll `GET
    .../results/{rid}` until `state` is `done` or `failed` (a few seconds on a laptop, longer on the Pi 5; the child is
    killed after `compute_timeout_s`).

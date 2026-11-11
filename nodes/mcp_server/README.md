@@ -105,17 +105,17 @@ Arm tab Home, the Calibrate page General Home arm (`/api/calibration/general/hom
   does not refuse: the caller is the web UI, and home still releases it;
 - the head_rgbd_calibration board record exists (`arm.calibration_board_record`, default
   `/var/lib/ros2/head_rgbd_calibration/head_arm_board.json`, the node's `<state_dir>/head_arm_board.json`; written on
-  Board attached, removed by a successful park; any age, an unreadable file counts; null disables the check). This
-  covers the board in the jaws with no lease held and a relaxed grip (the `holding` phase after a run, a failed park, a
-  node restart): "arm home refused: the calibration board is on the gripper by the board record <path> (session <id>,
-  attached at <time>) - the home route is not checked with it. Board still on: park it from the Calibrate page Arm to
-  camera flow (Park arm, or Park (board is on the gripper)). Board already off: clear the record on the Calibrate page
-  (The board is already off the gripper: clear the record)". The clear is head_rgbd_calibration's
-  `POST /api/arm-camera/board-record/clear` (no motion; it logs a `board_record_clear` calib_event), so a board taken
-  off by hand without a park does not block Home for good;
+  Board attached, removed by a successful Home of the Arm to camera flow; any age, an unreadable file counts; null
+  disables the check). This covers the board in the jaws with no lease held and a relaxed grip (the `holding` phase
+  after a run, a failed flow Home, a node restart): "arm home refused: the calibration board is on the gripper by the
+  board record <path> (session <id>, attached at <time>) - the home route is not checked with it. Board still on: home
+  it from the Calibrate page Arm to camera flow (step 7 Home, or step 1 Home (board is on the gripper)). Board already
+  off: clear the record on the Calibrate page (The board is already off the gripper: clear the record)". The clear is
+  head_rgbd_calibration's `POST /api/arm-camera/board-record/clear` (no motion; it logs a `board_record_clear`
+  calib_event), so a board taken off by hand without the flow's Home does not block Home for good;
 - the gripper carries (`carrying_state`: the carry record or a live holding load, e.g. the calibration board clamped by
   its handle): "arm home refused: the gripper carries something (<reasons>) - the home route is not checked with it;
-  remove it first (park the calibration board from its flow)";
+  remove it first (home the calibration board with the Calibrate page Arm to camera flow step 7 Home)";
 - the calibration stale marker lists `joint_offsets` (an unreadable marker counts): "arm home refused: the calibration
   stale marker lists joint_offsets (arm re-zero at <saved_at>): the home route and its body check would use the old
   zero; restore the arm zero first" (a stale `home` keeps its own refusal, see the stale marker section; not refused when

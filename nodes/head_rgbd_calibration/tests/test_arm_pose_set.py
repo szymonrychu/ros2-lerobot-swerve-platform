@@ -559,12 +559,12 @@ def test_synthetic_fit_on_shipped_set_passes(head_name: str) -> None:
 
 @cache
 def cached_checker(head_urdf: str, mount_json: str, sag_m: float = 0.0, extra_margin_m: float = 0.0) -> PoseChecker:
-    """One pose checker per head, board mount, park sag and link margin, reused by every check on them (region
+    """One pose checker per head, board mount, board sag and link margin, reused by every check on them (region
     obstacle sets are cached per checker).
 
     :param head_urdf: head URDF text
     :param mount_json: the board mount, `BoardMountConfig.model_dump_json()`
-    :param sag_m: park sag margin added to the board margin and to `min_board_height_m` (0 for the sequence)
+    :param sag_m: board sag margin (`park_board_sag_margin_m`) added to the board margin and to `min_board_height_m` (0 for the sequence)
     :param extra_margin_m: added to `pose_check.margin_m` (0 for the shipped link margin)
     :return: the pose checker, board margin `board_margin_m(nominal_mount=True) + sag_m`
     """
@@ -658,7 +658,7 @@ def sequencer_model_failures(
 
 def full_range_legs(head_urdf: str, extra_margin_m: float = 0.0) -> dict[str, list[str]]:
     """Envelope check entries of the legs that never hold the head, nominal mount: home -> base, base -> tier 0
-    pose 0, and base -> park_pose with the park sag margin (as `check_board_park_path`).
+    pose 0, and base -> the stored home (`HOME_POSE`) with the board sag margin (as `check_board_home_path`).
 
     :param head_urdf: head URDF text
     :param extra_margin_m: added to `pose_check.margin_m` (0 for the shipped link margin)
@@ -666,11 +666,11 @@ def full_range_legs(head_urdf: str, extra_margin_m: float = 0.0) -> dict[str, li
     """
     mount_json = FIT.board_mount.model_dump_json()
     checker = cached_checker(head_urdf, mount_json, extra_margin_m=extra_margin_m)
-    park = cached_checker(head_urdf, mount_json, SEQ.park_board_sag_margin_m, extra_margin_m)
+    home = cached_checker(head_urdf, mount_json, SEQ.park_board_sag_margin_m, extra_margin_m)
     return {
         "home -> base": checker.check_path(HOME_POSE, SEQ.base_pose, SEQ.insert_gripper_rad),
         "base -> tier 0 pose 0": checker.check_path(SEQ.base_pose, SEQ.tier0_poses[0], SEQ.grip_rad),
-        "base -> park": park.check_path(SEQ.base_pose, SEQ.park_pose, SEQ.grip_rad),
+        "base -> home": home.check_path(SEQ.base_pose, HOME_POSE, SEQ.grip_rad),
     }
 
 
@@ -739,7 +739,7 @@ def test_pan_axis_head_rebuilds_the_live_head() -> None:
 
 def test_live_head_full_range_legs_pass_with_today_headroom() -> None:
     """Today's live head (35.66 mm pan-axis delta) passes the legs that use the full-range envelope (home -> base, base
-    -> tier 0 pose 0, base -> park with the park sag) with less than `HEADROOM_PROBE_M` to spare (8.2 mm worst
+    -> tier 0 pose 0, base -> home with the board sag) with less than `HEADROOM_PROBE_M` to spare (8.2 mm worst
     clearance, 3.2 mm over margin_m): a refit that moves the pan axis ~2 mm further out blocks the sequence start."""
     legs = full_range_legs(LIVE_HEAD)
     assert all(entries == [] for entries in legs.values()), legs
@@ -750,7 +750,7 @@ def test_live_head_full_range_legs_pass_with_today_headroom() -> None:
 def test_max_pan_axis_head_held_band_passes_and_unheld_envelope_moves_fail_safe() -> None:
     """At the fit's largest pan-axis delta (`max_pan_axis_delta_mm`, live mount, today's direction) every check with
     the head held passes under the nominal mount and the board mount band, while every move before the head is held
-    (base pose, home -> base, base -> tier 0 pose 0, the first head move, base -> park) is refused by the full-range
+    (base pose, home -> base, base -> tier 0 pose 0, the first head move, base -> home) is refused by the full-range
     envelope: the known ~38 mm limit (decision T-114 #369), fail safe."""
     mounts = list(band_mounts())
     held, unheld = sequencer_model_failures(MAX_PAN_AXIS_HEAD, mounts)
@@ -758,4 +758,4 @@ def test_max_pan_axis_head_held_band_passes_and_unheld_envelope_moves_fail_safe(
     for mount, _ in mounts:
         for step in ("base: ", "home -> base: ", "base -> tier 0 pose 0: ", "tier 0 pose 0 head move: "):
             assert any(e.startswith(f"{mount} {step}") for e in unheld), (mount, step)
-    assert full_range_legs(MAX_PAN_AXIS_HEAD)["base -> park"], "board park not refused"
+    assert full_range_legs(MAX_PAN_AXIS_HEAD)["base -> home"], "board Home not refused"

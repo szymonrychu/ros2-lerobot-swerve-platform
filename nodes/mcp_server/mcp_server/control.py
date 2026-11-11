@@ -117,14 +117,14 @@ HOME_SERVICE_AGENT_REFUSAL = (
 )
 HOME_SERVICE_CARRYING_REFUSAL = (
     "arm home refused: the gripper carries something ({reasons}) - the home route is not checked with it; remove it "
-    "first (park the calibration board from its flow)"
+    "first (home the calibration board with the Calibrate page Arm to camera flow step 7 Home)"
 )
 HOME_SERVICE_NOT_READY = "arm home refused: mcp_server is not ready"
 HOME_SERVICE_BOARD_REFUSAL = (
     "arm home refused: the calibration board is on the gripper by the board record {path} ({record}) - the home route "
-    "is not checked with it. Board still on: park it from the Calibrate page Arm to camera flow (Park arm, or Park "
-    "(board is on the gripper)). Board already off: clear the record on the Calibrate page (The board is already off "
-    "the gripper: clear the record)"
+    "is not checked with it. Board still on: home it from the Calibrate page Arm to camera flow (step 7 Home, or step "
+    "1 Home (board is on the gripper)). Board already off: clear the record on the Calibrate page (The board is "
+    "already off the gripper: clear the record)"
 )
 
 

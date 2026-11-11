@@ -143,7 +143,7 @@ describe('ArmCameraFlow', () => {
       '4. Capture',
       '5. Compute',
       '6. Check and accept',
-      '7. Park',
+      '7. Home',
     ])
   })
 
@@ -490,12 +490,12 @@ describe('ArmCameraFlow', () => {
     expect((within(step(6)).getByRole('button', { name: 'Decline' }) as HTMLButtonElement).disabled).toBe(false)
   })
 
-  it('a refused report disables Accept; Decline declines and unlocks Park', async () => {
+  it('a refused report disables Accept; Decline declines and unlocks Home', async () => {
     setState(HOLDING)
     a.computeArmCamera.mockResolvedValue(ok({ result_id: refusedFx.id }))
     a.getArmCameraResult.mockResolvedValue(ok(refusedFx))
     a.declineArmCamera.mockResolvedValue(ok({ ...refusedFx, declined: true, declined_at: '2026-11-09T12:20:00+00:00' }))
-    m.park.mockResolvedValue(ok(seq({ running: true, phase: 'parking' })))
+    m.home.mockResolvedValue(ok(seq({ running: true, phase: 'homing' })))
     await renderFlow(false)
     await click('Compute', step(5))
     await waitFor(() => expect(within(step(6)).getByText('Not plausible')).toBeTruthy())
@@ -508,10 +508,10 @@ describe('ArmCameraFlow', () => {
     await click('Decline', step(6))
     expect(a.declineArmCamera).toHaveBeenCalledWith(refusedFx.session, refusedFx.id)
     expect(within(step(6)).getByText('Declined')).toBeTruthy()
-    await click('Park arm', step(7))
-    expect(m.park).not.toHaveBeenCalled()
-    await confirmIn('Park')
-    expect(m.park).toHaveBeenCalledWith(true)
+    await click('Home', step(7))
+    expect(m.home).not.toHaveBeenCalled()
+    await confirmIn('Home')
+    expect(m.home).toHaveBeenCalledWith(true)
   })
 
   it('the gate shows the client.yml snippet of the result with Copy', async () => {
@@ -567,32 +567,32 @@ describe('ArmCameraFlow', () => {
     expect(screen.getByRole('button', { name: 'Compute arm offsets' })).toBeTruthy()
   })
 
-  it('Park with the board (lost sequence) states the board is on and shows the remembered record', async () => {
+  it('Home with the board (lost sequence) states the board is on and shows the remembered record', async () => {
     setState(seq({ board_record: stateFx.sequence.board_record }))
-    m.park.mockResolvedValue(ok(seq({ running: true, phase: 'parking' })))
+    m.home.mockResolvedValue(ok(seq({ running: true, phase: 'homing' })))
     await renderFlow(false)
-    await click('Park (board is on the gripper)', step(1))
+    await click('Home (board is on the gripper)', step(1))
     expect(within(dialog()).getByText(/attached in session calib-20261023-074418/)).toBeTruthy()
-    expect(m.park).not.toHaveBeenCalled()
-    await confirmIn('Park with the board')
-    expect(m.park).toHaveBeenCalledWith(true, true)
+    expect(m.home).not.toHaveBeenCalled()
+    await confirmIn('Home with the board')
+    expect(m.home).toHaveBeenCalledWith(true, true)
   })
 
-  it('an old board record is shown with Park and the no-motion clear; Home arm is off until it is gone', async () => {
+  it('an old board record is shown with Home (board is on the gripper) and the no-motion clear; Home arm is off until it is gone', async () => {
     const old = { ...stateFx.sequence.board_record, session_id: null, age_s: 39600, offered: false, problem: 'too old' }
     setState(seq({ board_record: old }))
     m.clearBoardRecord.mockResolvedValue(ok(seq({ status: 'board record cleared' })))
     await renderFlow()
     const notice = screen.getByRole('region', { name: 'Board record' })
     expect(within(notice).getByText(/attached without a capture session at 2026-10-23T07:50:00\+00:00, 11 h ago/)).toBeTruthy()
-    expect(within(notice).getByText(/Park \(board is on the gripper\) in step 1/)).toBeTruthy()
+    expect(within(notice).getByText(/Home \(board is on the gripper\) in step 1/)).toBeTruthy()
     expect((within(step(1)).getByRole('button', { name: 'Home arm' }) as HTMLButtonElement).disabled).toBe(true)
-    expect(within(step(1)).getByRole('button', { name: 'Park (board is on the gripper)' })).toBeTruthy()
+    expect(within(step(1)).getByRole('button', { name: 'Home (board is on the gripper)' })).toBeTruthy()
     await click('The board is already off the gripper: clear the record', notice)
     expect(m.clearBoardRecord).not.toHaveBeenCalled()
     await confirmIn('Clear the record')
     expect(m.clearBoardRecord).toHaveBeenCalledTimes(1)
-    expect(m.park).not.toHaveBeenCalled()
+    expect(m.home).not.toHaveBeenCalled()
     expect(screen.queryByRole('region', { name: 'Board record' })).toBeNull()
     expect((within(step(1)).getByRole('button', { name: 'Home arm' }) as HTMLButtonElement).disabled).toBe(false)
   })
@@ -662,10 +662,10 @@ describe('ArmCameraFlow', () => {
     expect(homeButton().disabled).toBe(false)
   })
 
-  it('the Park with the board confirm mentions only an offered record', async () => {
+  it('the Home with the board confirm mentions only an offered record', async () => {
     setState(seq({ board_record: { ...stateFx.sequence.board_record, offered: false, problem: 'too old' } }))
     await renderFlow(false)
-    await click('Park (board is on the gripper)', step(1))
+    await click('Home (board is on the gripper)', step(1))
     expect(within(dialog()).queryByText(/The node remembers a board/)).toBeNull()
   })
 
@@ -678,23 +678,28 @@ describe('ArmCameraFlow', () => {
     }
   })
 
-  it('Park is reachable whenever the arm holds the board, also with nothing captured', async () => {
+  it('Home is reachable whenever the arm holds the board, also with nothing captured', async () => {
     setState(seq({ phase: 'holding', session_id: SID, captured: 0, error: 'the gripper closed past the handle contact' }))
-    m.park.mockResolvedValue(ok(seq({ running: true, phase: 'parking', session_id: SID })))
+    m.home.mockResolvedValue(ok(seq({ running: true, phase: 'homing', session_id: SID })))
+    const general = vi.spyOn(generalApi, 'runGeneralAction')
     await renderFlow(false)
-    await click('Park arm', step(7))
-    await confirmIn('Park')
-    expect(m.park).toHaveBeenCalledWith(true)
+    await click('Home', step(7))
+    expect(within(dialog()).getByText('Home the arm, board on or off?')).toBeTruthy()
+    expect(within(dialog()).getByText(/Arm to camera flow's Home/)).toBeTruthy()
+    await confirmIn('Home')
+    expect(m.home).toHaveBeenCalledWith(true)
+    // The flow's Home is the node's board-aware Home, not the General Home arm (/arm/home).
+    expect(general).not.toHaveBeenCalled()
   })
 
-  it('a park that fails after it started is not done', async () => {
+  it('a home that fails after it started is not done', async () => {
     setState(seq({ phase: 'holding', session_id: SID, captured: 0 }))
-    m.park.mockResolvedValue(ok(seq({ running: true, phase: 'parking', session_id: SID })))
+    m.home.mockResolvedValue(ok(seq({ running: true, phase: 'homing', session_id: SID })))
     await renderFlow(false)
-    await click('Park arm', step(7))
-    await confirmIn('Park')
-    setState(seq({ phase: 'holding', session_id: SID, captured: 0, error: 'park refused: board below the floor margin' }))
-    m.park.mockResolvedValue(ok(seq({ phase: 'holding', session_id: SID, error: 'park refused: board below the floor margin' })))
+    await click('Home', step(7))
+    await confirmIn('Home')
+    setState(seq({ phase: 'holding', session_id: SID, captured: 0, error: 'Home refused: board below the floor margin' }))
+    m.home.mockResolvedValue(ok(seq({ phase: 'holding', session_id: SID, error: 'Home refused: board below the floor margin' })))
     vi.useFakeTimers({ shouldAdvanceTime: true })
     await act(async () => {
       await vi.advanceTimersByTimeAsync(ARM_POLL_MS * 2)
@@ -703,12 +708,12 @@ describe('ArmCameraFlow', () => {
     expect(within(step(7)).queryByRole('button', { name: 'Start a new run' })).toBeNull()
   })
 
-  it('a finished park is done and a new run starts clean', async () => {
+  it('a finished home is done and a new run starts clean', async () => {
     setState(seq({ phase: 'holding', session_id: SID, captured: 40 }))
-    m.park.mockResolvedValue(ok(seq({ phase: 'idle', session_id: SID, captured: 40 })))
+    m.home.mockResolvedValue(ok(seq({ phase: 'idle', session_id: SID, captured: 40 })))
     await renderFlow(false)
-    await click('Park arm', step(7))
-    await confirmIn('Park')
+    await click('Home', step(7))
+    await confirmIn('Home')
     expect(within(step(7)).getByText('Done')).toBeTruthy()
     await click('Start a new run', step(7))
     expect(within(step(4)).queryByText('Done')).toBeNull()
@@ -720,14 +725,14 @@ describe('ArmCameraFlow', () => {
     a.computeArmCamera.mockResolvedValue(ok({ result_id: doneFx.id }))
     a.getArmCameraResult.mockResolvedValue(ok(doneFx))
     a.declineArmCamera.mockResolvedValue(ok({ ...doneFx, declined: true, declined_at: '2026-11-09T12:20:00+00:00' }))
-    m.park.mockResolvedValue(ok(seq({ phase: 'idle', session_id: SID, captured: 40 })))
+    m.home.mockResolvedValue(ok(seq({ phase: 'idle', session_id: SID, captured: 40 })))
     m.moveToBase.mockResolvedValue(ok(seq({ running: true, phase: 'waiting_board', session_id: 'calib-new' })))
     await renderFlow(false)
     await click('Compute', step(5))
     await waitFor(() => expect(within(step(6)).getByText('Plausible')).toBeTruthy())
     await click('Decline', step(6))
-    await click('Park arm', step(7))
-    await confirmIn('Park')
+    await click('Home', step(7))
+    await confirmIn('Home')
     await click('Open gripper', step(2))
     await confirmIn('Move')
     expect(within(step(5)).queryByText('Done')).toBeNull()
@@ -763,7 +768,7 @@ describe('ArmCameraFlow', () => {
     const SLACK = 'the gripper stopped short of the commanded grip by the mcp_server converge tolerance or more, so the clamp would relax'
     const disabledOf = (root: HTMLElement, name: string) => (within(root).getByRole('button', { name }) as HTMLButtonElement).disabled
 
-    it('Grab board and Park offer Confirm correct grip, enabled while holding', async () => {
+    it('Grab board and Home offer Confirm correct grip, enabled while holding', async () => {
       setState(HOLDING)
       await renderFlow(false)
       expect(disabledOf(step(3), CONFIRM)).toBe(false)
@@ -781,10 +786,10 @@ describe('ArmCameraFlow', () => {
 
     it('is disabled while a call is busy', async () => {
       setState(HOLDING)
-      m.park.mockReturnValue(new Promise(() => {}))
+      m.home.mockReturnValue(new Promise(() => {}))
       await renderFlow(false)
-      await click('Park arm', step(7))
-      await confirmIn('Park')
+      await click('Home', step(7))
+      await confirmIn('Home')
       expect(disabledOf(step(3), CONFIRM)).toBe(true)
       expect(disabledOf(step(7), CONFIRM)).toBe(true)
     })
@@ -816,7 +821,7 @@ describe('ArmCameraFlow', () => {
       expect(within(step(3)).getByText('the gripper is not closed on the handle')).toBeTruthy()
     })
 
-    it('the Park step reports its own error', async () => {
+    it('the Home step reports its own error', async () => {
       setState(HOLDING)
       m.confirmGrip.mockResolvedValue({ ok: false, status: 409, message: 'busy now' })
       await renderFlow(false)
