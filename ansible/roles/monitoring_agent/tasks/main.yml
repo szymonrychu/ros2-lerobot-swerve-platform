@@ -131,6 +131,38 @@
       loop: [rpi-throttled.service, rpi-throttled.timer]
       notify: [Reload systemd]
 
+    # ---- dds watchdog -----------------------------------------------------------------------------------------------
+    # Restarts a ros2-* unit whose Fast DDS discovery thread is deadlocked (docs/runbooks/dds-discovery-deadlock.md). It
+    # asks web_ui's /api/calibration/active first, so deploy web_ui (client) before this role.
+    - name: Create the DDS watchdog state directory
+      ansible.builtin.file:
+        path: "{{ monitoring_agent_dds_watchdog_state_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0750"
+      when: monitoring_agent_dds_watchdog_enabled | bool
+
+    - name: Install the DDS watchdog script
+      ansible.builtin.copy:
+        src: dds_watchdog.py
+        dest: /usr/local/lib/monitoring/dds_watchdog.py
+        owner: root
+        group: root
+        mode: "0755"
+      when: monitoring_agent_dds_watchdog_enabled | bool
+
+    - name: Install the DDS watchdog service and timer
+      ansible.builtin.template:
+        src: "{{ item }}.j2"
+        dest: "/etc/systemd/system/{{ item }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop: [dds-watchdog.service, dds-watchdog.timer]
+      when: monitoring_agent_dds_watchdog_enabled | bool
+      notify: [Reload systemd]
+
     # ---- start and check ------------------------------------------------------------------------------------------
     - name: Apply unit and config changes before starting
       ansible.builtin.meta: flush_handlers
@@ -141,6 +173,13 @@
         enabled: true
         state: started
       loop: [alloy, rpi-throttled.timer]
+
+    - name: Enable and start the DDS watchdog timer
+      ansible.builtin.systemd_service:
+        name: dds-watchdog.timer
+        enabled: true
+        state: started
+      when: monitoring_agent_dds_watchdog_enabled | bool
 
     # Handlers are lost when a run fails after writing a config, so the next run would see nothing to change: restart
     # Alloy when its config, drop-in or the slice is newer than its start.
@@ -188,3 +227,13 @@
   when:
     - not monitoring_agent_enabled | bool
     - item.probe in ansible_facts.services
+
+# Probed through the service, like the throttling timer. Also runs when the agent as a whole is off.
+- name: Stop and disable the DDS watchdog timer (monitoring_agent_enabled or monitoring_agent_dds_watchdog_enabled is false)
+  ansible.builtin.systemd_service:
+    name: dds-watchdog.timer
+    enabled: false
+    state: stopped
+  when:
+    - not (monitoring_agent_enabled | bool and monitoring_agent_dds_watchdog_enabled | bool)
+    - "'dds-watchdog.service' in ansible_facts.services"
