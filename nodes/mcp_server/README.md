@@ -1375,10 +1375,14 @@ stale}`, where `stale` lists `joint_offsets` and/or `home`.
   marker: "set home refused: the arm zero is stale (joint_offsets); run the zero restore first (arm re-zero at <saved_at>)". A home measured in the old zero would be the pose `/arm/home` drives to after the zero restore.
 - `/arm/set_home_from_calibration` (`ArmController.set_home_from_calibration`, called by the web UI right after an arm
   servo calibration store) reads `arm.servo_calibration_record` (the bridge's `servo_calibration-follower-latest.json`,
-  null disables it; config key `arm.set_home_from_calibration_service`, default `/arm/set_home_from_calibration`) and stores the record's `home_rad` (the calibration targets, the recorded gripper reading) as the
-  home. It is accepted only for a successful `follower` record whose `changed_at` equals the marker's `saved_at` (the
-  record is the latest arm zero change; otherwise "a newer zero change happened"), is allowed while `joint_offsets` is
-  stale, and clears only `home` from the marker. `arm_set_home` stays refused as described above. Tests: `tests/test_home_service_guard.py`.
+  null disables it; the service name is `topics.set_home_from_calibration_service`, default
+  `/arm/set_home_from_calibration`) and stores the record's `home_rad` (the calibration targets, the recorded gripper
+  reading) as the home. It is accepted only for a successful `follower` record whose `changed_at` equals the marker's
+  `saved_at` (the record is the latest arm zero change; otherwise "a newer zero change happened"), is allowed while
+  `joint_offsets` is stale, and clears only `home` from the marker, only while the marker's `saved_at` is still the
+  record's (`clear_stale(..., only_if_saved_at=changed_at)`: a re-zero that lands meanwhile keeps its `home`). A store
+  that wrote no offset (limits only: no zero change, so no marker) is refused with "the servo calibration at <time>
+  changed no offset; arm home unchanged" (the record's `joints` show no written offset change). `arm_set_home` stays refused as described above. Tests: `tests/test_home_service_guard.py`.
 - `arm_set_home` clears `home` from the marker. `joint_offsets` is cleared when an accepted arm to camera
   calibration captured after the re-zero is applied ("Accepted arm calibration"). The marker file is deleted once
   nothing is stale.

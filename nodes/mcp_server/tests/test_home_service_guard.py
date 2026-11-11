@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from mcp_server import arm as arm_module
 from mcp_server.arm import ArmError
 from mcp_server.calibration_marker import load_marker
 from mcp_server.control import HOME_SERVICE_AGENT_REFUSAL
@@ -218,6 +219,10 @@ CALIBRATION_HOME = {
     "wrist_roll": 0.0,
     "gripper": 0.31,
 }
+# One joint as the bridge writes it (plan payload + StoreOutcome payload, trimmed): its offset changed and was written.
+OFFSET_JOINT = {"plan": {"offset_before_steps": 120, "new_offset_steps": 160}, "written": True, "applied": True}
+# A limits-only store: the joint was written (its limits) but its offset stayed.
+LIMITS_ONLY_JOINT = {"plan": {"offset_before_steps": 120, "new_offset_steps": 120}, "written": True, "applied": True}
 
 
 def write_record(robot: FakeRobot, **overrides: object) -> Path:
@@ -237,7 +242,7 @@ def write_record(robot: FakeRobot, **overrides: object) -> Path:
         "changed_at": CHANGED_AT,
         "success": True,
         "home_rad": CALIBRATION_HOME,
-        "joints": {},
+        "joints": {"elbow_flex": OFFSET_JOINT},
         **overrides,
     }
     path = robot.arm.cfg.arm.calibration_stale_marker.parent / "servo_calibration-follower-latest.json"
@@ -314,6 +319,42 @@ def test_set_home_from_calibration_refuses_failed_record(robot: FakeRobot, overr
         robot.arm.set_home_from_calibration()
     assert robot.arm.cfg.arm.home_file.read_text() == home_before
     assert load_marker(robot.arm.cfg.arm.calibration_stale_marker).stale == ["joint_offsets", "home"]
+
+
+@pytest.mark.parametrize(
+    "joints",
+    [{"elbow_flex": LIMITS_ONLY_JOINT}, {}, {"elbow_flex": {**OFFSET_JOINT, "written": False}}],
+    ids=["limits_only", "no_joints", "not_written"],
+)
+def test_set_home_from_calibration_refuses_a_store_without_offset_change(
+    robot: FakeRobot, joints: dict[str, object]
+) -> None:
+    """A limits-only store writes no marker; the refusal says so instead of naming a newer zero change."""
+    write_record(robot, joints=joints)
+    write_zero_marker(robot, "2026-11-01T00:00:00+00:00")
+    home_before = robot.arm.cfg.arm.home_file.read_text()
+    with pytest.raises(ArmError, match="changed no offset; arm home unchanged"):
+        robot.arm.set_home_from_calibration()
+    assert robot.arm.cfg.arm.home_file.read_text() == home_before
+    assert load_marker(robot.arm.cfg.arm.calibration_stale_marker).stale == ["joint_offsets", "home"]
+
+
+def test_set_home_from_calibration_keeps_home_stale_for_a_newer_marker(
+    robot: FakeRobot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A zero change that lands while the home is stored keeps its home item (clear_stale only_if_saved_at)."""
+    write_record(robot)
+    write_zero_marker(robot)
+    original = arm_module.save_home
+
+    def save_then_rezero(path: Path, pose: dict[str, float]) -> None:
+        original(path, pose)
+        write_zero_marker(robot, "2026-11-10T12:00:05+00:00")
+
+    monkeypatch.setattr(arm_module, "save_home", save_then_rezero)
+    assert robot.arm.set_home_from_calibration() == CALIBRATION_HOME
+    marker = load_marker(robot.arm.cfg.arm.calibration_stale_marker)
+    assert marker is not None and marker.stale == ["joint_offsets", "home"]
 
 
 def test_set_home_from_calibration_refuses_absent_or_invalid_record(robot: FakeRobot) -> None:

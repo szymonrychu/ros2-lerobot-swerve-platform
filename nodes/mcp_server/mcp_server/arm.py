@@ -275,6 +275,24 @@ def lower_clearance(target: GuardReport, commanded: GuardReport) -> GuardReport:
 BOARD_REST_TOLERANCE_RAD = 0.1
 
 
+class CalibrationRecordPlan(BaseModel):
+    """The plan fields of one joint in a servo calibration record (the offsets before and after the store)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    offset_before_steps: int
+    new_offset_steps: int
+
+
+class CalibrationRecordJoint(BaseModel):
+    """One joint of a servo calibration record: its plan and whether an EEPROM write was sent (StoreOutcome)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    plan: CalibrationRecordPlan
+    written: bool
+
+
 class CalibrationRecord(BaseModel):
     """The fields of the follower bridge's servo_calibration-follower-latest.json that set the home pose."""
 
@@ -284,6 +302,15 @@ class CalibrationRecord(BaseModel):
     success: bool
     changed_at: str
     home_rad: dict[str, float]
+    joints: dict[str, CalibrationRecordJoint]
+
+    def offset_written(self) -> bool:
+        """Whether the store wrote any servo offset (only then is it an arm zero change with a stale marker).
+
+        Returns:
+            bool: True when a joint's EEPROM write was sent and its planned offset differs from the one before.
+        """
+        return any(j.written and j.plan.new_offset_steps != j.plan.offset_before_steps for j in self.joints.values())
 
 
 class ArmError(RuntimeError):
@@ -2789,16 +2816,17 @@ class ArmController:
         """Store the home pose from the latest servo calibration record (targets, not a hand-posed measurement).
 
         Accepted only for a successful follower record whose changed_at equals the stale marker's saved_at (the record
-        is the latest arm zero change). Allowed while joint_offsets is stale (that is the case right after the store);
-        clears only the home item of the marker.
+        is the latest arm zero change); a store that wrote no offset (limits only) is refused as such, since it made
+        no zero change and leaves home as it was. Allowed while joint_offsets is stale (that is the case right after
+        the store); clears only the home item of the marker, and only while the marker is still that store's.
 
         Returns:
             dict[str, float]: The stored pose (arm joint -> rad).
 
         Raises:
-            ArmError: No record path, the record is absent, unreadable or not a successful follower store, a newer zero
-                change happened (or no marker exists), the record lacks an arm joint, or the pose or marker cannot be
-                written.
+            ArmError: No record path, the record is absent, unreadable or not a successful follower store, the store
+                changed no offset (a limits-only store: home unchanged), a newer zero change happened (or no marker
+                exists), the record lacks an arm joint, or the pose or marker cannot be written.
         """
         record_path = self.cfg.arm.servo_calibration_record
         if record_path is None:
@@ -2818,6 +2846,11 @@ class ArmController:
                 f"set home from calibration refused: the record at {record_path} is not a successful "
                 f"{CALIBRATION_RECORD_GROUP} store (group {record.group}, success {record.success})"
             )
+        if not record.offset_written():
+            raise ArmError(
+                f"set home from calibration refused: the servo calibration at {record.changed_at} changed no offset; "
+                "arm home unchanged"
+            )
         marker = self.stale_marker()
         if marker is None or marker.saved_at != record.changed_at:
             when = "no stale marker" if marker is None else f"arm zero change at {marker.saved_at or 'an unknown time'}"
@@ -2836,7 +2869,7 @@ class ArmController:
         marker_path = self.cfg.arm.calibration_stale_marker
         if marker_path is not None:
             try:
-                clear_stale(marker_path, ["home"])
+                clear_stale(marker_path, ["home"], only_if_saved_at=record.changed_at)
             except OSError as exc:
                 raise ArmError(f"home stored, but cannot clear the stale marker {marker_path}: {exc}") from exc
         return pose
