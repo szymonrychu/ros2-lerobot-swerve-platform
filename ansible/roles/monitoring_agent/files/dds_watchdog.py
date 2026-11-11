@@ -256,12 +256,48 @@ class UnitState:
     Attributes:
         streak (int): Consecutive suspect samples.
         last_restart (float): Epoch seconds of the last successful watchdog restart (0 for never).
+        last_attempt (float): Epoch seconds of the last failed restart attempt (0 for never); a failed attempt starts
+            the rate-limit window like a success does, but is not counted in restarts_total.
         restarts_total (int): Successful watchdog restarts.
     """
 
     streak: int = 0
     last_restart: float = 0.0
+    last_attempt: float = 0.0
     restarts_total: int = 0
+
+
+STATE_FIELD_TYPES: dict[str, tuple[type, ...]] = {
+    "streak": (int,),
+    "last_restart": (int, float),
+    "last_attempt": (int, float),
+    "restarts_total": (int,),
+}
+
+
+def parse_unit_state(fields: object) -> UnitState:
+    """Validate and convert one unit entry of the state file.
+
+    Args:
+        fields (object): Decoded JSON value of the entry; must be a dict of known fields with number values.
+
+    Returns:
+        UnitState: The state (missing fields take their defaults; ints are converted for the float fields).
+
+    Raises:
+        ValueError: The entry is not a dict, has an unknown field, or a field has the wrong type (bool counts as wrong).
+    """
+    if not isinstance(fields, dict):
+        raise ValueError(f"unit entry is {type(fields).__name__}, not an object")
+    values: dict[str, float] = {}
+    for name, value in fields.items():
+        types = STATE_FIELD_TYPES.get(name)
+        if types is None:
+            raise ValueError(f"unknown field {name!r}")
+        if isinstance(value, bool) or not isinstance(value, types):
+            raise ValueError(f"field {name!r} has wrong type {type(value).__name__}")
+        values[name] = value
+    return UnitState(**values)
 
 
 def write_atomic(path: Path, text: str) -> None:
@@ -289,14 +325,17 @@ def load_state(path: Path) -> dict[str, UnitState]:
         path (Path): JSON state file.
 
     Returns:
-        dict[str, UnitState]: Unit name -> state; empty (with a warning) when the file is missing or corrupt.
+        dict[str, UnitState]: Unit name -> state; empty (with a warning) when the file is missing, corrupt, or has
+            fields of the wrong type.
     """
     try:
         raw = json.loads(path.read_text())
-        return {unit: UnitState(**fields) for unit, fields in raw.items()}
+        if not isinstance(raw, dict):
+            raise ValueError(f"top level is {type(raw).__name__}, not an object")
+        return {unit: parse_unit_state(fields) for unit, fields in raw.items()}
     except FileNotFoundError:
         LOG.warning("no state file %s, starting empty", path)
-    except (OSError, ValueError, TypeError, AttributeError) as exc:
+    except (OSError, ValueError) as exc:
         LOG.warning("unreadable state file %s, starting empty: %s", path, exc)
     return {}
 
@@ -360,13 +399,14 @@ def restart_allowed(cfg: Config, unit_state: UnitState, now: float) -> bool:
         now (float): Current epoch seconds.
 
     Returns:
-        bool: True when no fresh deploy lock exists and the last restart is old enough.
+        bool: True when no fresh deploy lock exists and the last restart attempt (successful or failed) is old enough.
     """
     if deploy_lock_active(cfg, now):
         LOG.info("deploy lock %s is fresh, not restarting", cfg.deploy_lock)
         return False
-    if now - unit_state.last_restart < cfg.min_restart_interval_s:
-        LOG.info("restarted %.0f s ago, rate limit holds the restart", now - unit_state.last_restart)
+    last = max(unit_state.last_restart, unit_state.last_attempt)
+    if now - last < cfg.min_restart_interval_s:
+        LOG.info("restart attempted %.0f s ago, rate limit holds the restart", now - last)
         return False
     return True
 
@@ -391,7 +431,19 @@ def restart_unit(cfg: Config, unit: str) -> bool:
     return True
 
 
-def metrics_text(now: float, units: list[str], state: dict[str, UnitState], suspects: set[str]) -> str:
+def escape_label(value: str) -> str:
+    """Escape a label value for the Prometheus text format.
+
+    Args:
+        value (str): Raw value.
+
+    Returns:
+        str: Value with backslash, double quote and newline escaped.
+    """
+    return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+
+def metrics_text(now: float, units: list[str], state: dict[str, UnitState], suspects: set[str], up: bool = True) -> str:
     """Render the metrics in the Prometheus text exposition format.
 
     Args:
@@ -399,32 +451,33 @@ def metrics_text(now: float, units: list[str], state: dict[str, UnitState], susp
         units (list[str]): Running ros2 units of this run.
         state (dict[str, UnitState]): State after the run.
         suspects (set[str]): Units that were a suspect in this sample.
+        up (bool): False when the units could not be listed, so nothing was sampled.
 
     Returns:
         str: Metrics text, newline terminated.
     """
     lines = [
-        "# HELP dds_watchdog_up 1 when the last watchdog run completed.",
+        "# HELP dds_watchdog_up 1 when the last watchdog run sampled the ros2 units, 0 when listing them failed.",
         "# TYPE dds_watchdog_up gauge",
-        "dds_watchdog_up 1",
+        f"dds_watchdog_up {int(up)}",
         "# HELP dds_watchdog_last_run_timestamp_seconds Unix time of the last watchdog run.",
         "# TYPE dds_watchdog_last_run_timestamp_seconds gauge",
         f"dds_watchdog_last_run_timestamp_seconds {now}",
         "# HELP dds_watchdog_suspect 1 when the unit has a wedged DDS discovery thread in this sample.",
         "# TYPE dds_watchdog_suspect gauge",
     ]
-    lines += [f'dds_watchdog_suspect{{unit="{unit}"}} {int(unit in suspects)}' for unit in units]
+    lines += [f'dds_watchdog_suspect{{unit="{escape_label(unit)}"}} {int(unit in suspects)}' for unit in units]
     lines += [
         "# HELP dds_watchdog_streak Consecutive suspect samples of the unit.",
         "# TYPE dds_watchdog_streak gauge",
     ]
-    lines += [f'dds_watchdog_streak{{unit="{unit}"}} {state[unit].streak}' for unit in units]
+    lines += [f'dds_watchdog_streak{{unit="{escape_label(unit)}"}} {state[unit].streak}' for unit in units]
     lines += [
         "# HELP dds_watchdog_restarts_total Restarts of the unit by the watchdog.",
         "# TYPE dds_watchdog_restarts_total counter",
     ]
     lines += [
-        f'dds_watchdog_restarts_total{{unit="{unit}"}} {st.restarts_total}'
+        f'dds_watchdog_restarts_total{{unit="{escape_label(unit)}"}} {st.restarts_total}'
         for unit, st in sorted(state.items())
         if st.restarts_total
     ]
@@ -446,10 +499,13 @@ def run_once(cfg: Config, now: float) -> int:
         units = running_ros2_units(cfg.systemctl)
     except (OSError, subprocess.SubprocessError) as exc:
         LOG.error("listing ros2 units failed: %s", exc)
-        units = []
-        state_keep = state
-    else:
-        state_keep = {}
+        try:
+            write_atomic(cfg.textfile, metrics_text(now, [], state, set(), up=False))
+        except OSError as write_exc:
+            LOG.error("cannot write textfile %s: %s", cfg.textfile, write_exc)
+            return 1
+        return 0
+    state_keep: dict[str, UnitState] = {}
     queues = rx_queues(cfg.proc_root)
     suspects: set[str] = set()
     for unit in units:
@@ -461,25 +517,24 @@ def run_once(cfg: Config, now: float) -> int:
             suspects.add(unit)
             unit_state.streak += 1
             if unit_state.streak >= cfg.samples and restart_allowed(cfg, unit_state, now):
-                LOG.warning(
-                    "dds_watchdog: restarting %s: thread dds.udp.%d (pid %d) in %s, rx_queue %d B for %d samples",
-                    unit,
-                    evidence.port,
-                    evidence.pid,
-                    evidence.wchan,
-                    evidence.rx_queue,
-                    unit_state.streak,
+                why = (
+                    f"{unit}: thread dds.udp.{evidence.port} (pid {evidence.pid}) in {evidence.wchan}, "
+                    f"rx_queue {evidence.rx_queue} B for {unit_state.streak} samples"
                 )
                 if cfg.dry_run:
-                    LOG.warning("dds_watchdog: would restart %s (dry run)", unit)
-                elif restart_unit(cfg, unit):
-                    unit_state.restarts_total += 1
-                    unit_state.last_restart = now
-                    unit_state.streak = 0
+                    LOG.warning("would restart %s (dry run)", why)
+                else:
+                    LOG.warning("restarting %s", why)
+                    if restart_unit(cfg, unit):
+                        unit_state.restarts_total += 1
+                        unit_state.last_restart = now
+                        unit_state.streak = 0
+                    else:
+                        unit_state.last_attempt = now
         state_keep[unit] = unit_state
     for unit, unit_state in state.items():
         if unit not in state_keep and unit_state.restarts_total:
-            state_keep[unit] = UnitState(0, unit_state.last_restart, unit_state.restarts_total)
+            state_keep[unit] = UnitState(last_restart=unit_state.last_restart, restarts_total=unit_state.restarts_total)
     try:
         save_state(cfg.state_file, state_keep)
     except OSError as exc:

@@ -4098,9 +4098,15 @@ Imports `ansible/roles/monitoring_agent/files/dds_watchdog.py`, runs its detecti
 | `test_fresh_deploy_lock_blocks_restart` | A deploy lock younger than the max age holds the restart back. |
 | `test_old_deploy_lock_is_ignored` | A stale deploy lock does not block. |
 | `test_rate_limit_blocks_second_restart` | A still-wedged unit is not restarted again within the minimum interval; it is once the interval passed. |
-| `test_dry_run_logs_without_restart` | Dry run (case-insensitive value) logs "would restart", calls no restart and counts none. |
-| `test_failed_restart_not_counted` | A failing `systemctl restart` logs an error, counts no restart, keeps the streak, and the metrics are still written (exit 0). |
+| `test_dry_run_logs_without_restart` | Dry run (case-insensitive value) logs "would restart" (not "restarting", no doubled prefix), calls no restart and counts none. |
+| `test_failed_restart_not_counted` | A failing `systemctl restart` logs an error, counts no restart, keeps the streak, and the metrics are still written (exit 0). The failed attempt starts the rate-limit window: the next run does not call `systemctl`, a run after the interval retries. |
 | `test_corrupt_state_file_resets` | A corrupt, wrong-shaped or missing state file starts empty with a warning and exits 0. |
+| `test_wrong_type_state_resets` | Parametrized: valid JSON with wrong field types (null, string, bool, float, non-dict entry, unknown field) starts empty with a warning, exits 0 and leaks nothing into the metrics. |
+| `test_valid_state_is_kept` | A state file with correct types is used, not reset. |
+| `test_list_units_failure_writes_up_zero` | A failing `systemctl list-units` exits 0, writes `dds_watchdog_up 0`, keeps the state file, scans and restarts nothing. |
+| `test_stopped_unit_keeps_restart_count` | A restarted unit that is no longer running drops its streak but keeps `restarts_total` and `last_restart`; the metric survives. |
+| `test_config_defaults` | `Config.from_env({})` equals the documented defaults. |
+| `test_label_values_are_escaped` | Backslash, double quote and newline in a unit name are escaped in all metric labels. |
 | `test_metrics_file_format` | HELP/TYPE lines for every metric, unit labels, trailing newline, no temp file left behind. |
 | `test_healthy_host_writes_zero_suspects` | A healthy unit gives suspect 0, streak 0, no restart. |
 | `test_unwritable_textfile_exits_nonzero` | A missing textfile directory is the one case with exit code 1. |

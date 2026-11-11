@@ -239,6 +239,8 @@ class Harness:
         env (dict[str, str]): Environment of the runs.
         restarts_log (Path): One line per `systemctl restart` call.
         fail_flag (Path): When it exists, the fake `systemctl restart` exits 1.
+        list_fail_flag (Path): When it exists, the fake `systemctl list-units` exits 1.
+        list_empty_flag (Path): When it exists, the fake `systemctl list-units` prints no unit.
     """
 
     def __init__(self, root: Path) -> None:
@@ -252,11 +254,14 @@ class Harness:
         bindir.mkdir()
         self.restarts_log = root / "restarts.log"
         self.fail_flag = root / "fail-restart"
+        self.list_fail_flag = root / "fail-list"
+        self.list_empty_flag = root / "empty-list"
         fake = bindir / "systemctl"
         fake.write_text(
             "#!/bin/sh\n"
             f'case "$1" in\n'
-            f'  list-units) echo "{UNIT} loaded active running ROS2 test unit" ;;\n'
+            f"  list-units) [ -e {self.list_fail_flag} ] && exit 1; [ -e {self.list_empty_flag} ] && exit 0; "
+            f'echo "{UNIT} loaded active running ROS2 test unit" ;;\n'
             f'  restart) echo "$2" >> {self.restarts_log}; [ -e {self.fail_flag} ] && exit 1; exit 0 ;;\n'
             "esac\n"
         )
@@ -406,6 +411,8 @@ def test_dry_run_logs_without_restart(host: Harness) -> None:
     for _ in range(3):
         proc = host.run(DDS_WATCHDOG_DRY_RUN="Yes")
     assert "would restart" in proc.stdout
+    assert "restarting" not in proc.stdout
+    assert "dds_watchdog: dds_watchdog:" not in proc.stdout
     assert host.restarts() == []
     text = host.metrics()
     assert "dds_watchdog_restarts_total{" not in text
@@ -424,6 +431,17 @@ def test_failed_restart_not_counted(host: Harness) -> None:
     assert "dds_watchdog_restarts_total{" not in text
     assert f'dds_watchdog_streak{{unit="{UNIT}"}} 3' in text
     assert "dds_watchdog_up 1" in text
+    # The failed attempt armed the rate limit: the next run does not call systemctl, the streak keeps growing.
+    host.run()
+    assert host.restarts() == [UNIT]
+    assert f'dds_watchdog_streak{{unit="{UNIT}"}} 4' in host.metrics()
+    # After the interval the restart is retried.
+    state = json.loads(host.state_file.read_text())
+    state[UNIT]["last_attempt"] -= 301
+    host.state_file.write_text(json.dumps(state))
+    host.run()
+    assert host.restarts() == [UNIT, UNIT]
+    assert "dds_watchdog_restarts_total{" not in host.metrics()
 
 
 def test_corrupt_state_file_resets(host: Harness) -> None:
@@ -439,6 +457,107 @@ def test_corrupt_state_file_resets(host: Harness) -> None:
     host.state_file.unlink()
     proc = host.run()
     assert proc.returncode == 0 and "starting empty" in proc.stdout
+
+
+WRONG_TYPE_STATES = [
+    {UNIT: {"streak": None}},
+    {UNIT: {"streak": "2"}},
+    {UNIT: {"streak": True}},
+    {UNIT: {"streak": 1.5}},
+    {UNIT: {"restarts_total": "x"}},
+    {UNIT: {"last_restart": "yesterday"}},
+    {UNIT: {"last_attempt": None}},
+    {UNIT: "not a dict"},
+    {UNIT: ["streak", 1]},
+    {UNIT: {"unknown_field": 1}},
+]
+
+
+@pytest.mark.parametrize("bad", WRONG_TYPE_STATES, ids=[json.dumps(bad) for bad in WRONG_TYPE_STATES])
+def test_wrong_type_state_resets(host: Harness, bad: dict[str, object]) -> None:
+    """Well-formed JSON with wrong field types starts empty with a warning, exits 0 and leaks nothing to the metrics."""
+    host.state_file.parent.mkdir()
+    host.state_file.write_text(json.dumps(bad))
+    proc = host.run()
+    assert proc.returncode == 0, proc.stderr
+    assert "starting empty" in proc.stdout
+    text = host.metrics()
+    assert f'dds_watchdog_streak{{unit="{UNIT}"}} 1' in text
+    assert "dds_watchdog_restarts_total{" not in text
+
+
+def test_valid_state_is_kept(host: Harness) -> None:
+    """A state file with correct types (ints and floats) is used, not reset."""
+    host.state_file.parent.mkdir()
+    host.state_file.write_text(json.dumps({UNIT: {"streak": 1, "last_restart": 5, "restarts_total": 4}}))
+    proc = host.run()
+    assert "starting empty" not in proc.stdout
+    text = host.metrics()
+    assert f'dds_watchdog_streak{{unit="{UNIT}"}} 2' in text
+    assert f'dds_watchdog_restarts_total{{unit="{UNIT}"}} 4' in text
+
+
+def test_list_units_failure_writes_up_zero(host: Harness) -> None:
+    """When listing the units fails: exit 0, textfile written with up 0, state kept, no scan and no restart."""
+    for _ in range(2):
+        host.run()
+    before = host.state_file.read_text()
+    host.list_fail_flag.write_text("")
+    proc = host.run()
+    assert proc.returncode == 0
+    assert "listing ros2 units failed" in proc.stdout
+    text = host.metrics()
+    assert "dds_watchdog_up 0" in text
+    assert "\ndds_watchdog_up 1\n" not in text
+    assert "dds_watchdog_streak{" not in text
+    assert host.state_file.read_text() == before
+    assert host.restarts() == []
+
+
+def test_stopped_unit_keeps_restart_count(host: Harness) -> None:
+    """A unit that is no longer running drops its streak but keeps restarts_total and last_restart in the metrics."""
+    for _ in range(3):
+        host.run()
+    assert host.restarts() == [UNIT]
+    before = json.loads(host.state_file.read_text())[UNIT]["last_restart"]
+    host.list_empty_flag.write_text("")
+    assert host.run().returncode == 0
+    assert json.loads(host.state_file.read_text()) == {
+        UNIT: {"streak": 0, "last_restart": before, "last_attempt": 0.0, "restarts_total": 1}
+    }
+    text = host.metrics()
+    assert f'dds_watchdog_restarts_total{{unit="{UNIT}"}} 1' in text
+    assert "dds_watchdog_streak{" not in text
+    assert "dds_watchdog_up 1" in text
+
+
+def test_config_defaults(wd: ModuleType) -> None:
+    """Config.from_env({}) gives the documented defaults."""
+    assert wd.Config.from_env({}) == wd.Config(
+        proc_root=Path("/proc"),
+        cgroup_root=Path("/sys/fs/cgroup"),
+        state_file=Path("/var/lib/dds-watchdog/state.json"),
+        textfile=Path("/var/lib/alloy/textfile/dds_watchdog.prom"),
+        samples=3,
+        rx_min_bytes=262144,
+        min_restart_interval_s=300,
+        deploy_lock=Path("/var/lib/ros2-deploy/deploy.lock"),
+        deploy_lock_max_age_s=14400,
+        dry_run=False,
+        systemctl="systemctl",
+    )
+
+
+def test_label_values_are_escaped(wd: ModuleType) -> None:
+    """Backslash, double quote and newline in a unit name are escaped per the Prometheus text format."""
+    unit = 'ros2-we\\ird"\nname.service'
+    state = {unit: wd.UnitState(streak=2, restarts_total=1)}
+    text = wd.metrics_text(1.0, [unit], state, {unit})
+    escaped = 'ros2-we\\\\ird\\"\\nname.service'
+    assert f'dds_watchdog_suspect{{unit="{escaped}"}} 1' in text
+    assert f'dds_watchdog_streak{{unit="{escaped}"}} 2' in text
+    assert f'dds_watchdog_restarts_total{{unit="{escaped}"}} 1' in text
+    assert all(line.startswith(("#", "dds_watchdog_")) for line in text.splitlines())
 
 
 def test_metrics_file_format(host: Harness) -> None:
