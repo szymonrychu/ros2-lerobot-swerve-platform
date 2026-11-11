@@ -584,6 +584,31 @@ The session is fetched again when a compute finishes so the errors appear withou
 
 Routes (all under `/api/calibration`):
 - `GET /config` returns `{imu: true, rgbd: <rgbd_url is set>, arm: "deferred", general: [<offered General actions>]}`, plus `servos: true` when `servo_groups` is non-empty (the page ignores `arm`).
+- `GET /active` (`web_ui/calibration_active.py`; full path `/api/calibration/active`): one aggregate of every running calibration flow, polled by
+  the host watchdog that restarts ROS2 units wedged by a DDS discovery deadlock and must never do so during a calibration. No auth, always `200`,
+  answers in under 1 s even when every upstream hangs: each upstream source has its own 0.8 s budget (`SOURCE_TIMEOUT_S`) and they run concurrently.
+  Response: `{"active": bool, "flows": [{"name", "reason"}], "unknown": [{"name", "reason"}]}`; `active` is true iff `flows` is non-empty
+  (consumer fixture `tests/fixtures/api/calibration_active.json`). **The watchdog blocks when `active` is true or `unknown` is non-empty**: a source
+  that cannot be read (unreachable, timeout, HTTP error, bad JSON, a field of the wrong type, stale state) is listed in `unknown` and is never treated
+  as idle. Sources (a flow's `reason` joins the matched rules with "; "):
+  - `rgbd:state` (`GET <rgbd_url>/api/state`): `capture.running`, `compute.running`.
+  - `rgbd:head-arm` (`/api/head-arm/state`): `sequence.running`, `sequence.phase=<phase>` when not `idle`, `sequence.board_record` when a board record exists.
+  - `rgbd:floor` (`/api/floor/state`): `sweep.running`.
+  - `rgbd:ground-board` (`/api/ground-board/state`): `sweep.running`, `verify.running`, `compute.running`.
+  - `rgbd:csi` (`/api/csi`, then `/api/csi/<cam>/state` per camera): `capture.running`. The camera list and all camera states share one 0.8 s deadline;
+    a camera that fails or hangs becomes `unknown` as `rgbd:csi/<cam>` while the other cameras are still evaluated, a failed list is `unknown` `rgbd:csi`.
+  - `servo:<group id>` for every `servo_groups` entry, from the cached bridge `torque_state` (no I/O; a missing or stale sample is `unknown` "torque_state stale"):
+    `released`, `neutral_capture`, `servo_calibration.capture.running`, `servo_calibration.home`, `servo_calibration.plan`, `zero_restore.plan`.
+    Payload rule: only `released` is required (a bool); `neutral_capture`, `servo_calibration` and `zero_restore` absent are read as None because the bridge
+    leaves out the blocks a group does not run; `servo_calibration.capture` of `{}` or None is idle.
+  - In-flight buttons: a registry counts each validated General action (`general:<action>`, e.g. `general:home_arm`) and each Servo group action
+    (`general:servo/<group>/<action>`, e.g. `general:servo/arm/set_home`) from the moment the handler starts the service call until it answers,
+    also when the call fails, times out or raises; reason `N request(s) in flight`. An unknown action (404) is never counted. In-flight entries are always
+    reported; they cannot exist without a `calibration` block because the action routes need it.
+  - The IMU is not a source (its calibration is a passive status, nothing to protect).
+  - Without a `calibration` block, or without `rgbd_url`, the rgbd sources are skipped; without a block no servo group exists either, so the answer is
+    `{"active": false, "flows": [], "unknown": []}` unless an in-flight entry exists. Without `rgbd_url` the servo groups and in-flight entries are still evaluated.
+  Tests: `tests/test_calibration_active.py`.
 - RGB-D (`web_ui/rgbd_calibration.py`, no ROS subscription): `GET|POST|DELETE /rgbd/{path}` forwards method, query and body to
   `<rgbd_url>/api/<path>` (httpx, timeout `rgbd_timeout_s`). Status, `content-type`, `content-disposition` and body bytes pass
   through unchanged (JPEG thumbnails, zip downloads; bodies are buffered). A POST forwards its `content-type`. A path outside
