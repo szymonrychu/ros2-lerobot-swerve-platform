@@ -2,6 +2,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import {
+  MOVE_REDO_REASON,
+  MOVE_STALE_REASON,
   SET_HOME_NO_READINGS_REASON,
   SET_HOME_STALE_REASON,
   SET_HOME_TEXT,
@@ -421,6 +423,38 @@ describe('ServoNeutral', () => {
     expect((btn('Arm', 'Set home') as HTMLButtonElement).disabled).toBe(true)
     expect(within(card('Arm')).getByText(SET_HOME_STALE_REASON)).toBeTruthy()
     expect(screen.queryByRole('region', { name: 'Head' })).toBeNull()
+  })
+
+  it('a servo calibration zero enables Set home and keeps Move to neutral off with the arm-to-camera reason', async () => {
+    groups = [
+      group('arm', {
+        set_home: true,
+        move_to_neutral: true,
+        calibration_stale: ['joint_offsets', 'home'],
+        servo_calibration_at: '2026-11-10T12:00:00+00:00',
+        zero_shift_deg: { shoulder_lift: 9.3 },
+      }),
+    ]
+    mockFetch()
+    render(<ServoNeutral parts={['move', 'home']} />)
+    await inCard('Arm')
+    expect((btn('Arm', 'Set home') as HTMLButtonElement).disabled).toBe(false)
+    expect(within(card('Arm')).queryByText(SET_HOME_STALE_REASON)).toBeNull()
+    expect((btn('Arm', 'Move to neutral pose') as HTMLButtonElement).disabled).toBe(true)
+    const reason = within(card('Arm')).getByText(MOVE_REDO_REASON)
+    expect(reason.textContent).toContain('arm-to-camera')
+    expect(reason.textContent).not.toContain('restore the zero first')
+  })
+
+  it('an accidental re-zero (no servo calibration reason) keeps Set home and Move to neutral off with the restore reason', async () => {
+    groups = [group('arm', { set_home: true, move_to_neutral: true, calibration_stale: ['joint_offsets'], servo_calibration_at: null })]
+    mockFetch()
+    render(<ServoNeutral parts={['move', 'home']} />)
+    await inCard('Arm')
+    expect((btn('Arm', 'Set home') as HTMLButtonElement).disabled).toBe(true)
+    expect(within(card('Arm')).getByText(SET_HOME_STALE_REASON)).toBeTruthy()
+    expect((btn('Arm', 'Move to neutral pose') as HTMLButtonElement).disabled).toBe(true)
+    expect(within(card('Arm')).getByText(MOVE_STALE_REASON)).toBeTruthy()
   })
 
   it('Set home is off with the reason while the follower joint readings are stale', async () => {

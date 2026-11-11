@@ -102,6 +102,22 @@ def test_refused_while_joint_offsets_are_stale(tmp_path: Path, marker: dict | st
     assert be.commands == [] and arm.control_held is False
 
 
+def test_move_to_neutral_refused_after_a_servo_calibration_names_the_redo(tmp_path: Path) -> None:
+    arm, be = make(tmp_path, marker_doc(["joint_offsets"], "2026-01-02T03:04:05+00:00"))
+    ok, message = arm.move_to_neutral_service_call()
+    assert ok is False
+    assert OFFSETS_REFUSAL in message
+    assert "servo calibration at 2026-01-02T03:04:05+00:00" in message
+    assert "arm-to-camera" in message
+    assert be.commands == []
+
+
+def test_accidental_re_zero_refusal_still_names_restoring_the_arm_zero(tmp_path: Path) -> None:
+    arm, _ = make(tmp_path, marker_doc(["joint_offsets"]))
+    _, message = arm.move_to_neutral_service_call()
+    assert "restore the arm zero first" in message
+
+
 def test_allowed_when_only_home_is_stale(tmp_path: Path) -> None:
     arm, _ = make(tmp_path, marker_doc(["home"]))
     ok, message = arm.move_to_neutral_service_call()

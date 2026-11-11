@@ -98,6 +98,7 @@ runtime.
 | `test_an_unreadable_marker_or_zero_record_is_refused` | A non-JSON marker or zero record is refused as unreadable. |
 | `test_the_zero_record_sits_next_to_the_marker` | `zero_record_path` is `zero_changed.json` in the marker's directory. |
 | `test_the_bridge_writes_the_zero_record_the_readers_read` | feetech_servos `zero_record.py` (the writer of the bridge and of `calibrate_servos.py`) names the same `ZERO_RECORD_FILE`. |
+| `test_servo_calibration_at_field_name_is_identical_everywhere` | feetech_servos `zero_record.py`, mcp_server `calibration_marker.py` and web_ui `servo_calibration.py` (read as text, own venvs) each define `SERVO_CALIBRATION_AT_FIELD = "servo_calibration_at"`, the arm stale marker field naming the servo calibration. |
 
 ### `test_applied_arm_calibration.py`
 

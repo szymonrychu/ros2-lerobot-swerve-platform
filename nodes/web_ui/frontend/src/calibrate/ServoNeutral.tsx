@@ -14,7 +14,7 @@ import Typography from '@mui/material/Typography'
 import { ConfirmDialog } from '../layout/ConfirmDialog'
 import { TOUCH_TARGET_PX } from '../theme'
 import { NeutralCaptureJoint, ServoAction, ServoGroup, ServoGroupsState, servoAction, useServoGroups } from './servoApi'
-import { ZeroRestorePanel, staleJointOffsets } from './ZeroRestorePanel'
+import { ZeroRestorePanel, servoCalibrationRedo, staleJointOffsets } from './ZeroRestorePanel'
 
 const STEPS_PER_TURN = 4096
 const DEGREES_PER_TURN = 360
@@ -34,6 +34,8 @@ export const MARKER_ITEMS = ['joint_offsets', 'home']
 export const MOVE_RELEASED_REASON = 'Move to neutral needs torque on.'
 export const MOVE_STALE_REASON =
   'Move to neutral is off while the arm zero is stale (joint_offsets): restore the zero first.'
+export const MOVE_REDO_REASON =
+  'Move to neutral is off while the arm zero set by a servo calibration is stale (joint_offsets): redo the arm-to-camera calibration first.'
 const RELEASE_TEXT: Record<string, string> = {
   arm: 'Support the arm: it goes limp and will drop.',
   head: 'Support the head: it goes limp.',
@@ -124,11 +126,14 @@ function ServoCard({ group, parts, busy, onRun, onConfirm }: CardProps) {
   const hasCapture = capture !== null && Object.keys(capture).length > 0
   const btn = { minHeight: TOUCH_TARGET_PX }
   const stale = group.id === 'arm' && group.calibration_stale && group.calibration_stale.length > 0
-  const moveReason = !known || released ? MOVE_RELEASED_REASON : staleJointOffsets(group) ? MOVE_STALE_REASON : null
+  // After a servo calibration the stale zero is intended: Set home is allowed (mcp_server allows it), Move to neutral is not.
+  const redo = servoCalibrationRedo(group)
+  const moveReason =
+    !known || released ? MOVE_RELEASED_REASON : redo ? MOVE_REDO_REASON : staleJointOffsets(group) ? MOVE_STALE_REASON : null
   const torque = parts.includes('torque')
   const move = parts.includes('move') && group.move_to_neutral
   const home = parts.includes('home') && group.set_home
-  const homeReason = staleJointOffsets(group)
+  const homeReason = staleJointOffsets(group) && !redo
     ? SET_HOME_STALE_REASON
     : !group.state || group.stale
       ? SET_HOME_NO_READINGS_REASON

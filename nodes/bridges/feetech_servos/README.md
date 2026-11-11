@@ -398,26 +398,39 @@ servo now stops at X"); overrides are never changed automatically. Then the arm 
 Arm bookkeeping (a store that changed any arm offset): the stale marker lists `joint_offsets` and `home` (the arm to
 camera calibration must be redone), including a joint whose offset is unknown after a failed rollback, and
 `zero_changed.json` is written with `"source": "servo_calibration"` (`zero_record.SOURCE_SERVO_CALIBRATION`; the other
-writers leave the field out). The zero restore rest reference is converted into the new frame (each joint
+writers leave the field out) and the arm stale marker gets `"servo_calibration_at"`
+(`zero_record.SERVO_CALIBRATION_AT_FIELD`, equal to the marker `saved_at` and the record `changed_at`), a persistent
+"the zero came from a servo calibration" reason: only a store sets it, every other writer (neutral save,
+calibrate_servos CLI) carries it over, and a marker without it means "not a servo calibration"
+(`zero_record.read_servo_calibration_at`). The zero restore rest reference is converted into the new frame (each joint
 `steps(ref) - change`) for the joints whose offset change was verified; the other joints keep their reference. Without
 a reference file (zero restore would fall back to the old-frame `seed_reference_rad`) the file is written from the seed
 converted the same way, in the `save_rest_reference` format. A pending zero restore plan is dropped. mcp_server then sets
 the arm home from the record (see its README, `/arm/set_home_from_calibration`). Head and steering have no marker.
 
-Zero restore after a servo calibration: while the latest zero change record names the servo calibration as its source,
-`zero_restore_dry_run` and `zero_restore_apply` refuse ("the arm zero was set by a servo calibration at <time>; zero
-restore would not restore it - redo the arm-to-camera calibration; nothing written"): the new zero is deliberate, so a
-restore would bring nothing back, and its marker update must never clear `joint_offsets` (that would make mcp_server
-trust `joint_offsets_rad` fitted in the old zero). An unreadable zero change record refuses too. A later zero change of
-another source (neutral save, CLI) replaces the record and lifts the refusal; the converted rest reference then restores
-the servo calibration frame.
+Zero restore after a servo calibration: while the arm stale marker has `servo_calibration_at` (or, failing that, the
+latest zero change record names the servo calibration as its source), `zero_restore_dry_run` and `zero_restore_apply`
+refuse ("the arm zero was set by a servo calibration at <time>; zero restore would not restore it - redo the
+arm-to-camera calibration; nothing written"): the new zero is deliberate, so a restore would bring nothing back, and
+its marker update must never clear `joint_offsets` (that would make mcp_server trust `joint_offsets_rad` fitted in the
+old zero). The marker field survives a later zero change of another source (neutral save, CLI), so those do not lift
+the refusal. It ends only when the zero changes again after the accept: the arm-to-camera accept clears the marker
+(`joint_offsets` and the field), but `zero_changed.json` still names the servo calibration as the source of the latest
+zero change, so the refusal stands until the next neutral save or CLI zero change replaces that record. An unreadable marker refuses too:
+"Fix the stale marker <path> (valid JSON with its stale list); delete it only after redoing the arm-to-camera
+calibration" (deleting it would drop the `joint_offsets` and `home` stale items, so mcp_server would trust the offsets
+and home pose fitted in the old zero). An unreadable zero change record refuses with "fix or delete" for that file and
+the arm-to-camera redo.
+`save_rest_reference` is refused while `joint_offsets` is stale; after a servo calibration its text names the
+arm-to-camera redo instead of "restore the zero first". `torque_state` `zero_restore.servo_calibration_at` carries the
+marker field (null when absent or the marker is unreadable).
 
 **After an arm store the arm-to-camera calibration must be redone.** `joint_offsets` stays stale until mcp_server
 applies an arm-to-camera calibration captured after the store. While it is stale the web UI disables Home arm, Move to
 base and Resume in the arm-camera flow, and mcp_server refuses `/arm/home` and `move_to_neutral`, so the capture
-cannot be driven from the UI. How to redo it while `joint_offsets` is stale (for example allowing arm motion after a
-servo calibration store) is an **open decision** for the user (a hardware-safety call); nothing is unblocked
-automatically.
+cannot be driven from the UI unless the marker names a servo calibration (`servo_calibration_at`; mcp_server and the web UI then allow Home arm and Set home for the redo, not Move to neutral): that persistent
+reason is what lets mcp_server and web_ui tell a deliberate new zero (redo the arm-to-camera calibration) from an
+accidental re-zero (zero restore); see their READMEs for what they allow.
 
 Records: every store writes `<record_dir>/servo_calibration-<YYYYmmddTHHMMSSZ>-<run_id>.json` (plan, per-joint outcome
 with offsets and limits before and after, failure, not attempted joints, override notes, bookkeeping errors). Only on a
@@ -586,6 +599,8 @@ swerve servos), and write the same files the bridge's neutral save writes (`zero
   marker; a verified change (DefineMiddle: the servo reads ~2048; offset or 128 write: acknowledged, present read
   before and after) also merges the joint into the stale marker (`joint_offsets` and `home` stale). `calibrate`
   records each joint right after its DefineMiddle, so an interrupted run keeps what it changed.
+- A CLI zero change carries `servo_calibration_at` over: it never sets or clears the marker's servo calibration
+  reason, so zero restore stays refused after a servo calibration followed by a CLI change.
 - A servo of a group without `neutral_stale_marker` (swerve steering) or not in the config: nothing is recorded; a note
   on stderr says so.
 - Refused before any bus write (exit 1, `nothing written to the servos`): `--bridge-config` missing, the config does

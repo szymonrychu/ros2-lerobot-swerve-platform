@@ -20,7 +20,7 @@ function setViewport(width: number): void {
   }) as typeof window.matchMedia
 }
 
-function renderPanel(source: string | undefined, props: { released?: boolean; releasedJoints?: string[] } = {}) {
+function renderPanel(source: string | undefined, props: { released?: boolean; releasedJoints?: string[]; homeReason?: string } = {}) {
   const topicData = source === undefined ? {} : { [SOURCE_TOPIC]: { data: source } }
   return render(
     <ThemeProvider theme={theme}>
@@ -160,6 +160,20 @@ describe('ArmJogPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Confirm home' }))
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
     expect(fetchMock.mock.calls[0][0]).toBe('/api/arm/home?tab=arm')
+  })
+
+  it('a home reason disables Home only and shows it as a caption', () => {
+    renderPanel('autonomy', { homeReason: 'Arm zero set by a servo calibration at 2026-11-10T12:00:00+00:00: home the arm from Calibrate, Arm to camera, after the old joint offsets confirm' })
+    expect((screen.getByRole('button', { name: 'Home' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: 'Release' }) as HTMLButtonElement).disabled).toBe(false)
+    expect((screen.getByRole('button', { name: 'Up' }) as HTMLButtonElement).disabled).toBe(false)
+    expect(screen.getByTestId('arm-jog-home-reason').textContent).toBe('Arm zero set by a servo calibration at 2026-11-10T12:00:00+00:00: home the arm from Calibrate, Arm to camera, after the old joint offsets confirm')
+  })
+
+  it('without a home reason Home stays enabled and shows no home caption', () => {
+    renderPanel('autonomy')
+    expect((screen.getByRole('button', { name: 'Home' }) as HTMLButtonElement).disabled).toBe(false)
+    expect(screen.queryByTestId('arm-jog-home-reason')).toBeNull()
   })
 
   it('shows a refusal from the backend', async () => {

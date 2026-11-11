@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 LOGGER = logging.getLogger(__name__)
 
 STALE_ITEMS = ("joint_offsets", "home")
+SERVO_CALIBRATION_AT_FIELD = "servo_calibration_at"  # marker key: ISO time of the arm servo calibration store
 
 
 class MarkerJoint(BaseModel):
@@ -37,6 +38,19 @@ class CalibrationMarker(BaseModel):
     saved_at: str | None
     joints: dict[str, MarkerJoint]
     stale: list[str]
+    servo_calibration_at: str | None = None  # set by an arm servo calibration store; absent on disk otherwise
+
+
+def servo_calibration_redo(marker: CalibrationMarker | None) -> bool:
+    """Whether joint_offsets is stale because an arm servo calibration store set the arm zero (not an accident).
+
+    Args:
+        marker (CalibrationMarker | None): The stale marker, or None when absent.
+
+    Returns:
+        bool: True when the marker lists joint_offsets and carries the servo calibration time.
+    """
+    return marker is not None and "joint_offsets" in marker.stale and isinstance(marker.servo_calibration_at, str)
 
 
 def unreadable_marker() -> CalibrationMarker:
@@ -75,6 +89,9 @@ def load_marker(path: Path) -> CalibrationMarker | None:
 def clear_stale(path: Path, items: list[str], only_if_saved_at: str | None = None) -> bool:
     """Remove items from the marker's stale list, atomically; delete the file when none remain.
 
+    The servo_calibration_at reason is kept while joint_offsets stays listed and dropped with it (an accepted
+    arm-to-camera calibration clears joint_offsets); it is never written as null.
+
     Args:
         path (Path): Marker file; absent is a no-op.
         items (list[str]): Items to clear ("joint_offsets", "home").
@@ -91,10 +108,13 @@ def clear_stale(path: Path, items: list[str], only_if_saved_at: str | None = Non
     if not marker.stale:
         path.unlink(missing_ok=True)
         return True
+    document = marker.model_dump()
+    if marker.servo_calibration_at is None or "joint_offsets" not in marker.stale:
+        document.pop(SERVO_CALIBRATION_AT_FIELD)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".stale-", suffix=".json")
     try:
         with os.fdopen(fd, "w") as fh:
-            json.dump(marker.model_dump(), fh, indent=2)
+            json.dump(document, fh, indent=2)
         os.replace(tmp, path)
     except BaseException:
         Path(tmp).unlink(missing_ok=True)

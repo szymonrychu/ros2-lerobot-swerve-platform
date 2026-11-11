@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from web_ui.config import AppConfig, CalibrationConfig, ServoGroupConfig
+from web_ui.servo_calibration import SERVO_CALIBRATION_AT_FIELD
 
 ZERO_RESTORE_ACTIONS = (
     "zero_restore_dry_run",
@@ -139,13 +140,46 @@ def test_get_fresh_stale_missing_and_marker(tmp_path: Path) -> None:
     arm, head = response.json()["groups"]
     assert arm == {
         "id": "arm", "label": "Arm", "neutral": True, "state": STATE, "age_s": 1.0, "stale": False,
-        "calibration_stale": ["joint_offsets", "home"], "zero_restore": True, "servo_calibration": False, "move_to_neutral": True,
+        "calibration_stale": ["joint_offsets", "home"], "servo_calibration_at": None, "zero_shift_deg": None,
+        "zero_restore": True, "servo_calibration": False, "move_to_neutral": True,
         "set_home": True, "home_pose_hint": "pointing straight forward",
     }  # fmt: skip
     assert head["stale"] is True and head["age_s"] == 11.0 and head["calibration_stale"] is None
     assert head["neutral"] is False
     assert head["zero_restore"] is False and head["move_to_neutral"] is False and head["set_home"] is False
     assert head["home_pose_hint"] is None
+
+
+def test_marker_servo_calibration_at_and_zero_shift(tmp_path: Path) -> None:
+    marker = tmp_path / "stale.json"
+    at = "2026-11-10T12:00:00+00:00"
+    marker.write_text(json.dumps({
+        "stale": ["home"], SERVO_CALIBRATION_AT_FIELD: at,
+        "joints": {
+            "shoulder_lift": {"before_steps": 100, "after_steps": 4090},
+            "elbow": {"before_steps": 10, "after_steps": 10},
+            "bad": {"before_steps": "x", "after_steps": 5},
+            "missing": {"after_steps": 5},
+        },
+    }))  # fmt: skip
+    arm = make_client(tmp_path, FakeBridge(), marker).get("/api/calibration/servos").json()["groups"][0]
+    expected = round(abs(((4090 - 100 + 2048) % 4096) - 2048) * 360 / 4096, 1)
+    assert expected == 9.3
+    assert arm["servo_calibration_at"] == at
+    assert arm["zero_shift_deg"] == {"shoulder_lift": expected, "elbow": 0.0}
+    assert arm["calibration_stale"] == ["home"]
+
+
+def test_marker_without_field_or_joints_and_unreadable(tmp_path: Path) -> None:
+    marker = tmp_path / "stale.json"
+    marker.write_text(json.dumps({"stale": ["home"], "joints": {"bad": {"before_steps": 1}}}))
+    arm = make_client(tmp_path, FakeBridge(), marker).get("/api/calibration/servos").json()["groups"][0]
+    assert arm["servo_calibration_at"] is None and arm["zero_shift_deg"] is None
+    assert arm["calibration_stale"] == ["home"]
+    marker.write_text("{not json")
+    arm = make_client(tmp_path, FakeBridge(), marker).get("/api/calibration/servos").json()["groups"][0]
+    assert arm["calibration_stale"] is None
+    assert arm["servo_calibration_at"] is None and arm["zero_shift_deg"] is None
 
 
 def test_get_missing_sample_and_marker_absent(tmp_path: Path) -> None:

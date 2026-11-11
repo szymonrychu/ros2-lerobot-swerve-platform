@@ -78,7 +78,11 @@ mcp_server kills it; ask first). Telemetry only through topic_scraper_api /
 3. Calibrate page, tab **Arm to camera** (deep link `#/calibrate/arm-camera`), robot docked, user watching. The
    precondition banner must not show "Not ready" (a camera-to-ground result, i.e. an applied head chain, is needed) or
    "Arm zero is stale" (after an accidental re-zero restore it in Servo calibration, Advanced / repair; after a servo
-   calibration store the arm-to-camera calibration must be redone, see the feetech_servos README). Steps: 1 **Home arm** (confirm), 2 **Open gripper**
+   calibration store the arm-to-camera calibration must be redone: Home arm and Open gripper stay enabled for the
+   redo after an "old joint offsets" confirm listing the per-joint shifts; the Arm tab Arm home and Home and the
+   Calibrate General Home arm stay disabled until the accept, so home the arm from this flow; Move to neutral stays
+   off; with an unreadable stale marker the banner says so: fix the marker, never delete it before the redo; see the
+   feetech_servos README). Steps: 1 **Home arm** (confirm), 2 **Open gripper**
    (confirm naming the joints: base pose, gripper open to `insert_gripper_rad`), 3 the user seats the ARM board handle
    in the jaws up to the shoulder and presses **Board attached**: the gripper closes on the handle (seat and slack
    checks in the events log), tiers 0 and 1 start, 4 **Capture**: ask before **Allow shoulder and elbow moves**
@@ -216,6 +220,9 @@ gauges: `nodes/head_rgbd_calibration/README.md` ("Arm to camera calibration").
    then, `/var/lib/ros2/arm/zero_changed.json` names a neutral save, zero restore or `calibrate_servos.py` zero change then,
    or either file is unreadable.
    Capture a new session in the current zero.
+   After an arm servo calibration store the marker carries `servo_calibration_at` and `joint_offsets` stays listed
+   until this accept; the accept clears `joint_offsets` and the field. Zero restore stays refused afterwards (the
+   `zero_changed.json` record still names the servo calibration) until the next neutral save or CLI zero change.
 6. Confirm the runtime picked it up: `get_arm_state` shows `arm_calibration` with the accepted session and result, and
    the mcp_server journal has a `calib_event` flow `arm_calibration` step `load` ok with `old` and `new` values
    (`apply` start first if a motion was running; `stale_marker` ok if joint_offsets was cleared; `load` failed means

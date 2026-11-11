@@ -10,8 +10,12 @@ import pytest
 
 from feetech_servos import zero_record as zero_record_module
 from feetech_servos.zero_record import (
+    SERVO_CALIBRATION_AT_FIELD,
+    SOURCE_SERVO_CALIBRATION,
     STALE_ITEMS,
     ZERO_RECORD_FILE,
+    merge_marker,
+    read_servo_calibration_at,
     record_dir_refusal,
     utc_now_iso,
     write_stale_marker,
@@ -135,7 +139,81 @@ def test_write_json_atomic_creates_parents_and_leaves_no_temp(tmp_path: Path) ->
     assert [p.name for p in path.parent.iterdir()] == ["b.json"]
 
 
+# --- servo_calibration_at marker field --------------------------------------------------------------------------------
+
+
+def test_merge_marker_sets_servo_calibration_at_for_a_servo_calibration() -> None:
+    merged = merge_marker(None, "arm", "T1", {"j": (1, 2)}, SOURCE_SERVO_CALIBRATION)
+    assert merged[SERVO_CALIBRATION_AT_FIELD] == "T1"
+
+
+def test_merge_marker_carries_servo_calibration_at_over() -> None:
+    existing = {
+        "version": 1,
+        "group": "arm",
+        "saved_at": "T1",
+        "joints": {},
+        "stale": [],
+        SERVO_CALIBRATION_AT_FIELD: "T1",
+    }
+    merged = merge_marker(existing, "arm", "T2", {"k": (3, 4)})
+    assert merged[SERVO_CALIBRATION_AT_FIELD] == "T1"
+    assert merged["saved_at"] == "T2"
+    assert merged["stale"] == list(STALE_ITEMS)
+
+
+def test_merge_marker_without_reason_has_no_field() -> None:
+    assert SERVO_CALIBRATION_AT_FIELD not in merge_marker(None, "arm", "T1", {"j": (1, 2)})
+
+
+def test_a_newer_servo_calibration_replaces_servo_calibration_at() -> None:
+    existing = {"joints": {}, SERVO_CALIBRATION_AT_FIELD: "T1"}
+    merged = merge_marker(existing, "arm", "T3", {"j": (1, 2)}, SOURCE_SERVO_CALIBRATION)
+    assert merged[SERVO_CALIBRATION_AT_FIELD] == "T3"
+
+
+def test_read_servo_calibration_at_absent_marker_is_none(tmp_path: Path) -> None:
+    assert read_servo_calibration_at(tmp_path / "calibration_stale.json") is None
+
+
+def test_read_servo_calibration_at_without_the_field_is_none(tmp_path: Path) -> None:
+    marker = tmp_path / "calibration_stale.json"
+    marker.write_text(json.dumps({"stale": ["home"], SERVO_CALIBRATION_AT_FIELD: 5}))
+    assert read_servo_calibration_at(marker) is None
+    marker.write_text(json.dumps({"stale": ["home"]}))
+    assert read_servo_calibration_at(marker) is None
+
+
+def test_read_servo_calibration_at_returns_the_field(tmp_path: Path) -> None:
+    marker = tmp_path / "calibration_stale.json"
+    marker.write_text(json.dumps({"stale": ["home"], SERVO_CALIBRATION_AT_FIELD: SAVED_AT}))
+    assert read_servo_calibration_at(marker) == SAVED_AT
+
+
+def test_read_servo_calibration_at_invalid_json_raises(tmp_path: Path) -> None:
+    marker = tmp_path / "calibration_stale.json"
+    marker.write_text("{not json")
+    with pytest.raises(ValueError, match="not valid JSON"):
+        read_servo_calibration_at(marker)
+
+
 # --- write_zero_change -------------------------------------------------------------------------------------------------
+
+
+def test_write_zero_change_without_joints_keeps_the_marker_field(tmp_path: Path) -> None:
+    marker = tmp_path / "calibration_stale.json"
+    content = {
+        "version": 1,
+        "group": "follower",
+        "saved_at": "T1",
+        "joints": {},
+        "stale": ["home"],
+        SERVO_CALIBRATION_AT_FIELD: "T1",
+    }
+    marker.write_text(json.dumps(content))
+    assert write_zero_change(marker, "follower", SAVED_AT, {}, None) == []
+    assert json.loads(marker.read_text()) == content
+    assert "source" not in json.loads(marker.with_name(ZERO_RECORD_FILE).read_text())
 
 
 def test_write_zero_change_writes_the_record_and_the_marker(tmp_path: Path) -> None:

@@ -18,7 +18,7 @@ import * as armApi from '../armCameraApi'
 import * as generalApi from '../generalApi'
 import type { HeadArmSequence } from '../headArmApi'
 import type { ArmCameraState } from '../armCameraApi'
-import type { ServoGroup } from '../servoApi'
+import { SERVO_POLL_MS, type ServoGroup } from '../servoApi'
 
 vi.mock('../headArmApi')
 // The fetch calls are mocked; the pure helpers (pairAccuracy) stay real.
@@ -57,7 +57,7 @@ const MODELS = {
 
 let servoGroups: ServoGroup[]
 
-function armGroup(stale: string[] | null = null): ServoGroup {
+function armGroup(stale: string[] | null = null, over: Partial<ServoGroup> = {}): ServoGroup {
   return {
     id: 'arm',
     label: 'Arm',
@@ -70,8 +70,16 @@ function armGroup(stale: string[] | null = null): ServoGroup {
     move_to_neutral: true,
     set_home: true,
     servo_calibration: false,
+    ...over,
   }
 }
+
+const SERVO_CAL_AT = '2026-11-10T12:00:00+00:00'
+/** The arm zero set by a servo calibration: joint_offsets stale with the marker's reason and zero shifts. */
+const redoGroup = (shift: Record<string, number> | null = { shoulder_lift: 9.3, elbow_flex: 2 }) =>
+  armGroup(['joint_offsets', 'home'], { servo_calibration_at: SERVO_CAL_AT, zero_shift_deg: shift })
+const homeButton = () => within(step(1)).getByRole('button', { name: 'Home arm' }) as HTMLButtonElement
+const redoConfirm = () => screen.queryByRole('checkbox', { name: /old joint offsets/ }) as HTMLInputElement | null
 
 /** BoardNeeded reads the node state and the model files; the arm zero check reads the servo groups. */
 function stubFetch(): void {
@@ -157,10 +165,91 @@ describe('ArmCameraFlow', () => {
     setState(seq({}))
     await renderFlow()
     const stale = await screen.findByText(/Arm zero is stale/)
-    // Both remedies: zero restore after an accidental re-zero, a new arm-to-camera calibration after a servo calibration.
-    expect(stale.textContent).toContain('After an accidental re-zero, restore it in Servo calibration, Advanced / repair.')
-    expect(stale.textContent).toContain('After a servo calibration store, the arm-to-camera calibration must be redone')
+    // Without the servo calibration reason the remedy is the zero restore.
+    expect(stale.textContent).toContain('restore it in Servo calibration, Advanced / repair')
+    expect(stale.textContent).not.toMatch(/servo calibration at|arm-to-camera calibration must be redone/)
     expect((within(step(1)).getByRole('button', { name: 'Home arm' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(redoConfirm()).toBeNull()
+  })
+
+  it('a servo calibration zero allows the arm moves only after the old joint offsets confirm', async () => {
+    servoGroups = [redoGroup()]
+    setState(seq({}))
+    await renderFlow()
+    const text = await screen.findByText(/Arm zero set by a servo calibration at/)
+    expect(text.textContent).toContain(SERVO_CAL_AT)
+    expect(text.textContent).toContain('this flow redoes the arm-to-camera calibration')
+    expect(screen.queryByText(/Advanced \/ repair/)).toBeNull()
+    expect(screen.getByText(/shoulder_lift 9\.3 deg, elbow_flex 2\.0 deg/)).toBeTruthy()
+    expect(screen.getByText(/Keep the Stop button \(step 4\) at hand/)).toBeTruthy()
+    const resume = () => within(step(1)).getByRole('button', { name: 'Resume capture (board on)' }) as HTMLButtonElement
+    expect(homeButton().disabled).toBe(true)
+    expect(resume().disabled).toBe(true)
+    await act(async () => {
+      fireEvent.click(redoConfirm() as HTMLInputElement)
+    })
+    expect(homeButton().disabled).toBe(false)
+    expect(resume().disabled).toBe(false)
+  })
+
+  it('the servo calibration confirm says the shifts are unknown without zero_shift_deg', async () => {
+    servoGroups = [redoGroup(null)]
+    setState(seq({}))
+    await renderFlow()
+    expect(await screen.findByText(/Zero shift per joint: unknown/)).toBeTruthy()
+    expect(redoConfirm()).toBeTruthy()
+  })
+
+  it('the servo calibration confirm resets when the redo reason goes away', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    servoGroups = [redoGroup()]
+    setState(seq({}))
+    await renderFlow()
+    await screen.findByText(/Arm zero set by a servo calibration at/)
+    await act(async () => {
+      fireEvent.click(redoConfirm() as HTMLInputElement)
+    })
+    expect(homeButton().disabled).toBe(false)
+    servoGroups = [armGroup(['joint_offsets'])]
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(SERVO_POLL_MS + 100)
+    })
+    await screen.findByText(/Advanced \/ repair/)
+    expect(homeButton().disabled).toBe(true)
+    servoGroups = [redoGroup()]
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(SERVO_POLL_MS + 100)
+    })
+    await screen.findByText(/Arm zero set by a servo calibration at/)
+    expect(redoConfirm()?.checked).toBe(false)
+    expect(homeButton().disabled).toBe(true)
+  })
+
+  it('an unreadable stale marker with the bridge stale flag blocks the arm moves without a confirm', async () => {
+    servoGroups = [
+      armGroup(null, {
+        servo_calibration_at: null,
+        zero_shift_deg: null,
+        stale: false,
+        state: {
+          namespace: 'x', released: false, joints: { a: 1 }, stamp_ns: 1, neutral_enabled: true, neutral_capture: null,
+          last_save: null, neutral_max_shift_deg: 15,
+          zero_restore: {
+            stale_joint_offsets: true, max_change_deg: 20, reference: null, reference_error: null, plan: null, last_result: null,
+          },
+        },
+      }),
+    ]
+    setState(seq({}))
+    await renderFlow()
+    const stale = await screen.findByText(/Arm zero is stale/)
+    // The cause is unknown with an unreadable marker: name the marker fix and both remedies, assert no cause.
+    expect(stale.textContent).toBe(
+      'Arm zero is stale (joint_offsets) and the stale marker is unreadable: fix the marker, then restore the zero (accidental re-zero) or redo this flow (servo calibration).',
+    )
+    expect(stale.textContent).not.toContain('after an accidental re-zero')
+    expect(homeButton().disabled).toBe(true)
+    expect(redoConfirm()).toBeNull()
   })
 
   it('an unreadable fit state is shown but does not block the capture', async () => {

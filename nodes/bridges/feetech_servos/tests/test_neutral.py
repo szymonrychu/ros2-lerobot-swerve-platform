@@ -670,6 +670,29 @@ def test_marker_content_after_save(tmp_path: Path) -> None:
     }
 
 
+def test_neutral_save_keeps_servo_calibration_at(tmp_path: Path) -> None:
+    """A neutral save after a servo calibration store keeps the persistent reason in the marker."""
+    rig = released_and_recorded(tmp_path)
+    rig.marker.parent.mkdir(parents=True, exist_ok=True)
+    rig.marker.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "group": "follower",
+                "saved_at": "2026-10-01T00:00:00+00:00",
+                "joints": {},
+                "stale": [],
+                "servo_calibration_at": "2026-10-01T00:00:00+00:00",
+            }
+        )
+    )
+    assert rig.neutral.save("follower").success
+    marker = json.loads(rig.marker.read_text())
+    assert marker["servo_calibration_at"] == "2026-10-01T00:00:00+00:00"
+    assert marker["saved_at"] == SAVED_AT
+    assert marker["stale"] == ["joint_offsets", "home"]
+
+
 def test_save_records_the_zero_change_next_to_the_marker(tmp_path: Path) -> None:
     """The arm to camera calibration needs the time of every zero change (the marker alone may be cleared later)."""
     rig = released_and_recorded(tmp_path)

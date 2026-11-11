@@ -10,6 +10,8 @@ import { GENERAL_ACTIONS, type GeneralAction, type GeneralActionId, abortCalibra
 import { type BoardRecord, type HeadArmSequence, getHeadArmState } from './headArmApi'
 import { getFloorState } from './headFloorApi'
 import { getGroundState } from './groundBoardApi'
+import { useServoGroups } from './servoApi'
+import { servoCalibrationHomeReason, servoCalibrationRedoAt } from './ZeroRestorePanel'
 
 /** Head-arm sequence, floor sweep and ground board poll period of the General section: 0.5 Hz (the flows poll faster while they run). */
 export const GENERAL_POLL_MS = 2000
@@ -32,7 +34,8 @@ type Pending = GeneralAction | 'abort' | null
 /**
  * General section of the Calibrate page, always on top: Abort calibration plus the moving helpers (open / close
  * gripper, home arm, home camera, home steering servos), each behind a confirm, and the node's board record (any age)
- * with its no-motion clear. Home arm is off while the board record exists (mcp_server refuses it).
+ * with its no-motion clear. Home arm is off while the board record exists (mcp_server refuses it) and while the arm
+ * zero was set by a servo calibration (the Arm to camera flow homes the arm then, after its old joint offsets confirm).
  *
  * @param actions - the actions the robot offers (GET /api/calibration/config `general`)
  * @param rgbd - the RGB-D calibration node is configured: Abort is offered and the section follows its sequence to
@@ -50,6 +53,9 @@ export function GeneralSection({ actions, rgbd }: { actions: GeneralActionId[]; 
   const [floorLive, setFloorLive] = useState(false)
   const [groundLive, setGroundLive] = useState(false)
   const sweepLive = floorLive || groundLive
+  // The arm group in the servo calibration redo state: /arm/home would move on the old joint offsets without the
+  // confirm of the Arm to camera flow.
+  const servoCalibrationAt = servoCalibrationRedoAt(useServoGroups().groups, 'arm')
 
   const follow = useCallback((sequence: HeadArmSequence) => {
     setSequenceLive(sequence.running || LIVE_PHASES.includes(sequence.phase))
@@ -116,7 +122,8 @@ export function GeneralSection({ actions, rgbd }: { actions: GeneralActionId[]; 
               busy ||
               (sequenceLive && SEQUENCE_BLOCKED.includes(a.id)) ||
               (sweepLive && SWEEP_BLOCKED.includes(a.id)) ||
-              (boardRecord !== null && a.id === 'home_arm')
+              (boardRecord !== null && a.id === 'home_arm') ||
+              (servoCalibrationAt !== null && a.id === 'home_arm')
             }
             onClick={() => setPending(a)}
           >
@@ -128,6 +135,11 @@ export function GeneralSection({ actions, rgbd }: { actions: GeneralActionId[]; 
       {sequenceLive && (
         <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
           {BLOCKED_TEXT}
+        </Typography>
+      )}
+      {servoCalibrationAt !== null && actions.includes('home_arm') && (
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+          {servoCalibrationHomeReason(servoCalibrationAt)}
         </Typography>
       )}
       {sweepLive && (

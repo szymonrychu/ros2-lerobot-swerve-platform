@@ -464,7 +464,83 @@ def test_dry_run_refused_on_an_unreadable_zero_change_record(tmp_path: Path) -> 
     result = rig.zero.dry_run("follower")
     assert result.success is False
     assert "source of the last arm zero change is unknown" in result.message
+    assert str(rig.marker.with_name(ZERO_RECORD_FILE)) in result.message
+    assert "fix or delete" in result.message.lower()
+    assert "redo the arm-to-camera calibration" in result.message
     assert plan_or_none(rig) is None
+
+
+def write_servo_calibration_marker(rig: Rig, at: str = "T1") -> None:
+    """Leave the stale marker a servo calibration store wrote: joint_offsets stale and the persistent reason field."""
+    write_stale_marker(rig.marker, "follower", at, {"elbow_flex": (450, 528)}, SOURCE_SERVO_CALIBRATION)
+
+
+def test_dry_run_refused_after_a_servo_calibration_and_a_later_neutral_save(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path)
+    write_servo_calibration_marker(rig, "T1")
+    record_zero_change(rig.marker, "follower", "T2")  # a later neutral save: record without source
+    result = rig.zero.dry_run("follower")
+    assert result.success is False
+    assert "servo calibration at T1" in result.message
+    assert "redo the arm-to-camera calibration" in result.message
+    assert plan_or_none(rig) is None
+
+
+def test_apply_refused_after_a_servo_calibration_and_a_later_cli_change(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path, shift=SMALL_SHIFT)
+    write_marker(rig)
+    assert rig.zero.dry_run("follower").success
+    write_servo_calibration_marker(rig, "T1")
+    record_zero_change(rig.marker, "follower", "T2")
+    marker_before = rig.marker.read_text()
+    result = rig.zero.apply("follower", confirmed=True)
+    assert result.success is False
+    assert "servo calibration at T1" in result.message
+    assert rig.offset_writes() == []
+    assert rig.marker.read_text() == marker_before
+    assert "joint_offsets" in json.loads(rig.marker.read_text())["stale"]
+    assert not list(Path(rig.config.record_dir).glob(RECORD_GLOB))
+
+
+def test_refused_by_the_marker_when_the_zero_change_record_is_unreadable(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path)
+    write_servo_calibration_marker(rig, "T1")
+    rig.marker.with_name(ZERO_RECORD_FILE).write_text("{not json")
+    result = rig.zero.dry_run("follower")
+    assert result.success is False
+    assert "servo calibration at T1" in result.message
+
+
+def test_dry_run_refused_after_another_source_while_the_marker_names_a_servo_calibration(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path)
+    write_servo_calibration_marker(rig, "T1")
+    record_zero_change(rig.marker, "follower", "T2", "cli")
+    result = rig.zero.dry_run("follower")
+    assert result.success is False
+    assert "servo calibration at T1" in result.message
+
+
+def test_dry_run_refused_on_an_unreadable_marker_with_a_remedy(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path)
+    rig.marker.parent.mkdir(parents=True, exist_ok=True)
+    rig.marker.write_text("{broken")
+    result = rig.zero.dry_run("follower")
+    assert result.success is False
+    assert str(rig.marker) in result.message
+    assert "fix the stale marker" in result.message.lower()
+    assert "delete it only after redoing the arm-to-camera calibration" in result.message
+    assert "fix or delete" not in result.message.lower()
+
+
+def test_status_exposes_servo_calibration_at(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path)
+    assert rig.zero.status("follower")["zero_restore"]["servo_calibration_at"] is None
+    write_servo_calibration_marker(rig, "T1")
+    rig.clock.now += 5.0  # past the marker refresh interval
+    assert rig.zero.status("follower")["zero_restore"]["servo_calibration_at"] == "T1"
+    rig.marker.write_text("{broken")
+    rig.clock.now += 5.0
+    assert rig.zero.status("follower")["zero_restore"]["servo_calibration_at"] is None
 
 
 # --- apply ------------------------------------------------------------------------------------------------------------
@@ -804,6 +880,25 @@ def test_save_rest_reference_refused_while_the_zero_is_suspect(tmp_path: Path) -
     assert result.success is False
     assert "joint_offsets" in result.message
     assert not Path(rig.config.reference_file).exists()
+
+
+def test_save_rest_reference_refused_after_a_servo_calibration_names_the_redo(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path)
+    write_servo_calibration_marker(rig, "T1")
+    result = rig.zero.save_rest_reference("follower")
+    assert result.success is False
+    assert "set by a servo calibration at T1" in result.message
+    assert "arm-to-camera" in result.message
+    assert "restore the zero first" not in result.message
+    assert "restore the zero first" in refusal_text_of_accidental_case(tmp_path / "other")
+    assert not Path(rig.config.reference_file).exists()
+
+
+def refusal_text_of_accidental_case(tmp_path: Path) -> str:
+    """Message of save_rest_reference on a marker that lists joint_offsets without a servo calibration reason."""
+    rig = make_rig(tmp_path)
+    write_marker(rig)
+    return rig.zero.save_rest_reference("follower").message
 
 
 def test_save_rest_reference_refused_on_an_unreadable_marker(tmp_path: Path) -> None:
