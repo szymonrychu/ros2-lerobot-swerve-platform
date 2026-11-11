@@ -124,7 +124,8 @@ MESSAGE_BOARD = "Seat the arm board handle in the gripper jaws up to the shoulde
 MESSAGE_UNSEATED = "the gripper closed past the handle contact: seat the handle up to the shoulder and start again"
 MESSAGE_SLACK_GRIP = (
     "the gripper stopped short of the commanded grip by the mcp_server converge tolerance or more, so the clamp would"
-    " relax: the handle is thicker than the CAD contact; set arm_sequence.handle_contact_rad from the measured contact"
+    " relax: the handle is thicker than the configured contact;"
+    " with the handle seated, record the measured contact with Confirm correct grip (POST /api/head-arm/grip/confirm)"
 )
 MESSAGE_STATE_BOARD = "; if the calibration board is on the gripper, state that the board is on and press Park again"
 MESSAGE_PARK = "Press Park (the board may stay on when its park path is clear)"
