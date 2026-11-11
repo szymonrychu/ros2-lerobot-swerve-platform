@@ -25,6 +25,13 @@
       "offered": true,
       "problem": null
     },
+    "grip": {
+      "handle_contact_rad": 0.0912,
+      "grip_rad": 0.0712,
+      "source": "recorded",
+      "recorded_at": "2026-11-11T08:00:00+00:00",
+      "config_handle_contact_rad": 0.0951
+    },
     "events": [
       {
         "time": "2026-10-23T07:52:10+00:00",

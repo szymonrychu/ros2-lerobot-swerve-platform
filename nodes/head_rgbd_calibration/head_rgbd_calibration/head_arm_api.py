@@ -2,7 +2,8 @@
 
 Errors use the common {ok: false, message} body, as floor_api.py: InvalidId and NotFound (handlers of build_app) give
 404, Busy and NotApplicable give 409, a refused step (no confirm, SequenceError, wrong session kind) gives 400. The
-confirms are enforced here and again by the Sequencer, so the browser is not the only guard.
+confirms (including the grip confirm and reset) are enforced here and again by the Sequencer, so the browser is not
+the only guard.
 """
 
 import json
@@ -40,6 +41,13 @@ MSG_NEEDS_BOARD_GRIPPED = (
 )
 MSG_NEEDS_HOME_CONFIRM = (
     "home needs confirm=true: the arm moves to its home pose (the board may stay on when the path is clear)"
+)
+MSG_NEEDS_GRIP_CONFIRM = (
+    "grip confirm needs confirm=true: state that the board handle is seated in the closed jaws; the measured gripper"
+    " angle becomes the handle contact (nothing moves)"
+)
+MSG_NEEDS_GRIP_RESET_CONFIRM = (
+    "grip reset needs confirm=true: it deletes the recorded handle contact and returns to the configured one"
 )
 
 
@@ -120,7 +128,7 @@ def head_arm_router(
 
     Args:
         sequencer: The capture sequence (state, move_to_base, resume_with_board, board_attached, allow_big_joints,
-            home, stop).
+            home, stop, confirm_grip, reset_grip).
         capture: RGB-D capture controller (blocks a sequence start while it runs).
         sweep: Floor sweep (blocks a sequence start while it runs).
         job: RGB-D compute job (blocks a sequence start while it runs).
@@ -129,7 +137,8 @@ def head_arm_router(
         run: subprocess.run-compatible callable for the unit state after an apply.
 
     Returns:
-        An APIRouter with the /api/head-arm/* routes: the sequence steps, the head-from-arm compute (`/compute`), the
+        An APIRouter with the /api/head-arm/* routes: the sequence steps, the grip confirm and reset (body
+        {confirm}, answer the sequencer state), the head-from-arm compute (`/compute`), the
         arm offsets compute (`/compute-arm`, body {floor_session}), the result of either kind and its apply (dispatched
         on the result's `kind`).
     """
@@ -185,6 +194,22 @@ def head_arm_router(
         if sequencer.state()["phase"] == IDLE and not body.board_gripped:
             return error_response(HTTP_BAD_REQUEST, MSG_NEEDS_BOARD_GRIPPED)
         return step(sequencer.resume_with_board, True, body.board_gripped)
+
+    @router.post("/grip/confirm")
+    def grip_confirm(body: ConfirmRequest | None = None) -> Any:
+        if not (body and body.confirm):
+            return error_response(HTTP_BAD_REQUEST, MSG_NEEDS_GRIP_CONFIRM)
+        if (refused := others_running()) is not None:
+            return refused
+        return step(sequencer.confirm_grip, True)
+
+    @router.post("/grip/reset")
+    def grip_reset(body: ConfirmRequest | None = None) -> Any:
+        if not (body and body.confirm):
+            return error_response(HTTP_BAD_REQUEST, MSG_NEEDS_GRIP_RESET_CONFIRM)
+        if (refused := others_running()) is not None:
+            return refused
+        return step(sequencer.reset_grip, True)
 
     @router.post("/sequence/board-attached")
     def sequence_board_attached() -> Any:

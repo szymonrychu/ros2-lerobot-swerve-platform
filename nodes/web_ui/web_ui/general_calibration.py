@@ -21,6 +21,7 @@ import structlog
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
+from .calibration_active import InFlightRegistry
 from .config import GENERAL_ACTION_GROUPS, AppConfig
 from .imu_calibration import HTTP_CONFLICT, HTTP_NOT_FOUND, HTTP_UNAVAILABLE, error
 from .servo_calibration import released_group_error
@@ -82,7 +83,11 @@ def response_message(response: JSONResponse) -> str:
 
 
 def register_general_calibration_routes(
-    app: FastAPI, config: AppConfig, bridge_node: Any, battery_block: Callable[[str], JSONResponse | None]
+    app: FastAPI,
+    config: AppConfig,
+    bridge_node: Any,
+    battery_block: Callable[[str], JSONResponse | None],
+    in_flight: InFlightRegistry,
 ) -> None:
     """Register POST /api/calibration/general/{action} (before the SPA catch-all mount).
 
@@ -91,6 +96,7 @@ def register_general_calibration_routes(
         config (AppConfig): Application config; calibration or calibration.general may be None (404).
         bridge_node (Any): BridgeNode (may be None: 503).
         battery_block (Callable[[str], JSONResponse | None]): Returns a rejection while the battery is cut off.
+        in_flight (InFlightRegistry): Counts each validated action as general:<action> while it runs.
     """
     # Imported here: server imports this module.
     from .server import call_ros_service
@@ -101,30 +107,33 @@ def register_general_calibration_routes(
         service = general.service(action) if general is not None else None
         if general is None or service is None:
             return error(f"unknown or not offered calibration action: {action}", HTTP_NOT_FOUND)
-        run_id = new_run_id()
-        started = time.monotonic()
-        log_general(run_id, action, service, "start", started)
-        rejection: JSONResponse | None = battery_block(f"{LOG_EVENT}_{action}")
-        if rejection is None and (released := released_group_error(config, bridge_node, GENERAL_ACTION_GROUPS[action])):
-            rejection = error(released, HTTP_CONFLICT)
-        if rejection is None and bridge_node is None:
-            rejection = error(BRIDGE_UNAVAILABLE, HTTP_UNAVAILABLE)
-        if rejection is not None:
-            log_general(run_id, action, service, "refused", started, response_message(rejection))
-            return rejection
-        response, failure = await call_ros_service(
-            f"{LOG_EVENT}_{action}", bridge_node.trigger_async(service), service, general.timeout_s
-        )
-        if failure is not None:
-            log_general(run_id, action, service, "failed", started, response_message(failure))
-            return failure
-        ok = bool(getattr(response, "success", False))
-        message = getattr(response, "message", "") or f"{service} {'succeeded' if ok else 'refused'}"
-        if ok:
-            log_general(run_id, action, service, "ok", started)
-        else:
-            outcome = "refused" if REFUSED_MARKER in message else "failed"
-            log_general(run_id, action, service, outcome, started, message)
-        return JSONResponse({"ok": ok, "message": message}, status_code=HTTP_OK if ok else HTTP_CONFLICT)
+        with in_flight.track(f"general:{action}"):
+            run_id = new_run_id()
+            started = time.monotonic()
+            log_general(run_id, action, service, "start", started)
+            rejection: JSONResponse | None = battery_block(f"{LOG_EVENT}_{action}")
+            if rejection is None and (
+                released := released_group_error(config, bridge_node, GENERAL_ACTION_GROUPS[action])
+            ):
+                rejection = error(released, HTTP_CONFLICT)
+            if rejection is None and bridge_node is None:
+                rejection = error(BRIDGE_UNAVAILABLE, HTTP_UNAVAILABLE)
+            if rejection is not None:
+                log_general(run_id, action, service, "refused", started, response_message(rejection))
+                return rejection
+            response, failure = await call_ros_service(
+                f"{LOG_EVENT}_{action}", bridge_node.trigger_async(service), service, general.timeout_s
+            )
+            if failure is not None:
+                log_general(run_id, action, service, "failed", started, response_message(failure))
+                return failure
+            ok = bool(getattr(response, "success", False))
+            message = getattr(response, "message", "") or f"{service} {'succeeded' if ok else 'refused'}"
+            if ok:
+                log_general(run_id, action, service, "ok", started)
+            else:
+                outcome = "refused" if REFUSED_MARKER in message else "failed"
+                log_general(run_id, action, service, outcome, started, message)
+            return JSONResponse({"ok": ok, "message": message}, status_code=HTTP_OK if ok else HTTP_CONFLICT)
 
     app.add_api_route("/api/calibration/general/{action}", act, methods=["POST"], include_in_schema=False)

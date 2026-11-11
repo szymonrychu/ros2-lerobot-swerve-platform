@@ -24,7 +24,7 @@ import json
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
@@ -39,6 +39,10 @@ from .config import (
     ServoGroupConfig,
 )
 from .imu_calibration import HTTP_CONFLICT, HTTP_NOT_FOUND, HTTP_UNAVAILABLE, NOT_CONFIGURED_MESSAGE, error
+
+if TYPE_CHECKING:
+    # calibration_active imports this module.
+    from .calibration_active import InFlightRegistry
 
 # torque_state key holding the plan, by whether the action is a servo calibration store.
 PLAN_STATE_KEYS: dict[bool, str] = {False: "zero_restore", True: "servo_calibration"}
@@ -207,7 +211,11 @@ def released_command_error(config: AppConfig, bridge_node: Any, topic: str) -> s
 
 
 def register_servo_calibration_routes(
-    app: FastAPI, config: AppConfig, bridge_node: Any, battery_block: Callable[[str], JSONResponse | None]
+    app: FastAPI,
+    config: AppConfig,
+    bridge_node: Any,
+    battery_block: Callable[[str], JSONResponse | None],
+    in_flight: InFlightRegistry,
 ) -> None:
     """Register /api/calibration/servos* (before the SPA catch-all mount).
 
@@ -216,6 +224,7 @@ def register_servo_calibration_routes(
         config (AppConfig): Application config; config.calibration may be None (routes answer 404).
         bridge_node (Any): BridgeNode (may be None: actions answer 503).
         battery_block (Callable[[str], JSONResponse | None]): Returns a rejection while the battery is cut off.
+        in_flight (InFlightRegistry): Counts each validated action as general:servo/<group>/<action> while it runs.
     """
     # Imported here: server imports this module.
     from .server import call_ros_service
@@ -244,36 +253,37 @@ def register_servo_calibration_routes(
             return error(changed, HTTP_CONFLICT)
         if bridge_node is None:
             return error("ROS bridge unavailable", HTTP_UNAVAILABLE)
-        service = group.service(action)
-        response, failure = await call_ros_service(
-            f"servo_{group_id}_{action}", bridge_node.trigger_async(service), service, group.timeout(action)
-        )
-        if failure is not None:
-            return failure
-        ok = bool(getattr(response, "success", False))
-        message = getattr(response, "message", "") or f"{service} {'succeeded' if ok else 'refused'}"
-        if not ok:
-            return JSONResponse({"ok": False, "message": message}, status_code=HTTP_CONFLICT)
-        body: dict[str, Any] = {"ok": True, "message": message}
-        if action not in SERVO_CALIBRATION_STORE_ACTIONS:
-            return JSONResponse(body)
-        body["home_set"] = None
-        chain = group.set_home_from_calibration_service
-        if chain:
-            home, home_failure = await call_ros_service(
-                f"servo_{group_id}_set_home_from_calibration",
-                bridge_node.trigger_async(chain),
-                chain,
-                group.service_timeout_s,
+        with in_flight.track(f"general:servo/{group_id}/{action}"):
+            service = group.service(action)
+            response, failure = await call_ros_service(
+                f"servo_{group_id}_{action}", bridge_node.trigger_async(service), service, group.timeout(action)
             )
-            home_ok = home_failure is None and bool(getattr(home, "success", False))
-            if home_failure is not None:
-                home_message = json.loads(home_failure.body).get("message") or f"{chain} failed"
-            else:
-                home_message = getattr(home, "message", "") or f"{chain} {'succeeded' if home_ok else 'failed'}"
-            body["home_set"] = home_ok
-            body["message"] = f"{message}; set home from calibration: {home_message}"
-        return JSONResponse(body)
+            if failure is not None:
+                return failure
+            ok = bool(getattr(response, "success", False))
+            message = getattr(response, "message", "") or f"{service} {'succeeded' if ok else 'refused'}"
+            if not ok:
+                return JSONResponse({"ok": False, "message": message}, status_code=HTTP_CONFLICT)
+            body: dict[str, Any] = {"ok": True, "message": message}
+            if action not in SERVO_CALIBRATION_STORE_ACTIONS:
+                return JSONResponse(body)
+            body["home_set"] = None
+            chain = group.set_home_from_calibration_service
+            if chain:
+                home, home_failure = await call_ros_service(
+                    f"servo_{group_id}_set_home_from_calibration",
+                    bridge_node.trigger_async(chain),
+                    chain,
+                    group.service_timeout_s,
+                )
+                home_ok = home_failure is None and bool(getattr(home, "success", False))
+                if home_failure is not None:
+                    home_message = json.loads(home_failure.body).get("message") or f"{chain} failed"
+                else:
+                    home_message = getattr(home, "message", "") or f"{chain} {'succeeded' if home_ok else 'failed'}"
+                body["home_set"] = home_ok
+                body["message"] = f"{message}; set home from calibration: {home_message}"
+            return JSONResponse(body)
 
     app.add_api_route("/api/calibration/servos", status, methods=["GET"], include_in_schema=False)
     app.add_api_route("/api/calibration/servos/{group_id}/{action}", act, methods=["POST"], include_in_schema=False)

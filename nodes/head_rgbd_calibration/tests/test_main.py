@@ -153,6 +153,7 @@ def rec(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Recorder:
             fitted_mount: Any,
             board_file: Any,
             session_exists: Any,
+            grip_file: Any,
         ) -> None:
             rec.sequencer = self
             self.args = (capture, robot, cfg)
@@ -162,6 +163,7 @@ def rec(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Recorder:
             self.fitted_mount = fitted_mount
             self.board_file = board_file
             self.session_exists = session_exists
+            self.grip_file = grip_file
 
         def stop(self) -> dict[str, Any]:
             rec.events.append("sequencer_stop")
@@ -299,6 +301,7 @@ def test_urdf_callables_read_the_configured_files(rec: Recorder, tmp_path: Path)
     assert rec.sequencer.arm_urdf() == Path(cfg.arm_urdf_file).read_text()
     assert rec.sequencer.head_urdf() == entry.base_urdf(cfg)
     assert rec.sequencer.board_file == Path(cfg.state_dir) / "head_arm_board.json"
+    assert rec.sequencer.grip_file == Path(cfg.state_dir) / "head_arm_grip.json"
     assert rec.sequencer.session_exists(None) is False
     assert rec.sequencer.fitted_mount(None) is None  # the home path check reads the session's newest fitted mount
 

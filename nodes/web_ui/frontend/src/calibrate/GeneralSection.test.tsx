@@ -46,6 +46,7 @@ const SEQ: HeadArmSequence = {
   waiting_since: null,
   board_on: false,
   board_record: null,
+  grip: { handle_contact_rad: 0.0951, grip_rad: 0.0751, source: 'config', recorded_at: null, config_handle_contact_rad: 0.0951 },
   events: [],
 }
 

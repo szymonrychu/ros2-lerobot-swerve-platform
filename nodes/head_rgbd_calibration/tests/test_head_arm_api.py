@@ -50,6 +50,13 @@ STATE_DOC = {
         "offered": True,
         "problem": None,
     },
+    "grip": {
+        "handle_contact_rad": 0.0912,
+        "grip_rad": 0.0712,
+        "source": "recorded",
+        "recorded_at": "2026-11-11T08:00:00+00:00",
+        "config_handle_contact_rad": 0.0951,
+    },
     "events": [
         {
             "time": "2026-10-23T07:52:10+00:00",
@@ -97,6 +104,12 @@ class FakeSequencer:
 
     def clear_board_record(self, confirmed: bool) -> dict[str, Any]:
         return self.act("clear_board_record", confirmed)
+
+    def confirm_grip(self, confirmed: bool) -> dict[str, Any]:
+        return self.act("confirm_grip", confirmed)
+
+    def reset_grip(self, confirmed: bool) -> dict[str, Any]:
+        return self.act("reset_grip", confirmed)
 
 
 class FakeRunning:
@@ -253,6 +266,47 @@ def test_resume_board_on_from_idle_conflicts_while_something_runs(parts: SimpleN
     response = parts.client.post("/api/head-arm/sequence/resume-board-on", json=body)
     assert response.status_code == 409
     assert parts.sequencer.calls == []
+
+
+GRIP_ROUTES = (("confirm", "confirm_grip"), ("reset", "reset_grip"))
+
+
+@pytest.mark.parametrize(("route", "call"), GRIP_ROUTES)
+@pytest.mark.parametrize("body", [None, {}, {"confirm": False}])
+def test_grip_needs_confirm(parts: SimpleNamespace, route: str, call: str, body: dict[str, Any] | None) -> None:
+    response = parts.client.post(f"/api/head-arm/grip/{route}", json=body)
+    assert response.status_code == 400
+    assert response.json()["ok"] is False and "confirm" in response.json()["message"]
+    assert parts.sequencer.calls == []
+
+
+@pytest.mark.parametrize(("route", "call"), GRIP_ROUTES)
+def test_grip_calls_sequencer(parts: SimpleNamespace, route: str, call: str) -> None:
+    response = parts.client.post(f"/api/head-arm/grip/{route}", json={"confirm": True})
+    assert response.status_code == 200
+    assert parts.sequencer.calls == [(call, True)]
+    assert response.json() == parts.sequencer.state()
+
+
+@pytest.mark.parametrize(("route", "call"), GRIP_ROUTES)
+@pytest.mark.parametrize("blocker", ["sequencer", "capture", "sweep", "job"])
+def test_grip_refused_while_others_run(parts: SimpleNamespace, route: str, call: str, blocker: str) -> None:
+    getattr(parts, blocker).running = True
+    response = parts.client.post(f"/api/head-arm/grip/{route}", json={"confirm": True})
+    assert response.status_code == 409
+    assert parts.sequencer.calls == []
+
+
+@pytest.mark.parametrize(("route", "call"), GRIP_ROUTES)
+@pytest.mark.parametrize(
+    ("error", "status"),
+    [(Busy("not holding"), 409), (SequenceError("no gripper angle"), 400), (ValueError("out of range"), 400)],
+)
+def test_grip_maps_errors(parts: SimpleNamespace, route: str, call: str, error: Exception, status: int) -> None:
+    parts.sequencer.error = error
+    response = parts.client.post(f"/api/head-arm/grip/{route}", json={"confirm": True})
+    assert (response.status_code, response.json()["message"]) == (status, str(error))
+    assert response.json()["ok"] is False
 
 
 @pytest.mark.parametrize("body", [None, {}, {"confirm": False}])
