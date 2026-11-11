@@ -125,7 +125,7 @@ export interface CaptureJoint {
   range_deg: number | null
 }
 
-/** Range capture status; the bridge sends an empty object (all fields absent) without a capture. */
+/** Range capture status; on the wire the whole capture is null without a capture, else this fully populated object (never `{}`). */
 export interface CalibrationCapture {
   running: boolean
   paused: boolean
