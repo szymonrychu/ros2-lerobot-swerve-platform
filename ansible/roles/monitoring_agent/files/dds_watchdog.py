@@ -706,7 +706,7 @@ def metrics_text(now: float, units: list[str], state: dict[str, UnitState], susp
     Args:
         now (float): Current epoch seconds.
         units (list[str]): Running ros2 units of this run.
-        state (dict[str, UnitState]): State after the run.
+        state (dict[str, UnitState]): State after the run (a listed unit missing from it counts 0 restarts).
         suspects (set[str]): Units that were a suspect in this sample.
         up (bool): False when the units could not be listed, so nothing was sampled.
 
@@ -733,10 +733,12 @@ def metrics_text(now: float, units: list[str], state: dict[str, UnitState], susp
         "# HELP dds_watchdog_restarts_total Restarts of the unit by the watchdog.",
         "# TYPE dds_watchdog_restarts_total counter",
     ]
+    # Every listed unit is exported, at 0 until its first restart, so the first restart is a 0 -> 1 step that
+    # increase() sees. Units that are no longer listed stay as long as their count is nonzero.
+    counted = sorted(set(units) | {unit for unit, st in state.items() if st.restarts_total})
     lines += [
-        f'dds_watchdog_restarts_total{{unit="{escape_label(unit)}"}} {st.restarts_total}'
-        for unit, st in sorted(state.items())
-        if st.restarts_total
+        f'dds_watchdog_restarts_total{{unit="{escape_label(unit)}"}} {state.get(unit, UnitState()).restarts_total}'
+        for unit in counted
     ]
     lines += [
         "# HELP dds_watchdog_restart_blocked 1 while a due restart of the unit is held back by calibration (running or"

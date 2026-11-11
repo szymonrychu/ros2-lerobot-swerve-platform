@@ -96,7 +96,7 @@ Written to the Alloy textfile collector (series carry `host`):
 | `dds_watchdog_last_run_timestamp_seconds` | Unix time of the last run (a stale value means the timer stopped) |
 | `dds_watchdog_suspect{unit}` | 1 when the unit has a wedged discovery thread in this sample |
 | `dds_watchdog_streak{unit}` | Consecutive suspect samples of the unit (3 triggers a restart) |
-| `dds_watchdog_restarts_total{unit}` | Restarts by the watchdog (persisted in the state file) |
+| `dds_watchdog_restarts_total{unit}` | Restarts by the watchdog (persisted in the state file); exported at 0 for every running unit, so the first restart is a 0 to 1 step |
 | `dds_watchdog_restart_blocked{unit,reason="calibration"}` | 1 while a due restart is held back by calibration (running or unknown) |
 | `dds_watchdog_restart_blocked_seconds{unit}` | Seconds a due restart has been held back; above 600 is alert R2 |
 

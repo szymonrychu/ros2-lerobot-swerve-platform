@@ -655,6 +655,25 @@ def test_three_suspect_runs_restart_once(host: Harness) -> None:
     assert f'dds_watchdog_streak{{unit="{UNIT}"}} 0' in text
 
 
+def test_restarts_total_is_exported_at_zero_for_a_healthy_unit(host: Harness) -> None:
+    """A listed unit without restarts exports restarts_total 0, so its first restart is a 0 -> 1 step for increase()."""
+    host.set_threads([HEALTHY], [udp_row(0, 7418, 0)])
+    assert host.run().returncode == 0
+    assert f'dds_watchdog_restarts_total{{unit="{UNIT}"}} 0' in host.metrics()
+    assert json.loads(host.state_file.read_text())[UNIT]["restarts_total"] == 0
+
+
+def test_first_restart_moves_the_series_from_0_to_1(host: Harness) -> None:
+    """The series exists at 0 before the first restart and reads 1 after it: increase() over both files is 1."""
+    host.run()
+    before = host.metrics()
+    for _ in range(2):
+        host.run()
+    after = host.metrics()
+    assert f'dds_watchdog_restarts_total{{unit="{UNIT}"}} 0' in before
+    assert f'dds_watchdog_restarts_total{{unit="{UNIT}"}} 1' in after
+
+
 def test_gap_resets_streak(host: Harness) -> None:
     """A healthy sample between suspect samples resets the streak, so no restart happens."""
     host.run()
@@ -711,7 +730,7 @@ def test_dry_run_logs_without_restart(host: Harness) -> None:
     assert "dds_watchdog: dds_watchdog:" not in proc.stdout
     assert host.restarts() == []
     text = host.metrics()
-    assert "dds_watchdog_restarts_total{" not in text
+    assert f'dds_watchdog_restarts_total{{unit="{UNIT}"}} 0' in text
     assert f'dds_watchdog_streak{{unit="{UNIT}"}} 3' in text
 
 
@@ -724,7 +743,7 @@ def test_failed_restart_not_counted(host: Harness) -> None:
     assert host.restarts() == [UNIT]
     assert f"systemctl restart {UNIT} failed" in proc.stdout
     text = host.metrics()
-    assert "dds_watchdog_restarts_total{" not in text
+    assert f'dds_watchdog_restarts_total{{unit="{UNIT}"}} 0' in text
     assert f'dds_watchdog_streak{{unit="{UNIT}"}} 3' in text
     assert "dds_watchdog_up 1" in text
     # The failed attempt armed the rate limit: the next run does not call systemctl, the streak keeps growing.
@@ -737,7 +756,7 @@ def test_failed_restart_not_counted(host: Harness) -> None:
     host.state_file.write_text(json.dumps(state))
     host.run()
     assert host.restarts() == [UNIT, UNIT]
-    assert "dds_watchdog_restarts_total{" not in host.metrics()
+    assert f'dds_watchdog_restarts_total{{unit="{UNIT}"}} 0' in host.metrics()
 
 
 def test_corrupt_state_file_resets(host: Harness) -> None:
@@ -782,7 +801,7 @@ def test_wrong_type_state_resets(host: Harness, bad: dict[str, object]) -> None:
     assert "starting empty" in proc.stdout
     text = host.metrics()
     assert f'dds_watchdog_streak{{unit="{UNIT}"}} 1' in text
-    assert "dds_watchdog_restarts_total{" not in text
+    assert f'dds_watchdog_restarts_total{{unit="{UNIT}"}} 0' in text
 
 
 def test_valid_state_is_kept(host: Harness) -> None:
