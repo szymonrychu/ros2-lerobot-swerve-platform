@@ -23,6 +23,18 @@ describe('servoApi', () => {
     expect(r).toEqual({ ok: true, value: [group] })
   })
 
+  it('fetchServoGroups keeps the servo calibration reason and zero shifts of the stale marker', async () => {
+    const group = {
+      id: 'arm', label: 'Arm', neutral: true, state: null, age_s: null, stale: true, calibration_stale: ['joint_offsets'],
+      servo_calibration_at: '2026-11-10T12:00:00+00:00', zero_shift_deg: { shoulder_lift: 9.3 },
+      zero_restore: true, move_to_neutral: true, set_home: true, servo_calibration: false,
+    }
+    respond(200, { groups: [group] })
+    const r = await fetchServoGroups()
+    expect(r.ok && r.value[0].servo_calibration_at).toBe('2026-11-10T12:00:00+00:00')
+    expect(r.ok && r.value[0].zero_shift_deg).toEqual({ shoulder_lift: 9.3 })
+  })
+
   it('404 is reported as status 404', async () => {
     respond(404, { message: 'not configured' })
     const r = await fetchServoGroups()

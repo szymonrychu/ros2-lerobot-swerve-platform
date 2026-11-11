@@ -234,6 +234,13 @@ export interface ServoGroup {
   age_s: number | null
   stale: boolean
   calibration_stale: string[] | null
+  /**
+   * When an arm servo calibration set the arm zero (stale marker servo_calibration_at, ISO 8601): the remedy is to redo
+   * the arm-to-camera calibration, not a zero restore. null without the reason or a readable marker.
+   */
+  servo_calibration_at?: string | null
+  /** Stale marker zero shift per joint (absolute short-way degrees, 0.1 rounding); null without a readable marker. */
+  zero_shift_deg?: Record<string, number> | null
   /** The zero restore actions are offered (Arm zero restore panel). */
   zero_restore: boolean
   /** The Move to neutral pose button is offered (mcp_server /arm/move_to_neutral). */

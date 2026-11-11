@@ -42,6 +42,8 @@ const REST_REFERENCE_TEXT =
   'Stores the present joint readings as the folded-rest reference for later zero restores. Do it only with the arm resting folded on its rest and a known good zero.'
 export const STALE_REFERENCE_REASON =
   'The arm zero is stale (joint_offsets): restore the zero before saving a new reference.'
+export const REDO_REFERENCE_REASON =
+  'The arm zero was set by a servo calibration: redo the arm-to-camera calibration before saving a new reference.'
 export const RELEASE_FIRST_REASON = 'Torque off the arm first.'
 export const PLAN_EXPIRED_REASON = 'Dry run expired: run it again'
 
@@ -60,6 +62,32 @@ const rad = (value: number | null) => (value === null ? '-' : value.toFixed(3))
  */
 export function staleJointOffsets(group: ServoGroup): boolean {
   return (group.calibration_stale ?? []).includes('joint_offsets') || group.state?.zero_restore?.stale_joint_offsets === true
+}
+
+/**
+ * Whether the arm zero is stale because an arm servo calibration set it on purpose: the readable stale marker lists
+ * joint_offsets and carries servo_calibration_at. The remedy is to redo the arm-to-camera calibration, not a zero
+ * restore. An unreadable marker (calibration_stale null) never counts, even with the bridge stale flag.
+ *
+ * @param group - the servo group
+ * @returns true for the arm-to-camera redo case
+ */
+export function servoCalibrationRedo(group: ServoGroup): boolean {
+  return (
+    Array.isArray(group.calibration_stale) &&
+    group.calibration_stale.includes('joint_offsets') &&
+    typeof group.servo_calibration_at === 'string'
+  )
+}
+
+/**
+ * Why the zero restore is off after a servo calibration (the bridge refuses it too).
+ *
+ * @param at - servo_calibration_at of the stale marker
+ * @returns the reason text
+ */
+export function servoCalibrationZeroReason(at: string): string {
+  return `The arm zero was set by a servo calibration at ${at}: a zero restore would undo it; redo the arm-to-camera calibration instead.`
 }
 
 const NS_PER_MS = 1e6
@@ -219,7 +247,15 @@ export function ZeroRestorePanel({ group, released, known, busy, onRun, onReleas
   const result = zero?.last_result ?? null
   const btn = { minHeight: TOUCH_TARGET_PX }
   const staleOffsets = staleJointOffsets(group)
-  const referenceReason = staleOffsets ? STALE_REFERENCE_REASON : !released ? RELEASE_FIRST_REASON : null
+  const redo = servoCalibrationRedo(group)
+  const redoReason = redo ? servoCalibrationZeroReason(group.servo_calibration_at as string) : null
+  const referenceReason = redo
+    ? REDO_REFERENCE_REASON
+    : staleOffsets
+      ? STALE_REFERENCE_REASON
+      : !released
+        ? RELEASE_FIRST_REASON
+        : null
   const reference = zero?.reference ?? null
   const step = (button: JSX.Element, expect: string) => (
     <Box sx={{ mb: 1 }}>
@@ -260,11 +296,12 @@ export function ZeroRestorePanel({ group, released, known, busy, onRun, onReleas
             STEP_EXPECT.release,
           )}
           {step(
-            <Button variant="outlined" sx={btn} disabled={busy || !released} onClick={() => onRun(group, 'zero_restore_dry_run')}>
+            <Button variant="outlined" sx={btn} disabled={busy || !released || redo} onClick={() => onRun(group, 'zero_restore_dry_run')}>
               2. Dry run
             </Button>,
             STEP_EXPECT.dryRun,
           )}
+          {redoReason && <Alert severity="info" sx={{ mb: 1 }}>{redoReason}</Alert>}
           {plan && (
             <Box sx={{ mb: 1 }}>
               <Typography variant="body2" color="text.secondary">
@@ -277,7 +314,7 @@ export function ZeroRestorePanel({ group, released, known, busy, onRun, onReleas
             <Button
               variant="contained"
               sx={btn}
-              disabled={busy || !released || plan === null || group.stale || expired}
+              disabled={busy || !released || plan === null || group.stale || expired || redo}
               onClick={openApply}
             >
               3. Apply

@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { ServoNeutral } from './ServoNeutral'
-import { planExpired, planRemainingS } from './ZeroRestorePanel'
+import { planExpired, planRemainingS, servoCalibrationRedo } from './ZeroRestorePanel'
 import type { ServoGroup, TorqueState, ZeroRestorePlanJoint, ZeroRestoreState } from './servoApi'
 
 const DIALOG_LARGE = 'The arm rests folded on its rest and the large change is intended'
@@ -317,6 +317,40 @@ describe('Arm zero restore panel', () => {
     const q = await panel()
     expect(button(q, 'Save current pose as rest reference').disabled).toBe(true)
     expect(within(q).getByText('Torque off the arm first.')).toBeTruthy()
+  })
+
+  it('a servo calibration zero disables Dry run, Apply and Save reference with the arm-to-camera redo reason', async () => {
+    const at = '2026-11-10T12:00:00+00:00'
+    groups = [
+      arm(true, zero({ stale_joint_offsets: true, plan: plan(false) }), {
+        calibration_stale: ['joint_offsets', 'home'],
+        servo_calibration_at: at,
+        zero_shift_deg: { shoulder_lift: 9.3 },
+      }),
+    ]
+    mockFetch()
+    render(<ServoNeutral />)
+    const p = await panel()
+    expect(button(p, '2. Dry run').disabled).toBe(true)
+    expect(button(p, '3. Apply').disabled).toBe(true)
+    const reason = within(p).getByText(/set by a servo calibration at/)
+    expect(reason.textContent).toContain(at)
+    expect(reason.textContent).toContain('redo the arm-to-camera calibration')
+    expect(button(p, 'Save current pose as rest reference').disabled).toBe(true)
+    expect(within(p).getByText(/redo the arm-to-camera calibration before saving a new reference/)).toBeTruthy()
+    expect(within(p).queryByText(/restore the zero before saving/)).toBeNull()
+  })
+
+  it('servoCalibrationRedo needs joint_offsets in a readable marker and the servo calibration time', () => {
+    const at = '2026-11-10T12:00:00+00:00'
+    expect(servoCalibrationRedo(arm(true, zero(), { calibration_stale: ['joint_offsets'], servo_calibration_at: at }))).toBe(true)
+    expect(servoCalibrationRedo(arm(true, zero(), { calibration_stale: ['joint_offsets'], servo_calibration_at: null }))).toBe(false)
+    expect(servoCalibrationRedo(arm(true, zero(), { calibration_stale: ['joint_offsets'] }))).toBe(false)
+    expect(servoCalibrationRedo(arm(true, zero(), { calibration_stale: ['home'], servo_calibration_at: at }))).toBe(false)
+    // An unreadable marker never counts as the redo, even with the bridge stale flag.
+    expect(
+      servoCalibrationRedo(arm(true, zero({ stale_joint_offsets: true }), { calibration_stale: null, servo_calibration_at: at })),
+    ).toBe(false)
   })
 
   it('Save rest reference is disabled while the bridge reports joint_offsets stale', async () => {
