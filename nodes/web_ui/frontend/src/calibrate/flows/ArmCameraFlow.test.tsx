@@ -242,7 +242,12 @@ describe('ArmCameraFlow', () => {
     ]
     setState(seq({}))
     await renderFlow()
-    expect(await screen.findByText(/Arm zero is stale/)).toBeTruthy()
+    const stale = await screen.findByText(/Arm zero is stale/)
+    // The cause is unknown with an unreadable marker: name the marker fix and both remedies, assert no cause.
+    expect(stale.textContent).toBe(
+      'Arm zero is stale (joint_offsets) and the stale marker is unreadable: fix the marker, then restore the zero (accidental re-zero) or redo this flow (servo calibration).',
+    )
+    expect(stale.textContent).not.toContain('after an accidental re-zero')
     expect(homeButton().disabled).toBe(true)
     expect(redoConfirm()).toBeNull()
   })

@@ -62,6 +62,9 @@ const GRABBED_PHASES = ['capturing', 'waiting_big_joints', 'returning_to_base', 
 const CAPTURE_PHASES = ['moving_to_base', 'waiting_board', 'capturing', 'waiting_big_joints', 'returning_to_base']
 const STALE_ZERO_TEXT =
   'Arm zero is stale (joint_offsets) after an accidental re-zero: restore it in Servo calibration, Advanced / repair, then run this flow.'
+/** The bridge reports joint_offsets stale but web_ui cannot read the marker: the cause is unknown, name both remedies. */
+const STALE_MARKER_UNREADABLE_TEXT =
+  'Arm zero is stale (joint_offsets) and the stale marker is unreadable: fix the marker, then restore the zero (accidental re-zero) or redo this flow (servo calibration).'
 /** Label of the confirm that unlocks the arm moves while the zero set by a servo calibration is stale. */
 export const REDO_CONFIRM_LABEL =
   'Run the capture with the old joint offsets: I keep the Stop button at hand'
@@ -314,7 +317,7 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
       <BoardNeeded role="arm" />
       {zeroStale && redoAt === null && (
         <Alert severity="warning" sx={{ mt: 1 }}>
-          {STALE_ZERO_TEXT}
+          {armGroup?.calibration_stale === null ? STALE_MARKER_UNREADABLE_TEXT : STALE_ZERO_TEXT}
         </Alert>
       )}
       {zeroStale && redoAt !== null && (

@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { ServoNeutral } from './ServoNeutral'
-import { planExpired, planRemainingS, servoCalibrationRedo } from './ZeroRestorePanel'
+import { planExpired, planRemainingS, servoCalibrationHomeReason, servoCalibrationRedo, servoCalibrationRedoAt } from './ZeroRestorePanel'
 import type { ServoGroup, TorqueState, ZeroRestorePlanJoint, ZeroRestoreState } from './servoApi'
 
 const DIALOG_LARGE = 'The arm rests folded on its rest and the large change is intended'
@@ -351,6 +351,22 @@ describe('Arm zero restore panel', () => {
     expect(
       servoCalibrationRedo(arm(true, zero({ stale_joint_offsets: true }), { calibration_stale: null, servo_calibration_at: at })),
     ).toBe(false)
+  })
+
+  it('servoCalibrationRedoAt gives the servo calibration time of the group in the redo state, else null', () => {
+    const at = '2026-11-10T12:00:00+00:00'
+    const redo = { ...arm(true, zero(), { calibration_stale: ['joint_offsets'], servo_calibration_at: at }), id: 'arm' }
+    expect(servoCalibrationRedoAt([redo], 'arm')).toBe(at)
+    expect(servoCalibrationRedoAt([redo], 'head')).toBeNull()
+    expect(servoCalibrationRedoAt([], 'arm')).toBeNull()
+    expect(servoCalibrationRedoAt([{ ...redo, calibration_stale: null }], 'arm')).toBeNull()
+    expect(servoCalibrationRedoAt([{ ...redo, servo_calibration_at: null }], 'arm')).toBeNull()
+  })
+
+  it('servoCalibrationHomeReason names the time and the Arm to camera remedy', () => {
+    expect(servoCalibrationHomeReason('2026-11-10T12:00:00+00:00')).toBe(
+      'Arm zero set by a servo calibration at 2026-11-10T12:00:00+00:00: home the arm from Calibrate, Arm to camera, after the old joint offsets confirm',
+    )
   })
 
   it('Save rest reference is disabled while the bridge reports joint_offsets stale', async () => {

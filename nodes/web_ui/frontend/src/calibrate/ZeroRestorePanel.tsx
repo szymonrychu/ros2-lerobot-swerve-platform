@@ -81,6 +81,29 @@ export function servoCalibrationRedo(group: ServoGroup): boolean {
 }
 
 /**
+ * The servo calibration time of a group in the arm-to-camera redo state (servoCalibrationRedo).
+ *
+ * @param groups - the servo groups (useServoGroups)
+ * @param groupId - servo group id (arm)
+ * @returns servo_calibration_at of the stale marker; null for an unknown group or outside the redo state
+ */
+export function servoCalibrationRedoAt(groups: ServoGroup[], groupId: string): string | null {
+  const group = groups.find((g) => g.id === groupId)
+  return group !== undefined && servoCalibrationRedo(group) ? (group.servo_calibration_at as string) : null
+}
+
+/**
+ * Why a Home button outside the Arm to camera flow is off in the redo state: /arm/home moves the arm on the old joint
+ * offsets, and only that flow shows the old joint offsets confirm with the per-joint shifts first.
+ *
+ * @param at - servo_calibration_at of the stale marker
+ * @returns the reason text
+ */
+export function servoCalibrationHomeReason(at: string): string {
+  return `Arm zero set by a servo calibration at ${at}: home the arm from Calibrate, Arm to camera, after the old joint offsets confirm`
+}
+
+/**
  * Why the zero restore is off after a servo calibration (the bridge refuses it too).
  *
  * @param at - servo_calibration_at of the stale marker

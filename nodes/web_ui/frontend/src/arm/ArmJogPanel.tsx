@@ -81,6 +81,8 @@ interface Props {
   released?: boolean
   /** Joint names that report torque off, named in the reason caption. */
   releasedJoints?: string[]
+  /** Why Home is off (servoCalibrationHomeReason in the servo calibration redo state); empty or absent: Home as usual. */
+  homeReason?: string
 }
 
 const NOT_HELD_REASON = 'Take control to jog'
@@ -93,8 +95,9 @@ const NOT_HELD_REASON = 'Take control to jog'
  * @param topicData - latest payload per topic
  * @param released - arm torque is off, disables everything but Release
  * @param releasedJoints - joint names that report torque off
+ * @param homeReason - why Home is off, shown as its own caption; empty keeps Home as usual
  */
-export default function ArmJogPanel({ tab, topicData, released = false, releasedJoints = [] }: Props) {
+export default function ArmJogPanel({ tab, topicData, released = false, releasedJoints = [], homeReason = '' }: Props) {
   const layout = useLayout()
   const [result, setResult] = useState<ArmResult | null>(null)
   const [armed, setArmed] = useState<{ action: LeaseAction; at: number } | null>(null)
@@ -123,7 +126,7 @@ export default function ArmJogPanel({ tab, topicData, released = false, released
   }
 
   const reason = released ? releasedReason(releasedJoints) : busy ? BUSY_REASON : held ? '' : NOT_HELD_REASON
-  const leaseDisabled: Record<LeaseAction, boolean> = { take_control: busy || released, release: !held || busy, home: busy || released }
+  const leaseDisabled: Record<LeaseAction, boolean> = { take_control: busy || released, release: !held || busy, home: busy || released || homeReason !== '' }
 
   return (
     <OverlayPanel title="Arm control" open anchor="bottom" docked={layout !== 'phone'}>
@@ -166,6 +169,11 @@ export default function ArmJogPanel({ tab, topicData, released = false, released
         {reason && (
           <Typography data-testid="arm-jog-reason" variant="caption" color="text.secondary">
             {reason}
+          </Typography>
+        )}
+        {homeReason && !released && (
+          <Typography data-testid="arm-jog-home-reason" variant="caption" color="text.secondary">
+            {homeReason}
           </Typography>
         )}
         {result && (

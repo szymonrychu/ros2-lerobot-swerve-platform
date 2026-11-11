@@ -8,6 +8,21 @@ import * as headFloorApi from './headFloorApi'
 import * as groundBoardApi from './groundBoardApi'
 import { idleState as GROUND_IDLE, sweepingSweep } from './groundBoardFixtures'
 import type { HeadArmSequence } from './headArmApi'
+import type { ServoGroup } from './servoApi'
+
+const servoMock = vi.hoisted(() => ({ groups: [] as unknown[] }))
+vi.mock('./servoApi', async (orig) => ({
+  ...(await orig<typeof import('./servoApi')>()),
+  useServoGroups: () => ({ groups: servoMock.groups, notConfigured: false, error: null, loading: false }),
+}))
+
+/** Arm servo group with the given stale marker items and servo calibration reason. */
+function armGroup(calibrationStale: string[] | null, servoCalibrationAt: string | null): ServoGroup {
+  return {
+    id: 'arm', label: 'Arm', neutral: true, state: null, age_s: 0.1, stale: false,
+    calibration_stale: calibrationStale, servo_calibration_at: servoCalibrationAt,
+  } as ServoGroup
+}
 
 const SEQ: HeadArmSequence = {
   running: false,
@@ -37,6 +52,7 @@ function stubSequence(seq: Partial<HeadArmSequence> = {}) {
 }
 
 afterEach(() => {
+  servoMock.groups = []
   cleanup()
   vi.restoreAllMocks()
   vi.useRealTimers()
@@ -121,6 +137,28 @@ describe('GeneralSection', () => {
     expect((screen.getByRole('button', { name: 'Home camera' }) as HTMLButtonElement).disabled).toBe(true)
     expect((screen.getByRole('button', { name: 'Home steering servos' }) as HTMLButtonElement).disabled).toBe(false)
     expect(screen.getByText(/Abort the running calibration first/)).toBeTruthy()
+  })
+
+  it('Home arm is off with the Arm to camera remedy while the arm zero is from a servo calibration', async () => {
+    stubSequence()
+    servoMock.groups = [armGroup(['joint_offsets'], '2026-11-10T12:00:00+00:00')]
+    render(<GeneralSection actions={ALL} rgbd />)
+    expect((screen.getByRole('button', { name: 'Home arm' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByText('Arm zero set by a servo calibration at 2026-11-10T12:00:00+00:00: home the arm from Calibrate, Arm to camera, after the old joint offsets confirm')).toBeTruthy()
+    for (const name of ['Open gripper', 'Close gripper', 'Home camera', 'Home steering servos']) {
+      expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled, name).toBe(false)
+    }
+  })
+
+  it('Home arm stays on without the servo calibration redo state', async () => {
+    stubSequence()
+    for (const group of [armGroup(['joint_offsets'], null), armGroup(null, '2026-11-10T12:00:00+00:00')]) {
+      servoMock.groups = [group]
+      render(<GeneralSection actions={ALL} rgbd={false} />)
+      expect((screen.getByRole('button', { name: 'Home arm' }) as HTMLButtonElement).disabled).toBe(false)
+      expect(screen.queryByText(/home the arm from Calibrate, Arm to camera/)).toBeNull()
+      cleanup()
+    }
   })
 
   it('arm moves are off while the arm holds the board or parks', async () => {
