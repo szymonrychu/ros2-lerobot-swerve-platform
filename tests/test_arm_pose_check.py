@@ -808,6 +808,27 @@ def test_head_band_and_span_clip_to_the_urdf_limits() -> None:
     assert check.head_span((0.0, -0.4), (0.0, 0.0)).tilt_rad == pytest.approx((tilt_lo, band))
 
 
+def test_head_band_and_span_contain_the_input_past_the_urdf_limits() -> None:
+    check = checker()
+    band = math.radians(PoseCheckConfig().head_band_deg)
+    chain = UrdfChain.from_text(HEAD_URDF)
+    pan_lo, pan_hi = chain.limits("head_pan")
+    tilt_lo, tilt_hi = chain.limits("head_tilt")
+    over = 0.1
+    high = check.head_band(pan_hi + over, tilt_hi + over)
+    assert high.pan_rad == pytest.approx((pan_hi + over - band, pan_hi + over))
+    assert high.tilt_rad == pytest.approx((tilt_hi + over - band, tilt_hi + over))
+    low = check.head_band(pan_lo - over, tilt_lo - over)
+    assert low.pan_rad == pytest.approx((pan_lo - over, pan_lo - over + band))
+    assert low.tilt_rad == pytest.approx((tilt_lo - over, tilt_lo - over + band))
+    span = check.head_span((pan_lo - over, tilt_lo - over), (pan_hi + over, tilt_hi + over))
+    assert span.pan_rad == pytest.approx((pan_lo - over, pan_hi + over))
+    assert span.tilt_rad == pytest.approx((tilt_lo - over, tilt_hi + over))
+    inside = check.head_span((0.0, 0.0), (pan_hi + over, 0.0))
+    assert inside.pan_rad == pytest.approx((-band, pan_hi + over))
+    assert inside.tilt_rad == pytest.approx((-band, band))
+
+
 def test_head_band_deg_is_validated() -> None:
     assert PoseCheckConfig().head_band_deg == 15.0
     for bad in (0.0, 46.0):

@@ -367,8 +367,8 @@ one. The body block's static `head` cylinder stays in every check; the moving he
   distance, so it holds at every tilt), so the head between samples is contained. The boxes are `OrientedBox`es named
   `head <link>`; with a region the obstacles are the body plus these boxes, without the envelope.
 - `PoseChecker.head_band(pan_rad, tilt_rad)`: +-`head_band_deg` (default 15, 0 < band <= 45) about a held head;
-  `PoseChecker.head_span(start, target)`: the (pan, tilt) rectangle of a head move plus the band; both clipped to the
-  head URDF limits. Obstacle sets are cached per region on the checker (`region_obstacles(region)`).
+  `PoseChecker.head_span(start, target)`: the (pan, tilt) rectangle of a head move plus the band; the band extension is
+  clipped to the head URDF limits, but the region always contains the given pan/tilt (even past a limit). Obstacle sets are cached per region on the checker (`region_obstacles(region)`).
 - `PoseChecker.check_head_move(joints, gripper_rad, head)`: the arm standing at `joints` against the head alone (the
   region's boxes, or the envelope for None): link capsules against `margin_m`, the board lattice against the board
   threshold, entries `head_clearance: <part or board> to <head obstacle> clearance X < <margin>`

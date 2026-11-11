@@ -841,7 +841,10 @@ class PoseChecker:
         return self.obstacles if region is None else self.region_sets(region)[0]
 
     def head_region_range(self, joint: str, lower: float, upper: float) -> tuple[float, float]:
-        """A head joint range widened by +-`head_band_deg` and clipped to the head URDF limits.
+        """A head joint range widened by +-`head_band_deg`, the widening clipped to the head URDF limits.
+
+        Only the band extension is clipped: the returned range always contains [lower, upper], even when that
+        lies past a URDF limit (servo overshoot, calibration offset).
 
         Args:
             joint: head_pan or head_tilt.
@@ -855,11 +858,12 @@ class PoseChecker:
         lo, hi = lower - band, upper + band
         limits = self.head.limits(joint)
         if limits is not None:
-            lo, hi = max(lo, limits[0]), min(hi, limits[1])
+            lo, hi = max(lo, min(limits[0], lower)), min(hi, max(limits[1], upper))
         return (lo, hi)
 
     def head_band(self, pan_rad: float, tilt_rad: float) -> HeadRegion:
-        """The region of a held head: +-`head_band_deg` about its pan/tilt, clipped to the head URDF limits.
+        """The region of a held head: +-`head_band_deg` about its pan/tilt, the band clipped to the head URDF limits
+        (the region always contains the given pan/tilt, even past a limit).
 
         Args:
             pan_rad: Held head_pan (rad).
@@ -867,9 +871,6 @@ class PoseChecker:
 
         Returns:
             HeadRegion: The band.
-
-        Raises:
-            ValueError: The head is further outside its limits than the band.
         """
         return HeadRegion(
             pan_rad=self.head_region_range(HEAD_PAN, pan_rad, pan_rad),
@@ -878,7 +879,8 @@ class PoseChecker:
 
     def head_span(self, start: tuple[float, float], target: tuple[float, float]) -> HeadRegion:
         """The region of a head move: the (pan, tilt) rectangle spanned by start and target, +-`head_band_deg`,
-        clipped to the head URDF limits (the joints may move independently).
+        the band clipped to the head URDF limits (the joints may move independently). The region always contains
+        both endpoints, even past a limit.
 
         Args:
             start: (pan, tilt) before the move (rad).
@@ -886,9 +888,6 @@ class PoseChecker:
 
         Returns:
             HeadRegion: The span.
-
-        Raises:
-            ValueError: A head pose is further outside its limits than the band.
         """
         (p0, t0), (p1, t1) = start, target
         return HeadRegion(
