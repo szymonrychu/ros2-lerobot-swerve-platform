@@ -2914,11 +2914,11 @@ The server stack `ansible/roles/monitoring` (Mimir + Loki + Grafana on the serve
 
 ### `test_monitoring_agent_role.py`
 
-`ansible/roles/monitoring_agent` (Grafana Alloy, `monitoring.slice`, the RPi throttling timer and the robot cleanup), rendered for each host (client, server). The throttling script runs against a fake `vcgencmd` on PATH.
+`ansible/roles/monitoring_agent` (Grafana Alloy, `monitoring.slice`, the RPi throttling timer, the DDS watchdog timer and the robot cleanup), rendered for each host (client, server). The throttling script runs against a fake `vcgencmd` on PATH.
 
 | Test | Description |
 |------|-------------|
-| `test_role_files_exist` | tasks (main, grafana_repo, remove_local_stack), defaults, handlers, meta, the Alloy and slice templates and the throttling script exist. |
+| `test_role_files_exist` | tasks (main, grafana_repo, remove_local_stack), defaults, handlers, meta, the Alloy and slice templates, the throttling script, the DDS watchdog script and its service and timer templates exist. |
 | `test_every_template_and_file_the_tasks_name_exists` | (client, server) every `src:` of a template/copy task is shipped with the role. |
 | `test_defaults_are_the_agent_only_host` | Defaults: enabled, port 12345, 5s/4s, push URLs `http://server.ros2.lan:9009/api/v1/push` and `:3100/loki/api/v1/push`, no node or stack targets, no cleanup, alloy 250M, no default `monitoring_host`. |
 | `test_group_vars_set_the_host_label` | (client, server) `group_vars/<host>.yml` sets `monitoring_host` to the host's name. |
@@ -2947,6 +2947,16 @@ The server stack `ansible/roles/monitoring` (Mimir + Loki + Grafana on the serve
 | `test_script_writes_textfile_atomically` | With a fake `vcgencmd` the script writes the textfile and leaves no temp file. |
 | `test_script_removes_stale_textfile_on_failure` | A failing `vcgencmd` removes the old file and exits non-zero. |
 | `test_throttle_timer_runs_every_5s` | (client, server) `rpi-throttled.timer` fires every 5s; the oneshot service runs in monitoring.slice with the textfile path. |
+| `test_dds_watchdog_timer_settings` | (client, server) `dds-watchdog.timer`: `OnBootSec=60s`, `OnUnitActiveSec` from the 10s role default, `AccuracySec=1s`, `WantedBy=timers.target`. |
+| `test_dds_watchdog_service_settings` | (client, server) `dds-watchdog.service`: oneshot, `monitoring.slice`, `ExecStart=/usr/bin/python3 /usr/local/lib/monitoring/dds_watchdog.py`, no `User=`, environment values rendered from the role defaults (3 samples, 262144 bytes, 300 s, dry run `false`, state and textfile paths, proc and cgroup roots, systemctl, calibration timeout 3). |
+| `test_dds_watchdog_renders_every_config_variable` | (client, server) one `Environment=` line for every variable `Config.from_env` in `files/dds_watchdog.py` reads, and no other. |
+| `test_dds_watchdog_deploy_lock_follows_the_deploy_variables` | (client, server) the lock path and max age come from `group_vars/all.yml` (`ros2_deploy_lock`, `ros2_deploy_lock_max_age_min` x 60 = 14400). |
+| `test_dds_watchdog_calibration_url_per_host` | The client renders `http://127.0.0.1/api/calibration/active` (the role default), the server `http://client.ros2.lan/api/calibration/active` (set in `group_vars/server.yml`). |
+| `test_dds_watchdog_start_timeout_bounds_a_run` | (client, server) `TimeoutStartSec` is rendered from `monitoring_agent_dds_watchdog_start_timeout_s` and is at least the 258 s worst case of one run (list-units 60 s + 3 x (restart 60 s + 2 x 3 s calibration GET)). |
+| `test_dds_watchdog_defaults` | Role defaults: enabled, 3 samples, 262144 bytes, 300 s between restarts, dry run false, calibration timeout 3. |
+| `test_dds_watchdog_unit_not_named_ros2` | Only `dds-watchdog.service` and `dds-watchdog.timer` templates exist; no task names a `ros2-` watchdog unit (deploy tooling stops and restarts `ros2-*`). |
+| `test_dds_watchdog_in_start_and_disable_loops` | The timer is enabled and started after the handlers flush when the watchdog is enabled; a separate task stops and disables it when the watchdog or the agent is off, probed through `dds-watchdog.service`. |
+| `test_dds_watchdog_state_dir_task` | `/var/lib/dds-watchdog` is created 0750 root; `dds_watchdog.py` is copied to `/usr/local/lib/monitoring` (0755); both units are installed from templates, notify "Reload systemd", only when enabled. |
 | `test_alloy_and_timer_started_then_guarded_then_checked` | Alloy and the timer start, then a shell task restarts alloy when `/etc/default/alloy`, its config, drop-in or `monitoring.slice` is newer than its start, then `/-/ready` is awaited. |
 | `test_disabled_agent_stops_alloy_and_timer` | `monitoring_agent_enabled: false` stops and disables alloy and the timer. |
 | `test_cleanup_runs_on_the_robot_only` | `monitoring_agent_remove_local_stack` is true on the client, false on the server; main.yml includes `remove_local_stack.yml` under it. |
