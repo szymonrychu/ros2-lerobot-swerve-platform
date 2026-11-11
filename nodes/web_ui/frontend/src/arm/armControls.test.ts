@@ -53,17 +53,6 @@ describe('armControlState', () => {
     expect(armControlState({ ...OK, released: true }).armHome.reason).toBe('Arm torque is off (Calibrate page)')
   })
 
-  it('the servo calibration redo state disables only Arm home, naming the remedy', () => {
-    const s = armControlState({ ...OK, servoCalibrationAt: '2026-11-10T12:00:00+00:00' })
-    expect(s.armHome).toEqual({ disabled: true, reason: 'Arm zero set by a servo calibration at 2026-11-10T12:00:00+00:00: home the arm from Calibrate, Arm to camera, after the old joint offsets confirm' })
-    for (const key of ['drag', 'setHome', 'setDrivePose', 'drivePose', 'grasp'] as const) expect(s[key]).toEqual({ disabled: false, reason: '' })
-    expect(armControlState({ ...OK, servoCalibrationAt: null }).armHome).toEqual({ disabled: false, reason: '' })
-  })
-
-  it('released wins over the servo calibration redo state', () => {
-    expect(armControlState({ ...OK, released: true, servoCalibrationAt: '2026-11-10T12:00:00+00:00' }).armHome.reason).toBe('Arm torque is off (Calibrate page)')
-  })
-
   it('busy disables home, set home and grasp but not drag', () => {
     const s = armControlState({ ...OK, busy: true })
     expect(s.drag.disabled).toBe(false)

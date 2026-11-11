@@ -193,32 +193,35 @@ describe('ArmTab released group', () => {
 
 describe('ArmTab servo calibration redo', () => {
   const AT = '2026-11-10T12:00:00+00:00'
-  const REASON = 'Arm zero set by a servo calibration at 2026-11-10T12:00:00+00:00: home the arm from Calibrate, Arm to camera, after the old joint offsets confirm'
+  const INFO = 'Arm zero set by a servo calibration at 2026-11-10T12:00:00+00:00: redo Calibrate, Arm to camera to refit the joint offsets. Zero shift per joint: shoulder_lift 9.3 deg.'
   const homes = () => {
     const slot = screen.getByTestId('arm-actions-slot')
     return [within(slot).getByRole('button', { name: 'Arm home' }), screen.getByRole('button', { name: 'Home' })] as HTMLButtonElement[]
   }
 
-  it('disables Arm home and the jog Home with the Arm to camera remedy while the arm zero is from a servo calibration', () => {
+  it('keeps Arm home and the jog Home enabled and shows the redo info with the zero shift after a servo calibration', () => {
     setViewport(1400)
     setServo('arm', 'enabled')
-    Object.assign(servoMock.groups[0] as object, { calibration_stale: ['joint_offsets'], servo_calibration_at: AT })
+    Object.assign(servoMock.groups[0] as object, { calibration_stale: ['joint_offsets'], servo_calibration_at: AT, zero_shift_deg: { shoulder_lift: 9.3 } })
     renderTab({ '/filter/active_source': { data: 'autonomy' } })
-    for (const b of homes()) expect(b.disabled).toBe(true)
-    expect(screen.getByTestId('arm-actions-reason').textContent).toContain(REASON)
-    expect(screen.getByTestId('arm-jog-home-reason').textContent).toBe(REASON)
-    const slot = screen.getByTestId('arm-actions-slot')
-    expect((within(slot).getByRole('button', { name: 'Set home' }) as HTMLButtonElement).disabled).toBe(false)
+    for (const b of homes()) expect(b.disabled).toBe(false)
+    expect(screen.getByTestId('arm-servo-calibration-info').textContent).toBe(INFO)
+    expect(screen.getByTestId('arm-jog-slot').textContent).not.toContain('servo calibration')
+    expect(screen.getByTestId('arm-actions-slot').textContent).not.toContain('servo calibration')
   })
 
-  it('keeps both Home buttons enabled without the redo state (stale marker unreadable or no reason)', () => {
+  it('shows no redo info without the redo state (plain stale zero, unreadable marker or no servo calibration time)', () => {
     setViewport(1400)
-    for (const over of [{ calibration_stale: null, servo_calibration_at: AT }, { calibration_stale: ['joint_offsets'], servo_calibration_at: null }]) {
+    for (const over of [
+      { calibration_stale: ['joint_offsets'] },
+      { calibration_stale: null, servo_calibration_at: AT },
+      { calibration_stale: ['joint_offsets'], servo_calibration_at: null },
+    ]) {
       setServo('arm', 'enabled')
       Object.assign(servoMock.groups[0] as object, over)
       renderTab({ '/filter/active_source': { data: 'autonomy' } })
       for (const b of homes()) expect(b.disabled).toBe(false)
-      expect(screen.queryByTestId('arm-jog-home-reason')).toBeNull()
+      expect(screen.queryByTestId('arm-servo-calibration-info')).toBeNull()
       cleanup()
     }
   })

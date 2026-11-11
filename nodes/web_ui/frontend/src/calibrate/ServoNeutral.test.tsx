@@ -2,7 +2,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import {
-  MOVE_REDO_REASON,
   MOVE_STALE_REASON,
   SET_HOME_NO_READINGS_REASON,
   SET_HOME_STALE_REASON,
@@ -425,7 +424,7 @@ describe('ServoNeutral', () => {
     expect(screen.queryByRole('region', { name: 'Head' })).toBeNull()
   })
 
-  it('a servo calibration zero enables Set home and keeps Move to neutral off with the arm-to-camera reason', async () => {
+  it('a servo calibration zero enables Set home and Move to neutral without a reason', async () => {
     groups = [
       group('arm', {
         set_home: true,
@@ -440,10 +439,28 @@ describe('ServoNeutral', () => {
     await inCard('Arm')
     expect((btn('Arm', 'Set home') as HTMLButtonElement).disabled).toBe(false)
     expect(within(card('Arm')).queryByText(SET_HOME_STALE_REASON)).toBeNull()
+    expect((btn('Arm', 'Move to neutral pose') as HTMLButtonElement).disabled).toBe(false)
+    expect(within(card('Arm')).queryByText(MOVE_STALE_REASON)).toBeNull()
+    expect(within(card('Arm')).queryByText(/Move to neutral is off/)).toBeNull()
+  })
+
+  it('an unreadable stale marker keeps Move to neutral off with the restore reason, even with a servo calibration time', async () => {
+    groups = [
+      group('arm', {
+        set_home: true,
+        move_to_neutral: true,
+        calibration_stale: null,
+        servo_calibration_at: '2026-11-10T12:00:00+00:00',
+        state: { ...state({ a: 1, b: 1 }), zero_restore: { max_change_deg: 15, reference: null, reference_error: null, stale_joint_offsets: true, plan: null, last_result: null } },
+      }),
+    ]
+    mockFetch()
+    render(<ServoNeutral parts={['move', 'home']} />)
+    await inCard('Arm')
     expect((btn('Arm', 'Move to neutral pose') as HTMLButtonElement).disabled).toBe(true)
-    const reason = within(card('Arm')).getByText(MOVE_REDO_REASON)
-    expect(reason.textContent).toContain('arm-to-camera')
-    expect(reason.textContent).not.toContain('restore the zero first')
+    expect(within(card('Arm')).getByText(MOVE_STALE_REASON)).toBeTruthy()
+    expect((btn('Arm', 'Set home') as HTMLButtonElement).disabled).toBe(true)
+    expect(within(card('Arm')).getByText(SET_HOME_STALE_REASON)).toBeTruthy()
   })
 
   it('an accidental re-zero (no servo calibration reason) keeps Set home and Move to neutral off with the restore reason', async () => {

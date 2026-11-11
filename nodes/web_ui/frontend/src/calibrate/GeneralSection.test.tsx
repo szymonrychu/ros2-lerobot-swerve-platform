@@ -16,13 +16,20 @@ vi.mock('./servoApi', async (orig) => ({
   useServoGroups: () => ({ groups: servoMock.groups, notConfigured: false, error: null, loading: false }),
 }))
 
-/** Arm servo group with the given stale marker items and servo calibration reason. */
-function armGroup(calibrationStale: string[] | null, servoCalibrationAt: string | null): ServoGroup {
+/** Arm servo group with the given stale marker items, servo calibration reason and zero shift. */
+function armGroup(
+  calibrationStale: string[] | null,
+  servoCalibrationAt: string | null,
+  zeroShift: Record<string, number> | null = null,
+): ServoGroup {
   return {
     id: 'arm', label: 'Arm', neutral: true, state: null, age_s: 0.1, stale: false,
-    calibration_stale: calibrationStale, servo_calibration_at: servoCalibrationAt,
+    calibration_stale: calibrationStale, servo_calibration_at: servoCalibrationAt, zero_shift_deg: zeroShift,
   } as ServoGroup
 }
+
+const REDO_INFO =
+  'Arm zero set by a servo calibration at 2026-11-10T12:00:00+00:00: redo Calibrate, Arm to camera to refit the joint offsets. Zero shift per joint: shoulder_lift 9.3 deg.'
 
 const SEQ: HeadArmSequence = {
   running: false,
@@ -139,24 +146,29 @@ describe('GeneralSection', () => {
     expect(screen.getByText(/Abort the running calibration first/)).toBeTruthy()
   })
 
-  it('Home arm is off with the Arm to camera remedy while the arm zero is from a servo calibration', async () => {
+  it('Home arm stays on and opens its confirm after a servo calibration, with the redo info and the zero shift', async () => {
     stubSequence()
-    servoMock.groups = [armGroup(['joint_offsets'], '2026-11-10T12:00:00+00:00')]
+    servoMock.groups = [armGroup(['joint_offsets'], '2026-11-10T12:00:00+00:00', { shoulder_lift: 9.3 })]
     render(<GeneralSection actions={ALL} rgbd />)
-    expect((screen.getByRole('button', { name: 'Home arm' }) as HTMLButtonElement).disabled).toBe(true)
-    expect(screen.getByText('Arm zero set by a servo calibration at 2026-11-10T12:00:00+00:00: home the arm from Calibrate, Arm to camera, after the old joint offsets confirm')).toBeTruthy()
+    const home = screen.getByRole('button', { name: 'Home arm' }) as HTMLButtonElement
+    expect(home.disabled).toBe(false)
+    expect(screen.getByText(REDO_INFO)).toBeTruthy()
     for (const name of ['Open gripper', 'Close gripper', 'Home camera', 'Home steering servos']) {
       expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled, name).toBe(false)
     }
+    fireEvent.click(home)
+    const dialog = await screen.findByRole('dialog')
+    const homeArm = generalApi.GENERAL_ACTIONS.find((a) => a.id === 'home_arm')
+    expect(within(dialog).getByText(homeArm?.confirm ?? '')).toBeTruthy()
   })
 
-  it('Home arm stays on without the servo calibration redo state', async () => {
+  it('shows no redo info without the servo calibration redo state (plain stale zero, unreadable marker)', async () => {
     stubSequence()
-    for (const group of [armGroup(['joint_offsets'], null), armGroup(null, '2026-11-10T12:00:00+00:00')]) {
+    for (const group of [armGroup(['joint_offsets'], null), armGroup(null, '2026-11-10T12:00:00+00:00', { shoulder_lift: 9.3 })]) {
       servoMock.groups = [group]
       render(<GeneralSection actions={ALL} rgbd={false} />)
       expect((screen.getByRole('button', { name: 'Home arm' }) as HTMLButtonElement).disabled).toBe(false)
-      expect(screen.queryByText(/home the arm from Calibrate, Arm to camera/)).toBeNull()
+      expect(screen.queryByText(/Arm zero set by a servo calibration/)).toBeNull()
       cleanup()
     }
   })

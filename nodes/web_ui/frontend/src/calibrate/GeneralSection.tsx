@@ -11,7 +11,7 @@ import { type BoardRecord, type HeadArmSequence, getHeadArmState } from './headA
 import { getFloorState } from './headFloorApi'
 import { getGroundState } from './groundBoardApi'
 import { useServoGroups } from './servoApi'
-import { servoCalibrationHomeReason, servoCalibrationRedoAt } from './ZeroRestorePanel'
+import { servoCalibrationInfoText, servoCalibrationRedoAt } from './ZeroRestorePanel'
 
 /** Head-arm sequence, floor sweep and ground board poll period of the General section: 0.5 Hz (the flows poll faster while they run). */
 export const GENERAL_POLL_MS = 2000
@@ -53,9 +53,11 @@ export function GeneralSection({ actions, rgbd }: { actions: GeneralActionId[]; 
   const [floorLive, setFloorLive] = useState(false)
   const [groundLive, setGroundLive] = useState(false)
   const sweepLive = floorLive || groundLive
-  // The arm group in the servo calibration redo state: /arm/home would move on the old joint offsets without the
-  // confirm of the Arm to camera flow.
-  const servoCalibrationAt = servoCalibrationRedoAt(useServoGroups().groups, 'arm')
+  // The arm group in the servo calibration redo state: Home arm works as usual, an info line under the buttons says
+  // the joint offsets still need the Arm to camera redo and names the zero shift.
+  const servoGroups = useServoGroups().groups
+  const servoCalibrationAt = servoCalibrationRedoAt(servoGroups, 'arm')
+  const armZeroShift = servoGroups.find((g) => g.id === 'arm')?.zero_shift_deg
 
   const follow = useCallback((sequence: HeadArmSequence) => {
     setSequenceLive(sequence.running || LIVE_PHASES.includes(sequence.phase))
@@ -122,8 +124,7 @@ export function GeneralSection({ actions, rgbd }: { actions: GeneralActionId[]; 
               busy ||
               (sequenceLive && SEQUENCE_BLOCKED.includes(a.id)) ||
               (sweepLive && SWEEP_BLOCKED.includes(a.id)) ||
-              (boardRecord !== null && a.id === 'home_arm') ||
-              (servoCalibrationAt !== null && a.id === 'home_arm')
+              (boardRecord !== null && a.id === 'home_arm')
             }
             onClick={() => setPending(a)}
           >
@@ -139,7 +140,7 @@ export function GeneralSection({ actions, rgbd }: { actions: GeneralActionId[]; 
       )}
       {servoCalibrationAt !== null && actions.includes('home_arm') && (
         <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-          {servoCalibrationHomeReason(servoCalibrationAt)}
+          {servoCalibrationInfoText(servoCalibrationAt, armZeroShift)}
         </Typography>
       )}
       {sweepLive && (

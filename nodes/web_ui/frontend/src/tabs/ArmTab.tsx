@@ -4,7 +4,7 @@ import Typography from '@mui/material/Typography'
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { ReleasedBannerView, releasedLabel } from '../calibrate/ReleasedBanner'
 import { useServoGroups } from '../calibrate/servoApi'
-import { servoCalibrationHomeReason, servoCalibrationRedoAt } from '../calibrate/ZeroRestorePanel'
+import { servoCalibrationInfoText, servoCalibrationRedoAt } from '../calibrate/ZeroRestorePanel'
 import ArmJogPanel from '../arm/ArmJogPanel'
 import ArmActions from '../arm/ArmActions'
 import { useArmCalibration } from '../arm/armCalibrationApi'
@@ -42,9 +42,10 @@ export default function ArmTab({ tab, topicData, publish }: Props) {
   const servo = useServoGroups()
   const released = releasedLabel(servo, 'arm') !== null
   const releasedList = releasedJoints(servo, 'arm')
-  // In the servo calibration redo state both Home buttons are off: the Arm to camera flow homes the arm after its
-  // old joint offsets confirm.
+  // In the servo calibration redo state the arm actions work as usual; an info line says the joint offsets still need
+  // the Arm to camera redo and names the zero shift.
   const servoCalibrationAt = servoCalibrationRedoAt(servo.groups, 'arm')
+  const armZeroShift = servo.groups.find((g) => g.id === 'arm')?.zero_shift_deg
   const [armReady, setArmReady] = useState(false)
   const [action, setAction] = useState<ActionResult>({ state: 'idle', message: '' })
   // The served arm calibration (configured, or accepted after an Accept): the drawn arm, the floor pick and the grasp
@@ -75,7 +76,6 @@ export default function ArmTab({ tab, topicData, publish }: Props) {
     activeSource: activeSourceOf(tab, topicData),
     graspBusy: grasp.executing || grasp.planning,
     drivePoseKnown: drivePose !== undefined,
-    servoCalibrationAt,
   })
   const drag = controls.drag
   // The draggable arm in the 3D view is a command source too: drop its goals while the arm is limp.
@@ -125,6 +125,11 @@ export default function ArmTab({ tab, topicData, publish }: Props) {
           )}
         </Box>
       </Box>
+      {servoCalibrationAt !== null && (
+        <Alert severity="info" data-testid="arm-servo-calibration-info" sx={{ flex: '0 0 auto' }}>
+          {servoCalibrationInfoText(servoCalibrationAt, armZeroShift)}
+        </Alert>
+      )}
       <Box data-testid="arm-actions-slot" sx={{ flex: '0 0 auto' }}>
         <ArmActions
           tabId={tab.id}
@@ -139,7 +144,7 @@ export default function ArmTab({ tab, topicData, publish }: Props) {
       </Box>
       {graspOpen && <GraspPanel state={grasp} onClose={() => setGraspOpen(false)} />}
       <Box data-testid="arm-jog-slot" sx={{ flex: '0 0 auto' }}>
-        <ArmJogPanel tab={tab} topicData={topicData} released={released} releasedJoints={releasedList} homeReason={servoCalibrationAt ? servoCalibrationHomeReason(servoCalibrationAt) : ''} />
+        <ArmJogPanel tab={tab} topicData={topicData} released={released} releasedJoints={releasedList} />
       </Box>
     </Box>
   )
