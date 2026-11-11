@@ -829,9 +829,8 @@ model each check uses:
   `head_move_check`). The head is never commanded outside a region it was checked with.
 - The board park (`check_board_park_path`) and mcp_server's park and home legs: the full-range envelope, unchanged.
 
-The envelope is used where the head is not held, so its known limit applies there (refused from a pan-axis delta of
-about 38 mm on; today 8.2 mm worst clearance, 3.2 mm over `margin_m`): see "Known limit" in "Pose set and its tests"
-below. Anything that moves the head outside the sequencer (another lease holder, mcp_server homing the head on a release
+The envelope is used where the head is not held, so its known limit applies there: see "Known limit" in "Pose set and
+its tests" below. Anything that moves the head outside the sequencer (another lease holder, mcp_server homing the head on a release
 without `keep_position`) is not covered by the band; the reset at every run start and the envelope of the park keep the
 conservative model there.
 
@@ -915,7 +914,9 @@ pins the construction of the max variant: the live head with the offset scaled a
 largest accepted pan-axis delta (`fit.limits.max_pan_axis_delta_mm`, 50 mm).
 
 Known limit (user decision T-114 #369, accepted for now): the full-range envelope, used wherever the head is not held
-(the base pose, home -> base, base -> tier 0 pose 0, the first head move and the board park base -> `park_pose`),
+(the base pose, home -> base, the handle grip, base -> tier 0 pose 0, the first head move, any arm or head move after
+a head move that did not converge (a head tool error also leaves the head not held, and stops the run) and the board
+park base -> `park_pose`),
 grows with the pan-axis delta (about 1.45 mm radius per mm) and refuses these moves from a delta of about 38 mm on,
 while the fit accepts up to 50 mm. Such a fit makes the sequencer refuse the first move and the board park: fail safe,
 but no capture is possible. Today's live head (35.7 mm delta) passes them with 8.2 mm worst clearance, 3.2 mm over

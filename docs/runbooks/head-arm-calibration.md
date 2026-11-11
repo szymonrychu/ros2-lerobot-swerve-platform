@@ -47,11 +47,13 @@ not be filled in by an agent.
   checked against the real head shapes within +-15 deg (`head_band_deg`) of the held pan/tilt, and every
   head move against the arm before it is commanded (span from the held pan/tilt to the aim); a planned or
   refused head move skips the view with the reason `head_clearance` and is never commanded. Where the head
-  is not held (run start, a resume, after a head move that did not converge) and for the board park, the
+  is not held (run start, a resume, after a head move that did not converge or a head tool error, which
+  also stops the run) and for the board park, the
   full-range head envelope is used. Details: `nodes/head_rgbd_calibration/README.md`, "The sequence"
   ("Head model of the checks").
-- Known limit (decision T-114 #369): where the head is not held (base pose, home -> base, base -> tier 0
-  pose 0, the first head move, the board park) the check uses the full-range head envelope, which refuses
+- Known limit (decision T-114 #369): where the head is not held (base pose, home -> base, the handle grip,
+  base -> tier 0 pose 0, the first head move, any move after a head move that did not converge or a head
+  tool error, the board park) the check uses the full-range head envelope, which refuses
   these moves from a pan-axis delta of about 38 mm on (the fit accepts up to 50 mm): fail safe, but no
   capture and no board park. Today's head: 8.2 mm worst clearance, 3.2 mm over `margin_m`. Follow-up:
   hold the head at a fixed aim before those moves, or lower `max_pan_axis_delta_mm`. Details:

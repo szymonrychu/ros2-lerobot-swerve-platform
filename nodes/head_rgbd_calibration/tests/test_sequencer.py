@@ -137,6 +137,8 @@ class FakeRobot:
         errors: Tool name -> 1-based call number answered with a tool error.
         move_status: 1-based move_arm_joints call number -> status other than converged.
         head_status: 1-based set_head_angles call number -> status other than converged.
+        head_offset_deg: (pan, tilt) deg added to the commanded head angles in the measured ones set_head_angles
+            reports (the head settles off the command).
         measured: Overrides the measured positions get_arm_state reports (None: the commanded ones).
         carrying: Reasons get_control_state reports in arm.carrying (empty: not carrying).
         reset_arm: reset.arm of a park release.
@@ -151,6 +153,7 @@ class FakeRobot:
         self.errors: dict[str, int] = {}
         self.move_status: dict[int, str] = {}
         self.head_status: dict[int, str] = {}
+        self.head_offset_deg: tuple[float, float] = (0.0, 0.0)
         self.measured: dict[str, float] | None = None
         self.carrying: list[str] = []
         self.reset_arm = "homed"
@@ -188,7 +191,11 @@ class FakeRobot:
         if name == "set_head_angles":
             status = self.head_status.get(number, "converged")
             angles = {"pan_deg": args["pan_deg"], "tilt_deg": args["tilt_deg"]}
-            return RawToolResult(False, "ok", {"status": status, "commanded": angles, "measured": angles})
+            measured = {
+                "pan_deg": args["pan_deg"] + self.head_offset_deg[0],
+                "tilt_deg": args["tilt_deg"] + self.head_offset_deg[1],
+            }
+            return RawToolResult(False, "ok", {"status": status, "commanded": angles, "measured": measured})
         if name == "release_control":
             keep = args["keep_position"]
             reset = {"arm": "kept", "head": "kept"} if keep else {"arm": self.reset_arm, "head": "homed"}
@@ -1736,6 +1743,23 @@ def test_first_moves_use_the_envelope_then_the_held_head_band(tmp_path: Path, mo
     for head, last in heads[3:]:
         assert last is not None
         assert head == band_deg(checker, last)
+
+
+def test_held_head_band_follows_the_measured_head_angles(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    offset = (3.0, -2.0)  # deg: the head converges a few degrees off the command
+    rig = Rig(tmp_path, small_cfg())
+    rig.robot.head_offset_deg = offset
+    spy_check_path(monkeypatch, rig)
+    state = rig.run_to_holding()
+    assert state["error"] is None
+    heads = path_heads(rig)
+    checker = rig_checker(rig)
+    assert len(heads) == 3 + len(tier_poses(rig.cfg))
+    for head, last in heads[3:]:
+        assert last is not None
+        measured = (last[0] + offset[0], last[1] + offset[1])
+        assert head == band_deg(checker, measured)  # the band about where the head is, not where it was sent
+        assert head != band_deg(checker, last)
 
 
 def test_resume_starts_with_the_envelope(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
