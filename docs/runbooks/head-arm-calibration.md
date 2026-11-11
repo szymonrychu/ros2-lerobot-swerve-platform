@@ -135,14 +135,16 @@ Board attached stops with "the gripper closed past the handle contact" (unseated
 commanded grip" (slack) although the handle is seated up to the shoulder: this board's handle is a little thinner or
 thicker than the configured `handle_contact_rad`. Nothing needs editing in the config.
 
-1. Seat the handle up to the shoulder in the jaws by hand and check it by eye. After these two errors the sequence is idle or holding; at idle step 3 is locked, so the only reachable button is the one in the banner.
+1. Seat the handle up to the shoulder in the jaws by hand and check it by eye. After these two errors the sequence is `holding` with the board on (the board was confirmed before the grip check); step 3 Grab board is locked then (Board attached works only in `waiting_board`), so the only reachable button is the one in the banner.
 2. Press **Confirm correct grip** (in the red **Last head-arm error** banner for these two errors, where its refusal is also shown; step 3 Grab
    board and step 7 Park have it too, but step 3 only while its run is live) and confirm "The handle is seated correctly: record the measured gripper angle as the grip on
    this board (nothing moves)". The node measures the jaw, records it as the handle contact in
    `<state_dir>/head_arm_grip.json` (kept across restarts and deploys, never templated by Ansible) and answers with the
    new grip. It refuses a contact outside 0.03 to 0.30 rad and any call while something moves.
 3. The line under Grab board and Park reads "Handle contact <rad> rad (recorded at <time>)"; "(config value)" means no
-   record. Press Board attached again.
+   record. After a confirm from the banner the red banner stays (the node keeps the error) and a green "Grip recorded:
+   handle contact <rad> rad" line appears next to its button. To get a fresh grip, press Park, then Open gripper and
+   Board attached. Resume capture (board on) keeps the jaw as it is and skips the seat and slack checks.
 4. **Reset to config value** (shown only while a record exists, own confirm, nothing moves) deletes the record and goes
    back to the configured contact, e.g. for a different board. Both buttons stay disabled while the sequence runs or a
    call is busy.
