@@ -9,7 +9,7 @@ not plausible, declined or accepted give 409.
 
 POST /board-record/clear removes the board record (Sequencer.clear_board_record) when the user states the calibration
 board is already off the gripper; nothing moves. It needs {confirm: true} (400 without) and is refused (409) while a
-head-arm sequence or park or an arm to camera compute runs. It answers the head-arm sequence state.
+head-arm sequence or Home or an arm to camera compute runs. It answers the head-arm sequence state.
 """
 
 from collections.abc import Callable

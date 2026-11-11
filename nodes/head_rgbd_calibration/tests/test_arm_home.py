@@ -1,4 +1,4 @@
-"""The stored arm home (mcp_server's home.yaml) the board park drives to."""
+"""The stored arm home (mcp_server's home.yaml) the board Home drives to."""
 
 import math
 from pathlib import Path

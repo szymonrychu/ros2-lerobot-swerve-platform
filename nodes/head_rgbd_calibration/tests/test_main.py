@@ -300,7 +300,7 @@ def test_urdf_callables_read_the_configured_files(rec: Recorder, tmp_path: Path)
     assert rec.sequencer.head_urdf() == entry.base_urdf(cfg)
     assert rec.sequencer.board_file == Path(cfg.state_dir) / "head_arm_board.json"
     assert rec.sequencer.session_exists(None) is False
-    assert rec.sequencer.fitted_mount(None) is None  # the park path check reads the session's newest fitted mount
+    assert rec.sequencer.fitted_mount(None) is None  # the home path check reads the session's newest fitted mount
 
 
 def test_sequencer_is_blocked_while_a_capture_compute_or_sweep_runs(rec: Recorder) -> None:

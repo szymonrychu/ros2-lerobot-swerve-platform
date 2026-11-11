@@ -1,7 +1,7 @@
 """The stored arm home: mcp_server's home file (`{joints: {name: rad}}`, written by Set home), read at each press.
 
 The node reads the file mcp_server's `arm.home_file` names (config `arm_home_file`) instead of keeping its own copy of
-the home, so a re-stored home is the board park target at the next press. Only the five arm joints are returned; the
+the home, so a re-stored home is the board Home target at the next press. Only the five arm joints are returned; the
 gripper entry is dropped (the gripper keeps its own angle while the board is held).
 """
 

@@ -4,7 +4,7 @@ state_dir: /var/lib/ros2/head_rgbd_calibration
 # Arm re-zero stale marker of the follower bridge; the arm to camera accept is refused while it lists joint_offsets for
 # a re-zero at or after the session's first still (null: no check).
 arm_stale_marker: /var/lib/ros2/arm/calibration_stale.json
-# mcp_server's stored arm home (its arm.home_file, written by Set home), read at each Park with the board on as its
+# mcp_server's stored arm home (its arm.home_file, written by Set home), read at each Home with the board on as its
 # target.
 arm_home_file: /var/lib/ros2/arm/home.yaml
 # HTTP API bind address (web_ui proxies to it).
@@ -80,7 +80,7 @@ floor:
   cloud_topic: /head/d435/points # D435 cloud (d435_obstacle_cloud)
   sensor_frame: d435_depth_optical_frame # frame of the cloud points the floor planes are fitted in
   command_frame_id: head_rgbd_calibration # header.frame_id of the commands
-  pan_deg: [-30, -15, 0, 15, 30, 45] # pan grid, deg (-90..90); -60 sees the parked arm
+  pan_deg: [-30, -15, 0, 15, 30, 45] # pan grid, deg (-90..90); -60 sees the arm at home
   tilt_deg: [20, 24, 28] # tilt grid, deg, + is down (each -30..45); the D435 58 deg vertical FOV sees floor from 0.41-0.45 m out to 1.8 m at these tilts, 32+ sees floor under 0.4 m
   reach_tol_deg: 1.0 # a pose counts as reached within this of the target, deg (> 0)
   still_tol_deg: 0.2 # head still when the joint spread over still_window_s is under this, deg (> 0)
@@ -391,7 +391,7 @@ arm_sequence:
   confirm_timeout_s: 600.0 # an unanswered confirm ends the sequence (arm held), s (> 0)
   head_offsets_deg: [[0.0, 0.0], [10.0, 0.0], [-10.0, 0.0], [0.0, -3.0]] # (pan, tilt) added to the aimed head, deg; tilt -3 (up) fits the D435 colour FOV
   provisional_margin_m: 0.0 # extra board margin while board_mount is the CAD seed, m (>= 0); 0 by user decision 2026-11-10
-  park_board_sag_margin_m: 0.01 # added to the board floor, body and head clearances of the Park path check (board sags under its weight), m (>= 0)
+  park_board_sag_margin_m: 0.01 # added to the board floor, body and head clearances of the Home path check (board sags under its weight), m (>= 0)
   board_record_max_age_s: 7200.0 # a board-clipped record older than this is ignored at start-up, s (> 0)
   # FK pose check before every arm command (shared core arm_pose_check); its body is the packaged robot body
   # (shared/arm_collision/arm_collision/robot_body.yaml, loaded by the BodyConfig defaults).

@@ -237,7 +237,7 @@ def calib_event(
 
     Args:
         logger (logging.Logger): The flow's module logger (it reaches the journal through the root handler).
-        flow (str): The calibration flow (head_arm, head_arm_park, floor_sweep, d435_capture, ...).
+        flow (str): The calibration flow (head_arm, head_arm_home, floor_sweep, d435_capture, ...).
         run_id (str | None): The run the event belongs to (session or result id, or a generated id).
         step (str): The step within the flow.
         outcome (str): start, ok, error, stopped, refused, skipped, ... .
@@ -354,7 +354,7 @@ def new_run_id(prefix: str, now: datetime | None = None) -> str:
     """A run id for a run that has no session id (yet): `<prefix>-YYYYmmdd-HHMMSS-<hex>`.
 
     Args:
-        prefix (str): What runs (seq, park, req, ...).
+        prefix (str): What runs (seq, home, req, ...).
         now (datetime | None): The start time (default: the local time now).
 
     Returns:

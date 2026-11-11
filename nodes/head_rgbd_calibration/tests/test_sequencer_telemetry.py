@@ -1,4 +1,4 @@
-"""Journal telemetry of the head-arm sequence and park: the calib_event lines a debugging agent reads.
+"""Journal telemetry of the head-arm sequence and Home: the calib_event lines a debugging agent reads.
 
 Uses the sequencer rig of test_sequencer.py (fake mcp_server transport, fake still capture, injected clock).
 """
@@ -163,40 +163,40 @@ def test_a_stop_while_waiting_logs_stopped(tmp_path: Path, caplog: pytest.LogCap
     assert find(events, "sequence", "stopped")
 
 
-def test_a_board_park_logs_its_run_the_mount_and_the_mcp_reset(
+def test_a_board_home_logs_its_run_the_mount_and_the_mcp_reset(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     rig = Rig(tmp_path, small_cfg())
     rig.run_to_holding()
     rig.robot.carrying = [BOARD_LOAD]
     with caplog.at_level(logging.INFO, logger=SEQUENCER_LOGGER):
-        rig.seq.park(confirmed=True)
+        rig.seq.home(confirmed=True)
         rig.finish()
     events = sequencer_events(caplog)
-    assert {e["run_id"] for e in events} == {events[0]["run_id"]} and events[0]["run_id"].startswith("park-")
+    assert {e["run_id"] for e in events} == {events[0]["run_id"]} and events[0]["run_id"].startswith("home-")
     carrying = find(events, "control_state")[0]["data"]
     assert carrying["reasons"] == [BOARD_LOAD] and carrying["board_on"] is True
-    check = find(events, "park_path_check", "ok")[0]["data"]
+    check = find(events, "home_path_check", "ok")[0]["data"]
     assert check["mount_source"] == "configured" and "margin_m" in check
-    assert check["target"] == HOME_POSE and find(events, "park", "start")[0]["data"]["home_pose"] == HOME_POSE
-    assert find(events, "park_move", "start")[0]["data"]["target"] == HOME_POSE and find(events, "park_move", "ok")
-    release = find(events, "park_release", "ok")[0]["data"]
+    assert check["target"] == HOME_POSE and find(events, "home", "start")[0]["data"]["home_pose"] == HOME_POSE
+    assert find(events, "home_move", "start")[0]["data"]["target"] == HOME_POSE and find(events, "home_move", "ok")
+    release = find(events, "home_release", "ok")[0]["data"]
     assert release["reset"]["arm"] == "homed"
-    assert find(events, "park", "done")
+    assert find(events, "home", "done")
 
 
-def test_a_park_refused_by_the_board_path_check_logs_its_entries(
+def test_a_home_refused_by_the_board_path_check_logs_its_entries(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     rig = Rig(tmp_path, small_cfg(park_board_sag_margin_m=1.0))
     rig.run_to_holding()
     with caplog.at_level(logging.INFO, logger=SEQUENCER_LOGGER):
-        with pytest.raises(SequenceError, match="Park refused by the path check"):
-            rig.seq.park(confirmed=True)
+        with pytest.raises(SequenceError, match="Home refused by the path check"):
+            rig.seq.home(confirmed=True)
     events = sequencer_events(caplog)
-    refused = find(events, "park_path_check", "refused")[0]
+    refused = find(events, "home_path_check", "refused")[0]
     assert refused["data"]["entries"] and refused["data"]["target"] == HOME_POSE
-    assert find(events, "park", "refused")[0]["reason"].startswith("Park refused by the path check")
+    assert find(events, "home", "refused")[0]["reason"].startswith("Home refused by the path check")
 
 
 def test_no_token_reaches_the_log(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
@@ -204,7 +204,7 @@ def test_no_token_reaches_the_log(tmp_path: Path, caplog: pytest.LogCaptureFixtu
     with caplog.at_level(logging.DEBUG):
         rig.run_to_holding()
         rig.robot.carrying = [BOARD_LOAD]
-        rig.seq.park(confirmed=True)
+        rig.seq.home(confirmed=True)
         rig.finish()
     text = "\n".join(r.getMessage() for r in caplog.records)
     assert TOKEN not in text and BOARD_PARK_TOKEN not in text

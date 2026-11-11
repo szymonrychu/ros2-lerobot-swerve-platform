@@ -139,9 +139,9 @@ run went wrong:
 1. List the runs and their ends: `journalctl -u ros2-head_rgbd_calibration -o cat --since today | grep -o
    'calib_event {.*' | cut -d' ' -f2- | jq -c 'select(.flow=="head_arm" and .step=="sequence")'`. The `error` event
    names `failed_step`, the `reason` (the same text as the red banner), the phase it ended in, the session id and the
-   counts; a `park` event does the same for a park (`run_id` `park-...`).
+   counts; a `home` event does the same for a Home (`run_id` `home-...`).
 2. Take that `run_id` and read the whole run in order: `... | jq -c 'select(.run_id=="seq-...")'`. The last `error`
-   event of a timed step (`base_move`, `handle_grip`, `pose`, `return_to_base`, `park_move`, `park_release`, ...) carries
+   event of a timed step (`base_move`, `handle_grip`, `pose`, `return_to_base`, `home_move`, `home_release`, ...) carries
    the step's inputs and the exception.
 3. Look at the step just before the failure:
    - `path_check` `refused`: `data.entries` names every violated rule with its value, limit and path fraction,
@@ -152,7 +152,7 @@ run went wrong:
    - `still` `skipped`: `reason` (no board, joints stale, not still) and `data.detail` (corner count, board ids, the
      window's colour MAD against `rgb_mad_limit`, the moving joint and its range, the joint stamp gaps).
    - `view` `skipped`: the head command and the violated view rule (min-Z, FOV, head limits).
-   - `park_path_check` `refused`: the mount used (`fitted`, `recorded` or `configured`), the margins and the entries.
+   - `home_path_check` `refused`: the mount used (`fitted`, `recorded` or `configured`), the margins and the entries.
 4. A compute that failed: `select(.flow=="head_arm_compute")` (or `arm_compute`, `floor_compute`, `d435_compute`) shows
    the `inputs` (views per tier and head offset, corner counts, intrinsics, floor reference) and the `result` with every
    limit check (`value`, `limit`, `ok`) and the worst views; an apply is `head_chain_apply` (files written, unit states).

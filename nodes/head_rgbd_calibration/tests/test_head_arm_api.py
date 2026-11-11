@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from head_rgbd_calibration import head_arm_api
 from head_rgbd_calibration.app import build_app
 from head_rgbd_calibration.config import NodeConfig
-from head_rgbd_calibration.head_arm_api import head_arm_router
+from head_rgbd_calibration.head_arm_api import MSG_NEEDS_HOME_CONFIRM, head_arm_router
 from head_rgbd_calibration.head_arm_results import compute_head_arm
 from head_rgbd_calibration.sequencer import Busy, SequenceError
 from head_rgbd_calibration.store import SessionStore
@@ -89,8 +89,8 @@ class FakeSequencer:
     def allow_big_joints(self, confirmed: bool) -> dict[str, Any]:
         return self.act("allow_big_joints", confirmed)
 
-    def park(self, confirm: bool, board_on: bool = False) -> dict[str, Any]:
-        return self.act("park", (confirm, board_on))
+    def home(self, confirm: bool, board_on: bool = False) -> dict[str, Any]:
+        return self.act("home", (confirm, board_on))
 
     def stop(self) -> dict[str, Any]:
         return self.act("stop")
@@ -276,22 +276,27 @@ def test_stop_also_when_idle(parts: SimpleNamespace) -> None:
 
 
 @pytest.mark.parametrize("body", [None, {}, {"confirm": False}])
-def test_park_needs_confirm(parts: SimpleNamespace, body: dict[str, Any] | None) -> None:
-    response = parts.client.post("/api/head-arm/park", json=body)
+def test_home_needs_confirm(parts: SimpleNamespace, body: dict[str, Any] | None) -> None:
+    response = parts.client.post("/api/head-arm/home", json=body)
     assert response.status_code == 400
-    assert response.json()["ok"] is False and "confirm" in response.json()["message"]
+    assert response.json()["ok"] is False and response.json()["message"] == MSG_NEEDS_HOME_CONFIRM
     assert parts.sequencer.calls == []
 
 
-def test_park_passes_confirm_and_conflicts_while_running(parts: SimpleNamespace) -> None:
-    assert parts.client.post("/api/head-arm/park", json={"confirm": True}).status_code == 200
-    assert parts.sequencer.calls == [("park", (True, False))]
-    assert parts.client.post("/api/head-arm/park", json={"confirm": True, "board_on": True}).status_code == 200
-    assert parts.sequencer.calls[-1] == ("park", (True, True))
+def test_park_route_is_gone(parts: SimpleNamespace) -> None:
+    assert parts.client.post("/api/head-arm/park", json={"confirm": True}).status_code == 404
+    assert parts.sequencer.calls == []
+
+
+def test_home_passes_confirm_and_conflicts_while_running(parts: SimpleNamespace) -> None:
+    assert parts.client.post("/api/head-arm/home", json={"confirm": True}).status_code == 200
+    assert parts.sequencer.calls == [("home", (True, False))]
+    assert parts.client.post("/api/head-arm/home", json={"confirm": True, "board_on": True}).status_code == 200
+    assert parts.sequencer.calls[-1] == ("home", (True, True))
     parts.sequencer.error = Busy("a head-arm sequence is running")
-    assert parts.client.post("/api/head-arm/park", json={"confirm": True}).status_code == 409
-    parts.sequencer.error = SequenceError("Park refused: carrying")
-    assert parts.client.post("/api/head-arm/park", json={"confirm": True}).status_code == 400
+    assert parts.client.post("/api/head-arm/home", json={"confirm": True}).status_code == 409
+    parts.sequencer.error = SequenceError("Home refused: carrying")
+    assert parts.client.post("/api/head-arm/home", json={"confirm": True}).status_code == 400
 
 
 def test_sessions_list_only_head_arm_sessions(parts: SimpleNamespace) -> None:
@@ -395,8 +400,8 @@ def test_confirms_required(parts: SimpleNamespace) -> None:
     for path, body in (
         ("/api/head-arm/sequence/base", {}),
         ("/api/head-arm/sequence/base", {"confirm": False}),
-        ("/api/head-arm/park", {}),
-        ("/api/head-arm/park", {"confirm": False}),
+        ("/api/head-arm/home", {}),
+        ("/api/head-arm/home", {"confirm": False}),
     ):
         assert parts.client.post(path, json=body).status_code == 400
 

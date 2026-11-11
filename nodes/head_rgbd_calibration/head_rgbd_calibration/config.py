@@ -27,7 +27,7 @@ CONFIG_ENV = "HEAD_RGBD_CALIBRATION_CONFIG"
 DEFAULT_STATE_DIR = "/var/lib/ros2/head_rgbd_calibration"
 # The follower bridge's arm re-zero stale marker (feetech_servos neutral_stale_marker), read by the arm to camera accept.
 DEFAULT_ARM_STALE_MARKER = "/var/lib/ros2/arm/calibration_stale.json"
-# mcp_server's stored arm home (its arm.home_file, written by Set home), the target of Park with the board on.
+# mcp_server's stored arm home (its arm.home_file, written by Set home), the target of Home with the board on.
 DEFAULT_ARM_HOME_FILE = "/var/lib/ros2/arm/home.yaml"
 DEFAULT_HTTP_HOST = "127.0.0.1"
 DEFAULT_HTTP_PORT = 18110
@@ -489,7 +489,7 @@ class ArmSequenceConfig(StrictModel):
     at or above `grip_rad + grip_converge_tolerance_rad` after the close is refused (the squeeze must stay below it).
     `head_offsets_deg` are (pan, tilt) offsets added to the aimed head angles, one view each. `provisional_margin_m`
     is added to `pose_check.margin_m` for the board points while the board mount is the shipped CAD seed (not
-    fit-solved). A park with the board on drives to the stored home (`NodeConfig.arm_home_file`, path-checked first);
+    fit-solved). A Home with the board on drives to the stored home (`NodeConfig.arm_home_file`, path-checked first);
     `park_board_sag_margin_m` is added to the board floor, body and head clearances of that check, because the board
     sags below FK under its weight (about 4 mm measured with the 214 g stick-mounted board; the ARM board's
     `board_mass_g` is lighter, so the same margin is conservative). `board_record_max_age_s` is the oldest
@@ -594,7 +594,7 @@ class NodeConfig(StrictModel):
     frame `csi_frame_timeout_s` after its start stops as camera not detected. `arm_stale_marker` is the
     follower bridge's arm re-zero stale marker: the arm to camera accept is refused while it lists joint_offsets for a
     re-zero at or after the session's first still (None: no check). `arm_home_file` is mcp_server's stored arm home
-    (`arm.home_file`), read at each Park with the board on as its target.
+    (`arm.home_file`), read at each Home with the board on as its target.
     """
 
     state_dir: str = DEFAULT_STATE_DIR
