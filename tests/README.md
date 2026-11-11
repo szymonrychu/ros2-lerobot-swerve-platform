@@ -4073,3 +4073,23 @@ Static pins for `docs/runbooks/map3d-mapping.md` (3D mapping runbook re-based on
 | `test_thresholds_kept` | `0.8`, `0.15 m/s`, `0.3 rad/s`, `2x` and `budget_bytes` are still present. |
 | `test_runs_with_d435_s72` | Header names D435 S59, S84, S72 and `docs/runbooks/d435-switchover.md`. |
 | `test_results_rows_match_steps` | Seven numbered steps, seven Results rows, each starting with its step number. |
+
+### `test_dds_watchdog.py`
+
+Imports `ansible/roles/monitoring_agent/files/dds_watchdog.py` and runs its detection core against fixture `/proc` and cgroup v2 trees (real values from the robot: healthy `dds.udp.7418`, wedged `dds.udp.7458` with rx 1001600, user-unicast `dds.udp.7459`). No ROS2, no root.
+
+| Test | Covers |
+|---|---|
+| `test_metatraffic_port_accepts_even_offsets` | 7410, 7458 and 7608 give the port; odd offsets, out-of-range ports, `dds.shm.*` and other threads give None. |
+| `test_rx_queues_parses_hex_rx_field` | The hex `tx:rx` field of `/proc/net/udp` (`000F4880` is 1001600). |
+| `test_rx_queues_reads_udp6_and_takes_max` | `udp6` rows are read too; the larger queue wins per port. |
+| `test_rx_queues_missing_files_are_skipped` | No `net/udp` gives an empty dict. |
+| `test_unit_pids_includes_child_cgroups` | Pids from the unit's and nested child cgroups' `cgroup.procs`. |
+| `test_unit_pids_missing_unit_is_empty` | A unit without a cgroup directory has no pids. |
+| `test_scan_unit_healthy_is_none` | Waiting in the socket receive path with an empty queue is not a suspect. |
+| `test_scan_unit_futex_with_empty_queue_is_none` | `futex_wait_queue` with a queue below `rx_min` is not a suspect. |
+| `test_scan_unit_full_queue_in_skb_wait_is_none` | A full queue while the thread is still in `__skb_wait_for_more_packets` is not a suspect. |
+| `test_scan_unit_futex_and_full_queue_is_suspect` | `futex_wait_queue` plus a full queue returns the evidence (unit, pid, tid, port, rx, wchan). |
+| `test_scan_unit_ignores_user_unicast_port` | An odd-offset thread is ignored even when futex-blocked with a full queue. |
+| `test_scan_unit_tolerates_vanished_pid` | A pid without a `/proc` entry is skipped; the rest is scanned. |
+| `test_scan_unit_tolerates_vanished_thread_files` | A thread dir without `comm`/`wchan` is skipped. |
