@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { ArmCameraFlow, RESULT_POLL_MS } from './ArmCameraFlow'
 import { ARM_POLL_MS } from '../SequenceActivity'
+import { GENERAL_POLL_MS, GeneralSection } from '../GeneralSection'
+import { CLEAR_BUTTON } from '../BoardRecordNotice'
 import stateFx from '../../../../../head_rgbd_calibration/tests/fixtures/api/head_arm_state.json'
 import rgbdStateFx from '../../../../../head_rgbd_calibration/tests/fixtures/api/state.json'
 import {
@@ -592,6 +594,71 @@ describe('ArmCameraFlow', () => {
     expect(m.park).not.toHaveBeenCalled()
     expect(screen.queryByRole('region', { name: 'Board record' })).toBeNull()
     expect((within(step(1)).getByRole('button', { name: 'Home arm' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('re-reads the sequence while idle, so a board record cleared elsewhere unlocks Home arm', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    setState(seq({ board_record: stateFx.sequence.board_record }))
+    await renderFlow()
+    expect(homeButton().disabled).toBe(true)
+    // Another tab or device clears the record: the next idle poll brings the cleared sequence.
+    setState(seq({ status: 'board record cleared' }))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(GENERAL_POLL_MS + 100)
+    })
+    expect(screen.queryByRole('region', { name: 'Board record' })).toBeNull()
+    expect(homeButton().disabled).toBe(false)
+  })
+
+  it('the idle re-read reads only the sequence state, not the session list', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    setState(seq({}))
+    await renderFlow()
+    const states = m.getHeadArmState.mock.calls.length
+    const lists = m.listHeadArmSessions.mock.calls.length
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(GENERAL_POLL_MS + 100)
+    })
+    expect(m.getHeadArmState.mock.calls.length).toBeGreaterThan(states)
+    expect(m.listHeadArmSessions.mock.calls.length).toBe(lists)
+  })
+
+  it('a hidden tab skips the idle re-read', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    setState(seq({}))
+    await renderFlow()
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
+    const n = m.getHeadArmState.mock.calls.length
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(GENERAL_POLL_MS * 2)
+    })
+    expect(m.getHeadArmState.mock.calls.length).toBe(n)
+  })
+
+  it('a board record cleared in the General section unlocks Home arm of the mounted flow (Calibrate page layout)', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    setState(seq({ board_record: stateFx.sequence.board_record }))
+    m.clearBoardRecord.mockResolvedValue(ok(seq({ status: 'board record cleared' })))
+    // CalibratePage renders the General section above the selected flow: both are mounted at once.
+    render(
+      <>
+        <GeneralSection actions={['home_arm']} rgbd />
+        <ArmCameraFlow canHomeArm />
+      </>,
+    )
+    await act(async () => {})
+    expect(homeButton().disabled).toBe(true)
+    // The node clears the record: from now on every read answers the cleared sequence.
+    setState(seq({ status: 'board record cleared' }))
+    const general = screen.getByRole('region', { name: 'General' })
+    await click(CLEAR_BUTTON, general)
+    await confirmIn('Clear the record')
+    expect(m.clearBoardRecord).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(GENERAL_POLL_MS + 100)
+    })
+    expect(screen.queryByRole('button', { name: CLEAR_BUTTON })).toBeNull()
+    expect(homeButton().disabled).toBe(false)
   })
 
   it('the Park with the board confirm mentions only an offered record', async () => {

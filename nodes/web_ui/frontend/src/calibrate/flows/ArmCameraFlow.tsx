@@ -9,6 +9,7 @@ import { TOUCH_TARGET_PX } from '../../theme'
 import { BoardNeeded } from '../BoardNeeded'
 import { BoardRecordNotice } from '../BoardRecordNotice'
 import { FlowStepper } from '../FlowStepper'
+import { GENERAL_POLL_MS } from '../GeneralSection'
 import { MoreFits } from '../MoreFits'
 import { GateDecision, QualityGate, armCameraGate } from '../QualityGate'
 import { ARM_POLL_MS, SequenceActivity, SkipReasons } from '../SequenceActivity'
@@ -123,6 +124,7 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
   const lastSid = useRef<string | null>(null)
   const pollFailures = useRef(0)
   const polling = useRef(false)
+  const reloading = useRef(false)
 
   const reload = useCallback(async () => {
     const [s, l] = await Promise.all([getHeadArmState(), listHeadArmSessions()])
@@ -130,6 +132,13 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
     if (l.ok) setSessions(l.value)
     const failure = !s.ok ? s : !l.ok ? l : null
     setLoadError(failure ? failure.message : null)
+  }, [])
+
+  /** Reads only the sequence (the idle re-read): the session list scans every session on the node. */
+  const reloadSequence = useCallback(async () => {
+    const s = await getHeadArmState()
+    if (s.ok) setSequence(s.value.sequence)
+    setLoadError(s.ok ? null : s.message)
   }, [])
 
   const reloadArmState = useCallback(async () => {
@@ -142,11 +151,21 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
   }, [reload, reloadArmState])
 
   const running = sequence?.running === true
+  // Fast with the session list while the sequence runs; slow and the sequence only while idle, so a board record
+  // cleared elsewhere (the General section, another tab or device) reaches the flow and unlocks Home arm.
   useEffect(() => {
-    if (!running) return
-    const id = setInterval(() => void reload(), ARM_POLL_MS)
+    const poll = async () => {
+      if (document.visibilityState === 'hidden' || reloading.current) return // hidden tab or the previous read still runs
+      reloading.current = true
+      try {
+        await (running ? reload() : reloadSequence())
+      } finally {
+        reloading.current = false
+      }
+    }
+    const id = setInterval(() => void poll(), running ? ARM_POLL_MS : GENERAL_POLL_MS)
     return () => clearInterval(id)
-  }, [running, reload])
+  }, [running, reload, reloadSequence])
 
   const pollResult = useCallback(async (sid: string, rid: string) => {
     if (polling.current) return // the previous poll still runs: never overlap
