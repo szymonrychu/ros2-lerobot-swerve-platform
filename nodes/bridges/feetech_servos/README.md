@@ -414,7 +414,9 @@ refuse ("the arm zero was set by a servo calibration at <time>; zero restore wou
 arm-to-camera calibration; nothing written"): the new zero is deliberate, so a restore would bring nothing back, and
 its marker update must never clear `joint_offsets` (that would make mcp_server trust `joint_offsets_rad` fitted in the
 old zero). The marker field survives a later zero change of another source (neutral save, CLI), so those do not lift
-the refusal; it ends when the arm-to-camera calibration is applied and clears the marker. An unreadable marker or
+the refusal. It ends only when the zero changes again after the accept: the arm-to-camera accept clears the marker
+(`joint_offsets` and the field), but `zero_changed.json` still names the servo calibration as the source of the latest
+zero change, so the refusal stands until the next neutral save or CLI zero change replaces that record. An unreadable marker or
 zero change record refuses too, with a remedy naming the file ("fix or delete") and the arm-to-camera redo.
 `save_rest_reference` is refused while `joint_offsets` is stale; after a servo calibration its text names the
 arm-to-camera redo instead of "restore the zero first". `torque_state` `zero_restore.servo_calibration_at` carries the
@@ -423,7 +425,7 @@ marker field (null when absent or the marker is unreadable).
 **After an arm store the arm-to-camera calibration must be redone.** `joint_offsets` stays stale until mcp_server
 applies an arm-to-camera calibration captured after the store. While it is stale the web UI disables Home arm, Move to
 base and Resume in the arm-camera flow, and mcp_server refuses `/arm/home` and `move_to_neutral`, so the capture
-cannot be driven from the UI unless the marker names a servo calibration (`servo_calibration_at`): that persistent
+cannot be driven from the UI unless the marker names a servo calibration (`servo_calibration_at`; mcp_server and the web UI then allow Home arm and Set home for the redo, not Move to neutral): that persistent
 reason is what lets mcp_server and web_ui tell a deliberate new zero (redo the arm-to-camera calibration) from an
 accidental re-zero (zero restore); see their READMEs for what they allow.
 

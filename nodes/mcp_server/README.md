@@ -118,7 +118,8 @@ Arm tab Home, the Calibrate page General Home arm (`/api/calibration/general/hom
   remove it first (park the calibration board from its flow)";
 - the calibration stale marker lists `joint_offsets` (an unreadable marker counts): "arm home refused: the calibration
   stale marker lists joint_offsets (arm re-zero at <saved_at>): the home route and its body check would use the old
-  zero; restore the arm zero first" (a stale `home` keeps its own refusal, see the stale marker section);
+  zero; restore the arm zero first" (a stale `home` keeps its own refusal, see the stale marker section; not refused when
+  the stale zero was set by an arm servo calibration, see "Servo calibration reason" there);
 - the ControlManager is not bound yet (startup): "arm home refused: mcp_server is not ready".
 
 The checks and the home motion run under `ControlManager.home_lock`, which `take(arm)` also takes: a `take_control`

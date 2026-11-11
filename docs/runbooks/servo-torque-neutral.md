@@ -122,7 +122,8 @@ Steps (one button each; the panel says what to expect under every button):
    re-enable torque; or **Move to neutral pose** in step 4), press **Set home** and confirm ("... Nothing moves ...").
    Expect: "home stored" and the chip `home: ok`; mcp_server's Home no longer refuses with "record a new home with
    arm_set_home". It is the Arm tab Set home (`/arm/set_home`): it records the current joint readings, so the button
-   is off while joint_offsets is stale or while there are no fresh arm joint readings ("Set home is off: no fresh arm
+   is off while joint_offsets is stale (except when an arm servo calibration set the zero: Set home is on for the
+  arm-to-camera redo, Move to neutral stays off) or while there are no fresh arm joint readings ("Set home is off: no fresh arm
    joint readings."). mcp_server enforces the stale zero for every caller (Arm tab, MCP tool, direct service call):
    "set home refused: the arm zero is stale (joint_offsets); run the zero restore first (arm re-zero at ...)". Seeing
    it means the zero restore (step 3) did not complete: run it, then Set home again.
@@ -132,7 +133,8 @@ Steps (one button each; the panel says what to expect under every button):
 
 Optional, once the zero is right: with the arm resting folded and torque off, **Save current pose as rest reference**
 (confirm **Save reference**) stores today's rest readings in `/var/lib/ros2/arm/rest_reference.json`; later restores
-use it instead of the seed ("Reference: saved <time>"). It is disabled while the zero is stale (joint_offsets).
+use it instead of the seed ("Reference: saved <time>"). It is disabled while the zero is stale (joint_offsets), also after a servo calibration (Dry run, Apply and Save reference
+carry the reason "redo the arm-to-camera calibration"; the zero restore is refused there because the new zero is on purpose).
 
 **Move to neutral pose** (Servo home flow, step 4, confirm **Move**: "The arm moves to the neutral pose: all joints at 0.
 Keep the area clear.") moves every arm joint except the gripper to 0 rad along the home routing (`/arm/home`) with its body checks and
