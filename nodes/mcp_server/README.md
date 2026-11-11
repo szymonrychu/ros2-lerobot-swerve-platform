@@ -1388,9 +1388,9 @@ stale}`, where `stale` lists `joint_offsets` and/or `home`.
   `servo_calibration_at` (ISO time, absent otherwise, never null; `CalibrationMarker.servo_calibration_at`,
   `SERVO_CALIBRATION_AT_FIELD`). While `joint_offsets` is listed and the key is set (`servo_calibration_redo`), the
   zero is new and only the arm-to-camera calibration is outdated, so `/arm/home` and `arm_set_home` are allowed (the
-  arm is homed for the redo; `arm_set_home` clears `home` only and keeps `joint_offsets` and the key), while
-  `/arm/move_to_neutral` stays refused with "...the arm zero was set by a servo calibration at <t>: redo the
-  arm-to-camera calibration (Calibrate, Arm to camera)". An unreadable marker has no reason and keeps refusing. The
+  arm is homed for the redo; `arm_set_home` clears `home` only and keeps `joint_offsets` and the key) and
+  `/arm/move_to_neutral` is allowed too (all manual arm operations work after a servo calibration). Only the plain
+  stale zero (accidental re-zero, unreadable marker: no reason) stays refused with "...restore the arm zero first". The
   key lives exactly as long as `joint_offsets` is listed: `clear_stale` keeps it when clearing `home` and drops it
   with `joint_offsets` (an accepted arm-to-camera calibration).
 - `arm_set_home` clears `home` from the marker. `joint_offsets` is cleared when an accepted arm to camera
