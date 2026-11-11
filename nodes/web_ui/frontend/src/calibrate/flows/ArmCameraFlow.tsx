@@ -2,8 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
-import Checkbox from '@mui/material/Checkbox'
-import FormControlLabel from '@mui/material/FormControlLabel'
 import LinearProgress from '@mui/material/LinearProgress'
 import Typography from '@mui/material/Typography'
 import { ConfirmDialog } from '../../layout/ConfirmDialog'
@@ -14,7 +12,7 @@ import { FlowStepper } from '../FlowStepper'
 import { MoreFits } from '../MoreFits'
 import { GateDecision, QualityGate, armCameraGate } from '../QualityGate'
 import { ARM_POLL_MS, SequenceActivity, SkipReasons } from '../SequenceActivity'
-import { servoCalibrationRedo, staleJointOffsets } from '../ZeroRestorePanel'
+import { servoCalibrationRedo, staleJointOffsets, zeroShiftText } from '../ZeroRestorePanel'
 import {
   ArmCameraAccept,
   ArmCameraResult,
@@ -65,9 +63,6 @@ const STALE_ZERO_TEXT =
 /** The bridge reports joint_offsets stale but web_ui cannot read the marker: the cause is unknown, name both remedies. */
 const STALE_MARKER_UNREADABLE_TEXT =
   'Arm zero is stale (joint_offsets) and the stale marker is unreadable: fix the marker, then restore the zero (accidental re-zero) or redo this flow (servo calibration).'
-/** Label of the confirm that unlocks the arm moves while the zero set by a servo calibration is stale. */
-export const REDO_CONFIRM_LABEL =
-  'Run the capture with the old joint offsets: I keep the Stop button at hand'
 const INTRO =
   'The arm joint offsets and arm base are fitted from the head D435: the head D435 watches the ARM board held by its handle in the jaws while the arm moves it through checked poses. Needs a camera-to-ground result (applied head chain) and an arm zero that is not stale, or one just set by a servo calibration. Robot not driving.'
 const ACCEPT_BODY =
@@ -102,19 +97,6 @@ export function redoZeroText(at: string): string {
 }
 
 /**
- * Safety text of the redo confirm: the checks run on the old joint offsets, with the zero shift of every joint.
- *
- * @param at - servo_calibration_at of the stale marker
- * @param shift - zero_shift_deg of the stale marker (joint -> absolute degrees); null when unknown
- * @returns the confirm text
- */
-export function redoConfirmText(at: string, shift: Record<string, number> | null | undefined): string {
-  const joints = Object.entries(shift ?? {})
-  const shifts = joints.length > 0 ? joints.map(([name, deg]) => `${name} ${deg.toFixed(1)} deg`).join(', ') : 'unknown'
-  return `Until Accept, the body and floor checks of the arm moves use the joint offsets fitted before the servo calibration at ${at}: every pose is off by its joint's zero shift. Zero shift per joint: ${shifts}. Keep the Stop button (step 4) at hand.`
-}
-
-/**
  * Flow 4, arm to camera: 1 Home arm, 2 Open gripper (base pose, insert width), 3 Grab board, 4 Capture (tiers, the
  * shoulder and elbow consent), 5 Compute, 6 the quality gate, 7 Park. Runs the head-arm sequence of
  * head_rgbd_calibration and its arm-camera fit.
@@ -139,7 +121,6 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
   // Session of a run the user closed with Start a new run: its capture no longer counts for steps 1-4.
   const [closedSid, setClosedSid] = useState<string | null>(null)
   // The old joint offsets confirm of the zero set by a servo calibration; reset whenever that case or its time changes.
-  const [redoConfirmed, setRedoConfirmed] = useState(false)
   const lastSid = useRef<string | null>(null)
   const pollFailures = useRef(0)
   const polling = useRef(false)
@@ -293,9 +274,8 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
   const zeroStale = armGroup !== undefined && staleJointOffsets(armGroup)
   const redo = armGroup !== undefined && servoCalibrationRedo(armGroup)
   const redoAt = redo ? (armGroup?.servo_calibration_at as string) : null
-  useEffect(() => setRedoConfirmed(false), [redoAt])
-  // A stale zero blocks the arm moves, except the zero set by a servo calibration after the explicit confirm.
-  const zeroBlocked = zeroStale && !(redo && redoConfirmed)
+  // A plain stale zero blocks the arm moves; the zero set by a servo calibration (redo) does not.
+  const zeroBlocked = zeroStale && !redo
   const notReady = armState?.ok && !armState.value.ready ? armState.value.reason ?? 'the arm-to-camera fit is not ready' : null
   const target = { minHeight: TOUCH_TARGET_PX }
   const skipped = Object.values(sequence?.skipped ?? {}).reduce((acc, n) => acc + n, 0)
@@ -321,13 +301,9 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
         </Alert>
       )}
       {zeroStale && redoAt !== null && (
-        <Alert severity="warning" sx={{ mt: 1 }}>
+        <Alert severity="info" sx={{ mt: 1 }}>
           <Typography variant="body2">{redoZeroText(redoAt)}</Typography>
-          <Typography variant="body2">{redoConfirmText(redoAt, armGroup?.zero_shift_deg)}</Typography>
-          <FormControlLabel
-            control={<Checkbox checked={redoConfirmed} onChange={(e) => setRedoConfirmed(e.target.checked)} />}
-            label={REDO_CONFIRM_LABEL}
-          />
+          <Typography variant="body2">{zeroShiftText(armGroup?.zero_shift_deg)}</Typography>
         </Alert>
       )}
       {notReady && (
