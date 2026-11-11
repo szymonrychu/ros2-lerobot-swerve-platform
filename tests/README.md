@@ -2968,6 +2968,8 @@ The server stack `ansible/roles/monitoring` (Mimir + Loki + Grafana on the serve
 | `test_cleanup_stops_and_disables_prometheus_and_grafana_when_present` | Stop + disable of prometheus and grafana-server only while service_facts still knows them. |
 | `test_cleanup_purges_the_packages_and_their_leftovers` | apt purges prometheus and grafana; drop-ins, `/etc/grafana`, `/etc/prometheus`, `/etc/default/prometheus`, `/var/lib/prometheus`, `/var/lib/grafana` are removed (systemd reloaded); no shell/command task, so a second run changes nothing. |
 | `test_cleanup_runs_before_the_slice_is_installed` | The cleanup comes before the (smaller) slice is written. |
+| `test_disabling_the_watchdog_stops_an_in_flight_run_before_removing_its_metrics` | `dds-watchdog.service` is stopped (same `when` as the timer stop) after the timer and before the textfile removal, so a running oneshot cannot rewrite `dds_watchdog.prom`. |
+| `test_dds_watchdog_enabled_comment_says_the_textfile_is_removed` | The defaults comment for `monitoring_agent_dds_watchdog_enabled` says the textfile is removed, not that the metrics stay. |
 | `test_alloy_has_no_host_override_and_no_host_targets` | The Alloy template has no `target.host` or `monitoring_agent_host_targets` block, the defaults and both hosts' vars have no `monitoring_agent_host_targets`, and the client `nodes` scrape has no `host` label override. |
 
 ### `test_web_proxy_role.py`

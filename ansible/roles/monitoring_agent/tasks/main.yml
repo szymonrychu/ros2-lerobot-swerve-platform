@@ -238,6 +238,16 @@
     - not (monitoring_agent_enabled | bool and monitoring_agent_dds_watchdog_enabled | bool)
     - "'dds-watchdog.service' in ansible_facts.services"
 
+# The timer is stopped first so nothing starts a new run; a run already in flight would rewrite the textfile after it was
+# removed below, so it is stopped too (stopping an inactive oneshot is a no-op).
+- name: Stop an in-flight DDS watchdog run (monitoring_agent_enabled or monitoring_agent_dds_watchdog_enabled is false)
+  ansible.builtin.systemd_service:
+    name: dds-watchdog.service
+    state: stopped
+  when:
+    - not (monitoring_agent_enabled | bool and monitoring_agent_dds_watchdog_enabled | bool)
+    - "'dds-watchdog.service' in ansible_facts.services"
+
 # A frozen textfile would keep exporting its last values (a blocked or suspect unit) and keep an alert firing.
 - name: Remove the DDS watchdog metrics (monitoring_agent_enabled or monitoring_agent_dds_watchdog_enabled is false)
   ansible.builtin.file:

@@ -786,6 +786,26 @@ def test_disabling_the_watchdog_removes_its_textfile() -> None:
     assert remove["when"] == ["not (monitoring_agent_enabled | bool and monitoring_agent_dds_watchdog_enabled | bool)"]
 
 
+def test_disabling_the_watchdog_stops_an_in_flight_run_before_removing_its_metrics() -> None:
+    """A running dds-watchdog.service would rewrite dds_watchdog.prom after it was removed: the service is stopped
+    too, after the timer (so nothing starts a new run) and before the textfile is removed."""
+    tasks = role_tasks(AGENT_DIR, ("main.yml",))
+    names = [t.get("name", "") for t in tasks]
+    timer = next(t for t in tasks if t.get("name", "").startswith("Stop and disable the DDS watchdog timer"))
+    run = next(t for t in tasks if t.get("name", "").startswith("Stop an in-flight DDS watchdog run"))
+    remove = next(t for t in tasks if t.get("name", "").startswith("Remove the DDS watchdog metrics"))
+    assert run["ansible.builtin.systemd_service"] == {"name": "dds-watchdog.service", "state": "stopped"}
+    assert run["when"] == timer["when"]
+    assert names.index(timer["name"]) < names.index(run["name"]) < names.index(remove["name"])
+
+
+def test_dds_watchdog_enabled_comment_says_the_textfile_is_removed() -> None:
+    """The defaults comment matches the disable behavior: the metrics file is removed, not kept."""
+    text = (AGENT_DIR / "defaults" / "main.yml").read_text()
+    comment = next(line for line in text.splitlines() if "stops and disables the timer" in line)
+    assert "metrics stay" not in comment and "textfile" in comment and "removed" in comment
+
+
 def test_disabled_agent_stops_alloy_and_timer() -> None:
     """monitoring_agent_enabled false stops and disables Alloy and the throttling timer (probed by service)."""
     tasks = role_tasks(AGENT_DIR, ("main.yml",))
