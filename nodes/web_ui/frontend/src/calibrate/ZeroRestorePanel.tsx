@@ -93,14 +93,28 @@ export function servoCalibrationRedoAt(groups: ServoGroup[], groupId: string): s
 }
 
 /**
- * Why a Home button outside the Arm to camera flow is off in the redo state: /arm/home moves the arm on the old joint
- * offsets, and only that flow shows the old joint offsets confirm with the per-joint shifts first.
+ * The per-joint zero shift of a servo calibration as one sentence.
+ *
+ * @param shift - zero_shift_deg of the stale marker (joint -> degrees, object order); null, undefined or empty when
+ *   unknown
+ * @returns e.g. "Zero shift per joint: shoulder_lift 9.3 deg, elbow_flex -2.0 deg." or "Zero shift per joint: unknown."
+ */
+export function zeroShiftText(shift: Record<string, number> | null | undefined): string {
+  const entries = Object.entries(shift ?? {})
+  if (entries.length === 0) return 'Zero shift per joint: unknown.'
+  return `Zero shift per joint: ${entries.map(([joint, deg]) => `${joint} ${deg.toFixed(1)} deg`).join(', ')}.`
+}
+
+/**
+ * Info line shown in the servo calibration redo state: the manual arm operations work, the joint offsets still need
+ * the arm-to-camera redo.
  *
  * @param at - servo_calibration_at of the stale marker
- * @returns the reason text
+ * @param shift - zero_shift_deg of the stale marker; null or undefined when unknown
+ * @returns the info text
  */
-export function servoCalibrationHomeReason(at: string): string {
-  return `Arm zero set by a servo calibration at ${at}: home the arm from Calibrate, Arm to camera, after the old joint offsets confirm`
+export function servoCalibrationInfoText(at: string, shift: Record<string, number> | null | undefined): string {
+  return `Arm zero set by a servo calibration at ${at}: redo Calibrate, Arm to camera to refit the joint offsets. ${zeroShiftText(shift)}`
 }
 
 /**

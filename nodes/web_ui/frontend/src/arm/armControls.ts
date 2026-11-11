@@ -1,5 +1,4 @@
 import type { ServoGroupsState } from '../calibrate/servoApi'
-import { servoCalibrationHomeReason } from '../calibrate/ZeroRestorePanel'
 import type { DrivePoseState, GuardState, TabConfig } from '../types'
 
 /** filter_node reports `autonomy` while the mcp_server lease taken by Take control (or the agent) is held. */
@@ -30,11 +29,6 @@ export interface ArmControlInput {
   graspBusy: boolean
   /** The drive pose state has arrived, so the toggle knows whether the lift is enabled. */
   drivePoseKnown: boolean
-  /**
-   * servo_calibration_at while the arm group is in the servo calibration redo state (servoCalibrationRedoAt): Arm home
-   * is off then, the Arm to camera flow homes the arm after its old joint offsets confirm. null or absent otherwise.
-   */
-  servoCalibrationAt?: string | null
 }
 
 export interface ControlState {
@@ -104,8 +98,7 @@ export function releasedJoints(servo: ServoGroupsState, groupId: string): string
 /**
  * Enabled state and visible reason of every arm control. Released wins over every other reason.
  *
- * @param input - released state, in-flight flags, readiness, the active command source, the drive pose state and the
- *   servo calibration redo time
+ * @param input - released state, in-flight flags, readiness, the active command source and the drive pose state
  * @returns per control `{ disabled, reason }`; reason is '' while enabled
  */
 export function armControlState(input: ArmControlInput): Record<ArmControl, ControlState> {
@@ -119,7 +112,7 @@ export function armControlState(input: ArmControlInput): Record<ArmControl, Cont
     (input.armReady ? on : off(WAITING_REASON))
   return {
     drag,
-    armHome: released ?? busy ?? (input.servoCalibrationAt ? off(servoCalibrationHomeReason(input.servoCalibrationAt)) : on),
+    armHome: released ?? busy ?? on,
     setHome: released ?? busy ?? on,
     setDrivePose: released ?? busy ?? on,
     drivePose: released ?? busy ?? (input.drivePoseKnown ? on : off(DRIVE_POSE_WAITING_REASON)),
