@@ -1081,7 +1081,7 @@ Report fields (`arm_camera_fit.arm_camera_report`):
 
 - `plausible` (bool) and `refusals`: physically implausible results are refused outright and cannot be accepted
   (decision 324). Each entry `{name, value, limit, unit, message}`; names `offset_change:<joint>` (deg, any joint offset
-  change over `bounds.max_offset_change_deg` 15), `base_move_mm` (100), `base_turn_deg` (10), `skew_mm` (10),
+  change over `bounds.max_offset_change_deg` 15), `base_move_mm` (100), `base_turn_deg` (10), `skew_mm` (10; temporarily 35 mm, 2026-11-11),
   `skew_deg` (10), `sag_deg` (the sag at the reference torque, 5), `droop_mm` (5, with `fit_droop`), `non_finite`.
 - `warnings`: today's pass/fail limits as advice only (m578), same entry shape: `rms_px`, `holdout_rms_px` and
   `holdout_tool_mm` (`fit.arm_limits`), `min_views` (`fit.arm_limits`), `min_arm_poses` (`fit.limits`), `no_holdout`.

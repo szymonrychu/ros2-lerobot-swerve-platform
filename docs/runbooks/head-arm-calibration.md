@@ -249,7 +249,7 @@ gauges: `nodes/head_rgbd_calibration/README.md` ("Arm to camera calibration").
    .../results/{rid}` until `state` is `done` or `failed` (a few seconds on a laptop, longer on the Pi 5; the child is
    killed after `compute_timeout_s`).
 4. Read the report: `plausible` false means a refusal (an offset change over 15 deg, the base moved over 100 mm or
-   turned over 10 deg, the board seat over 10 mm / 10 deg, the sag over 5 deg): the result cannot be accepted; check
+   turned over 10 deg, the board seat over 10 mm (temporarily 35 mm, 2026-11-11) / 10 deg, the sag over 5 deg): the result cannot be accepted; check
    the board seating and the applied head chain, then capture again. `warnings` are today's limits as advice (RMS,
    held-out RMS, held-out tool error, view and pose counts). Compare `score` with `comparison.current_score` (the
    offsets and base the robot runs with, the accepted calibration or else the configured one, on the same views) and look at `accuracy_examples` (1 sigma and 95 % at 30 cm reach,
