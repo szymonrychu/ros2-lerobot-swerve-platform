@@ -25,6 +25,7 @@ from ros2_common.head_rgbd_calibration.arm_calibration_file import (
 from ros2_common.head_rgbd_calibration.arm_camera_fit import calibration_snippet_yaml
 from ros2_common.head_rgbd_calibration.urdf_text import APPLIED_MARKER_FILE
 
+SERVO_CALIBRATION_AT_FIELD = "servo_calibration_at"
 OFFSETS = {"shoulder_pan": 0.02, "shoulder_lift": -0.03, "elbow_flex": -0.1, "wrist_flex": 0.1, "wrist_roll": -0.07}
 BASE = {"x": 0.061, "y": -0.048, "z": 0.102, "yaw": 0.0}
 
@@ -219,3 +220,18 @@ def test_the_bridge_writes_the_zero_record_the_readers_read() -> None:
     """feetech_servos (its own venv, not importable here) names the same file next to its stale marker."""
     writer = (Path(__file__).resolve().parents[1] / "nodes/bridges/feetech_servos/zero_record.py").read_text()
     assert f'ZERO_RECORD_FILE = "{ZERO_RECORD_FILE}"' in writer
+
+
+@pytest.mark.parametrize(
+    "module",
+    [
+        "nodes/bridges/feetech_servos/zero_record.py",
+        "nodes/mcp_server/mcp_server/calibration_marker.py",
+        "nodes/web_ui/web_ui/servo_calibration.py",
+    ],
+    ids=["feetech_servos", "mcp_server", "web_ui"],
+)
+def test_servo_calibration_at_field_name_is_identical_everywhere(module: str) -> None:
+    """Each node (own venv, not importable here) names the marker field the same way as the shared reader."""
+    text = (Path(__file__).resolve().parents[1] / module).read_text()
+    assert f'SERVO_CALIBRATION_AT_FIELD = "{SERVO_CALIBRATION_AT_FIELD}"' in text
