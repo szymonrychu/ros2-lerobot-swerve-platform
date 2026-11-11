@@ -8,7 +8,15 @@ import pytest
 from arm_collision.ik import ArmKinematics, load_joint_limits
 
 from mcp_server.arm import ArmController, ArmError
-from mcp_server.calibration_marker import STALE_ITEMS, clear_stale, load_marker
+from mcp_server.calibration_marker import (
+    SERVO_CALIBRATION_AT_FIELD,
+    STALE_ITEMS,
+    CalibrationMarker,
+    clear_stale,
+    load_marker,
+    servo_calibration_redo,
+    unreadable_marker,
+)
 from mcp_server.config import McpServerConfig
 from mcp_server.home_store import save_home
 
@@ -27,22 +35,26 @@ POSE = {
 }
 
 
-def marker_doc(stale: list[str] | None = None) -> dict:
+def marker_doc(stale: list[str] | None = None, servo_calibration_at: str | None = None) -> dict:
     """Marker JSON as the bridge writes it.
 
     Args:
         stale (list[str] | None): Stale items, both when None.
+        servo_calibration_at (str | None): The servo calibration store time; the key is absent when None.
 
     Returns:
         dict: Marker document.
     """
-    return {
+    doc = {
         "version": 1,
         "group": "follower",
         "saved_at": SAVED_AT,
         "joints": {"wrist_roll": {"before_steps": 2048, "after_steps": 2100}},
         "stale": list(STALE_ITEMS) if stale is None else stale,
     }
+    if servo_calibration_at is not None:
+        doc[SERVO_CALIBRATION_AT_FIELD] = servo_calibration_at
+    return doc
 
 
 def make(tmp_path: Path, marker: Path | None, write: dict | None = None) -> tuple[ArmController, FakeArmBackend]:
@@ -203,3 +215,83 @@ def test_null_path_disables(tmp_path: Path) -> None:
     assert state.calibration_stale == []
     arm.set_home()
     arm.home()
+
+
+def test_clear_home_keeps_servo_calibration_at(tmp_path: Path) -> None:
+    path = tmp_path / "m.json"
+    path.write_text(json.dumps(marker_doc(servo_calibration_at=SAVED_AT)))
+    assert clear_stale(path, ["home"], only_if_saved_at=SAVED_AT) is True
+    on_disk = json.loads(path.read_text())
+    assert on_disk["stale"] == ["joint_offsets"]
+    assert on_disk[SERVO_CALIBRATION_AT_FIELD] == SAVED_AT
+
+
+def test_clear_joint_offsets_drops_servo_calibration_at(tmp_path: Path) -> None:
+    path = tmp_path / "m.json"
+    path.write_text(json.dumps(marker_doc(servo_calibration_at=SAVED_AT)))
+    assert clear_stale(path, ["joint_offsets"]) is True
+    on_disk = json.loads(path.read_text())
+    assert on_disk["stale"] == ["home"]
+    assert SERVO_CALIBRATION_AT_FIELD not in on_disk
+
+
+def test_rewrite_omits_servo_calibration_at_when_absent(tmp_path: Path) -> None:
+    path = tmp_path / "m.json"
+    path.write_text(json.dumps(marker_doc()))
+    clear_stale(path, ["home"])
+    on_disk = json.loads(path.read_text())
+    assert SERVO_CALIBRATION_AT_FIELD not in on_disk
+    assert "null" not in path.read_text().replace('"saved_at": null', "")
+
+
+def test_rewrite_keeps_a_null_saved_at(tmp_path: Path) -> None:
+    path = tmp_path / "m.json"
+    doc = marker_doc()
+    doc["saved_at"] = None
+    path.write_text(json.dumps(doc))
+    clear_stale(path, ["home"])
+    assert json.loads(path.read_text())["saved_at"] is None
+
+
+def test_servo_calibration_redo_true() -> None:
+    marker = load_marker_from(marker_doc(servo_calibration_at=SAVED_AT))
+    assert servo_calibration_redo(marker) is True
+
+
+def test_servo_calibration_redo_no_field() -> None:
+    assert servo_calibration_redo(load_marker_from(marker_doc())) is False
+
+
+def test_servo_calibration_redo_false_when_joint_offsets_not_listed() -> None:
+    assert servo_calibration_redo(load_marker_from(marker_doc(["home"], SAVED_AT))) is False
+
+
+def test_servo_calibration_redo_none_marker() -> None:
+    assert servo_calibration_redo(None) is False
+
+
+def test_servo_calibration_redo_unreadable_marker() -> None:
+    assert servo_calibration_redo(unreadable_marker()) is False
+
+
+def load_marker_from(doc: dict) -> CalibrationMarker:
+    """Marker model of a document.
+
+    Args:
+        doc (dict): Marker document.
+
+    Returns:
+        CalibrationMarker: Parsed marker.
+    """
+    return CalibrationMarker.model_validate(doc)
+
+
+def test_set_home_allowed_while_joint_offsets_are_stale_from_a_servo_calibration(tmp_path: Path) -> None:
+    path = tmp_path / "marker.json"
+    arm, be = make(tmp_path, path, marker_doc(servo_calibration_at=SAVED_AT))
+    be.positions.update({"elbow_flex": 0.1})
+    pose = arm.set_home()
+    assert pose["elbow_flex"] == pytest.approx(0.1)
+    on_disk = json.loads(path.read_text())
+    assert on_disk["stale"] == ["joint_offsets"]
+    assert on_disk[SERVO_CALIBRATION_AT_FIELD] == SAVED_AT

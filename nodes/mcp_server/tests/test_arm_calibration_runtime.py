@@ -391,6 +391,20 @@ def test_applying_clears_joint_offsets_from_a_re_zero_before_the_capture(tmp_pat
     assert json.loads(marker.read_text())["stale"] == ["home"]
 
 
+def test_accept_clears_the_servo_calibration_reason(tmp_path: Path) -> None:
+    cfg = config(tmp_path)
+    marker = stale_marker(cfg, ["joint_offsets", "home"], BEFORE_CAPTURE)
+    doc = json.loads(marker.read_text())
+    doc[calibration_marker.SERVO_CALIBRATION_AT_FIELD] = BEFORE_CAPTURE
+    marker.write_text(json.dumps(doc))
+    accept(cfg.arm.applied_dir)
+    watcher = ArmCalibrationWatcher(cfg.arm)
+    watcher.startup(cfg.arm)
+    on_disk = json.loads(marker.read_text())
+    assert on_disk["stale"] == ["home"]
+    assert calibration_marker.SERVO_CALIBRATION_AT_FIELD not in on_disk
+
+
 def test_the_marker_is_removed_when_joint_offsets_was_the_last_item(tmp_path: Path) -> None:
     cfg = config(tmp_path)
     marker = stale_marker(cfg, ["joint_offsets"], BEFORE_CAPTURE)

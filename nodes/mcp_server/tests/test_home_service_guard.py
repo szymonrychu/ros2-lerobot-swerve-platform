@@ -32,16 +32,17 @@ def robot(tmp_path: Path) -> FakeRobot:
     return robot
 
 
-def write_marker(robot: FakeRobot, stale: list[str]) -> None:
+def write_marker(robot: FakeRobot, stale: list[str], servo_calibration_at: str | None = None) -> None:
     """Write the stale marker listing `stale`.
 
     Args:
         robot (FakeRobot): Robot whose marker path is configured.
         stale (list[str]): Stale items.
+        servo_calibration_at (str | None): Servo calibration store time; the key is absent when None.
     """
     path = robot.arm.cfg.arm.calibration_stale_marker
     assert path is not None
-    path.write_text(json.dumps(marker_doc(stale)))
+    path.write_text(json.dumps(marker_doc(stale, servo_calibration_at)))
 
 
 def test_home_service_goes_home_and_releases_without_a_lease(robot: FakeRobot) -> None:
@@ -88,6 +89,15 @@ def test_home_service_refused_while_joint_offsets_are_stale(robot: FakeRobot) ->
     assert ok is False
     assert "arm home refused" in message and "joint_offsets" in message and "restore the arm zero" in message
     assert len(robot.arm_backend.commands) == commands and robot.arm_backend.events == []
+
+
+def test_home_service_allowed_while_joint_offsets_are_stale_from_a_servo_calibration(robot: FakeRobot) -> None:
+    write_marker(robot, ["joint_offsets"], "2026-01-02T03:04:05+00:00")
+    ok, message = robot.arm.home_service_call()
+    assert ok is True, message
+    assert robot.arm_backend.positions["elbow_flex"] == pytest.approx(
+        load_home(robot.arm.cfg.arm.home_file)["elbow_flex"], abs=0.02
+    )
 
 
 def test_home_service_refused_on_an_unreadable_marker(robot: FakeRobot) -> None:

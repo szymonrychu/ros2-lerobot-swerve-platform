@@ -33,7 +33,7 @@ from ros2_common.head_rgbd_calibration.applied_arm_calibration import assign_cal
 
 from .calib_event import emit_calib_event, new_run_id
 from .calibration_board import BoardPark
-from .calibration_marker import CalibrationMarker, clear_stale, load_marker
+from .calibration_marker import CalibrationMarker, clear_stale, load_marker, servo_calibration_redo
 from .carry import CarryRecord, CarryStore, GraspKind, carry_path
 from .config import ArmSettings, LimitSettings, McpServerConfig
 from .floor_guard import (
@@ -2562,13 +2562,15 @@ class ArmController:
         """/arm/home service body: move home and always release control afterwards.
 
         Refused (nothing moves, no lease is touched) while the stale marker lists joint_offsets (an unreadable marker
-        counts): the home route and its body checks would use the old arm zero.
+        counts): the home route and its body checks would use the old arm zero. Allowed while joint_offsets is stale
+        only because an arm servo calibration set the zero (the marker's servo_calibration_at): the arm-to-camera
+        redo needs the arm at home.
 
         Returns:
             tuple[bool, str]: success (converged) and message (the refusal text when refused).
         """
         marker = self.stale_marker()
-        if marker is not None and STALE_OFFSETS_ITEM in marker.stale:
+        if marker is not None and STALE_OFFSETS_ITEM in marker.stale and not servo_calibration_redo(marker):
             when = marker.saved_at or "an unknown time"
             return False, (
                 f"arm home refused: the calibration stale marker lists {STALE_OFFSETS_ITEM} (arm re-zero at {when}): "
@@ -2600,6 +2602,12 @@ class ArmController:
                 torque is released; None when the move may start.
         """
         marker = self.stale_marker()
+        if servo_calibration_redo(marker):
+            return (
+                f"move to neutral refused: the calibration stale marker lists {STALE_OFFSETS_ITEM} (the arm zero was "
+                f"set by a servo calibration at {marker.servo_calibration_at}): redo the arm-to-camera calibration "
+                "(Calibrate, Arm to camera)"
+            )
         if marker is not None and STALE_OFFSETS_ITEM in marker.stale:
             when = marker.saved_at or "an unknown time"
             return (
@@ -2783,7 +2791,9 @@ class ArmController:
         """Store the measured pose as the home pose.
 
         Refused while the stale marker lists joint_offsets (an unreadable marker counts): a pose measured in the old
-        arm zero would be driven to after the zero restore. Every caller (the MCP tool, the /arm/set_home service and
+        arm zero would be driven to after the zero restore. Allowed when joint_offsets is stale only because an arm
+        servo calibration set the zero (servo_calibration_at): the pose is then measured in the new zero; only home is
+        cleared, joint_offsets and the reason stay until an arm-to-camera calibration is accepted. Every caller (the MCP tool, the /arm/set_home service and
         so the web_ui Arm tab and Calibrate page) goes through here.
 
         Returns:
@@ -2793,7 +2803,7 @@ class ArmController:
             ArmError: The arm zero is stale, no fresh joint sample, or the pose or marker cannot be written.
         """
         marker = self.stale_marker()
-        if marker is not None and STALE_OFFSETS_ITEM in marker.stale:
+        if marker is not None and STALE_OFFSETS_ITEM in marker.stale and not servo_calibration_redo(marker):
             when = marker.saved_at or "an unknown time"
             raise ArmError(
                 f"set home refused: the arm zero is stale ({STALE_OFFSETS_ITEM}); run the zero restore first "

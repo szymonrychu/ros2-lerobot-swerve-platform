@@ -1372,7 +1372,7 @@ stale}`, where `stale` lists `joint_offsets` and/or `home`.
   check use the zero).
 - `arm_set_home` (the tool and the `/arm/set_home` service, so also the web UI Arm tab and Calibrate page Set
   home) is refused while `joint_offsets` is stale (an unreadable marker counts), storing nothing and keeping the
-  marker: "set home refused: the arm zero is stale (joint_offsets); run the zero restore first (arm re-zero at <saved_at>)". A home measured in the old zero would be the pose `/arm/home` drives to after the zero restore.
+  marker (exception: a stale zero from an arm servo calibration, below): "set home refused: the arm zero is stale (joint_offsets); run the zero restore first (arm re-zero at <saved_at>)". A home measured in the old zero would be the pose `/arm/home` drives to after the zero restore.
 - `/arm/set_home_from_calibration` (`ArmController.set_home_from_calibration`, called by the web UI right after an arm
   servo calibration store) reads `arm.servo_calibration_record` (the bridge's `servo_calibration-follower-latest.json`,
   null disables it; the service name is `topics.set_home_from_calibration_service`, default
@@ -1383,6 +1383,15 @@ stale}`, where `stale` lists `joint_offsets` and/or `home`.
   record's (`clear_stale(..., only_if_saved_at=changed_at)`: a re-zero that lands meanwhile keeps its `home`). A store
   that wrote no offset (limits only: no zero change, so no marker) is refused with "the servo calibration at <time>
   changed no offset; arm home unchanged" (the record's `joints` show no written offset change). `arm_set_home` stays refused as described above. Tests: `tests/test_home_service_guard.py`.
+- Servo calibration reason: after an arm servo calibration store the bridge adds the top-level marker key
+  `servo_calibration_at` (ISO time, absent otherwise, never null; `CalibrationMarker.servo_calibration_at`,
+  `SERVO_CALIBRATION_AT_FIELD`). While `joint_offsets` is listed and the key is set (`servo_calibration_redo`), the
+  zero is new and only the arm-to-camera calibration is outdated, so `/arm/home` and `arm_set_home` are allowed (the
+  arm is homed for the redo; `arm_set_home` clears `home` only and keeps `joint_offsets` and the key), while
+  `/arm/move_to_neutral` stays refused with "...the arm zero was set by a servo calibration at <t>: redo the
+  arm-to-camera calibration (Calibrate, Arm to camera)". An unreadable marker has no reason and keeps refusing. The
+  key lives exactly as long as `joint_offsets` is listed: `clear_stale` keeps it when clearing `home` and drops it
+  with `joint_offsets` (an accepted arm-to-camera calibration).
 - `arm_set_home` clears `home` from the marker. `joint_offsets` is cleared when an accepted arm to camera
   calibration captured after the re-zero is applied ("Accepted arm calibration"). The marker file is deleted once
   nothing is stale.
