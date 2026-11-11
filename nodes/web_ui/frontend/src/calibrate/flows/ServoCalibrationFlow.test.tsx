@@ -65,6 +65,8 @@ describe('ServoCalibrationFlow', () => {
     expect(screen.getByRole('heading', { name: 'Head', level: 3 })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Base', level: 3 })).toBeNull()
     expect(screen.getAllByRole('button', { name: 'Record home' })).toHaveLength(2)
+    // The group label is one heading (the card adds no second one).
+    expect(screen.getAllByRole('heading', { name: 'Head' })).toHaveLength(1)
   })
 
   it('advanced section holds the neutral and zero restore panels', async () => {

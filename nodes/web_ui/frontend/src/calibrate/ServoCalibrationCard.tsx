@@ -220,7 +220,6 @@ export function ServoCalibrationCard({
 
   return (
     <Box component="section" aria-label={`${group.label} servo calibration`} sx={{ mb: 2 }}>
-      <Typography variant="h6" component="h2" sx={{ mb: 1 }}>{group.label}</Typography>
       {error && <Alert severity="error" sx={{ mb: 1 }}>{error}</Alert>}
       <FlowStepper label={`${group.label} servo calibration steps`} steps={steps} />
       {released && (

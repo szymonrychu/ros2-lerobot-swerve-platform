@@ -156,7 +156,10 @@ describe('ArmCameraFlow', () => {
     servoGroups = [armGroup(['joint_offsets'])]
     setState(seq({}))
     await renderFlow()
-    expect(await screen.findByText(/Arm zero is stale/)).toBeTruthy()
+    const stale = await screen.findByText(/Arm zero is stale/)
+    // Both remedies: zero restore after an accidental re-zero, a new arm-to-camera calibration after a servo calibration.
+    expect(stale.textContent).toContain('After an accidental re-zero, restore it in Servo calibration, Advanced / repair.')
+    expect(stale.textContent).toContain('After a servo calibration store, the arm-to-camera calibration must be redone')
     expect((within(step(1)).getByRole('button', { name: 'Home arm' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
