@@ -136,6 +136,8 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
   const [busy, setBusy] = useState(false)
   // Step that shows the answer of the grip confirm or reset (the button the user pressed sits on it).
   const [gripStep, setGripStep] = useState<StepId>('grab')
+  // Success line of a banner confirm: the node keeps the unseated or slack error after it, so the banner stays.
+  const [bannerOk, setBannerOk] = useState<string | null>(null)
   const [homed, setHomed] = useState(false)
   const [computing, setComputing] = useState<{ sid: string; rid: string } | null>(null)
   const [result, setResult] = useState<ArmCameraResult | null>(null)
@@ -221,11 +223,13 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
   const step = async (id: StepId, call: () => Promise<FloorApiResult<HeadArmSequence>>): Promise<boolean> => {
     setDialog(null)
     setBusy(true)
+    setBannerOk(null)
     const r = await call()
     setBusy(false)
     if (r.ok) {
       setSequence(r.value)
       setErrors((e) => ({ ...e, [id]: undefined }))
+      if (id === 'banner') setBannerOk(`Grip recorded: handle contact ${r.value.grip.handle_contact_rad.toFixed(4)} rad`)
     } else setErrors((e) => ({ ...e, [id]: r.message }))
     return r.ok
   }
@@ -405,17 +409,22 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
         }}
       />
       {sequence && <SequenceActivity sequence={sequence} withStatus={!sid} errorAction={
-            gripError ? (
-              <>
-                {confirmButton('banner')}
-                {errors.banner && (
-                  <Typography variant="body2" color="error" role="status">
-                    {errors.banner}
-                  </Typography>
-                )}
-              </>
-            ) : undefined
-          } />}
+        gripError ? (
+          <>
+            {confirmButton('banner')}
+            {errors.banner && (
+              <Typography variant="body2" color="error" role="status">
+                {errors.banner}
+              </Typography>
+            )}
+            {bannerOk && !errors.banner && (
+              <Typography variant="body2" color="success.main" role="status">
+                {bannerOk}
+              </Typography>
+            )}
+          </>
+        ) : undefined
+      } />}
       <Box sx={{ mt: 1 }}>
         <FlowStepper
           label="Arm to camera calibration steps"

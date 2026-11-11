@@ -13,6 +13,7 @@ const EVENTS: HeadArmEvent[] = [
 ]
 const seq = (over: Partial<HeadArmSequence>): HeadArmSequence => ({
   ...stateFx.sequence,
+  grip: { ...stateFx.sequence.grip, source: stateFx.sequence.grip.source as 'config' | 'recorded' },
   running: false,
   phase: 'idle',
   status: 'idle',

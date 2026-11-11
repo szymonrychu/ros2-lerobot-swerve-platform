@@ -46,7 +46,7 @@ export interface BoardRecord {
 export interface HeadArmGrip {
   handle_contact_rad: number;
   grip_rad: number;
-  source: "config" | "recorded" | string;
+  source: "config" | "recorded";
   recorded_at: string | null;
   config_handle_contact_rad: number;
 }
@@ -217,7 +217,7 @@ export const BOARD_RECORD: Record<string, Check> = {
 const GRIP: Record<string, Check> = {
   handle_contact_rad: isNum,
   grip_rad: isNum,
-  source: isStr,
+  source: (v) => v === "config" || v === "recorded",
   recorded_at: isNullOr(isStr),
   config_handle_contact_rad: isNum,
 };

@@ -273,6 +273,10 @@ describe("headArmApi", () => {
     if (!c.ok) expect(c.message).toContain("grip");
     stub(200, { ...stateFx.sequence, grip: { ...stateFx.sequence.grip, handle_contact_rad: "x" } });
     expect((await confirmGrip()).ok).toBe(false);
+    stub(200, { ...stateFx.sequence, grip: { ...stateFx.sequence.grip, source: "guessed" } });
+    const d = await confirmGrip();
+    expect(d.ok).toBe(false);
+    if (!d.ok) expect(d.message).toContain("grip");
   });
   it("rejects a state whose events are not {time, phase, level, message}", async () => {
     const bad = [{ time: "2026-11-09T10:00:00+00:00", phase: "capturing", level: "error" }];

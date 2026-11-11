@@ -38,6 +38,7 @@ const a = vi.mocked(armApi)
 const ok = <T,>(value: T) => ({ ok: true as const, value })
 const seq = (over: Partial<HeadArmSequence>): HeadArmSequence => ({
   ...stateFx.sequence,
+  grip: { ...stateFx.sequence.grip, source: stateFx.sequence.grip.source as 'config' | 'recorded' },
   running: false,
   phase: 'idle',
   status: 'idle',
@@ -848,15 +849,15 @@ describe('ArmCameraFlow', () => {
       expect(within(alert).getByText('the gripper is not closed on the handle')).toBeTruthy()
     })
 
-    it('a banner confirm from idle posts and clears the banner error', async () => {
+    it('a banner confirm from idle posts and shows the recorded grip next to the banner button', async () => {
       setState(seq({ error: UNSEATED }))
-      m.confirmGrip.mockResolvedValue(ok(seq({})))
+      m.confirmGrip.mockResolvedValue(ok(seq({ error: UNSEATED })))
       await renderFlow(false)
       const alert = screen.getByText('Last head-arm error').closest('[role="alert"]') as HTMLElement
       await click(CONFIRM, alert)
       await confirmIn(CONFIRM)
       expect(m.confirmGrip).toHaveBeenCalledTimes(1)
-      await waitFor(() => expect(screen.queryByText('Last head-arm error')).toBeNull())
+      await waitFor(() => expect(within(alert).getByText(/Grip recorded: handle contact 0\.0912 rad/)).toBeTruthy())
     })
 
     it('an other sequence error has no Confirm correct grip button', async () => {
