@@ -31,7 +31,14 @@ import numpy as np
 import pytest
 import yaml
 from ros2_common.camera_geometry import CameraIntrinsics
-from ros2_common.head_rgbd_calibration.arm_pose_check import FOV_RULE, MIN_Z_RULE, PoseChecker
+from ros2_common.head_rgbd_calibration.arm_pose_check import (
+    FOV_RULE,
+    HEAD_CLEARANCE_RULE,
+    MIN_Z_RULE,
+    HeadRegion,
+    PoseChecker,
+    head_envelope,
+)
 from ros2_common.head_rgbd_calibration.chain import UrdfChain, pose_from_xyz_rpy, xyz_rpy_from_pose
 from ros2_common.head_rgbd_calibration.charuco import board_corners_3d
 from ros2_common.head_rgbd_calibration.config import ARM_BOARD, ARM_JOINT_NAMES, BoardMountConfig, HeadArmFitConfig
@@ -83,6 +90,18 @@ BIG_JOINTS = ("elbow_flex", "shoulder_lift", "shoulder_pan")
 PAN, TILT = "head_pan", "head_tilt"
 EPS = 1e-9
 D435_COLOR = CameraIntrinsics.from_hfov(640, 360, 69.0)
+LIVE_HEAD_FIXTURE = Path(__file__).resolve().parent / "fixtures" / "head_2026-11-11.urdf"  # live applied head
+# Pan-axis fit of the ground board fit 2026-11-11 (head_pan origin xy, m) and its d435_joint x (m).
+PAN_AXIS_DX_M, PAN_AXIS_DY_M = -0.031938113, -0.015897602
+PAN_AXIS_D435_X_M = 0.037844510
+HEAD_PAN_JOINT, HEAD_TILT_JOINT, D435_JOINT = "head_pan", "head_tilt", "d435_joint"
+LIVE_REFUSAL = (
+    "link_clearance: upper arm to head clearance"  # main's envelope refusal of tier 1 pose 8 -> tier 2 pose 0
+)
+CONTACT_PAN_DEG = -85.0  # held pan near the real head's contact zone of the tier 2 poses (.logs/tier2-path-debug)
+CONTACT_SPAN_PAN_RAD = -1.48  # head move target pan into that zone
+HEAD_OBSTACLE_PREFIX = "head "  # region obstacles are named "head <link>"
+HEADROOM_PROBE_M = 0.005  # extra link margin that refuses today's full-range legs (3.2 mm headroom over margin_m)
 
 
 def load_synthetic() -> ModuleType:
@@ -126,6 +145,72 @@ SAFETY_HEADS = {
     "shipped-tilt-45": with_tilt_limits(SHIPPED_HEAD, *WIDENED_TILT_RAD),
     "applied-tilt-45": with_tilt_limits(APPLIED_HEAD, *WIDENED_TILT_RAD),
 }
+
+
+def joint_origin(root: ET.Element, name: str) -> ET.Element:
+    """The <origin> element of a URDF joint.
+
+    :param root: parsed URDF root
+    :param name: joint name
+    :return: the joint's origin element
+    """
+    return next(j for j in root.findall("joint") if j.get("name") == name).find("origin")
+
+
+def pan_axis_head(urdf: str, dx_m: float, dy_m: float, d435_x_m: float) -> str:
+    """The head URDF with the pan axis moved by (dx, dy) in head_pan_base, the head itself kept in place.
+
+    head_pan origin xy becomes (dx, dy) and head_tilt origin xy moves by (-dx, -dy), so at pan 0 the tilt axis stays
+    where it was and only the pan axis moves (the pan-axis fit of `max_pan_axis_delta_mm`); d435_joint x is set.
+
+    :param urdf: head URDF text
+    :param dx_m: head_pan origin x (m)
+    :param dy_m: head_pan origin y (m)
+    :param d435_x_m: d435_joint origin x (m)
+    :return: the modified head URDF text
+    """
+    root = ET.fromstring(urdf)
+    pan = joint_origin(root, HEAD_PAN_JOINT)
+    pan_xyz = [float(v) for v in pan.get("xyz").split()]
+    pan.set("xyz", f"{dx_m} {dy_m} {pan_xyz[2]}")
+    tilt = joint_origin(root, HEAD_TILT_JOINT)
+    tilt_xyz = [float(v) for v in tilt.get("xyz").split()]
+    tilt.set("xyz", f"{tilt_xyz[0] - dx_m} {tilt_xyz[1] - dy_m} {tilt_xyz[2]}")
+    d435 = joint_origin(root, D435_JOINT)
+    d435_xyz = [float(v) for v in d435.get("xyz").split()]
+    d435.set("xyz", f"{d435_x_m} {d435_xyz[1]} {d435_xyz[2]}")
+    return ET.tostring(root, encoding="unicode")
+
+
+def centred_pan_axis_head(urdf: str) -> str:
+    """The head URDF with the pan axis put back on the mount, the head itself kept in place.
+
+    head_pan origin xy becomes (0, 0) and head_tilt origin xy moves by the old head_pan origin xy, so at pan 0 the tilt
+    axis stays where it was: the base `pan_axis_head` expects (zero pan axis offset).
+
+    :param urdf: head URDF text
+    :return: the modified head URDF text
+    """
+    root = ET.fromstring(urdf)
+    pan = joint_origin(root, HEAD_PAN_JOINT)
+    pan_xyz = [float(v) for v in pan.get("xyz").split()]
+    pan.set("xyz", f"0 0 {pan_xyz[2]}")
+    tilt = joint_origin(root, HEAD_TILT_JOINT)
+    tilt_xyz = [float(v) for v in tilt.get("xyz").split()]
+    tilt.set("xyz", f"{tilt_xyz[0] + pan_xyz[0]} {tilt_xyz[1] + pan_xyz[1]} {tilt_xyz[2]}")
+    return ET.tostring(root, encoding="unicode")
+
+
+LIVE_HEAD = LIVE_HEAD_FIXTURE.read_text()
+LIVE_CENTRED_HEAD = centred_pan_axis_head(LIVE_HEAD)
+PAN_AXIS_MAX_SCALE = FIT.limits.max_pan_axis_delta_mm / 1000.0 / math.hypot(PAN_AXIS_DX_M, PAN_AXIS_DY_M)
+# The fit's largest accepted pan-axis delta along today's direction, on the live mount (decision T-114 #369: the
+# full-range envelope refuses it, the held-head band model passes it).
+MAX_PAN_AXIS_HEAD = pan_axis_head(
+    LIVE_CENTRED_HEAD, PAN_AXIS_DX_M * PAN_AXIS_MAX_SCALE, PAN_AXIS_DY_M * PAN_AXIS_MAX_SCALE, PAN_AXIS_D435_X_M
+)
+LIVE_HEAD_NAME = "live-20261111"
+BAND_HEADS = {**SAFETY_HEADS, LIVE_HEAD_NAME: LIVE_HEAD}
 
 
 def set_poses() -> list[dict[str, float]]:
@@ -470,3 +555,207 @@ def test_synthetic_fit_on_shipped_set_passes(head_name: str) -> None:
     result = fit_head_from_arm(views, SYN.SYNTH_CAMERA_MATRIX, SYN.SYNTH_DIST, head_urdf, ARM_URDF, cfg, floor)
     failed = [check for check in limit_checks(result, cfg.limits) if not check[3]]
     assert result.passed and failed == [], failed
+
+
+@cache
+def cached_checker(head_urdf: str, mount_json: str, sag_m: float = 0.0, extra_margin_m: float = 0.0) -> PoseChecker:
+    """One pose checker per head, board mount, park sag and link margin, reused by every check on them (region
+    obstacle sets are cached per checker).
+
+    :param head_urdf: head URDF text
+    :param mount_json: the board mount, `BoardMountConfig.model_dump_json()`
+    :param sag_m: park sag margin added to the board margin and to `min_board_height_m` (0 for the sequence)
+    :param extra_margin_m: added to `pose_check.margin_m` (0 for the shipped link margin)
+    :return: the pose checker, board margin `board_margin_m(nominal_mount=True) + sag_m`
+    """
+    fit = FIT.model_copy(update={"board_mount": BoardMountConfig.model_validate_json(mount_json)})
+    pose_check = SEQ.pose_check.model_copy(
+        update={
+            "min_board_height_m": SEQ.pose_check.min_board_height_m + sag_m,
+            "margin_m": SEQ.pose_check.margin_m + extra_margin_m,
+        }
+    )
+    return PoseChecker(ARM_URDF, head_urdf, fit, pose_check, SEQ.board_margin_m(nominal_mount=True) + sag_m)
+
+
+def nominal_checker(head_urdf: str) -> PoseChecker:
+    """The cached checker of a head at the nominal board mount."""
+    return cached_checker(head_urdf, FIT.board_mount.model_dump_json())
+
+
+@cache
+def candidate_aims(head_urdf: str) -> dict[str, list[tuple[float, float]]]:
+    """Per tier pose name ("tier <t> pose <i>"): the (pan, tilt) rad the sequencer may command there.
+
+    `aim_head` at the nominal board centre (clamped to the head limits) plus each `SEQ.head_offsets_deg`; an offset
+    that leaves the head URDF limits is skipped before it is commanded, so it is not a candidate.
+
+    :param head_urdf: head URDF text
+    :return: candidate aims per pose name, in `pose_names` order
+    """
+    chain = UrdfChain.from_text(head_urdf)
+    checker = nominal_checker(head_urdf)
+    pan_limits, tilt_limits = chain.limits(PAN), chain.limits(TILT)
+    out = {}
+    for name, pose in zip(pose_names(), set_poses(), strict=True):
+        pan0, tilt0 = aim_head(chain, board_centre_in_base(checker, pose))
+        aims = [(pan0 + math.radians(dpan), tilt0 + math.radians(dtilt)) for dpan, dtilt in SEQ.head_offsets_deg]
+        out[name] = [
+            (pan, tilt)
+            for pan, tilt in aims
+            if pan_limits[0] <= pan <= pan_limits[1] and tilt_limits[0] <= tilt <= tilt_limits[1]
+        ]
+    return out
+
+
+def aims_region(checker: PoseChecker, aims: list[tuple[float, float]]) -> HeadRegion:
+    """The bounding (pan, tilt) rectangle of head aims, +-`head_band_deg`, the band clipped to the head limits.
+
+    :param checker: pose checker of the head
+    :param aims: (pan, tilt) rad, at least one
+    :return: the region
+    """
+    pans, tilts = [pan for pan, _ in aims], [tilt for _, tilt in aims]
+    return checker.head_span((min(pans), min(tilts)), (max(pans), max(tilts)))
+
+
+def sequencer_model_failures(
+    head_urdf: str, mounts: Iterable[tuple[str, BoardMountConfig]]
+) -> tuple[list[str], list[str]]:
+    """Safety-check entries of the sequence under the sequencer's head model, per mount (spec "Which check uses which
+    model"), split by whether the head is held.
+
+    Not held (full-range envelope): the base pose, home -> base, tier 0 pose 0, base -> tier 0 pose 0 and the first
+    head move at tier 0 pose 0. Held: every later transit prev -> pose (tier poses and the return to base) holds the
+    head inside prev's aims, `check_pose(pose)` and `check_path(prev, pose)` with the band around the bounding
+    rectangle of prev's aims; at each later tier pose the head moves from prev's aims to this pose's aims,
+    `check_head_move` with the band around the rectangle of both.
+
+    :param head_urdf: head URDF text
+    :param mounts: (label, board mount) pairs to check the sequence with
+    :return: (held, not held) lists of "<mount> <step>: <entry>" lines per failed check; both empty when safe
+    """
+    steps = sequence()
+    aims = candidate_aims(head_urdf)
+    held_failures: list[str] = []
+    unheld_failures: list[str] = []
+    for mount, board_mount in mounts:
+        checker = cached_checker(head_urdf, board_mount.model_dump_json())
+        for (name_a, a), (name_b, b) in zip(steps, steps[1:], strict=False):
+            rolling = b[WRIST_ROLL] != a[WRIST_ROLL]
+            gripper = SEQ.insert_gripper_rad if name_a == "home" else SEQ.grip_rad
+            held = aims.get(name_a)
+            region = None if held is None else aims_region(checker, held)
+            failures = unheld_failures if held is None else held_failures
+            failures += [f"{mount} {name_b}: {e}" for e in checker.check_pose(b, gripper, rolling, region)]
+            failures += [f"{mount} {name_a} -> {name_b}: {e}" for e in checker.check_path(a, b, gripper, region)]
+            if name_b in aims:
+                moves = None if held is None else aims_region(checker, [*held, *aims[name_b]])
+                entries = checker.check_head_move(b, SEQ.grip_rad, moves)
+                failures += [f"{mount} {name_b} head move: {e}" for e in entries]
+    return held_failures, unheld_failures
+
+
+def full_range_legs(head_urdf: str, extra_margin_m: float = 0.0) -> dict[str, list[str]]:
+    """Envelope check entries of the legs that never hold the head, nominal mount: home -> base, base -> tier 0
+    pose 0, and base -> park_pose with the park sag margin (as `check_board_park_path`).
+
+    :param head_urdf: head URDF text
+    :param extra_margin_m: added to `pose_check.margin_m` (0 for the shipped link margin)
+    :return: entries per leg name; empty lists when every leg passes
+    """
+    mount_json = FIT.board_mount.model_dump_json()
+    checker = cached_checker(head_urdf, mount_json, extra_margin_m=extra_margin_m)
+    park = cached_checker(head_urdf, mount_json, SEQ.park_board_sag_margin_m, extra_margin_m)
+    return {
+        "home -> base": checker.check_path(HOME_POSE, SEQ.base_pose, SEQ.insert_gripper_rad),
+        "base -> tier 0 pose 0": checker.check_path(SEQ.base_pose, SEQ.tier0_poses[0], SEQ.grip_rad),
+        "base -> park": park.check_path(SEQ.base_pose, SEQ.park_pose, SEQ.grip_rad),
+    }
+
+
+def live_refusal_path() -> tuple[PoseChecker, dict[str, float], dict[str, float]]:
+    """The live head checker (nominal mount) and the transit main refused on it: tier 1 pose 8 -> tier 2 pose 0."""
+    return nominal_checker(LIVE_HEAD), SEQ.tier1_poses[-1], SEQ.tier2_poses[0]
+
+
+def test_live_refusal_reproduced_by_the_envelope() -> None:
+    """Main's full-range envelope refuses the live transit tier 1 pose 8 -> tier 2 pose 0 (.logs/tier2-path-debug)."""
+    checker, start, target = live_refusal_path()
+    entries = checker.check_path(start, target, SEQ.grip_rad)
+    assert any(e.startswith(LIVE_REFUSAL) for e in entries), entries
+
+
+def test_live_refusal_passes_with_the_real_head_band() -> None:
+    """With the head held inside tier 1 pose 8's aims (+-band) the real head shapes leave the transit clear."""
+    checker, start, target = live_refusal_path()
+    region = aims_region(checker, candidate_aims(LIVE_HEAD)[f"tier 1 pose {len(SEQ.tier1_poses) - 1}"])
+    assert checker.check_path(start, target, SEQ.grip_rad, head=region) == []
+
+
+@pytest.mark.parametrize("head_name", list(BAND_HEADS))
+def test_sequence_is_safe_under_the_sequencer_head_model(head_name: str) -> None:
+    """Every pose, transit and head move with the nominal mount under the sequencer's head model."""
+    held, unheld = sequencer_model_failures(BAND_HEADS[head_name], [("nominal", FIT.board_mount)])
+    assert held + unheld == [], "\n".join((held + unheld)[:20])
+
+
+@pytest.mark.parametrize("head_name", list(BAND_HEADS))
+def test_sequencer_head_model_safe_under_board_mount_uncertainty(head_name: str) -> None:
+    """The sequencer's head model with the mount shifted by +-1 cm and turned by +-5 deg about each gripper axis."""
+    held, unheld = sequencer_model_failures(BAND_HEADS[head_name], list(band_mounts())[1:])
+    assert held + unheld == [], "\n".join((held + unheld)[:20])
+
+
+def test_head_band_model_still_refuses_a_colliding_transit() -> None:
+    """The real head band is no blanket pass: held near pan -85 deg the head is in the way of tier 2 pose 1, and a
+    head move from the aim into that zone is refused."""
+    head_urdf = LIVE_HEAD
+    checker = nominal_checker(head_urdf)
+    pose = SEQ.tier2_poses[1]
+    pan, tilt = aim_head(UrdfChain.from_text(head_urdf), board_centre_in_base(checker, pose))
+    band = checker.head_band(math.radians(CONTACT_PAN_DEG), tilt)
+    entries = checker.check_path(SEQ.tier2_poses[0], pose, SEQ.grip_rad, head=band)
+    head_entries = [e for e in entries if e.startswith("link_clearance") and f" to {HEAD_OBSTACLE_PREFIX}" in e]
+    assert head_entries, entries
+    span = checker.head_span((pan, tilt), (CONTACT_SPAN_PAN_RAD, tilt))
+    moves = checker.check_head_move(pose, SEQ.grip_rad, span)
+    assert moves and all(e.startswith(HEAD_CLEARANCE_RULE) for e in moves), moves
+
+
+def test_pan_axis_head_rebuilds_the_live_head() -> None:
+    """The live head re-centred plus today's pan-axis fit is the live head again: the construction of the max variant
+    is pinned (same joint origins, same full-range envelope)."""
+    rebuilt = pan_axis_head(LIVE_CENTRED_HEAD, PAN_AXIS_DX_M, PAN_AXIS_DY_M, PAN_AXIS_D435_X_M)
+    live, built = ET.fromstring(LIVE_HEAD), ET.fromstring(rebuilt)
+    for joint in (HEAD_PAN_JOINT, HEAD_TILT_JOINT, D435_JOINT):
+        expected = [float(v) for v in joint_origin(live, joint).get("xyz").split()]
+        got = [float(v) for v in joint_origin(built, joint).get("xyz").split()]
+        assert got == pytest.approx(expected, abs=EPS), joint
+    live_envelope, built_envelope = head_envelope(LIVE_HEAD, SEQ.pose_check), head_envelope(rebuilt, SEQ.pose_check)
+    assert built_envelope.radius == pytest.approx(live_envelope.radius, abs=EPS)
+    assert (built_envelope.x, built_envelope.y) == pytest.approx((live_envelope.x, live_envelope.y), abs=EPS)
+
+
+def test_live_head_full_range_legs_pass_with_today_headroom() -> None:
+    """Today's live head (35.66 mm pan-axis delta) passes the legs that use the full-range envelope (home -> base, base
+    -> tier 0 pose 0, base -> park with the park sag) with less than `HEADROOM_PROBE_M` to spare (8.2 mm worst
+    clearance, 3.2 mm over margin_m): a refit that moves the pan axis ~2 mm further out blocks the sequence start."""
+    legs = full_range_legs(LIVE_HEAD)
+    assert all(entries == [] for entries in legs.values()), legs
+    probed = full_range_legs(LIVE_HEAD, HEADROOM_PROBE_M)
+    assert all(entries for entries in probed.values()), probed
+
+
+def test_max_pan_axis_head_held_band_passes_and_unheld_envelope_moves_fail_safe() -> None:
+    """At the fit's largest pan-axis delta (`max_pan_axis_delta_mm`, live mount, today's direction) every check with
+    the head held passes under the nominal mount and the board mount band, while every move before the head is held
+    (base pose, home -> base, base -> tier 0 pose 0, the first head move, base -> park) is refused by the full-range
+    envelope: the known ~38 mm limit (decision T-114 #369), fail safe."""
+    mounts = list(band_mounts())
+    held, unheld = sequencer_model_failures(MAX_PAN_AXIS_HEAD, mounts)
+    assert held == [], "\n".join(held[:20])
+    for mount, _ in mounts:
+        for step in ("base: ", "home -> base: ", "base -> tier 0 pose 0: ", "tier 0 pose 0 head move: "):
+            assert any(e.startswith(f"{mount} {step}") for e in unheld), (mount, step)
+    assert full_range_legs(MAX_PAN_AXIS_HEAD)["base -> park"], "board park not refused"

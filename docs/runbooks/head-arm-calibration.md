@@ -43,6 +43,12 @@ not be filled in by an agent.
 - Least dramatic joints first. Any pose moving shoulder_pan, shoulder_lift or elbow needs the user's
   explicit OK at run time (UI confirmation).
 - Every scripted pose is FK-checked against self-collision with the robot body and head.
+- Known limit (decision T-114 #369): where the head is not held (base pose, home -> base, base -> tier 0
+  pose 0, the first head move, the board park) the check uses the full-range head envelope, which refuses
+  these moves from a pan-axis delta of about 38 mm on (the fit accepts up to 50 mm): fail safe, but no
+  capture and no board park. Today's head: 8.2 mm worst clearance, 3.2 mm over `margin_m`. Follow-up:
+  hold the head at a fixed aim before those moves, or lower `max_pan_axis_delta_mm`. Details:
+  `nodes/head_rgbd_calibration/README.md`, "Pose set and its tests".
 - Wrist roll only half-open and lifted; negative elbow stretches.
 - Arm motion only through mcp_server's guarded tools. No driving.
 

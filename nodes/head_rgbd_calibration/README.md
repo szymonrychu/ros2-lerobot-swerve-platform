@@ -870,6 +870,36 @@ intrinsics), so the sequencer visits every pose, and each head offset usable on 
 time, so a robot that is not where the test assumed is still refused. The tests of the sequence over a fake mcp_server
 are `tests/test_sequencer.py`.
 
+The full-range envelope tests above stay as they are. The sequencer-model tests (`sequencer_model_failures`) check the
+same set the way the sequencer checks it at run time, split by whether the head is held. Not held (full-range head
+envelope): the base pose, home -> base, tier 0 pose 0, base -> tier 0 pose 0 and the first head move at tier 0 pose 0.
+Held: every later transit prev -> pose (tier poses and the return to base), its target pose and its path with the real
+head shapes over the band (`head_band_deg`) around the bounding rectangle of prev's head aims, and at each later tier
+pose `check_head_move` over the band around prev's and this pose's aims. The aims are `aim_head` at the nominal board
+centre plus each `head_offsets_deg` offset inside the head limits. Both must pass on `BAND_HEADS` (the four safety
+heads and the live applied head of 2026-11-11, `tests/fixtures/head_2026-11-11.urdf`), with the nominal mount and the
++-1 cm / +-5 deg mount band. On the live head the envelope reproduces main's refusal of tier 1 pose 8 -> tier 2 pose 0
+(`link_clearance: upper arm to head`) and the band of tier 1 pose 8's aims passes it; the band still refuses tier 2
+pose 1 with the head held near pan -85 deg and a head move from the aim into that zone.
+
+`pan_axis_head` moves the pan axis of a head with a centred pan axis (`centred_pan_axis_head`: head_pan origin xy 0,
+the head kept in place) by a pan-axis fit offset; rebuilding the live head that way with the ground board fit of
+2026-11-11 (-31.9, -15.9 mm, d435_joint x 37.8 mm) gives the fixture again (same joint origins and envelope), which
+pins the construction of the max variant: the live head with the offset scaled along the same direction to the fit's
+largest accepted pan-axis delta (`fit.limits.max_pan_axis_delta_mm`, 50 mm).
+
+Known limit (user decision T-114 #369, accepted for now): the full-range envelope, used wherever the head is not held
+(the base pose, home -> base, base -> tier 0 pose 0, the first head move and the board park base -> `park_pose`),
+grows with the pan-axis delta (about 1.45 mm radius per mm) and refuses these moves from a delta of about 38 mm on,
+while the fit accepts up to 50 mm. Such a fit makes the sequencer refuse the first move and the board park: fail safe,
+but no capture is possible. Today's live head (35.7 mm delta) passes them with 8.2 mm worst clearance, 3.2 mm over
+`margin_m` (5 mm), so a refit that moves the pan axis about 2 mm further out blocks the sequence start.
+`test_live_head_full_range_legs_pass_with_today_headroom` pins that headroom (passes at `margin_m`, refused at
+`margin_m` + 5 mm), and `test_max_pan_axis_head_held_band_passes_and_unheld_envelope_moves_fail_safe` pins the limit:
+at 50 mm every held check passes under the nominal mount and the mount band, and every not-held move (with the park
+sag, as `check_board_park_path`) is refused. Follow-up: hold the head at a fixed aim before the not-held moves, or lower
+`max_pan_axis_delta_mm`.
+
 ### Compute and apply
 
 `POST /api/head-arm/sessions/{sid}/compute` (`head_arm_results.compute_head_arm`, synchronous) fits the session in
