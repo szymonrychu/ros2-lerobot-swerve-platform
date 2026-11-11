@@ -416,8 +416,11 @@ its marker update must never clear `joint_offsets` (that would make mcp_server t
 old zero). The marker field survives a later zero change of another source (neutral save, CLI), so those do not lift
 the refusal. It ends only when the zero changes again after the accept: the arm-to-camera accept clears the marker
 (`joint_offsets` and the field), but `zero_changed.json` still names the servo calibration as the source of the latest
-zero change, so the refusal stands until the next neutral save or CLI zero change replaces that record. An unreadable marker or
-zero change record refuses too, with a remedy naming the file ("fix or delete") and the arm-to-camera redo.
+zero change, so the refusal stands until the next neutral save or CLI zero change replaces that record. An unreadable marker refuses too:
+"Fix the stale marker <path> (valid JSON with its stale list); delete it only after redoing the arm-to-camera
+calibration" (deleting it would drop the `joint_offsets` and `home` stale items, so mcp_server would trust the offsets
+and home pose fitted in the old zero). An unreadable zero change record refuses with "fix or delete" for that file and
+the arm-to-camera redo.
 `save_rest_reference` is refused while `joint_offsets` is stale; after a servo calibration its text names the
 arm-to-camera redo instead of "restore the zero first". `torque_state` `zero_restore.servo_calibration_at` carries the
 marker field (null when absent or the marker is unreadable).

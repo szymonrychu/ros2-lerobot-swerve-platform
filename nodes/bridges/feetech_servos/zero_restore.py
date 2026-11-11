@@ -30,7 +30,8 @@ minus neutral_exclude_joints (the gripper is never touched):
   survives a later neutral save or CLI change) or, failing that, the zero change record naming it as the latest
   source. That zero was set on purpose, a restore would not bring an old zero back and must never clear joint_offsets
   (the arm-to-camera calibration was taken in the old zero and has to be redone). An unreadable marker or record
-  refuses too, naming the file to fix or delete and the arm-to-camera redo.
+  refuses too, naming the file to fix (the marker: delete it only after the arm-to-camera redo; the record: fix or
+  delete) and the arm-to-camera redo.
 - save_rest_reference(namespace): stores the present readings (rad) of a released, still arm as the reference file;
   refused while the stale marker lists joint_offsets (the zero is suspect then; after a servo calibration the text
   names the arm-to-camera redo instead of a zero restore).
@@ -426,9 +427,9 @@ class ZeroRestoreControl:
             marker_at = read_servo_calibration_at(marker)
         except ValueError as exc:
             return (
-                f"{exc}: whether the arm zero came from a servo calibration is unknown; nothing written. Fix or "
-                f"delete the stale marker {marker} (the next zero change rewrites it); after a servo calibration, "
-                f"{redo} instead"
+                f"{exc}: whether the arm zero came from a servo calibration is unknown; nothing written. Fix the "
+                f"stale marker {marker} (valid JSON with its stale list); delete it only after redoing the "
+                f"arm-to-camera calibration"
             )
         if marker_at is not None:
             return (
@@ -1077,10 +1078,11 @@ class ZeroRestoreControl:
         if group is None:
             return refuse(refusal)
         if self.zero_suspect(group):
-            if self.marker_servo_calibration_at(group) is not None:
+            servo_calibration_at = self.marker_servo_calibration_at(group)
+            if servo_calibration_at is not None:
                 return refuse(
-                    "the stale marker lists joint_offsets after a servo calibration: the zero is new on purpose and "
-                    "a reference taken now would be wrong; redo the arm-to-camera calibration first"
+                    f"the arm zero was set by a servo calibration at {servo_calibration_at}: the zero is new on "
+                    "purpose and a reference taken now would be wrong; redo the arm-to-camera calibration first"
                 )
             return refuse(
                 "the stale marker lists joint_offsets: the zero is suspect, so a reference taken now would be wrong; "

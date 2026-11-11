@@ -527,7 +527,9 @@ def test_dry_run_refused_on_an_unreadable_marker_with_a_remedy(tmp_path: Path) -
     result = rig.zero.dry_run("follower")
     assert result.success is False
     assert str(rig.marker) in result.message
-    assert "fix or delete" in result.message.lower()
+    assert "fix the stale marker" in result.message.lower()
+    assert "delete it only after redoing the arm-to-camera calibration" in result.message
+    assert "fix or delete" not in result.message.lower()
 
 
 def test_status_exposes_servo_calibration_at(tmp_path: Path) -> None:
@@ -885,7 +887,7 @@ def test_save_rest_reference_refused_after_a_servo_calibration_names_the_redo(tm
     write_servo_calibration_marker(rig, "T1")
     result = rig.zero.save_rest_reference("follower")
     assert result.success is False
-    assert "servo calibration" in result.message
+    assert "set by a servo calibration at T1" in result.message
     assert "arm-to-camera" in result.message
     assert "restore the zero first" not in result.message
     assert "restore the zero first" in refusal_text_of_accidental_case(tmp_path / "other")
