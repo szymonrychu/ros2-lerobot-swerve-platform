@@ -633,6 +633,22 @@ Servo torque-off and neutral keys in `ansible/group_vars/client.yml` and `server
 | `test_arm_state_directory_created_on_client` | `playbooks/tasks/mcp_server_setup.yml` creates `/var/lib/ros2/arm` (home pose and stale marker). |
 | `test_tests_readme_lists_this_file` | This README has a section for the test file. |
 
+
+### `test_servo_calibration_config.py`
+
+Servo calibration keys in `ansible/group_vars/client.yml`: the bridge `servo_calibration` blocks, the web_ui servo groups and mcp_server's record path agree.
+
+| Test | Description |
+|------|-------------|
+| `test_every_calibration_group_has_a_block` | Each of the three bridge groups (arm = follower, base = swerve_drive primary, head extra group) has a `servo_calibration` block whose `home_reference_rad` names exactly the position joints minus `offset_exclude_joints`, with a `record_dir` under `/var/lib/ros2/`. |
+| `test_arm_targets_match_spec` | Arm targets (0, -1.5707963, 1.5707963, 0, 0), `full_turn_joints: [wrist_roll]` on the arm only, head 0/0 with pan +-1.5708 and tilt [-0.5236, 0.7854], steering 0 with +-1.5708, and the record dirs. |
+| `test_gripper_excluded_from_offset` | The gripper is in `offset_exclude_joints` and has no home reference. |
+| `test_drive_servos_not_in_calibration` | The wheel (velocity) servos appear in no calibration key; only the four steering servos. |
+| `test_web_ui_groups_offer_servo_calibration_for_each_block` | Every web_ui servo group sets `servo_calibration: true` for a bridge group with a block; only the arm has `set_home_from_calibration_service: /arm/set_home_from_calibration`. |
+| `test_mcp_record_path_matches_arm_record_dir` | mcp_server `arm.servo_calibration_record` is `<arm record_dir>/servo_calibration-follower-latest.json`. |
+| `test_base_servos_record_dir_is_created_before_base_servos_deploys` | `/var/lib/ros2/base_servos` is created by a task included in the client playbook. |
+| `test_tests_readme_lists_this_file` | This README has a section for the file. |
+
 ### `test_calibrate_retry_threshold.py`
 
 Unit tests for `scripts/calibrate_retry_threshold.py` (Brier score, reliability bins, Wilson-bound threshold proposal) with fixture retry records (no network).

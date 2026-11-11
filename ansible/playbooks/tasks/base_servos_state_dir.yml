@@ -1,0 +1,10 @@
+# base_servos (steering primary group and the head group) writes its servo calibration records here (record_dir);
+# the node runs as ansible_user. The arm records dir (/var/lib/ros2/arm) is created in mcp_server_setup.yml.
+- name: Ensure base_servos servo calibration record directory exists (owned by the node user)
+  ansible.builtin.file:
+    path: /var/lib/ros2/base_servos
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0755"
+  tags: [setup]

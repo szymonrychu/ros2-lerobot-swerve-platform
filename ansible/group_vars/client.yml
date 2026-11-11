@@ -2189,6 +2189,22 @@ ros2_nodes:
         plan_max_age_s: 60.0
         plan_tolerance_steps: 5
         record_dir: /var/lib/ros2/arm
+      # Servo calibration flow (web UI "Servo calibration" tab): with the arm posed at home and torque off, the bridge
+      # records the offset to write so each joint reads the target below, captures the range of motion for the
+      # limits (2 deg inward margin), and stores both in the servo EEPROM. Targets are the joint-frame readings at
+      # the physical home (folded, pointing forward, jaws open 90 deg). The gripper keeps its offset (limits are still
+      # captured); wrist_roll must sweep a full turn during the capture. Runs write JSON records to record_dir
+      # (servo_calibration-<ns>-latest.json after a full success; mcp_server reads it).
+      servo_calibration:
+        home_reference_rad:
+          shoulder_pan: 0.0
+          shoulder_lift: -1.5707963
+          elbow_flex: 1.5707963
+          wrist_flex: 0.0
+          wrist_roll: 0.0
+        offset_exclude_joints: [gripper]
+        full_turn_joints: [wrist_roll]
+        record_dir: /var/lib/ros2/arm
       # /follower/torque_state repeat interval (filter_node, mcp_server and web_ui subscribe).
       torque_state_interval_s: 1.0
       # filter_node tags /follower/joint_commands with its source in header.frame_id. web_ui and autonomy
@@ -2264,6 +2280,22 @@ ros2_nodes:
       # and are never released) and of the head group below. /swerve_drive/torque_state and /head/torque_state.
       neutral_enabled: true
       torque_state_interval_s: 1.0
+      # Servo calibration flow of the 4 steering servos (wheels are velocity joints and are left out): home = wheels
+      # straight ahead (reading 0), and the range capture must cover the steering travel of +-90 deg (1.5708 rad);
+      # narrower captured limits need the explicit confirm. Records go to /var/lib/ros2/base_servos; the head group
+      # below shares this bridge process (file names carry the namespace and run id, so they do not clash).
+      servo_calibration:
+        home_reference_rad:
+          fl_steer: 0.0
+          fr_steer: 0.0
+          rl_steer: 0.0
+          rr_steer: 0.0
+        required_travel_rad:
+          fl_steer: [-1.5708, 1.5708]
+          fr_steer: [-1.5708, 1.5708]
+          rl_steer: [-1.5708, 1.5708]
+          rr_steer: [-1.5708, 1.5708]
+        record_dir: /var/lib/ros2/base_servos
       # filter_node-tagged commands of these sources are follower joint radians (the head group below); web_ui,
       # autonomy (mcp_server) and head_aim (head_aim_cpp, auto-aim along the Nav2 path) drive the head directly.
       direct_command_sources:
@@ -2311,6 +2343,16 @@ ros2_nodes:
       extra_groups:
         - namespace: head
           neutral_enabled: true
+          # Servo calibration flow of the head: home = pointing straight ahead and level (both 0). Required travel is
+          # the pan +-90 deg and the tilt -30..+45 deg (head.urdf limits); narrower captured limits need the confirm.
+          servo_calibration:
+            home_reference_rad:
+              head_pan: 0.0
+              head_tilt: 0.0
+            required_travel_rad:
+              head_pan: [-1.5708, 1.5708]
+              head_tilt: [-0.5236, 0.7854]
+            record_dir: /var/lib/ros2/base_servos
           joint_names:
             - name: head_pan
               id: 20
@@ -2948,6 +2990,10 @@ ros2_nodes:
             # than the 15 s default service timeout.
             zero_restore: true
             zero_restore_timeout_s: 30
+            # "Servo calibration" tab for this group (bridge servo_calibration services); after an arm store the web UI
+            # sets the arm home through mcp_server /arm/set_home_from_calibration.
+            servo_calibration: true
+            set_home_from_calibration_service: /arm/set_home_from_calibration
             # "Move to neutral pose" button: mcp_server /arm/move_to_neutral (home routing, all arm joints at 0).
             move_to_neutral_service: /arm/move_to_neutral
             # Servo home flow "Set home" step: mcp_server /arm/set_home, the Arm tab Set home service (stores the
@@ -2960,12 +3006,14 @@ ros2_nodes:
             namespace: swerve_drive
             neutral: true
             command_topics: [/goal_pose]
+            servo_calibration: true
             home_pose_hint: "Wheels aligned as if the robot should drive perfectly straight."
           - id: head
             label: Head
             namespace: head
             neutral: true
             command_topics: [/head/joint_commands]
+            servo_calibration: true
             home_pose_hint: "Pointing directly forward, perpendicular to the ground."
         # General section buttons (POST /api/calibration/general/{action}): one mcp_server std_srvs/Trigger each; null
         # leaves a button out. Each is refused (409) while the servo group it moves (arm, head, base) is released.
@@ -3237,6 +3285,8 @@ ros2_nodes:
         home_file: /var/lib/ros2/arm/home.yaml
         # Written by lerobot_follower after an arm re-zero; arm_home is refused while it lists home.
         calibration_stale_marker: /var/lib/ros2/arm/calibration_stale.json
+        # Latest successful servo calibration record of lerobot_follower (its servo_calibration record_dir).
+        servo_calibration_record: /var/lib/ros2/arm/servo_calibration-follower-latest.json
         # head_rgbd_calibration board record (<its state_dir>/head_arm_board.json): written on Board attached, removed by
         # a successful park; /arm/home is refused while it exists (the calibration board is on the gripper).
         calibration_board_record: /var/lib/ros2/head_rgbd_calibration/head_arm_board.json
