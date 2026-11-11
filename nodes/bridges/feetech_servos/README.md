@@ -203,7 +203,7 @@ The arm zero restore (below) updates the marker after every apply.
 
 Zero change record: every save that sent DefineMiddle to a joint (also a failed one: the zero may have moved) writes
 `zero_changed.json` next to the marker (same directory, atomic: `{"version": 1, "group": "follower", "changed_at":
-"<saved_at>"}`), before the marker; the zero restore writes it, also before its marker update, whenever an apply
+"<saved_at>"}`, plus `"source": "servo_calibration"` when a servo calibration store wrote it), before the marker; the zero restore writes it, also before its marker update, whenever an apply
 changed the zero (the joint_offsets restore, a change beyond `plan_tolerance_steps`, a failed apply whose offset write
 was sent and not rolled back, a limits failure included). A restore whose changes all stay within
 `plan_tolerance_steps` writes neither (the same zero by definition). A failed record write is named in the answer
@@ -231,7 +231,8 @@ the group's position joints minus `neutral_exclude_joints` (the gripper is never
 
 - `/<ns>/servo/zero_restore_dry_run`: refused unless every restore joint is released (gated, cached torque 0) and
   reads `torque_enable` 0 on the bus, the arm is still (`present_position` sampled every 0.1 s over `still_window_s`,
-  spread within `still_tolerance_steps`) and the reference is valid. Reads the offset and the angle limits and plans,
+  spread within `still_tolerance_steps`) and the reference is valid. Dry run and apply also refuse while the latest
+  zero change was a servo calibration ([Servo calibration](#servo-calibration-servo_calibrationpy)). Reads the offset and the angle limits and plans,
   per joint, target, offset change and new offset. The offset only matters modulo 4096, so `offset_before + change`
   is wrapped into -2048..2047 (`wrap_offset_steps`; e.g. 2469 is written as -1627, -2242 as 1854): the present reading,
   and so the reference file and the angle limits, are the same either way. The one wrapped value the register cannot
@@ -367,7 +368,8 @@ Plan checks (`calibration_plan.py`, pure; any problem refuses the store and writ
 and `min_rel` / `max_rel` the captured extremes relative to home, the new-frame extremes are `lo = t + min_rel`,
 `hi = t + max_rel`:
 
-- range `hi - lo` at least `min_range_deg` (not for full turn joints);
+- range `hi - lo` at least `min_range_deg` (a `full_turn_joints` joint is exempt only when its sweep is at least
+  `full_turn_min_deg`; a smaller sweep gets the normal checks and limits);
 - home inside the range;
 - no wrap: `lo >= guard` and `hi <= 4095 - guard`;
 - stored limits `(lo + margin_deg, hi - margin_deg)` (inward, so the servo stops short of the hard stop), min < max;
@@ -395,10 +397,27 @@ servo now stops at X"); overrides are never changed automatically. Then the arm 
 
 Arm bookkeeping (a store that changed any arm offset): the stale marker lists `joint_offsets` and `home` (the arm to
 camera calibration must be redone), including a joint whose offset is unknown after a failed rollback, and
-`zero_changed.json` is written. The zero restore rest reference is converted into the new frame (each joint
-`steps(ref) - change`), so a later zero restore does not undo the calibration, and a pending zero restore plan is
-dropped. mcp_server then sets the arm home from the record (see its README, `/arm/set_home_from_calibration`). Head and
-steering have no marker.
+`zero_changed.json` is written with `"source": "servo_calibration"` (`zero_record.SOURCE_SERVO_CALIBRATION`; the other
+writers leave the field out). The zero restore rest reference is converted into the new frame (each joint
+`steps(ref) - change`) for the joints whose offset change was verified; the other joints keep their reference. Without
+a reference file (zero restore would fall back to the old-frame `seed_reference_rad`) the file is written from the seed
+converted the same way, in the `save_rest_reference` format. A pending zero restore plan is dropped. mcp_server then sets
+the arm home from the record (see its README, `/arm/set_home_from_calibration`). Head and steering have no marker.
+
+Zero restore after a servo calibration: while the latest zero change record names the servo calibration as its source,
+`zero_restore_dry_run` and `zero_restore_apply` refuse ("the arm zero was set by a servo calibration at <time>; zero
+restore would not restore it - redo the arm-to-camera calibration; nothing written"): the new zero is deliberate, so a
+restore would bring nothing back, and its marker update must never clear `joint_offsets` (that would make mcp_server
+trust `joint_offsets_rad` fitted in the old zero). An unreadable zero change record refuses too. A later zero change of
+another source (neutral save, CLI) replaces the record and lifts the refusal; the converted rest reference then restores
+the servo calibration frame.
+
+**After an arm store the arm-to-camera calibration must be redone.** `joint_offsets` stays stale until mcp_server
+applies an arm-to-camera calibration captured after the store. While it is stale the web UI disables Home arm, Move to
+base and Resume in the arm-camera flow, and mcp_server refuses `/arm/home` and `move_to_neutral`, so the capture
+cannot be driven from the UI. How to redo it while `joint_offsets` is stale (for example allowing arm motion after a
+servo calibration store) is an **open decision** for the user (a hardware-safety call); nothing is unblocked
+automatically.
 
 Records: every store writes `<record_dir>/servo_calibration-<YYYYmmddTHHMMSSZ>-<run_id>.json` (plan, per-joint outcome
 with offsets and limits before and after, failure, not attempted joints, override notes, bookkeeping errors). Only on a
@@ -406,7 +425,7 @@ full success (no joint failure and no bookkeeping error) is `<record_dir>/servo_
 written. Record dirs: `/var/lib/ros2/arm` (arm) and `/var/lib/ros2/base_servos` (head and steering; created by
 `ansible/playbooks/tasks/base_servos_state_dir.yml`). Journal lines use the `servo_calibration` flow of `calib_event`.
 
-Status: `/<ns>/torque_state` carries `servo_calibration` (`null` without a block) with `config` (the key numbers),
+Status: `/<ns>/torque_state` carries `servo_calibration` (the key is absent for a group without a block) with `config` (the key numbers),
 `home` (recorded time, steps and rad per joint), `capture` (`running`, `paused`, `samples`, per joint
 `present_steps`, `min_steps`, `max_steps`, `range_deg`; absent until sampled), `plan` (`run_id`, `created_at`,
 `needs_confirm`, `ok`, per joint payload with problems) and `last_result` (store outcome). The snapshot is rebuilt at
@@ -419,8 +438,10 @@ commands stopping at the new limits via the topic_scraper workflow), then steeri
 
 Tests (`tests/`): `test_servo_offsets.py` (offset encode/decode/wrap math), `offset_bus.py` (the `OffsetPort`
 emulated bus with offset semantics, shared helper), `test_calibration_plan.py` (every plan check), `test_calibration_records.py`
-(record files, rest reference conversion), `test_servo_calibration.py` (services over the emulated bus: refusals,
-happy stores, rollback, write-only-on-change, records, arm bookkeeping, status, observe hook), plus the
+(record files, rest reference conversion, the seed written when the file is absent), `test_servo_calibration.py`
+(services over the emulated bus: refusals, happy stores, rollback, write-only-on-change, records, arm bookkeeping with
+the zero change source, a zero restore plan of about 0 after an arm store with and without a reference file, zero restore
+refused after an arm store, status, observe hook), plus the
 calibration cases in `test_config.py`, `test_torque_services.py`, `test_torque_loop.py` and `test_torque_control.py` (`test_zero_restore.py` now imports the offset helpers from `servo_offsets.py`). Root test
 `tests/test_servo_calibration_config.py` pins the `client.yml` wiring.
 

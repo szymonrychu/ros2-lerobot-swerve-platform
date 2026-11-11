@@ -25,6 +25,10 @@ minus neutral_exclude_joints (the gripper is never touched):
   wrong re-zero is wrong again, one recorded before it is right again); without such a marker a change beyond
   plan_tolerance_steps marks joint_offsets and home stale (it is a re-zero of calibrations taken in the old zero); a
   failed apply marks them stale for every joint whose offset may have changed.
+- servo calibration guard: dry_run and apply are refused (nothing written, the stale marker untouched) while the zero
+  change record names a servo calibration as the latest zero change (servo_calibration_refusal): that zero was set on
+  purpose, a restore would not bring an old zero back and must never clear joint_offsets (the arm-to-camera
+  calibration was taken in the old zero and has to be redone). An unreadable record refuses too.
 - save_rest_reference(namespace): stores the present readings (rad) of a released, still arm as the reference file;
   refused while the stale marker lists joint_offsets (the zero is suspect then).
 
@@ -67,7 +71,16 @@ from .servo_offsets import (
     write_offset,
 )
 from .torque_control import PRESENT_REGISTER, TORQUE_OFF, TorqueControl
-from .zero_record import read_stale_items, record_zero_change, set_stale_items, write_json_atomic, write_stale_marker
+from .zero_record import (
+    SOURCE_FIELD,
+    SOURCE_SERVO_CALIBRATION,
+    read_stale_items,
+    read_zero_change,
+    record_zero_change,
+    set_stale_items,
+    write_json_atomic,
+    write_stale_marker,
+)
 
 LOGGER = logging.getLogger(__name__)
 MARKER_REFRESH_S = 1.0
@@ -366,6 +379,29 @@ class ZeroRestoreControl:
         items = read_stale_items(Path(group.neutral_stale_marker))
         return items is not None and STALE_JOINT_OFFSETS in items
 
+    def servo_calibration_refusal(self, group: JointGroup) -> str | None:
+        """Why a zero restore must not run because the latest zero change was a servo calibration (None when it may).
+
+        Args:
+            group (JointGroup): The group.
+
+        Returns:
+            str | None: The refusal text; None without a stale marker path, without a zero change record, or when
+                the record names another source.
+        """
+        if group.neutral_stale_marker is None:
+            return None
+        try:
+            record = read_zero_change(Path(group.neutral_stale_marker))
+        except ValueError as exc:
+            return f"{exc}: the source of the last arm zero change is unknown; nothing written"
+        if record is None or record.get(SOURCE_FIELD) != SOURCE_SERVO_CALIBRATION:
+            return None
+        return (
+            f"the arm zero was set by a servo calibration at {record.get('changed_at') or 'an unknown time'}; zero "
+            "restore would not restore it - redo the arm-to-camera calibration; nothing written"
+        )
+
     def plan_payload(self, group: JointGroup, plan: Plan) -> dict[str, Any]:
         """torque_state plan of a group.
 
@@ -446,6 +482,9 @@ class ZeroRestoreControl:
             return refuse(refusal)
         state = self.state(group)
         state.plan = None
+        servo_calibration = self.servo_calibration_refusal(group)
+        if servo_calibration is not None:
+            return refuse(servo_calibration)
         joints = restore_joints(group)
         torques = read_torques(self.torque.servo, joints)
         refused = torque_refusals(torques)
@@ -458,39 +497,7 @@ class ZeroRestoreControl:
         if presents is None:
             return refuse(refusal)
         config = group.zero_restore
-        planned: dict[str, JointPlan] = {}
-        problems: list[str] = []
-        for joint in joints:
-            raw_offset = read_retried(self.torque.servo, joint.id, OFFSET_REGISTER)
-            limits = read_limits(self.torque.servo, joint.id)
-            if raw_offset is None or limits is None:
-                problems.append(f"{joint.name}: offset/limit read failed")
-                continue
-            try:
-                offset_before = decode_offset(raw_offset)
-            except ValueError as exc:
-                problems.append(f"{joint.name}: {exc}")
-                continue
-            target = position_to_raw_steps(state.reference["joints"][joint.name], joint.inverted)
-            change = offset_delta_steps(presents[joint.name], target)
-            new_offset = wrap_offset_steps(offset_before + change)
-            if abs(new_offset) > OFFSET_MAX_STEPS:
-                problems.append(
-                    f"{joint.name}: new offset +-{HALF_TURN_STEPS} cannot be encoded (max +-{OFFSET_MAX_STEPS}); "
-                    "move the joint a little and dry run again"
-                )
-                continue
-            planned[joint.name] = JointPlan(
-                id=joint.id,
-                inverted=joint.inverted,
-                present_steps=presents[joint.name],
-                target_steps=target,
-                offset_before_steps=offset_before,
-                offset_change_steps=change,
-                new_offset_steps=new_offset,
-                limits=limits,
-                exceeds_max_change=abs(steps_to_degrees(change)) > config.max_change_deg,
-            )
+        planned, problems = self.plan_joints(group, state.reference, presents)
         if problems:
             return refuse("; ".join(problems) + "; nothing written")
         plan = Plan(run_id, self.monotonic(), self.now_iso(), state.reference["source"], planned)
@@ -521,6 +528,56 @@ class ZeroRestoreControl:
         LOGGER.info(message)
         return NeutralResult(True, message)
 
+    def plan_joints(
+        self, group: JointGroup, reference: dict[str, Any], presents: dict[str, int]
+    ) -> tuple[dict[str, JointPlan], list[str]]:
+        """Plan the offset change of every restore joint from its present reading and the reference (bus reads only).
+
+        Args:
+            group (JointGroup): Group with a zero_restore block.
+            reference (dict[str, Any]): load_reference result ("joints": restore joint -> rad).
+            presents (dict[str, int]): restore joint -> present_position steps (the still reading).
+
+        Returns:
+            tuple[dict[str, JointPlan], list[str]]: joint name -> plan, and one problem text per joint that cannot be
+                planned (offset or limit read failed, undecodable offset, unencodable new offset).
+        """
+        config = group.zero_restore
+        planned: dict[str, JointPlan] = {}
+        problems: list[str] = []
+        for joint in restore_joints(group):
+            raw_offset = read_retried(self.torque.servo, joint.id, OFFSET_REGISTER)
+            limits = read_limits(self.torque.servo, joint.id)
+            if raw_offset is None or limits is None:
+                problems.append(f"{joint.name}: offset/limit read failed")
+                continue
+            try:
+                offset_before = decode_offset(raw_offset)
+            except ValueError as exc:
+                problems.append(f"{joint.name}: {exc}")
+                continue
+            target = position_to_raw_steps(reference["joints"][joint.name], joint.inverted)
+            change = offset_delta_steps(presents[joint.name], target)
+            new_offset = wrap_offset_steps(offset_before + change)
+            if abs(new_offset) > OFFSET_MAX_STEPS:
+                problems.append(
+                    f"{joint.name}: new offset +-{HALF_TURN_STEPS} cannot be encoded (max +-{OFFSET_MAX_STEPS}); "
+                    "move the joint a little and dry run again"
+                )
+                continue
+            planned[joint.name] = JointPlan(
+                id=joint.id,
+                inverted=joint.inverted,
+                present_steps=presents[joint.name],
+                target_steps=target,
+                offset_before_steps=offset_before,
+                offset_change_steps=change,
+                new_offset_steps=new_offset,
+                limits=limits,
+                exceeds_max_change=abs(steps_to_degrees(change)) > config.max_change_deg,
+            )
+        return planned, problems
+
     # --- apply --------------------------------------------------------------------------------------------------
 
     def apply(self, namespace: str, confirmed: bool = False) -> NeutralResult:
@@ -546,6 +603,10 @@ class ZeroRestoreControl:
         if group is None:
             return refuse(refusal)
         state = self.state(group)
+        servo_calibration = self.servo_calibration_refusal(group)
+        if servo_calibration is not None:
+            state.plan = None
+            return refuse(servo_calibration)
         config = group.zero_restore
         plan = state.plan
         if plan is None:

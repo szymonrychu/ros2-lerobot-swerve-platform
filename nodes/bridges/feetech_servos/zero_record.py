@@ -6,8 +6,10 @@ restore, and scripts/calibrate_servos.py) writes them the same way:
 - The stale marker (a group's `neutral_stale_marker`, e.g. /var/lib/ros2/arm/calibration_stale.json):
   {version, group, saved_at, joints: {name: {before_steps, after_steps}}, stale: [items]}. Items are the calibrations
   taken in the old zero (STALE_ITEMS: joint_offsets, home); mcp_server and web_ui read it, mcp_server clears items.
-- The zero change record (ZERO_RECORD_FILE next to the marker): {version, group, changed_at}, replaced on every zero
-  change and kept when the marker is cleared. head_rgbd_calibration's Accept and the stale marker clearing refuse when
+- The zero change record (ZERO_RECORD_FILE next to the marker): {version, group, changed_at} plus "source" for a
+  writer that names itself (SOURCE_SERVO_CALIBRATION: the servo calibration store), replaced on every zero change and
+  kept when the marker is cleared. Zero restore refuses while the latest change came from a servo calibration (a
+  deliberate new zero it must not "restore"; read_zero_change). head_rgbd_calibration's Accept and the stale marker clearing refuse when
   it names a change at or after a capture (ros2_common arm_calibration_file.zero_change_refusal).
 
 write_zero_change writes both for one event, the record first (it is the readers' fail-safe if the marker write
@@ -28,6 +30,8 @@ MARKER_VERSION = 1
 STALE_ITEMS = ("joint_offsets", "home")
 ZERO_RECORD_FILE = "zero_changed.json"  # next to the stale marker: the time of the last servo zero change
 ZERO_RECORD_VERSION = 1
+SOURCE_FIELD = "source"  # zero change record field naming the writer (absent: neutral save, zero restore, CLI)
+SOURCE_SERVO_CALIBRATION = "servo_calibration"
 
 
 def utc_now_iso() -> str:
@@ -162,19 +166,51 @@ def set_stale_items(path: Path, items: list[str], group: str, saved_at: str | No
     write_json_atomic(path, {**data, "stale": list(items)})
 
 
-def record_zero_change(marker: Path, group: str, changed_at: str) -> None:
+def record_zero_change(marker: Path, group: str, changed_at: str, source: str | None = None) -> None:
     """Record a servo zero change atomically in ZERO_RECORD_FILE next to the stale marker (replaced on every change).
 
     Args:
         marker (Path): The group's stale marker path (its directory holds the record).
         group (str): Group namespace.
         changed_at (str): ISO-8601 UTC time of the change.
+        source (str | None): Writer of the change stored as SOURCE_FIELD (e.g. SOURCE_SERVO_CALIBRATION); None
+            leaves the field out.
 
     Raises:
         OSError: When the write fails.
     """
-    record = {"version": ZERO_RECORD_VERSION, "group": group, "changed_at": changed_at}
+    record: dict[str, Any] = {"version": ZERO_RECORD_VERSION, "group": group, "changed_at": changed_at}
+    if source is not None:
+        record[SOURCE_FIELD] = source
     write_json_atomic(marker.with_name(ZERO_RECORD_FILE), record)
+
+
+def read_zero_change(marker: Path) -> dict[str, Any] | None:
+    """Read the zero change record next to the stale marker.
+
+    Args:
+        marker (Path): The group's stale marker path (its directory holds the record).
+
+    Returns:
+        dict[str, Any] | None: The parsed record; None when absent.
+
+    Raises:
+        ValueError: The file exists but is unreadable, not JSON or not an object.
+    """
+    path = marker.with_name(ZERO_RECORD_FILE)
+    try:
+        text = path.read_text()
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise ValueError(f"zero change record {path} unreadable: {exc}") from exc
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"zero change record {path} is not valid JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"zero change record {path} is not an object")
+    return data
 
 
 def write_stale_marker(path: Path, group: str, saved_at: str, joints: dict[str, tuple[int, int]]) -> None:
@@ -200,7 +236,9 @@ def write_stale_marker(path: Path, group: str, saved_at: str, joints: dict[str, 
     write_json_atomic(path, merge_marker(existing, group, saved_at, joints))
 
 
-def write_zero_change(marker: Path, group: str, changed_at: str, joints: dict[str, tuple[int, int]]) -> list[str]:
+def write_zero_change(
+    marker: Path, group: str, changed_at: str, joints: dict[str, tuple[int, int]], source: str | None = None
+) -> list[str]:
     """Record one servo zero change: the zero change record first (the readers' fail-safe), then the stale marker for
     the joints whose zero verifiably changed.
 
@@ -212,6 +250,7 @@ def write_zero_change(marker: Path, group: str, changed_at: str, joints: dict[st
         group (str): Group namespace.
         changed_at (str): ISO-8601 UTC time of the change (utc_now_iso).
         joints (dict[str, tuple[int, int]]): joint name -> (before_steps, after_steps) of the verified changes.
+        source (str | None): Writer named in the zero change record (record_zero_change); None leaves it out.
 
     Returns:
         list[str]: "stale marker not written: ..." and / or "zero change record not written: ..." for each failed
@@ -219,7 +258,7 @@ def write_zero_change(marker: Path, group: str, changed_at: str, joints: dict[st
     """
     record_error = marker_error = None
     try:
-        record_zero_change(marker, group, changed_at)
+        record_zero_change(marker, group, changed_at, source)
     except OSError as exc:
         record_error = f"zero change record not written: {type(exc).__name__}: {exc}"
     if joints:

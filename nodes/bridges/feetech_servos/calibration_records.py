@@ -16,6 +16,7 @@ from feetech_mapping.command_mapping import STEPS_PER_REVOLUTION, position_to_ra
 
 from .calibration_plan import JointCalibrationPlan
 from .zero_record import write_json_atomic
+from .zero_restore import REFERENCE_VERSION
 
 LOGGER = logging.getLogger(__name__)
 RECORD_VERSION = 1
@@ -114,24 +115,55 @@ def write_records(record_dir: Path, namespace: str, stamp: datetime, payload: di
     return errors
 
 
-def convert_rest_reference(path: Path, changes: dict[str, tuple[int, bool]], saved_at: str) -> str | None:
+def seed_reference(namespace: str, seed: dict[str, tuple[float, bool]], saved_at: str) -> dict[str, Any]:
+    """Build rest reference content (the zero_restore save_rest_reference format) from the seed reference.
+
+    Args:
+        namespace (str): Group namespace.
+        seed (dict[str, tuple[float, bool]]): restore joint -> (seed_reference_rad, inverted).
+        saved_at (str): ISO-8601 UTC time stored as saved_at.
+
+    Returns:
+        dict[str, Any]: {"version", "group", "saved_at", "joints" (rad), "steps"}, still in the old zero frame.
+    """
+    return {
+        "version": REFERENCE_VERSION,
+        "group": namespace,
+        SAVED_AT_FIELD: saved_at,
+        "joints": {name: rad for name, (rad, _inverted) in seed.items()},
+        "steps": {name: position_to_raw_steps(rad, inverted) for name, (rad, inverted) in seed.items()},
+    }
+
+
+def convert_rest_reference(
+    path: Path,
+    changes: dict[str, tuple[int, bool]],
+    saved_at: str,
+    namespace: str,
+    seed: dict[str, tuple[float, bool]],
+) -> str | None:
     """Rewrite the arm rest reference into the new zero frame after offset changes.
 
     Each changed joint's steps become (steps - change) % 4096 and its rad the matching reading; other joints and
-    other top-level fields are kept; the saved_at field is set to saved_at.
+    other top-level fields are kept; the saved_at field is set to saved_at. Without a reference file zero restore
+    would fall back to the seed reference, which is in the old zero frame: the file is then written from the seed
+    (seed_reference) converted the same way, so a later zero restore cannot undo the calibration either way.
 
     Args:
         path (Path): Rest reference file (zero_restore format: version, group, saved_at, joints rad, steps).
-        changes (dict[str, tuple[int, bool]]): joint name -> (offset_change_steps, inverted).
+        changes (dict[str, tuple[int, bool]]): joint name -> (offset_change_steps, inverted) of the verified changes.
         saved_at (str): ISO-8601 UTC time of the conversion.
+        namespace (str): Group namespace (the group of a file written from the seed).
+        seed (dict[str, tuple[float, bool]]): restore joint -> (seed_reference_rad, inverted), used when the file is
+            absent.
 
     Returns:
-        str | None: Error text; None on success or when the file is absent (nothing is written).
+        str | None: Error text; None on success.
     """
     try:
         data = json.loads(path.read_text())
     except FileNotFoundError:
-        return None
+        data = seed_reference(namespace, seed, saved_at)
     except (OSError, json.JSONDecodeError) as exc:
         return f"rest reference {path} unreadable: {type(exc).__name__}: {exc}"
     joints = data.get("joints") if isinstance(data, dict) else None

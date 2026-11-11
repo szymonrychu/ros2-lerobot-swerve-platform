@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from feetech_mapping.command_mapping import position_to_raw_steps, steps_to_radians
 
 from feetech_servos import calibration_records as records_module
 from feetech_servos.calibration_plan import JointCalibrationPlan
@@ -22,6 +23,7 @@ CREATED_AT = "2026-11-10T12:00:00+00:00"
 STAMP = datetime(2026, 11, 10, 12, 0, 0, tzinfo=UTC)
 AUDIT_NAME = "servo_calibration-20261110T120000Z-run1.json"
 LATEST_NAME = "servo_calibration-arm-latest.json"
+SEED = {"elbow_flex": (math.pi / 2, False), "wrist_flex": (0.5, True)}
 
 
 def make_payload(failure: tuple[str, str] | None = None) -> dict[str, Any]:
@@ -116,7 +118,7 @@ def write_reference(path: Path) -> None:
 def test_convert_rest_reference_shifts_steps_and_rad(tmp_path: Path) -> None:
     path = tmp_path / "rest_reference.json"
     write_reference(path)
-    assert convert_rest_reference(path, {"elbow_flex": (78, False)}, CREATED_AT) is None
+    assert convert_rest_reference(path, {"elbow_flex": (78, False)}, CREATED_AT, "arm", SEED) is None
     data = json.loads(path.read_text())
     assert data["steps"] == {"elbow_flex": 3072, "wrist_flex": 2500}
     assert data["joints"]["elbow_flex"] == pytest.approx(math.pi / 2)
@@ -129,22 +131,31 @@ def test_convert_rest_reference_shifts_steps_and_rad(tmp_path: Path) -> None:
 def test_convert_rest_reference_inverted_and_wraps(tmp_path: Path) -> None:
     path = tmp_path / "rest_reference.json"
     write_reference(path)
-    assert convert_rest_reference(path, {"elbow_flex": (-1000, True)}, CREATED_AT) is None
+    assert convert_rest_reference(path, {"elbow_flex": (-1000, True)}, CREATED_AT, "arm", SEED) is None
     data = json.loads(path.read_text())
     assert data["steps"]["elbow_flex"] == (3150 + 1000) % 4096
     assert data["joints"]["elbow_flex"] == pytest.approx(-(54 - 2048) * 2 * math.pi / 4096)
 
 
-def test_convert_rest_reference_absent_file_is_noop(tmp_path: Path) -> None:
+def test_convert_rest_reference_absent_file_writes_converted_seed(tmp_path: Path) -> None:
     path = tmp_path / "rest_reference.json"
-    assert convert_rest_reference(path, {"elbow_flex": (78, False)}, CREATED_AT) is None
-    assert list(tmp_path.iterdir()) == []
+    assert convert_rest_reference(path, {"elbow_flex": (78, False)}, CREATED_AT, "arm", SEED) is None
+    data = json.loads(path.read_text())
+    assert data["version"] == 1
+    assert data["group"] == "arm"
+    assert data["saved_at"] == CREATED_AT
+    assert data["steps"] == {
+        "elbow_flex": (position_to_raw_steps(math.pi / 2, False) - 78) % 4096,
+        "wrist_flex": position_to_raw_steps(0.5, True),
+    }
+    assert data["joints"]["elbow_flex"] == pytest.approx(steps_to_radians(data["steps"]["elbow_flex"], False))
+    assert data["joints"]["wrist_flex"] == 0.5
 
 
 def test_convert_rest_reference_invalid_file_returns_error(tmp_path: Path) -> None:
     path = tmp_path / "rest_reference.json"
     path.write_text("{not json")
-    error = convert_rest_reference(path, {"elbow_flex": (78, False)}, CREATED_AT)
+    error = convert_rest_reference(path, {"elbow_flex": (78, False)}, CREATED_AT, "arm", SEED)
     assert error is not None
     assert "rest reference" in error
     assert path.read_text() == "{not json"

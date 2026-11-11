@@ -31,7 +31,7 @@ from feetech_servos.registers import (
 from feetech_servos.servo_calibration import ServoCalibrationControl
 from feetech_servos.servo_offsets import decode_offset, encode_offset, steps_to_degrees
 from feetech_servos.torque_control import TorqueControl
-from feetech_servos.zero_restore import ZeroRestoreControl
+from feetech_servos.zero_restore import ZeroRestoreControl, load_reference
 
 from .offset_bus import Clock, OffsetPort
 from .sts_bus import StsPacket, put_word, register_table
@@ -895,21 +895,34 @@ def test_store_never_sends_define_middle(tmp_path: Path) -> None:
 # --- arm bookkeeping (spec 3.6) ---------------------------------------------------------------------------------------
 
 
-def arm_extra(tmp_path: Path, rad: float = 0.0) -> dict[str, Any]:
-    """Head group fields that make it carry the arm bookkeeping: a stale marker and a zero_restore block."""
-    reference = {
-        "version": 1,
-        "group": "head",
-        "saved_at": "2026-11-01T00:00:00+00:00",
-        "joints": {"head_pan": rad, "head_tilt": 0.0},
-    }
+def arm_extra(
+    tmp_path: Path,
+    rad: float = 0.0,
+    tilt_rad: float = 0.0,
+    write_file: bool = True,
+    seed: dict[str, float] | None = None,
+) -> dict[str, Any]:
+    """Head group fields that make it carry the arm bookkeeping: a stale marker and a zero_restore block.
+
+    rad / tilt_rad are the rest reference file's readings (no file with write_file False); seed is the
+    seed_reference_rad (default 0.0 for both joints).
+    """
     path = tmp_path / "zero" / "rest_reference.json"
     path.parent.mkdir()
-    path.write_text(json.dumps(reference))
+    if write_file:
+        reference = {
+            "version": 1,
+            "group": "head",
+            "saved_at": "2026-11-01T00:00:00+00:00",
+            "joints": {"head_pan": rad, "head_tilt": tilt_rad},
+        }
+        path.write_text(json.dumps(reference))
     return {
         "neutral_stale_marker": str(tmp_path / "zero" / "calibration_stale.json"),
         "zero_restore": ZeroRestoreConfig(
-            reference_file=str(path), record_dir=str(tmp_path), seed_reference_rad={"head_pan": 0.0, "head_tilt": 0.0}
+            reference_file=str(path),
+            record_dir=str(tmp_path),
+            seed_reference_rad=seed or {"head_pan": 0.0, "head_tilt": 0.0},
         ),
     }
 
@@ -955,6 +968,75 @@ def test_store_converts_rest_reference_into_new_frame(tmp_path: Path) -> None:
         assert reference["joints"][name] == steps_to_radians(expected, False)
     assert reference["saved_at"] == "2026-11-10T12:00:00+00:00"
     assert rig.zero.states["head"].plan is None
+
+
+def test_arm_store_names_servo_calibration_in_the_zero_change_record(tmp_path: Path) -> None:
+    extra = arm_extra(tmp_path)
+    rig = planned_rig(tmp_path, head_extra=extra)
+    assert rig.cal.store("head").success
+    zero_change = json.loads((Path(extra["neutral_stale_marker"]).parent / "zero_changed.json").read_text())
+    assert zero_change["source"] == "servo_calibration"
+
+
+def test_store_writes_the_rest_reference_from_the_seed_when_absent(tmp_path: Path) -> None:
+    extra = arm_extra(tmp_path, write_file=False, seed={"head_pan": 0.1, "head_tilt": 0.0})
+    reference_path = Path(extra["zero_restore"].reference_file)
+    rig = planned_rig(tmp_path, head_extra=extra)
+    assert rig.cal.store("head").success
+    record = json.loads((tmp_path / "servo_calibration-head-latest.json").read_text())
+    reference = json.loads(reference_path.read_text())
+    assert (reference["version"], reference["group"]) == (1, "head")
+    assert reference["saved_at"] == "2026-11-10T12:00:00+00:00"
+    for name, rad in (("head_pan", 0.1), ("head_tilt", 0.0)):
+        change = record["joints"][name]["plan"]["offset_change_steps"]
+        expected = (position_to_raw_steps(rad, False) - change) % 4096
+        assert reference["steps"][name] == expected
+        assert reference["joints"][name] == steps_to_radians(expected, False)
+
+
+@pytest.mark.parametrize("with_file", [True, False], ids=["reference_file", "seed_only"])
+def test_zero_restore_plans_no_change_after_an_arm_store(tmp_path: Path, with_file: bool) -> None:
+    """The rest reference (file, or seed without one) equals the resting readings before the store; after the store
+    the zero restore plan of the resting group changes no offset (it would not undo the calibration)."""
+    pan, tilt = steps_to_radians(ENCODER[21], False), steps_to_radians(ENCODER[22], False)
+    extra = arm_extra(tmp_path, pan, tilt, write_file=with_file, seed={"head_pan": pan, "head_tilt": tilt})
+    rig = planned_rig(tmp_path, head_extra=extra)
+    group = rig.torque.groups["head"]
+    before, problems = rig.zero.plan_joints(
+        group,
+        load_reference(extra["zero_restore"], ["head_pan", "head_tilt"])[0],
+        {
+            "head_pan": present_of(rig, 21),
+            "head_tilt": present_of(rig, 22),
+        },
+    )
+    assert problems == [] and all(abs(j.offset_change_steps) <= 1 for j in before.values())
+    assert rig.cal.store("head").success
+    assert (offset_of(rig, 21), offset_of(rig, 22)) == (62, -45)
+    reference, error = load_reference(extra["zero_restore"], ["head_pan", "head_tilt"])
+    assert error is None and reference["source"] == "file"
+    presents = {"head_pan": present_of(rig, 21), "head_tilt": present_of(rig, 22)}
+    planned, problems = rig.zero.plan_joints(group, reference, presents)
+    assert problems == []
+    assert {name: abs(j.offset_change_steps) <= 1 for name, j in planned.items()} == {
+        "head_pan": True,
+        "head_tilt": True,
+    }
+
+
+def test_zero_restore_refused_after_an_arm_store(tmp_path: Path) -> None:
+    extra = arm_extra(tmp_path)
+    rig = planned_rig(tmp_path, head_extra=extra)
+    assert rig.cal.store("head").success
+    marker_path = Path(extra["neutral_stale_marker"])
+    marker_before = marker_path.read_text()
+    for result in (rig.zero.dry_run("head"), rig.zero.apply("head", confirmed=True)):
+        assert result.success is False
+        assert "set by a servo calibration at 2026-11-10T12:00:00+00:00" in result.message
+        assert "redo the arm-to-camera calibration" in result.message
+    assert marker_path.read_text() == marker_before
+    assert json.loads(marker_before)["stale"] == ["joint_offsets", "home"]
+    assert (offset_of(rig, 21), offset_of(rig, 22)) == (62, -45)
 
 
 def test_store_reports_rest_reference_failure_without_undoing_the_writes(tmp_path: Path) -> None:

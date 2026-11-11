@@ -63,8 +63,8 @@ from .servo_offsets import (
     write_offset,
 )
 from .torque_control import PRESENT_REGISTER, TORQUE_OFF, TorqueControl
-from .zero_record import record_dir_refusal, write_zero_change
-from .zero_restore import ZeroRestoreControl
+from .zero_record import SOURCE_SERVO_CALIBRATION, record_dir_refusal, write_zero_change
+from .zero_restore import ZeroRestoreControl, restore_joints
 
 LOGGER = logging.getLogger(__name__)
 FLOW = "servo_calibration"
@@ -745,11 +745,12 @@ class ServoCalibrationControl:
         """Mark the arm's calibrations stale and convert its rest reference after a store (spec 3.6).
 
         Runs when an offset write was sent (also for a failed store). With a stale marker path the zero change record
-        and, for the verified offset changes, the marker (joint_offsets and home stale) are written with changed_at
-        equal to the audit record's. The marker also lists a joint whose offset write was sent, not verified and not rolled
-        back (its offset is unknown; the read-back value, else the planned one, is its after). With a zero_restore block the rest reference is rewritten in the new frame for
-        the verified changes and the zero restore plan is dropped. Failures are reported, never undone: the EEPROM
-        writes stay.
+        (source SOURCE_SERVO_CALIBRATION: zero restore refuses after it) and, for the verified offset changes, the
+        marker (joint_offsets and home stale) are written with changed_at equal to the audit record's. The marker also
+        lists a joint whose offset write was sent, not verified and not rolled back (its offset is unknown; the
+        read-back value, else the planned one, is its after). With a zero_restore block the rest reference is
+        rewritten in the new frame for the verified changes (written from the seed reference when the file is absent)
+        and the zero restore plan is dropped. Failures are reported, never undone: the EEPROM writes stay.
 
         Args:
             group (JointGroup): The stored group.
@@ -780,7 +781,11 @@ class ServoCalibrationControl:
                     plan.joints[n].offset_before_steps,
                     plan.joints[n].new_offset_steps if after is None else after,
                 )
-            errors.extend(write_zero_change(Path(group.neutral_stale_marker), group.namespace, changed_at, joints))
+            errors.extend(
+                write_zero_change(
+                    Path(group.neutral_stale_marker), group.namespace, changed_at, joints, SOURCE_SERVO_CALIBRATION
+                )
+            )
             self.events.event(
                 FLOW,
                 run_id,
@@ -794,7 +799,12 @@ class ServoCalibrationControl:
             reference_error = None
             if verified:
                 changes = {n: (plan.joints[n].offset_change_steps, plan.joints[n].inverted) for n in verified}
-                reference_error = convert_rest_reference(Path(group.zero_restore.reference_file), changes, changed_at)
+                seed = {
+                    j.name: (group.zero_restore.seed_reference_rad[j.name], j.inverted) for j in restore_joints(group)
+                }
+                reference_error = convert_rest_reference(
+                    Path(group.zero_restore.reference_file), changes, changed_at, group.namespace, seed
+                )
             if reference_error is not None:
                 errors.append(reference_error)
             if self.zero_restore is not None:

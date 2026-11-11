@@ -34,7 +34,13 @@ from feetech_servos.registers import (
 )
 from feetech_servos.servo_offsets import STILL_SAMPLE_INTERVAL_S, decode_offset, encode_offset, steps_to_degrees
 from feetech_servos.torque_control import TorqueControl, torque_state_payload
-from feetech_servos.zero_record import STALE_ITEMS, ZERO_RECORD_FILE, write_stale_marker
+from feetech_servos.zero_record import (
+    SOURCE_SERVO_CALIBRATION,
+    STALE_ITEMS,
+    ZERO_RECORD_FILE,
+    record_zero_change,
+    write_stale_marker,
+)
 from feetech_servos.zero_restore import ZeroRestoreControl, load_reference
 
 from .offset_bus import LIMITS, Clock, OffsetPort
@@ -405,6 +411,60 @@ def test_dry_run_logs_calib_events(tmp_path: Path) -> None:
     assert data["joints"]["elbow_flex"]["limits"] == [0, 4095]
     assert data["torque"] == {name: 0 for name in SEED}
     assert len({e["run_id"] for e in events}) == 1
+
+
+# --- servo calibration guard ------------------------------------------------------------------------------------------
+
+
+def write_servo_calibration_change(rig: Rig) -> None:
+    """Leave the files an arm servo calibration store writes: the zero change record (its source) and the marker."""
+    record_zero_change(rig.marker, "follower", "2026-11-09T11:00:00+00:00", SOURCE_SERVO_CALIBRATION)
+    write_stale_marker(rig.marker, "follower", "2026-11-09T11:00:00+00:00", {"elbow_flex": (450, 528)})
+
+
+def test_dry_run_refused_after_a_servo_calibration(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path)
+    write_servo_calibration_change(rig)
+    marker_before = rig.marker.read_text()
+    result = rig.zero.dry_run("follower")
+    assert result.success is False
+    assert "set by a servo calibration at 2026-11-09T11:00:00+00:00" in result.message
+    assert "redo the arm-to-camera calibration" in result.message
+    assert "nothing written" in result.message
+    assert plan_or_none(rig) is None
+    assert rig.marker.read_text() == marker_before
+
+
+def test_apply_refused_after_a_servo_calibration_keeps_joint_offsets_stale(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path, shift=SMALL_SHIFT)
+    write_marker(rig)
+    assert rig.zero.dry_run("follower").success
+    write_servo_calibration_change(rig)
+    marker_before = rig.marker.read_text()
+    result = rig.zero.apply("follower", confirmed=True)
+    assert result.success is False
+    assert "set by a servo calibration" in result.message
+    assert rig.offset_writes() == []
+    assert rig.marker.read_text() == marker_before
+    assert "joint_offsets" in json.loads(rig.marker.read_text())["stale"]
+    assert plan_or_none(rig) is None
+    assert not list(Path(rig.config.record_dir).glob(RECORD_GLOB))
+
+
+def test_dry_run_allowed_after_a_zero_change_of_another_source(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path)
+    record_zero_change(rig.marker, "follower", "2026-11-09T11:00:00+00:00")
+    assert rig.zero.dry_run("follower").success
+
+
+def test_dry_run_refused_on_an_unreadable_zero_change_record(tmp_path: Path) -> None:
+    rig = make_rig(tmp_path)
+    rig.marker.parent.mkdir(parents=True, exist_ok=True)
+    rig.marker.with_name(ZERO_RECORD_FILE).write_text("{not json")
+    result = rig.zero.dry_run("follower")
+    assert result.success is False
+    assert "source of the last arm zero change is unknown" in result.message
+    assert plan_or_none(rig) is None
 
 
 # --- apply ------------------------------------------------------------------------------------------------------------
