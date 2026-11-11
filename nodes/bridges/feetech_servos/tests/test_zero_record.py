@@ -139,9 +139,6 @@ def test_write_json_atomic_creates_parents_and_leaves_no_temp(tmp_path: Path) ->
     assert [p.name for p in path.parent.iterdir()] == ["b.json"]
 
 
-# --- write_zero_change -------------------------------------------------------------------------------------------------
-
-
 # --- servo_calibration_at marker field --------------------------------------------------------------------------------
 
 
@@ -198,6 +195,9 @@ def test_read_servo_calibration_at_invalid_json_raises(tmp_path: Path) -> None:
     marker.write_text("{not json")
     with pytest.raises(ValueError, match="not valid JSON"):
         read_servo_calibration_at(marker)
+
+
+# --- write_zero_change -------------------------------------------------------------------------------------------------
 
 
 def test_write_zero_change_without_joints_keeps_the_marker_field(tmp_path: Path) -> None:
