@@ -428,8 +428,9 @@ marker field (null when absent or the marker is unreadable).
 **After an arm store the arm-to-camera calibration must be redone.** `joint_offsets` stays stale until mcp_server
 applies an arm-to-camera calibration captured after the store. While it is stale the web UI disables Home arm, Move to
 base and Resume in the arm-camera flow, and mcp_server refuses `/arm/home` and `move_to_neutral`, so the capture
-cannot be driven from the UI unless the marker names a servo calibration (`servo_calibration_at`; mcp_server and the web UI then allow Home arm and Set home for the redo, not Move to neutral): that persistent
-reason is what lets mcp_server and web_ui tell a deliberate new zero (redo the arm-to-camera calibration) from an
+cannot be driven from the UI unless the marker names a servo calibration (`servo_calibration_at`; mcp_server and the
+web UI then allow every manual arm operation for the redo: Home arm, Set home and Move to neutral; only zero restore
+and save reference stay refused): that persistent reason is what lets mcp_server and web_ui tell a deliberate new zero (redo the arm-to-camera calibration) from an
 accidental re-zero (zero restore); see their READMEs for what they allow.
 
 Records: every store writes `<record_dir>/servo_calibration-<YYYYmmddTHHMMSSZ>-<run_id>.json` (plan, per-joint outcome

@@ -2,7 +2,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { ServoNeutral } from './ServoNeutral'
-import { planExpired, planRemainingS, servoCalibrationHomeReason, servoCalibrationRedo, servoCalibrationRedoAt } from './ZeroRestorePanel'
+import {
+  planExpired,
+  planRemainingS,
+  servoCalibrationInfoText,
+  servoCalibrationRedo,
+  servoCalibrationRedoAt,
+  zeroShiftText,
+} from './ZeroRestorePanel'
 import type { ServoGroup, TorqueState, ZeroRestorePlanJoint, ZeroRestoreState } from './servoApi'
 
 const DIALOG_LARGE = 'The arm rests folded on its rest and the large change is intended'
@@ -363,9 +370,20 @@ describe('Arm zero restore panel', () => {
     expect(servoCalibrationRedoAt([{ ...redo, servo_calibration_at: null }], 'arm')).toBeNull()
   })
 
-  it('servoCalibrationHomeReason names the time and the Arm to camera remedy', () => {
-    expect(servoCalibrationHomeReason('2026-11-10T12:00:00+00:00')).toBe(
-      'Arm zero set by a servo calibration at 2026-11-10T12:00:00+00:00: home the arm from Calibrate, Arm to camera, after the old joint offsets confirm',
+  it('zeroShiftText lists the per-joint zero shift in object order with one decimal', () => {
+    expect(zeroShiftText({ shoulder_lift: 9.3 })).toBe('Zero shift per joint: shoulder_lift 9.3 deg.')
+    expect(zeroShiftText({ shoulder_lift: 9.3, elbow_flex: -2 })).toBe('Zero shift per joint: shoulder_lift 9.3 deg, elbow_flex -2.0 deg.')
+  })
+
+  it('zeroShiftText says unknown without a shift', () => {
+    expect(zeroShiftText(null)).toBe('Zero shift per joint: unknown.')
+    expect(zeroShiftText(undefined)).toBe('Zero shift per joint: unknown.')
+    expect(zeroShiftText({})).toBe('Zero shift per joint: unknown.')
+  })
+
+  it('servoCalibrationInfoText names the time, the Arm to camera redo and the zero shift', () => {
+    expect(servoCalibrationInfoText('2026-11-10T12:00:00+00:00', { shoulder_lift: 9.3 })).toBe(
+      'Arm zero set by a servo calibration at 2026-11-10T12:00:00+00:00: redo Calibrate, Arm to camera to refit the joint offsets. Zero shift per joint: shoulder_lift 9.3 deg.',
     )
   })
 

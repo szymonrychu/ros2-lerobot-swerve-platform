@@ -2598,17 +2598,12 @@ class ArmController:
         """Why the arm may not move to the neutral pose now, or None.
 
         Returns:
-            str | None: Refusal text: the stale marker lists joint_offsets (an unreadable marker counts), or the arm
-                torque is released; None when the move may start.
+            str | None: Refusal text: the stale marker lists joint_offsets (an unreadable marker counts) and no arm
+                servo calibration set the zero (servo_calibration_redo: that redo state is allowed, like home), or the
+                arm torque is released; None when the move may start.
         """
         marker = self.stale_marker()
-        if servo_calibration_redo(marker):
-            return (
-                f"move to neutral refused: the calibration stale marker lists {STALE_OFFSETS_ITEM} (the arm zero was "
-                f"set by a servo calibration at {marker.servo_calibration_at}): redo the arm-to-camera calibration "
-                "(Calibrate, Arm to camera)"
-            )
-        if marker is not None and STALE_OFFSETS_ITEM in marker.stale:
+        if marker is not None and STALE_OFFSETS_ITEM in marker.stale and not servo_calibration_redo(marker):
             when = marker.saved_at or "an unknown time"
             return (
                 f"move to neutral refused: the calibration stale marker lists {STALE_OFFSETS_ITEM} (arm re-zero at "
@@ -2632,7 +2627,8 @@ class ArmController:
             ArmMotionResult: Outcome of the motion.
 
         Raises:
-            ArmError: Refused (stale joint_offsets, torque released), no collision-free route, or the motion failed.
+            ArmError: Refused (stale joint_offsets without a servo calibration reason, torque released), no
+                collision-free route, or the motion failed.
         """
         run_id = run_id or new_run_id()
         started = self.backend.now()

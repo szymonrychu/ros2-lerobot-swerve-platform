@@ -122,9 +122,9 @@ Steps (one button each; the panel says what to expect under every button):
    re-enable torque; or **Move to neutral pose** in step 4), press **Set home** and confirm ("... Nothing moves ...").
    Expect: "home stored" and the chip `home: ok`; mcp_server's Home no longer refuses with "record a new home with
    arm_set_home". It is the Arm tab Set home (`/arm/set_home`): it records the current joint readings, so the button
-   is off while joint_offsets is stale (except when an arm servo calibration set the zero: Set home is on for the
-  arm-to-camera redo, Move to neutral stays off) or while there are no fresh arm joint readings ("Set home is off: no fresh arm
-   joint readings."). mcp_server enforces the stale zero for every caller (Arm tab, MCP tool, direct service call):
+   is off while joint_offsets is stale (except when an arm servo calibration set the zero: Set home and Move to
+   neutral are on for the arm-to-camera redo) or while there are no fresh arm joint readings ("Set home is off: no fresh
+   arm joint readings."). mcp_server enforces the stale zero for every caller (Arm tab, MCP tool, direct service call):
    "set home refused: the arm zero is stale (joint_offsets); run the zero restore first (arm re-zero at ...)". Seeing
    it means the zero restore (step 3) did not complete: run it, then Set home again.
 6. Park the arm: General section **Home arm** (or the Arm to camera flow's Park when it holds the board). Expect: it

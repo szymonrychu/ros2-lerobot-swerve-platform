@@ -102,13 +102,20 @@ def test_refused_while_joint_offsets_are_stale(tmp_path: Path, marker: dict | st
     assert be.commands == [] and arm.control_held is False
 
 
-def test_move_to_neutral_refused_after_a_servo_calibration_names_the_redo(tmp_path: Path) -> None:
+def test_move_to_neutral_allowed_after_a_servo_calibration(tmp_path: Path) -> None:
     arm, be = make(tmp_path, marker_doc(["joint_offsets"], "2026-01-02T03:04:05+00:00"))
     ok, message = arm.move_to_neutral_service_call()
+    assert ok is True, message
+    assert message.startswith("converged")
+    assert be.commands != []
+
+
+def test_unreadable_marker_refusal_is_not_the_redo(tmp_path: Path) -> None:
+    arm, be = make(tmp_path, "{not json")
+    ok, message = arm.move_to_neutral_service_call()
     assert ok is False
-    assert OFFSETS_REFUSAL in message
-    assert "servo calibration at 2026-01-02T03:04:05+00:00" in message
-    assert "arm-to-camera" in message
+    assert "restore the arm zero first" in message
+    assert "servo calibration" not in message
     assert be.commands == []
 
 
