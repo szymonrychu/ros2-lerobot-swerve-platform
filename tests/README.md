@@ -283,7 +283,7 @@ filter_node's self-collision guard config and web_ui's arm calibration baseline 
 
 ### `test_arm_pose_check.py`
 
-FK pose check of the arm with the board on the gripper (`shared/ros2_common/head_rgbd_calibration/arm_pose_check.py`) against the robot body, head envelope and board outline, and the D435 view check (min-Z, colour FOV). The head envelope test checks the D435 depth and colour optical frames, which have no visual.
+FK pose check of the arm with the board on the gripper (`shared/ros2_common/head_rgbd_calibration/arm_pose_check.py`) against the robot body, the head (full-range envelope, or the real head over a pan/tilt region) and board outline, and the D435 view check (min-Z, colour FOV). The head envelope test checks the D435 depth and colour optical frames, which have no visual. The region tests use the shipped head and a pan-axis head built in the test (`pan_axis_head`: head_pan origin xy (-31.9, -15.9) mm, the tilt origin moved back over the mount, d435_joint x 37.8 mm, as the 2026-11-11 ground board fit).
 
 | Test | Description |
 |------|-------------|
@@ -306,6 +306,19 @@ FK pose check of the arm with the board on the gripper (`shared/ros2_common/head
 | `test_a_handle_box_inside_a_body_part_is_refused` | The plate alone clears the body; a 10 mm handle box placed in the lidar is refused by a body rule, not only the floor rule. |
 | `test_a_handle_box_inside_the_head_envelope_is_refused` | The plate alone clears the head; a handle box in the head envelope is refused. |
 | `test_a_body_box_within_the_margin_of_the_plate_but_beyond_it_from_every_lattice_point_is_refused` | A small body box `PROBE_GAP_M` (4.5 mm) behind the plate, over the middle of a lattice cell: every lattice point is beyond the margin, but within margin plus `lattice_miss_bound` of the threshold, so the pose is refused and the true clearance below `margin_m` is never accepted. |
+| `test_oriented_box_distance_matches_hand_values` | A 0.2 x 0.1 x 0.1 m oriented box turned 90 deg about z at (1, 0, 0): signed distances 0.05, 0.01 and -0.05 m (centre) by hand; the segment distance agrees. |
+| `test_head_shapes_of_the_shipped_head` | `head_shapes` of the shipped head: head_post, head_pan_base, head_pan_link, head_link and d435_link; d435_link half sizes (45, 12.5, 12.5) mm; the head_pan_link cylinder (r 20 mm, 40 mm long) as its 40 mm circumscribing cube. |
+| `test_head_shapes_prefer_collision_and_refuse_meshes` | A link with a collision box and a visual box uses the collision; a sphere is its cube; a link without geometry gives nothing; a mesh raises `ValueError`. |
+| `test_head_region_boxes_contain_the_head_between_samples` | Shipped and pan-axis heads, region pan -0.3..0.25, tilt -0.2..0.4 rad: at every pan/tilt of a 0.5 deg grid every posed head shape box lies inside one `head <link>` box of its link (the inflation covers the head between the 5 deg samples). |
+| `test_head_region_needs_ordered_ranges` | A reversed pan or tilt range raises `ValueError`; a degenerate region gives one uninflated box per shape at that pose. |
+| `test_head_band_and_span_clip_to_the_urdf_limits` | `head_band(1.5, 0)` clips the pan to the URDF upper limit; `head_span((0, 0), (0.2, -0.1))` is the rectangle +-band; the tilt clips to the lower limit. |
+| `test_head_band_deg_is_validated` | `head_band_deg` defaults to 15; 0 and 46 are refused. |
+| `test_no_region_keeps_the_envelope_obstacles` | Without a region the obstacles are the body plus the envelope (last, named `head`); `head=None` gives the same entries as the default for poses and a path; `check_head_move(..., None)` reports against the envelope. |
+| `test_band_passes_where_the_envelope_refuses` | On the pan-axis head the envelope (radius > 130 mm) refuses `NEAR_HEAD` (upper arm 3.5 mm < 5 mm, found by a grid search on the shipped arm and default fit) with `link_clearance ... to head` only; with the band about the aim at the board centre the pose, the head move and a path to shoulder_pan 0 pass. |
+| `test_region_check_refuses_an_arm_in_the_head` | The forearm through the head: `check_pose` with the band at (0, 0) reports the forearm to `head head_link` or `head d435_link`; `check_head_move` with a span reports `head_clearance` entries against the head boxes only (not the body's static head); a handle box in the head gives a `head_clearance: board to head ...` entry against the board margin. |
+| `test_clearances_are_reported_once_per_obstacle_name` | For the envelope, a band and a wide span, no `<rule>: <part> to <name>` prefix repeats in `check_pose` or `check_head_move`. |
+| `test_region_obstacle_sets_are_cached_per_region` | Equal regions return the same cached `ObstacleSet`, another region another one; it holds the body (static head cylinder included) followed by the `head <link>` boxes. |
+| `test_worst_point_clearances_are_exact_below_the_cutoff` | The board broad phase: below the cutoff every name's value equals the exact smallest distance, at or above it a lower bound not below the cutoff (three poses, four cutoffs); the paired distances of the capsule search equal the full distances. |
 
 ### `test_board_lattice.py`
 

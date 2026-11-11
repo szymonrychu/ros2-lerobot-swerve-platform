@@ -1,6 +1,7 @@
 """Tests of the FK pose check of the arm with the board on the gripper (head_rgbd_calibration/arm_pose_check.py)."""
 
 import math
+import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -11,15 +12,23 @@ from pydantic import ValidationError
 from ros2_common.camera_geometry import CameraIntrinsics
 from ros2_common.head_rgbd_calibration.arm_pose_check import (
     FOV_RULE,
+    HEAD_CLEARANCE_RULE,
+    HEAD_REGION_STEP_RAD,
     MIN_Z_RULE,
     BodyConfig,
     BoxObstacle,
     CylinderObstacle,
+    HeadRegion,
+    ObstacleSet,
+    OrientedBox,
     PoseCheckConfig,
     PoseChecker,
     board_points_local,
     handle_box_points_local,
     head_envelope,
+    head_region_boxes,
+    head_shapes,
+    mounted,
     point_segment_distances,
 )
 from ros2_common.head_rgbd_calibration.board_lattice import box_lattice, lattice_miss_bound, plate_lattice
@@ -31,7 +40,7 @@ from ros2_common.head_rgbd_calibration.chain import (
 )
 from ros2_common.head_rgbd_calibration.charuco import board_corners_3d, board_outline
 from ros2_common.head_rgbd_calibration.config import ARM_JOINT_NAMES, BoardMountConfig, HeadArmFitConfig
-from ros2_common.head_rgbd_calibration.head_arm_fit import board_centre
+from ros2_common.head_rgbd_calibration.head_arm_fit import aim_head, board_centre
 from ros2_common.head_rgbd_calibration.urdf_text import Origin, rewrite_joint_origin
 from scipy.optimize import brentq
 
@@ -660,3 +669,243 @@ def test_a_body_box_within_the_margin_of_the_plate_but_beyond_it_from_every_latt
     assert PROBE_GAP_M < cfg.margin_m < lattice_clear < cfg.margin_m + lattice_miss_bound(cfg.board_spacing_m)
     entries = plain.check_pose(ZERO, 0.3, rolling=False)
     assert [e for e in entries if e.startswith("board_clearance: board to probe")], entries
+
+
+# The head with its pan axis off the mount (the 2026-11-11 ground board fit, rounded): head_pan origin xy, the tilt
+# origin xy moved back over the mount, d435_joint x. The camera sits on a ~36 mm lever about the pan axis, so the
+# full-range envelope about the mount grows from 75 to 138 mm radius.
+PAN_AXIS_XY = (-0.0319, -0.0159)
+D435_X_M = 0.0378
+SHIPPED_HEAD_LINKS = {"head_post", "head_pan_base", "head_pan_link", "head_link", "d435_link"}
+REGION = HeadRegion(pan_rad=(-0.3, 0.25), tilt_rad=(-0.2, 0.4))
+DENSE_STEP_RAD = math.radians(0.5)
+CUBE = np.array([[sx, sy, sz] for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)], dtype=float)
+# Near the head: the envelope of the pan-axis head refuses the upper arm (3.5 mm < 5 mm margin, found by a grid search
+# over shoulder_pan/shoulder_lift on the shipped arm and the default fit); the real head at the aim keeps far more.
+NEAR_HEAD = {**ZERO, "shoulder_pan": -0.05, "shoulder_lift": 0.3, "wrist_flex": -0.5, "wrist_roll": -0.3}
+OBSTACLE_ENTRY = re.compile(r"^(\w+: .+? to .+?) clearance ")
+
+
+def pan_axis_head() -> str:
+    """The shipped head with the pan axis moved off the mount, as the 2026-11-11 fit (see PAN_AXIS_XY)."""
+    urdf = rewrite_joint_origin(HEAD_URDF, "head_pan", Origin((*PAN_AXIS_XY, 0.0), (0.0, 0.0, 0.0)), "test")
+    tilt_xyz = (-PAN_AXIS_XY[0], -PAN_AXIS_XY[1], 0.04)
+    urdf = rewrite_joint_origin(urdf, "head_tilt", Origin(tilt_xyz, (0.0, 0.0, 0.0)), "test")
+    return rewrite_joint_origin(urdf, "d435_joint", Origin((D435_X_M, 0.0, 0.0), (0.0, 0.0, 0.0)), "test")
+
+
+def grid_link_poses(chain: UrdfChain, pans: np.ndarray, tilts: np.ndarray) -> dict[str, np.ndarray]:
+    """Pose of every head link with geometry at every (pan, tilt) of the grid, (len(pans) * len(tilts), 4, 4).
+
+    Composed from the chain's own transforms: pose(pan, tilt) = pan_child(pan) @ inv(pan_child(0)) @ pose(0, tilt)
+    for the links below head_pan (the joints between head_pan and head_tilt are fixed)."""
+    pan_child = chain.joints["head_pan"].child
+    at_pan = np.array([chain.transform(pan_child, {"head_pan": float(p)}) for p in pans])
+    turn = at_pan @ np.linalg.inv(chain.transform(pan_child, {"head_pan": 0.0}))
+    out = {}
+    for link in SHIPPED_HEAD_LINKS:
+        names = chain.joint_names(link)
+        at_tilt = np.array([chain.transform(link, {"head_pan": 0.0, "head_tilt": float(t)}) for t in tilts])
+        moved = (
+            turn[:, None] @ at_tilt[None]
+            if "head_pan" in names
+            else np.broadcast_to(at_tilt, (len(pans), *at_tilt.shape))
+        )
+        out[link] = np.ascontiguousarray(moved).reshape(-1, 4, 4)
+    return out
+
+
+def test_oriented_box_distance_matches_hand_values() -> None:
+    pose = np.eye(4)
+    pose[:3, :3] = np.array([[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]])  # 90 deg about z
+    pose[:3, 3] = (1.0, 0.0, 0.0)
+    box = OrientedBox(name="probe", pose=pose, half=np.array([0.1, 0.05, 0.05]))
+    obstacles = ObstacleSet([], [], [box])
+    assert obstacles.names == ["probe"]
+    points = np.array([[1.0, 0.15, 0.0], [1.06, 0.0, 0.0], [1.0, 0.0, 0.0]])
+    assert obstacles.distances(points)[:, 0] == pytest.approx([0.05, 0.01, -0.05], abs=1e-9)
+    # The segment distance agrees with the point distance at the nearest end.
+    seg = obstacles.segment_distances(np.array([[1.0, 0.15, 0.0]]), np.array([[1.0, 0.3, 0.0]]))
+    assert seg[0, 0] == pytest.approx(0.05, abs=1e-9)
+
+
+def test_head_shapes_of_the_shipped_head() -> None:
+    shapes = head_shapes(HEAD_URDF)
+    assert {s.link for s in shapes} == SHIPPED_HEAD_LINKS
+    d435 = next(s for s in shapes if s.link == "d435_link")
+    assert d435.half == pytest.approx((0.045, 0.0125, 0.0125))
+    pan = next(s for s in shapes if s.link == "head_pan_link")
+    assert pan.half == pytest.approx((0.02, 0.02, 0.02))  # cylinder r 0.02 length 0.04 as its circumscribing box
+    assert pan.local[:3, 3] == pytest.approx((0.0, 0.0, 0.02))
+
+
+def test_head_shapes_prefer_collision_and_refuse_meshes() -> None:
+    both = """<robot name="r"><link name="a">
+      <visual><origin xyz="0 0 0" rpy="0 0 0"/><geometry><box size="0.4 0.4 0.4"/></geometry></visual>
+      <collision><origin xyz="0.1 0 0" rpy="0 0 0"/><geometry><box size="0.02 0.04 0.06"/></geometry></collision>
+      </link><link name="b"><visual><geometry><sphere radius="0.03"/></geometry></visual></link><link name="c"/>
+      </robot>"""
+    shapes = head_shapes(both)
+    assert [s.link for s in shapes] == ["a", "b"]
+    assert shapes[0].half == pytest.approx((0.01, 0.02, 0.03))
+    assert shapes[0].local[:3, 3] == pytest.approx((0.1, 0.0, 0.0))
+    assert shapes[1].half == pytest.approx((0.03, 0.03, 0.03))
+    mesh = """<robot name="r"><link name="a"><visual><geometry><mesh filename="a.stl"/></geometry></visual></link>
+      </robot>"""
+    with pytest.raises(ValueError, match="mesh"):
+        head_shapes(mesh)
+
+
+@pytest.mark.parametrize("urdf", [HEAD_URDF, pan_axis_head()], ids=["shipped", "pan-axis"])
+def test_head_region_boxes_contain_the_head_between_samples(urdf: str) -> None:
+    chain = UrdfChain.from_text(urdf)
+    shapes = head_shapes(urdf)
+    boxes = head_region_boxes(chain, shapes, REGION)
+    assert {b.name for b in boxes} == {f"head {link}" for link in SHIPPED_HEAD_LINKS}
+    per_link = {
+        link: ObstacleSet([], [], [b for b in boxes if b.name == f"head {link}"]) for link in SHIPPED_HEAD_LINKS
+    }
+    # A dense grid, off the region's own HEAD_REGION_STEP_RAD samples: the head between samples is inside too.
+    assert DENSE_STEP_RAD < HEAD_REGION_STEP_RAD / 4
+    pans = np.arange(REGION.pan_rad[0], REGION.pan_rad[1] + 1e-12, DENSE_STEP_RAD)
+    tilts = np.arange(REGION.tilt_rad[0], REGION.tilt_rad[1] + 1e-12, DENSE_STEP_RAD)
+    poses = grid_link_poses(chain, pans, tilts)
+    for shape in shapes:
+        placed = poses[shape.link] @ shape.local  # (G, 4, 4)
+        corners = np.einsum("gij,cj->gci", placed[:, :3, :3], CUBE * shape.half) + placed[:, None, :3, 3]
+        distances = per_link[shape.link].distances(corners)  # (G, 8, boxes)
+        inside = (distances.max(axis=1) <= EPS_M).any(axis=1)  # every corner inside one box of the link
+        assert inside.all(), (shape.link, np.flatnonzero(~inside)[:5])
+
+
+def test_head_region_needs_ordered_ranges() -> None:
+    with pytest.raises(ValueError, match="pan_rad"):
+        HeadRegion(pan_rad=(0.2, 0.1), tilt_rad=(0.0, 0.0))
+    with pytest.raises(ValueError, match="tilt_rad"):
+        HeadRegion(pan_rad=(0.0, 0.0), tilt_rad=(0.1, -0.1))
+    # A degenerate region is one head pose: one box per shape, no inflation.
+    held = HeadRegion(pan_rad=(0.1, 0.1), tilt_rad=(0.2, 0.2))
+    chain = UrdfChain.from_text(HEAD_URDF)
+    shapes = head_shapes(HEAD_URDF)
+    boxes = head_region_boxes(chain, shapes, held)
+    assert len(boxes) == len(shapes)
+    for shape, box in zip(shapes, boxes, strict=True):
+        assert box.half == pytest.approx(shape.half)
+        assert box.pose == pytest.approx(chain.transform(shape.link, {"head_pan": 0.1, "head_tilt": 0.2}) @ shape.local)
+
+
+def test_head_band_and_span_clip_to_the_urdf_limits() -> None:
+    check = checker()
+    band = math.radians(PoseCheckConfig().head_band_deg)
+    pan_hi = UrdfChain.from_text(HEAD_URDF).limits("head_pan")[1]
+    edge = check.head_band(1.5, 0.0)
+    assert edge.pan_rad == pytest.approx((1.5 - band, pan_hi))
+    assert edge.tilt_rad == pytest.approx((-band, band))
+    span = check.head_span((0.0, 0.0), (0.2, -0.1))
+    assert span.pan_rad == pytest.approx((-band, 0.2 + band))
+    assert span.tilt_rad == pytest.approx((-0.1 - band, band))
+    tilt_lo = UrdfChain.from_text(HEAD_URDF).limits("head_tilt")[0]
+    assert check.head_span((0.0, -0.4), (0.0, 0.0)).tilt_rad == pytest.approx((tilt_lo, band))
+
+
+def test_head_band_deg_is_validated() -> None:
+    assert PoseCheckConfig().head_band_deg == 15.0
+    for bad in (0.0, 46.0):
+        with pytest.raises(ValidationError, match="head_band_deg"):
+            PoseCheckConfig(head_band_deg=bad)
+
+
+def test_no_region_keeps_the_envelope_obstacles() -> None:
+    check = checker()
+    assert check.obstacles.names[-1] == check.envelope.name == "head"
+    assert check.obstacles.names[:-1] == [b.name for b in BodyConfig().boxes] + [c.name for c in BodyConfig().cylinders]
+    through_head = {**ZERO, "shoulder_pan": FOREARM_PAN_RAD}
+    for pose in (ZERO, LEVEL_TOOL_20CM, through_head, NEAR_HEAD):
+        assert check.check_pose(pose, 0.3, rolling=False) == check.check_pose(pose, 0.3, rolling=False, head=None)
+    assert check.check_path(ZERO, through_head, 0.3) == check.check_path(ZERO, through_head, 0.3, head=None)
+    entries = check.check_head_move(through_head, 0.3, None)
+    assert entries and all(e.startswith(f"{HEAD_CLEARANCE_RULE}: ") and " to head clearance " in e for e in entries)
+
+
+def test_band_passes_where_the_envelope_refuses() -> None:
+    check = PoseChecker(ARM_URDF, pan_axis_head(), fit_with(), PoseCheckConfig())
+    assert check.envelope.radius > 0.13  # the camera lever grows the full-range envelope
+    refused = check.check_pose(NEAR_HEAD, 0.3, rolling=False)
+    assert refused and all(
+        e.startswith("link_clearance: ") and e.split(" clearance ")[0].endswith(" to head") for e in refused
+    ), refused
+    gripper = check.link_poses(NEAR_HEAD)["gripper_link"]
+    centre = mounted(check.fit, board_centre(check.fit.board)[None, :]) @ gripper[:3, :3].T + gripper[:3, 3]
+    pan, tilt = aim_head(check.head, centre[0])
+    band = check.head_band(pan, tilt)
+    assert check.check_pose(NEAR_HEAD, 0.3, rolling=False, head=band) == []
+    assert check.check_head_move(NEAR_HEAD, 0.3, band) == []
+    assert check.check_path(NEAR_HEAD, {**NEAR_HEAD, "shoulder_pan": 0.0}, 0.3, head=band) == []
+
+
+def test_region_check_refuses_an_arm_in_the_head() -> None:
+    check = checker()
+    through_head = {**ZERO, "shoulder_pan": FOREARM_PAN_RAD}
+    entries = check.check_pose(through_head, 0.3, rolling=False, head=check.head_band(0.0, 0.0))
+    assert any(
+        e.startswith(("link_clearance: forearm to head head_link", "link_clearance: forearm to head d435_link"))
+        for e in entries
+    ), entries
+    moves = check.check_head_move(through_head, 0.3, check.head_span((0.0, 0.0), (0.2, 0.0)))
+    assert moves and all(e.startswith(f"{HEAD_CLEARANCE_RULE}: ") for e in moves), moves
+    assert any(" to head head_link clearance " in e or " to head d435_link clearance " in e for e in moves), moves
+    # The body's static head cylinder is not a head-move obstacle.
+    assert not [e for e in moves if " to head clearance " in e], moves
+    # The board in the head is a head-move refusal too, against the board threshold.
+    fit = fit_with(mount_with_corner_at(ZERO, np.array([0.40, -0.05, 0.35])))
+    centre = PoseChecker(ARM_URDF, HEAD_URDF, fit, PoseCheckConfig()).head.transform(
+        "head_link", {"head_pan": 0.0, "head_tilt": 0.0}
+    )
+    boarded = checker(fit_with(handle_box_at(fit, ZERO, centre[:3, 3])))
+    board = [e for e in boarded.check_head_move(ZERO, 0.3, boarded.head_band(0.0, 0.0)) if " board to " in e]
+    assert board and all(
+        e.startswith(f"{HEAD_CLEARANCE_RULE}: board to head ") and "board_margin_m" in e for e in board
+    ), board
+
+
+def test_clearances_are_reported_once_per_obstacle_name() -> None:
+    check = checker()
+    through_head = {**ZERO, "shoulder_pan": FOREARM_PAN_RAD}
+    for head in (None, check.head_band(0.0, 0.0), check.head_span((-0.5, -0.3), (0.5, 0.6))):
+        for entries in (
+            check.check_pose(through_head, 0.3, rolling=False, head=head),
+            check.check_head_move(through_head, 0.3, head),
+        ):
+            prefixes = [m.group(1) for e in entries if (m := OBSTACLE_ENTRY.match(e))]
+            assert prefixes and len(prefixes) == len(set(prefixes)), entries
+
+
+def test_region_obstacle_sets_are_cached_per_region() -> None:
+    check = checker()
+    band = check.head_band(0.1, 0.2)
+    assert check.region_obstacles(band) is check.region_obstacles(check.head_band(0.1, 0.2))
+    assert check.region_obstacles(band) is not check.region_obstacles(check.head_band(0.0, 0.2))
+    names = check.region_obstacles(band).names
+    body = [b.name for b in BodyConfig().boxes] + [c.name for c in BodyConfig().cylinders]
+    assert names[: len(body)] == body and "head" in body  # the body's static head cylinder stays
+    assert set(names[len(body) :]) == {f"head {link}" for link in SHIPPED_HEAD_LINKS}
+
+
+def test_worst_point_clearances_are_exact_below_the_cutoff() -> None:
+    """The broad phase only replaces distances it proves are at or above the cutoff: below it every name's value is
+    the exact smallest distance, at or above it the value is a lower bound not below the cutoff."""
+    check = checker()
+    obstacles = check.region_obstacles(check.head_span((-0.5, -0.3), (0.5, 0.6)))
+    near_head = {**ZERO, "shoulder_pan": FOREARM_PAN_RAD}
+    for joints in (ZERO, near_head, LEVEL_TOOL_20CM):
+        points = check.board_points(joints)
+        exact = obstacles.worst_by_name(obstacles.distances(points).min(axis=0))
+        for cutoff in (0.0, 0.01, 0.05, 0.2):
+            fast = obstacles.worst_point_clearances(points, cutoff)
+            below = exact < cutoff
+            assert fast[below] == pytest.approx(exact[below], abs=1e-12), (joints, cutoff)
+            assert (fast[~below] >= cutoff).all() and (fast[~below] <= exact[~below] + 1e-12).all(), (joints, cutoff)
+    # The oriented distances agree with the paired form the capsule search uses.
+    points = check.board_points(near_head)[:50]
+    paired = obstacles.paired_distances(np.broadcast_to(points[:, None, :], (50, len(obstacles.names), 3)))
+    assert paired == pytest.approx(obstacles.distances(points), abs=1e-12)

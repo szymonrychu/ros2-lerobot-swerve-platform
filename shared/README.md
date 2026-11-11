@@ -212,7 +212,7 @@ and the `tof_joint` hand-off) are deleted, and `calibrate`, `intrinsics` and `fr
 - `head_arm_fit`: the head-from-arm head chain fit, `aim_head` and the report; see "Head from arm fit" below.
 - `ground_board_fit`: the camera to ground head chain fit from the FULL board lying on the floor, the depth cross-check, the accuracy examples and the report; see "Ground board fit" below.
 - `arm_offsets_fit`: the joint arm joint offsets, head chain and tool point fit from the head D435, the client.yml snippet and the report; see "Arm offsets fit" below.
-- `arm_pose_check`: the FK safety check of arm poses and joint paths with the board on the gripper (numpy, no ROS). `PoseChecker(...)` evaluates `urdf = measured + offset` FK placed in base_link by `arm_in_robot_base`; `check_pose(joints, gripper_rad, rolling)` returns named rule violations (body collisions, head envelope, board margin, roll rules, stretched arm, joint limits) and `check_path(start, target, gripper_rad)` samples the path between two poses. The body is `BodyConfig` (boxes and vertical cylinders, equal to the client.yml mcp_server `body` block), configured through `PoseCheckConfig`; `head_envelope(head_urdf, cfg)` gives the vertical cylinder containing the head at every pan/tilt. Distances are signed (negative = penetration). Tests: `tests/test_arm_pose_check.py`.
+- `arm_pose_check`: the FK safety check of arm poses and joint paths with the board on the gripper (numpy, no ROS). `PoseChecker(...)` evaluates `urdf = measured + offset` FK placed in base_link by `arm_in_robot_base`; `check_pose(joints, gripper_rad, rolling, head=None)` returns named rule violations (body collisions, head, board margin, roll rules, stretched arm, joint limits; one entry per part and obstacle name, the worst) and `check_path(start, target, gripper_rad, head=None)` samples the path between two poses. The body is `BodyConfig` (boxes and vertical cylinders, equal to the client.yml mcp_server `body` block), configured through `PoseCheckConfig`. The head is the full-range envelope (`head=None`; `head_envelope(head_urdf, cfg)`, the vertical cylinder about the head mount containing the head at every pan/tilt) or the real head over a pan/tilt `HeadRegion` (`head_shapes`, `head_region_boxes`: the head URDF primitives as oriented boxes posed over the region and inflated between samples); `head_band` / `head_span` build the regions and `check_head_move(joints, gripper_rad, head)` checks the standing arm against the head alone (`head_clearance`). Distances are signed (negative = penetration). Tests: `tests/test_arm_pose_check.py`.
 - `floor_fit`: the floor-plane head chain fit (numpy and scipy, no ROS). `predicted_floor(chain, pan, tilt, origins, sensor_frame)` gives the floor (base_link z = 0) in the depth sensor frame (`sensor_frame`, default `d435_depth_optical_frame`, the frame of `/head/d435/points`) as (unit normal toward the sensor, sensor height); `fit_plane(points, prior, cfg, rng)` gates finite points by range and by `candidate_band_m` around the prior plane, runs RANSAC and an SVD refit and returns a `PlaneFit(normal, height_m, inliers, candidates, rms_m)` or None; `fit_head_chain_floor(observations, urdf_text, cfg, sensor_frame)` fits `head_mount_joint` z, roll, pitch and the `head_tilt` origin pitch (tilt zero) and roll from `FloorObservation(pose, pan_rad, tilt_rad, plane)` with a Huber `least_squares`, every other origin component kept at the URDF value (d435_joint and the D435 optical joints included), and returns a `FloorFitResult` (`passed`, `failed_limits`, `params` value/sigma/urdf for `mount_z_m`, `mount_roll_deg`, `mount_pitch_deg`, `tilt_zero_deg`, `tilt_roll_deg`, the pose-mean `height_rms_mm` / `normal_rms_deg` the RMS limits apply to, the per-observation `observation_height_rms_mm` / `observation_normal_rms_deg`, per-pose pose-mean and per-observation residuals, the new `origins`, `to_json()` with non-finite numbers as null). `pose_mean_errors` gives one pose's mean height error and the angle between its mean observed and predicted normals. Fewer than `min_observations` skips the solver.
 - `urdf_text`: `rewrite_joint_origin`, `Origin`, `format_vec`, and the override pieces: the `head_chain.json` format `{"joints": {head_mount_joint|head_pan|head_tilt|d435_joint: {"xyz": [3], "rpy": [3]}}, "note", "session", "result", optional "residual": {"kind", "holdout_board_mm", "holdout_rms_px", "rms_px"}}` (`parse_head_chain`, `head_chain_json(..., residual)`; `ChainResidual` / `parse_residual` read the head-from-arm fit's camera-to-arm accuracy that mcp_server reports and gates grasps on; a floor fit writes none) and `apply_overrides(urdf_text, applied_dir)`, the one applier that applies `head_chain.json` and returns the text plus a warning when the file is unreadable or invalid; a `tof_joint.json` left by the retired head ToF is ignored. A `head_chain.json` naming the pre-D435 `head_camera_joint` is skipped whole with a warning that the fit predates the D435 (re-run head-from-arm calibration). It must stay standard-library only (no numpy, scipy or package-relative imports): the head_state_publisher launch loads it by file path on the system Python.
 
@@ -317,7 +317,9 @@ with the board on the gripper. Poses are evaluated in base_link: arm URDF FK wit
 `arm_in_robot_base`. `check_pose(joints, gripper_rad, rolling)` returns a list of violation strings, each starting with
 the rule name; an empty list is safe. `check_path(start, target, gripper_rad)` samples the joint-linear path with no
 joint step over `path_step_rad` and returns the violations of every sample, each ending "at path fraction <f>".
-Distances are signed (negative = penetration). Rules (`PoseCheckConfig`, m and rad):
+Both take `head: HeadRegion | None = None` (the head model, see "Head models" below). The clearance rules report each
+obstacle name once per part, with its worst clearance. Distances are signed (negative = penetration). Rules
+(`PoseCheckConfig`, m and rad):
 
 | Rule | Meaning |
 |---|---|
@@ -345,10 +347,38 @@ so the ARM board's handle post, gusset and tab are checked like the plate (floor
 The body is `BodyConfig` (`BoxObstacle` and `CylinderObstacle` lists): a copy of the client.yml `mcp_server` `body`
 block (frame rails, crossbar, four wheels, lidar), pinned equal by `tests/test_arm_pose_check.py`. It is a copy on
 purpose: the shared package must not import mcp_server, and mcp_server keeps its own, stricter checks on top of this
-one. The head is not in the body block: `head_envelope(head_urdf, cfg)` builds a vertical cylinder about the pan axis
-(the `head_mount_joint` x, y of the given, applied head URDF) standing on the crossbar top, which contains every head
-visual at every pan/tilt inside the URDF's limits (sampled at the limits and every 15 deg, grown by the largest arc sag
-between samples). Pass the applied chain: a head that reaches further, or a wider tilt range, grows the envelope.
+one. The body block's static `head` cylinder stays in every check; the moving head is one of the two models below.
+
+#### Head models
+
+- **Full-range envelope** (`head=None`, the default; conservative): `head_envelope(head_urdf, cfg)` builds a vertical
+  cylinder centred on the head mount (the `head_mount_joint` x, y of the given, applied head URDF, not the pan axis)
+  standing on the crossbar top, which contains every head visual at every pan/tilt inside the URDF's limits (sampled at
+  the limits and every 15 deg, grown by the largest arc sag between samples). Pass the applied chain: a head that
+  reaches further (a pan axis off the mount, a longer camera lever), or a wider tilt range, grows the envelope. It is
+  named `head`, like the body's static head cylinder; both are reported as one `head` obstacle (the worst).
+- **Real head over a pan/tilt region** (`head=HeadRegion(pan_rad=(lo, hi), tilt_rad=(lo, hi))`, lo <= hi):
+  `head_shapes(head_urdf)` reads each link's `collision` elements (else its `visual` elements) as boxes (a cylinder as
+  its circumscribing box 2r x 2r x length, a sphere as the cube 2r; a mesh raises `ValueError`).
+  `head_region_boxes(chain, shapes, region)` poses each shape at pan/tilt samples covering the region (both ends, no
+  step over `HEAD_REGION_STEP_RAD` = 5 deg, one sample for a degenerate range; a static shape once) and inflates each
+  box by `rho_pan * dpan / 2 + rho_tilt * dtilt / 2` (d the actual sample spacing, rho the largest corner distance from
+  the joint origin; for a link below the tilt, rho_pan is bounded by its tilt rho plus the tilt-to-pan origin
+  distance, so it holds at every tilt), so the head between samples is contained. The boxes are `OrientedBox`es named
+  `head <link>`; with a region the obstacles are the body plus these boxes, without the envelope.
+- `PoseChecker.head_band(pan_rad, tilt_rad)`: +-`head_band_deg` (default 15, 0 < band <= 45) about a held head;
+  `PoseChecker.head_span(start, target)`: the (pan, tilt) rectangle of a head move plus the band; both clipped to the
+  head URDF limits. Obstacle sets are cached per region on the checker (`region_obstacles(region)`).
+- `PoseChecker.check_head_move(joints, gripper_rad, head)`: the arm standing at `joints` against the head alone (the
+  region's boxes, or the envelope for None): link capsules against `margin_m`, the board lattice against the board
+  threshold, entries `head_clearance: <part or board> to <head obstacle> clearance X < <margin>`
+  (`HEAD_CLEARANCE_RULE`).
+
+`ObstacleSet(boxes, cylinders, oriented=None)` names boxes, then cylinders, then oriented boxes. Oriented-box distances
+are exact (the point in the box frame, `(p - t) @ R`). For the board lattice, `worst_point_clearances(points, cutoff)`
+skips the oriented boxes whose bounding sphere stays `cutoff` (the board threshold) or more from the lattice's bounding
+sphere: values below the cutoff are exact, so the entries are unchanged. A `check_path` sample with a +-15 deg band
+costs about the same as with the envelope (see the improvement's timing log).
 
 ### Config models (`config.py`)
 
