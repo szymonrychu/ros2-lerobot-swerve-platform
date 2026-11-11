@@ -15,6 +15,7 @@ function servo(group: Partial<ServoGroup> | null, joints: Record<string, number>
     zero_restore: false,
     move_to_neutral: false,
     set_home: false,
+    servo_calibration: false,
     ...group,
   }
   return { groups: full ? [full] : [], notConfigured: !full, error: null, loading: false }

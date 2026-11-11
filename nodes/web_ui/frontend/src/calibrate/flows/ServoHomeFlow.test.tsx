@@ -25,6 +25,7 @@ function group(id: string, over: Partial<ServoGroup> = {}): ServoGroup {
     zero_restore: false,
     move_to_neutral: false,
     set_home: false,
+    servo_calibration: false,
     ...over,
   }
 }
