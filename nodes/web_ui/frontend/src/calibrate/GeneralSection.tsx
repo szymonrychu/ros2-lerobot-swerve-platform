@@ -22,7 +22,7 @@ const SWEEP_BLOCKED: GeneralActionId[] = ['home_head']
 /** Sequence phases in which the arm is the sequence's or holds the board (holding: Home it from the Arm to camera flow). */
 const LIVE_PHASES = ['waiting_board', 'waiting_big_joints', 'holding', 'homing']
 const BLOCKED_TEXT =
-  "Arm and camera moves are off: a calibration sequence runs or the arm holds the board. Abort the running calibration first, or bring the arm with the board home with the Arm to camera flow's Home."
+  "Arm and camera moves are off: a calibration sequence runs or the arm holds the board. Abort the running calibration first; with the board on the gripper, home the arm with Home in the Arm to camera flow (step 7)."
 const SWEEP_TEXT = 'Home camera is off while a floor sweep, a ground board session or a ground verification moves the head.'
 const BOARD_HOME_HINT = 'home it with Home (board is on the gripper) in the Arm to camera flow.'
 const ABORT_TEXT =

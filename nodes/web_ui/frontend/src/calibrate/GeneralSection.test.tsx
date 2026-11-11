@@ -144,7 +144,11 @@ describe('GeneralSection', () => {
     expect((screen.getByRole('button', { name: 'Close gripper' }) as HTMLButtonElement).disabled).toBe(true)
     expect((screen.getByRole('button', { name: 'Home camera' }) as HTMLButtonElement).disabled).toBe(true)
     expect((screen.getByRole('button', { name: 'Home steering servos' }) as HTMLButtonElement).disabled).toBe(false)
-    expect(screen.getByText(/Abort the running calibration first/)).toBeTruthy()
+    expect(
+      screen.getByText(
+        'Arm and camera moves are off: a calibration sequence runs or the arm holds the board. Abort the running calibration first; with the board on the gripper, home the arm with Home in the Arm to camera flow (step 7).',
+      ),
+    ).toBeTruthy()
   })
 
   it('Home arm stays on and opens its confirm after a servo calibration, with the redo info and the zero shift', async () => {

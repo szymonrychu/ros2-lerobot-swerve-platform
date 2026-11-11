@@ -651,7 +651,7 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
       />
       <ConfirmDialog
         open={dialog === 'home'}
-        title="Home the arm with the board?"
+        title="Home the arm, board on or off?"
         body="The Arm to camera flow's Home: the arm moves to its stored home, with the board on the gripper or not (General Home arm is refused while the board is on). Home is refused, naming the rule, when the board would hit the floor, the body or the head."
         confirmLabel="Home"
         onCancel={() => setDialog(null)}

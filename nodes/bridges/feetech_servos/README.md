@@ -139,9 +139,9 @@ A group with `neutral_enabled: true` also gets three `std_srvs/srv/Trigger` serv
   (`large neutral shift confirmed: <joint> +N steps (+X deg), ...`).
 
 Large-shift guard (incident 2026-11-09: a neutral recorded in the folded pose shifted elbow_flex by +1030 steps,
-+90.5 deg, and shoulder_lift by -933 steps; Park could no longer converge): when the capture of any joint is more than
-`neutral_max_shift_deg` (default `DEFAULT_NEUTRAL_MAX_SHIFT_DEG = 15.0`, either sign; exactly the limit saves) from
-2048, `save_neutral` answers `success=false` with
++90.5 deg, and shoulder_lift by -933 steps; the Arm to camera Park (now Home) could no longer converge): when the
+capture of any joint is more than `neutral_max_shift_deg` (default `DEFAULT_NEUTRAL_MAX_SHIFT_DEG = 15.0`, either
+sign; exactly the limit saves) from 2048, `save_neutral` answers `success=false` with
 `/<ns>: neutral shift above 15 deg: elbow_flex +1030 steps (+90.5 deg), ...; nothing written, torque unchanged; confirm
 the large shift to save (save_neutral_confirmed)`, logs it as a warning and touches nothing: no wheel stop, no EEPROM
 write, torque stays as it is (released), and the capture is kept for the confirmed save or a new record.

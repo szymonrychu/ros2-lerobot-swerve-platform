@@ -684,6 +684,7 @@ describe('ArmCameraFlow', () => {
     const general = vi.spyOn(generalApi, 'runGeneralAction')
     await renderFlow(false)
     await click('Home', step(7))
+    expect(within(dialog()).getByText('Home the arm, board on or off?')).toBeTruthy()
     expect(within(dialog()).getByText(/Arm to camera flow's Home/)).toBeTruthy()
     await confirmIn('Home')
     expect(m.home).toHaveBeenCalledWith(true)
