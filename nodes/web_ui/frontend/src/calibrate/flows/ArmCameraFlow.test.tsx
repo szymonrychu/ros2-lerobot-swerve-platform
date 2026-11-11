@@ -838,6 +838,27 @@ describe('ArmCameraFlow', () => {
       expect(m.confirmGrip).toHaveBeenCalledTimes(1)
     })
 
+    it('shows the node refusal of the banner button in the banner while step 3 is locked', async () => {
+      setState(seq({ error: UNSEATED }))
+      m.confirmGrip.mockResolvedValue({ ok: false, status: 409, message: 'the gripper is not closed on the handle' })
+      await renderFlow(false)
+      const alert = screen.getByText('Last head-arm error').closest('[role="alert"]') as HTMLElement
+      await click(CONFIRM, alert)
+      await confirmIn(CONFIRM)
+      expect(within(alert).getByText('the gripper is not closed on the handle')).toBeTruthy()
+    })
+
+    it('a banner confirm from idle posts and clears the banner error', async () => {
+      setState(seq({ error: UNSEATED }))
+      m.confirmGrip.mockResolvedValue(ok(seq({})))
+      await renderFlow(false)
+      const alert = screen.getByText('Last head-arm error').closest('[role="alert"]') as HTMLElement
+      await click(CONFIRM, alert)
+      await confirmIn(CONFIRM)
+      expect(m.confirmGrip).toHaveBeenCalledTimes(1)
+      await waitFor(() => expect(screen.queryByText('Last head-arm error')).toBeNull())
+    })
+
     it('an other sequence error has no Confirm correct grip button', async () => {
       setState(seq({ error: 'camera timeout' }))
       await renderFlow(false)

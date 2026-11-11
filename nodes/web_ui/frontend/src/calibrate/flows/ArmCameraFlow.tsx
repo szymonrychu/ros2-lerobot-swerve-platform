@@ -90,7 +90,8 @@ export function acceptText(answer: ArmCameraAccept): string {
 }
 
 type Dialog = 'home' | 'base' | 'big' | 'park' | 'parkBoard' | 'resume' | 'resumeIdle' | 'grip' | 'gripReset' | null
-type StepId = 'home' | 'open' | 'grab' | 'capture' | 'compute' | 'gate' | 'park'
+// 'banner' is the Confirm correct grip button in the error banner: step 3 is locked then, so its answer shows there.
+type StepId = 'home' | 'open' | 'grab' | 'capture' | 'compute' | 'gate' | 'park' | 'banner'
 type Errors = Partial<Record<StepId, string>>
 
 /**
@@ -403,7 +404,18 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
           setErrors((e) => ({ ...e, home: undefined, park: undefined }))
         }}
       />
-      {sequence && <SequenceActivity sequence={sequence} withStatus={!sid} errorAction={gripError ? confirmButton('grab') : undefined} />}
+      {sequence && <SequenceActivity sequence={sequence} withStatus={!sid} errorAction={
+            gripError ? (
+              <>
+                {confirmButton('banner')}
+                {errors.banner && (
+                  <Typography variant="body2" color="error" role="status">
+                    {errors.banner}
+                  </Typography>
+                )}
+              </>
+            ) : undefined
+          } />}
       <Box sx={{ mt: 1 }}>
         <FlowStepper
           label="Arm to camera calibration steps"
