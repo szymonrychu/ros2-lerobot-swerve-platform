@@ -137,7 +137,8 @@ service (web UI Calibrate page)". Refusals (nothing is published):
 
 - the calibration stale marker lists `joint_offsets` (an unreadable marker counts): "move to neutral refused: the
   calibration stale marker lists joint_offsets (arm re-zero at <saved_at>): the FK and the body check would use the old
-  zero; restore the arm zero first";
+  zero; restore the arm zero first" (not refused when the stale zero was set by an arm servo calibration: move to
+  neutral is allowed in that redo state, see "Servo calibration reason" in the stale marker section);
 - the arm torque is released (Calibrate page): "move to neutral refused: " plus the usual torque-off text;
 - no collision-free route: the home `SelfCollisionError` text.
 
@@ -1370,7 +1371,8 @@ stale}`, where `stale` lists `joint_offsets` and/or `home`.
 - `arm_home` (and the `/arm/home` service) is refused while `home` is stale, publishing nothing: "arm home was
   recorded before the arm re-zero at <saved_at>; record a new home with arm_set_home".
 - `/arm/move_to_neutral` and the `/arm/home` service are refused while `joint_offsets` is stale (the FK and body
-  check use the zero).
+  check use the zero), except in the servo calibration redo state, where both are allowed (see "Servo calibration
+  reason" below).
 - `arm_set_home` (the tool and the `/arm/set_home` service, so also the web UI Arm tab and Calibrate page Set
   home) is refused while `joint_offsets` is stale (an unreadable marker counts), storing nothing and keeping the
   marker (exception: a stale zero from an arm servo calibration, below): "set home refused: the arm zero is stale (joint_offsets); run the zero restore first (arm re-zero at <saved_at>)". A home measured in the old zero would be the pose `/arm/home` drives to after the zero restore.
