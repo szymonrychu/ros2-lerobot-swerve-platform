@@ -63,6 +63,13 @@ def test_mcp_server_board_equals_the_calibration_fit_board_and_mount() -> None:
     assert mcp["min_height_m"] == pytest.approx(seq.pose_check.min_board_height_m + seq.park_board_sag_margin_m)
 
 
+def test_the_calibration_park_targets_the_home_mcp_server_stores() -> None:
+    # The board park moves to the stored home and mcp_server's board park re-checks against it: one file for both.
+    mcp = McpServerConfig.model_validate(client_node("mcp_server"))
+    calib = NodeConfig.model_validate(client_node("head_rgbd_calibration"))
+    assert Path(calib.arm_home_file) == mcp.arm.home_file
+
+
 def test_mcp_server_board_is_the_arm_board() -> None:
     settings = CalibrationBoardSettings()
     assert (settings.squares_x, settings.squares_y, settings.square_mm) == (6, 5, 28.0)

@@ -174,6 +174,7 @@ keys are rejected.
 |---|---|---|
 | `state_dir` | `/var/lib/ros2/head_rgbd_calibration` | Sessions, poses, results |
 | `arm_stale_marker` | `/var/lib/ros2/arm/calibration_stale.json` | Follower bridge arm re-zero stale marker: the arm to camera accept is refused while it lists joint_offsets for a re-zero at or after the session's first still; null: no check |
+| `arm_home_file` | `/var/lib/ros2/arm/home.yaml` | mcp_server's stored arm home (`mcp_server.arm.home_file`, `{joints: {name: rad}}`, written by Set home): read at each Park with the board on as its target (the five arm joints; the gripper entry is ignored). Missing or invalid refuses the park naming the file; nothing moves |
 | `http_host` / `http_port` | `127.0.0.1` / `18110` | HTTP API bind |
 | `topics.rgb` / `depth` / `rgb_info` | `/head/d435/color/image_raw/compressed`, `/head/d435/aligned_depth_to_color/image_raw`, `/head/d435/color/camera_info` | D435 capture topics (`nodes/bridges/realsense_d435/config/topics.yaml`) |
 | `topics.head_joint_states` / `arm_joint_states` | `/head/joint_states`, `/follower/joint_states` | Measured joints of the head_arm still capture |
@@ -211,7 +212,7 @@ keys are rejected.
 | `csi_cameras` | `front`: `/front_camera/image_raw/compressed`, `ros2-front_camera.service`, enabled; `back`: `/back_camera/image_raw/compressed`, `ros2-back_camera.service`, disabled | CSI cameras whose intrinsics are calibrated: name (lower-case letters and digits, it names `applied/<name>_camera_calibration.yaml`) -> `image_topic` (compressed), `unit` (reads the applied file, reported after an apply) and `enabled` (default true; mirrors the camera node's ros2_nodes `enabled`: only enabled cameras are listed by `GET /api/csi` and a disabled one is unknown, 404, to every camera route) |
 | `csi_min_view_shift_px` | 20 | A detected CSI view is kept only when its shared corners moved this far (mean, px) from the last kept view |
 | `csi_frame_timeout_s` | 10 | A CSI capture that received no frame this long after its start stops as camera not detected (`capture.no_frames`) |
-| `arm_sequence.park_pose`, `park_board_sag_margin_m`, `board_record_max_age_s` | the parked arm (`scripts/gen_nav_footprint.yaml` `parked_arm_joints`), 0.01, 7200 | Park with the board on (design D63): the arm moves to `park_pose` only after the path from the measured joints passes the pose check with the board outline and `park_board_sag_margin_m` added to the board floor, body and head clearances (the live run showed the stick-mounted 214 g board about 4 mm below FK; the 211.7 g ARM board on its handle is lighter and its tab deflects about 0.25 mm by the CAD estimate, so the margin is conservative) |
+| `arm_sequence.park_board_sag_margin_m`, `board_record_max_age_s` | 0.01, 7200 | Park with the board on (design D63): the arm moves to the stored home (`arm_home_file`) only after the path from the measured joints passes the pose check with the board outline and `park_board_sag_margin_m` added to the board floor, body and head clearances (the live run showed the stick-mounted 214 g board about 4 mm below FK; the 211.7 g ARM board on its handle is lighter and its tab deflects about 0.25 mm by the CAD estimate, so the margin is conservative) |
 
 ## Compute
 
@@ -531,7 +532,8 @@ journalctl -u ros2-head_rgbd_calibration -o cat --since today | grep -o 'calib_e
   pan/tilt range checks, the `ground_board` defaults (home equal to mcp_server's head home, the runbook verification
   tolerances) and its range checks (the home pose included), the `arm_sequence` defaults and its validation errors naming the tier, pose and joint; the
   board roles (`board` FULL, `fit.board` / `fit.plate` ARM) and the id overlap refusal, the CAD seed mounts, handle
-  boxes and grip keys equal to `markers/charuco-arm-6x5-28mm.json`, a squeeze at or past the contact refused.
+  boxes and grip keys equal to `markers/charuco-arm-6x5-28mm.json`, a squeeze at or past the contact refused, the
+  `arm_home_file` default (mcp_server's `home.yaml`) and `arm_sequence.park_pose` refused as an unknown key.
 - `tests/test_board_facing.py` - the ARM board on its edge handle faces the wrist and the head camera: the CAD mount's
   pattern normal points against the tool axis, and at the shipped base pose with the head aimed at the board the
   pattern faces the D435 (facing cos 0.971 > `MIN_FACING_COS`).
@@ -542,7 +544,7 @@ journalctl -u ros2-head_rgbd_calibration -o cat --since today | grep -o 'calib_e
   stop's warning event, park start / done / failed events (logged) and a refused park or start as error events, the
   list bounded to `EVENT_LIMIT` (`test_events_are_bounded_to_the_newest`); the gripper opens to `insert_gripper_rad` with the base
   move and closes alone to `grip_rad` after Board attached, a jaw closed past `contact - squeeze / 2` (unseated) or no
-  reported gripper angle stops the sequence holding the arm, the threshold boundary passes; the resume with the board on (refused unless holding with the board on, not running, not blocked and with usable URDFs; a new run whose only gripper target is the measured jaw angle, never `insert_gripper_rad` and no handle grip, no `waiting_board`, a new still session and the tiers, ending holding with the board on; a path check refusal or a missing gripper angle moves nothing; a stop keeps holding; from idle: refused without `board_gripped`, while running or blocked, and with open or unreported jaws (nothing moved, no board record), after a restart a run with the jaw kept, no `waiting_board`, the `board_confirmed` event and the restored mount, a path refusal moves nothing and ends holding); views inside the D435 min-Z or outside the colour FOV skipped with the reason and a pose with no usable view not visited (`test_poses_inside_min_z_are_skipped`), the wait for the colour camera_info; including Park with the board on (checked even when no load is reported, then the internal admin park; the board record shown at any age with `offered` true only fresh and for a stored session and `problem` naming why not, the stated-on Park, a stale record plus a non-board load refused; `clear_board_record` needs the confirm, removes an old record with a `board_record_clear` calib_event and no mcp_server call, returns a holding sequence to idle so Park is the plain park, says when there was no record, and is refused while a sequence runs): path-checked then moved at speed 0.1 and released with `park_calibration_board`, refused with the named rule when the sag margin eats the clearance, the fitted mount hook, another carried object and a load without this sequence's board still refused, a failed move keeps holding.
+  reported gripper angle stops the sequence holding the arm, the threshold boundary passes; the resume with the board on (refused unless holding with the board on, not running, not blocked and with usable URDFs; a new run whose only gripper target is the measured jaw angle, never `insert_gripper_rad` and no handle grip, no `waiting_board`, a new still session and the tiers, ending holding with the board on; a path check refusal or a missing gripper angle moves nothing; a stop keeps holding; from idle: refused without `board_gripped`, while running or blocked, and with open or unreported jaws (nothing moved, no board record), after a restart a run with the jaw kept, no `waiting_board`, the `board_confirmed` event and the restored mount, a path refusal moves nothing and ends holding); views inside the D435 min-Z or outside the colour FOV skipped with the reason and a pose with no usable view not visited (`test_poses_inside_min_z_are_skipped`), the wait for the colour camera_info; including Park with the board on (checked even when no load is reported, then the internal admin park; the board record shown at any age with `offered` true only fresh and for a stored session and `problem` naming why not, the stated-on Park, a stale record plus a non-board load refused; `clear_board_record` needs the confirm, removes an old record with a `board_record_clear` calib_event and no mcp_server call, returns a holding sequence to idle so Park is the plain park, says when there was no record, and is refused while a sequence runs): path-checked then moved at speed 0.1 to the stored home read from `arm_home_file` at each press (its gripper entry no target; a re-stored home is the next target; a missing or invalid home file refused naming it, nothing moved) and released with `park_calibration_board`, refused with the named rule when the sag margin eats the clearance, the fitted mount hook, another carried object and a load without this sequence's board still refused, a failed move keeps holding.
 - `tests/test_arm_pose_set.py` - the shipped arm pose set on the shipped and the applied (floor fit 2026-10-22) head
   URDF: tier rules, short transits, every pose and transit (home -> base -> tiers -> base) safe by `PoseChecker` with
   the board margin `margin_m + provisional_margin_m` (`test_every_pose_and_transit_is_safe`) and with the mount
@@ -558,9 +560,13 @@ journalctl -u ros2-head_rgbd_calibration -o cat --since today | grep -o 'calib_e
   (`test_target_joint_convention`).
 - `tests/test_board_park.py` - the park with the 211.7 g edge handle board: the board is no heavier than the 214 g board
   the 4 mm park sag was measured with (`test_board_is_no_heavier_than_the_board_the_park_sag_was_measured_with`), and the
-  path from the base pose and every tier pose to `park_pose` passes the node's park check (board margin plus
+  path from the base pose and every tier pose to the stored home passes the node's park check (board margin plus
   `park_board_sag_margin_m`, `min_board_height_m` plus the sag, plate and handle boxes) at the CAD seed mount and at a
-  fitted mount (`test_park_path_with_the_board_is_clear_from_every_pose`).
+  fitted mount, for the footprint's parked arm and for the home the servo calibration stored on 2026-11-11
+  (0, -pi/2, pi/2, 0, 0) (`test_park_path_with_the_board_is_clear_from_every_pose`).
+- `tests/test_arm_home.py` - `load_arm_home` reads mcp_server's home file: the five arm joints with the gripper dropped,
+  integer angles as floats, and a refusal naming the file for a missing file (asks to store a home), unparsable YAML, no
+  `joints` mapping, a missing arm joint and a non-finite or non-number angle.
 - `tests/test_floor_sweep.py` - the floor sweep against a fake node, fake clock and sleep and synthetic floor clouds:
   command order, frame_id and serpentine grid, session id and `observations.json`, clouds only after still plus settle,
   unreachable pose skipped with reason, a pose under `min_clouds_per_pose` skipped as partly blocked
@@ -1281,15 +1287,17 @@ states it now (`board_on: true`, the Calibrate page button "Park (board is on th
 sequencer reads `get_control_state`:
 
 - Board not on: the plain `release_control` park; a holding load is refused as ever, with a hint to state the board.
-- Board on (whatever the load reads): the path from the measured joints to `arm_sequence.park_pose` is checked with
-  `PoseChecker` and the board outline of the newest fitted `board_mount` of the session
+- Board on (whatever the load reads): the stored home is read from `arm_home_file` (mcp_server's `home.yaml`, fresh at
+  each press, so a re-stored home is the next target; the five arm joints, the gripper entry ignored). A missing or
+  invalid file refuses naming the file ("store the arm home (Calibrate > General, Set home) first") and nothing moves.
+  The path from the measured joints to that home is checked with `PoseChecker` and the board outline of the newest fitted `board_mount` of the session
   (`head_arm_results.latest_board_mount`), else the recorded mount, else `fit.board_mount`, with
   `park_board_sag_margin_m` added to the board floor (`min_board_height_m`), body and head clearances. A violation
   refuses with the named rules ("Park refused by the path check with the board on ...") and the arm keeps holding. A pass
-  moves to `park_pose` through the guarded `move_arm_joints` at `arm_sequence.speed_scale` (0.1), then calls mcp_server's
+  moves to the stored home through the guarded `move_arm_joints` at `arm_sequence.speed_scale` (0.1), then calls mcp_server's
   internal `POST /admin/park_calibration_board` with the board mount as the only content (`robot.board_park_token_file`,
   its own token). mcp_server owns the outline and margins, refuses a mount over 30 mm / 10 deg from its configured one,
-  requires the measured arm at its rest pose (the stored home, which `park_pose` equals), FK-checks the board on every
+  requires the measured arm at its rest pose (the same stored home), FK-checks the board on every
   home leg from the measured joints against the floor and the body, and parks at 0.1 (see its README). The
   agent-facing `release_control` has no such argument and claude_agent cannot read the board-park token.
 - Any carry reason other than the holding load (a held grasp, a carried radius) refuses with mcp_server's reasons quoted.

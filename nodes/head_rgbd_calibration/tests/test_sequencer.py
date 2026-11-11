@@ -59,6 +59,15 @@ HOME_POSE: dict[str, float] = {
     for name, value in yaml.safe_load(FOOTPRINT_YAML.read_text())["parked_arm_joints"].items()
     if name in ARM_JOINT_NAMES
 }
+# The home stored by the servo calibration on 2026-11-11 (client /var/lib/ros2/arm/home.yaml).
+CALIBRATED_HOME: dict[str, float] = {
+    "shoulder_pan": 0.0,
+    "shoulder_lift": -math.pi / 2,
+    "elbow_flex": math.pi / 2,
+    "wrist_flex": 0.0,
+    "wrist_roll": 0.0,
+}
+STORED_HOME_GRIPPER = -0.14419419406125028
 TOKEN = "seq-token"
 NOW = datetime(2026, 10, 23, 8, 0, 0, tzinfo=UTC)
 SESSION = "head-arm-20261022-120000"
@@ -260,10 +269,13 @@ class Rig:
         board_file: Path | None = None,
         session_exists: Callable[[str | None], bool] | None = None,
         now: Callable[[], datetime] | None = None,
+        home: dict[str, float] | None = None,
     ) -> None:
         token = tmp_path / "token"
         token.write_text(f"MCP_SERVER_TOKEN={TOKEN}\n")
-        base = cfg or NodeConfig()
+        self.home_file = tmp_path / "home.yaml"  # mcp_server's stored home, as its home_store writes it
+        self.write_home(home or HOME_POSE)
+        base = (cfg or NodeConfig()).model_copy(update={"arm_home_file": str(self.home_file)})
         board_token = tmp_path / "board_park_token"
         board_token.write_text("board-park-token\n")
         robot_cfg = base.robot.model_copy(update={"token_file": str(token), "board_park_token_file": str(board_token)})
@@ -288,6 +300,14 @@ class Rig:
             session_exists=session_exists or (lambda session_id: session_id == SESSION),
             now=now or (lambda: NOW),
         )
+
+    def write_home(self, home: dict[str, float]) -> None:
+        """Store an arm home (with a gripper entry, as mcp_server's Set home does) in the rig's home file.
+
+        Args:
+            home (dict[str, float]): The five arm joints, rad.
+        """
+        self.home_file.write_text(yaml.safe_dump({"joints": {**home, GRIPPER: STORED_HOME_GRIPPER}}, sort_keys=False))
 
     def wait_phase(self, phase: str) -> dict[str, Any]:
         return self.wait_for(lambda s: s["phase"] == phase)
@@ -748,7 +768,7 @@ def test_park_with_the_board_on_is_checked_moved_then_parked_through_the_interna
     ]
     seq_cfg = rig.cfg.arm_sequence
     move = rig.robot.named("move_arm_joints")[-1]
-    assert move == {"targets": seq_cfg.park_pose, "speed_scale": seq_cfg.speed_scale} and seq_cfg.speed_scale == 0.1
+    assert move == {"targets": HOME_POSE, "speed_scale": seq_cfg.speed_scale} and seq_cfg.speed_scale == 0.1
     # No release_control after the sequence's hold: the park is the admin route, which checks the board itself.
     assert all(args["keep_position"] is True for args in rig.robot.named("release_control"))
     mount = rig.cfg.fit.board_mount
@@ -756,6 +776,45 @@ def test_park_with_the_board_on_is_checked_moved_then_parked_through_the_interna
         "mount": {"xyz": list(mount.xyz_init), "rpy": list(mount.rpy_init)}
     }
     assert "homed" in state["status"]
+
+
+def test_park_with_the_board_on_moves_to_the_stored_home_read_at_each_press(tmp_path: Path) -> None:
+    rig = Rig(tmp_path, small_cfg(), home=CALIBRATED_HOME)
+    rig.run_to_holding()
+    rig.robot.carrying = [BOARD_LOAD]
+    rig.seq.park(confirmed=True)
+    assert rig.finish()["phase"] == IDLE
+    # The five arm joints of the stored home; its gripper entry is no target (the jaw keeps holding the handle).
+    assert rig.robot.named("move_arm_joints")[-1]["targets"] == CALIBRATED_HOME
+    # A re-calibration stores a new home: the next press reads it.
+    rig.write_home(HOME_POSE)
+    rig.run_to_holding()
+    rig.robot.carrying = [BOARD_LOAD]
+    rig.seq.park(confirmed=True)
+    assert rig.finish()["phase"] == IDLE
+    assert rig.robot.named("move_arm_joints")[-1]["targets"] == HOME_POSE
+
+
+@pytest.mark.parametrize("stored", ["missing", "invalid"])
+def test_park_with_the_board_on_refuses_without_a_valid_stored_home(tmp_path: Path, stored: str) -> None:
+    rig = Rig(tmp_path, small_cfg())
+    rig.run_to_holding()
+    rig.robot.carrying = [BOARD_LOAD]
+    if stored == "missing":
+        rig.home_file.unlink()
+        expected = f"no stored arm home at {rig.home_file}: store the arm home (Calibrate > General, Set home) first"
+    else:
+        rig.home_file.write_text(yaml.safe_dump({"joints": {"shoulder_pan": 0.0}}))
+        expected = f"invalid arm home {rig.home_file}: missing joint shoulder_lift"
+    before = len(rig.robot.calls)
+    with pytest.raises(SequenceError) as refused:
+        rig.seq.park(confirmed=True)
+    assert not isinstance(refused.value, Busy)
+    assert expected in str(refused.value)
+    assert park_calls(rig, before) == ["get_control_state"]  # nothing moved, the arm keeps holding
+    state = rig.seq.state()
+    assert state["phase"] == HOLDING and state["running"] is False
+    assert expected in state["error"]
 
 
 def test_park_with_the_board_on_is_checked_even_when_no_load_is_reported(tmp_path: Path) -> None:

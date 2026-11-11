@@ -4,9 +4,9 @@ through checked poses, the head aimed at it by the node.
 Order: `move_to_base` (confirmed; no board) -> the user seats the board handle, `board_attached` -> tier 0 (wrist_roll)
 -> tier 1 (wrist_flex, wrist_roll) -> `allow_big_joints` (elbow_flex, shoulder_lift, shoulder_pan; declined skips tier
 2) -> tier 2 -> back to the base pose -> `holding` -> `park` (confirmed) -> `idle`. Park works with the board on (design
-D63, easy retries): the whole path from the measured joints to `arm_sequence.park_pose` is checked with the board
-outline (the latest fitted board_mount when a result exists, else the configured one) and `park_board_sag_margin_m`
-added to the board floor, body and head clearances; a pass moves there at `speed_scale` and parks through mcp_server's
+D63, easy retries): the whole path from the measured joints to the stored home (`arm_home_file`, read at the press) is
+checked with the board outline (the latest fitted board_mount when a result exists, else the configured one) and
+`park_board_sag_margin_m` added to the board floor, body and head clearances; a pass moves there at `speed_scale` and parks through mcp_server's
 internal `POST /admin/park_calibration_board` (own token, the board mount as the only request content): mcp_server
 ignores the holding load of the gripped board handle and nothing else, and re-checks the board on every home leg from
 the measured joints. The agent-facing `release_control` has no board argument.
@@ -86,6 +86,7 @@ from ros2_common.head_rgbd_calibration.config import ARM_JOINT_NAMES
 from ros2_common.head_rgbd_calibration.floor_fit import PAN_JOINT, TILT_JOINT
 from ros2_common.head_rgbd_calibration.head_arm_fit import aim_head, board_centre
 
+from head_rgbd_calibration.arm_home import ArmHomeError, load_arm_home
 from head_rgbd_calibration.capture import CaptureController, StillOutcome
 from head_rgbd_calibration.config import BIG_JOINTS, CAD_BOARD_RPY, CAD_BOARD_XYZ, NodeConfig
 from head_rgbd_calibration.robot_client import RobotClient, ToolResult
@@ -1028,8 +1029,8 @@ class Sequencer:
 
         Board not on (this sequence did not attach it and the user did not state it): the plain park, refused by
         mcp_server's carry reasons as ever. Board on (the sequence attached it, or `board_on`): whatever the load
-        reads, the path to `park_pose` is checked with the board outline and the sag margin, the arm moves there and
-        mcp_server's internal board park finishes it (it checks the board again on its home legs). Any carry reason
+        reads, the stored home is read from `arm_home_file`, the path to it is checked with the board outline and the
+        sag margin, the arm moves there and mcp_server's internal board park finishes it (it checks the board again on its home legs). Any carry reason
         other than the holding load of the gripped board handle refuses.
 
         Args:
@@ -1044,7 +1045,8 @@ class Sequencer:
             ValueError: Not confirmed (nothing is called).
             Busy: A sequence or park runs, or `blocked` names a reason.
             SequenceError: get_control_state fails, reports a carried object other than the board (its reasons are
-                quoted) or the board path check refuses (its rules are quoted); nothing moved.
+                quoted), the stored home is missing or invalid (the file is named) or the board path check refuses
+                (its rules are quoted); nothing moved.
         """
         if not confirmed:
             raise ValueError("Park needs confirmed=True: the arm moves to its park pose")
@@ -1056,6 +1058,7 @@ class Sequencer:
             if stated:
                 self.record_board()
         params: dict[str, Any] | None = None
+        home: dict[str, float] | None = None
         try:
             control = self.robot.control_state()
             reasons = carrying_reasons(control)
@@ -1077,7 +1080,11 @@ class Sequencer:
             if board:
                 with self.lock:
                     self.status = "checking the board's park path"
-                params = self.check_board_park_path()
+                try:
+                    home = load_arm_home(Path(self.cfg.arm_home_file))
+                except ArmHomeError as exc:
+                    raise SequenceError(f"Park refused: {exc}") from exc
+                params = self.check_board_park_path(home)
         except SequenceError as exc:
             self.give_up(previous, str(exc), str(exc), PARK_STEP)
             raise
@@ -1094,22 +1101,25 @@ class Sequencer:
             "start",
             board_on=params is not None,
             mount=params,
-            park_pose=self.seq.park_pose,
+            home_pose=home,
             speed_scale=self.seq.speed_scale,
             previous_phase=previous,
         )
         self.stop_event.clear()
         self.thread = threading.Thread(
-            target=self.park_work, args=(previous, params), name="head-arm-park", daemon=True
+            target=self.park_work, args=(previous, params, home), name="head-arm-park", daemon=True
         )
         self.thread.start()
         return self.state()
 
-    def check_board_park_path(self) -> dict[str, Any]:
-        """Check the path from the measured joints to `park_pose` with the board on the gripper.
+    def check_board_park_path(self, home: dict[str, float]) -> dict[str, Any]:
+        """Check the path from the measured joints to the stored home with the board on the gripper.
 
         The board keeps `park_board_sag_margin_m` more than the sequence margin from the body and the head, and that
         much more than `min_board_height_m` above the floor (the board sags below FK under its weight).
+
+        Args:
+            home (dict[str, float]): The stored home, the five arm joints (rad, load_arm_home).
 
         Raises:
             SequenceError: A URDF is unusable, or the path check names a violated rule (nothing moved).
@@ -1135,14 +1145,14 @@ class Sequencer:
             raise SequenceError(f"cannot read the arm or head URDF: {type(exc).__name__}: {exc}") from exc
         start = self.measured()
         gripper = max(start.get(GRIPPER_JOINT, seq.grip_rad), seq.grip_rad)
-        entries = checker.check_path(start, dict(seq.park_pose), gripper)
+        entries = checker.check_path(start, dict(home), gripper)
         self.log(
             "park_path_check",
             "refused" if entries else "ok",
             logging.WARNING if entries else logging.INFO,
             f"{len(entries)} violated entries" if entries else None,
             start=start,
-            target=seq.park_pose,
+            target=home,
             gripper_rad=gripper,
             mount_source="fitted" if fitted is not None else ("recorded" if used is not None else "configured"),
             mount={"xyz": fit.board_mount.xyz_init, "rpy": fit.board_mount.rpy_init},
@@ -1162,13 +1172,16 @@ class Sequencer:
 
     # worker thread
 
-    def park_work(self, previous: str, board: dict[str, Any] | None = None) -> None:
+    def park_work(
+        self, previous: str, board: dict[str, Any] | None = None, home: dict[str, float] | None = None
+    ) -> None:
         """Worker: take the arm and release it with a park; a failure leaves the phase as it was.
 
         Args:
-            previous: The phase before the park.
-            board: The board is on the gripper (the mount check_board_park_path returned): move to `park_pose`
-                first (its path was checked), then park through mcp_server's internal board park.
+            previous (str): The phase before the park.
+            board (dict[str, Any] | None): The board is on the gripper (the mount check_board_park_path returned):
+                move to `home` first (its path was checked), then park through mcp_server's internal board park.
+            home (dict[str, float] | None): The stored home the press read (set when `board` is).
         """
         run_id = self.run_id  # kept: a claim after the end may replace self.run_id
         error: str | None = None
@@ -1179,9 +1192,9 @@ class Sequencer:
             with self.timed("park_take_control"):
                 self.call(self.robot.take_arm(), "take_control")
             lease = True
-            if board is not None:
-                with self.timed("park_move", target=self.seq.park_pose, speed_scale=self.seq.speed_scale):
-                    self.park_move()
+            if board is not None and home is not None:
+                with self.timed("park_move", target=home, speed_scale=self.seq.speed_scale):
+                    self.park_move(home)
             route = "park_calibration_board" if board is not None else "release_control (park)"
             with self.timed("park_release", route=route, mount=board) as fields:
                 if board is not None:
@@ -1234,19 +1247,22 @@ class Sequencer:
         if error is None:
             self.clear_board(run_id)
 
-    def park_move(self) -> None:
-        """Move to `park_pose` at the sequence speed scale (guarded by mcp_server); the path was checked.
+    def park_move(self, home: dict[str, float]) -> None:
+        """Move to the stored home at the sequence speed scale (guarded by mcp_server); the path was checked.
+
+        Args:
+            home (dict[str, float]): The stored home, the five arm joints (rad).
 
         Raises:
             StepFailed: The move fails or does not converge.
         """
         result = self.call(
-            self.robot.move_arm_joints(dict(self.seq.park_pose), self.seq.speed_scale),
-            "move_arm_joints to the park pose",
+            self.robot.move_arm_joints(dict(home), self.seq.speed_scale),
+            "move_arm_joints to the stored home",
         )
-        status, message = self.log_motion("move_arm_joints", result, label="the park pose", targets=self.seq.park_pose)
+        status, message = self.log_motion("move_arm_joints", result, label="the stored home", targets=home)
         if status != CONVERGED:
-            raise StepFailed(f"move_arm_joints to the park pose did not converge: {status}: {message}")
+            raise StepFailed(f"move_arm_joints to the stored home did not converge: {status}: {message}")
 
     def work(self, plan: Plan, resume: bool) -> None:
         """Worker: run the sequence, then always stop the capture and release the arm holding its position.

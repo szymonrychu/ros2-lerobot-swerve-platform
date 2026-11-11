@@ -178,6 +178,8 @@ def test_a_board_park_logs_its_run_the_mount_and_the_mcp_reset(
     assert carrying["reasons"] == [BOARD_LOAD] and carrying["board_on"] is True
     check = find(events, "park_path_check", "ok")[0]["data"]
     assert check["mount_source"] == "configured" and "margin_m" in check
+    assert check["target"] == HOME_POSE and find(events, "park", "start")[0]["data"]["home_pose"] == HOME_POSE
+    assert find(events, "park_move", "start")[0]["data"]["target"] == HOME_POSE and find(events, "park_move", "ok")
     release = find(events, "park_release", "ok")[0]["data"]
     assert release["reset"]["arm"] == "homed"
     assert find(events, "park", "done")
@@ -193,7 +195,7 @@ def test_a_park_refused_by_the_board_path_check_logs_its_entries(
             rig.seq.park(confirmed=True)
     events = sequencer_events(caplog)
     refused = find(events, "park_path_check", "refused")[0]
-    assert refused["data"]["entries"] and refused["data"]["target"] == rig.cfg.arm_sequence.park_pose
+    assert refused["data"]["entries"] and refused["data"]["target"] == HOME_POSE
     assert find(events, "park", "refused")[0]["reason"].startswith("Park refused by the path check")
 
 

@@ -27,6 +27,8 @@ CONFIG_ENV = "HEAD_RGBD_CALIBRATION_CONFIG"
 DEFAULT_STATE_DIR = "/var/lib/ros2/head_rgbd_calibration"
 # The follower bridge's arm re-zero stale marker (feetech_servos neutral_stale_marker), read by the arm to camera accept.
 DEFAULT_ARM_STALE_MARKER = "/var/lib/ros2/arm/calibration_stale.json"
+# mcp_server's stored arm home (its arm.home_file, written by Set home), the target of Park with the board on.
+DEFAULT_ARM_HOME_FILE = "/var/lib/ros2/arm/home.yaml"
 DEFAULT_HTTP_HOST = "127.0.0.1"
 DEFAULT_HTTP_PORT = 18110
 # The D435 streams (nodes/bridges/realsense_d435/config/topics.yaml): colour, depth registered to the colour frame
@@ -129,9 +131,6 @@ DEFAULT_HANDLE_SQUEEZE_RAD = 0.02
 # mcp_server limits.converge_tolerance_for("gripper"): a grip residual at or above it is relaxed to the measured pose.
 DEFAULT_GRIP_CONVERGE_TOLERANCE_RAD = 0.03
 DEFAULT_BOARD_MASS_G = 211.72779
-# The parked arm: scripts/gen_nav_footprint.yaml parked_arm_joints (the mcp_server home), the target of a park with the
-# board on (a test pins the two equal).
-DEFAULT_PARK_POSE = (-0.003, -1.35, 1.578, -0.1, -1.637)
 DEFAULT_PARK_BOARD_SAG_MARGIN_M = 0.01
 DEFAULT_BOARD_RECORD_MAX_AGE_S = 7200.0
 DEFAULT_TIER0_POSES = (
@@ -490,7 +489,7 @@ class ArmSequenceConfig(StrictModel):
     at or above `grip_rad + grip_converge_tolerance_rad` after the close is refused (the squeeze must stay below it).
     `head_offsets_deg` are (pan, tilt) offsets added to the aimed head angles, one view each. `provisional_margin_m`
     is added to `pose_check.margin_m` for the board points while the board mount is the shipped CAD seed (not
-    fit-solved). `park_pose` is the parked arm a park with the board on drives to (path-checked first);
+    fit-solved). A park with the board on drives to the stored home (`NodeConfig.arm_home_file`, path-checked first);
     `park_board_sag_margin_m` is added to the board floor, body and head clearances of that check, because the board
     sags below FK under its weight (about 4 mm measured with the 214 g stick-mounted board; the ARM board's
     `board_mass_g` is lighter, so the same margin is conservative). `board_record_max_age_s` is the oldest
@@ -517,7 +516,6 @@ class ArmSequenceConfig(StrictModel):
     )
     pose_check: PoseCheckConfig = Field(default_factory=PoseCheckConfig)
     provisional_margin_m: float = Field(default=0.0, ge=0)
-    park_pose: dict[str, float] = Field(default_factory=lambda: arm_pose(DEFAULT_PARK_POSE))
     park_board_sag_margin_m: float = Field(default=DEFAULT_PARK_BOARD_SAG_MARGIN_M, ge=0)
     board_record_max_age_s: float = Field(default=DEFAULT_BOARD_RECORD_MAX_AGE_S, gt=0)
 
@@ -532,7 +530,7 @@ class ArmSequenceConfig(StrictModel):
 
     @model_validator(mode="after")
     def check_poses(self) -> Self:
-        errors = joint_name_errors(self.base_pose, "base_pose") + joint_name_errors(self.park_pose, "park_pose")
+        errors = joint_name_errors(self.base_pose, "base_pose")
         if self.insert_gripper_rad > self.pose_check.max_roll_gripper_rad:
             errors.append(
                 f"insert_gripper_rad {self.insert_gripper_rad:g} exceeds pose_check.max_roll_gripper_rad "
@@ -595,11 +593,13 @@ class NodeConfig(StrictModel):
     `csi_min_view_shift_px` the mean corner shift a kept view needs from the last kept one; a CSI capture without any
     frame `csi_frame_timeout_s` after its start stops as camera not detected. `arm_stale_marker` is the
     follower bridge's arm re-zero stale marker: the arm to camera accept is refused while it lists joint_offsets for a
-    re-zero at or after the session's first still (None: no check).
+    re-zero at or after the session's first still (None: no check). `arm_home_file` is mcp_server's stored arm home
+    (`arm.home_file`), read at each Park with the board on as its target.
     """
 
     state_dir: str = DEFAULT_STATE_DIR
     arm_stale_marker: str | None = DEFAULT_ARM_STALE_MARKER
+    arm_home_file: str = DEFAULT_ARM_HOME_FILE
     http_host: str = DEFAULT_HTTP_HOST
     http_port: int = Field(default=DEFAULT_HTTP_PORT, ge=1, le=65535)
     topics: TopicsConfig = Field(default_factory=TopicsConfig)

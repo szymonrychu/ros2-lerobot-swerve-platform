@@ -4,14 +4,19 @@ The park path check adds `park_board_sag_margin_m` to the board floor, body and 
 below FK under its weight: the live run measured about 4 mm with the 214 g stick-mounted board (session
 calib-20261023-074418, docs/runbooks/head-arm-calibration.md), its centre about 0.12 m off the tool axis as on the edge
 handle. The edge handle board is lighter, so the 10 mm margin stays conservative, and the path from every pose of the
-shipped set to `park_pose` passes the node's park check with the plate and the handle boxes, at the CAD seed mount
-(margin_m + provisional_margin_m) and at a fitted mount (margin_m).
+shipped set to the stored arm home passes the node's park check with the plate and the handle boxes, at the CAD seed
+mount (margin_m + provisional_margin_m) and at a fitted mount (margin_m). The home is mcp_server's home.yaml, so the
+check runs for the footprint's parked arm (scripts/gen_nav_footprint.yaml parked_arm_joints) and for the home the servo
+calibration stored on 2026-11-11.
 """
 
+import math
 from pathlib import Path
 
 import pytest
+import yaml
 from ros2_common.head_rgbd_calibration.arm_pose_check import PoseChecker
+from ros2_common.head_rgbd_calibration.config import ARM_JOINT_NAMES
 
 from head_rgbd_calibration.config import load_config
 
@@ -21,6 +26,20 @@ SHIPPED_YAML = NODE_DIR / "config" / "head_rgbd_calibration.yaml"
 URDF_DIR = REPO_ROOT / "nodes" / "web_ui" / "urdf"
 MEASURED_SAG_BOARD_MASS_G = 214.0  # the board the park sag was measured with
 MEASURED_SAG_M = 0.004  # its sag below FK at the park
+FOOTPRINT_YAML = REPO_ROOT / "scripts" / "gen_nav_footprint.yaml"
+PARKED_ARM: dict[str, float] = {
+    name: float(value)
+    for name, value in yaml.safe_load(FOOTPRINT_YAML.read_text())["parked_arm_joints"].items()
+    if name in ARM_JOINT_NAMES
+}
+# The home stored by the servo calibration on 2026-11-11 (client /var/lib/ros2/arm/home.yaml, gripper dropped).
+CALIBRATED_HOME: dict[str, float] = {
+    "shoulder_pan": 0.0,
+    "shoulder_lift": -math.pi / 2,
+    "elbow_flex": math.pi / 2,
+    "wrist_flex": 0.0,
+    "wrist_roll": 0.0,
+}
 
 CFG = load_config(SHIPPED_YAML)
 SEQ = CFG.arm_sequence
@@ -31,8 +50,9 @@ def test_board_is_no_heavier_than_the_board_the_park_sag_was_measured_with() -> 
     assert SEQ.park_board_sag_margin_m >= MEASURED_SAG_M
 
 
+@pytest.mark.parametrize("home", [PARKED_ARM, CALIBRATED_HOME], ids=["footprint-parked", "calibrated-home"])
 @pytest.mark.parametrize("nominal_mount", [True, False], ids=["cad-seed", "fitted"])
-def test_park_path_with_the_board_is_clear_from_every_pose(nominal_mount: bool) -> None:
+def test_park_path_with_the_board_is_clear_from_every_pose(nominal_mount: bool, home: dict[str, float]) -> None:
     """As Sequencer.check_board_park_path: board margin + sag, min_board_height_m + sag, grip held."""
     sag = SEQ.park_board_sag_margin_m
     pose_check = SEQ.pose_check.model_copy(update={"min_board_height_m": SEQ.pose_check.min_board_height_m + sag})
@@ -52,6 +72,6 @@ def test_park_path_with_the_board_is_clear_from_every_pose(nominal_mount: bool) 
     failures = [
         f"{name}: {entry}"
         for name, pose in starts.items()
-        for entry in checker.check_path(dict(pose), dict(SEQ.park_pose), SEQ.grip_rad)
+        for entry in checker.check_path(dict(pose), dict(home), SEQ.grip_rad)
     ]
     assert failures == [], "\n".join(failures[:20])
