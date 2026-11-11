@@ -27,14 +27,17 @@ import {
 import { runGeneralAction } from '../generalApi'
 import type { FloorApiResult } from '../headFloorApi'
 import {
+  HeadArmGrip,
   HeadArmSequence,
   HeadArmSession,
   allowBigJoints,
   boardAttached,
+  confirmGrip,
   getHeadArmState,
   listHeadArmSessions,
   moveToBase,
   park,
+  resetGrip,
   resumeBoardOn,
   stopSequence,
 } from '../headArmApi'
@@ -59,6 +62,9 @@ const AT_BASE_PHASES = ['waiting_board', 'capturing', 'waiting_big_joints', 'ret
 const GRABBED_PHASES = ['capturing', 'waiting_big_joints', 'returning_to_base', 'holding', 'parking']
 /** Phases of a capture still in progress. */
 const CAPTURE_PHASES = ['moving_to_base', 'waiting_board', 'capturing', 'waiting_big_joints', 'returning_to_base']
+/** Starts of the sequence errors raised when the measured grip does not match the configured contact (sequencer.py). */
+const GRIP_ERROR_PREFIXES = ['the gripper closed past the handle contact', 'the gripper stopped short of the commanded grip']
+const CONFIRM_GRIP = 'Confirm correct grip'
 const STALE_ZERO_TEXT =
   'Arm zero is stale (joint_offsets) after an accidental re-zero: restore it in Servo calibration, Advanced / repair, then run this flow.'
 /** The bridge reports joint_offsets stale but web_ui cannot read the marker: the cause is unknown, name both remedies. */
@@ -83,8 +89,9 @@ export function acceptText(answer: ArmCameraAccept): string {
   return `Applied result ${answer.arm_calibration.result}.${units.length ? ` Units: ${units.join(', ')}.` : ''}`
 }
 
-type Dialog = 'home' | 'base' | 'big' | 'park' | 'parkBoard' | 'resume' | 'resumeIdle' | null
-type StepId = 'home' | 'open' | 'grab' | 'capture' | 'compute' | 'gate' | 'park'
+type Dialog = 'home' | 'base' | 'big' | 'park' | 'parkBoard' | 'resume' | 'resumeIdle' | 'grip' | 'gripReset' | null
+// 'banner' is the Confirm correct grip button in the error banner: step 3 is locked then, so its answer shows there.
+type StepId = 'home' | 'open' | 'grab' | 'capture' | 'compute' | 'gate' | 'park' | 'banner'
 type Errors = Partial<Record<StepId, string>>
 
 /**
@@ -95,6 +102,20 @@ type Errors = Partial<Record<StepId, string>>
  */
 export function redoZeroText(at: string): string {
   return `Arm zero set by a servo calibration at ${at}: this flow redoes the arm-to-camera calibration; Accept clears the stale state.`
+}
+
+/**
+ * The grip contact line: the angle in use and where it comes from.
+ *
+ * @param grip - the grip record of the sequence
+ */
+function GripLine({ grip }: { grip: HeadArmGrip }) {
+  const source = grip.source === 'recorded' ? `recorded at ${grip.recorded_at ?? 'an unknown time'}` : 'config value'
+  return (
+    <Typography variant="body2" sx={{ mt: 1 }}>
+      {`Handle contact ${grip.handle_contact_rad.toFixed(4)} rad (${source})`}
+    </Typography>
+  )
 }
 
 /**
@@ -113,6 +134,10 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
   const [errors, setErrors] = useState<Errors>({})
   const [dialog, setDialog] = useState<Dialog>(null)
   const [busy, setBusy] = useState(false)
+  // Step that shows the answer of the grip confirm or reset (the button the user pressed sits on it).
+  const [gripStep, setGripStep] = useState<StepId>('grab')
+  // Success line of a banner confirm: the node keeps the unseated or slack error after it, so the banner stays.
+  const [bannerOk, setBannerOk] = useState<string | null>(null)
   const [homed, setHomed] = useState(false)
   const [computing, setComputing] = useState<{ sid: string; rid: string } | null>(null)
   const [result, setResult] = useState<ArmCameraResult | null>(null)
@@ -198,11 +223,13 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
   const step = async (id: StepId, call: () => Promise<FloorApiResult<HeadArmSequence>>): Promise<boolean> => {
     setDialog(null)
     setBusy(true)
+    setBannerOk(null)
     const r = await call()
     setBusy(false)
     if (r.ok) {
       setSequence(r.value)
       setErrors((e) => ({ ...e, [id]: undefined }))
+      if (id === 'banner') setBannerOk(`Grip recorded: handle contact ${r.value.grip.handle_contact_rad.toFixed(4)} rad`)
     } else setErrors((e) => ({ ...e, [id]: r.message }))
     return r.ok
   }
@@ -305,6 +332,29 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
   const canResume = phase === PHASE_HOLDING && !running && sequence?.board_on === true
   // Idle (e.g. the node restarted and forgot the board): the user states the board is gripped; the node refuses open jaws.
   const canResumeFromIdle = phase === PHASE_IDLE && !running && sequence !== null
+  // Confirm correct grip / Reset record or drop a grip file and move nothing, but never while the node runs or a call is busy.
+  const canGrip = (phase === PHASE_HOLDING || phase === PHASE_IDLE) && !running && sequence !== null
+  const gripBlocked = busy || !canGrip
+  const gripError = GRIP_ERROR_PREFIXES.some((p) => sequence?.error?.startsWith(p))
+  const openGrip = (id: StepId, d: Dialog) => {
+    setGripStep(id)
+    setDialog(d)
+  }
+  const confirmButton = (id: StepId) => (
+    <Button variant="outlined" sx={target} disabled={gripBlocked} onClick={() => openGrip(id, 'grip')}>
+      {CONFIRM_GRIP}
+    </Button>
+  )
+  const gripButtons = (id: StepId) => (
+    <>
+      {confirmButton(id)}
+      {sequence?.grip.source === 'recorded' && (
+        <Button variant="outlined" sx={target} disabled={gripBlocked} onClick={() => openGrip(id, 'gripReset')}>
+          Reset to config value
+        </Button>
+      )}
+    </>
+  )
   const snippet = typeof result?.calibration?.snippet === 'string' ? result.calibration.snippet : null
 
   return (
@@ -358,7 +408,23 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
           setErrors((e) => ({ ...e, home: undefined, park: undefined }))
         }}
       />
-      {sequence && <SequenceActivity sequence={sequence} withStatus={!sid} />}
+      {sequence && <SequenceActivity sequence={sequence} withStatus={!sid} errorAction={
+        gripError ? (
+          <>
+            {confirmButton('banner')}
+            {errors.banner && (
+              <Typography variant="body2" color="error" role="status">
+                {errors.banner}
+              </Typography>
+            )}
+            {bannerOk && !errors.banner && (
+              <Typography variant="body2" color="success.main" role="status">
+                {bannerOk}
+              </Typography>
+            )}
+          </>
+        ) : undefined
+      } />}
       <Box sx={{ mt: 1 }}>
         <FlowStepper
           label="Arm to camera calibration steps"
@@ -428,6 +494,8 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
                   >
                     Board attached
                   </Button>
+                  {sequence && <GripLine grip={sequence.grip} />}
+                  <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mt: 1 }}>{gripButtons('grab')}</Box>
                 </>
               ),
             },
@@ -548,6 +616,8 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
                       Start a new run
                     </Button>
                   )}
+                  {gripButtons('park')}
+                  {sequence && <GripLine grip={sequence.grip} />}
                 </Box>
               ),
             },
@@ -602,6 +672,22 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
         confirmLabel="The board is gripped: resume"
         onCancel={() => setDialog(null)}
         onConfirm={() => void step('home', () => resumeBoardOn(true, true))}
+      />
+      <ConfirmDialog
+        open={dialog === 'grip'}
+        title="Confirm the grip?"
+        body="The handle is seated correctly: record the measured gripper angle as the grip on this board (nothing moves)"
+        confirmLabel={CONFIRM_GRIP}
+        onCancel={() => setDialog(null)}
+        onConfirm={() => void step(gripStep, confirmGrip)}
+      />
+      <ConfirmDialog
+        open={dialog === 'gripReset'}
+        title="Reset the grip to the config value?"
+        body="The recorded grip is dropped and the configured handle contact is used again (nothing moves)"
+        confirmLabel="Reset to config value"
+        onCancel={() => setDialog(null)}
+        onConfirm={() => void step(gripStep, resetGrip)}
       />
       <ConfirmDialog
         open={dialog === 'parkBoard'}

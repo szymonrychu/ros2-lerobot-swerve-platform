@@ -38,6 +38,7 @@ const a = vi.mocked(armApi)
 const ok = <T,>(value: T) => ({ ok: true as const, value })
 const seq = (over: Partial<HeadArmSequence>): HeadArmSequence => ({
   ...stateFx.sequence,
+  grip: { ...stateFx.sequence.grip, source: stateFx.sequence.grip.source as 'config' | 'recorded' },
   running: false,
   phase: 'idle',
   status: 'idle',
@@ -753,5 +754,152 @@ describe('ArmCameraFlow', () => {
       await vi.advanceTimersByTimeAsync(RESULT_POLL_MS * 2)
     })
     expect(within(step(6)).getByText('Plausible')).toBeTruthy()
+  })
+
+  describe('grip confirm', () => {
+    const CONFIRM = 'Confirm correct grip'
+    const RESET = 'Reset to config value'
+    const UNSEATED = 'the gripper closed past the handle contact: seat the handle up to the shoulder and start again (measured 0.0600 rad, limit 0.0700 rad)'
+    const SLACK = 'the gripper stopped short of the commanded grip by the mcp_server converge tolerance or more, so the clamp would relax'
+    const disabledOf = (root: HTMLElement, name: string) => (within(root).getByRole('button', { name }) as HTMLButtonElement).disabled
+
+    it('Grab board and Park offer Confirm correct grip, enabled while holding', async () => {
+      setState(HOLDING)
+      await renderFlow(false)
+      expect(disabledOf(step(3), CONFIRM)).toBe(false)
+      expect(disabledOf(step(7), CONFIRM)).toBe(false)
+    })
+
+    it.each([
+      ['capturing', seq({ phase: 'capturing', running: true, session_id: SID })],
+      ['waiting_board', seq({ phase: 'waiting_board', running: true, session_id: SID })],
+    ])('Grab board shows Confirm correct grip disabled in phase %s', async (_n, s) => {
+      setState(s)
+      await renderFlow(false)
+      expect(disabledOf(step(3), CONFIRM)).toBe(true)
+    })
+
+    it('is disabled while a call is busy', async () => {
+      setState(HOLDING)
+      m.park.mockReturnValue(new Promise(() => {}))
+      await renderFlow(false)
+      await click('Park arm', step(7))
+      await confirmIn('Park')
+      expect(disabledOf(step(3), CONFIRM)).toBe(true)
+      expect(disabledOf(step(7), CONFIRM)).toBe(true)
+    })
+
+    it('opens the confirm, posts only after Confirm and shows nothing moves', async () => {
+      setState(HOLDING)
+      m.confirmGrip.mockResolvedValue(ok(HOLDING))
+      await renderFlow(false)
+      await click(CONFIRM, step(3))
+      expect(
+        within(dialog()).getByText(
+          'The handle is seated correctly: record the measured gripper angle as the grip on this board (nothing moves)',
+        ),
+      ).toBeTruthy()
+      await click('Cancel', dialog())
+      expect(m.confirmGrip).not.toHaveBeenCalled()
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+      await click(CONFIRM, step(3))
+      await confirmIn(CONFIRM)
+      expect(m.confirmGrip).toHaveBeenCalledTimes(1)
+    })
+
+    it('shows an error answer on the step', async () => {
+      setState(HOLDING)
+      m.confirmGrip.mockResolvedValue({ ok: false, status: 409, message: 'the gripper is not closed on the handle' })
+      await renderFlow(false)
+      await click(CONFIRM, step(3))
+      await confirmIn(CONFIRM)
+      expect(within(step(3)).getByText('the gripper is not closed on the handle')).toBeTruthy()
+    })
+
+    it('the Park step reports its own error', async () => {
+      setState(HOLDING)
+      m.confirmGrip.mockResolvedValue({ ok: false, status: 409, message: 'busy now' })
+      await renderFlow(false)
+      await click(CONFIRM, step(7))
+      await confirmIn(CONFIRM)
+      expect(within(step(7)).getByText('busy now')).toBeTruthy()
+    })
+
+    it.each([
+      ['unseated', UNSEATED],
+      ['slack', SLACK],
+    ])('a %s sequence error offers Confirm correct grip inside the error alert', async (_n, error) => {
+      setState(seq({ error }))
+      m.confirmGrip.mockResolvedValue(ok(seq({})))
+      await renderFlow(false)
+      const alert = screen.getByText('Last head-arm error').closest('[role="alert"]') as HTMLElement
+      expect(disabledOf(alert, CONFIRM)).toBe(false)
+      await click(CONFIRM, alert)
+      await confirmIn(CONFIRM)
+      expect(m.confirmGrip).toHaveBeenCalledTimes(1)
+    })
+
+    it('shows the node refusal of the banner button in the banner while step 3 is locked', async () => {
+      setState(seq({ error: UNSEATED }))
+      m.confirmGrip.mockResolvedValue({ ok: false, status: 409, message: 'the gripper is not closed on the handle' })
+      await renderFlow(false)
+      const alert = screen.getByText('Last head-arm error').closest('[role="alert"]') as HTMLElement
+      await click(CONFIRM, alert)
+      await confirmIn(CONFIRM)
+      expect(within(alert).getByText('the gripper is not closed on the handle')).toBeTruthy()
+    })
+
+    it('a banner confirm from idle posts and shows the recorded grip next to the banner button', async () => {
+      setState(seq({ error: UNSEATED }))
+      m.confirmGrip.mockResolvedValue(ok(seq({ error: UNSEATED })))
+      await renderFlow(false)
+      const alert = screen.getByText('Last head-arm error').closest('[role="alert"]') as HTMLElement
+      await click(CONFIRM, alert)
+      await confirmIn(CONFIRM)
+      expect(m.confirmGrip).toHaveBeenCalledTimes(1)
+      await waitFor(() => expect(within(alert).getByText(/Grip recorded: handle contact 0\.0912 rad/)).toBeTruthy())
+    })
+
+    it('an other sequence error has no Confirm correct grip button', async () => {
+      setState(seq({ error: 'camera timeout' }))
+      await renderFlow(false)
+      const alert = screen.getByText('Last head-arm error').closest('[role="alert"]') as HTMLElement
+      expect(within(alert).queryByRole('button', { name: CONFIRM })).toBeNull()
+    })
+
+    it('the error-side button is disabled while running', async () => {
+      setState(seq({ error: UNSEATED, running: true, phase: 'capturing', session_id: SID }))
+      await renderFlow(false)
+      const alert = screen.getByText('Last head-arm error').closest('[role="alert"]') as HTMLElement
+      expect(disabledOf(alert, CONFIRM)).toBe(true)
+    })
+
+    it('shows the recorded grip source and Reset to config value', async () => {
+      setState(HOLDING)
+      m.resetGrip.mockResolvedValue(ok(HOLDING))
+      await renderFlow(false)
+      expect(within(step(3)).getByText(/Handle contact 0\.0912 rad \(recorded at 2026-11-11T08:00:00\+00:00\)/)).toBeTruthy()
+      expect(within(step(7)).getByText(/Handle contact 0\.0912 rad \(recorded at/)).toBeTruthy()
+      await click(RESET, step(3))
+      await click('Cancel', dialog())
+      expect(m.resetGrip).not.toHaveBeenCalled()
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+      await click(RESET, step(3))
+      await confirmIn(RESET)
+      expect(m.resetGrip).toHaveBeenCalledTimes(1)
+    })
+
+    it('the config source shows the config value and no Reset', async () => {
+      setState({ ...HOLDING, grip: { ...stateFx.sequence.grip, source: 'config', recorded_at: null, handle_contact_rad: 0.0951 } })
+      await renderFlow(false)
+      expect(within(step(3)).getByText(/Handle contact 0\.0951 rad \(config value\)/)).toBeTruthy()
+      expect(screen.queryByRole('button', { name: RESET })).toBeNull()
+    })
+
+    it('Reset to config value is disabled while running', async () => {
+      setState({ ...HOLDING, running: true, phase: 'capturing' })
+      await renderFlow(false)
+      expect(disabledOf(step(3), RESET)).toBe(true)
+    })
   })
 })

@@ -32,6 +32,7 @@ from starlette.responses import Response
 from .agent_proxy import register_agent_routes
 from .arm_calibration import register_arm_calibration_routes
 from .bridge import CANCEL_GOAL_SERVICE_SUFFIX, SERIALIZE_MAP_SERVICE
+from .calibration_active import InFlightRegistry, register_calibration_active_routes
 from .config import AppConfig, TabConfig, TileSourceConfig
 from .general_calibration import register_general_calibration_routes
 from .ground_session import NAME_PATTERN
@@ -766,8 +767,10 @@ def build_app(
     register_photo_routes(app, config)
     register_arm_calibration_routes(app, config)
     register_imu_calibration_routes(app, config, bridge_node)
-    register_servo_calibration_routes(app, config, bridge_node, battery_block)
-    register_general_calibration_routes(app, config, bridge_node, battery_block)
+    in_flight = InFlightRegistry()
+    register_servo_calibration_routes(app, config, bridge_node, battery_block, in_flight)
+    register_general_calibration_routes(app, config, bridge_node, battery_block, in_flight)
+    register_calibration_active_routes(app, config, bridge_node, in_flight)
     register_model_routes(app, config)
     register_rgbd_calibration_routes(app, config)
 

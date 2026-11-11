@@ -18,6 +18,7 @@ const SEQ_IDLE = {
   waiting_since: null,
   board_on: false,
   board_record: null,
+  grip: { handle_contact_rad: 0.0951, grip_rad: 0.0751, source: 'config', recorded_at: null, config_handle_contact_rad: 0.0951 },
   events: [],
 }
 const SWEEP_IDLE = { running: false, session_id: null, pose: 0, total: 0, observations: 0, skipped: 0, status: 'idle', error: null }
