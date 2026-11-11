@@ -24,6 +24,7 @@ from web_ui.calibration_active import (
     SourceError,
     csi_cameras,
     csi_capture_reasons,
+    evaluate,
     fetch_json,
     floor_reasons,
     ground_board_reasons,
@@ -33,6 +34,7 @@ from web_ui.calibration_active import (
     servo_group_reasons,
 )
 from web_ui.config import AppConfig, CalibrationConfig, CalibrationGeneralConfig, ServoGroupConfig
+from web_ui.server import build_app
 
 RGBD_URL = "http://calib.test:18110"
 FIXTURE = Path(__file__).parent / "fixtures" / "api" / "calibration_active.json"
@@ -593,8 +595,6 @@ class BlockingBridge:
 
 
 def build_real_app(tmp_path: Path, bridge: Any) -> FastAPI:
-    from web_ui.server import build_app
-
     cal = CalibrationConfig(
         servo_groups=[ServoGroupConfig(id="arm", label="Arm", namespace="follower", set_home_service="/arm/set_home")],
         general=CalibrationGeneralConfig(),
@@ -653,3 +653,57 @@ async def test_unknown_action_is_never_tracked(tmp_path: Path, url: str) -> None
     with patch.object(InFlightRegistry, "track", side_effect=AssertionError("tracked")):
         async with httpx.AsyncClient(transport=transport, base_url="http://t") as client:
             assert (await client.post(url)).status_code == 404
+
+
+# --- never 500: unexpected exceptions and malformed capture --------------------------------------------------------
+
+
+@pytest.mark.parametrize("capture", [False, 0, "", [], "yes"])
+def test_servo_capture_falsy_malformed_is_unknown(capture: Any) -> None:
+    state = servo_state(servo_calibration={"home": None, "capture": capture, "plan": None})
+    with pytest.raises(SourceError):
+        servo_group_reasons(status(state))
+
+
+def test_evaluate_unexpected_exception_is_unknown() -> None:
+    async def boom() -> list[str]:
+        raise RecursionError("deep")
+
+    assert asyncio.run(evaluate("rgbd:x", boom(), 1.0)) == ("rgbd:x", [], "error: RecursionError")
+
+
+def test_route_unexpected_exception_in_rgbd_source_is_unknown_200() -> None:
+    with patch("web_ui.calibration_active.csi_capture_reasons", side_effect=RuntimeError("x")):
+        body = get(make_app(transport_for(IDLE_BODIES)))
+    assert body["active"] is False
+    assert by_name(body["unknown"]) == {"rgbd:csi/front": "error: RuntimeError"}
+
+
+def test_csi_list_unexpected_exception_is_unknown_200() -> None:
+    with patch("web_ui.calibration_active.csi_cameras", side_effect=RuntimeError("x")):
+        body = get(make_app(transport_for(IDLE_BODIES)))
+    assert by_name(body["unknown"]) == {"rgbd:csi": "error: RuntimeError"}
+
+
+def test_servo_bridge_raising_is_unknown_200() -> None:
+    class Boom(FakeBridge):
+        def servo_torque_sample(self, namespace: str) -> Any:
+            raise RuntimeError("bridge")
+
+    body = get(make_app(None, Boom(), [group("arm")], rgbd_url=None))
+    assert by_name(body["unknown"]) == {"servo:arm": "error: RuntimeError"}
+    assert body["active"] is False
+
+
+def test_csi_camera_name_is_quoted_in_path() -> None:
+    seen: list[bytes] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.raw_path)
+        if request.url.path == "/api/csi":
+            return httpx.Response(200, json={"cameras": ["a b/c"]})
+        return httpx.Response(200, json=IDLE_BODIES.get(request.url.path, {"capture": {"running": False}}))
+
+    body = get(make_app(httpx.MockTransport(handler)))
+    assert b"/api/csi/a%20b%2Fc/state" in seen
+    assert "rgbd:csi/a b/c" not in by_name(body["unknown"])

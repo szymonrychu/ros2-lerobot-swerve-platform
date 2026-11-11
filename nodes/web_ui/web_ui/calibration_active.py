@@ -17,6 +17,7 @@ import contextlib
 import threading
 from collections.abc import Awaitable, Callable, Iterator
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 import structlog
@@ -344,7 +345,8 @@ def servo_group_reasons(status: dict[str, Any]) -> list[str]:
     if calibration is not None:
         calibration = require_dict(calibration, "state.servo_calibration")
         capture = calibration.get("capture")
-        if capture:
+        # Only a missing capture or an empty object is idle; False, 0, "" and [] are malformed (unknown).
+        if capture is not None and capture != {}:
             running = require_key(require_dict(capture, "servo_calibration.capture"), "running", "capture")
             if not isinstance(running, bool):
                 raise SourceError("servo_calibration.capture.running is not a bool")
@@ -407,6 +409,9 @@ async def evaluate(name: str, work: Awaitable[list[str]], timeout_s: float, wait
         return name, [], str(exc)
     except TimeoutError:
         return name, [], TIMEOUT_REASON.format(timeout_s=timeout_s)
+    except Exception as exc:
+        log.warning("calibration_active_source_error", source=name, error=repr(exc))
+        return name, [], f"error: {type(exc).__name__}"
 
 
 async def fetch_rule(client: httpx.AsyncClient, url: str, rule: Callable[[Any], list[str]]) -> list[str]:
@@ -446,12 +451,15 @@ async def csi_outcomes(client: httpx.AsyncClient, base_url: str, timeout_s: floa
         return [(NAME_CSI, [], str(exc))]
     except TimeoutError:
         return [(NAME_CSI, [], TIMEOUT_REASON.format(timeout_s=timeout_s))]
+    except Exception as exc:
+        log.warning("calibration_active_source_error", source=NAME_CSI, error=repr(exc))
+        return [(NAME_CSI, [], f"error: {type(exc).__name__}")]
     remaining_s = max(deadline - loop.time(), 0.0)
     outcomes = await asyncio.gather(
         *(
             evaluate(
                 f"{NAME_CSI}/{cam}",
-                fetch_rule(client, f"{base_url}{PATH_CSI}/{cam}/state", csi_capture_reasons),
+                fetch_rule(client, f"{base_url}{PATH_CSI}/{quote(cam, safe='')}/state", csi_capture_reasons),
                 timeout_s,
                 wait_s=remaining_s,
             )
@@ -476,6 +484,9 @@ def servo_outcome(group: ServoGroupConfig, bridge_node: Any) -> Outcome:
         return name, servo_group_reasons(group_status(group, bridge_node)), None
     except SourceError as exc:
         return name, [], str(exc)
+    except Exception as exc:
+        log.warning("calibration_active_source_error", source=name, error=repr(exc))
+        return name, [], f"error: {type(exc).__name__}"
 
 
 async def collect_active(
