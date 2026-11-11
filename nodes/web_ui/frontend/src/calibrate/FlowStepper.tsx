@@ -13,7 +13,7 @@ export interface FlowStep {
   done: boolean
   /** An optional step never locks the steps after it. */
   optional?: boolean
-  /** Never locked, whatever the steps before it say (e.g. Park while the arm holds the board). */
+  /** Never locked, whatever the steps before it say (e.g. Home while the arm holds the board). */
   alwaysOpen?: boolean
   /** Live status line of the step. */
   status?: ReactNode

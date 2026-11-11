@@ -16,7 +16,7 @@ const HOURS_TO_DAYS = 48
 export const CLEAR_BUTTON = 'The board is already off the gripper: clear the record'
 export const CLEAR_TITLE = 'Clear the board record?'
 export const CLEAR_BODY =
-  'Only when the calibration board is already off the gripper. Nothing moves: the node removes its record of the board on the gripper, so Home arm is no longer refused for it and Park no longer carries the board. If the board is still on the gripper, cancel and park it with the board instead.'
+  "Only when the calibration board is already off the gripper. Nothing moves: the node removes its record of the board on the gripper, so Home arm is no longer refused for it and the Arm to camera flow's Home no longer carries the board. If the board is still on the gripper, cancel and use the flow's Home with the board instead."
 export const HOME_REFUSED_TEXT = 'Home arm is refused while the record exists.'
 
 /**
@@ -48,10 +48,10 @@ export function boardRecordText(record: BoardRecord): string {
 interface Props {
   /** The head-arm sequence's board record (null: none, nothing is shown). */
   record: BoardRecord | null
-  /** A head-arm sequence or park runs: the clear is off (the node refuses it then). */
+  /** A head-arm sequence or Home runs: the clear is off (the node refuses it then). */
   running: boolean
-  /** What to do when the board is still on (where the Park with the board is). */
-  parkHint: string
+  /** What to do when the board is still on (where the Home with the board is). */
+  homeHint: string
   /** Called with the sequence the node answers after a clear. */
   onCleared?: (sequence: HeadArmSequence) => void
 }
@@ -59,9 +59,9 @@ interface Props {
 /**
  * The board record banner of the Calibrate page (Arm to camera flow and General section): shown whenever the node has
  * a board record, whatever its age, with "The board is already off the gripper: clear the record" behind a confirm.
- * The clear moves nothing; Park with the board stays the way when the board is still on.
+ * The clear moves nothing; the flow's Home with the board stays the way when the board is still on.
  */
-export function BoardRecordNotice({ record, running, parkHint, onCleared }: Props) {
+export function BoardRecordNotice({ record, running, homeHint, onCleared }: Props) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -81,7 +81,7 @@ export function BoardRecordNotice({ record, running, parkHint, onCleared }: Prop
   return (
     <Box aria-label="Board record" component="section" sx={{ mt: 1 }}>
       <Alert severity="warning">
-        {`${boardRecordText(record)} ${HOME_REFUSED_TEXT} Board still on the gripper: ${parkHint} Board already off: clear the record.`}
+        {`${boardRecordText(record)} ${HOME_REFUSED_TEXT} Board still on the gripper: ${homeHint} Board already off: clear the record.`}
       </Alert>
       <Button variant="outlined" sx={{ minHeight: TOUCH_TARGET_PX, mt: 1 }} disabled={busy || running} onClick={() => setOpen(true)}>
         {CLEAR_BUTTON}

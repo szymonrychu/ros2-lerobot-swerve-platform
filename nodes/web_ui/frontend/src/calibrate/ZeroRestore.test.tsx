@@ -140,7 +140,7 @@ describe('Arm zero restore panel', () => {
     expect(button(p, '3. Apply').disabled).toBe(true)
     expect(button(p, '4. Re-enable torque').disabled).toBe(true)
     expect(within(p).getByText('The arm goes limp; rest it folded on its rest, jaws open 90 deg.')).toBeTruthy()
-    expect(within(p).getByText('5. Then Park the arm on the head-arm card.')).toBeTruthy()
+    expect(within(p).getByText('5. Then Home the arm on the head-arm card.')).toBeTruthy()
     expect(within(p).getByText('Reference: seed from the bridge config')).toBeTruthy()
   })
 

@@ -19,14 +19,14 @@ export const GENERAL_POLL_MS = 2000
 const SEQUENCE_BLOCKED: GeneralActionId[] = ['open_gripper', 'close_gripper', 'home_arm', 'home_head']
 /** Actions that would fight a floor sweep, a ground board session or a ground verification (they move the head). */
 const SWEEP_BLOCKED: GeneralActionId[] = ['home_head']
-/** Sequence phases in which the arm is the sequence's or holds the board (holding: park it from the Arm to camera flow). */
-const LIVE_PHASES = ['waiting_board', 'waiting_big_joints', 'holding', 'parking']
+/** Sequence phases in which the arm is the sequence's or holds the board (holding: Home it from the Arm to camera flow). */
+const LIVE_PHASES = ['waiting_board', 'waiting_big_joints', 'holding', 'homing']
 const BLOCKED_TEXT =
-  'Arm and camera moves are off: a calibration sequence runs or the arm holds the board. Abort the running calibration first, or park the board from the Arm to camera flow.'
+  "Arm and camera moves are off: a calibration sequence runs or the arm holds the board. Abort the running calibration first, or bring the arm with the board home with the Arm to camera flow's Home."
 const SWEEP_TEXT = 'Home camera is off while a floor sweep, a ground board session or a ground verification moves the head.'
-const BOARD_PARK_HINT = 'park it with Park (board is on the gripper) in the Arm to camera flow.'
+const BOARD_HOME_HINT = 'home it with Home (board is on the gripper) in the Arm to camera flow.'
 const ABORT_TEXT =
-  'Stops the running calibration capture, sweep or sequence. The arm holds where it is (no park); park it from the flow or use Home arm afterwards.'
+  "Stops the running calibration capture, sweep or sequence. The arm holds where it is (no Home move); use the Arm to camera flow's Home or General Home arm afterwards."
 
 type Feedback = { ok: boolean; message: string; details: string[] } | null
 type Pending = GeneralAction | 'abort' | null
@@ -132,7 +132,7 @@ export function GeneralSection({ actions, rgbd }: { actions: GeneralActionId[]; 
           </Button>
         ))}
       </Box>
-      {rgbd && <BoardRecordNotice record={boardRecord} running={sequenceRunning} parkHint={BOARD_PARK_HINT} onCleared={follow} />}
+      {rgbd && <BoardRecordNotice record={boardRecord} running={sequenceRunning} homeHint={BOARD_HOME_HINT} onCleared={follow} />}
       {sequenceLive && (
         <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
           {BLOCKED_TEXT}

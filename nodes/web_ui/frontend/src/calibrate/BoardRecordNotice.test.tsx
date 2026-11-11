@@ -16,7 +16,7 @@ const OLD: BoardRecord = {
   problem: 'too old',
 }
 const CLEARED = { ...stateFx.sequence, board_record: null } as HeadArmSequence
-const PARK_HINT = 'park it from the flow.'
+const HOME_HINT = 'home it from the flow.'
 
 afterEach(() => {
   cleanup()
@@ -43,15 +43,15 @@ describe('BoardRecordNotice', () => {
   })
 
   it('renders nothing without a record', () => {
-    const { container } = render(<BoardRecordNotice record={null} running={false} parkHint={PARK_HINT} />)
+    const { container } = render(<BoardRecordNotice record={null} running={false} homeHint={HOME_HINT} />)
     expect(container.textContent).toBe('')
   })
 
   it('shows an old record with both ways out and keeps the clear behind a confirm', async () => {
     const clear = vi.spyOn(api, 'clearBoardRecord').mockResolvedValue({ ok: true, value: CLEARED })
     const onCleared = vi.fn()
-    render(<BoardRecordNotice record={OLD} running={false} parkHint={PARK_HINT} onCleared={onCleared} />)
-    expect(screen.getByText(/Home arm is refused while the record exists\. Board still on the gripper: park it from the flow\. Board already off: clear the record\./)).toBeTruthy()
+    render(<BoardRecordNotice record={OLD} running={false} homeHint={HOME_HINT} onCleared={onCleared} />)
+    expect(screen.getByText(/Home arm is refused while the record exists\. Board still on the gripper: home it from the flow\. Board already off: clear the record\./)).toBeTruthy()
     fireEvent.click(button())
     const dialog = await screen.findByRole('dialog')
     expect(within(dialog).getByText(CLEAR_TITLE)).toBeTruthy()
@@ -66,22 +66,22 @@ describe('BoardRecordNotice', () => {
 
   it('cancel clears nothing', async () => {
     const clear = vi.spyOn(api, 'clearBoardRecord')
-    render(<BoardRecordNotice record={OLD} running={false} parkHint={PARK_HINT} />)
+    render(<BoardRecordNotice record={OLD} running={false} homeHint={HOME_HINT} />)
     fireEvent.click(button())
     fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Cancel' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     expect(clear).not.toHaveBeenCalled()
   })
 
-  it('the clear is off while a sequence or park runs', () => {
-    render(<BoardRecordNotice record={OLD} running parkHint={PARK_HINT} />)
+  it('the clear is off while a sequence or Home runs', () => {
+    render(<BoardRecordNotice record={OLD} running homeHint={HOME_HINT} />)
     expect(button().disabled).toBe(true)
   })
 
   it('shows the node refusal', async () => {
     vi.spyOn(api, 'clearBoardRecord').mockResolvedValue({ ok: false, status: 409, message: 'an arm to camera compute is running' })
     const onCleared = vi.fn()
-    render(<BoardRecordNotice record={OLD} running={false} parkHint={PARK_HINT} onCleared={onCleared} />)
+    render(<BoardRecordNotice record={OLD} running={false} homeHint={HOME_HINT} onCleared={onCleared} />)
     fireEvent.click(button())
     await act(async () => {
       fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Clear the record' }))
