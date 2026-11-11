@@ -483,6 +483,25 @@ def test_csi_one_camera_fails_others_evaluated() -> None:
     assert body["active"] is True
 
 
+def test_csi_one_camera_hangs_others_evaluated() -> None:
+    async def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/api/csi/rear/state":
+            await asyncio.sleep(5)
+        if path == "/api/csi":
+            return httpx.Response(200, json={"cameras": ["front", "rear"]})
+        if path == "/api/csi/front/state":
+            return httpx.Response(200, json={"capture": {"running": True}})
+        return httpx.Response(200, json=IDLE_BODIES[path])
+
+    started = time.monotonic()
+    body = get(make_app(httpx.MockTransport(handler)))
+    assert time.monotonic() - started < 1.0
+    assert by_name(body["flows"]) == {"rgbd:csi/front": "capture.running"}
+    assert by_name(body["unknown"]) == {"rgbd:csi/rear": f"timeout after {SOURCE_TIMEOUT_S:g} s"}
+    assert body["active"] is True
+
+
 def test_csi_without_cameras_is_idle() -> None:
     body = get(make_app(transport_for({**IDLE_BODIES, "/api/csi": {"cameras": []}})))
     assert body == {"active": False, "flows": [], "unknown": []}

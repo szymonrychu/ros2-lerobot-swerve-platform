@@ -383,19 +383,20 @@ async def fetch_json(client: httpx.AsyncClient, url: str) -> Any:
 Outcome = tuple[str, list[str], str | None]
 
 
-async def evaluate(name: str, work: Awaitable[list[str]], timeout_s: float) -> Outcome:
+async def evaluate(name: str, work: Awaitable[list[str]], timeout_s: float, wait_s: float | None = None) -> Outcome:
     """Run one source under its own budget.
 
     Args:
         name (str): Source name.
         work (Awaitable[list[str]]): Fetches and applies the rule.
-        timeout_s (float): Budget in seconds.
+        timeout_s (float): Budget in seconds, quoted in the timeout reason.
+        wait_s (float | None): Time actually left to wait; None means timeout_s.
 
     Returns:
         Outcome: (name, reasons, None), or (name, [], unknown reason).
     """
     try:
-        return name, await asyncio.wait_for(work, timeout_s), None
+        return name, await asyncio.wait_for(work, timeout_s if wait_s is None else wait_s), None
     except SourceError as exc:
         return name, [], str(exc)
     except TimeoutError:
@@ -431,27 +432,27 @@ async def csi_outcomes(client: httpx.AsyncClient, base_url: str, timeout_s: floa
         list[Outcome]: rgbd:csi unknown on a list failure or timeout, else one outcome per camera (rgbd:csi/<cam>).
     """
 
-    async def cameras_work() -> list[Outcome]:
-        cameras = csi_cameras(await fetch_json(client, base_url + PATH_CSI))
-        return list(
-            await asyncio.gather(
-                *(
-                    evaluate(
-                        f"{NAME_CSI}/{cam}",
-                        fetch_rule(client, f"{base_url}{PATH_CSI}/{cam}/state", csi_capture_reasons),
-                        timeout_s,
-                    )
-                    for cam in cameras
-                )
-            )
-        )
-
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout_s
     try:
-        return await asyncio.wait_for(cameras_work(), timeout_s)
+        cameras = csi_cameras(await asyncio.wait_for(fetch_json(client, base_url + PATH_CSI), timeout_s))
     except SourceError as exc:
         return [(NAME_CSI, [], str(exc))]
     except TimeoutError:
         return [(NAME_CSI, [], TIMEOUT_REASON.format(timeout_s=timeout_s))]
+    remaining_s = max(deadline - loop.time(), 0.0)
+    outcomes = await asyncio.gather(
+        *(
+            evaluate(
+                f"{NAME_CSI}/{cam}",
+                fetch_rule(client, f"{base_url}{PATH_CSI}/{cam}/state", csi_capture_reasons),
+                timeout_s,
+                wait_s=remaining_s,
+            )
+            for cam in cameras
+        )
+    )
+    return list(outcomes)
 
 
 def servo_outcome(group: ServoGroupConfig, bridge_node: Any) -> Outcome:
