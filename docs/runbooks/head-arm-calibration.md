@@ -80,8 +80,8 @@ mcp_server kills it; ask first). Telemetry only through topic_scraper_api /
    "Arm zero is stale" (after an accidental re-zero restore it in Servo calibration, Advanced / repair; after a servo
    calibration store the arm-to-camera calibration must be redone: an info line (not a warning) lists the per-joint
    zero shifts and every manual arm operation stays enabled, with no confirm: Home arm and Open gripper here, the Arm
-   tab Arm home and Home, the Calibrate General Home arm and Move to neutral; with an unreadable stale marker the banner says so: fix the marker, never delete it before the redo; see the
-   feetech_servos README). Steps: 1 **Home arm** (confirm), 2 **Open gripper**
+   tab Arm home and Home, the Calibrate General Home arm and Move to neutral; with an unreadable stale marker the
+   banner says so: fix the marker, never delete it before the redo; see the feetech_servos README). Steps: 1 **Home arm** (confirm), 2 **Open gripper**
    (confirm naming the joints: base pose, gripper open to `insert_gripper_rad`), 3 the user seats the ARM board handle
    in the jaws up to the shoulder and presses **Board attached**: the gripper closes on the handle (seat and slack
    checks in the events log), tiers 0 and 1 start, 4 **Capture**: ask before **Allow shoulder and elbow moves**

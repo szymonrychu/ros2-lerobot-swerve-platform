@@ -34,8 +34,8 @@ type Pending = GeneralAction | 'abort' | null
 /**
  * General section of the Calibrate page, always on top: Abort calibration plus the moving helpers (open / close
  * gripper, home arm, home camera, home steering servos), each behind a confirm, and the node's board record (any age)
- * with its no-motion clear. Home arm is off while the board record exists (mcp_server refuses it) and while the arm
- * zero was set by a servo calibration (the Arm to camera flow homes the arm then, after its old joint offsets confirm).
+ * with its no-motion clear. Home arm is off while the board record exists (mcp_server refuses it). After a servo calibration
+ * it stays on; an info line shows the calibration time, the remedy (redo Calibrate, Arm to camera) and the zero shift.
  *
  * @param actions - the actions the robot offers (GET /api/calibration/config `general`)
  * @param rgbd - the RGB-D calibration node is configured: Abort is offered and the section follows its sequence to

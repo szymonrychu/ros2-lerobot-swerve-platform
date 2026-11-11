@@ -120,7 +120,6 @@ export function ArmCameraFlow({ canHomeArm }: { canHomeArm: boolean }) {
   const [parkRequested, setParkRequested] = useState(false)
   // Session of a run the user closed with Start a new run: its capture no longer counts for steps 1-4.
   const [closedSid, setClosedSid] = useState<string | null>(null)
-  // The old joint offsets confirm of the zero set by a servo calibration; reset whenever that case or its time changes.
   const lastSid = useRef<string | null>(null)
   const pollFailures = useRef(0)
   const polling = useRef(false)

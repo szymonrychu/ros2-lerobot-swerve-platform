@@ -217,6 +217,14 @@ describe('ArmCameraFlow', () => {
     })
     await screen.findByText(/Advanced \/ repair/)
     expect(homeButton().disabled).toBe(true)
+    // Back to the redo state: enabled again, still no confirm.
+    servoGroups = [redoGroup()]
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(SERVO_POLL_MS + 100)
+    })
+    await screen.findByText(/Arm zero set by a servo calibration at/)
+    expect(homeButton().disabled).toBe(false)
+    expect(screen.queryByRole('checkbox')).toBeNull()
   })
 
   it('an unreadable stale marker with the bridge stale flag blocks the arm moves without a confirm', async () => {
