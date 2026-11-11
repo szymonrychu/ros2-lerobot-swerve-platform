@@ -780,6 +780,133 @@
         "x": 0,
         "y": 68
       }
+    },
+    {
+      "type": "row",
+      "title": "DDS discovery watchdog",
+      "id": 16,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 80
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "DDS watchdog suspects",
+      "id": 17,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "1 while a ros2 unit of the picked host has a wedged Fast DDS discovery thread (dds.udp.<port> in futex_wait_queue with a full rx_queue). The watchdog restarts the unit after 3 consecutive samples. Runbook: docs/runbooks/dds-discovery-deadlock.md.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 81
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "max": 1,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "fillOpacity": 20
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "sum by (unit) (dds_watchdog_suspect{host=\"$host\"})",
+          "legendFormat": "{{unit}}"
+        }
+      ]
+    },
+    {
+      "type": "barchart",
+      "title": "DDS watchdog restarts in window",
+      "id": 18,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "Restarts of each ros2 unit by the DDS watchdog in the selected time range; only units that were restarted.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 81
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "xField": "unit",
+        "orientation": "horizontal",
+        "legend": {
+          "displayMode": "hidden",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "sum by (unit) (increase(dds_watchdog_restarts_total{host=\"$host\"}[$__range]))",
+          "legendFormat": "{{unit}}",
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value": "restarts"
+            }
+          }
+        }
+      ]
     }
   ]
 }

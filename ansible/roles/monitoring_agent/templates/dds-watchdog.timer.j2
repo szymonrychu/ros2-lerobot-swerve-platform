@@ -1,0 +1,11 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Check the ros2 units for a deadlocked DDS discovery thread every {{ monitoring_agent_dds_watchdog_interval }}
+
+[Timer]
+OnBootSec=60s
+OnUnitActiveSec={{ monitoring_agent_dds_watchdog_interval }}
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

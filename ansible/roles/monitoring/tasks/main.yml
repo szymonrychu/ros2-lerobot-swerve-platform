@@ -127,6 +127,23 @@
         mode: "0640"
       notify: [Restart grafana-server]
 
+    # The grafana package ships this directory; no owner or group, so an existing one keeps the package's.
+    - name: Create the alert rule provisioning directory
+      ansible.builtin.file:
+        path: /etc/grafana/provisioning/alerting
+        state: directory
+        mode: "0755"
+
+    # Grafana-only rules, no contact point or policy yet (R2's webhook is a follow-up).
+    - name: Provision the alert rules
+      ansible.builtin.template:
+        src: grafana-alerting.yaml.j2
+        dest: /etc/grafana/provisioning/alerting/robot.yaml
+        owner: root
+        group: grafana
+        mode: "0640"
+      notify: [Restart grafana-server]
+
     - name: Provision the dashboard provider
       ansible.builtin.template:
         src: grafana-dashboards.yaml.j2
@@ -176,7 +193,8 @@
         for entry in \
           "mimir:/etc/default/mimir /etc/mimir/config.yml $d/mimir$slice $d/monitoring.slice" \
           "loki:/etc/loki/config.yml $d/loki$slice $d/monitoring.slice" \
-          "grafana-server:/etc/grafana/grafana.ini /etc/grafana/provisioning/datasources/robot.yaml $d/grafana-server$slice $d/monitoring.slice"; do
+          "grafana-server:/etc/grafana/grafana.ini /etc/grafana/provisioning/datasources/robot.yaml \
+           /etc/grafana/provisioning/alerting/robot.yaml $d/grafana-server$slice $d/monitoring.slice"; do
           unit=${entry%%:*}; files=${entry#*:}
           started=$(date -d "$(systemctl show -p ActiveEnterTimestamp --value "$unit")" +%s)
           for f in $files; do
