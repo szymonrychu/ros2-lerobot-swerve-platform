@@ -643,6 +643,11 @@ on the arm, `set_home_from_calibration_service` (`/arm/set_home_from_calibration
   `home_set` (true / false; a failed chain leaves `ok` true; null when not chained).
 - The status is `state.servo_calibration` (`config`, `home`, `capture`, `plan`, `last_result`) of the group in
   `GET /servos`. The store outcome stays shown after the plan clears.
+- A group with a `stale_marker` also reports `servo_calibration_at` (the marker's top-level ISO-8601 time of the servo
+  calibration store, null when the marker has none) and `zero_shift_deg` ({joint: absolute short-way shift of the
+  marker's `after_steps - before_steps` in degrees, 4096 steps per turn, rounded to 0.1}; joints without integer steps
+  are skipped, null when none remain). Without a marker, or with an unreadable one, `calibration_stale`,
+  `servo_calibration_at` and `zero_shift_deg` are all null.
 - The leader arm is not part of the flow: after an arm calibration teleop needs the leader re-zeroed in the same pose.
 - Tests: `tests/test_servo_calibration.py` (routes, battery block, plan binding, timeout, chain), vitest
   `servoApi.test.ts`, `ServoCalibrationCard.test.tsx`, `RangeBars.test.tsx`, `flows/ServoCalibrationFlow.test.tsx`

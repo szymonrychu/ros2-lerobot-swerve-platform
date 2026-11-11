@@ -42,6 +42,9 @@ from .imu_calibration import HTTP_CONFLICT, HTTP_NOT_FOUND, HTTP_UNAVAILABLE, NO
 
 # torque_state key holding the plan, by whether the action is a servo calibration store.
 PLAN_STATE_KEYS: dict[bool, str] = {False: "zero_restore", True: "servo_calibration"}
+# Arm stale marker key holding the ISO-8601 time of the servo calibration store, absent when none.
+SERVO_CALIBRATION_AT_FIELD = "servo_calibration_at"
+STEPS_PER_TURN = 4096
 PLAN_CHANGED = "the dry run changed since it was shown; review the new plan"
 
 
@@ -68,14 +71,15 @@ def shown_plan_error(group: ServoGroupConfig, bridge_node: Any, plan_run_id: str
     return None
 
 
-def read_stale_items(marker: str | None) -> list[str] | None:
-    """Read the calibration-stale items from a group's marker file.
+def read_marker(marker: str | None) -> dict[str, Any] | None:
+    """Read a group's stale marker file once.
 
     Args:
         marker (str | None): Marker path, or None for a group without one.
 
     Returns:
-        list[str] | None: The marker's "stale" items, or None when there is no marker, it is absent or unreadable.
+        dict[str, Any] | None: The parsed marker object, or None when there is no marker, it is absent, unreadable
+            or not a JSON object.
     """
     if marker is None:
         return None
@@ -83,8 +87,52 @@ def read_stale_items(marker: str | None) -> list[str] | None:
         data = json.loads(Path(marker).read_text())
     except (OSError, ValueError):
         return None
-    items = data.get("stale") if isinstance(data, dict) else None
-    return [str(i) for i in items] if isinstance(items, list) else None
+    return data if isinstance(data, dict) else None
+
+
+def zero_shift_deg(joints: Any) -> dict[str, float] | None:
+    """Convert the marker's per-joint before / after steps to absolute short-way shifts in degrees.
+
+    Args:
+        joints (Any): The marker's "joints" value, {joint: {before_steps, after_steps}}.
+
+    Returns:
+        dict[str, float] | None: {joint: degrees rounded to 0.1}; joints without integer steps are skipped; None
+            when no joint yields a shift.
+    """
+    if not isinstance(joints, dict):
+        return None
+    shifts: dict[str, float] = {}
+    for name, entry in joints.items():
+        before = entry.get("before_steps") if isinstance(entry, dict) else None
+        after = entry.get("after_steps") if isinstance(entry, dict) else None
+        if not all(isinstance(v, int) and not isinstance(v, bool) for v in (before, after)):
+            continue
+        steps = abs(((after - before + STEPS_PER_TURN // 2) % STEPS_PER_TURN) - STEPS_PER_TURN // 2)
+        shifts[str(name)] = round(steps * 360 / STEPS_PER_TURN, 1)
+    return shifts or None
+
+
+def marker_fields(marker: str | None) -> dict[str, Any]:
+    """Build the marker-derived fields of a group entry.
+
+    Args:
+        marker (str | None): Marker path, or None for a group without one.
+
+    Returns:
+        dict[str, Any]: {calibration_stale: list[str] | None, servo_calibration_at: str | None,
+            zero_shift_deg: dict[str, float] | None}; all None without a readable marker.
+    """
+    data = read_marker(marker)
+    if data is None:
+        return {"calibration_stale": None, SERVO_CALIBRATION_AT_FIELD: None, "zero_shift_deg": None}
+    items = data.get("stale")
+    at = data.get(SERVO_CALIBRATION_AT_FIELD)
+    return {
+        "calibration_stale": [str(i) for i in items] if isinstance(items, list) else None,
+        SERVO_CALIBRATION_AT_FIELD: at if isinstance(at, str) else None,
+        "zero_shift_deg": zero_shift_deg(data.get("joints")),
+    }
 
 
 def group_status(group: ServoGroupConfig, bridge_node: Any) -> dict[str, Any]:
@@ -95,7 +143,7 @@ def group_status(group: ServoGroupConfig, bridge_node: Any) -> dict[str, Any]:
         bridge_node (Any): BridgeNode or None.
 
     Returns:
-        dict[str, Any]: {id, label, neutral, state, age_s, stale, calibration_stale, zero_restore,
+        dict[str, Any]: {id, label, neutral, state, age_s, stale, calibration_stale, servo_calibration_at, zero_shift_deg, zero_restore,
             servo_calibration, move_to_neutral, set_home, home_pose_hint}.
     """
     sample = bridge_node.servo_torque_sample(group.namespace) if bridge_node is not None else None
@@ -110,7 +158,7 @@ def group_status(group: ServoGroupConfig, bridge_node: Any) -> dict[str, Any]:
         "state": state,
         "age_s": age_s,
         "stale": age_s is None or age_s > group.state_stale_s,
-        "calibration_stale": read_stale_items(group.stale_marker),
+        **marker_fields(group.stale_marker),
         "zero_restore": group.zero_restore,
         "servo_calibration": group.servo_calibration,
         "move_to_neutral": group.move_to_neutral_service is not None,
