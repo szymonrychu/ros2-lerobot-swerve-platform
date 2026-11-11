@@ -1,0 +1,128 @@
+# {{ ansible_managed }}
+# Grafana-managed alert rules (alert-rule file provisioning, apiVersion 1) for the DDS discovery watchdog
+# (roles/monitoring_agent, files/dds_watchdog.py). Runbook: docs/runbooks/dds-discovery-deadlock.md.
+# Grafana-only: no contact point and no notification policy are provisioned (the webhook that spawns a diagnosis agent
+# for R2 is a follow-up), so the rules show in Grafana's Alert rules list only.
+# Each rule: A = instant query on the Mimir datasource (prometheus-robot; the expression keeps only the series that
+# breach), B = reduce A to one number per series, C = threshold B > 0 (the condition). No series (healthy) is NoData,
+# which is OK; a failing query is Error.
+# The double-brace $labels references in the annotations are Grafana templates, shielded from Jinja by raw blocks.
+{% macro queries(expr) %}
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus-robot
+            model:
+              refId: A
+              datasource:
+                type: prometheus
+                uid: prometheus-robot
+              expr: '{{ expr }}'
+              instant: true
+              range: false
+              intervalMs: 1000
+              maxDataPoints: 43200
+          - refId: B
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: B
+              datasource:
+                type: __expr__
+                uid: __expr__
+              type: reduce
+              expression: A
+              reducer: last
+              settings:
+                mode: dropNN
+          - refId: C
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: __expr__
+            model:
+              refId: C
+              datasource:
+                type: __expr__
+                uid: __expr__
+              type: threshold
+              expression: B
+              conditions:
+                - evaluator:
+                    type: gt
+                    params: [0]
+{%- endmacro %}
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: dds-watchdog
+    folder: Robot
+    interval: 1m
+    rules:
+      # R1: the watchdog acted. Warning only; a repeat means the unit wedges again at once.
+      - uid: dds-watchdog-restart
+        title: DDS watchdog restarted a unit
+        condition: C
+{{ queries('sum by (host, unit) (increase(dds_watchdog_restarts_total[10m])) > 0') }}
+        for: 0m
+        isPaused: false
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: '{% raw %}{{ $labels.unit }} on {{ $labels.host }} was restarted by the DDS watchdog{% endraw %}'
+          description: >-
+            {% raw %}The DDS watchdog restarted {{ $labels.unit }} on {{ $labels.host }} in the last 10 minutes
+            because a Fast DDS discovery thread of the unit was deadlocked (eProsima/Fast-DDS#6502). Nothing to do
+            unless it repeats: then the unit wedges again at once, so read journalctl -u dds-watchdog.service and the
+            unit's own log. Runbook: docs/runbooks/dds-discovery-deadlock.md.{% endraw %}
+
+      # R2: a wedged unit has waited over 10 minutes for the watchdog to be allowed to restart it. A human (later an
+      # agent via the webhook policy, label route=agents) must look.
+      - uid: dds-watchdog-blocked
+        title: DDS wedge blocked by calibration
+        condition: C
+{{ queries('max by (host, unit) (dds_watchdog_restart_blocked_seconds) > 600') }}
+        for: 0m
+        isPaused: false
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: critical
+          route: agents
+        annotations:
+          summary: '{% raw %}{{ $labels.unit }} on {{ $labels.host }} is wedged and its restart has been blocked for over 10 minutes{% endraw %}'
+          description: >-
+            {% raw %}The DDS watchdog wants to restart {{ $labels.unit }} on {{ $labels.host }} (deadlocked Fast DDS
+            discovery thread) but has been held back for over 10 minutes by a calibration that is running, or whose
+            state cannot be read (it fails closed). Check the Calibrate page. Caveats: the blocked timer keeps
+            counting through a deploy-lock wait that follows a calibration hold, so a long deploy right after a
+            calibration can trip this alert without a calibration being active. If ros2-web_ui.service itself
+            is wedged, its calibration sources read unknown, so the watchdog never restarts it and this alert is the
+            signal: restart web_ui by hand. On the server, an unreachable client also blocks the restart (the server
+            asks the client's web_ui). Runbook: docs/runbooks/dds-discovery-deadlock.md.{% endraw %}
+
+      # R3: the timer stopped, so R1 and R2 are blind.
+      - uid: dds-watchdog-stale
+        title: DDS watchdog not running
+        condition: C
+{{ queries('time() - max by (host) (dds_watchdog_last_run_timestamp_seconds) > 300') }}
+        for: 2m
+        isPaused: false
+        noDataState: OK
+        execErrState: Error
+        labels:
+          severity: warning
+        annotations:
+          summary: '{% raw %}The DDS watchdog on {{ $labels.host }} has not run for over 5 minutes{% endraw %}'
+          description: >-
+            {% raw %}dds_watchdog_last_run_timestamp_seconds on {{ $labels.host }} is more than 300 s old: the timer
+            stopped or the run keeps failing, so wedged DDS discovery threads are not being restarted. Check
+            systemctl status dds-watchdog.timer dds-watchdog.service and journalctl -u dds-watchdog.service.
+            Runbook: docs/runbooks/dds-discovery-deadlock.md.{% endraw %}

@@ -18,6 +18,7 @@ from tests.monitoring_helpers import (
     HOSTS,
     group_monitoring_vars,
     host_vars,
+    jinja_env,
     load_yaml,
     render,
     resolve,
@@ -30,6 +31,12 @@ from tests.monitoring_helpers import (
 TEMPLATES_DIR = AGENT_DIR / "templates"
 FILES_DIR = AGENT_DIR / "files"
 THROTTLE_SCRIPT = FILES_DIR / "rpi_throttled_textfile.py"
+WATCHDOG_SCRIPT = FILES_DIR / "dds_watchdog.py"
+ALL_VARS = GROUP_VARS_DIR / "all.yml"
+WATCHDOG_CALIBRATION_URL = {
+    "client": "http://127.0.0.1/api/calibration/active",
+    "server": "http://client.ros2.lan/api/calibration/active",
+}
 
 METRICS_PUSH = {"client": "http://server.ros2.lan:9009/api/v1/push", "server": "http://127.0.0.1:9009/api/v1/push"}
 LOGS_PUSH = {
@@ -98,6 +105,9 @@ def test_role_files_exist() -> None:
         "templates/config.alloy.j2",
         "templates/monitoring.slice.j2",
         "files/rpi_throttled_textfile.py",
+        "files/dds_watchdog.py",
+        "templates/dds-watchdog.service.j2",
+        "templates/dds-watchdog.timer.j2",
     ]:
         assert (AGENT_DIR / rel).is_file(), rel
 
@@ -486,6 +496,259 @@ def test_throttle_timer_runs_every_5s(host: str) -> None:
     assert service["Environment"] == ["RPI_THROTTLED_TEXTFILE=/var/lib/alloy/textfile/rpi_throttled.prom"]
 
 
+# --- dds watchdog (wedged Fast DDS discovery threads) --------------------------------------------------------------
+
+
+def watchdog_vars(host: str) -> dict[str, object]:
+    """Variables of the watchdog templates: role defaults, group_vars and the deploy-lock keys of group_vars/all.yml.
+
+    Defaults that are templates themselves (the deploy lock path and its max age) are resolved against all.yml.
+
+    Args:
+        host (str): client or server.
+
+    Returns:
+        dict[str, object]: Variable name to value, nested templates rendered.
+    """
+    all_vars = yaml.safe_load(ALL_VARS.read_text())
+    merged = {**all_vars, **host_vars(host)}
+    env = jinja_env()
+    for _ in range(4):
+        merged = {
+            k: env.from_string(v).render(**merged)
+            if k.startswith("monitoring_agent_dds_watchdog_") and isinstance(v, str)
+            else v
+            for k, v in merged.items()
+        }
+    return merged
+
+
+def watchdog_service(host: str) -> dict[str, list[str]]:
+    """Render dds-watchdog.service for a host.
+
+    Args:
+        host (str): client or server.
+
+    Returns:
+        dict[str, list[str]]: Unit settings.
+    """
+    return unit_settings(agent("dds-watchdog.service.j2", host, **watchdog_vars(host)))
+
+
+def watchdog_env(host: str) -> dict[str, str]:
+    """Environment= lines of the rendered dds-watchdog.service as a dict.
+
+    Args:
+        host (str): client or server.
+
+    Returns:
+        dict[str, str]: Variable name to value.
+    """
+    return dict(line.split("=", 1) for line in watchdog_service(host)["Environment"])
+
+
+def watchdog_config_variables() -> set[str]:
+    """Names of the environment variables dds_watchdog.py reads (Config.from_env).
+
+    Returns:
+        set[str]: Variable names.
+    """
+    return set(re.findall(r'environ\.get\(\s*"([A-Z0-9_]+)"', WATCHDOG_SCRIPT.read_text()))
+
+
+@pytest.mark.parametrize("host", HOSTS)
+def test_dds_watchdog_timer_settings(host: str) -> None:
+    """The timer starts 60 s after boot, then every role-default interval (10 s), accurate to 1 s."""
+    assert role_defaults(AGENT_DIR)["monitoring_agent_dds_watchdog_interval"] == "10s"
+    timer = unit_settings(agent("dds-watchdog.timer.j2", host))
+    assert timer["OnBootSec"] == ["60s"]
+    assert timer["OnUnitActiveSec"] == ["10s"]
+    assert timer["AccuracySec"] == ["1s"]
+    assert timer["WantedBy"] == ["timers.target"]
+
+
+@pytest.mark.parametrize("host", HOSTS)
+def test_dds_watchdog_service_settings(host: str) -> None:
+    """Oneshot as root in monitoring.slice running the installed script, with the role defaults as environment."""
+    service = watchdog_service(host)
+    assert service["Type"] == ["oneshot"]
+    assert service["Slice"] == ["monitoring.slice"]
+    assert service["ExecStart"] == ["/usr/bin/python3 /usr/local/lib/monitoring/dds_watchdog.py"]
+    assert "User" not in service
+    env = watchdog_env(host)
+    assert env["DDS_WATCHDOG_SAMPLES"] == "3"
+    assert env["DDS_WATCHDOG_RX_MIN_BYTES"] == "262144"
+    assert env["DDS_WATCHDOG_MIN_RESTART_INTERVAL_S"] == "300"
+    assert env["DDS_WATCHDOG_DRY_RUN"] == "false"
+    assert env["DDS_WATCHDOG_STATE_FILE"] == "/var/lib/dds-watchdog/state.json"
+    assert env["DDS_WATCHDOG_TEXTFILE"] == "/var/lib/alloy/textfile/dds_watchdog.prom"
+    assert env["DDS_WATCHDOG_PROC_ROOT"] == "/proc"
+    assert env["DDS_WATCHDOG_CGROUP_ROOT"] == "/sys/fs/cgroup"
+    assert env["SYSTEMCTL"] == "systemctl"
+    assert env["DDS_WATCHDOG_CALIBRATION_TIMEOUT_S"] == "3"
+
+
+@pytest.mark.parametrize("host", HOSTS)
+def test_dds_watchdog_renders_every_config_variable(host: str) -> None:
+    """The service has one Environment= line for every variable Config.from_env reads, and nothing else."""
+    names = watchdog_config_variables()
+    assert len(names) >= 13
+    assert set(watchdog_env(host)) == names
+
+
+@pytest.mark.parametrize("host", HOSTS)
+def test_dds_watchdog_deploy_lock_follows_the_deploy_variables(host: str) -> None:
+    """The lock path and max age come from group_vars/all.yml (ros2_deploy_lock, ros2_deploy_lock_max_age_min x 60)."""
+    all_vars = yaml.safe_load(ALL_VARS.read_text())
+    env = watchdog_env(host)
+    assert env["DDS_WATCHDOG_DEPLOY_LOCK"] == "/var/lib/ros2-deploy/deploy.lock"
+    assert env["DDS_WATCHDOG_DEPLOY_LOCK_MAX_AGE_S"] == str(all_vars["ros2_deploy_lock_max_age_min"] * 60) == "14400"
+
+
+@pytest.mark.parametrize("host", HOSTS)
+def test_dds_watchdog_calibration_url_per_host(host: str) -> None:
+    """The robot asks its own web_ui on 127.0.0.1, the server asks the client (server.yml overrides the default)."""
+    assert watchdog_env(host)["DDS_WATCHDOG_CALIBRATION_URL"] == WATCHDOG_CALIBRATION_URL[host]
+    assert (
+        role_defaults(AGENT_DIR)["monitoring_agent_dds_watchdog_calibration_url"] == WATCHDOG_CALIBRATION_URL["client"]
+    )
+    assert "monitoring_agent_dds_watchdog_calibration_url" not in group_monitoring_vars("client")
+    assert (
+        group_monitoring_vars("server")["monitoring_agent_dds_watchdog_calibration_url"]
+        == WATCHDOG_CALIBRATION_URL["server"]
+    )
+
+
+def watchdog_script_constant(name: str) -> float:
+    """Read a numeric module-level constant of dds_watchdog.py (e.g. SYSTEMCTL_TIMEOUT_S = 60.0).
+
+    Args:
+        name (str): Constant name.
+
+    Returns:
+        float: Its value.
+    """
+    match = re.search(rf"^{name} = ([0-9.]+)$", WATCHDOG_SCRIPT.read_text(), re.MULTILINE)
+    assert match, f"{name} not found in {WATCHDOG_SCRIPT}"
+    return float(match.group(1))
+
+
+@pytest.mark.parametrize("host", HOSTS)
+def test_dds_watchdog_start_timeout_bounds_a_run(host: str) -> None:
+    """TimeoutStartSec is rendered from a role default and covers the worst case of one run, computed from the
+    script's own constants: list-units + cap x (restart + calibration attempts x timeout)."""
+    service = watchdog_service(host)
+    variables = watchdog_vars(host)
+    systemctl_s = watchdog_script_constant("SYSTEMCTL_TIMEOUT_S")
+    attempts = watchdog_script_constant("CALIBRATION_ATTEMPTS")
+    cap = int(variables["monitoring_agent_dds_watchdog_max_restarts_per_run"])
+    calibration_s = float(variables["monitoring_agent_dds_watchdog_calibration_timeout_s"])
+    worst_case = systemctl_s + cap * (systemctl_s + attempts * calibration_s)
+    assert int(variables["monitoring_agent_dds_watchdog_start_timeout_s"]) >= worst_case
+    assert service["TimeoutStartSec"] == [str(variables["monitoring_agent_dds_watchdog_start_timeout_s"])]
+    assert int(service["TimeoutStartSec"][0]) > worst_case
+
+
+@pytest.mark.parametrize("host", HOSTS)
+def test_dds_watchdog_start_timeout_follows_the_cap_and_the_timeout(host: str) -> None:
+    """A larger cap or calibration timeout raises TimeoutStartSec (it is derived, not typed in)."""
+    base = int(watchdog_service(host)["TimeoutStartSec"][0])
+    env = jinja_env()
+    merged = watchdog_vars(host)
+    template = role_defaults(AGENT_DIR)["monitoring_agent_dds_watchdog_start_timeout_s"]
+    for key, value in (
+        ("monitoring_agent_dds_watchdog_max_restarts_per_run", 6),
+        ("monitoring_agent_dds_watchdog_calibration_timeout_s", 10),
+    ):
+        assert int(env.from_string(template).render(**{**merged, key: value})) > base
+
+
+@pytest.mark.parametrize("host", HOSTS)
+def test_dds_watchdog_service_comment_states_the_formula_not_a_total(host: str) -> None:
+    """The unit comment names the formula; it holds no hard-coded total next to an interpolated timeout."""
+    text = agent("dds-watchdog.service.j2", host, **watchdog_vars(host))
+    assert "max_restarts_per_run x" in text
+    assert "258" not in text
+
+
+@pytest.mark.parametrize("host", HOSTS)
+def test_dds_watchdog_max_restarts_per_run_is_rendered(host: str) -> None:
+    """The cap default is 3 and reaches the unit as DDS_WATCHDOG_MAX_RESTARTS_PER_RUN."""
+    assert role_defaults(AGENT_DIR)["monitoring_agent_dds_watchdog_max_restarts_per_run"] == 3
+    assert watchdog_env(host)["DDS_WATCHDOG_MAX_RESTARTS_PER_RUN"] == "3"
+
+
+def test_dds_watchdog_deploy_lock_max_age_is_cast_to_int() -> None:
+    """A string ros2_deploy_lock_max_age_min (-e on the command line) still gives minutes x 60, not '240' x 60."""
+    template = role_defaults(AGENT_DIR)["monitoring_agent_dds_watchdog_deploy_lock_max_age_s"]
+    assert jinja_env().from_string(template).render(ros2_deploy_lock_max_age_min="240") == "14400"
+
+
+def test_dds_watchdog_defaults() -> None:
+    """Role defaults: enabled, 10 s, 3 samples, 256 KiB, 300 s between restarts, restarting (not dry run), 3 s."""
+    defaults = role_defaults(AGENT_DIR)
+    assert defaults["monitoring_agent_dds_watchdog_enabled"] is True
+    assert defaults["monitoring_agent_dds_watchdog_samples"] == 3
+    assert defaults["monitoring_agent_dds_watchdog_rx_min_bytes"] == 262144
+    assert defaults["monitoring_agent_dds_watchdog_min_restart_interval_s"] == 300
+    assert defaults["monitoring_agent_dds_watchdog_dry_run"] is False
+    assert defaults["monitoring_agent_dds_watchdog_calibration_timeout_s"] == 3
+
+
+def test_dds_watchdog_unit_not_named_ros2() -> None:
+    """The units are dds-watchdog.*, never ros2-*: the watchdog must not match its own ros2-*.service glob."""
+    names = {n for n in (t.get("name", "") for t in role_tasks(AGENT_DIR, ("main.yml",))) if "dds" in n.lower()}
+    assert names, "the tasks install the watchdog"
+    templates = sorted(p.name for p in TEMPLATES_DIR.glob("*dds*"))
+    assert templates == ["dds-watchdog.service.j2", "dds-watchdog.timer.j2"]
+    for task in role_tasks(AGENT_DIR, ("main.yml",)):
+        text = str(task)
+        if "dds_watchdog" in text or "dds-watchdog" in text:
+            assert "ros2-dds" not in text and "ros2-watchdog" not in text
+
+
+def test_dds_watchdog_in_start_and_disable_loops() -> None:
+    """The timer starts when the watchdog is on; it stops when the watchdog or the agent is off."""
+    tasks = role_tasks(AGENT_DIR, ("main.yml",))
+    names = [t.get("name", "") for t in tasks]
+    start = next(t for t in tasks if t.get("name") == "Enable and start the DDS watchdog timer")
+    assert start["ansible.builtin.systemd_service"]["name"] == "dds-watchdog.timer"
+    assert start["ansible.builtin.systemd_service"]["enabled"] is True
+    assert start["ansible.builtin.systemd_service"]["state"] == "started"
+    assert "monitoring_agent_dds_watchdog_enabled | bool" in str(start["when"])
+    assert names.index("Apply unit and config changes before starting") < names.index(start["name"])
+    stop = next(t for t in tasks if t.get("name", "").startswith("Stop and disable the DDS watchdog timer"))
+    assert stop["ansible.builtin.systemd_service"]["name"] == "dds-watchdog.timer"
+    assert stop["ansible.builtin.systemd_service"]["enabled"] is False
+    assert stop["ansible.builtin.systemd_service"]["state"] == "stopped"
+    when = str(stop["when"])
+    assert "monitoring_agent_enabled" in when and "monitoring_agent_dds_watchdog_enabled" in when
+    assert "dds-watchdog.service" in when and "ansible_facts.services" in when
+
+
+def test_dds_watchdog_state_dir_task() -> None:
+    """/var/lib/dds-watchdog is created 0750 root; the script and both units are installed from the role."""
+    tasks = role_tasks(AGENT_DIR, ("main.yml",))
+    state = next(
+        t
+        for t in tasks
+        if "dds_watchdog" in str((t.get("ansible.builtin.file") or {}).get("path"))
+        and resolve(t["ansible.builtin.file"]["path"], "client") == "/var/lib/dds-watchdog"
+    )
+    spec = state["ansible.builtin.file"]
+    assert spec["state"] == "directory" and spec["owner"] == "root" and spec["group"] == "root"
+    assert spec["mode"] == "0750"
+    script = next(t for t in tasks if (t.get("ansible.builtin.copy") or {}).get("src") == "dds_watchdog.py")
+    assert script["ansible.builtin.copy"]["dest"] == "/usr/local/lib/monitoring/dds_watchdog.py"
+    assert script["ansible.builtin.copy"]["mode"] == "0755"
+    units = next(
+        t for t in tasks if (t.get("ansible.builtin.template") or {}).get("src") == "{{ item }}.j2" and "dds" in str(t)
+    )
+    assert units["loop"] == ["dds-watchdog.service", "dds-watchdog.timer"]
+    assert "monitoring_agent_dds_watchdog_enabled" in str(units["when"])
+    assert "Reload systemd" in units["notify"]
+
+
 # --- start, restart guard, readiness -----------------------------------------------------------------------------
 
 
@@ -509,6 +772,38 @@ def test_alloy_and_timer_started_then_guarded_then_checked() -> None:
     ready = next(t for t in tasks if t.get("name") == "Wait until Alloy answers")
     assert resolve(ready["ansible.builtin.uri"]["url"], "client") == "http://127.0.0.1:12345/-/ready"
     assert names.index(start["name"]) < names.index(guard[0]["name"]) < names.index(ready["name"])
+
+
+def test_disabling_the_watchdog_removes_its_textfile() -> None:
+    """When the watchdog or the agent is off, dds_watchdog.prom is removed so a frozen value cannot keep an alert
+    firing; the task does not depend on the service being known."""
+    tasks = role_tasks(AGENT_DIR, ("main.yml",))
+    remove = next(t for t in tasks if t.get("name", "").startswith("Remove the DDS watchdog metrics"))
+    assert remove["ansible.builtin.file"] == {
+        "path": "{{ monitoring_agent_textfile_dir }}/dds_watchdog.prom",
+        "state": "absent",
+    }
+    assert remove["when"] == ["not (monitoring_agent_enabled | bool and monitoring_agent_dds_watchdog_enabled | bool)"]
+
+
+def test_disabling_the_watchdog_stops_an_in_flight_run_before_removing_its_metrics() -> None:
+    """A running dds-watchdog.service would rewrite dds_watchdog.prom after it was removed: the service is stopped
+    too, after the timer (so nothing starts a new run) and before the textfile is removed."""
+    tasks = role_tasks(AGENT_DIR, ("main.yml",))
+    names = [t.get("name", "") for t in tasks]
+    timer = next(t for t in tasks if t.get("name", "").startswith("Stop and disable the DDS watchdog timer"))
+    run = next(t for t in tasks if t.get("name", "").startswith("Stop an in-flight DDS watchdog run"))
+    remove = next(t for t in tasks if t.get("name", "").startswith("Remove the DDS watchdog metrics"))
+    assert run["ansible.builtin.systemd_service"] == {"name": "dds-watchdog.service", "state": "stopped"}
+    assert run["when"] == timer["when"]
+    assert names.index(timer["name"]) < names.index(run["name"]) < names.index(remove["name"])
+
+
+def test_dds_watchdog_enabled_comment_says_the_textfile_is_removed() -> None:
+    """The defaults comment matches the disable behavior: the metrics file is removed, not kept."""
+    text = (AGENT_DIR / "defaults" / "main.yml").read_text()
+    comment = next(line for line in text.splitlines() if "stops and disables the timer" in line)
+    assert "metrics stay" not in comment and "textfile" in comment and "removed" in comment
 
 
 def test_disabled_agent_stops_alloy_and_timer() -> None:

@@ -242,6 +242,8 @@ monitoring_agent_stack_targets:
 # + Alloy 250M = 2118M of per-unit caps fit under the 2200M hard total, which leaves ~1.1 GB for the ROS units and the
 # page cache; MemoryHigh starts reclaiming at 2000M first. 150% CPU: compaction and dashboard queries are bursty, the
 # CPUWeight of 20 still hands the CPU to lerobot_leader and the other ROS units whenever they want it.
+# The DDS watchdog asks the robot's web_ui whether a calibration runs (web_ui and the calibration endpoint live there).
+monitoring_agent_dds_watchdog_calibration_url: http://client.ros2.lan/api/calibration/active
 monitoring_agent_slice_cpu_quota: "150%"
 monitoring_agent_slice_memory_max: "2200M"
 monitoring_agent_slice_memory_high: "2000M"

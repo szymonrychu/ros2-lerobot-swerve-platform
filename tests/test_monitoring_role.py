@@ -116,6 +116,7 @@ def test_role_files_exist() -> None:
         "templates/grafana.ini.j2",
         "templates/grafana-datasources.yaml.j2",
         "templates/grafana-dashboards.yaml.j2",
+        "templates/grafana-alerting.yaml.j2",
         "templates/monitoring-dropin.conf.j2",
         "files/robot-resources.json",
     ]:
@@ -432,6 +433,133 @@ def test_grafana_datasources_mimir_and_loki() -> None:
     assert task["dest"] == "/etc/grafana/provisioning/datasources/robot.yaml"
 
 
+def alert_rules() -> dict[str, dict]:
+    """The provisioned alert rules of the stack role, by uid.
+
+    Returns:
+        dict[str, dict]: Rule models.
+    """
+    doc = yaml.safe_load(stack("grafana-alerting.yaml.j2"))
+    return {rule["uid"]: rule for group in doc["groups"] for rule in group["rules"]}
+
+
+def test_alert_rule_provisioned() -> None:
+    """The alert rules are templated into Grafana's alerting provisioning directory, restarting Grafana on change."""
+    task = next(
+        t for t in tasks() if (t.get("ansible.builtin.template") or {}).get("src") == "grafana-alerting.yaml.j2"
+    )
+    assert task["name"] == "Provision the alert rules"
+    template = task["ansible.builtin.template"]
+    assert template["dest"] == "/etc/grafana/provisioning/alerting/robot.yaml"
+    assert (template["owner"], template["group"], template["mode"]) == ("root", "grafana", "0640")
+    assert task["notify"] == ["Restart grafana-server"]
+    directory = next(
+        t["ansible.builtin.file"]
+        for t in tasks()
+        if (t.get("ansible.builtin.file") or {}).get("path") == "/etc/grafana/provisioning/alerting"
+    )
+    assert directory["state"] == "directory"
+    # The grafana package ships this directory: no owner or group is set, so an existing one is not re-owned.
+    assert "owner" not in directory
+    assert "group" not in directory
+    assert directory["mode"] == "0755"
+    assert task_names().index(task["name"]) > task_names().index("Provision the Mimir and Loki datasources")
+
+
+def test_dds_watchdog_alert_rules() -> None:
+    """R1-R3 of the DDS watchdog: ids, expressions, severities, labels, no contact point and no policy."""
+    doc = yaml.safe_load(stack("grafana-alerting.yaml.j2"))
+    assert doc["apiVersion"] == 1
+    assert set(doc) == {"apiVersion", "groups"}, "no contactPoints, policies or muteTimes: the webhook is a follow-up"
+    [group] = doc["groups"]
+    assert (group["orgId"], group["name"], group["folder"], group["interval"]) == (1, "dds-watchdog", "Robot", "1m")
+    rules = alert_rules()
+    assert set(rules) == {"dds-watchdog-restart", "dds-watchdog-blocked", "dds-watchdog-stale"}
+    expected = {
+        "dds-watchdog-restart": (
+            "DDS watchdog restarted a unit",
+            "sum by (host, unit) (increase(dds_watchdog_restarts_total[10m])) > 0",
+            "0m",
+            "warning",
+        ),
+        "dds-watchdog-blocked": (
+            "DDS wedge blocked by calibration",
+            "max by (host, unit) (dds_watchdog_restart_blocked_seconds) > 600",
+            "0m",
+            "critical",
+        ),
+        "dds-watchdog-stale": (
+            "DDS watchdog not running",
+            "time() - max by (host) (dds_watchdog_last_run_timestamp_seconds) > 300",
+            "2m",
+            "warning",
+        ),
+    }
+    for uid, (title, expr, hold, severity) in expected.items():
+        rule = rules[uid]
+        assert rule["title"] == title
+        query = next(d for d in rule["data"] if d["refId"] == "A")
+        assert query["datasourceUid"] == "prometheus-robot"
+        assert query["model"]["expr"] == expr
+        assert rule["for"] == hold
+        assert rule["labels"]["severity"] == severity
+        assert (rule["noDataState"], rule["execErrState"]) == ("OK", "Error")
+        for key in ("summary", "description"):
+            assert rule["annotations"][key]
+        assert "docs/runbooks/dds-discovery-deadlock.md" in rule["annotations"]["description"]
+    assert rules["dds-watchdog-blocked"]["labels"]["route"] == "agents"
+    assert all("route" not in rules[u]["labels"] for u in ("dds-watchdog-restart", "dds-watchdog-stale"))
+
+
+def test_alert_rules_evaluate() -> None:
+    """Every rule is a valid Grafana-managed rule: the condition names an expression, the expressions chain back to
+    the Prometheus query A, and the labels it groups by exist on the series the watchdog writes."""
+    for uid, rule in alert_rules().items():
+        by_ref = {d["refId"]: d for d in rule["data"]}
+        assert len(by_ref) == len(rule["data"]), uid
+        assert rule["condition"] in by_ref, uid
+        node = by_ref[rule["condition"]]
+        chain = []
+        while node["datasourceUid"] == "__expr__":
+            chain.append(node["model"]["type"])
+            node = by_ref[node["model"]["expression"]]
+        assert chain == ["threshold", "reduce"], uid
+        assert node["refId"] == "A" and node["datasourceUid"] == "prometheus-robot", uid
+        assert node["model"]["instant"] is True and node["model"]["refId"] == "A", uid
+        assert node["relativeTimeRange"]["from"] > 0, uid
+        for d in rule["data"]:
+            assert d["model"]["refId"] == d["refId"], uid
+        assert re.fullmatch(r"[A-Za-z0-9_-]+", uid)
+        assert rule["isPaused"] is False
+
+
+def test_alert_rule_labels_and_metrics_match_the_watchdog_script() -> None:
+    """Metric names in the rules are written by dds_watchdog.py, and every `by (...)` label other than host (added by
+    Alloy) is a label of that series."""
+    script = (AGENT_DIR / "files" / "dds_watchdog.py").read_text()
+    for uid, rule in alert_rules().items():
+        expr = next(d for d in rule["data"] if d["refId"] == "A")["model"]["expr"]
+        for metric in set(re.findall(r"dds_watchdog_\w+", expr)):
+            labels = {
+                lab for line in re.findall(rf"{metric}\{{([^}}]*)\}}", script) for lab in re.findall(r"(\w+)=", line)
+            }
+            assert f"# TYPE {metric} " in script, (uid, metric)
+            for group in re.findall(r"by \(([^)]*)\)", expr):
+                for label in (x.strip() for x in group.split(",")):
+                    assert label == "host" or label in labels, (uid, metric, label)
+
+
+def test_alert_rule_description_explains_r2_caveats() -> None:
+    """R2 tells the reader about the three ways it fires without a wedge: deploy lock wait after a calibration, a
+    wedged web_ui, and an unreachable client on the server. It does not name a rate-limit wait (that case cannot
+    follow a calibration hold)."""
+    text = alert_rules()["dds-watchdog-blocked"]["annotations"]["description"]
+    assert "deploy" in text and "calibration" in text
+    assert "rate-limit" not in text
+    assert "web_ui" in text and "unknown" in text
+    assert "client" in text and "unreachable" in text
+
+
 def test_grafana_dashboard_provider() -> None:
     """One task copies every files/*.json into the directory the dashboard provider reads, keeping the file name."""
     providers = yaml.safe_load(stack("grafana-dashboards.yaml.j2"))["providers"]
@@ -462,6 +590,7 @@ def test_services_restart_when_a_config_is_newer_than_their_start() -> None:
         ("loki", "/etc/loki/config.yml"),
         ("grafana-server", "/etc/grafana/grafana.ini"),
         ("grafana-server", "/etc/grafana/provisioning/datasources/robot.yaml"),
+        ("grafana-server", "/etc/grafana/provisioning/alerting/robot.yaml"),
     ):
         assert unit in script and path in script, (unit, path)
     assert script.count("$d/monitoring.slice") == 3

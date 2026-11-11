@@ -2916,6 +2916,11 @@ The server stack `ansible/roles/monitoring` (Mimir + Loki + Grafana on the serve
 | `test_grafana_datasources_mimir_and_loki` | `/etc/grafana/provisioning/datasources/robot.yaml`: `prometheus-robot` (prometheus type, `http://127.0.0.1:9009/prometheus`, default, `prometheusType: Mimir`) and `loki-robot` (`http://127.0.0.1:3100`). |
 | `test_datasource_time_interval_is_the_slowest_scrape` | The Mimir datasource `timeInterval` and `monitoring_interval` equal the slowest Alloy scrape interval (the client's 15s), so `$__rate_interval` is at least 60 s. |
 | `test_grafana_dashboard_provider` | Folder Robot; one copy task installs every `files/*.json` (`with_fileglob`) into the provider path under its own name. |
+| `test_alert_rule_provisioned` | A "Provision the alert rules" task templates `grafana-alerting.yaml.j2` to `/etc/grafana/provisioning/alerting/robot.yaml` (root:grafana 0640, notifies Restart grafana-server) after the datasource task, and the directory is created with mode 0755 and no owner or group (the grafana package ships it). |
+| `test_dds_watchdog_alert_rules` | The alert file is apiVersion 1 with only `groups` (no contact point, policy or mute timing); group `dds-watchdog` in folder Robot, 1m; R1 `dds-watchdog-restart`, R2 `dds-watchdog-blocked` (label `route: agents`), R3 `dds-watchdog-stale`: titles, PromQL, `for`, severity, noData OK, execErr Error, runbook path in the description. |
+| `test_alert_rules_evaluate` | Each rule's condition names a threshold expression that chains through a reduce to the Prometheus query A on `prometheus-robot` (instant, positive relative time range); refIds are unique and match their models; uids are valid; rules are not paused. |
+| `test_alert_rule_labels_and_metrics_match_the_watchdog_script` | Every `dds_watchdog_*` metric in a rule is written by `dds_watchdog.py`, and each `by (...)` label is `host` (added by Alloy) or a label of that series. |
+| `test_alert_rule_description_explains_r2_caveats` | R2's description names the deploy-lock wait after a calibration (no rate-limit wait: it cannot follow a calibration hold), a wedged web_ui (unknown sources), and the unreachable client on the server. |
 | `test_services_restart_when_a_config_is_newer_than_their_start` | After starting, a shell task restarts mimir / loki / grafana-server when their config, drop-in or `monitoring.slice` is newer than the start; it runs between the start and the readiness wait. |
 | `test_readiness_checks` | Waits for Mimir `/ready`, Loki `/ready`, Grafana `/api/health` and `/grafana/api/health` through nginx, at least 2 min. |
 | `test_disabled_stack_stops_its_services` | `monitoring_enabled: false` stops and disables mimir, loki and grafana-server. |
@@ -2927,11 +2932,11 @@ The server stack `ansible/roles/monitoring` (Mimir + Loki + Grafana on the serve
 
 ### `test_monitoring_agent_role.py`
 
-`ansible/roles/monitoring_agent` (Grafana Alloy, `monitoring.slice`, the RPi throttling timer and the robot cleanup), rendered for each host (client, server). The throttling script runs against a fake `vcgencmd` on PATH.
+`ansible/roles/monitoring_agent` (Grafana Alloy, `monitoring.slice`, the RPi throttling timer, the DDS watchdog timer and the robot cleanup), rendered for each host (client, server). The throttling script runs against a fake `vcgencmd` on PATH.
 
 | Test | Description |
 |------|-------------|
-| `test_role_files_exist` | tasks (main, grafana_repo, remove_local_stack), defaults, handlers, meta, the Alloy and slice templates and the throttling script exist. |
+| `test_role_files_exist` | tasks (main, grafana_repo, remove_local_stack), defaults, handlers, meta, the Alloy and slice templates, the throttling script, the DDS watchdog script and its service and timer templates exist. |
 | `test_every_template_and_file_the_tasks_name_exists` | (client, server) every `src:` of a template/copy task is shipped with the role. |
 | `test_defaults_are_the_agent_only_host` | Defaults: enabled, port 12345, 5s/4s, push URLs `http://server.ros2.lan:9009/api/v1/push` and `:3100/loki/api/v1/push`, no node or stack targets, no cleanup, alloy 250M, no default `monitoring_host`. |
 | `test_group_vars_set_the_host_label` | (client, server) `group_vars/<host>.yml` sets `monitoring_host` to the host's name. |
@@ -2960,7 +2965,24 @@ The server stack `ansible/roles/monitoring` (Mimir + Loki + Grafana on the serve
 | `test_script_writes_textfile_atomically` | With a fake `vcgencmd` the script writes the textfile and leaves no temp file. |
 | `test_script_removes_stale_textfile_on_failure` | A failing `vcgencmd` removes the old file and exits non-zero. |
 | `test_throttle_timer_runs_every_5s` | (client, server) `rpi-throttled.timer` fires every 5s; the oneshot service runs in monitoring.slice with the textfile path. |
+| `test_dds_watchdog_timer_settings` | (client, server) `dds-watchdog.timer`: `OnBootSec=60s`, `OnUnitActiveSec` from the 10s role default, `AccuracySec=1s`, `WantedBy=timers.target`. |
+| `test_dds_watchdog_service_settings` | (client, server) `dds-watchdog.service`: oneshot, `monitoring.slice`, `ExecStart=/usr/bin/python3 /usr/local/lib/monitoring/dds_watchdog.py`, no `User=`, environment values rendered from the role defaults (3 samples, 262144 bytes, 300 s, dry run `false`, state and textfile paths, proc and cgroup roots, systemctl, calibration timeout 3). |
+| `test_dds_watchdog_renders_every_config_variable` | (client, server) one `Environment=` line for every variable `Config.from_env` in `files/dds_watchdog.py` reads, and no other. |
+| `test_dds_watchdog_deploy_lock_follows_the_deploy_variables` | (client, server) the lock path and max age come from `group_vars/all.yml` (`ros2_deploy_lock`, `ros2_deploy_lock_max_age_min` x 60 = 14400). |
+| `test_dds_watchdog_calibration_url_per_host` | The client renders `http://127.0.0.1/api/calibration/active` (the role default), the server `http://client.ros2.lan/api/calibration/active` (set in `group_vars/server.yml`). |
+| `test_dds_watchdog_start_timeout_bounds_a_run` | (client, server) `TimeoutStartSec` is the rendered `monitoring_agent_dds_watchdog_start_timeout_s` and exceeds the worst case computed from `SYSTEMCTL_TIMEOUT_S` and `CALIBRATION_ATTEMPTS` parsed out of `dds_watchdog.py` plus the cap and calibration timeout: list-units + cap x (restart + attempts x timeout). |
+| `test_dds_watchdog_start_timeout_follows_the_cap_and_the_timeout` | (client, server) a larger cap (6) or calibration timeout (10) raises the derived `TimeoutStartSec`. |
+| `test_dds_watchdog_service_comment_states_the_formula_not_a_total` | (client, server) the unit comment names the formula (`max_restarts_per_run x`) and holds no hard-coded total such as 258. |
+| `test_dds_watchdog_max_restarts_per_run_is_rendered` | (client, server) the role default is 3 and the unit sets `DDS_WATCHDOG_MAX_RESTARTS_PER_RUN=3`. |
+| `test_dds_watchdog_deploy_lock_max_age_is_cast_to_int` | A string `ros2_deploy_lock_max_age_min` (`-e` on the command line) still renders 14400, not the string repeated 60 times. |
+| `test_dds_watchdog_defaults` | Role defaults: enabled, 3 samples, 262144 bytes, 300 s between restarts, dry run false, calibration timeout 3. |
+| `test_dds_watchdog_unit_not_named_ros2` | Only `dds-watchdog.service` and `dds-watchdog.timer` templates exist; no task names a `ros2-` watchdog unit (deploy tooling stops and restarts `ros2-*`). |
+| `test_dds_watchdog_in_start_and_disable_loops` | The timer is enabled and started after the handlers flush when the watchdog is enabled; a separate task stops and disables it when the watchdog or the agent is off, probed through `dds-watchdog.service`. |
+| `test_dds_watchdog_state_dir_task` | `/var/lib/dds-watchdog` is created 0750 root; `dds_watchdog.py` is copied to `/usr/local/lib/monitoring` (0755); both units are installed from templates, notify "Reload systemd", only when enabled. |
 | `test_alloy_and_timer_started_then_guarded_then_checked` | Alloy and the timer start, then a shell task restarts alloy when `/etc/default/alloy`, its config, drop-in or `monitoring.slice` is newer than its start, then `/-/ready` is awaited. |
+| `test_disabling_the_watchdog_removes_its_textfile` | A task removes `dds_watchdog.prom` when the watchdog or the agent is off, so a frozen value cannot keep an alert firing. |
+| `test_disabling_the_watchdog_stops_an_in_flight_run_before_removing_its_metrics` | `dds-watchdog.service` is stopped (same `when` as the timer stop) after the timer and before the textfile removal, so a running oneshot cannot rewrite `dds_watchdog.prom`. |
+| `test_dds_watchdog_enabled_comment_says_the_textfile_is_removed` | The defaults comment for `monitoring_agent_dds_watchdog_enabled` says the textfile is removed, not that the metrics stay. |
 | `test_disabled_agent_stops_alloy_and_timer` | `monitoring_agent_enabled: false` stops and disables alloy and the timer. |
 | `test_cleanup_runs_on_the_robot_only` | `monitoring_agent_remove_local_stack` is true on the client, false on the server; main.yml includes `remove_local_stack.yml` under it. |
 | `test_cleanup_stops_and_disables_prometheus_and_grafana_when_present` | Stop + disable of prometheus and grafana-server only while service_facts still knows them. |
@@ -3002,6 +3024,7 @@ The Grafana dashboards in `ansible/roles/monitoring/files/` (JSON structure, met
 | `test_slam_dashboard_queries` | Robot SLAM: cgroup CPU/memory of the six upstream SLAM units, lidar gap, relay rejections, odom rate, pose TF, nav goal duration, IMU and GPS panels, the 3D mapping row, and the Ground estimate row (`assert_ground_estimate_row`: fit rate by `result`, fit duration p50/p95, inlier ratio, slope, plane vs base, regions, warning areas, obstacle/drop points, colour mismatch, drops by `reason`, every query `host="client"`, and the `ros2-ground_estimator_cpp` unit CPU with a 0.10 core threshold line). The `ground_*` metrics and the `ground_fit_seconds` histogram are in the node metric contract. |
 | `test_grasping_dashboard_queries` | Robot grasping: servo load/temperature/torque per arm joint, success ratio, bus failures, grasp tool latencies, tracking error buckets. |
 | `test_health_dashboard_queries` | Robot health: `node_systemd_unit_state` for ros2-*, alloy, mimir, loki, grafana-server and nginx, restarts, `up{job="ros2_nodes"}`, node start time, every per-node error counter, throttling, disk and memory pressure. |
+| `test_health_dashboard_dds_watchdog_panels` | Robot health has a "DDS discovery watchdog" row followed by "DDS watchdog suspects" (`sum by (unit) (dds_watchdog_suspect{host="$host"})`) and "DDS watchdog restarts in window" (`increase(dds_watchdog_restarts_total...[$__range])`). `dds_watchdog_` is an allowed metric prefix. |
 | `test_health_dashboard_loki_panels` | Robot health: `Error log lines per unit` = `sum by (unit) (rate({host="$host", level=~"emerg\|alert\|crit\|err"}[$__auto]))` (timeseries) and `Recent error log lines` = the same selector (logs panel); exactly two LogQL queries. |
 
 ### `test_monitoring_real_binaries.py`
@@ -4107,3 +4130,84 @@ Static pins for `docs/runbooks/map3d-mapping.md` (3D mapping runbook re-based on
 | `test_thresholds_kept` | `0.8`, `0.15 m/s`, `0.3 rad/s`, `2x` and `budget_bytes` are still present. |
 | `test_runs_with_d435_s72` | Header names D435 S59, S84, S72 and `docs/runbooks/d435-switchover.md`. |
 | `test_results_rows_match_steps` | Seven numbered steps, seven Results rows, each starting with its step number. |
+
+### `test_dds_watchdog.py`
+
+Imports `ansible/roles/monitoring_agent/files/dds_watchdog.py`, runs its detection core against fixture `/proc` and cgroup v2 trees (real values from the robot: healthy `dds.udp.7418`, wedged `dds.udp.7458` with rx 1001600, user-unicast `dds.udp.7459`). No ROS2, no root. The calibration guard is tested against `CalibrationStub`, a threaded `http.server` on 127.0.0.1 (free port) that serves a configurable status, body (optionally a different `later_body` for every request after the first), delay, redirect or dropped connection and counts requests; it answers idle by default, and every subprocess run points `DDS_WATCHDOG_CALIBRATION_URL` at it. `CALIB_FIXTURE` is a copy of web_ui's consumer fixture `nodes/web_ui/tests/fixtures/api/calibration_active.json`.
+
+| Test | Covers |
+|---|---|
+| `test_metatraffic_port_accepts_even_offsets` | 7410, 7458 and 7608 give the port; odd offsets, out-of-range ports, `dds.shm.*` and other threads give None. |
+| `test_rx_queues_parses_hex_rx_field` | The hex `tx:rx` field of `/proc/net/udp` (`000F4880` is 1001600). |
+| `test_rx_queues_reads_udp6_and_takes_max` | `udp6` rows are read too; the larger queue wins per port. |
+| `test_rx_queues_missing_files_are_skipped` | No `net/udp` gives an empty dict. |
+| `test_unit_pids_includes_child_cgroups` | Pids from the unit's and nested child cgroups' `cgroup.procs`. |
+| `test_unit_pids_missing_unit_is_empty` | A unit without a cgroup directory has no pids. |
+| `test_scan_unit_healthy_is_none` | Waiting in the socket receive path with an empty queue is not a suspect. |
+| `test_scan_unit_futex_with_empty_queue_is_none` | `futex_wait_queue` with a queue below `rx_min` is not a suspect. |
+| `test_scan_unit_full_queue_in_skb_wait_is_none` | A full queue while the thread is still in `__skb_wait_for_more_packets` is not a suspect. |
+| `test_scan_unit_futex_and_full_queue_is_suspect` | `futex_wait_queue` plus a full queue returns the evidence (unit, pid, tid, port, rx, wchan). |
+| `test_scan_unit_ignores_user_unicast_port` | An odd-offset thread is ignored even when futex-blocked with a full queue. |
+| `test_scan_unit_tolerates_vanished_pid` | A pid without a `/proc` entry is skipped; the rest is scanned. |
+| `test_scan_unit_tolerates_vanished_thread_files` | A thread dir without `comm`/`wchan` is skipped. |
+| `test_three_suspect_runs_restart_once` | Run as a subprocess against fake roots and a fake `systemctl` on PATH: runs 1-2 only count, run 3 restarts the unit once and the metrics show `restarts_total` 1. |
+| `test_gap_resets_streak` | A healthy sample between suspect samples resets the streak; no restart. |
+| `test_fresh_deploy_lock_blocks_restart` | A deploy lock younger than the max age holds the restart back. |
+| `test_old_deploy_lock_is_ignored` | A stale deploy lock does not block. |
+| `test_rate_limit_blocks_second_restart` | A still-wedged unit is not restarted again within the minimum interval; it is once the interval passed. |
+| `test_dry_run_logs_without_restart` | Dry run (case-insensitive value) logs "would restart" (not "restarting", no doubled prefix), calls no restart and counts none. |
+| `test_restart_uses_try_restart` | The restart command is `systemctl try-restart`, so a unit stopped on purpose (RTK survey-in) between scan and restart stays stopped. |
+| `test_failed_restart_not_counted` | A failing `systemctl try-restart` logs an error, counts no restart, keeps the streak, and the metrics are still written (exit 0). The failed attempt starts the rate-limit window: the next run does not call `systemctl`, a run after the interval retries. |
+| `test_corrupt_state_file_resets` | A corrupt, wrong-shaped or missing state file starts empty with a warning and exits 0. |
+| `test_wrong_type_state_resets` | Parametrized: valid JSON with wrong field types (null, string, bool, float, non-dict entry, unknown field, a wrong-typed `blocked_since`) starts empty with a warning, exits 0 and leaks nothing into the metrics. |
+| `test_valid_state_is_kept` | A state file with correct types is used, not reset (also an older file without `last_attempt` and `blocked_since`). |
+| `test_state_with_blocked_since_is_kept` | A state file with `blocked_since` (float or int) loads without a reset and keeps the value. |
+| `test_list_units_failure_writes_up_zero` | A failing `systemctl list-units` exits 0, writes `dds_watchdog_up 0`, keeps the state file, scans and restarts nothing. |
+| `test_stopped_unit_keeps_restart_count` | A restarted unit that is no longer running drops its streak but keeps `restarts_total` and `last_restart`; the metric survives. Checks the exact state file entry (all fields, `blocked_since` 0.0). |
+| `test_config_defaults` | `Config.from_env({})` equals the documented defaults (calibration URL `http://127.0.0.1/api/calibration/active`, timeout 3.0, 3 restarts per run). |
+| `test_config_calibration_from_env` | `DDS_WATCHDOG_CALIBRATION_URL` and a fractional `DDS_WATCHDOG_CALIBRATION_TIMEOUT_S` are read. |
+| `test_config_bad_calibration_timeout_uses_default` | Parametrized: `inf`, `-inf`, `nan`, `0`, `-1`, `abc` and an empty value log one WARNING naming `DDS_WATCHDOG_CALIBRATION_TIMEOUT_S` and fall back to 3.0 s instead of raising. |
+| `test_label_values_are_escaped` | Backslash, double quote and newline in a unit name are escaped in all metric labels, including `restart_blocked` and `restart_blocked_seconds`. |
+| `test_restarts_total_is_exported_at_zero_for_a_healthy_unit` | A listed unit with no restarts exports `dds_watchdog_restarts_total{unit} 0` (and the state file holds 0), so the series exists before the first restart. |
+| `test_first_restart_moves_the_series_from_0_to_1` | The series reads 0 before the first restart and 1 after it, so `increase()` over the two textfiles is 1 (R1 fires on a first restart). |
+| `test_metrics_file_format` | HELP/TYPE lines for every metric (including `dds_watchdog_restart_blocked` and `dds_watchdog_restart_blocked_seconds`), unit labels, trailing newline, no temp file left behind. |
+| `test_healthy_host_writes_zero_suspects` | A healthy unit gives suspect 0, streak 0, no restart. |
+| `test_unwritable_textfile_exits_nonzero` | A missing textfile directory is the one case with exit code 1. |
+| `test_calibration_idle_allows_restart` | `calibration_status` on an idle answer returns `(False, "idle")` after one request. |
+| `test_calibration_active_blocks` | The consumer fixture blocks with `active: rgbd:head-arm, general:home_arm`. |
+| `test_calibration_unknown_only_blocks` | `active` false with one unknown source blocks with `unknown: servo:arm (torque_state stale)`. |
+| `test_calibration_http_500_blocks` | HTTP 500 blocks as `unreachable: HTTP 500` and is not retried. |
+| `test_calibration_non_200_success_blocks` | A 2xx other than 200 (203) blocks. |
+| `test_calibration_redirect_blocks` | A 302 to another host is not followed: blocked as `malformed: redirect 302`, one request. |
+| `test_calibration_timeout_blocks` | A handler sleeping past the timeout blocks as unreachable within about two timeouts (one retry). |
+| `test_calibration_connection_refused_blocks` | No listener on the port blocks as unreachable. |
+| `test_calibration_invalid_json_blocks` | A non-JSON 200 body blocks as malformed and is not retried. |
+| `test_calibration_deeply_nested_json_blocks` | JSON nested past the parser's recursion limit blocks as malformed instead of crashing the run. |
+| `test_calibration_oversized_body_blocks` | A body over 1 MiB blocks as malformed. |
+| `test_blocked_seconds_metric_keeps_precision` | A long block is written with millisecond precision, not in exponent notation. |
+| `test_calibration_bad_url_blocks` | An empty URL, `file://` or `ftp://` blocks as malformed without I/O. |
+| `test_calibration_malformed_url_never_raises` | Parametrized: an unterminated IPv6 bracket (`http://[::1/x`), a non-numeric port and a `gopher://` URL block as malformed instead of raising. |
+| `test_calibration_bad_timeout_never_raises` | Parametrized: `calibration_status` called directly with an infinite (OverflowError in the socket layer), NaN, 0 or negative timeout returns a result (blocked as malformed or unreachable, or idle) instead of raising. |
+| `test_calibration_wrong_types_blocks` | Parametrized: string `active`, `flows` not a list, an entry without `name` or `reason` or with a non-str one, a missing key, `active` disagreeing with `flows`, a non-object answer: all block as malformed. |
+| `test_calibration_retry_once_then_ok` | A connection closed without a response is retried once; the idle second answer is not blocked (two requests). |
+| `test_calibration_retries_only_once` | Two dropped connections block as unreachable after exactly two requests. |
+| `test_wedged_unit_not_restarted_during_calibration` | Subprocess runs with an active calibration: no `systemctl try-restart`, `not restarting <unit>: calibration active: ...` logged at WARNING (checked in-process with caplog), `dds_watchdog_restart_blocked{unit,reason="calibration"}` 1, streak kept. |
+| `test_unreachable_calibration_blocks_restart` | Fail closed end to end: an endpoint nobody listens on holds the restart (`calibration unreachable: ...`). |
+| `test_unknown_calibration_source_blocks_restart` | An unknown source with `active` false holds the restart end to end. |
+| `test_deferred_restart_after_calibration_ends` | Blocked on runs 3 and 4, idle on run 5: exactly one restart, blocked metrics back to 0, `blocked_since` cleared, no further restart. |
+| `test_blocked_seconds_metric_grows` | `blocked_since` is set on the first blocked run and kept on later ones; `dds_watchdog_restart_blocked_seconds` is now minus `blocked_since` (over 700 s after moving it back). |
+| `test_recovered_unit_clears_blocked` | A blocked unit that stops being a suspect clears `blocked_since` and its blocked metrics without a restart. |
+| `test_healthy_host_makes_no_http_calls` | A healthy unit and a suspect below the sample limit make no request; the first due run makes one. |
+| `test_deploy_lock_and_rate_limit_make_no_http_calls` | A fresh deploy lock and the rate limit hold the restart without asking the calibration endpoint. |
+| `test_one_calibration_call_per_run` | Two units due in the same run, both held back by an active calibration, share one request (no restart happened, so the answer is reused). |
+| `test_dry_run_still_checks_calibration` | Dry run asks the endpoint: blocked logs `not restarting ... calibration`, not `would restart`; idle then logs `would restart`. |
+| `test_calibration_rechecked_after_each_restart` | Two units due in one run; the stub answers idle to the first request and active to every later one. The first unit is restarted, the idle answer is not reused after that restart: the second unit asks again (two requests), is held back with `not restarting <unit2>: calibration active: ...` and its `restart_blocked` metric is 1. |
+| `test_calibration_rechecked_after_failed_restart` | Two units due, the first `systemctl try-restart` fails; the stub answers idle to the first request and active to later ones. The second unit is not restarted, there are 2 requests and `not restarting <unit2>: calibration active: ...` is logged (regression guard for the failed-restart path; passes against the pre-existing code). |
+| `test_malformed_url_run_saves_state_and_metrics` | A run with `DDS_WATCHDOG_CALIBRATION_URL=http://[::1/...` exits 0, restarts nothing, logs `calibration malformed: ...`, saves the streak (4 after 4 runs) and writes `restart_blocked` 1. |
+| `test_bad_timeout_run_uses_default` | Runs with `DDS_WATCHDOG_CALIBRATION_TIMEOUT_S=inf` exit 0, log the timeout warning, use 3 s and restart the wedged unit on the idle answer. |
+| `test_restart_cap_limits_restarts_per_run` | 5 due units, default cap 3: exactly 3 restarts; the other 2 keep their streak (3), get no calibration GET (3 requests), log `not restarting <unit>: restart cap 3 per run reached` and have `restart_blocked` 0; the next run restarts them. |
+| `test_restart_cap_counts_failed_restarts` | With a failing `systemctl try-restart`, 5 due units still give only 3 restart calls. |
+| `test_restart_cap_counts_dry_run` | Dry run with 5 due units logs `would restart` 3 times and the cap line twice; nothing is restarted. |
+| `test_restart_cap_from_env` | `DDS_WATCHDOG_MAX_RESTARTS_PER_RUN=1` restarts one of three due units. |
+| `test_restart_cap_does_not_count_blocked_units` | Units held back by calibration do not use up the cap and are never logged as cap-skipped. |
+| `test_config_max_restarts_from_env` | The cap is read as an integer from the environment; a non-integer raises `ValueError` like the other integer settings. |

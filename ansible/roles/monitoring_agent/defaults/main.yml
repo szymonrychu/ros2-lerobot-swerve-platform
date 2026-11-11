@@ -61,3 +61,41 @@ monitoring_agent_oom_score_adjust: 500
 monitoring_agent_units:
   - name: alloy
     memory_max: "250M"
+
+# ---- DDS watchdog (files/dds_watchdog.py, dds-watchdog.timer) -------------------------------------------------------
+# Restarts a ros2-*.service whose Fast DDS discovery thread is deadlocked (eProsima/Fast-DDS#6502): a `dds.udp.<port>`
+# thread in futex_wait_queue while the port's rx_queue is full, for `samples` consecutive runs. Never restarts during a
+# calibration (GET /api/calibration/active, fail closed) or a deploy. Runbook: docs/runbooks/dds-discovery-deadlock.md.
+# false stops and disables the timer, stops an in-flight run; the textfile is removed (script and state stay).
+monitoring_agent_dds_watchdog_enabled: true
+monitoring_agent_dds_watchdog_interval: "10s"
+# Consecutive suspect runs before a restart, and the rx_queue (bytes) that counts as full.
+monitoring_agent_dds_watchdog_samples: 3
+monitoring_agent_dds_watchdog_rx_min_bytes: 262144
+# Smallest gap between two watchdog restarts of one unit (stops a restart loop when a unit is still suspect).
+monitoring_agent_dds_watchdog_min_restart_interval_s: 300
+# Most units one run restarts; further due units wait for the next run (10 s later). Bounds the run time.
+monitoring_agent_dds_watchdog_max_restarts_per_run: 3
+# true only logs the restarts.
+monitoring_agent_dds_watchdog_dry_run: false
+# web_ui's calibration state: the robot asks its own web_ui; the server (group_vars/server.yml) asks the client. web_ui
+# with /api/calibration/active must be deployed before the watchdog, or every restart is blocked (fail closed).
+monitoring_agent_dds_watchdog_calibration_url: http://127.0.0.1/api/calibration/active
+monitoring_agent_dds_watchdog_calibration_timeout_s: 3
+# The deploy lock the ros2 deploy holds (group_vars/all.yml): no restart while it is younger than the deploy-recover
+# max age (240 min = 14400 s), the same age after which ros2-deploy-recover treats it as stale.
+monitoring_agent_dds_watchdog_deploy_lock: "{{ ros2_deploy_lock }}"
+monitoring_agent_dds_watchdog_deploy_lock_max_age_s: "{{ (ros2_deploy_lock_max_age_min | int) * 60 }}"
+# Paths: the proc and cgroup v2 trees it samples, systemctl, the state directory (streaks, restart times) and the Alloy
+# textfile output.
+monitoring_agent_dds_watchdog_proc_root: /proc
+monitoring_agent_dds_watchdog_cgroup_root: /sys/fs/cgroup
+monitoring_agent_dds_watchdog_systemctl: systemctl
+monitoring_agent_dds_watchdog_state_dir: /var/lib/dds-watchdog
+# TimeoutStartSec of the oneshot service: bounds a run that a huge calibration timeout or a hung systemctl would stall.
+# Worst case of one run in dds_watchdog.py: `systemctl list-units` (SYSTEMCTL_TIMEOUT_S = 60 s) + max_restarts_per_run x
+# (a restart, SYSTEMCTL_TIMEOUT_S = 60 s, + a calibration GET of CALIBRATION_ATTEMPTS = 2 attempts x the calibration
+# timeout) + a 30 s margin. 60 + 3 x (60 + 2 x 3) + 30 = 288 s with the defaults. A test keeps the constants in step.
+monitoring_agent_dds_watchdog_start_timeout_s: >-
+  {{ (60 + (monitoring_agent_dds_watchdog_max_restarts_per_run | int)
+  * (60 + 2 * (monitoring_agent_dds_watchdog_calibration_timeout_s | float)) + 30) | round(0, 'ceil') | int }}
