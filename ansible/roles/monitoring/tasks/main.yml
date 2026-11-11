@@ -127,12 +127,11 @@
         mode: "0640"
       notify: [Restart grafana-server]
 
+    # The grafana package ships this directory; no owner or group, so an existing one keeps the package's.
     - name: Create the alert rule provisioning directory
       ansible.builtin.file:
         path: /etc/grafana/provisioning/alerting
         state: directory
-        owner: root
-        group: grafana
         mode: "0755"
 
     # Grafana-only rules, no contact point or policy yet (R2's webhook is a follow-up).

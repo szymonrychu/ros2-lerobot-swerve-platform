@@ -459,6 +459,10 @@ def test_alert_rule_provisioned() -> None:
         if (t.get("ansible.builtin.file") or {}).get("path") == "/etc/grafana/provisioning/alerting"
     )
     assert directory["state"] == "directory"
+    # The grafana package ships this directory: no owner or group is set, so an existing one is not re-owned.
+    assert "owner" not in directory
+    assert "group" not in directory
+    assert directory["mode"] == "0755"
     assert task_names().index(task["name"]) > task_names().index("Provision the Mimir and Loki datasources")
 
 
