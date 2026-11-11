@@ -378,7 +378,7 @@ one. The body block's static `head` cylinder stays in every check; the moving he
 are exact (the point in the box frame, `(p - t) @ R`). For the board lattice, `worst_point_clearances(points, cutoff)`
 skips the oriented boxes whose bounding sphere stays `cutoff` (the board threshold) or more from the lattice's bounding
 sphere: values below the cutoff are exact, so the entries are unchanged. A `check_path` sample with a +-15 deg band
-costs about the same as with the envelope (see the improvement's timing log).
+costs roughly 2x the envelope one (measured on a loaded dev host; not measured on the Pi 5).
 
 ### Config models (`config.py`)
 

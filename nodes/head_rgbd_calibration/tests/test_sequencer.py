@@ -1859,6 +1859,29 @@ def test_plan_views_skip_reason_head_clearance(tmp_path: Path, monkeypatch: pyte
     )
 
 
+def test_plan_views_limits_rule_precedes_head_clearance(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An aim outside the head limits is skipped with the limits reason and never reaches check_head_move."""
+    out_of_limits_deg = 400.0
+    cfg = small_cfg(head_offsets_deg=[(0.0, 0.0), (out_of_limits_deg, 0.0)])
+    rig = Rig(tmp_path, cfg)
+    checked_pans_deg: list[float] = []
+    original = PoseChecker.check_head_move
+
+    def spy(self: PoseChecker, joints: dict[str, float], gripper_rad: float, head: HeadRegion | None) -> list[str]:
+        if head is not None:
+            checked_pans_deg.append(math.degrees(head.pan_rad[1]))
+        return original(self, joints, gripper_rad, head)
+
+    monkeypatch.setattr(PoseChecker, "check_head_move", spy)
+    state = rig.run_to_holding()
+    assert state["error"] is None
+    limit_skips = {reason: n for reason, n in state["skipped"].items() if "outside the URDF head limits" in reason}
+    assert sum(limit_skips.values()) == len(tier_poses(cfg))
+    assert HEAD_CLEARANCE_RULE not in state["skipped"]
+    assert checked_pans_deg
+    assert all(abs(pan) < out_of_limits_deg / 2 for pan in checked_pans_deg)
+
+
 def test_live_head_tier2_transit_passes_with_the_band(tmp_path: Path) -> None:
     # main refused tier 1 pose 8 -> tier 2 pose 0 on the live head (upper arm to the full-range envelope)
     seq_cfg = NodeConfig().arm_sequence
