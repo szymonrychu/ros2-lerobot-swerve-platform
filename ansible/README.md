@@ -681,6 +681,25 @@ EEPROM) inside the running bridge. One client deploy turns it on; the keys in `g
 
 `tests/test_servo_neutral_config.py` pins that these names agree.
 
+### Servo calibration (client)
+
+The web UI "Servo calibration" tab (bridge `servo_calibration` services) is configured in `group_vars/client.yml`:
+
+- A `servo_calibration` block on `lerobot_follower` (arm: `home_reference_rad`, `offset_exclude_joints: [gripper]`,
+  `full_turn_joints: [wrist_roll]`, `record_dir: /var/lib/ros2/arm`), on `base_servos` (the four `*_steer` joints, home
+  0, `required_travel_rad` +-1.5708, `record_dir: /var/lib/ros2/base_servos`) and on its `head` extra group (home 0/0,
+  pan +-1.5708 and tilt -0.5236..0.7854 required travel). Other keys keep the bridge defaults (spec in the
+  [feetech_servos README](../nodes/bridges/feetech_servos/README.md#servo-calibration-servo_calibrationpy)).
+- `playbooks/tasks/base_servos_state_dir.yml` creates `/var/lib/ros2/base_servos` (owner `ansible_user`, mode `0755`)
+  in `deploy_nodes_client.yml` (tag `setup`); the arm record dir `/var/lib/ros2/arm` comes from `mcp_server_setup.yml`.
+- `mcp_server.arm.servo_calibration_record: /var/lib/ros2/arm/servo_calibration-follower-latest.json` (the arm record
+  dir of the bridge) feeds `/arm/set_home_from_calibration`.
+- `web_ui` `calibration.servo_groups`: `servo_calibration: true` on arm, base and head; the arm entry also sets
+  `set_home_from_calibration_service: /arm/set_home_from_calibration`.
+
+The leader arm (server) has no block; after an arm calibration teleop needs the leader re-zeroed in the same pose.
+`tests/test_servo_calibration_config.py` pins that these names agree.
+
 ### mcp_server guard rules
 
 The `guard_rules:` block of the mcp_server `config:` in `group_vars/client.yml` holds the deployed safety rules (R1
