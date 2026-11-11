@@ -2,7 +2,7 @@
 export const CALIBRATE_HASH = '#/calibrate'
 
 /** The calibration flows of the page, in page order; `#/calibrate/<flow>` opens one. */
-export const FLOW_IDS = ['servo-home', 'imu', 'camera-ground', 'arm-camera'] as const
+export const FLOW_IDS = ['servo-calibration', 'imu', 'camera-ground', 'arm-camera'] as const
 export type FlowId = (typeof FLOW_IDS)[number]
 
 /**

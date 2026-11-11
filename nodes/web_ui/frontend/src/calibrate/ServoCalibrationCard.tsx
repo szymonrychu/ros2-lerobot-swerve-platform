@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -99,6 +99,7 @@ export function ServoCalibrationCard({
   const run = async (action: ServoAction, planRunId?: string, kind: 'plain' | 'store' = 'plain') => {
     setBusy(true)
     setError(null)
+    if (kind === 'plain') setOutcome(null)
     try {
       const result = await onAction(action, planRunId)
       if (kind === 'store') setOutcome(result)
@@ -109,6 +110,9 @@ export function ServoCalibrationCard({
       setBusy(false)
     }
   }
+  // A new plan (other run_id) makes the previous store outcome stale.
+  const shownRunId = plan?.run_id ?? null
+  useEffect(() => setOutcome(null), [shownRunId])
   const store = () => {
     if (plan === null) return
     if (plan.needs_confirm) setConfirmRunId(plan.run_id)

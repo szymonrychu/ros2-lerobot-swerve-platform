@@ -52,7 +52,8 @@ describe('ServoCalibrationCard', () => {
 
   it('record home disabled until torque is off', () => {
     const { rerender } = render(<ServoCalibrationCard group={group({ torque: 1 })} onAction={ok()} />)
-    expect((screen.queryByRole('button', { name: 'Record home' }) as HTMLButtonElement | null)?.disabled ?? true).toBe(true)
+    const locked = screen.queryByRole('button', { name: 'Record home' }) as HTMLButtonElement | null
+    expect(locked === null || locked.disabled).toBe(true)
     rerender(<ServoCalibrationCard group={group({ torque: 0 })} onAction={ok()} />)
     expect((screen.getByRole('button', { name: 'Record home' }) as HTMLButtonElement).disabled).toBe(false)
   })
@@ -104,6 +105,19 @@ describe('ServoCalibrationCard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Store' }))
     expect(await screen.findByText('Arm home not set')).toBeTruthy()
     expect(screen.getByText(/set_home refused: no readings/)).toBeTruthy()
+  })
+
+  it('the store outcome is cleared by a new plan and by a non-store action', async () => {
+    const onAction = ok()
+    const view = render(<ServoCalibrationCard group={group({ home: true, plan: plan() })} onAction={onAction} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Store' }))
+    expect(await screen.findByText('stored')).toBeTruthy()
+    view.rerender(<ServoCalibrationCard group={group({ home: true, plan: plan({ run_id: 'p2' }) })} onAction={onAction} />)
+    await waitFor(() => expect(screen.queryByText('stored')).toBeNull())
+    fireEvent.click(screen.getByRole('button', { name: 'Store' }))
+    expect(await screen.findByText('stored')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Re-enable torque' }))
+    await waitFor(() => expect(screen.queryByText('stored')).toBeNull())
   })
 
   it('re-enable torque is visible while released and calls enable', async () => {

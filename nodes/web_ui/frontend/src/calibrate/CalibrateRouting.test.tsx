@@ -129,6 +129,24 @@ describe('Calibrate routing', () => {
     expect(window.location.hash).toBe('#/calibrate/imu')
   })
 
+  it('#/calibrate/servo-calibration opens the flow', async () => {
+    window.location.hash = '#/calibrate/servo-calibration'
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        url === '/api/calibration/config'
+          ? new Response(JSON.stringify({ imu: true, servos: true }), { status: 200 })
+          : url === '/api/calibration/servos'
+            ? new Response(JSON.stringify({ groups: [] }), { status: 200 })
+            : { json: async () => CONFIG },
+      ),
+    )
+    await renderApp()
+    await screen.findByRole('heading', { name: 'Servo calibration', level: 2 })
+    expect(window.location.hash).toBe('#/calibrate/servo-calibration')
+    expect(screen.getByText('Advanced / repair')).toBeTruthy()
+  })
+
   it('back clears the hash and a tab selection leaves the page', async () => {
     window.location.hash = '#/calibrate'
     await renderApp()
