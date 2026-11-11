@@ -273,9 +273,7 @@ class ArmCameraBounds(StrictModel):
     max_offset_change_deg: float = Field(default=15.0, gt=0)
     max_base_move_mm: float = Field(default=100.0, gt=0)
     max_base_turn_deg: float = Field(default=10.0, gt=0)
-    # Temporary: user decision 2026-11-11 (T-114 #399) to accept a fit with a 30.3 mm seat shift (reprinted handle);
-    # restore 10.0 after that accept.
-    max_skew_mm: float = Field(default=35.0, gt=0)
+    max_skew_mm: float = Field(default=10.0, gt=0)
     max_skew_deg: float = Field(default=10.0, gt=0)
     max_sag_deg: float = Field(default=5.0, gt=0)
     max_droop_mm: float = Field(default=5.0, gt=0)

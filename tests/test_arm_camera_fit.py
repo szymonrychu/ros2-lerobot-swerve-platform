@@ -202,7 +202,7 @@ def test_wrist_roll_offset_is_a_gauge_of_the_board_rotation() -> None:
 
 def test_implausible_changes_are_refused(standard: tuple[object, ArmCameraFit]) -> None:
     _, fit = standard
-    cfg = arm_camera_config(bounds=ArmCameraBounds(max_skew_mm=10.0))  # independent of the (temporary) default
+    cfg = arm_camera_config()
     wild = dataclasses.replace(
         fit,
         offsets={**fit.offsets, "elbow_flex": fit.current_offsets["elbow_flex"] + math.radians(20.0)},
