@@ -75,6 +75,17 @@ def test_move_joints_streams_and_converges_with_implicit_acquire(tmp_path: Path)
     assert arm.control_held
 
 
+def test_motion_epoch_counts_every_motion_and_every_stop(tmp_path: Path) -> None:
+    arm, _ = make(tmp_path)
+    before = arm.motion_epoch
+    arm.move_joints({"elbow_flex": 1.1})
+    assert arm.motion_epoch == before + 1
+    arm.set_gripper(open_fraction=0.5)
+    assert arm.motion_epoch == before + 2
+    arm.request_stop()
+    assert arm.motion_epoch == before + 3
+
+
 def test_lower_speed_scale_is_slower(tmp_path: Path) -> None:
     arm, be = make(tmp_path)
     arm.move_joints({"elbow_flex": 0.5}, speed_scale=0.5)

@@ -1345,6 +1345,7 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   restarts the node) and stays quiet on shutdown; `FrameCache.wait_newer` returns the first frame newer than the
   request or None on timeout.
 - raw feeds on a second node (`nodes/mcp_server/tests/test_feeds_executor.py`): `feeds_executor` defaults to `events` and rejects other values; the feeds node owns exactly the five `cache_raw` subscriptions and the main node none of them; `monitor_tick` still feeds the monitor from samples stored via the feeds node; `feeds_executor: main` restores the single-node wiring; `FeedsSpinner` spins and destroys the node on its own thread, exits the process when the executor dies; `RosRobot.shutdown` stops the spinner before destroying the main node.
+- arm motion epoch (`test_arm.py`): `motion_epoch` counts every motion entered and every `request_stop`
 - arm controller (`test_arm.py`): lease acquire/release, streamed motion with implicit acquire and velocity cap, speed
   scale, clamping, argument validation, abort + hold on stale feedback / tracking error / stop (tracking limit grows
   with the motion's velocity: `tracking_limit`; a follower 0.35 s behind passes at full speed through the delay window, a 0.4 rad offset aborts at 0.2 rad/s), no hold after filter_node
@@ -1927,6 +1928,7 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   `MCP_SPEED_SKIP=1`): feasible angled and auto golden scenarios and auto on the reference cube under 1 s, scoop 3 s,
   infeasible angled/auto fail fast with reasons, unreachable object rejected in 0.2 s without an IK search, re-planning
   served from the IK cache; the per-candidate and per-strategy IK budgets stop the search with an "IK budget" reason
+- executor phases (`test_grasp_tools.py`): `prepare`/`land`/`close_and_verify`/`lift_and_retreat` compose the macro step order without opening, `landing_error` planned vs achieved tool point, `back_out` reverses the slide to the pre-grasp, `open_and_rise`, `hold_problem`, `halt`, `prepare` refusing a camera position before any motion, a step recording `interrupted_by`
 - grasp execution (`test_grasp_tools.py`): tool names and battery classification, grasp with a simulated object
   (close on load, lift, retreat, never a full squeeze), miss (a contact failing verification or a blocked close: open
   and retreat), the 2026-10-11 plush croc: a close into the empty band (`closed_no_contact`, jaw stalled 0.05 rad short

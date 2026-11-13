@@ -13,6 +13,7 @@ import logging
 import math
 import threading
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import Annotated, Any, Literal, Protocol
 
 import cv2
@@ -100,6 +101,9 @@ class GraspStep(BaseModel):
     label: str
     status: str
     message: str = ""
+    interrupted_by: str | None = Field(
+        default=None, description="Critical event type that stopped this step (ArmMotionResult.interrupted_by)"
+    )
     slow_zone: dict[str, Any] | None = None
     self_collision: dict[str, Any] | None = Field(
         default=None, description="Robot body slowdown of this step (ArmMotionResult.self_collision); null when none"
@@ -109,6 +113,36 @@ class GraspStep(BaseModel):
         description="Arm joints off their intended target of this step by more than their converge tolerance when "
         "it ended: target - measured (rad). Also joints a gripper step does not move (e.g. pushed while closing)",
     )
+
+
+@dataclass
+class RunLog:
+    """Mutable record of one grasp run, shared by the executor phases.
+
+    Attributes:
+        steps (list[GraspStep]): Executed steps in order.
+        reached (Waypoint | None): Last waypoint commanded (the arm's intended pose); None before the first.
+        close (ArmMotionResult | None): The close step's result once it ran.
+    """
+
+    steps: list[GraspStep] = field(default_factory=list)
+    reached: Waypoint | None = None
+    close: ArmMotionResult | None = None
+
+
+@dataclass(frozen=True)
+class CloseVerdict:
+    """What the close step found.
+
+    Attributes:
+        close (ArmMotionResult): The close result.
+        unverified (str | None): Reason of a closed_no_contact close (jaw kept closed with the hold step), else None.
+        missed (str | None): Why nothing is held (failed verification or a blocked close), else None.
+    """
+
+    close: ArmMotionResult
+    unverified: str | None
+    missed: str | None
 
 
 class GraspResult(BaseModel):
@@ -351,6 +385,39 @@ class GraspExecutor:
             return "no head calibration is available to check against the camera-to-arm residual gate"
         return gate_refusal(self.calibration(), self.cfg.camera_arm.max_residual_mm)
 
+    def prepare(
+        self,
+        obj: ObjectSpec,
+        strategy: str,
+        params: GraspParams,
+        approach_pitch_deg: float | None,
+        floor: FloorOverride | None,
+    ) -> tuple[GraspPlan, list[str], ResolvedGrip, FloorOverride | None]:
+        """Everything before the first motion: resolve the grip, gate a camera position, merge surfaces, plan.
+
+        Args:
+            obj (ObjectSpec): Object.
+            strategy (str): Strategy or 'auto'.
+            params (GraspParams): Parameters.
+            approach_pitch_deg (float | None): Pitch for 'angled'.
+            floor (FloorOverride | None): Slow-zone overrides.
+
+        Returns:
+            tuple[GraspPlan, list[str], ResolvedGrip, FloorOverride | None]: The plan, notes about how it was
+                planned, the resolved grip and the floor overrides merged with the object's surfaces.
+
+        Raises:
+            ValueError: For an invalid grip profile, or a camera-derived position the calibration residual gate
+                refuses (nothing moved).
+        """
+        grip = self.resolve_grip(params)  # an invalid profile refuses before anything moves
+        refusal = self.camera_refusal(obj)
+        if refusal is not None:
+            raise ValueError(f"grasp refused (nothing moved): the object position comes from the camera and {refusal}")
+        floor = with_object_surfaces(floor, obj)
+        plan, notes = self.plan(obj, strategy, params, approach_pitch_deg, floor)
+        return plan, notes, grip, floor
+
     def grasp(
         self,
         obj: ObjectSpec,
@@ -377,12 +444,7 @@ class GraspExecutor:
             ValueError: For an invalid grip profile, or a camera-derived position the calibration residual gate
                 refuses (nothing moved).
         """
-        grip = self.resolve_grip(params)  # an invalid profile refuses before anything moves
-        refusal = self.camera_refusal(obj)
-        if refusal is not None:
-            raise ValueError(f"grasp refused (nothing moved): the object position comes from the camera and {refusal}")
-        floor = with_object_surfaces(floor, obj)
-        plan, notes = self.plan(obj, strategy, params, approach_pitch_deg, floor)
+        plan, notes, grip, floor = self.prepare(obj, strategy, params, approach_pitch_deg, floor)
         result = (
             plan_result(plan, notes, grip) if not plan.feasible else self.execute(plan, params, floor, stop_requested)
         )
@@ -430,6 +492,7 @@ class GraspExecutor:
                 label=label,
                 status=result.status,
                 message=result.message,
+                interrupted_by=result.interrupted_by,
                 slow_zone=result.slow_zone,
                 self_collision=result.self_collision,
                 residual_error=residual,
@@ -582,6 +645,18 @@ class GraspExecutor:
         """
         if close.status != "grasped":
             return f"close ended '{close.status}': {close.message}"
+        return self.hold_problem(params, close)
+
+    def hold_problem(self, params: GraspParams, close: ArmMotionResult | None = None) -> str | None:
+        """Sample-based hold check: a fresh sample with the jaw stopped short of closed under load.
+
+        Args:
+            params (GraspParams): min_hold_gap_rad, hold_effort_min.
+            close (ArmMotionResult | None): Close result whose gripper effort also counts as a load reading.
+
+        Returns:
+            str | None: Why nothing is held, or None while the jaws hold something.
+        """
         sample = self.arm.fresh_sample()
         if sample is None:
             return "no fresh joint states to verify the grasp"
@@ -589,7 +664,7 @@ class GraspExecutor:
         gap = jaw - self.cfg.arm.gripper_closed_rad
         measured = [
             abs(e)
-            for e in (close.gripper_effort, finite_effort(sample.efforts, self.arm.gripper))
+            for e in (None if close is None else close.gripper_effort, finite_effort(sample.efforts, self.arm.gripper))
             if e is not None and math.isfinite(e)
         ]
         if gap < params.min_hold_gap_rad:
@@ -626,95 +701,284 @@ class GraspExecutor:
         Returns:
             GraspResult: grasped / unverified / missed / aborted.
         """
-        steps: list[GraspStep] = []
-        arm, gripper, limits = self.arm, self.arm.gripper, self.cfg.limits
-        wp: dict[str, Waypoint] = {w.label: w for w in plan.waypoints}
-        slide = params.slide_speed_scale
-        close: ArmMotionResult | None = None
-        reached: Waypoint | None = None  # last waypoint commanded: the arm's intended pose
+        log = RunLog(steps=[])
         unverified: str | None = None
         missed: str | None = None
         try:
-            try:
-                sample = arm.require_sample()
-            except ArmError as exc:
-                raise GraspAbort(str(exc)) from exc
-            pre = wp["pre_grasp"]
-            current = arm.command_base(sample)
-            roll_change = abs(pre.roll - current[ROLL_JOINT]) > limits.roll_guard_min_change_rad
-            opening = max(sample.positions[gripper], current.get(gripper, -math.inf))
-            if roll_change and opening > limits.roll_max_gripper_open_rad and pre.gripper is not None:
-                frac = self.fraction(pre.gripper)
-                self.step("half_open", steps, stop_requested, lambda: arm.set_gripper(open_fraction=frac, floor=floor))
-            targets = dict(pre.joints)
-            if roll_change:
-                targets[ROLL_JOINT] = current[ROLL_JOINT]  # roll only once lifted at the pre-grasp
-            reached = pre
-            free = min(pre.speed_scale, limits.arm_max_speed_scale)  # approach_speed_scale (planned)
-            self.step("pre_grasp", steps, stop_requested, lambda: arm.move_joints(targets, free, floor), intent=targets)
-            if roll_change:
-                self.step(
-                    "roll",
-                    steps,
-                    stop_requested,
-                    lambda: arm.move_joints({ROLL_JOINT: pre.roll}, free, floor),
-                    intent=pre.joints,
-                )
-            open_frac = self.fraction(wp["open"].gripper or self.cfg.arm.gripper_open_rad)
+            self.land(plan, params, floor, stop_requested, log)
+            verdict = self.close_and_verify(plan, params, floor, stop_requested, log)
+            unverified, missed = verdict.unverified, verdict.missed
+            if missed is not None:
+                self.open_jaws(plan, floor, stop_requested, log)
+            self.lift_and_retreat(plan, floor, stop_requested, log)
+        except GraspAbort as exc:
+            self.halt()
+            return self.finish("aborted", [str(exc)], plan, log.steps, log.close, log.reached)
+        if unverified is not None:
+            return self.finish("unverified", [unverified], plan, log.steps, log.close, log.reached)
+        if missed is not None:
+            return self.finish("missed", [missed], plan, log.steps, log.close, log.reached)
+        return self.finish("grasped", [], plan, log.steps, log.close, log.reached)
+
+    def land(
+        self,
+        plan: GraspPlan,
+        params: GraspParams,
+        floor: FloorOverride | None,
+        stop_requested: Callable[[], bool],
+        log: RunLog,
+    ) -> None:
+        """Steps (half_open,) pre_grasp, (roll,) open, approach, grasp: the jaws open at the grasp pose.
+
+        Args:
+            plan (GraspPlan): Feasible plan.
+            params (GraspParams): Parameters (slide_speed_scale).
+            floor (FloorOverride | None): Slow-zone overrides.
+            stop_requested (Callable[[], bool]): Stop check between steps.
+            log (RunLog): Run log (steps appended, reached updated; reached ends as the grasp waypoint).
+
+        Raises:
+            GraspAbort: When the run must end.
+        """
+        arm, gripper, limits = self.arm, self.arm.gripper, self.cfg.limits
+        steps = log.steps
+        wp: dict[str, Waypoint] = {w.label: w for w in plan.waypoints}
+        slide = params.slide_speed_scale
+        try:
+            sample = arm.require_sample()
+        except ArmError as exc:
+            raise GraspAbort(str(exc)) from exc
+        pre = wp["pre_grasp"]
+        current = arm.command_base(sample)
+        roll_change = abs(pre.roll - current[ROLL_JOINT]) > limits.roll_guard_min_change_rad
+        opening = max(sample.positions[gripper], current.get(gripper, -math.inf))
+        if roll_change and opening > limits.roll_max_gripper_open_rad and pre.gripper is not None:
+            frac = self.fraction(pre.gripper)
+            self.step("half_open", steps, stop_requested, lambda: arm.set_gripper(open_fraction=frac, floor=floor))
+        targets = dict(pre.joints)
+        if roll_change:
+            targets[ROLL_JOINT] = current[ROLL_JOINT]  # roll only once lifted at the pre-grasp
+        log.reached = pre
+        free = min(pre.speed_scale, limits.arm_max_speed_scale)  # approach_speed_scale (planned)
+        self.step("pre_grasp", steps, stop_requested, lambda: arm.move_joints(targets, free, floor), intent=targets)
+        if roll_change:
             self.step(
-                "open",
+                "roll",
                 steps,
                 stop_requested,
-                lambda: arm.set_gripper(open_fraction=open_frac, floor=floor),
+                lambda: arm.move_joints({ROLL_JOINT: pre.roll}, free, floor),
                 intent=pre.joints,
             )
-            for label in ("approach", "grasp"):
-                path = arm_only(plan.segments[label], gripper)
-                reached = wp[label]
-                self.step(label, steps, stop_requested, lambda p=path: arm.move_path(p, slide, floor), intent=path[-1])
-            held = wp["grasp"].joints
-            close = self.step(
-                "close",
-                steps,
+        open_frac = self.fraction(wp["open"].gripper or self.cfg.arm.gripper_open_rad)
+        self.step(
+            "open",
+            steps,
+            stop_requested,
+            lambda: arm.set_gripper(open_fraction=open_frac, floor=floor),
+            intent=pre.joints,
+        )
+        for label in ("approach", "grasp"):
+            path = arm_only(plan.segments[label], gripper)
+            log.reached = wp[label]
+            self.step(label, steps, stop_requested, lambda p=path: arm.move_path(p, slide, floor), intent=path[-1])
+
+    def close_and_verify(
+        self,
+        plan: GraspPlan,
+        params: GraspParams,
+        floor: FloorOverride | None,
+        stop_requested: Callable[[], bool],
+        log: RunLog,
+    ) -> CloseVerdict:
+        """Step close, then hold (closed_no_contact: unverified) or the grasp check (a failure is a miss). Never opens.
+
+        Args:
+            plan (GraspPlan): Feasible plan, landed at its grasp waypoint.
+            params (GraspParams): close_effort_threshold, grip_profile, hold thresholds.
+            floor (FloorOverride | None): Slow-zone overrides.
+            stop_requested (Callable[[], bool]): Stop check between steps.
+            log (RunLog): Run log (steps appended, close set).
+
+        Returns:
+            CloseVerdict: The close result with the unverified or missed reason (or neither: a verified grasp).
+
+        Raises:
+            GraspAbort: When the run must end.
+        """
+        held = next(w for w in plan.waypoints if w.label == "grasp").joints
+        close = self.step(
+            "close",
+            log.steps,
+            stop_requested,
+            lambda: self.arm.set_gripper(
+                close_until_effort=True,
+                effort_threshold=params.close_effort_threshold,
+                floor=floor,
+                grip_profile=params.grip_profile,
+            ),
+            CLOSE_OK,
+            intent=held,
+        )
+        log.close = close
+        if close.status == "closed_no_contact":
+            unverified = self.unverified_reason(close)
+            self.hold_step(log.steps, stop_requested, params)
+            return CloseVerdict(close, unverified, None)
+        return CloseVerdict(close, None, self.verify(close, params))
+
+    def open_jaws(
+        self, plan: GraspPlan, floor: FloorOverride | None, stop_requested: Callable[[], bool], log: RunLog
+    ) -> None:
+        """Step open: the jaws to the plan's open gripper angle (after a miss).
+
+        Args:
+            plan (GraspPlan): Plan whose open waypoint gives the angle.
+            floor (FloorOverride | None): Slow-zone overrides.
+            stop_requested (Callable[[], bool]): Stop check.
+            log (RunLog): Run log (steps appended); log.reached.joints is the intended pose.
+
+        Raises:
+            GraspAbort: When the run must end.
+        """
+        open_wp = next(w for w in plan.waypoints if w.label == "open")
+        open_frac = self.fraction(open_wp.gripper or self.cfg.arm.gripper_open_rad)
+        self.step(
+            "open",
+            log.steps,
+            stop_requested,
+            lambda: self.arm.set_gripper(open_fraction=open_frac, floor=floor),
+            intent=None if log.reached is None else log.reached.joints,
+        )
+
+    def lift_and_retreat(
+        self, plan: GraspPlan, floor: FloorOverride | None, stop_requested: Callable[[], bool], log: RunLog
+    ) -> None:
+        """Steps lift and retreat along the planned segments.
+
+        Args:
+            plan (GraspPlan): Feasible plan.
+            floor (FloorOverride | None): Slow-zone overrides.
+            stop_requested (Callable[[], bool]): Stop check between steps.
+            log (RunLog): Run log (steps appended, reached updated).
+
+        Raises:
+            GraspAbort: When the run must end.
+        """
+        wp: dict[str, Waypoint] = {w.label: w for w in plan.waypoints}
+        for label in ("lift", "retreat"):
+            path = arm_only(plan.segments[label], self.arm.gripper)
+            speed = wp[label].speed_scale  # a tall narrow object lifts at lift_speed_scale
+            log.reached = wp[label]
+            self.step(
+                label,
+                log.steps,
                 stop_requested,
-                lambda: arm.set_gripper(
-                    close_until_effort=True,
-                    effort_threshold=params.close_effort_threshold,
-                    floor=floor,
-                    grip_profile=params.grip_profile,
-                ),
-                CLOSE_OK,
-                intent=held,
+                lambda p=path, v=speed: self.arm.move_path(p, v, floor),
+                intent=path[-1],
             )
-            if close.status == "closed_no_contact":
-                unverified = self.unverified_reason(close)
-                self.hold_step(steps, stop_requested, params)
-            else:
-                missed = self.verify(close, params)
-            if missed is not None:
-                self.step(
-                    "open",
-                    steps,
-                    stop_requested,
-                    lambda: arm.set_gripper(open_fraction=open_frac, floor=floor),
-                    intent=held,
-                )
-            for label in ("lift", "retreat"):
-                path = arm_only(plan.segments[label], gripper)
-                speed = wp[label].speed_scale  # a tall narrow object lifts at lift_speed_scale
-                reached = wp[label]
-                self.step(
-                    label, steps, stop_requested, lambda p=path, v=speed: arm.move_path(p, v, floor), intent=path[-1]
-                )
-        except GraspAbort as exc:
-            arm.stop_hold()
-            arm.restore_default_torque_limit()  # never leave the gripper weakened (or firm) after an abort
-            return self.finish("aborted", [str(exc)], plan, steps, close, reached)
-        if unverified is not None:
-            return self.finish("unverified", [unverified], plan, steps, close, reached)
-        if missed is not None:
-            return self.finish("missed", [missed], plan, steps, close, reached)
-        return self.finish("grasped", [], plan, steps, close, reached)
+
+    def back_out(
+        self,
+        plan: GraspPlan,
+        params: GraspParams,
+        floor: FloorOverride | None,
+        stop_requested: Callable[[], bool],
+        log: RunLog,
+    ) -> None:
+        """Steps back_out_grasp and back_out_approach: slide back along the reversed grasp, then approach segments.
+
+        Args:
+            plan (GraspPlan): Plan the jaws landed with.
+            params (GraspParams): slide_speed_scale.
+            floor (FloorOverride | None): Slow-zone overrides.
+            stop_requested (Callable[[], bool]): Stop check between steps.
+            log (RunLog): Run log (steps appended); reached ends as the open waypoint (the pre-grasp pose).
+
+        Raises:
+            GraspAbort: When the run must end.
+        """
+        slide = params.slide_speed_scale
+        for label, segment in (("back_out_grasp", "grasp"), ("back_out_approach", "approach")):
+            path = arm_only(plan.segments[segment], self.arm.gripper)[::-1]
+            self.step(
+                label,
+                log.steps,
+                stop_requested,
+                lambda p=path: self.arm.move_path(p, slide, floor),
+                intent=path[-1],
+            )
+        log.reached = next(w for w in plan.waypoints if w.label == "open")
+
+    def open_and_rise(
+        self,
+        open_fraction: float,
+        rise_m: float,
+        speed_scale: float,
+        floor: FloorOverride | None,
+        stop_requested: Callable[[], bool],
+        log: RunLog,
+        rise_label: str = "rise",
+    ) -> ArmMotionResult:
+        """Step open, then the tool point rise_m straight up (same pitch).
+
+        Args:
+            open_fraction (float): Gripper open fraction.
+            rise_m (float): Rise (m).
+            speed_scale (float): Speed scale of the rise.
+            floor (FloorOverride | None): Slow-zone overrides.
+            stop_requested (Callable[[], bool]): Stop check between steps.
+            log (RunLog): Run log (steps appended).
+            rise_label (str): Label of the rise step.
+
+        Returns:
+            ArmMotionResult: The rise result (status converged, or unreachable when the rise was skipped).
+
+        Raises:
+            GraspAbort: When the run must end.
+        """
+        arm = self.arm
+        self.step("open", log.steps, stop_requested, lambda: arm.set_gripper(open_fraction=open_fraction, floor=floor))
+        try:
+            pose = arm.kin.forward(arm.command_base(arm.require_sample()))
+        except ArmError as exc:
+            raise GraspAbort(str(exc)) from exc
+        return self.step(
+            rise_label,
+            log.steps,
+            stop_requested,
+            lambda: arm.move_cartesian(pose.x, pose.y, pose.z + rise_m, pose.pitch, speed_scale, floor=floor),
+            MOTION_OK | {"unreachable"},
+        )
+
+    def halt(self) -> None:
+        """Stop and hold the arm and never leave the gripper weakened (or firm) after an abort."""
+        self.arm.stop_hold()
+        self.arm.restore_default_torque_limit()
+
+    def landing_error(self, plan: GraspPlan) -> dict[str, Any] | None:
+        """Where the jaws landed against the plan's grasp waypoint: held_pose plus the tool point error.
+
+        Args:
+            plan (GraspPlan): Executed plan.
+
+        Returns:
+            dict[str, Any] | None: held_pose of the grasp waypoint plus planned_tool_point (the waypoint's tool
+                point) and tool_point_error_m (rounded to 1e-4; both absent when the waypoint has no tool point);
+                None without fresh joint states.
+        """
+        grasp = next(w for w in plan.waypoints if w.label == "grasp")
+        held = self.held_pose(plan, grasp)
+        if held is None:
+            return None
+        planned = grasp.tool_point
+        if planned is None:
+            return held
+        tool = held["tool_point"]
+        held["planned_tool_point"] = {axis: round(planned[axis], 4) for axis in ("x", "y", "z")}
+        held["tool_point_error_m"] = round(
+            math.dist((tool["x"], tool["y"], tool["z"]), tuple(planned[a] for a in "xyz")), 4
+        )
+        return held
 
     def hold_step(self, steps: list[GraspStep], stop_requested: Callable[[], bool], params: GraspParams) -> None:
         """Step 'hold': keep an empty-band close gripping with the profile's squeeze and torque limit.
@@ -749,29 +1013,22 @@ class GraspExecutor:
         Returns:
             GraspResult: released (reasons note a skipped, unreachable lift) or aborted.
         """
-        steps: list[GraspStep] = []
-        arm = self.arm
-        frac = params.release_open_fraction
+        log = RunLog(steps=[])
         try:
-            self.step("open", steps, stop_requested, lambda: arm.set_gripper(open_fraction=frac, floor=floor))
-            try:
-                pose = arm.kin.forward(arm.command_base(arm.require_sample()))
-            except ArmError as exc:
-                raise GraspAbort(str(exc)) from exc
-            lift = self.step(
-                "lift",
-                steps,
+            lift = self.open_and_rise(
+                params.release_open_fraction,
+                params.release_lift_m,
+                params.slide_speed_scale,
+                floor,
                 stop_requested,
-                lambda: arm.move_cartesian(
-                    pose.x, pose.y, pose.z + params.release_lift_m, pose.pitch, params.slide_speed_scale, floor=floor
-                ),
-                MOTION_OK | {"unreachable"},
+                log,
+                rise_label="lift",
             )
         except GraspAbort as exc:
-            arm.stop_hold()
-            return self.finish("aborted", [str(exc)], None, steps)
+            self.arm.stop_hold()
+            return self.finish("aborted", [str(exc)], None, log.steps)
         reasons = [] if lift.status == "converged" else [f"released; lift skipped: {lift.message}"]
-        return self.finish("released", reasons, None, steps)
+        return self.finish("released", reasons, None, log.steps)
 
 
 class GraspServiceRequest(BaseModel):

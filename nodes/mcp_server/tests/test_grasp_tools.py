@@ -22,12 +22,14 @@ from mcp_server.floor_guard import FloorOverride
 from mcp_server.grasp import ObjectSpec, grasp_params
 from mcp_server.grasp_tools import (
     TOOL_NAMES,
+    GraspAbort,
     GraspExecutor,
     GraspResult,
     GraspService,
+    RunLog,
     floor_override,
 )
-from mcp_server.models import CameraFrame
+from mcp_server.models import ArmMotionResult, CameraFrame
 from mcp_server.surfaces import SurfaceRegion
 from mcp_server.tool_context import ToolContext
 from mcp_server.tools import ALWAYS_ALLOWED_TOOLS, MOTION_TOOLS, build_mcp_server
@@ -883,3 +885,108 @@ def test_grasp_tool_texts_name_the_head_d435_not_the_gripper_camera(server: Any)
     assert "head D435 ground estimate" in json.dumps(tools["grasp_object"].input_schema)
     assert "head D435 ground" in (tools["move_arm_cartesian"].description or "")
     assert "head camera" in (McpServerConfig.model_fields["grasp_check"].annotation.__doc__ or "")
+
+
+def landed(tmp_path: Path) -> tuple[ArmController, FakeArmBackend, GraspExecutor, Any, Any, Any, RunLog]:
+    """An executor after land(): (arm, backend, executor, plan, params, floor, log)."""
+    arm, be = make(tmp_path)
+    object_in_jaws(be)
+    ex = GraspExecutor(arm, CONFIG)
+    params = grasp_params(CONFIG.grasp, None)
+    plan, _, _, floor = ex.prepare(ObjectSpec(**OBJECT), "top_down", params, None, None)
+    log = RunLog(steps=[])
+    ex.land(plan, params, floor, lambda: False, log)
+    return arm, be, ex, plan, params, floor, log
+
+
+def test_phase_methods_compose_the_macro_step_order(tmp_path: Path) -> None:
+    _, be, ex, plan, params, floor, log = landed(tmp_path)
+    assert [s.label for s in log.steps][-3:] == ["open", "approach", "grasp"]
+    assert log.reached is not None and log.reached.label == "grasp"
+    verdict = ex.close_and_verify(plan, params, floor, lambda: False, log)
+    assert verdict.close.status == "grasped" and verdict.missed is None and verdict.unverified is None
+    assert log.close is verdict.close
+    assert be.positions["gripper"] == pytest.approx(OBJECT_STOP_RAD, abs=0.05)  # never opened
+    ex.lift_and_retreat(plan, floor, lambda: False, log)
+    assert [s.label for s in log.steps][-2:] == ["lift", "retreat"]
+
+
+def test_landing_error_reports_planned_and_achieved_tool_point(tmp_path: Path) -> None:
+    _, _, ex, plan, _, _, _ = landed(tmp_path)
+    err = ex.landing_error(plan)
+    assert err is not None
+    assert {"planned_tool_point", "tool_point", "tool_point_error_m", "jaw_centre", "error_m"} <= set(err)
+    assert err["tool_point_error_m"] < 0.01 and err["error_m"] < 0.01
+
+
+def test_landing_error_is_none_without_fresh_joint_states(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    arm, _, ex, plan, _, _, _ = landed(tmp_path)
+    monkeypatch.setattr(arm, "fresh_sample", lambda: None)
+    assert ex.landing_error(plan) is None
+
+
+def test_back_out_reverses_the_slide_to_the_pre_grasp(tmp_path: Path) -> None:
+    arm, be, ex, plan, params, floor, log = landed(tmp_path)
+    ex.back_out(plan, params, floor, lambda: False, log)
+    assert [s.label for s in log.steps][-2:] == ["back_out_grasp", "back_out_approach"]
+    assert log.reached is not None and log.reached.label == "open"
+    start = plan.segments["approach"][0]
+    for joint in arm.joint_names:
+        assert be.commands[-1][joint] == pytest.approx(start[joint], abs=1e-3)
+
+
+def test_open_and_rise_opens_then_lifts_straight_up(tmp_path: Path) -> None:
+    arm, _ = make(tmp_path)
+    ex = GraspExecutor(arm, CONFIG)
+    log = RunLog(steps=[])
+    before = arm.kin.forward(arm.command_base(arm.require_sample()))
+    result = ex.open_and_rise(0.6, 0.03, 0.5, None, lambda: False, log)
+    after = arm.kin.forward(arm.command_base(arm.require_sample()))
+    assert [s.label for s in log.steps] == ["open", "rise"]
+    assert result.status == "converged"
+    assert after.z - before.z == pytest.approx(0.03, abs=0.005)
+
+
+def test_hold_problem_is_none_while_holding_and_names_the_gap_when_empty(tmp_path: Path) -> None:
+    _, be, ex, plan, params, floor, log = landed(tmp_path)
+    ex.close_and_verify(plan, params, floor, lambda: False, log)
+    assert ex.hold_problem(params) is None
+    be.positions["gripper"] = CONFIG.arm.gripper_closed_rad
+    be.efforts["gripper"] = 0.0
+    problem = ex.hold_problem(params)
+    assert problem is not None and "nothing between the jaws" in problem
+
+
+def test_prepare_refuses_a_camera_position_before_any_motion(tmp_path: Path) -> None:
+    arm, be = make(tmp_path)
+    ex = GraspExecutor(arm, CONFIG)
+    commands = len(be.commands)
+    with pytest.raises(ValueError, match="nothing moved"):
+        ex.prepare(
+            ObjectSpec(**OBJECT, position_source="camera"),
+            "top_down",
+            grasp_params(CONFIG.grasp, None),
+            None,
+            None,
+        )
+    assert len(be.commands) == commands
+
+
+def test_halt_stops_the_arm_and_restores_the_torque_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    arm, _ = make(tmp_path)
+    calls: list[str] = []
+    monkeypatch.setattr(arm, "stop_hold", lambda: calls.append("stop_hold"))
+    monkeypatch.setattr(arm, "restore_default_torque_limit", lambda: calls.append("restore"))
+    GraspExecutor(arm, CONFIG).halt()
+    assert calls == ["stop_hold", "restore"]
+
+
+def test_a_step_records_interrupted_by(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    arm, _ = make(tmp_path)
+    ex = GraspExecutor(arm, CONFIG)
+    interrupted = ArmMotionResult(status="interrupted", message="stopped", interrupted_by="collision_stop")
+    monkeypatch.setattr(arm, "move_joints", lambda *a, **k: interrupted)
+    steps: list[Any] = []
+    with pytest.raises(GraspAbort):
+        ex.step("pre_grasp", steps, lambda: False, lambda: arm.move_joints({}))
+    assert steps[-1].interrupted_by == "collision_stop"

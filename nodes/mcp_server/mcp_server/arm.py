@@ -678,6 +678,9 @@ class ArmController:
         # grasp_id, band, image and fused across a restart).
         self.last_grasp_check: GraspCheck | None = None
         self.stop_requests = 0  # request_stop calls (a stop during release_control's park keeps the lease)
+        # Counts every motion entered (exclusive_motion, after the lock is taken) and every request_stop: a caller that
+        # remembers it after its own motion sees whether any foreign motion or stop happened since.
+        self.motion_epoch = 0
         # Home pose cache: ((mtime_ns, size, inode) of the file or None when missing, pose or the load error).
         self._home_cache: tuple[tuple[int, int, int] | None, dict[str, float] | None | HomeStoreError] | None = None
         # How the lease ended when this server did not release it itself (take-over, /arm/home); None otherwise.
@@ -1297,6 +1300,7 @@ class ArmController:
     def request_stop(self) -> None:
         """Ask the running motion (if any) to abort and hold."""
         self.stop_requests += 1
+        self.motion_epoch += 1
         self._stop.set()
 
     def hold(self) -> bool:
@@ -3832,6 +3836,7 @@ class MotionGuard:
         except BaseException:
             self.controller._motion_lock.release()
             raise
+        self.controller.motion_epoch += 1
         self.controller._stop.clear()
         self.controller._interrupted_by = None
         self.controller._slow_zone = None
