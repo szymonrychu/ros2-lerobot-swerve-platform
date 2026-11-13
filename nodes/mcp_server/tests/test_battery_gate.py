@@ -38,6 +38,10 @@ MOTION_ARGS: dict[str, dict[str, Any]] = {
         "object": {"x": 0.22, "y": 0.0, "support_z": -0.15, "width_m": 0.03, "depth_m": 0.03, "height_m": 0.03}
     },
     "release_object": {},
+    "grasp_approach": {
+        "object": {"x": 0.22, "y": 0.0, "support_z": -0.15, "width_m": 0.03, "depth_m": 0.03, "height_m": 0.03}
+    },
+    "grasp_abort": {},
     "enqueue_motions": {"steps": [{"kind": "wait_s", "seconds": 0.1}]},
     "resume_motions": {},
     "go_to_frontier": {"id": 1},

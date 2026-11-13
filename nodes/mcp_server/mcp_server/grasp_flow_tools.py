@@ -4,23 +4,58 @@ Every flow tool ends with a head camera photo: the head aims at the FK tool poin
 is marked with the tool point and the flow's target points so the agent can judge the jaws against the object."""
 
 import base64
-from typing import Literal
+from collections.abc import Callable
+from typing import Annotated, Any, Literal
 
 import cv2
 import numpy as np
 from arm_collision.jaw import jaw_points
-from mcp.types import ImageContent
+from mcp.server.mcpserver.exceptions import ToolError
+from mcp.types import CallToolResult, ImageContent
 from pydantic import BaseModel, Field
 
 from . import camera_overlay
+from .arm import ArmError, finite_effort
 from .camera_scene import build_scene, camera_setup, head_parent_transform
-from .config import HARD_MAX_IMAGE_PX
-from .grasp_tools import GRASP_CAMERA, aim_head_at_tool_point, jpeg_size
+from .config import HARD_MAX_IMAGE_PX, GripProfileOverride
+from .floor_guard import TiltOverrideDeg
+from .grasp import GraspPlan, ObjectSpec, grasp_params
+from .grasp_check import FusedOutcome, GraspCheck
+from .grasp_flow import FlowPhase, GraspFlow, NextStep, next_steps, reapproach_route
+from .grasp_tools import (
+    GRASP_CAMERA,
+    PITCH_DESC,
+    SURFACES_DESC,
+    TILT_DESC,
+    USE_GROUND_DESC,
+    GraspAbort,
+    GraspExecutor,
+    GraspStep,
+    RunLog,
+    StrategyChoice,
+    aim_head_at_arm_point,
+    aim_head_at_tool_point,
+    arm_only,
+    floor_override,
+    grasp_tool_result,
+    grip_profile_description,
+    jpeg_size,
+    object_description,
+    params_description,
+    slow_description,
+    strategy_description,
+    surface_description,
+)
 from .jaw_crop import crop_jpeg
 from .lookup_tools import record_lookup
-from .models import RobotError
+from .metrics import GRASP_ATTEMPTS, GRASP_FLOW_STEPS
+from .models import ArmMotionResult, RobotError
+from .surfaces import MAX_REGIONS, SurfaceRegion
 from .tool_context import ToolContext
 
+TOOL_NAMES = ("grasp_approach", "grasp_abort")
+RELEASE_TOOL = "release_object"
+MARK_TARGET = "target"
 MARK_TOOL = "tool"
 TOOL_COLOR = (0, 255, 255)  # BGR yellow: the FK tool point
 TARGET_COLOR = (0, 200, 0)  # BGR green: the flow's target marks
@@ -138,3 +173,344 @@ def flow_photo(
     lookup_id = record_lookup(ctx, tool, GRASP_CAMERA, jpeg, width, height, full_frame=True)
     image = ImageContent(type="image", data=base64.b64encode(jpeg).decode(), mime_type="image/jpeg")
     return image, FlowPhoto(kind="marked_frame", lookup_id=lookup_id, marked=marked, note=note), None
+
+
+FlowOutcome = Literal["landed", "infeasible", "closed", "lifted", "dropped", "aborted", "interrupted", "stopped"]
+
+
+class GraspFlowResult(BaseModel):
+    """Result of a guided grasp tool (grasp_approach, grasp_close, grasp_lift, grasp_abort)."""
+
+    tool: str = Field(description="The flow tool that returned this result")
+    outcome: FlowOutcome = Field(
+        description="landed (jaws open at the grasp point), infeasible (nothing moved), closed (jaws closed, not "
+        "lifted), lifted (object lifted and held), dropped (lifted but the jaws ended empty), aborted (jaws opened "
+        "and the arm rose; flow ended), interrupted (a critical event stopped the motion: only grasp_abort is "
+        "allowed), stopped (a stop call ended the tool; the flow is idle)"
+    )
+    phase: FlowPhase = Field(description="Flow phase after this tool: idle, landed, closed, lifted or interrupted")
+    next_steps: list[NextStep] = Field(description="What to call next and when; read it before choosing")
+    reasons: list[str] = Field(default_factory=list, description="Why the plan is infeasible or the tool ended early")
+    route: Literal["fresh", "straight", "via_pre_grasp"] | None = Field(
+        default=None,
+        description="grasp_approach only: fresh (full approach), straight (re-approach in a straight tool line, jaws "
+        "open, grasp point moved by at most 3 cm) or via_pre_grasp (backed out to the pre-grasp, then approached again)",
+    )
+    plan: dict[str, Any] | None = Field(default=None, description="Plan summary: waypoints, pitch, roll, slow zone")
+    steps: list[GraspStep] = Field(default_factory=list, description="Arm steps this tool ran, in order")
+    landing: dict[str, Any] | None = Field(
+        default=None,
+        description="Where the jaws landed against the plan: {waypoint, expected_jaw_centre, jaw_centre, tool_point, "
+        "error_m, planned_tool_point, tool_point_error_m}; null without fresh joint states",
+    )
+    gripper_position_rad: float | None = Field(default=None, description="Gripper joint position at the end (rad)")
+    gripper_effort: float | None = Field(default=None, description="Gripper effort (decoded load) at the end")
+    grip_profile: dict[str, Any] | None = Field(default=None, description="Grip profile of the close, when one ran")
+    holding_load: float | None = Field(default=None, description="Gripper load a moment after the hold")
+    slipping: bool | None = Field(default=None, description="Jaw kept closing after the hold: the object slips")
+    crush_risk: bool | None = Field(default=None, description="Holding load above the profile's crush_load")
+    retightened: bool | None = Field(default=None, description="The hold was stepped once further toward closed")
+    verify_problem: str | None = Field(
+        default=None, description="grasp_close: why the sensors do not confirm a hold (null when they do)"
+    )
+    grasp_check: GraspCheck | None = Field(default=None, description="grasp_close: the sensor verdict of the close")
+    fused: FusedOutcome | None = Field(default=None, description="grasp_lift: the sensor band fused with your verdict")
+    interrupted_by: str | None = Field(default=None, description="Critical event type that interrupted the motion")
+    photos: list[FlowPhoto] = Field(default_factory=list, description="The photos attached to this result, in order")
+    warnings: list[str] = Field(default_factory=list, description="Off-target joints, a missing photo or head aim")
+
+
+def flow_result(
+    executor: GraspExecutor,
+    tool: str,
+    outcome: FlowOutcome,
+    phase: FlowPhase,
+    holding: bool,
+    steps: list[GraspStep],
+    close: ArmMotionResult | None = None,
+    **fields: Any,
+) -> GraspFlowResult:
+    """A GraspFlowResult with the gripper state, the close's grip report, next steps and the step warnings filled in.
+
+    Args:
+        executor (GraspExecutor): Executor (fresh sample, step warnings).
+        tool (str): The flow tool.
+        outcome (FlowOutcome): Outcome.
+        phase (FlowPhase): Flow phase after the tool.
+        holding (bool): The jaws carry the object (picks the lifted next steps).
+        steps (list[GraspStep]): Steps the tool ran.
+        close (ArmMotionResult | None): Close result whose grip report goes into the result.
+        **fields (Any): Further GraspFlowResult fields; warnings given here come first.
+
+    Returns:
+        GraspFlowResult: The result.
+    """
+    sample = executor.arm.fresh_sample()
+    gripper = executor.arm.gripper
+    warnings = [*fields.pop("warnings", []), *executor.step_warnings(steps)]
+    return GraspFlowResult(
+        tool=tool,
+        outcome=outcome,
+        phase=phase,
+        next_steps=next_steps(phase, holding),
+        steps=steps,
+        gripper_position_rad=None if sample is None else sample.positions.get(gripper),
+        gripper_effort=None if sample is None else finite_effort(sample.efforts, gripper),
+        grip_profile=None if close is None else close.grip_profile,
+        holding_load=None if close is None else close.holding_load,
+        slipping=None if close is None else close.slipping,
+        crush_risk=None if close is None else close.crush_risk,
+        retightened=None if close is None else close.retightened,
+        warnings=warnings,
+        **fields,
+    )
+
+
+def grasp_waypoint(plan: GraspPlan, label: str = "grasp") -> tuple[float, float, float]:
+    """Arm-frame position of a plan waypoint.
+
+    Args:
+        plan (GraspPlan): Feasible plan.
+        label (str): Waypoint label.
+
+    Returns:
+        tuple[float, float, float]: (x, y, z).
+    """
+    wp = next(w for w in plan.waypoints if w.label == label)
+    return wp.x, wp.y, wp.z
+
+
+def register(ctx: ToolContext) -> None:
+    """Register the guided grasp tools.
+
+    Args:
+        ctx (ToolContext): Shared registration context.
+    """
+    robot, config = ctx.robot, ctx.config
+    arm = robot.arm
+    executor = GraspExecutor(arm, config, lambda: robot.head.calibration())
+    flow = GraspFlow()
+    object_desc = object_description(config)
+    strategy_desc = strategy_description(config)
+    params_desc = params_description(config)
+    surface_desc = surface_description(config)
+    grip_desc = grip_profile_description(config)
+    slow_note = slow_description(config)
+
+    FlowBody = Callable[[FlowPhase, Callable[[], bool], RunLog], tuple[GraspFlowResult, list[ImageContent]]]
+
+    def run(tool: str, body: FlowBody) -> CallToolResult:
+        """Common wrapper: one flow tool at a time, battery gate, phase gate, stop and interrupt handling."""
+        if not flow.busy.acquire(blocking=False):
+            raise ToolError(f"{tool} refused: another grasp flow tool is running")
+        try:
+            ctx.battery_gate(tool)
+            phase = flow.require(arm, tool)
+            baseline = robot.stop_count()
+            log = RunLog(steps=[])
+            try:
+                result, images = body(phase, lambda: robot.stop_count() != baseline, log)
+            except GraspAbort as exc:
+                executor.halt()
+                interrupted_by = next((s.interrupted_by for s in reversed(log.steps) if s.interrupted_by), None)
+                if robot.stop_count() != baseline:
+                    flow.reset()
+                    result = flow_result(executor, tool, "stopped", "idle", False, log.steps, reasons=[str(exc)])
+                else:
+                    flow.advance(arm, "interrupted", interrupted_by=interrupted_by)
+                    result = flow_result(
+                        executor,
+                        tool,
+                        "interrupted",
+                        "interrupted",
+                        arm.grasp_held,
+                        log.steps,
+                        reasons=[str(exc)],
+                        interrupted_by=interrupted_by,
+                    )
+                images = []
+            except (ArmError, ValueError) as exc:
+                raise ToolError(str(exc)) from exc
+            GRASP_FLOW_STEPS.labels(tool, result.outcome).inc()
+            return grasp_tool_result(result, images)
+        finally:
+            flow.busy.release()
+
+    def attach_photo(
+        tool: str, result: GraspFlowResult, marks: list[tuple[str, tuple[float, float, float]]]
+    ) -> list[ImageContent]:
+        """Take the marked head photo and record it in the result."""
+        image, photo, warning = flow_photo(ctx, tool, marks)
+        if warning is not None:
+            result.warnings.append(warning)
+        if photo is not None and image is not None:
+            result.photos.append(photo)
+            if photo.note:
+                result.warnings.append(photo.note)
+            return [image]
+        return []
+
+    @ctx.server.tool(
+        description=(
+            "Guided grasp, step 1 (needs the arm lease, take_control(subsystem='arm')): plan the grasp of the object "
+            "(same object, strategy, params and surfaces as plan_grasp) and move the arm so the jaws stand OPEN around "
+            "the grasp point, then stop. It does not close. A camera-sourced object position is gated like the macro "
+            "grasp (the accepted arm to camera calibration residual) before anything moves. The head aims at the "
+            "grasp point before the arm moves and at the FK tool point for the photo afterwards (no tracking); the "
+            "result carries that head photo with the tool point and the target marked, the landing error against the "
+            "plan and next_steps: look at the photo, then call grasp_close when the object is between the open jaws, "
+            "call grasp_approach again with a corrected object position when the jaws are off target, or grasp_abort. "
+            "A re-approach whose grasp point moves by at most 3 cm (same strategy and angles) goes in a straight tool "
+            "line with the jaws open; a larger one backs out to the pre-grasp and slides in again (route in the "
+            "result). Called after a lift it approaches again only when the jaws are empty; while holding it is "
+            "refused and names release_object. It is not approach_for_grasp (which drives the base). "
+            f"{slow_note}"
+        )
+    )
+    def grasp_approach(
+        object: Annotated[ObjectSpec, Field(description=object_desc)],
+        strategy: Annotated[StrategyChoice, Field(description=strategy_desc)] = "auto",
+        params: Annotated[dict[str, Any] | None, Field(description=params_desc)] = None,
+        approach_pitch_deg: Annotated[float | None, Field(ge=0.0, le=90.0, description=PITCH_DESC)] = None,
+        surface_z_m: Annotated[float | None, Field(ge=-1.0, le=1.0, description=surface_desc)] = None,
+        tilt_override_deg: Annotated[TiltOverrideDeg | None, Field(description=TILT_DESC)] = None,
+        use_ground_estimate: Annotated[bool, Field(description=USE_GROUND_DESC)] = False,
+        grip_profile: Annotated[str | GripProfileOverride | None, Field(description=grip_desc)] = None,
+        surfaces: Annotated[
+            list[SurfaceRegion] | None, Field(max_length=MAX_REGIONS, description=SURFACES_DESC)
+        ] = None,
+    ) -> Annotated[CallToolResult, GraspFlowResult]:
+        """Land the open jaws at the grasp point; the tool description is passed to the decorator."""
+        tool = "grasp_approach"
+
+        def body(phase: FlowPhase, stop: Callable[[], bool], log: RunLog) -> tuple[GraspFlowResult, list[ImageContent]]:
+            if phase == "idle" and arm.grasp_held:
+                raise ToolError(
+                    f"{tool} refused (nothing moved): the jaws carry an object; put it down with {RELEASE_TOOL} first"
+                )
+            old_plan, old_params, old_floor = flow.plan, flow.params, flow.floor
+            if phase == "lifted" and executor.hold_problem(old_params or config.grasp) is None:
+                raise ToolError(
+                    f"{tool} refused (nothing moved): the jaws still hold the object; put it down with "
+                    f"{RELEASE_TOOL} first"
+                )
+            floor = floor_override(surface_z_m, tilt_override_deg, surfaces, use_ground_estimate)
+            call_params = grasp_params(config.grasp, params, grip_profile)
+            plan, notes, grip, floor = executor.prepare(object, strategy, call_params, approach_pitch_deg, floor)
+            if not plan.feasible:
+                result = flow_result(
+                    executor, tool, "infeasible", phase, arm.grasp_held, [], reasons=plan.reasons, warnings=notes
+                )
+                return result, []
+            warnings = list(notes)
+            if phase == "lifted":
+                arm.note_grasp(None)  # the jaws are empty: the object dropped
+            aim, _ = aim_head_at_arm_point(ctx, tool, grasp_waypoint(plan), "the grasp point")
+            if aim is not None:
+                warnings.append(aim)
+            route: Literal["fresh", "straight", "via_pre_grasp"] = "fresh"
+            if phase in ("landed", "closed") and old_plan is not None:
+                prior = (old_params or call_params, old_floor)
+                if phase == "closed":
+                    log.reached = next(w for w in old_plan.waypoints if w.label == "grasp")
+                    executor.open_jaws(old_plan, prior[1], stop, log)
+                    GRASP_ATTEMPTS.labels(old_plan.strategy, "missed").inc()
+                route = reapproach_route(old_plan, plan)
+                path: list[dict[str, float]] = []
+                if route == "straight":
+                    path, why = executor.correction_path(old_plan, plan, call_params, floor)
+                    if why is not None:
+                        warnings.append(f"straight correction not possible ({why}): backed out to the pre-grasp")
+                        route = "via_pre_grasp"
+                if route == "straight":
+                    assert plan.open_gripper_rad is not None
+                    frac = executor.fraction(plan.open_gripper_rad)
+                    executor.step("open", log.steps, stop, lambda: arm.set_gripper(open_fraction=frac, floor=floor))
+                    arm_path = arm_only(path, arm.gripper)
+                    executor.step(
+                        "correct",
+                        log.steps,
+                        stop,
+                        lambda: arm.move_path(arm_path, call_params.slide_speed_scale, floor),
+                        intent=arm_path[-1],
+                    )
+                    log.reached = next(w for w in plan.waypoints if w.label == "grasp")
+                else:
+                    executor.back_out(old_plan, prior[0], prior[1], stop, log)
+                    executor.land(plan, call_params, floor, stop, log)
+            else:
+                executor.land(plan, call_params, floor, stop, log)
+            flow.advance(
+                arm,
+                "landed",
+                object=object,
+                strategy=strategy,
+                params=call_params,
+                approach_pitch_deg=approach_pitch_deg,
+                floor=floor,
+                plan=plan,
+                grip=grip,
+                close=None,
+                grasp_id=None,
+                interrupted_by=None,
+            )
+            result = flow_result(
+                executor,
+                tool,
+                "landed",
+                "landed",
+                False,
+                log.steps,
+                reasons=[],
+                route=route,
+                plan=plan.summary(),
+                landing=executor.landing_error(plan),
+                warnings=warnings,
+            )
+            return result, attach_photo(tool, result, [(MARK_TARGET, grasp_waypoint(plan))])
+
+        return run(tool, body)
+
+    @ctx.server.tool(
+        description=(
+            "Guided grasp, abort (needs the arm lease; allowed in every phase): open the jaws, rise straight up by "
+            "params.pre_grasp_clearance_m, end the grasp flow and return a head photo. Use it to give up a grasp or to "
+            "recover from an interrupted flow. Refused (nothing moved) while the jaws hold a lifted object or when no "
+            f"flow ran and the jaws carry something: call {RELEASE_TOOL} for that. An unreachable rise is reported in "
+            f"reasons, not an error. {slow_note}"
+        )
+    )
+    def grasp_abort(
+        surface_z_m: Annotated[float | None, Field(ge=-1.0, le=1.0, description=surface_desc)] = None,
+        tilt_override_deg: Annotated[TiltOverrideDeg | None, Field(description=TILT_DESC)] = None,
+        use_ground_estimate: Annotated[bool, Field(description=USE_GROUND_DESC)] = False,
+        surfaces: Annotated[
+            list[SurfaceRegion] | None, Field(max_length=MAX_REGIONS, description=SURFACES_DESC)
+        ] = None,
+    ) -> Annotated[CallToolResult, GraspFlowResult]:
+        """Open the jaws, rise and end the flow; the tool description is passed to the decorator."""
+        tool = "grasp_abort"
+
+        def body(phase: FlowPhase, stop: Callable[[], bool], log: RunLog) -> tuple[GraspFlowResult, list[ImageContent]]:
+            if arm.grasp_held and phase in ("idle", "lifted", "interrupted"):
+                raise ToolError(
+                    f"{tool} refused (nothing moved): the jaws hold an object; put it down with {RELEASE_TOOL}"
+                )
+            plan, params = flow.plan, flow.params or config.grasp
+            floor = floor_override(surface_z_m, tilt_override_deg, surfaces, use_ground_estimate) or flow.floor
+            rise = executor.open_and_rise(
+                1.0 if plan is None or plan.open_gripper_rad is None else executor.fraction(plan.open_gripper_rad),
+                params.pre_grasp_clearance_m,
+                params.slide_speed_scale,
+                floor,
+                stop,
+                log,
+            )
+            if phase == "closed" and plan is not None:
+                GRASP_ATTEMPTS.labels(plan.strategy, "aborted").inc()
+            flow.reset()
+            reasons = [] if rise.status == "converged" else [f"the jaws opened; the rise was skipped: {rise.message}"]
+            result = flow_result(executor, tool, "aborted", "idle", False, log.steps, reasons=reasons)
+            return result, attach_photo(tool, result, [])
+
+        return run(tool, body)

@@ -212,6 +212,8 @@ def test_registers_every_tool_with_a_real_description(server: Any) -> None:
         "plan_grasp",
         "grasp_object",
         "release_object",
+        "grasp_approach",
+        "grasp_abort",
         "confirm_grasp",
         "enqueue_motions",
         "resume_motions",

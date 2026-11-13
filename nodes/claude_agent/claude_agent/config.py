@@ -22,6 +22,8 @@ DEFAULT_EFFECTOR_TOOLS = [
     "look_around",
     "grasp_object",
     "release_object",
+    "grasp_approach",
+    "grasp_abort",
     "enqueue_motions",
     "resume_motions",
     "go_to_frontier",

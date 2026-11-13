@@ -130,6 +130,7 @@ def test_arm_origins_are_the_arm_tools_and_arm_step_kinds() -> None:
         "set_gripper",
         "grasp_object",
         "release_object",
+        "grasp_approach",
         "arm_joints",
         "arm_cartesian",
         "gripper",

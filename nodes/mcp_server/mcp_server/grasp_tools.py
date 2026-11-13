@@ -77,6 +77,10 @@ SURFACES_DESC = (
 )
 StrategyChoice = Literal["auto", "scoop", "angled", "top_down"]
 # What an 'unverified' reason tells the agent to do on the paths that attach no image (queued grasp, web UI).
+TILT_DESC = (
+    "Robot tilt {roll, pitch} in deg replacing the IMU for the slow zone (roll > 0 left side up, pitch > 0 nose down)"
+)
+PITCH_DESC = "Approach pitch for 'angled' (deg, 0 horizontal, 90 straight down)"
 LOOK_CALL = "call get_camera_image 'head' and look at it"
 GRASP_CAMERA = "head"  # the head D435 colour camera, aimed at the FK tool point for the jaw crop
 JAW_AT_LIMIT = "jaw outside view at the head limit"  # the clamped aim did not bring the jaw into a croppable view
@@ -1525,18 +1529,16 @@ def grip_profile_description(config: McpServerConfig) -> str:
     )
 
 
-def register(ctx: ToolContext) -> None:
-    """Register plan_grasp, grasp_object and release_object.
+def object_description(config: McpServerConfig) -> str:
+    """Tool argument description of the object box (shared by plan_grasp, grasp_object and grasp_approach).
 
     Args:
-        ctx (ToolContext): Shared registration context.
+        config (McpServerConfig): Node configuration.
+
+    Returns:
+        str: The description.
     """
-    robot, config = ctx.robot, ctx.config
-    executor = GraspExecutor(robot.arm, config, lambda: robot.head.calibration())
-    grasp = config.grasp
-    grasp_check = config.grasp_check
-    slow = config.floor_guard
-    object_desc = (
+    return (
         "Object as a box: {frame: 'arm' (arm base frame, z up, floor at z = "
         f"{config.arm.floor_z_m:.3f}) or 'base_link' (robot frame, floor z = 0), x, y (centre, m), support_z (height "
         "of the object's bottom = the surface it stands on, m), width_m (across the jaws), depth_m (along the "
@@ -1549,7 +1551,19 @@ def register(ctx: ToolContext) -> None:
         f"at most {config.camera_arm.max_residual_mm:g} mm; plan_grasp only notes it). With surfaces, support_z must match the "
         "region under the object centre (else infeasible)}"
     )
-    strategy_desc = (
+
+
+def strategy_description(config: McpServerConfig) -> str:
+    """Tool argument description of the strategy choice.
+
+    Args:
+        config (McpServerConfig): Node configuration.
+
+    Returns:
+        str: The description.
+    """
+    grasp = config.grasp
+    return (
         "'scoop': fixed jaw slides under the object (wrist_roll about 0, moving jaw closes from above), only with a gap "
         "under the object (gap_below_m >= jaw_thickness_m + scoop_gap_margin_m; a box resting flat gets pushed, so "
         "the plan is infeasible: 'no gap under object for the fixed jaw'), 'angled': "
@@ -1561,7 +1575,19 @@ def register(ctx: ToolContext) -> None:
         f"lift_speed_scale {grasp.lift_speed_scale:g}; objects narrower than min_object_width_m "
         f"{grasp.min_object_width_m:g} m are rejected"
     )
-    params_desc = (
+
+
+def params_description(config: McpServerConfig) -> str:
+    """Tool argument description of the grasp parameter overrides.
+
+    Args:
+        config (McpServerConfig): Node configuration.
+
+    Returns:
+        str: The description.
+    """
+    grasp = config.grasp
+    return (
         "Overrides of the grasp parameters (config grasp section), e.g. approach_distance_m, pre_grasp_clearance_m, "
         f"approach_speed_scale (free moves to the lifted pre-grasp and its roll, default {grasp.approach_speed_scale:g}, "
         f"capped to {config.limits.arm_max_speed_scale:g}), slide_speed_scale (straight approach, slide and retreat, "
@@ -1573,22 +1599,62 @@ def register(ctx: ToolContext) -> None:
         "surface_jaw_clearance_m, surface_link_clearance_m, surface_mismatch_tolerance_m, step_pitches_deg, "
         "step_pre_grasp_clearance_m"
     )
-    surface_desc = (
+
+
+def surface_description(config: McpServerConfig) -> str:
+    """Tool argument description of surface_z_m.
+
+    Args:
+        config (McpServerConfig): Node configuration.
+
+    Returns:
+        str: The description.
+    """
+    slow = config.floor_guard
+    return (
         "Expected surface height relative to the robot plane (m, base_link z; default "
         f"{slow.surface_z_m:g}): e.g. -0.18 for an object on a stair below or in a hole. Arm motions run at normal "
         f"speed down to that surface; within {slow.margin_m:g} m of it or below they slow to {slow.slow_speed_scale:g} "
         "of their speed (the slow zone never blocks). The scoop skims this surface."
     )
-    tilt_desc = "Robot tilt {roll, pitch} in deg replacing the IMU for the slow zone (roll > 0 left side up, pitch > 0 nose down)"
-    pitch_desc = "Approach pitch for 'angled' (deg, 0 horizontal, 90 straight down)"
-    grip_desc = grip_profile_description(config)
-    slow_note = (
+
+
+def slow_description(config: McpServerConfig) -> str:
+    """Slow-zone sentence shared by the arm tool descriptions.
+
+    Args:
+        config (McpServerConfig): Node configuration.
+
+    Returns:
+        str: The description.
+    """
+    slow = config.floor_guard
+    return (
         "Every arm motion slows (never stops) where a jaw tip, the wrist or the elbow comes within "
         f"{slow.margin_m:g} m of the effective surface: the higher of the robot plane at surface_z_m (or the local "
         "height of the surfaces regions, incl. their step faces) and the level plane from the IMU tilt. For an "
         "object beyond a step edge the planner tries a higher pre-grasp and steeper pitches so the wrist clears the "
         "edge."
     )
+
+
+def register(ctx: ToolContext) -> None:
+    """Register plan_grasp, grasp_object and release_object.
+
+    Args:
+        ctx (ToolContext): Shared registration context.
+    """
+    robot, config = ctx.robot, ctx.config
+    executor = GraspExecutor(robot.arm, config, lambda: robot.head.calibration())
+    grasp = config.grasp
+    grasp_check = config.grasp_check
+    object_desc = object_description(config)
+    strategy_desc = strategy_description(config)
+    params_desc = params_description(config)
+    surface_desc = surface_description(config)
+    tilt_desc, pitch_desc = TILT_DESC, PITCH_DESC
+    grip_desc = grip_profile_description(config)
+    slow_note = slow_description(config)
 
     def run(fn: Callable[[], GraspResult]) -> GraspResult:
         try:

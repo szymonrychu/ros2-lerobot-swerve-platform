@@ -63,6 +63,9 @@ GRASP_VERDICTS = Counter(
     "confirm_grasp verdicts by sensor band, the agent's image verdict and the fused outcome",
     ["band", "image", "fused"],
 )
+GRASP_FLOW_STEPS = Counter(
+    "mcp_grasp_flow_steps_total", "Grasp flow tool results by tool and outcome", ["tool", "outcome"]
+)
 GRIPPER_EFFORT = Gauge("mcp_gripper_effort", "Last gripper effort (decoded load) seen in a state or motion result")
 GRIP_PROFILE_USES = Counter("mcp_grip_profile_uses_total", "Closes by grip profile name", ["profile"])
 FLOOR_GUARD_SLOWDOWNS = Counter(

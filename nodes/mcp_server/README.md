@@ -1093,7 +1093,7 @@ partition every tool):
 
 | Class | Tools |
 |---|---|
-| `MOTION_TOOLS` (refused in cut-off) | `navigate_to_pose`, `move_relative`, `drive`, `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `arm_set_home`, `look_around`, `grasp_object`, `release_object`, `enqueue_motions`, `resume_motions`, `approach_for_grasp` |
+| `MOTION_TOOLS` (refused in cut-off) | `navigate_to_pose`, `move_relative`, `drive`, `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `arm_set_home`, `look_around`, `grasp_object`, `release_object`, `grasp_approach`, `grasp_abort`, `enqueue_motions`, `resume_motions`, `approach_for_grasp` |
 | `ALWAYS_ALLOWED_TOOLS` | `stop`, `cancel_motions`, `get_motion_status`, `wait_for_event`, `check_guard_rules`, `plan_grasp`, `suggest_approach_pose`, `get_robot_state`, `get_body_state`, `get_camera_image`, `get_map_summary`, `get_arm_state`, `take_control`, `release_control`, `get_control_state`, `get_topdown_view`, `remember_object`, `list_objects`, `forget_object`, `list_pois`, `add_poi`, `update_poi`, `delete_poi`, `clear_pois`, `list_lookups`, `get_lookup_image`, `annotate_lookup`, `delete_photos` |
 
 `arm_set_home` is classed as motion because it rewrites the pose a later `arm_home` drives to.
@@ -1110,7 +1110,7 @@ Topics (`topics.*`): `follower_torque_state` (`/follower/torque_state`, arm), `b
 is the backstop). `RosRobot.servo_released(group)` returns `True`, `False` or `None`.
 
 Tool mapping (`tools.TOOL_SERVO_GROUPS`, one entry per `MOTION_TOOLS` tool): arm tools (`move_arm_joints`,
-`move_arm_cartesian`, `set_gripper`, `arm_home`, `arm_set_home`, `grasp_object`, `release_object`) -> arm; base
+`move_arm_cartesian`, `set_gripper`, `arm_home`, `arm_set_home`, `grasp_object`, `release_object`, `grasp_approach`, `grasp_abort`) -> arm; base
 tools (`navigate_to_pose`, `move_relative`, `drive`, `look_around`, `go_to_frontier`, `look_toward_frontier`,
 `approach_for_grasp`) -> base; head tools -> head; `enqueue_motions` -> the groups of its step kinds;
 `resume_motions` -> arm and base.
@@ -1149,7 +1149,7 @@ body: so before the battery and tilt gates, and a tool without its lease is refu
 
 | Lease | Tools |
 |---|---|
-| arm | `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `grasp_object`, `release_object` |
+| arm | `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `grasp_object`, `release_object`, `grasp_approach`, `grasp_abort` |
 | base | `navigate_to_pose`, `move_relative`, `drive`, `look_around` (base-only spin), `approach_for_grasp` |
 | per step | `enqueue_motions`: `arm_joints` / `arm_cartesian` / `gripper` / `grasp` steps need arm, `base_relative` / `navigate_to_pose` (`motion_queue.BASE_KINDS`) need base; checked first inside the tool, naming every missing lease |
 | none | `stop`, `cancel_motions`, `wait_for_event`, `get_motion_status`, `take_control` / `release_control` / `get_control_state`, `plan_grasp`, `suggest_approach_pose`, `arm_set_home`, camera, perception and POI tools |
@@ -2150,6 +2150,23 @@ the result had neither the shift nor the tool point, so the agent read the centr
 plan (`grasp_shift`, `tool_point`), `held_pose` and the residual checks now make both visible. Tests:
 `tests/test_grasp_hold.py` (full grasp sequence on a follower that sags with sag compensation on, with and without a
 pan push while squeezing).
+
+### Guided grasp flow (`grasp_flow.py`, `grasp_flow_tools.py`)
+
+`grasp_approach` -> `grasp_close` -> `grasp_lift` (plus `grasp_abort`) split the macro into steps the agent can judge
+from a head photo. `GraspFlow` is a state machine (`idle`, `landed`, `closed`, `lifted`, `interrupted`) with an allowed
+tool set per phase (out of order: a refusal naming the phase, the allowed tools and `next_steps`, nothing moved).
+Every result carries `next_steps` (tool and when), the executed `steps`, a marked head photo (`photos`: the FK tool
+point and the target) and `warnings`. The flow remembers `ArmController.motion_epoch` and `lease_generation` after its
+own last motion: any other arm motion (`move_arm_*`, `set_gripper`, `arm_home`, `release_object`, a queued step, the
+web UI) or a stop or lease change since drops it to `idle` and the next flow tool says why. Two flow tools never run
+at once (the second is refused). The head aims at the target before an arm motion and at the FK tool point for the
+photo (no tracking). A stop during a tool ends it `stopped` (flow `idle`); a critical event ends it `interrupted`
+with `interrupted_by` (only `grasp_abort` is allowed). `grasp_approach` lands the jaws open at the grasp point (the
+object position of a re-approach moving the grasp point by at most 3 cm goes in a straight tool line with the jaws
+open, a larger one backs out to the pre-grasp first; a camera position is gated by the calibration residual like the
+macro grasp); `grasp_abort` opens, rises `pre_grasp_clearance_m` and ends the flow (refused while holding after a
+lift: use `release_object`). Metric: `mcp_grasp_flow_steps_total{tool,outcome}`.
 
 ### Web-UI contract (`/grasp/command` -> `/grasp/result`)
 
