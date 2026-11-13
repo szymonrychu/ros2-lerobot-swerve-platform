@@ -296,9 +296,10 @@ closer than 1 m: it returns the arm-frame position and the height, so `support_z
 with `surface_height_m`), average the estimates when they agree within about 1 cm (otherwise take another picture; with
 depth they usually agree within a few mm), use `pixel_to_ground` (or `mark_candidate_points` + `resolve_candidate`) only for
 a floor target without a depth reading, aim at the object centre and not its edge, set `position_source: camera` on the
-`ObjectSpec` of a grasp built from a camera position (`grasp_object` then needs `grasp_ready` true: the applied head
-calibration's camera-to-arm residual within the 5 mm gate; otherwise report that the head-from-arm calibration must be run
-on the Calibrate page), correct the target by the observed offset after a
+`ObjectSpec` of a grasp built from a camera position (`grasp_object` then needs `grasp_ready` true: the camera-to-arm
+residual within the 5 mm gate, the accepted arm to camera calibration's held-out tool error when it was fitted against
+the applied head chain, else the head-from-arm residual; otherwise report what the refusal names: re-run the arm to
+camera calibration, or run the head-from-arm calibration, on the Calibrate page), correct the target by the observed offset after a
 miss (seen with the head aimed at the gripper) and record what worked in `NOTES.md`. `Surfaces and speed:` takes the surface height from `pixel_to_point` and tells it to pass `surface_height_m` to `pixel_to_ground` only for a known height of objects above or below
 the robot's floor, that the arm reaches somewhat below floor level within its joint limits, and that the arm is fast by default
 (a lower `speed_scale` only for the last centimetres of a grasp or near obstacles). Each is asserted in `tests/test_prompt.py`.
@@ -751,7 +752,7 @@ unknown keys are rejected.
 | `session_log_max_bytes` | `52428800` | Log size that triggers dropping the oldest half |
 | `arm_reach_cm` | `41` | Approximate max horizontal reach from the shoulder_lift axis, stated in the prompt. Computed from `nodes/web_ui/urdf/so101_arm.urdf`: 11.6 + 13.5 + 6.4 + 9.8 cm link offsets, an upper bound |
 | `arm_base_height_m` | `0.100` | Arm base height above the floor (stated as 10 cm; corrected 2026-10-10, equal to mcp_server `arm.arm_base_height_m`) |
-| `nav_goal_xy_tolerance_cm` / `nav_goal_yaw_tolerance_deg` | `1.0` / `2.0` | Nav2 goal precision stated in the prompt (keep equal to the Nav2 goal checker and mcp_server `nav`) |
+| `nav_goal_xy_tolerance_cm` / `nav_goal_yaw_tolerance_deg` | `2.0` / `5.0` | Nav2 goal precision stated in the prompt (keep equal to the Nav2 goal checker and mcp_server `nav`) |
 | `nav_intermediate_xy_tolerance_cm` / `nav_intermediate_yaw_tolerance_deg` | `3.0` / `5.0` | Tolerance at which a default navigation goal ends early (stated in the prompt; `precise=true` gives the values above; keep equal to mcp_server `nav.intermediate_*`) |
 | `camera_note` | see `config.py` | Camera `head`: the Intel RealSense D435 colour stream on the pan/tilt head (640x360, 15 fps; its pose follows the head angles; looks at the front of the robot and the arm; overview first, judge arm-to-object distance; aim with `head_look_at`). The D435 has depth: obstacles below and above the lidar come from it through `get_map_summary`. There is no gripper camera: to look at the gripper, aim the head at it. `front` and `back` are the body-fixed CSI cameras ahead and behind (1152x648): only `get_camera_image` takes them, every pixel tool takes `head` |
 | `instruction_timeout_s` | `900` | Pre-plan watchdog per instruction; once `set_task_plan` declares `time_budget_min` the watchdog fires at that budget instead |

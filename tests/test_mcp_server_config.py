@@ -806,7 +806,7 @@ def test_every_test_is_documented_in_tests_readme() -> None:
 
 
 def test_mcp_server_nav_tolerances_match_nav2_goal_checker() -> None:
-    """The precision the agent is told must equal the Nav2 goal checker (0.01 m, 0.035 rad ~ 2 deg)."""
+    """The precision the agent is told must equal the Nav2 goal checker (0.02 m, 0.087 rad ~ 5 deg)."""
     nav = node_config("mcp_server")["nav"]
     checker = yaml.safe_load(NAV2_PARAMS.read_text())["controller_server"]["ros__parameters"]["general_goal_checker"]
     assert nav["goal_xy_tolerance_m"] == pytest.approx(checker["xy_goal_tolerance"])

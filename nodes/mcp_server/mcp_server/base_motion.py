@@ -379,7 +379,7 @@ def run_nav(
 
     With both early tolerances set the goal also ends as soon as the measured pose (same frame as the goal) is within
     early_xy_m and early_yaw_rad of it: the goal is cancelled, the base zeroed and the result is 'succeeded'. Nav2's
-    own goal checker is much tighter (1 cm / 2 deg) and its final approach is the slow part of a move.
+    own goal checker is tighter (2 cm / 5 deg) and its final approach is the slow part of a move.
 
     Args:
         port (NavPort): Nav2 goal access.

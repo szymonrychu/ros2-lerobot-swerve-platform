@@ -319,7 +319,7 @@ def test_returned_to_start_requires_the_final_heading_within_the_yaw_tolerance()
     res = run.result
     assert res.status == "completed" and not res.returned_to_start
     assert res.achieved["heading_error_deg"] == pytest.approx(6.0)
-    assert any("heading error" in n and "2" in n for n in res.notes)
+    assert any("heading error" in n and "5 deg tolerance" in n for n in res.notes)
 
 
 def test_returned_to_start_within_tolerance_and_tolerance_is_configurable() -> None:

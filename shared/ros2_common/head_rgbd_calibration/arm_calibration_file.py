@@ -5,8 +5,10 @@ The head_rgbd_calibration accept writes `arm_calibration.json` into the applied 
 `arm_calibration` record ({session, result, accepted_at, score}) of `applied.json`, the commit point of every apply. The
 file is in effect only while that record names its session and result. mcp_server overrides exactly
 `ARM_SETTINGS_FIELDS` of its `arm:` block with it (`ArmCalibrationFile.arm_settings_update`), the keys the reviewed
-client.yml snippet (`arm_camera_fit.calibration_snippet_yaml`) sets; the rest of the body (score, report, tool point,
-snippet) is for people and is ignored here.
+client.yml snippet (`arm_camera_fit.calibration_snippet_yaml`) sets. mcp_server's camera grasp gate also reads
+`score.heldout_tool_mm` (held-out FK tool point vs the camera's plate pose) and `head_chain` (the applied head chain the
+fit held fixed): the score counts as the camera-to-arm residual only while that head chain is still the applied one.
+The rest of the body (other score keys, report, tool point, snippet) is for people and is ignored here.
 
 Arm zero: offsets fitted from stills hold only for the servo zero in effect when the stills were taken. The follower
 bridge (feetech_servos) writes the stale marker after a re-zero and `zero_changed.json` next to it whenever it changes a
@@ -75,6 +77,36 @@ class ArmCalibrationBase(BaseModel):
     yaw: float
 
 
+class ArmCalibrationScore(BaseModel):
+    """The score key of the accepted fit the grasp gate reads (the other score keys are ignored).
+
+    Attributes:
+        heldout_tool_mm: Held-out tool point error (mm): FK tool point vs the camera-observed plate on views the fit
+            did not use; None when the accept wrote null (a non-finite value) or the key is absent.
+    """
+
+    model_config = ConfigDict(extra="ignore", allow_inf_nan=False)
+
+    heldout_tool_mm: float | None = Field(default=None, ge=0.0)
+
+
+class ArmCalibrationHeadChain(BaseModel):
+    """The applied head chain the fit held fixed (head_rgbd_calibration head_chain_source).
+
+    Attributes:
+        source: Fit kind of the chain ("floor_fit", "head_arm", "arm_offsets", "ground_board"), "urdf" without an
+            applied chain, None when the applied.json record did not name the chain.
+        session: Session id of the chain, None for the repo URDF chain.
+        result: Result id of the chain, None for the repo URDF chain.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    source: str | None
+    session: str | None
+    result: str | None
+
+
 class ArmCalibrationFile(BaseModel):
     """The fields of arm_calibration.json mcp_server applies, with the identity of the accepted fit.
 
@@ -86,6 +118,8 @@ class ArmCalibrationFile(BaseModel):
             from then on (an arm re-zero stale marker saved before it is cleared for joint_offsets).
         joint_offsets_rad: Zero offset per arm joint (rad, urdf = measured + offset), exactly the five arm joints.
         base_in_base_link: Arm base pose in base_link.
+        score: The fit's score (held-out tool error).
+        head_chain: The applied head chain the fit held fixed; None when the file does not name one.
     """
 
     model_config = ConfigDict(extra="ignore", allow_inf_nan=False)
@@ -96,6 +130,8 @@ class ArmCalibrationFile(BaseModel):
     captured_from: AwareDatetime
     joint_offsets_rad: dict[str, float]
     base_in_base_link: ArmCalibrationBase
+    score: ArmCalibrationScore
+    head_chain: ArmCalibrationHeadChain | None = None
 
     @field_validator("joint_offsets_rad")
     @classmethod

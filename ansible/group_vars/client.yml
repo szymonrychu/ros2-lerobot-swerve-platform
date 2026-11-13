@@ -3486,11 +3486,11 @@ ros2_nodes:
             roll: 0.0
             pitch: 0.0
             yaw: 0.0
-      # Nav2 goal precision stated in the navigation tool descriptions (nav2_params.yaml goal checker: 0.01 m, 0.035 rad).
+      # Nav2 goal precision stated in the navigation tool descriptions (nav2_params.yaml goal checker: 0.02 m, 0.087 rad).
       # A goal ends early (cancelled, 'succeeded') within the intermediate tolerances unless the call passes precise=true.
       nav:
-        goal_xy_tolerance_m: 0.01
-        goal_yaw_tolerance_deg: 2.0
+        goal_xy_tolerance_m: 0.02
+        goal_yaw_tolerance_deg: 5.0
         intermediate_xy_tolerance_m: 0.03
         intermediate_yaw_tolerance_deg: 5.0
       # Below cells x cutoff_cell_v (3 x 2.8 = 8.4 V) motion/effector tools are refused; stop and sensors keep working.
@@ -4009,8 +4009,8 @@ ros2_nodes:
       arm_reach_cm: 41
       arm_base_height_m: 0.100
       # Nav2 goal precision stated in the system prompt (same values as mcp_server nav and the Nav2 goal checker).
-      nav_goal_xy_tolerance_cm: 1.0
-      nav_goal_yaw_tolerance_deg: 2.0
+      nav_goal_xy_tolerance_cm: 2.0
+      nav_goal_yaw_tolerance_deg: 5.0
       nav_intermediate_xy_tolerance_cm: 3.0
       nav_intermediate_yaw_tolerance_deg: 5.0
       # Pre-plan watchdog: until set_task_plan declares time_budget_min the instruction ends after this many seconds;

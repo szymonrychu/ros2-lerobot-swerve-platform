@@ -1228,8 +1228,9 @@ def register(ctx: ToolContext) -> None:
         "height under the object's bottom, m: an overhang or a raised object; default 0 = resting flat), surfaces "
         "(optional regions around the object, as the surfaces argument), position_source ('manual' default, or "
         "'camera' when x, y, support_z were read with pixel_to_point / camera_point_to_arm / pixel_to_ground: "
-        f"grasp_object then refuses unless the applied head calibration's camera-to-arm residual is known and at most "
-        f"{config.camera_arm.max_residual_mm:g} mm; plan_grasp only notes it). With surfaces, support_z must match the "
+        "grasp_object then refuses unless the camera-to-arm residual (the accepted arm to camera calibration's held-out "
+        "tool error when it was fitted against the applied head chain, else the head-from-arm residual) is known and "
+        f"at most {config.camera_arm.max_residual_mm:g} mm; plan_grasp only notes it). With surfaces, support_z must match the "
         "region under the object centre (else infeasible)}"
     )
     strategy_desc = (

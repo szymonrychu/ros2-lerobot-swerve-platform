@@ -1265,14 +1265,15 @@ def test_node_apt_install_refreshes_stale_cache() -> None:
     assert apt[0]["update_cache"] is True and apt[0]["cache_valid_time"] == 3600
 
 
-def test_nav2_goal_tolerance_tight_enough_for_swerve() -> None:
-    """Goals finish within 1 cm / 2 deg (user requirement). The default BT replanned at 1 Hz and every replan reset
-    the goal checker latch and the rotation shim's position check, so the shim lost the in-tolerance state and MPPI
-    took over mid-turn (58 deg overshoot on the robot). With replanning only on an invalid path the stateful
-    checker latches reliably."""
+def test_nav2_goal_tolerance_is_2cm_5deg() -> None:
+    """Goals finish within 2 cm / 5 deg (user requirement, loosened from 1 cm / 2 deg on 2026-11-13: the robot crept
+    for a long time at the end of every path on cm-scale corrections). The default BT replanned at 1 Hz and every
+    replan reset the goal checker latch and the rotation shim's position check, so the shim lost the in-tolerance
+    state and MPPI took over mid-turn (58 deg overshoot on the robot). With replanning only on an invalid path the
+    stateful checker latches reliably."""
     checker = ros_params(nav2(), "controller_server")["general_goal_checker"]
-    assert checker["xy_goal_tolerance"] == pytest.approx(0.01)
-    assert checker["yaw_goal_tolerance"] == pytest.approx(0.035)
+    assert checker["xy_goal_tolerance"] == pytest.approx(0.02)
+    assert checker["yaw_goal_tolerance"] == pytest.approx(0.087)
     assert checker["stateful"] is True
 
 

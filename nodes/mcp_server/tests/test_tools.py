@@ -440,20 +440,20 @@ def test_cartesian_and_arm_state_descriptions_state_the_floor_height(server: Any
 
 
 def test_navigation_tool_descriptions_state_goal_precision_from_config(robot: FakeRobot) -> None:
-    custom = McpServerConfig.model_validate({"nav": {"goal_xy_tolerance_m": 0.03, "goal_yaw_tolerance_deg": 5.0}})
+    custom = McpServerConfig.model_validate({"nav": {"goal_xy_tolerance_m": 0.025, "goal_yaw_tolerance_deg": 4.0}})
     docs = tool_descriptions(build_mcp_server(robot, custom, TOKEN))
     for name in ("navigate_to_pose", "move_relative"):
         text = docs[name]
-        assert "within 3 cm and 5 deg" in text, name
+        assert "within 2.5 cm and 4 deg" in text, name
         assert "front" in text and "turns back" in text, name
-        assert "1 cm" not in text, name
+        assert "2 cm and 5 deg" not in text, name
     assert "a few cm" in docs["move_relative"]
 
 
-def test_navigation_tool_descriptions_default_to_one_cm_two_deg(server: Any) -> None:
+def test_navigation_tool_descriptions_default_to_two_cm_five_deg(server: Any) -> None:
     docs = tool_descriptions(server)
-    assert "within 1 cm and 2 deg" in docs["navigate_to_pose"]
-    assert "within 1 cm and 2 deg" in docs["move_relative"]
+    assert "within 2 cm and 5 deg" in docs["navigate_to_pose"]
+    assert "within 2 cm and 5 deg" in docs["move_relative"]
 
 
 def test_arm_motion_descriptions_explain_residual_error_and_commanded_hold(server: Any) -> None:
@@ -775,7 +775,7 @@ def test_precise_flag_is_forwarded_to_the_base_tools(server: Any, robot: FakeRob
     docs = tool_descriptions(server)
     for name in ("navigate_to_pose", "move_relative"):
         assert "precise" in docs[name] and "3 cm" in docs[name] and "5 deg" in docs[name]
-        assert "1 cm" in docs[name] and "2 deg" in docs[name]
+        assert "2 cm" in docs[name]
 
 
 def test_arm_move_settle_defaults_to_trajectory_end_and_gripper_moves_to_final(server: Any) -> None:

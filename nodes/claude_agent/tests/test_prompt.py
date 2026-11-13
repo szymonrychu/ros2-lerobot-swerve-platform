@@ -82,6 +82,7 @@ def test_prompt_measures_object_positions_with_the_depth_tools() -> None:
     assert "interior" in para and "outline" in para and "arm frame" in para and "height" in para
     assert "grasp_ready" in section and "position_source" in section and "'camera'" in section
     assert "calibrate page" in lower and "head-from-arm" in lower
+    assert "arm to camera calibration" in lower and "fitted against the applied head chain" in lower
     spatial = lower[lower.index("spatial perception:") :]
     spatial = spatial[: spatial.index("3d map:")]
     assert "pixel_to_point" in spatial and "guess" in spatial
@@ -186,7 +187,7 @@ def test_arm_reach_default_matches_urdf_link_lengths() -> None:
 def test_prompt_states_nav_goal_precision_from_config() -> None:
     default = " ".join(build_system_prompt(ClaudeAgentConfig()).split())
     assert "within 3 cm and 5 deg" in default
-    assert "precise=true" in default and "within 1 cm and 2 deg" in default
+    assert "precise=true" in default and "within 2 cm and 5 deg" in default
     assert "sideways" in default and "rotate first" in default
     custom = " ".join(
         build_system_prompt(

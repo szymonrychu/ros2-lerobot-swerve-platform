@@ -12,6 +12,7 @@ from typing import Literal, Protocol
 
 from pydantic import BaseModel
 from ros2_common.head_rgbd_calibration.applied_arm_calibration import MarkerIdentity, applied_marker_identity
+from ros2_common.head_rgbd_calibration.arm_calibration_file import ArmCalibrationError, read_arm_calibration
 from ros2_common.head_rgbd_calibration.urdf_text import (
     APPLIED_MARKER_FILE,
     HEAD_CHAIN_FILE,
@@ -30,6 +31,11 @@ LOGGER = logging.getLogger(__name__)
 HEAD_FRAME_ID = "autonomy"
 POLL_INTERVAL_S = 0.05
 MoveStatus = Literal["converged", "timeout", "no_feedback"]
+# Where the camera-to-arm residual of the grasp gate comes from: the accepted arm to camera calibration's held-out tool
+# error (only while it was fitted against the applied head chain) or the head-from-arm chain fit's held-out board error.
+RESIDUAL_SOURCE_ARM_CALIBRATION = "arm_calibration"
+RESIDUAL_SOURCE_HEAD_FROM_ARM = "head_from_arm"
+ResidualSource = Literal["arm_calibration", "head_from_arm"]
 
 
 class HeadError(RuntimeError):
@@ -214,17 +220,50 @@ class HeadHistory:
 
 
 @dataclass(frozen=True)
+class ArmFitInfo:
+    """The accepted arm to camera calibration (applied/arm_calibration.json) as the grasp gate sees it.
+
+    Attributes:
+        session (str): head_arm session id of the fit.
+        result (str): Result id of the fit.
+        heldout_tool_mm (float | None): Held-out tool point error of the fit (mm), None when the file has none.
+        head_chain_session (str | None): Session of the head chain the fit held fixed.
+        head_chain_result (str | None): Result of the head chain the fit held fixed.
+        current (bool): That head chain is the applied one (session and result equal); a fit against another chain
+            is stale and does not count.
+    """
+
+    session: str
+    result: str
+    heldout_tool_mm: float | None
+    head_chain_session: str | None
+    head_chain_result: str | None
+    current: bool
+
+    def name(self) -> str:
+        """The fit's identity for messages.
+
+        Returns:
+            str: "session/result".
+        """
+        return f"{self.session}/{self.result}"
+
+
+@dataclass(frozen=True)
 class CalibrationInfo:
     """Which applied head calibration the camera-to-arm tools stand on, and how well it agrees with the arm.
 
     Attributes:
         applied (bool): A head_chain.json from the Calibrate page is in effect (False: the repo head.urdf chain).
-        source (str | None): The fit that produced it ("head_arm" or "floor"), None when unknown.
+        source (str | None): The fit that produced it ("head_arm", "floor", "ground_board", ...), None when unknown.
         session (str | None): Calibration session id.
         result (str | None): Result id.
         applied_at (str | None): Apply time (ISO 8601) from the applied.json record.
-        residual (ChainResidual | None): The arm-frame residual the fit measured; None for a floor fit, a chain
-            written before the residual existed, or nothing applied.
+        residual (ChainResidual | None): The arm-frame residual the chain fit measured; None for a floor or ground
+            board fit, a chain written before the residual existed, or nothing applied.
+        arm_fit (ArmFitInfo | None): The accepted arm to camera calibration, None when none is accepted or it is
+            unreadable.
+        arm_fit_error (str | None): Why the accepted arm to camera calibration could not be read, None otherwise.
     """
 
     applied: bool
@@ -233,32 +272,131 @@ class CalibrationInfo:
     result: str | None
     applied_at: str | None
     residual: ChainResidual | None
+    arm_fit: ArmFitInfo | None = None
+    arm_fit_error: str | None = None
+
+    @property
+    def residual_source(self) -> ResidualSource | None:
+        """Where the camera-to-arm residual comes from.
+
+        Returns:
+            ResidualSource | None: "arm_calibration" when the accepted arm to camera calibration was fitted against
+                the applied head chain and has a held-out tool error, else "head_from_arm" when the chain fit
+                measured a residual, else None.
+        """
+        if self.arm_fit is not None and self.arm_fit.current and self.arm_fit.heldout_tool_mm is not None:
+            return RESIDUAL_SOURCE_ARM_CALIBRATION
+        if self.residual is not None:
+            return RESIDUAL_SOURCE_HEAD_FROM_ARM
+        return None
 
     @property
     def residual_mm(self) -> float | None:
-        """Held-out camera-to-arm error of the applied fit (mm).
+        """Held-out camera-to-arm error the grasp gate checks (mm).
 
         Returns:
-            float | None: The head-from-arm held-out board error, None when there is none.
+            float | None: The arm to camera calibration's held-out tool error or the head-from-arm held-out board
+                error (residual_source), None when there is none.
         """
-        return None if self.residual is None else self.residual.holdout_board_mm
+        source = self.residual_source
+        if source == RESIDUAL_SOURCE_ARM_CALIBRATION and self.arm_fit is not None:
+            return self.arm_fit.heldout_tool_mm
+        if source == RESIDUAL_SOURCE_HEAD_FROM_ARM and self.residual is not None:
+            return self.residual.holdout_board_mm
+        return None
+
+    @property
+    def arm_fit_stale(self) -> bool:
+        """Whether an accepted arm to camera calibration exists but was fitted against another head chain.
+
+        Returns:
+            bool: True for a stale arm calibration.
+        """
+        return self.arm_fit is not None and not self.arm_fit.current
+
+    def arm_fit_note(self) -> str | None:
+        """Why the accepted arm to camera calibration does not give the residual, None when it does or none exists.
+
+        Returns:
+            str | None: Note naming the fit and the reason.
+        """
+        if self.arm_fit_error is not None:
+            return f"the accepted arm to camera calibration is unreadable and ignored ({self.arm_fit_error})"
+        fit = self.arm_fit
+        if fit is None or self.residual_source == RESIDUAL_SOURCE_ARM_CALIBRATION:
+            return None
+        if not fit.current:
+            return (
+                f"the accepted arm to camera calibration {fit.name()} is stale for the applied head chain (fitted "
+                f"against head chain {fit.head_chain_session}/{fit.head_chain_result}) and is ignored"
+            )
+        return f"the accepted arm to camera calibration {fit.name()} has no held-out tool error and is ignored"
 
     def describe(self) -> str:
-        """One line naming the chain and its residual, for tool results and refusals.
+        """One line naming the chain, the residual and where it came from, for tool results and refusals.
 
         Returns:
             str: Human-readable description.
         """
         if not self.applied:
-            return "no calibration applied: the repo head.urdf chain (no arm-frame residual)"
-        chain = f"{self.source or 'unknown'} fit {self.session}/{self.result}"
-        if self.residual is None:
-            return f"applied {chain}: no arm-frame residual (only a head-from-arm fit measures one)"
-        return f"applied {chain}: held-out camera-to-arm residual {self.residual.holdout_board_mm:.1f} mm"
+            text = "no calibration applied: the repo head.urdf chain (no arm-frame residual)"
+        else:
+            chain = f"applied {self.source or 'unknown'} fit {self.session}/{self.result}"
+            source = self.residual_source
+            if source == RESIDUAL_SOURCE_ARM_CALIBRATION and self.arm_fit is not None:
+                text = (
+                    f"{chain}: camera-to-arm residual {self.residual_mm:.1f} mm from the accepted arm to camera "
+                    f"calibration {self.arm_fit.name()} (held-out tool error, fitted against this head chain)"
+                )
+            elif source == RESIDUAL_SOURCE_HEAD_FROM_ARM:
+                text = f"{chain}: held-out camera-to-arm residual {self.residual_mm:.1f} mm from the head-from-arm fit"
+            else:
+                text = (
+                    f"{chain}: no arm-frame residual (an accepted arm to camera calibration fitted against this head "
+                    "chain or a head-from-arm fit measures one)"
+                )
+        note = self.arm_fit_note()
+        return text if note is None else f"{text}; {note}"
+
+
+def read_arm_fit(
+    applied_dir: Path, chain: tuple[str | None, str | None] | None
+) -> tuple[ArmFitInfo | None, str | None]:
+    """The accepted arm to camera calibration and whether it was fitted against the applied head chain.
+
+    Args:
+        applied_dir (Path): Applied calibration directory.
+        chain (tuple[str | None, str | None] | None): (session, result) of the applied head chain, None when no head
+            chain is applied (no arm calibration is current then: its fit needs an applied chain).
+
+    Returns:
+        tuple[ArmFitInfo | None, str | None]: (the fit or None when none is accepted or unreadable, the read error).
+    """
+    try:
+        calibration = read_arm_calibration(applied_dir)
+    except ArmCalibrationError as exc:
+        return None, str(exc)
+    if calibration is None:
+        return None, None
+    fitted = calibration.head_chain
+    fitted_ids = None if fitted is None else (fitted.session, fitted.result)
+    current = chain is not None and None not in chain and fitted_ids == chain
+    return (
+        ArmFitInfo(
+            calibration.session,
+            calibration.result,
+            calibration.score.heldout_tool_mm,
+            None if fitted is None else fitted.session,
+            None if fitted is None else fitted.result,
+            current,
+        ),
+        None,
+    )
 
 
 def read_calibration_info(applied_dir: Path | None) -> CalibrationInfo:
-    """The applied head chain's identity and residual, read from head_chain.json and the applied.json record.
+    """The applied head chain's identity and residual (head_chain.json and its applied.json record) with the accepted
+    arm to camera calibration (arm_calibration.json, through the shared ros2_common loader).
 
     Args:
         applied_dir (Path | None): Applied calibration directory; None means nothing can be applied.
@@ -266,17 +404,14 @@ def read_calibration_info(applied_dir: Path | None) -> CalibrationInfo:
     Returns:
         CalibrationInfo: applied False when there is no readable head_chain.json.
     """
-    none = CalibrationInfo(False, None, None, None, None, None)
     if applied_dir is None:
-        return none
+        return CalibrationInfo(False, None, None, None, None, None)
     try:
         chain = json.loads((applied_dir / HEAD_CHAIN_FILE).read_text())
+        parse_head_chain(chain)  # apply_overrides skips an invalid chain too, so it is not in effect
     except (OSError, ValueError):
-        return none
-    try:
-        parse_head_chain(chain)
-    except ValueError:
-        return none  # apply_overrides skips such a chain too, so it is not in effect
+        arm_fit, arm_fit_error = read_arm_fit(applied_dir, None)
+        return CalibrationInfo(False, None, None, None, None, None, arm_fit, arm_fit_error)
     session, result = chain.get("session"), chain.get("result")
     try:
         record = json.loads((applied_dir / APPLIED_MARKER_FILE).read_text()).get("head_chain")
@@ -285,13 +420,18 @@ def read_calibration_info(applied_dir: Path | None) -> CalibrationInfo:
     matches = isinstance(record, dict) and (record.get("session"), record.get("result")) == (session, result)
     source = record.get("source") if matches else None
     applied_at = record.get("applied_at") if matches else None
+    session = session if isinstance(session, str) else None
+    result = result if isinstance(result, str) else None
+    arm_fit, arm_fit_error = read_arm_fit(applied_dir, (session, result))
     return CalibrationInfo(
         True,
         source if isinstance(source, str) else None,
-        session if isinstance(session, str) else None,
-        result if isinstance(result, str) else None,
+        session,
+        result,
         applied_at if isinstance(applied_at, str) else None,
         parse_residual(chain),
+        arm_fit,
+        arm_fit_error,
     )
 
 

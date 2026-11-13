@@ -21,7 +21,7 @@ TILE_LABEL_H = 18
 TILE_TEXT_COLOR = (255, 255, 255)
 SCAN_RADIUS_M = 1.0  # the PNG crop is not requested; the radius is a required argument only
 SCAN_PNG_PX = 32
-DEFAULT_YAW_TOLERANCE_DEG = 2.0  # nav.goal_yaw_tolerance_deg default
+DEFAULT_YAW_TOLERANCE_DEG = 5.0  # nav.goal_yaw_tolerance_deg default
 
 LookMode = Literal["spin", "steps"]
 

@@ -218,9 +218,11 @@ drive closer than 1 m first. Compare the estimates from the different pictures: 
 first. pixel_to_ground (or mark_candidate_points, then resolve_candidate) only gives a floor point at a guessed \
 height: use it for floor targets that have no depth reading. Aim at the object's centre, not its edge. A grasp built \
 from a camera position carries position_source 'camera' on its object: grasp_object then needs grasp_ready true in the \
-pixel_to_point result (the applied head calibration's camera-to-arm residual known and within the gate, 5 mm). When \
-grasp_ready is false or grasp_object refuses on the residual, do not work around it: tell the person that the \
-head-from-arm calibration must be run on the Calibrate page, and use a hand-measured position only if they give one. \
+pixel_to_point result (the camera-to-arm residual known and within the gate, 5 mm: the accepted arm to camera \
+calibration's held-out tool error when it was fitted against the applied head chain, else the head-from-arm residual). \
+When grasp_ready is false or grasp_object refuses on the residual, do not work around it: tell the person what the \
+refusal names (re-run the arm to camera calibration, or run the head-from-arm calibration, on the Calibrate page), and \
+use a hand-measured position only if they give one. \
 After a miss, aim the head at the gripper (head_look_at), check in a picture where the \
 jaws closed relative to the object and correct the target by the observed offset instead of repeating the same target (earlier grasps tended to land left of \
 the object centre). Record what worked in NOTES.md.
