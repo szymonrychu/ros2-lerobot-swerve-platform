@@ -24,6 +24,7 @@ from .grasp import GraspPlan, ObjectSpec, grasp_params
 from .grasp_check import FusedOutcome, GraspCheck
 from .grasp_flow import FlowPhase, GraspFlow, NextStep, next_steps, reapproach_route
 from .grasp_tools import (
+    GO_BACK_DESC,
     GRASP_CAMERA,
     PITCH_DESC,
     SURFACES_DESC,
@@ -365,8 +366,11 @@ def register(ctx: ToolContext) -> None:
             "call grasp_approach again with a corrected object position when the jaws are off target, or grasp_abort. "
             "A re-approach whose grasp point moves by at most 3 cm (same strategy and angles) goes in a straight tool "
             "line with the jaws open; a larger one backs out to the pre-grasp and slides in again (route in the "
-            "result). Called after a lift it approaches again only when the jaws are empty; while holding it is "
-            "refused and names release_object. It is not approach_for_grasp (which drives the base). "
+            "result). go_back is optional and you decide: the default false keeps the jaws at the object and nudges "
+            "in a straight line for corrections of 3 cm or less; set it true to back out to the pre-grasp first "
+            "(use it when the jaws might drag the object or the angle changes); corrections over 3 cm always go "
+            "via the pre-grasp. go_back is ignored for a fresh approach. Called after a lift it approaches again only when the jaws are empty; "
+            "while holding it is refused and names release_object. It is not approach_for_grasp (which drives the base). "
             f"{slow_note}"
         )
     )
@@ -382,6 +386,7 @@ def register(ctx: ToolContext) -> None:
         surfaces: Annotated[
             list[SurfaceRegion] | None, Field(max_length=MAX_REGIONS, description=SURFACES_DESC)
         ] = None,
+        go_back: Annotated[bool, Field(description=GO_BACK_DESC)] = False,
     ) -> Annotated[CallToolResult, GraspFlowResult]:
         """Land the open jaws at the grasp point; the tool description is passed to the decorator."""
         tool = "grasp_approach"
@@ -420,7 +425,7 @@ def register(ctx: ToolContext) -> None:
                     log.reached = next(w for w in old_plan.waypoints if w.label == "grasp")
                     executor.open_jaws(old_plan, prior[1], stop, log)
                     GRASP_ATTEMPTS.labels(old_plan.strategy, "missed").inc()
-                route = reapproach_route(old_plan, plan)
+                route = "via_pre_grasp" if go_back else reapproach_route(old_plan, plan)
                 path: list[dict[str, float]] = []
                 if route == "straight":
                     path, why = executor.correction_path(old_plan, plan, call_params, floor)

@@ -56,6 +56,12 @@ USE_GROUND_DESC = (
     "use the measured floor regions (steps, drop-offs) from the head D435 ground estimate; refused when no fresh "
     "estimate exists"
 )
+GO_BACK_DESC = (
+    "Optional, you decide. Only matters when re-approaching from landed or closed (ignored for a fresh approach). "
+    "false (default): the jaws stay at the object and nudge in a straight line for a correction of 3 cm or less. "
+    "true: back out to the pre-grasp first and slide in again; use it when the jaws might drag the object or the "
+    "angle changes. A correction over 3 cm always goes via the pre-grasp."
+)
 # How the agent describes stairs, tables and holes (shared by the grasp and arm motion tools).
 SURFACES_DESC = (
     "Surface regions when the robot floor and the object's surface differ (stair down, table top, hole), instead of "
