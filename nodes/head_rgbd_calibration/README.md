@@ -962,7 +962,14 @@ directory `results/<rid>/` holds:
   It also carries `residual {kind: "head_arm", holdout_board_mm, holdout_rms_px, rms_px}`: the camera-to-arm accuracy
   the fit measured on held-out views. mcp_server reports it as `calibration.residual_mm` in `pixel_to_point` /
   `camera_point_to_arm` and gates camera-derived direct grasps on it (`camera_arm.max_residual_mm`, 5 mm; a passed fit is
-  at most `fit.limits.holdout_board_mm`, 4.5). A floor-fit chain carries no residual.
+  at most `fit.limits.holdout_board_mm`, 4.5) unless an accepted arm to camera calibration supplies the residual. A
+  floor-fit or ground-board chain carries no residual.
+  The gate's residual source: the accepted arm to camera calibration (`applied.json` `arm_calibration` ->
+  `arm_calibration.json` `score.heldout_tool_mm`) when its recorded `head_chain` session and result equal the applied
+  head chain, else this `head_chain.json` residual, else none (refused). Accepting an arm to camera calibration therefore
+  makes camera grasps gate-ready, also on a chain without a residual, when its held-out tool error is within the gate; an
+  arm calibration fitted against another head chain is stale, ignored and named in the refusal (re-run it after applying
+  a new head chain). See `nodes/mcp_server/README.md` ("Calibration residual and the grasp gate").
 
 `POST .../sessions/{sid}/results/{rid}/apply` goes through the writer shared with the floor fit,
 `floor_results.apply_head_chain_file`: it copies `head_chain.json` into `applied/` and records it in `applied/applied.json`
