@@ -16,13 +16,14 @@ from mcp_server.config import McpServerConfig
 from mcp_server.floor_guard import arm_to_base_link
 from mcp_server.grasp_flow_tools import MARK_TOOL, flow_photo, marked_frame_jpeg
 from mcp_server.grasp_tools import aim_head_at_arm_point, aim_head_at_tool_point
-from mcp_server.metrics import GRASP_FLOW_STEPS
+from mcp_server.metrics import GRASP_FLOW_STEPS, GRASP_VERDICTS
 from mcp_server.models import ArmMotionResult, RobotError
 from mcp_server.tool_context import ToolContext
 from mcp_server.tools import build_mcp_server
 
 from .test_grasp_camera_gate import CAMERA_OBJECT, server_for, with_calibration
 from .test_grasp_tools import (  # noqa: F401
+    CONFIG,
     D435_SIZE,
     OBJECT,
     REACH,
@@ -30,6 +31,7 @@ from .test_grasp_tools import (  # noqa: F401
     ctx,
     front_camera,
     object_in_jaws,
+    plush_in_jaws,
     robot,
     server,
 )
@@ -363,3 +365,221 @@ def test_a_second_concurrent_flow_tool_is_refused(
     monkeypatch.setattr(robot.arm, "move_joints", nested)
     assert approach(server).structured_content["outcome"] == "landed"
     assert refusals and "another grasp flow tool is running" in refusals[0]
+
+
+def close(server: Any, **extra: Any) -> Any:
+    return call(server, "grasp_close", extra)
+
+
+def lift(server: Any, verdict: str = "yes") -> Any:
+    return call(server, "grasp_lift", {"verdict": verdict, "evidence": "the object sits between the fingers"})
+
+
+def approach_and_close(server: Any, robot: FakeRobot, empty: bool = False) -> Any:  # noqa: F811
+    if empty:
+        plush_in_jaws(robot.arm_backend, short_rad=0.02, load=0.0)  # nothing between the jaws: band empty
+    else:
+        object_in_jaws(robot.arm_backend)
+    approach(server)
+    return close(server)
+
+
+def test_grasp_close_closes_on_the_object_without_lifting_and_attaches_crop_and_frame(
+    server: Any,
+    robot: FakeRobot,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    front_camera(robot, monkeypatch)
+    res = approach_and_close(server, robot)
+    data = res.structured_content
+    assert data["outcome"] == "closed" and data["phase"] == "closed", data["reasons"]
+    assert labels(res)[-1] == "close" and "lift" not in labels(res)
+    assert n_images(res) == 2
+    assert [p["kind"] for p in data["photos"]] == ["jaw_crop", "marked_frame"]
+    assert data["grasp_check"]["image"] == "pending"
+    assert robot.arm.carry.get().grasp_id == data["grasp_check"]["grasp_id"]
+    assert [n["tool"] for n in data["next_steps"]] == ["grasp_lift", "grasp_approach", "grasp_abort"]
+    assert data["verify_problem"] is None
+
+
+def test_grasp_close_failed_verify_keeps_the_jaws_closed(server: Any, robot: FakeRobot) -> None:
+    object_in_jaws(robot.arm_backend)
+    approach(server, params={"min_hold_gap_rad": 1.0})
+    data = close(server).structured_content
+    assert data["outcome"] == "closed" and data["verify_problem"]
+    assert robot.arm_backend.positions["gripper"] < 0.5  # not reopened
+    assert data["phase"] == "closed"
+
+
+def test_grasp_close_into_the_empty_band_holds_with_the_profile(server: Any, robot: FakeRobot) -> None:
+    res = approach_and_close(server, robot, empty=True)
+    assert labels(res)[-2:] == ["close", "hold"]
+    assert res.structured_content["grasp_check"]["band"] == "empty"
+    assert res.structured_content["verify_problem"]
+
+
+def test_grasp_close_with_a_grip_profile_uses_it_and_a_bad_one_refuses_before_motion(
+    server: Any, robot: FakeRobot
+) -> None:
+    object_in_jaws(robot.arm_backend)
+    approach(server)
+    before = len(robot.arm_backend.commands)
+    with pytest.raises(ToolError, match="nonexistent"):
+        close(server, grip_profile="nonexistent")
+    assert len(robot.arm_backend.commands) == before
+    data = close(server, grip_profile="gentle").structured_content
+    assert data["outcome"] == "closed" and data["grip_profile"]["name"] == "gentle"
+
+
+def test_grasp_close_without_landing_is_refused(server: Any) -> None:
+    with pytest.raises(ToolError, match=r"phase 'idle'.*grasp_approach, grasp_abort"):
+        close(server)
+
+
+def test_grasp_close_after_a_foreign_arm_motion_is_refused(server: Any, robot: FakeRobot) -> None:
+    approach(server)
+    call(server, "set_gripper", {"open_fraction": 0.9})
+    before = len(robot.arm_backend.commands)
+    with pytest.raises(ToolError, match="arm motion outside"):
+        close(server)
+    assert len(robot.arm_backend.commands) == before
+
+
+@pytest.mark.parametrize("foreign", ["move_arm_joints", "arm_home", "release_control", "stop"])
+def test_any_foreign_motion_or_stop_or_lease_change_invalidates_the_flow(
+    server: Any, robot: FakeRobot, foreign: str
+) -> None:
+    approach(server)
+    call(server, "arm_set_home", {})
+    args = {"move_arm_joints": {"targets": {"elbow_flex": 0.2}}, "release_control": {"keep_position": True}}
+    call(server, foreign, args.get(foreign, {}))
+    if foreign == "release_control":
+        take(server, "arm")
+    with pytest.raises(ToolError, match=r"phase 'idle'"):
+        close(server)
+
+
+def test_grasp_lift_with_yes_on_an_object_band_lifts_and_returns_a_photo(
+    server: Any,
+    robot: FakeRobot,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    front_camera(robot, monkeypatch)
+    approach_and_close(server, robot)
+    arm_commands_at_head_move: list[int] = []
+    real = robot.head.move
+
+    def spy(pan: float, tilt: float) -> Any:
+        arm_commands_at_head_move.append(len(robot.arm_backend.commands))
+        return real(pan, tilt)
+
+    monkeypatch.setattr(robot.head, "move", spy)
+    before = len(robot.arm_backend.commands)
+    res = lift(server)
+    data = res.structured_content
+    assert data["outcome"] == "lifted" and data["fused"] == "grasped" and data["phase"] == "lifted"
+    assert labels(res)[-2:] == ["lift", "retreat"] and n_images(res) == 1
+    assert arm_commands_at_head_move[0] == before  # aimed at the lift point before the lift
+    assert [n["tool"] for n in data["next_steps"]] == ["release_object"]
+    assert robot.arm.carry.get().grasp_kind == "grasped"
+
+
+def test_grasp_lift_unsure_is_refused_recorded_and_stays_closed(server: Any, robot: FakeRobot) -> None:
+    approach_and_close(server, robot)
+    before = len(robot.arm_backend.commands)
+    with pytest.raises(ToolError, match="fuses to unverified"):
+        lift(server, "unsure")
+    assert len(robot.arm_backend.commands) == before
+    assert robot.arm.carry.get().image == "unsure"
+    assert lift(server, "yes").structured_content["outcome"] == "lifted"  # still closed: yes lifts
+
+
+def test_grasp_lift_ambiguous_band_with_yes_lifts_as_unverified(server: Any, robot: FakeRobot) -> None:
+    approach_and_close(server, robot)
+    robot.arm.carry.update(band="ambiguous")
+    data = lift(server).structured_content
+    assert data["outcome"] == "lifted" and data["fused"] == "unverified" and data["phase"] == "lifted"
+    assert robot.arm.carry.get().grasp_kind == "unverified" and robot.arm.grasp_held
+
+
+def test_grasp_lift_on_an_empty_band_is_refused_even_with_yes(server: Any, robot: FakeRobot) -> None:
+    approach_and_close(server, robot, empty=True)
+    before = len(robot.arm_backend.commands)
+    with pytest.raises(ToolError, match=r"band empty with your verdict yes fuses to unverified") as err:
+        lift(server)
+    assert "only band object" not in str(err.value)
+    assert len(robot.arm_backend.commands) == before
+    assert robot.arm.carry.get().image == "yes"
+    with pytest.raises(ToolError, match="phase 'closed'"):
+        call(server, "grasp_close", {})  # the flow stays closed
+
+
+def test_grasp_lift_rejects_verdict_no(server: Any, robot: FakeRobot) -> None:
+    approach_and_close(server, robot)
+    with pytest.raises(ToolError):
+        call(server, "grasp_lift", {"verdict": "no", "evidence": "e"})
+
+
+def test_grasp_lift_reports_dropped_when_the_jaws_end_empty(server: Any, robot: FakeRobot) -> None:
+    approach_and_close(server, robot)
+
+    def drop(b: Any) -> None:
+        b.positions["gripper"] = CONFIG.arm.gripper_closed_rad
+        b.efforts["gripper"] = 0.0
+
+    robot.arm_backend.on_sleep = drop
+    data = lift(server).structured_content
+    assert data["outcome"] == "dropped" and data["reasons"] and data["fused"] == "grasped"
+    assert [n["tool"] for n in data["next_steps"]] == ["grasp_approach", "grasp_abort"]
+    assert not robot.arm.grasp_held
+
+
+def test_approach_after_a_lift_while_holding_points_to_release_object(server: Any, robot: FakeRobot) -> None:
+    approach_and_close(server, robot)
+    lift(server)
+    before = len(robot.arm_backend.commands)
+    with pytest.raises(ToolError, match="release_object"):
+        approach(server)
+    assert len(robot.arm_backend.commands) == before
+
+
+def test_approach_after_a_dropped_lift_lands_again(server: Any, robot: FakeRobot) -> None:
+    approach_and_close(server, robot)
+
+    def drop(b: Any) -> None:
+        b.positions["gripper"] = CONFIG.arm.gripper_closed_rad
+        b.efforts["gripper"] = 0.0
+
+    robot.arm_backend.on_sleep = drop
+    assert lift(server).structured_content["outcome"] == "dropped"
+    robot.arm_backend.on_sleep = None
+    data = approach(server).structured_content
+    assert data["outcome"] == "landed" and data["route"] == "fresh"
+
+
+def test_abort_after_a_lift_while_holding_is_refused(server: Any, robot: FakeRobot) -> None:
+    approach_and_close(server, robot)
+    lift(server)
+    with pytest.raises(ToolError, match="release_object"):
+        call(server, "grasp_abort", {})
+
+
+def test_abort_after_close_opens_and_rises(server: Any, robot: FakeRobot) -> None:
+    approach_and_close(server, robot)
+    res = call(server, "grasp_abort", {})
+    assert labels(res) == ["open", "rise"] and res.structured_content["phase"] == "idle"
+    assert robot.arm_backend.positions["gripper"] > 0.3 and not robot.arm.grasp_held
+
+
+def test_reapproach_from_closed_reopens_first(server: Any, robot: FakeRobot) -> None:
+    approach_and_close(server, robot)
+    res = call(server, "grasp_approach", {"object": OBJECT | {"y": OBJECT["y"] + 0.05}, "strategy": "top_down"})
+    assert labels(res)[0] == "open" and res.structured_content["phase"] == "landed"
+
+
+def test_the_lift_verdict_is_counted(server: Any, robot: FakeRobot) -> None:
+    approach_and_close(server, robot)
+    counter = GRASP_VERDICTS.labels("object", "yes", "grasped")
+    before = counter._value.get()
+    lift(server)
+    assert counter._value.get() == before + 1

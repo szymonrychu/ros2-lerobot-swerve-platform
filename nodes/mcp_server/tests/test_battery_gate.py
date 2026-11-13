@@ -41,6 +41,8 @@ MOTION_ARGS: dict[str, dict[str, Any]] = {
     "grasp_approach": {
         "object": {"x": 0.22, "y": 0.0, "support_z": -0.15, "width_m": 0.03, "depth_m": 0.03, "height_m": 0.03}
     },
+    "grasp_close": {},
+    "grasp_lift": {"verdict": "yes", "evidence": "e"},
     "grasp_abort": {},
     "enqueue_motions": {"steps": [{"kind": "wait_s", "seconds": 0.1}]},
     "resume_motions": {},

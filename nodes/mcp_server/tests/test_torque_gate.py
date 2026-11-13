@@ -28,6 +28,8 @@ GROUP_TOOLS = {
         "arm_set_home",
         "grasp_object",
         "grasp_approach",
+        "grasp_close",
+        "grasp_lift",
         "grasp_abort",
     ],
     "base": ["navigate_to_pose", "move_relative", "drive", "look_around", "approach_for_grasp"],

@@ -4,6 +4,7 @@ Every flow tool ends with a head camera photo: the head aims at the FK tool poin
 is marked with the tool point and the flow's target points so the agent can judge the jaws against the object."""
 
 import base64
+import logging
 from collections.abc import Callable
 from typing import Annotated, Any, Literal
 
@@ -36,6 +37,7 @@ from .grasp_tools import (
     aim_head_at_arm_point,
     aim_head_at_tool_point,
     arm_only,
+    attach_jaw_crop,
     floor_override,
     grasp_tool_result,
     grip_profile_description,
@@ -48,12 +50,13 @@ from .grasp_tools import (
 )
 from .jaw_crop import crop_jpeg
 from .lookup_tools import record_lookup
-from .metrics import GRASP_ATTEMPTS, GRASP_FLOW_STEPS
+from .metrics import GRASP_ATTEMPTS, GRASP_FLOW_STEPS, GRASP_VERDICTS
 from .models import ArmMotionResult, RobotError
 from .surfaces import MAX_REGIONS, SurfaceRegion
 from .tool_context import ToolContext
 
-TOOL_NAMES = ("grasp_approach", "grasp_abort")
+TOOL_NAMES = ("grasp_approach", "grasp_close", "grasp_lift", "grasp_abort")
+LOGGER = logging.getLogger("mcp_server.grasp_flow")
 RELEASE_TOOL = "release_object"
 MARK_TARGET = "target"
 MARK_TOOL = "tool"
@@ -468,6 +471,156 @@ def register(ctx: ToolContext) -> None:
                 warnings=warnings,
             )
             return result, attach_photo(tool, result, [(MARK_TARGET, grasp_waypoint(plan))])
+
+        return run(tool, body)
+
+    @ctx.server.tool(
+        description=(
+            "Guided grasp, step 2 (needs the arm lease; only after grasp_approach landed): close the jaws on the "
+            "object with the flow's grip profile (or the grip_profile given here) until the gripper feels it, verify "
+            "the sensors (jaw stopped short of closed under load) and stop WITHOUT lifting. Never opens: a failed "
+            "verification is reported in verify_problem with the jaws still closed, and next_steps tell you to reapproach "
+            "(the jaws reopen first), lift or abort. The result carries grasp_check (the sensor band: object, empty or "
+            "ambiguous, with the evidence) and two images: the jaw crop first (the head aimed at the tool point), the "
+            "marked head frame second. Look at them: is the object between the closed fingers? Then call grasp_lift "
+            "with your verdict. The arm does not move, so the head is not aimed before the close. A foreign arm motion "
+            "since grasp_approach (set_gripper, move_arm_*, arm_home, a queued step, the web UI, a stop or a lease "
+            "change) ends the flow and this tool is refused. Sensor bands: object (contact, load and jaw gap say an "
+            "object is held), empty (jaw in the empty band without load: a squashed soft object or nothing), "
+            "ambiguous (anything else); the image never proves a grasp on its own."
+        )
+    )
+    def grasp_close(
+        grip_profile: Annotated[str | GripProfileOverride | None, Field(description=grip_desc)] = None,
+    ) -> Annotated[CallToolResult, GraspFlowResult]:
+        """Close the jaws on the landed object; the tool description is passed to the decorator."""
+        tool = "grasp_close"
+
+        def body(phase: FlowPhase, stop: Callable[[], bool], log: RunLog) -> tuple[GraspFlowResult, list[ImageContent]]:
+            plan, base = flow.plan, flow.params
+            assert plan is not None and base is not None  # the landed phase stores both
+            params = base if grip_profile is None else grasp_params(config.grasp, base.model_dump(), grip_profile)
+            executor.resolve_grip(params)  # an invalid profile refuses before anything moves
+            verdict = executor.close_and_verify(plan, params, flow.floor, stop, log)
+            check = verdict.close.grasp_check
+            flow.advance(
+                arm, "closed", close=verdict.close, grasp_id=None if check is None else check.grasp_id, params=params
+            )
+            images: list[ImageContent] = []
+            photos: list[FlowPhoto] = []
+            warnings: list[str] = []
+            if arm.grasp_held and check is not None:
+                crop_image, check, warning = attach_jaw_crop(ctx, tool, check)
+                if warning is not None:
+                    warnings.append(warning)
+                if crop_image is not None:
+                    images.append(crop_image)
+                    crop = check.crop
+                    photos.append(
+                        FlowPhoto(
+                            kind="jaw_crop",
+                            lookup_id=None if crop is None else crop.lookup_id,
+                            marked=[],
+                            note=None if crop is None else crop.full_frame_reason,
+                        )
+                    )
+            result = flow_result(
+                executor,
+                tool,
+                "closed",
+                "closed",
+                arm.grasp_held,
+                log.steps,
+                close=verdict.close,
+                grasp_check=check,
+                verify_problem=verdict.missed or verdict.unverified,
+                photos=photos,
+                warnings=warnings,
+            )
+            return result, [*images, *attach_photo(tool, result, [])]
+
+        return run(tool, body)
+
+    @ctx.server.tool(
+        description=(
+            "Guided grasp, step 3 (needs the arm lease; only after grasp_close): record your visual verdict on the "
+            "jaw crop and, when it allows, lift the object and retreat. verdict yes = the object is clearly between "
+            "the closed fingers; unsure = you cannot tell. The verdict is fused with the sensor band (grasp_check.band) "
+            "and always recorded and counted. Lift rule: band object + yes lifts (fused grasped); band ambiguous + yes "
+            "also lifts (fused unverified: after the lift the jaws are re-checked and the result says lifted, the "
+            "carry stays held, or dropped); an empty band (any verdict) and unsure (any band) refuse the lift with "
+            "nothing moved and the flow stays closed: grasp_approach again (the jaws reopen first) or grasp_abort. The "
+            "head aims at the lift point before the lift and the result carries a head photo after it. Outcome lifted "
+            "(held: next release_object at the place location), dropped (the jaws ended empty: grasp_approach or "
+            f"grasp_abort). The result carries fused. {slow_note}"
+        )
+    )
+    def grasp_lift(
+        verdict: Annotated[
+            Literal["yes", "unsure"],
+            Field(description="Is the object between the closed fingers in the jaw crop: yes, or unsure"),
+        ],
+        evidence: Annotated[
+            str, Field(min_length=1, max_length=500, description="What you saw in the crop that supports the verdict")
+        ],
+        surface_z_m: Annotated[float | None, Field(ge=-1.0, le=1.0, description=surface_desc)] = None,
+        tilt_override_deg: Annotated[TiltOverrideDeg | None, Field(description=TILT_DESC)] = None,
+        use_ground_estimate: Annotated[bool, Field(description=USE_GROUND_DESC)] = False,
+        surfaces: Annotated[
+            list[SurfaceRegion] | None, Field(max_length=MAX_REGIONS, description=SURFACES_DESC)
+        ] = None,
+    ) -> Annotated[CallToolResult, GraspFlowResult]:
+        """Record the verdict, then lift and retreat when allowed; the tool description is passed to the decorator."""
+        tool = "grasp_lift"
+
+        def body(phase: FlowPhase, stop: Callable[[], bool], log: RunLog) -> tuple[GraspFlowResult, list[ImageContent]]:
+            plan, params = flow.plan, flow.params
+            assert plan is not None and params is not None  # the closed phase stores both
+            if flow.grasp_id is None:
+                raise ToolError(f"{tool} refused (nothing moved): the close left no grasp check to record a verdict on")
+            record = arm.record_visual_verdict(flow.grasp_id, verdict)
+            band, fused = record.band, record.fused
+            assert band is not None and fused is not None  # a recorded verdict sets both
+            LOGGER.info("grasp_lift %s: band %s + %s -> %s (%s)", flow.grasp_id, band, verdict, fused, evidence)
+            GRASP_VERDICTS.labels(band, verdict, fused).inc()
+            if verdict != "yes" or band == "empty":
+                raise ToolError(
+                    f"{tool} refused (nothing moved): sensor band {band} with your verdict {verdict} fuses to "
+                    f"{fused}; the lift needs verdict yes with band object or ambiguous (an empty band or unsure "
+                    "never lifts). The verdict is recorded and the flow stays closed. "
+                    + "; ".join(f"{step.tool}: {step.when}" for step in next_steps("closed", False))
+                )
+            floor = floor_override(surface_z_m, tilt_override_deg, surfaces, use_ground_estimate) or flow.floor
+            warnings: list[str] = []
+            aim, _ = aim_head_at_arm_point(ctx, tool, grasp_waypoint(plan, "lift"), "the lift point")
+            if aim is not None:
+                warnings.append(aim)
+            executor.lift_and_retreat(plan, floor, stop, log)
+            problem = executor.hold_problem(params)
+            reasons: list[str] = []
+            if problem is None:
+                outcome: FlowOutcome = "lifted"
+                GRASP_ATTEMPTS.labels(plan.strategy, "lifted").inc()
+            else:
+                outcome = "dropped"
+                arm.note_grasp(None)
+                GRASP_ATTEMPTS.labels(plan.strategy, "missed").inc()
+                reasons.append(problem)
+            flow.advance(arm, "lifted", floor=floor)
+            result = flow_result(
+                executor,
+                tool,
+                outcome,
+                "lifted",
+                outcome == "lifted",
+                log.steps,
+                close=flow.close,
+                reasons=reasons,
+                fused=fused,
+                grasp_check=arm.last_grasp_check,
+                warnings=warnings,
+            )
+            return result, attach_photo(tool, result, [])
 
         return run(tool, body)
 

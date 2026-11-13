@@ -23,6 +23,8 @@ DEFAULT_EFFECTOR_TOOLS = [
     "grasp_object",
     "release_object",
     "grasp_approach",
+    "grasp_close",
+    "grasp_lift",
     "grasp_abort",
     "enqueue_motions",
     "resume_motions",

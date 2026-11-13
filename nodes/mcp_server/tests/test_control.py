@@ -275,6 +275,8 @@ def test_tool_subsystem_table() -> None:
         "grasp_object",
         "release_object",
         "grasp_approach",
+        "grasp_close",
+        "grasp_lift",
         "grasp_abort",
     }
     assert {n for n, s in TOOL_SUBSYSTEM.items() if s == "base"} == {

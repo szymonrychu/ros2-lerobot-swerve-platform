@@ -2166,7 +2166,13 @@ with `interrupted_by` (only `grasp_abort` is allowed). `grasp_approach` lands th
 object position of a re-approach moving the grasp point by at most 3 cm goes in a straight tool line with the jaws
 open, a larger one backs out to the pre-grasp first; a camera position is gated by the calibration residual like the
 macro grasp); `grasp_abort` opens, rises `pre_grasp_clearance_m` and ends the flow (refused while holding after a
-lift: use `release_object`). Metric: `mcp_grasp_flow_steps_total{tool,outcome}`.
+lift: use `release_object`). `grasp_close` closes with the flow's grip profile (or its own `grip_profile`) and
+verifies the sensors but never lifts or opens; it returns `grasp_check`, `verify_problem` and two images (the jaw crop,
+then the marked frame). `grasp_lift(verdict yes|unsure, evidence)` records the verdict (fused with the sensor band by
+`grasp_check.fuse`, counted in `mcp_grasp_verdicts_total`) and lifts for band object + yes (fused `grasped`) and band
+ambiguous + yes (fused `unverified`); an empty band (any verdict) and `unsure` (any band) refuse with nothing moved
+and the flow stays `closed`. After the lift `hold_problem` decides `lifted` (the carry stays held; next
+`release_object`) or `dropped` (carry cleared). Metric: `mcp_grasp_flow_steps_total{tool,outcome}`.
 
 ### Web-UI contract (`/grasp/command` -> `/grasp/result`)
 
