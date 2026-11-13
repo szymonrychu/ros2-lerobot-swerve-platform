@@ -5,6 +5,7 @@
 from pathlib import Path
 from typing import Any
 
+import anyio
 import cv2
 import numpy as np
 import pytest
@@ -621,3 +622,25 @@ def test_approach_after_a_soft_object_lift_is_refused_and_keeps_the_carry(server
         approach(server)
     assert len(robot.arm_backend.commands) == before
     assert robot.arm.grasp_held
+
+
+def test_reapproach_go_back_forces_the_pre_grasp_route(server: Any) -> None:
+    approach(server)
+    obj = OBJECT | {"x": OBJECT["x"] + 0.02}
+    res = call(server, "grasp_approach", {"object": obj, "strategy": "top_down", "go_back": True})
+    assert res.structured_content["route"] == "via_pre_grasp", res.structured_content["reasons"]
+    assert "back_out_grasp" in labels(res)
+    assert res.structured_content["phase"] == "landed"
+
+
+def test_go_back_is_ignored_for_a_fresh_approach(server: Any) -> None:
+    res = call(server, "grasp_approach", {"object": OBJECT, "strategy": "top_down", "go_back": True})
+    assert res.structured_content["route"] == "fresh"
+
+
+def test_grasp_approach_description_states_go_back_is_optional(server: Any) -> None:
+    tool = next(t for t in anyio.run(server.list_tools) if t.name == "grasp_approach")
+    assert "go_back is optional" in tool.description
+    assert "3 cm" in tool.description
+    assert "go_back" in tool.input_schema["properties"]
+    assert tool.input_schema["properties"]["go_back"]["default"] is False

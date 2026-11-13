@@ -74,7 +74,10 @@ def test_own_steps_keep_the_flow_when_advance_records_the_epoch() -> None:
 def test_landed_next_steps_are_the_spec_text() -> None:
     assert [s.model_dump() for s in next_steps("landed", False)] == [
         {"tool": "grasp_close", "when": "the photo shows the object between the open jaws"},
-        {"tool": "grasp_approach", "when": "the jaws are off target; pass a corrected object position"},
+        {
+            "tool": "grasp_approach",
+            "when": "the jaws are off target; pass a corrected object position (optional go_back=true backs out to the pre-grasp first)",
+        },
         {"tool": "grasp_abort", "when": "the object is not graspable from here"},
     ]
 

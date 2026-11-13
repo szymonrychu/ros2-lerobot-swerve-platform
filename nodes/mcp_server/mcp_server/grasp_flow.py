@@ -46,7 +46,10 @@ NEXT_STEPS: dict[str, list[tuple[str, str]]] = {
     "idle": [("grasp_approach", "to start a grasp: pass the object as for plan_grasp")],
     "landed": [
         ("grasp_close", "the photo shows the object between the open jaws"),
-        ("grasp_approach", "the jaws are off target; pass a corrected object position"),
+        (
+            "grasp_approach",
+            "the jaws are off target; pass a corrected object position (optional go_back=true backs out to the pre-grasp first)",
+        ),
         ("grasp_abort", "the object is not graspable from here"),
     ],
     "closed": [
@@ -56,7 +59,7 @@ NEXT_STEPS: dict[str, list[tuple[str, str]]] = {
         ),
         (
             "grasp_approach",
-            "the jaws closed off target or on nothing; pass a corrected object position (the jaws reopen first)",
+            "the jaws closed off target or on nothing; pass a corrected object position (the jaws reopen first; optional go_back=true backs out to the pre-grasp)",
         ),
         ("grasp_abort", "give up: the jaws open and the arm backs straight up"),
     ],
