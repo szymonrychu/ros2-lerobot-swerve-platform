@@ -21,7 +21,7 @@ bt_navigator:
     action_server_result_timeout: 900.0
     transform_tolerance: 0.2
     # Replan only when the path becomes invalid: the default BT replans at 1 Hz and every replan resets the goal
-    # checker latch and the rotation shim's position check (1 cm / 2 deg goals then overshoot). The repo tree is the
+    # checker latch and the rotation shim's position check (cm-scale goals then overshoot). The repo tree is the
     # stock navigate_w_recovery_and_replanning_only_if_path_becomes_invalid.xml behind one WaitForArmDriveReady
     # (nodes/arm_drive_wait_bt_cpp): each goal waits up to 8 s while mcp_server's arm drive pose is lifting, lowering
     # or not yet started. Fallback: lifted, skipped, disabled or no fresh state go at once, the timeout drives on with
@@ -63,8 +63,10 @@ controller_server:
       movement_time_allowance: 20.0
     general_goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.01   # 1 cm / 2 deg; the latch holds because the BT no longer replans periodically
-      yaw_goal_tolerance: 0.035
+      # 2 cm / 5 deg (loosened from 1 cm / 2 deg: the robot crept on cm-scale corrections at the end of every path);
+      # the latch holds because the BT no longer replans periodically
+      xy_goal_tolerance: 0.02
+      yaw_goal_tolerance: 0.087
       stateful: true
     FollowPath:
       # RotationShimController wraps MPPI: at the start of a move it turns the robot in place to face the path
@@ -76,7 +78,7 @@ controller_server:
       angular_disengage_threshold: 0.3    # hand over to MPPI once within ~17 deg
       forward_sampling_distance: 0.5
       rotate_to_heading_angular_vel: 0.5  # = swerve wz limit
-      max_angular_accel: 0.5              # gentler turns so the final rotation does not overshoot 2 deg
+      max_angular_accel: 0.5              # gentler turns so the final rotation does not overshoot the 5 deg goal tolerance
       rotate_to_heading_once: true
       simulate_ahead_time: 1.0
       rotate_to_goal_heading: true

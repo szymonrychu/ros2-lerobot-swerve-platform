@@ -243,7 +243,7 @@ def test_arm_base_height_must_be_positive() -> None:
 
 def test_nav_goal_tolerance_defaults_and_validation() -> None:
     nav = McpServerConfig().nav
-    assert nav.goal_xy_tolerance_m == 0.01 and nav.goal_yaw_tolerance_deg == 2.0
+    assert nav.goal_xy_tolerance_m == 0.02 and nav.goal_yaw_tolerance_deg == 5.0
     with pytest.raises(ValidationError):
         McpServerConfig.model_validate({"nav": {"goal_xy_tolerance_m": 0.0}})
 
@@ -370,7 +370,7 @@ def test_grasp_service_topics_default() -> None:
 def test_nav_intermediate_tolerances_are_looser_than_the_precise_ones() -> None:
     nav = McpServerConfig().nav
     assert (nav.intermediate_xy_tolerance_m, nav.intermediate_yaw_tolerance_deg) == (0.03, 5.0)
-    assert (nav.goal_xy_tolerance_m, nav.goal_yaw_tolerance_deg) == (0.01, 2.0)
+    assert (nav.goal_xy_tolerance_m, nav.goal_yaw_tolerance_deg) == (0.02, 5.0)
     with pytest.raises(ValidationError):
         McpServerConfig(nav={"intermediate_xy_tolerance_m": 0.005})
     with pytest.raises(ValidationError):

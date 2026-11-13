@@ -407,8 +407,8 @@ class NavSettings(StrictModel):
     intermediate tolerances (the goal is cancelled and the base zeroed).
     """
 
-    goal_xy_tolerance_m: float = Field(default=0.01, gt=0.0)
-    goal_yaw_tolerance_deg: float = Field(default=2.0, gt=0.0)
+    goal_xy_tolerance_m: float = Field(default=0.02, gt=0.0)
+    goal_yaw_tolerance_deg: float = Field(default=5.0, gt=0.0)
     intermediate_xy_tolerance_m: float = Field(default=0.03, gt=0.0)
     intermediate_yaw_tolerance_deg: float = Field(default=5.0, gt=0.0)
 

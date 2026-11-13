@@ -348,7 +348,7 @@ Re-enable with `nav2_mppi_overlay: true`; the purge removed the stamp, so the ov
 
 ## Goal tolerance
 
-Goals finish within 1 cm and 2 deg (`xy_goal_tolerance` 0.01, `yaw_goal_tolerance` 0.035, stateful). This needs three things together: the BT `navigate_w_recovery_and_replanning_only_if_path_becomes_invalid.xml` (behind the arm wait in the repo copy, see below; mid-route replanning only on an invalid path, so the latch holds), `PoseProgressChecker` (rotation counts as progress; radius 0.05 m, angle 0.3 rad, 20 s allowance), and the shim settings above. Short sideways goals (a few cm) rotate 90 deg toward the path first (front leading) and then turn back to the goal heading.
+Goals finish within 2 cm and 5 deg (`xy_goal_tolerance` 0.02, `yaw_goal_tolerance` 0.087, stateful; loosened from 1 cm / 2 deg on 2026-11-13 because MPPI and the rotation shim spent a long time on cm-scale corrections at the end of every path). This needs three things together: the BT `navigate_w_recovery_and_replanning_only_if_path_becomes_invalid.xml` (behind the arm wait in the repo copy, see below; mid-route replanning only on an invalid path, so the latch holds), `PoseProgressChecker` (rotation counts as progress; radius 0.05 m, angle 0.3 rad, 20 s allowance), and the shim settings above. Short sideways goals (a few cm) rotate 90 deg toward the path first (front leading) and then turn back to the goal heading.
 
 ## Arm drive pose wait
 

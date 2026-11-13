@@ -186,7 +186,7 @@ def test_arm_reach_default_matches_urdf_link_lengths() -> None:
 def test_prompt_states_nav_goal_precision_from_config() -> None:
     default = " ".join(build_system_prompt(ClaudeAgentConfig()).split())
     assert "within 3 cm and 5 deg" in default
-    assert "precise=true" in default and "within 1 cm and 2 deg" in default
+    assert "precise=true" in default and "within 2 cm and 5 deg" in default
     assert "sideways" in default and "rotate first" in default
     custom = " ".join(
         build_system_prompt(
