@@ -1307,7 +1307,7 @@ def register_core_tools(ctx: ToolContext) -> None:
                     "message": "; ".join([result.message, grasp_tools.awaiting_confirm(check), *notes]),
                 }
             )
-        return grasp_tools.grasp_tool_result(result, image)
+        return grasp_tools.grasp_tool_result(result, [image] if image else [])
 
     @tool(
         description=(

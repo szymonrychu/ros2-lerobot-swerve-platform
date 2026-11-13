@@ -27,7 +27,7 @@ from .arm import ROLL_JOINT, ArmController, ArmError, finite_effort
 from .camera_point import gate_refusal
 from .camera_scene import build_scene, camera_setup, head_parent_transform
 from .config import HARD_MAX_IMAGE_PX, GripProfileOverride, McpServerConfig
-from .floor_guard import FloorOverride, TiltOverrideDeg
+from .floor_guard import FloorOverride, TiltOverrideDeg, arm_to_base_link
 from .grasp import GraspParams, GraspPlan, GraspPlanner, ObjectSpec, Waypoint, grasp_params
 from .grasp_check import Band, CropInfo, FusedOutcome, GraspCheck, GripEvidence, ImageState, ImageVerdict
 from .grip import ResolvedGrip, resolve_grip_profile
@@ -1208,20 +1208,19 @@ def unsent_answer(answer: dict[str, Any]) -> None:
     LOGGER.warning("no /grasp/result publisher for answer %s", json.dumps(answer))
 
 
-def grasp_tool_result(result: BaseModel, image: ImageContent | None) -> CallToolResult:
-    """MCP result of grasp_object / set_gripper: the result model as structured content and JSON text, plus an image.
+def grasp_tool_result(result: BaseModel, images: list[ImageContent]) -> CallToolResult:
+    """MCP result of a grasp tool: the result model as structured content and JSON text, plus images.
 
     Args:
-        result (BaseModel): The GraspResult (grasp_object) or ArmMotionResult (set_gripper).
-        image (ImageContent | None): Jaw crop of a held close awaiting confirm_grasp, or None.
+        result (BaseModel): The GraspResult, GraspFlowResult or ArmMotionResult.
+        images (list[ImageContent]): Attached images in order (a jaw crop, a marked frame); empty when none.
 
     Returns:
         CallToolResult: The tool result.
     """
     data = result.model_dump(mode="json")
     content: list[ContentBlock] = [TextContent(type="text", text=json.dumps(data))]
-    if image is not None:
-        content.append(image)
+    content.extend(images)
     return CallToolResult(content=content, structured_content=data)
 
 
@@ -1263,38 +1262,36 @@ def jpeg_size(jpeg: bytes) -> tuple[int, int]:
     return img.shape[1], img.shape[0]
 
 
-def aim_head_at_tool_point(ctx: ToolContext, tool: str, joints: dict[str, float] | None) -> tuple[str | None, bool]:
-    """Aim the head D435 colour camera at the FK tool point and wait for the head to settle.
+def aim_head_at_base_point(
+    ctx: ToolContext, tool: str, point: np.ndarray, what: str = "the tool point"
+) -> tuple[str | None, bool]:
+    """Aim the head D435 colour camera at a base_link point and wait for the head to settle.
 
     The head moves only while the agent holds a lease that commands it (the arm or the base lease, as the head tools).
-    When the aim needs angles beyond the head limits (a tool point low in front of the robot needs more tilt than the
-    head has), the head aims at the nearest in-limit pose instead (each angle clamped to its limits): the jaw may still
-    be in the image, and the crop decides. HeadController.move waits until both joints are within head.tolerance_rad
-    or head.move_timeout_s passes.
+    When the aim needs angles beyond the head limits (a point low in front of the robot needs more tilt than the
+    head has), the head aims at the nearest in-limit pose instead (each angle clamped to its limits): the point may
+    still be in the image. HeadController.move waits until both joints are within head.tolerance_rad or
+    head.move_timeout_s passes.
 
     Args:
         ctx (ToolContext): Shared registration context (robot, config, control).
         tool (str): Calling tool (named in a lease refusal).
-        joints (dict[str, float] | None): Measured arm joints; None without fresh joint states.
+        point (np.ndarray): (3,) point in base_link (m).
+        what (str): What the point is, with its article (worded into the reasons).
 
     Returns:
         tuple[str | None, bool]: (None when the head settled on the aim, else why it was not aimed (nothing moved) or
             did not settle; whether the aim was clamped to the head limits).
     """
     robot, config = ctx.robot, ctx.config
-    if joints is None:
-        return "no fresh arm joint states to place the tool point: the head was not aimed", False
-    offset = config.arm.base_in_base_link
-    if offset is None:
-        return "arm.base_in_base_link is not configured: the tool point cannot be placed for the head aim", False
     refusal = None if ctx.control is None else ctx.control.refusal(tool, "any")
     if refusal is not None:
-        return f"head not aimed at the tool point: {refusal}", False
+        return f"head not aimed at {what}: {refusal}", False
     kin = robot.head.kinematics
     at_limit = False
     try:
         try:
-            pan, tilt = kin.look_at(tool_point_in_base(robot.arm.kin, robot.arm.jaw, joints, offset))
+            pan, tilt = kin.look_at(point)
         except HeadAimError as exc:
             if kin.within_limits(exc.pan, exc.tilt):
                 raise  # too near the camera, or no solve: not a limit the clamp can help with
@@ -1302,14 +1299,55 @@ def aim_head_at_tool_point(ctx: ToolContext, tool: str, joints: dict[str, float]
             pan, tilt, at_limit = min(max(exc.pan, lo_pan), hi_pan), min(max(exc.tilt, lo_tilt), hi_tilt), True
         result = robot.head.move(pan, tilt)
     except (HeadAimError, HeadError) as exc:
-        return f"head not aimed at the tool point: {exc}", False
+        return f"head not aimed at {what}: {exc}", False
     if result.status != "converged":
         head = config.head
         return (
-            f"the head did not settle on the tool point ({result.status}: not within head.tolerance_rad "
+            f"the head did not settle on {what} ({result.status}: not within head.tolerance_rad "
             f"{head.tolerance_rad:g} rad after head.move_timeout_s {head.move_timeout_s:g} s)"
         ), at_limit
     return None, at_limit
+
+
+def aim_head_at_arm_point(
+    ctx: ToolContext, tool: str, point: tuple[float, float, float], what: str
+) -> tuple[str | None, bool]:
+    """Aim the head D435 at a point given in the arm base frame (see aim_head_at_base_point).
+
+    Args:
+        ctx (ToolContext): Shared registration context.
+        tool (str): Calling tool (named in a lease refusal).
+        point (tuple[float, float, float]): (x, y, z) in the arm base frame (m).
+        what (str): What the point is, with its article (worded into the reasons).
+
+    Returns:
+        tuple[str | None, bool]: As aim_head_at_base_point.
+    """
+    offset = ctx.config.arm.base_in_base_link
+    if offset is None:
+        return f"arm.base_in_base_link is not configured: {what} cannot be placed for the head aim", False
+    return aim_head_at_base_point(ctx, tool, arm_to_base_link(point, offset), what)
+
+
+def aim_head_at_tool_point(ctx: ToolContext, tool: str, joints: dict[str, float] | None) -> tuple[str | None, bool]:
+    """Aim the head D435 colour camera at the FK tool point and wait for the head to settle.
+
+    Args:
+        ctx (ToolContext): Shared registration context (robot, config, control).
+        tool (str): Calling tool (named in a lease refusal).
+        joints (dict[str, float] | None): Measured arm joints; None without fresh joint states.
+
+    Returns:
+        tuple[str | None, bool]: As aim_head_at_base_point (None when the head settled on the aim, else why not;
+            whether the aim was clamped to the head limits).
+    """
+    robot = ctx.robot
+    if joints is None:
+        return "no fresh arm joint states to place the tool point: the head was not aimed", False
+    offset = ctx.config.arm.base_in_base_link
+    if offset is None:
+        return "arm.base_in_base_link is not configured: the tool point cannot be placed for the head aim", False
+    return aim_head_at_base_point(ctx, tool, tool_point_in_base(robot.arm.kin, robot.arm.jaw, joints, offset))
 
 
 def jaw_crop_jpeg(ctx: ToolContext, tool: str) -> tuple[bytes, int, int, CropInfo]:
@@ -1665,7 +1703,7 @@ def register(ctx: ToolContext) -> None:
             result.reasons = [awaiting_confirm(result.grasp_check)]
             if warning is not None:
                 result.warnings.append(warning)
-        return grasp_tool_result(result, image)
+        return grasp_tool_result(result, [image] if image else [])
 
     @ctx.server.tool(
         description=(
