@@ -596,7 +596,8 @@ def register(ctx: ToolContext) -> None:
             if aim is not None:
                 warnings.append(aim)
             executor.lift_and_retreat(plan, floor, stop, log)
-            problem = executor.hold_problem(params)
+            # a soft object (ambiguous band) may sit near closed: only its load counts
+            problem = executor.hold_problem(params, check_gap=band != "ambiguous")
             reasons: list[str] = []
             if problem is None:
                 outcome: FlowOutcome = "lifted"

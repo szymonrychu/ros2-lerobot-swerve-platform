@@ -698,12 +698,16 @@ class GraspExecutor:
             return f"close ended '{close.status}': {close.message}"
         return self.hold_problem(params, close)
 
-    def hold_problem(self, params: GraspParams, close: ArmMotionResult | None = None) -> str | None:
+    def hold_problem(
+        self, params: GraspParams, close: ArmMotionResult | None = None, check_gap: bool = True
+    ) -> str | None:
         """Sample-based hold check: a fresh sample with the jaw stopped short of closed under load.
 
         Args:
             params (GraspParams): min_hold_gap_rad, hold_effort_min.
             close (ArmMotionResult | None): Close result whose gripper effort also counts as a load reading.
+            check_gap (bool): False for soft objects (ambiguous close band): a squashed plush legitimately leaves
+                the jaw within min_hold_gap_rad of closed, so only the load counts.
 
         Returns:
             str | None: Why nothing is held, or None while the jaws hold something.
@@ -718,7 +722,7 @@ class GraspExecutor:
             for e in (None if close is None else close.gripper_effort, finite_effort(sample.efforts, self.arm.gripper))
             if e is not None and math.isfinite(e)
         ]
-        if gap < params.min_hold_gap_rad:
+        if check_gap and gap < params.min_hold_gap_rad:
             return (
                 f"jaw reached {jaw:.3f} rad, within {params.min_hold_gap_rad} rad of closed: nothing between the jaws"
             )

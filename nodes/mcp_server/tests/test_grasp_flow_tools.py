@@ -502,6 +502,31 @@ def test_grasp_lift_ambiguous_band_with_yes_lifts_as_unverified(server: Any, rob
     assert robot.arm.carry.get().grasp_kind == "unverified" and robot.arm.grasp_held
 
 
+def test_a_soft_object_lift_with_load_holding_is_lifted_despite_a_small_jaw_gap(server: Any, robot: FakeRobot) -> None:
+    plush_in_jaws(robot.arm_backend, short_rad=0.02, load=150.0)  # squashed plush: gap under min_hold_gap_rad
+    approach(server)
+    close(server)
+    robot.arm.carry.update(band="ambiguous")
+    data = lift(server).structured_content
+    assert data["outcome"] == "lifted" and data["fused"] == "unverified", data["reasons"]
+    assert robot.arm.grasp_held
+
+
+def test_a_soft_object_lift_with_the_load_gone_is_dropped(server: Any, robot: FakeRobot) -> None:
+    plush_in_jaws(robot.arm_backend, short_rad=0.02, load=150.0)
+    approach(server)
+    close(server)
+    robot.arm.carry.update(band="ambiguous")
+
+    def drop(b: Any) -> None:
+        b.efforts["gripper"] = 0.0
+
+    robot.arm_backend.on_sleep = drop
+    data = lift(server).structured_content
+    assert data["outcome"] == "dropped" and data["reasons"] and "load" in data["reasons"][0]
+    assert not robot.arm.grasp_held
+
+
 def test_grasp_lift_on_an_empty_band_is_refused_even_with_yes(server: Any, robot: FakeRobot) -> None:
     approach_and_close(server, robot, empty=True)
     before = len(robot.arm_backend.commands)
