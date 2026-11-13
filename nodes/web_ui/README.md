@@ -20,7 +20,7 @@ The `rgbd_camera` tab type (colour + 16UC1 depth previews and mesh) is still imp
 
 ## UI
 
-The frontend uses Material Design via [MUI](https://mui.com/) (`@mui/material`, `@mui/icons-material`, Emotion). One dark theme (`frontend/src/theme.ts`) sets the palette, the system font stack (no web-font download, works offline and under the CSP) and touch-sized controls (buttons and icon buttons at least 44 px). `main.tsx` applies it with `ThemeProvider` + `CssBaseline`.
+The frontend uses Material Design via [MUI](https://mui.com/) (`@mui/material`, `@mui/icons-material`, Emotion). One dark theme (`frontend/src/theme.ts`) sets the palette, the system font stack (no web-font download, works offline and under the CSP) and touch-sized controls (buttons and icon buttons at least 44 px). On touch devices (`@media (pointer: coarse)`) text fields use 16 px text (`IOS_NO_ZOOM_INPUT_PX`, via `MuiInputBase` and a `CssBaseline` rule for raw `input, textarea, select`) because iOS Safari zooms the page into any focused field below 16 px; desktop keeps the compact 13 px and pinch zoom stays available. `main.tsx` applies it with `ThemeProvider` + `CssBaseline`.
 
 Responsive behaviour (phones from 360x640 to 1920x1080+ screens, portrait and landscape):
 - The shell is an `AppBar` with scrollable MUI `Tabs` (scroll buttons appear when the tabs do not fit, so any number of tabs works). Below the `sm` breakpoint (600 px) a menu button opens a drawer listing every tab, the title is hidden and tab icons are dropped to save width.

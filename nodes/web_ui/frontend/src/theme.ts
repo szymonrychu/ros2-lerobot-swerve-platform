@@ -39,6 +39,12 @@ export const SANS_FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, "Helveti
 export const TOUCH_TARGET_PX = TOKENS.touchTargetPx
 /** Size of a dense control on fine pointers. */
 export const CONTROL_PX = TOKENS.controlPx
+/**
+ * Font size of text fields on touch devices. iOS Safari zooms the page into any focused input, textarea or select whose
+ * computed font-size is below 16 px and does not zoom back out on blur, so touch fields use 16 px; desktop keeps the
+ * compact theme size. Pinch zoom stays available (the viewport meta is unchanged).
+ */
+export const IOS_NO_ZOOM_INPUT_PX = 16
 /** Background behind canvases, 3D views and plots. */
 export const CANVAS_BG = TOKENS.bgCanvas
 /** Opaque background of panels, including those drawn over the map or 3D view. */
@@ -48,6 +54,8 @@ const { regular, medium } = TOKENS.fontWeights
 const { xs, sm, md, lg, xl } = TOKENS.fontSizes
 const COARSE = '@media (pointer: coarse)'
 const sized = (px: number, fontWeight: number) => ({ fontSize: `${px / 16}rem`, fontWeight, letterSpacing: 0 })
+/** Coarse-pointer override that stops the iOS focus zoom (see IOS_NO_ZOOM_INPUT_PX). */
+const noZoomOnTouch = { [COARSE]: { fontSize: IOS_NO_ZOOM_INPUT_PX } }
 const BORDER = `${TOKENS.borderWidth}px solid ${TOKENS.border}`
 const touchSized = {
   minHeight: CONTROL_PX,
@@ -94,7 +102,14 @@ export const theme = createTheme({
     MuiCssBaseline: {
       styleOverrides: {
         body: { fontVariantNumeric: 'tabular-nums', backgroundColor: TOKENS.bgCanvas },
+        // non-MUI fields: same iOS no-zoom rule as MuiInputBase
+        [COARSE]: { 'input, textarea, select': { fontSize: IOS_NO_ZOOM_INPUT_PX } },
       },
+    },
+    MuiInputBase: {
+      // root covers TextField, Select (its display div inherits the root font) and Autocomplete; input covers the
+      // <input> and the multiline <textarea>
+      styleOverrides: { root: noZoomOnTouch, input: noZoomOnTouch },
     },
     MuiButton: {
       defaultProps: { disableElevation: true },
