@@ -835,6 +835,49 @@ class GraspPlanner:
         axis = self.cfg.arm.jaw_open_axis
         return (plan.center_shift_m * axis[0], plan.center_shift_m * axis[1], plan.center_shift_m * axis[2])
 
+    def correction_path(
+        self,
+        landed: GraspPlan,
+        new: GraspPlan,
+        seed: dict[str, float],
+        params: GraspParams,
+        surface: SurfaceModel,
+    ) -> tuple[list[dict[str, float]], str | None]:
+        """Straight tool line from the landed grasp point to a nearby new one, the jaws kept open.
+
+        Args:
+            landed (GraspPlan): Feasible plan the jaws landed with.
+            new (GraspPlan): Feasible plan of the corrected object position.
+            seed (dict[str, float]): Current arm joints (IK seed at the line start).
+            params (GraspParams): Step, jump and surface clearance thresholds.
+            surface (SurfaceModel): Effective surface.
+
+        Returns:
+            tuple[list[dict[str, float]], str | None]: Joint samples (gripper at new.open_gripper_rad, end included)
+                and None, or ([], reason) when the line is not clear (IK, surface or body check).
+        """
+        start = next(w for w in landed.waypoints if w.label == "grasp")
+        end = next(w for w in new.waypoints if w.label == "grasp")
+        assert new.approach_pitch_rad is not None and new.open_gripper_rad is not None
+        samples, problem = self.line(
+            "grasp",
+            np.array([start.x, start.y, start.z]),
+            np.array([end.x, end.y, end.z]),
+            new.approach_pitch_rad,
+            seed,
+            self.center_offset(new),
+            params,
+        )
+        if problem is not None:
+            return [], problem
+        with_jaw = [s | {self.guard.gripper: new.open_gripper_rad} for s in samples]
+        problem = self.surface_problem("grasp", with_jaw, surface, params)
+        if problem is None:
+            problem = self.body_problem("grasp", with_jaw)
+        if problem is not None:
+            return [], problem
+        return with_jaw, None
+
     def to_arm(self, obj: ObjectSpec) -> ObjectSpec:
         """Object in the arm base frame.
 

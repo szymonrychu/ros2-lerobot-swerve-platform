@@ -536,7 +536,7 @@ LOOKUP_OTHER = "b" * 32
 
 def sample_evidence() -> PhaseEvidence:
     return PhaseEvidence(
-        tool_calls=[ToolCallEvidence(id="g1", name="grasp_object", kind="effector", is_error=False, outcome="missed")],
+        tool_calls=[ToolCallEvidence(id="g1", name="grasp_lift", kind="effector", is_error=False, outcome="dropped")],
         tool_calls_total=3,
         lookup_before=LOOKUP_SEEN,
         lookup_after=LOOKUP_SEEN,
@@ -595,7 +595,7 @@ def test_failed_close_builds_the_failure_record_with_evidence_and_filtered_ids()
     assert failure["type"] == "execution_failure" and failure["eai_error_type"] == "goal_unsatisfied"
     assert failure["explanation"] == "the jaws closed on nothing"
     assert failure["evidence"]["tool_calls_total"] == 3
-    assert failure["evidence"]["tool_calls"][0]["outcome"] == "missed"
+    assert failure["evidence"]["tool_calls"][0]["outcome"] == "dropped"
     assert failure["evidence"]["model_lookup_ids"] == [LOOKUP_SEEN]
     assert failure["evidence"]["dropped_lookup_ids"] == [LOOKUP_OTHER]
     assert completed[-1]["failure"] == failure, "the completed payload carries the record"

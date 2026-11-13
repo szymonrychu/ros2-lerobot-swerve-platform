@@ -272,8 +272,11 @@ def test_tool_subsystem_table() -> None:
         "move_arm_cartesian",
         "set_gripper",
         "arm_home",
-        "grasp_object",
         "release_object",
+        "grasp_approach",
+        "grasp_close",
+        "grasp_lift",
+        "grasp_abort",
     }
     assert {n for n, s in TOOL_SUBSYSTEM.items() if s == "base"} == {
         "navigate_to_pose",

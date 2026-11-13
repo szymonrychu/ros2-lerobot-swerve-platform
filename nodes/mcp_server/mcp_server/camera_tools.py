@@ -511,7 +511,7 @@ def register(ctx: ToolContext) -> None:
             "arm_calibration, gate_mm, within_gate, description}. grasp_ready is true only when the residual is known "
             "and within the "
             f"{gate_mm:g} mm gate and the arm point exists: pass position_source 'camera' on the ObjectSpec of a grasp "
-            "built from this position, grasp_object refuses it otherwise. The depth is read from the NEWEST frame at the "
+            "built from this position, grasp_approach refuses it otherwise. The depth is read from the NEWEST frame at the "
             "moment of the call, so take the pixel from a picture just taken (get_camera_image) and call this while "
             "the head, the robot and the object have not moved since. Use it for the position AND the height of an "
             "object (its top: z in the arm or base_link frame), not pixel_to_ground with a guessed surface_height_m. "

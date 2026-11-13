@@ -34,10 +34,13 @@ MOTION_ARGS: dict[str, dict[str, Any]] = {
     "arm_home": {},
     "arm_set_home": {},
     "look_around": {},
-    "grasp_object": {
+    "release_object": {},
+    "grasp_approach": {
         "object": {"x": 0.22, "y": 0.0, "support_z": -0.15, "width_m": 0.03, "depth_m": 0.03, "height_m": 0.03}
     },
-    "release_object": {},
+    "grasp_close": {},
+    "grasp_lift": {"verdict": "yes", "evidence": "e"},
+    "grasp_abort": {},
     "enqueue_motions": {"steps": [{"kind": "wait_s", "seconds": 0.1}]},
     "resume_motions": {},
     "go_to_frontier": {"id": 1},
@@ -79,7 +82,6 @@ ALLOWED_ARGS: dict[str, dict[str, Any]] = {
     "plan_grasp": {
         "object": {"x": 0.22, "y": 0.0, "support_z": -0.15, "width_m": 0.03, "depth_m": 0.03, "height_m": 0.03}
     },
-    "confirm_grasp": {"grasp_id": "0" * 12, "object_between_fingers": "yes", "evidence": "e"},
     "get_motion_status": {},
     "cancel_motions": {},
     "wait_for_event": {"timeout_s": 0.1},
@@ -164,7 +166,7 @@ def test_stop_and_read_only_tools_work_in_cutoff(tmp_path: Path, name: str) -> N
         call(server, name, args)
     except ToolError as exc:  # uncalibrated cameras, an unknown grasp_id or a missing costmap fail on their own terms
         assert "battery below cut-off" not in str(exc)
-        assert name in CAMERA_TOOL_NAMES or name == "confirm_grasp" or name in APPROACH_TOOL_NAMES
+        assert name in CAMERA_TOOL_NAMES or name in APPROACH_TOOL_NAMES
 
 
 @pytest.mark.parametrize("voltage", [OK_V, None])

@@ -12,11 +12,12 @@ from ros2_common.head_rgbd_calibration.urdf_text import ChainResidual
 
 from mcp_server.config import McpServerConfig
 from mcp_server.grasp import ObjectSpec, grasp_params
-from mcp_server.grasp_tools import GraspExecutor, GraspService
+from mcp_server.grasp_tools import REZERO_WARNING, GraspExecutor, GraspService
 from mcp_server.head import AppliedHeadKinematics, HeadController
 from mcp_server.tools import build_mcp_server
 
 from .fakes import FakeHeadBackend
+from .test_calibration_marker import marker_doc
 from .test_grasp_tools import OBJECT, object_in_jaws
 from .test_tools import TOKEN, FakeRobot, call, take
 
@@ -70,7 +71,7 @@ def test_camera_grasp_without_an_arm_frame_residual_is_refused_before_any_motion
     server = server_for(robot)
     commands_before = len(robot.arm_backend.commands)
     with pytest.raises(ToolError, match=r"no arm-frame residual to check against the 5 mm gate"):
-        call(server, "grasp_object", {"object": CAMERA_OBJECT, "strategy": "top_down"})
+        call(server, "grasp_approach", {"object": CAMERA_OBJECT, "strategy": "top_down"})
     assert len(robot.arm_backend.commands) == commands_before
 
 
@@ -79,7 +80,7 @@ def test_camera_grasp_with_a_residual_above_the_gate_is_refused(robot: FakeRobot
     server = server_for(robot)
     commands_before = len(robot.arm_backend.commands)
     with pytest.raises(ToolError, match=r"residual 6\.2 mm is above the 5 mm gate"):
-        call(server, "grasp_object", {"object": CAMERA_OBJECT, "strategy": "top_down"})
+        call(server, "grasp_approach", {"object": CAMERA_OBJECT, "strategy": "top_down"})
     assert len(robot.arm_backend.commands) == commands_before
 
 
@@ -88,7 +89,7 @@ def test_camera_grasp_within_the_gate_runs(robot: FakeRobot, tmp_path: Path) -> 
     server = server_for(robot)
     commands_before = len(robot.arm_backend.commands)
     object_in_jaws(robot.arm_backend)
-    data = call(server, "grasp_object", {"object": CAMERA_OBJECT, "strategy": "top_down"}).structured_content
+    data = call(server, "grasp_approach", {"object": CAMERA_OBJECT, "strategy": "top_down"}).structured_content
     assert data["outcome"] != "infeasible" and len(robot.arm_backend.commands) > commands_before
 
 
@@ -98,7 +99,7 @@ def test_camera_grasp_with_a_matching_arm_calibration_within_the_gate_runs(robot
     server = server_for(robot)
     commands_before = len(robot.arm_backend.commands)
     object_in_jaws(robot.arm_backend)
-    data = call(server, "grasp_object", {"object": CAMERA_OBJECT, "strategy": "top_down"}).structured_content
+    data = call(server, "grasp_approach", {"object": CAMERA_OBJECT, "strategy": "top_down"}).structured_content
     assert data["outcome"] != "infeasible" and len(robot.arm_backend.commands) > commands_before
 
 
@@ -111,7 +112,7 @@ def test_camera_grasp_with_a_matching_arm_calibration_above_the_gate_is_refused(
     with pytest.raises(
         ToolError, match=r"arm to camera calibration's camera-to-arm residual 6\.5 mm is above the 5 mm"
     ):
-        call(server, "grasp_object", {"object": CAMERA_OBJECT, "strategy": "top_down"})
+        call(server, "grasp_approach", {"object": CAMERA_OBJECT, "strategy": "top_down"})
     assert len(robot.arm_backend.commands) == commands_before
 
 
@@ -122,7 +123,7 @@ def test_camera_grasp_with_an_arm_calibration_of_another_head_chain_is_refused_a
     server = server_for(robot)
     commands_before = len(robot.arm_backend.commands)
     with pytest.raises(ToolError, match=r"arm to camera calibration is stale for the applied head chain"):
-        call(server, "grasp_object", {"object": CAMERA_OBJECT, "strategy": "top_down"})
+        call(server, "grasp_approach", {"object": CAMERA_OBJECT, "strategy": "top_down"})
     assert len(robot.arm_backend.commands) == commands_before
 
 
@@ -131,11 +132,11 @@ def test_the_gate_threshold_is_configurable(robot: FakeRobot, tmp_path: Path) ->
     server = server_for(robot, max_residual_mm=7.0)
     commands_before = len(robot.arm_backend.commands)
     object_in_jaws(robot.arm_backend)
-    data = call(server, "grasp_object", {"object": CAMERA_OBJECT, "strategy": "top_down"}).structured_content
+    data = call(server, "grasp_approach", {"object": CAMERA_OBJECT, "strategy": "top_down"}).structured_content
     assert data["outcome"] != "infeasible" and len(robot.arm_backend.commands) > commands_before
     tight = server_for(robot, max_residual_mm=3.0)
     with pytest.raises(ToolError, match=r"above the 3 mm gate"):
-        call(tight, "grasp_object", {"object": CAMERA_OBJECT, "strategy": "top_down"})
+        call(tight, "grasp_approach", {"object": CAMERA_OBJECT, "strategy": "top_down"})
 
 
 def test_a_manual_position_is_not_gated(robot: FakeRobot, tmp_path: Path) -> None:
@@ -143,17 +144,17 @@ def test_a_manual_position_is_not_gated(robot: FakeRobot, tmp_path: Path) -> Non
     server = server_for(robot)
     commands_before = len(robot.arm_backend.commands)
     object_in_jaws(robot.arm_backend)
-    data = call(server, "grasp_object", {"object": OBJECT, "strategy": "top_down"}).structured_content
+    data = call(server, "grasp_approach", {"object": OBJECT, "strategy": "top_down"}).structured_content
     assert data["outcome"] != "infeasible" and len(robot.arm_backend.commands) > commands_before
 
 
-def test_plan_grasp_still_plans_but_says_grasp_object_will_refuse(robot: FakeRobot, tmp_path: Path) -> None:
+def test_plan_grasp_still_plans_but_says_grasp_approach_will_refuse(robot: FakeRobot, tmp_path: Path) -> None:
     with_calibration(robot, tmp_path / "applied", ChainResidual("head_arm", 6.2, 3.0, 3.0))
     server = server_for(robot)
     commands_before = len(robot.arm_backend.commands)
     data = call(server, "plan_grasp", {"object": CAMERA_OBJECT, "strategy": "top_down"}).structured_content
     assert data["outcome"] == "planned"
-    assert any("grasp_object will refuse this camera position" in reason for reason in data["reasons"])
+    assert any("grasp_approach will refuse this camera position" in reason for reason in data["reasons"])
     assert len(robot.arm_backend.commands) == commands_before
 
 
@@ -165,7 +166,7 @@ def test_plan_grasp_within_the_gate_adds_no_refusal_note(robot: FakeRobot, tmp_p
 
 
 def test_a_queued_camera_grasp_is_gated_too(robot: FakeRobot, tmp_path: Path) -> None:
-    """enqueue_motions grasp steps run the same executor: the gate must hold there as well as in grasp_object."""
+    """enqueue_motions grasp steps run the same executor: the gate must hold there as well as in grasp_approach."""
     with_calibration(robot, tmp_path / "applied", ChainResidual("head_arm", 6.2, 3.0, 3.0))
     server = server_for(robot)
     commands_before = len(robot.arm_backend.commands)
@@ -200,3 +201,65 @@ def test_an_executor_without_a_calibration_source_refuses_a_camera_position(robo
             None,
             lambda: False,
         )
+
+
+def rezeroed_robot(robot: FakeRobot, tmp_path: Path, stale: list[str] | None = None) -> Any:
+    """A server whose arm re-zero marker lists `stale` (both items when None) and whose camera calibration passes."""
+    with_arm_calibration(robot, tmp_path / "applied", 2.67)
+    marker = tmp_path / "marker.json"
+    marker.write_text(json.dumps(marker_doc(stale)))
+    robot.arm.cfg.arm.calibration_stale_marker = marker
+    return server_for(robot)
+
+
+def test_a_camera_grasp_after_an_arm_rezero_warns_and_still_runs(robot: FakeRobot, tmp_path: Path) -> None:
+    server = rezeroed_robot(robot, tmp_path)
+    object_in_jaws(robot.arm_backend)
+    commands_before = len(robot.arm_backend.commands)
+    data = call(server, "grasp_approach", {"object": CAMERA_OBJECT, "strategy": "top_down"}).structured_content
+    assert data["outcome"] != "infeasible" and len(robot.arm_backend.commands) > commands_before
+    assert REZERO_WARNING in data["warnings"]
+
+
+def test_grasp_approach_after_an_arm_rezero_warns_and_still_lands(robot: FakeRobot, tmp_path: Path) -> None:
+    server = rezeroed_robot(robot, tmp_path)
+    data = call(server, "grasp_approach", {"object": CAMERA_OBJECT, "strategy": "top_down"}).structured_content
+    assert data["outcome"] == "landed" and REZERO_WARNING in data["warnings"]
+
+
+def test_plan_grasp_after_an_arm_rezero_notes_the_warning(robot: FakeRobot, tmp_path: Path) -> None:
+    server = rezeroed_robot(robot, tmp_path)
+    data = call(server, "plan_grasp", {"object": CAMERA_OBJECT, "strategy": "top_down"}).structured_content
+    assert data["outcome"] == "planned" and REZERO_WARNING in data["reasons"]
+
+
+def test_a_manual_position_gets_no_rezero_warning(robot: FakeRobot, tmp_path: Path) -> None:
+    server = rezeroed_robot(robot, tmp_path)
+    assert (
+        REZERO_WARNING
+        not in call(server, "grasp_approach", {"object": OBJECT, "strategy": "top_down"}).structured_content["warnings"]
+    )
+    assert (
+        REZERO_WARNING
+        not in call(server, "plan_grasp", {"object": OBJECT, "strategy": "top_down"}).structured_content["reasons"]
+    )
+
+
+def test_a_camera_position_without_a_rezero_marker_or_with_home_only_stale_gets_no_warning(
+    robot: FakeRobot, tmp_path: Path
+) -> None:
+    server = rezeroed_robot(robot, tmp_path, stale=["home"])
+    data = call(server, "grasp_approach", {"object": CAMERA_OBJECT, "strategy": "top_down"}).structured_content
+    assert REZERO_WARNING not in data["warnings"]
+    executor = GraspExecutor(robot.arm, McpServerConfig())
+    assert executor.rezero_warning(ObjectSpec(**CAMERA_OBJECT)) is None
+    robot.arm.cfg.arm.calibration_stale_marker = tmp_path / "absent.json"
+    assert executor.rezero_warning(ObjectSpec(**CAMERA_OBJECT)) is None
+
+
+def test_an_unreadable_rezero_marker_counts_as_stale(robot: FakeRobot, tmp_path: Path) -> None:
+    server = rezeroed_robot(robot, tmp_path)
+    assert robot.arm.cfg.arm.calibration_stale_marker is not None
+    robot.arm.cfg.arm.calibration_stale_marker.write_text("not json")
+    data = call(server, "grasp_approach", {"object": CAMERA_OBJECT, "strategy": "top_down"}).structured_content
+    assert REZERO_WARNING in data["warnings"]

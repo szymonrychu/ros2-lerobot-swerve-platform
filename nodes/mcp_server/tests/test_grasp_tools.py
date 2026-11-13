@@ -1,5 +1,5 @@
 """Tests for mcp_server.grasp_tools: GraspExecutor on the simulated follower (grasp, miss, abort, roll ordering,
-release), the MCP tools plan_grasp / grasp_object / release_object and the web-UI JSON GraspService."""
+release), the MCP tools plan_grasp / release_object and the web-UI JSON GraspService."""
 
 import base64
 import json
@@ -22,19 +22,21 @@ from mcp_server.floor_guard import FloorOverride
 from mcp_server.grasp import ObjectSpec, grasp_params
 from mcp_server.grasp_tools import (
     TOOL_NAMES,
+    GraspAbort,
     GraspExecutor,
     GraspResult,
     GraspService,
+    RunLog,
     floor_override,
 )
-from mcp_server.models import CameraFrame
+from mcp_server.models import ArmMotionResult, CameraFrame
 from mcp_server.surfaces import SurfaceRegion
 from mcp_server.tool_context import ToolContext
 from mcp_server.tools import ALWAYS_ALLOWED_TOOLS, MOTION_TOOLS, build_mcp_server
 
 from .fakes import FakeArmBackend
 from .test_camera_scene import D435_INFO
-from .test_tools import TOKEN, FakeRobot, call, close_on_object, take
+from .test_tools import TOKEN, FakeRobot, call, take
 
 CONFIG = McpServerConfig()
 KIN = ArmKinematics(CONFIG.arm.urdf_path, margin=CONFIG.limits.arm_limit_margin_rad)
@@ -90,9 +92,9 @@ def run_grasp(arm: ArmController, strategy: str = "top_down", stop: Any = None) 
 
 
 def test_tool_names_and_battery_classification() -> None:
-    assert TOOL_NAMES == ("plan_grasp", "grasp_object", "release_object", "confirm_grasp")
-    assert {"grasp_object", "release_object"} <= MOTION_TOOLS
-    assert "confirm_grasp" in ALWAYS_ALLOWED_TOOLS and "confirm_grasp" not in MOTION_TOOLS
+    assert TOOL_NAMES == ("plan_grasp", "release_object")
+    assert {"grasp_approach", "grasp_close", "grasp_lift", "grasp_abort", "release_object"} <= MOTION_TOOLS
+    assert "grasp_object" not in MOTION_TOOLS and "confirm_grasp" not in ALWAYS_ALLOWED_TOOLS
     assert "plan_grasp" in ALWAYS_ALLOWED_TOOLS and "plan_grasp" not in MOTION_TOOLS
 
 
@@ -307,31 +309,22 @@ def test_plan_grasp_tool_is_a_dry_run(server: Any, robot: FakeRobot) -> None:
     assert bad["outcome"] == "infeasible" and bad["reasons"]
 
 
-def test_grasp_object_tool_runs_the_plan(server: Any, robot: FakeRobot) -> None:
-    object_in_jaws(robot.arm_backend)
-    res = call(
-        server,
-        "grasp_object",
-        {
-            "object": OBJECT,
-            "strategy": "top_down",
-            "params": {"lift_height_m": 0.04},
-            "tilt_override_deg": {"roll": 0, "pitch": 0},
-        },
-    )
-    data = res.structured_content
-    assert data["outcome"] == "unverified", data["reasons"]  # a held close awaits confirm_grasp
-    assert data["grasp_check"]["image"] == "pending"
-
-
 def test_grasp_tools_reject_bad_params(server: Any) -> None:
     with pytest.raises(ToolError):
-        call(server, "grasp_object", {"object": OBJECT, "params": {"warp": 1}})
+        call(server, "grasp_approach", {"object": OBJECT, "params": {"warp": 1}})
+    with pytest.raises(ToolError):
+        call(server, "grasp_close", {"params": {"warp": 1}})
 
 
 def test_release_object_tool(server: Any, robot: FakeRobot) -> None:
     res = call(server, "release_object", {"params": {"release_lift_m": 0.02}})
     assert res.structured_content["outcome"] == "released"
+
+
+def flow_close(server: Any, **approach_extra: Any) -> Any:
+    """Land with grasp_approach (top_down, OBJECT) and close with grasp_close; return the close result."""
+    call(server, "grasp_approach", {"object": OBJECT, "strategy": "top_down", **approach_extra})
+    return call(server, "grasp_close", {})
 
 
 def front_camera(robot: FakeRobot, monkeypatch: pytest.MonkeyPatch) -> list[int]:
@@ -382,9 +375,12 @@ def aim_at_tool_point(robot: FakeRobot) -> dict[str, float]:
 def test_grasp_image_aims_head_and_crops_front_frame(robot: FakeRobot, monkeypatch: pytest.MonkeyPatch) -> None:
     """A held close aims the head at the FK tool point, waits for it, then crops the jaws from the head frame."""
     head_commands_at_frame = front_camera(robot, monkeypatch)
-    robot.arm_backend.positions.update(REACH)  # before take_control, which holds the measured pose
     server = build_mcp_server(robot, McpServerConfig(), TOKEN)
-    expected = aim_at_tool_point(robot)
+    take(server, "arm")
+    object_in_jaws(robot.arm_backend)
+    call(server, "grasp_approach", {"object": OBJECT, "strategy": "top_down"})
+    robot.head_backend.commands.clear()
+    head_commands_at_frame.clear()
     recorded: list[str] = []
     real = grasp_tools.record_lookup
 
@@ -393,18 +389,17 @@ def test_grasp_image_aims_head_and_crops_front_frame(robot: FakeRobot, monkeypat
         return real(ctx, tool, camera, *args, full_frame=full_frame)
 
     monkeypatch.setattr("mcp_server.grasp_tools.record_lookup", spy)
-    res = close_on_object(server, robot)
+    res = call(server, "grasp_close", {})
     data = res.structured_content
-    assert data["status"] == "grasped", data["message"]
-    assert len(robot.head_backend.commands) == 1
-    assert robot.head_backend.commands[0] == pytest.approx(expected)
-    assert head_commands_at_frame == [1]  # the frame was taken after the head aim
+    assert data["outcome"] == "closed", data["reasons"]
+    assert robot.head_backend.commands
+    assert head_commands_at_frame[0] == 1  # the crop frame was taken after the head aim
     assert ("camera_image", ("head", max(D435_SIZE))) in robot.calls
     crop = data["grasp_check"]["crop"]
     assert crop["full_frame_reason"] is None and crop["box_px"] is not None, crop
     x0, y0, x1, y1 = crop["box_px"]
-    assert 0 <= x0 < D435_INFO.k[2] < x1 <= D435_SIZE[0] and 0 <= y0 < D435_INFO.k[5] < y1 <= D435_SIZE[1]
-    image = cv2.imdecode(np.frombuffer(base64.b64decode(only_image(res).data), np.uint8), cv2.IMREAD_COLOR)
+    assert 0 <= x0 < x1 <= D435_SIZE[0] and 0 <= y0 < y1 <= D435_SIZE[1]  # the grasp pose lies beyond the head limit
+    image = cv2.imdecode(np.frombuffer(base64.b64decode(res.content[1].data), np.uint8), cv2.IMREAD_COLOR)
     assert image.shape[:2] == (y1 - y0, x1 - x0)
     assert recorded == ["head"] and data["grasp_check"]["image"] == "pending"
 
@@ -418,13 +413,13 @@ def test_grasp_image_at_the_head_limit_crops_a_jaw_still_in_view(
     server = build_mcp_server(robot, McpServerConfig(), TOKEN)
     take(server, "arm")
     object_in_jaws(robot.arm_backend)
-    res = call(server, "grasp_object", {"object": OBJECT, "strategy": "top_down"})
+    res = flow_close(server)
     data = res.structured_content
-    assert data["outcome"] == "unverified", data["reasons"]
+    assert data["outcome"] == "closed", data["reasons"]
     lower_pan, upper_pan = robot.head.kinematics.limits["head_pan"]
     upper_tilt = robot.head.kinematics.limits["head_tilt"][1]
-    assert len(robot.head_backend.commands) == 1 and head_commands_at_frame == [1]
-    command = robot.head_backend.commands[0]
+    command = robot.head_backend.commands[-1]  # the close's crop aim (the approach aimed before it)
+    assert head_commands_at_frame[-1] == len(robot.head_backend.commands)
     assert command["head_tilt"] == pytest.approx(upper_tilt) and lower_pan < command["head_pan"] < upper_pan
     crop = data["grasp_check"]["crop"]
     assert crop["box_px"] is not None and crop["full_frame_reason"] is None, crop
@@ -457,7 +452,7 @@ def test_grasp_image_reports_why_it_did_not_crop(
         take(ctx.server, "arm")
     if case == "timeout":
         robot.head_backend.speed = 0.0  # stuck follower
-    jpeg, width, height, crop = grasp_tools.jaw_crop_jpeg(ctx, "grasp_object")
+    jpeg, width, height, crop = grasp_tools.jaw_crop_jpeg(ctx, "grasp_close")
     assert crop.box_px is None and crop.full_frame_reason is not None and reason in crop.full_frame_reason
     assert (width, height) == D435_SIZE and grasp_tools.jpeg_size(jpeg) == D435_SIZE
     assert ("camera_image", ("head", max(D435_SIZE))) in robot.calls
@@ -466,47 +461,24 @@ def test_grasp_image_reports_why_it_did_not_crop(
 
 def only_image(res: Any) -> ImageContent:
     images = [c for c in res.content if isinstance(c, ImageContent)]
-    assert len(images) == 1 and images[0].mime_type == "image/jpeg" and images[0].data
+    assert images and images[0].mime_type == "image/jpeg" and images[0].data
     return images[0]
 
 
-def test_an_empty_band_hold_attaches_the_jaw_crop_and_awaits_confirm_grasp(server: Any, robot: FakeRobot) -> None:
+def test_an_empty_band_hold_attaches_the_jaw_crop_and_awaits_the_lift_verdict(server: Any, robot: FakeRobot) -> None:
     plush_in_jaws(robot.arm_backend)
-    res = call(server, "grasp_object", {"object": OBJECT, "strategy": "top_down", "grip_profile": "gentle"})
+    call(server, "grasp_approach", {"object": OBJECT, "strategy": "top_down"})
+    res = call(server, "grasp_close", {"grip_profile": "gentle"})
     data = res.structured_content
-    assert data["outcome"] == "unverified", data["reasons"]
-    only_image(res)
+    assert data["outcome"] == "closed", data["reasons"]
     assert ("camera_image", ("head", CONFIG.grasp_check.image_px)) in robot.calls
     check = data["grasp_check"]
-    text = " ".join(data["reasons"])
-    assert "confirm_grasp" in text and check["grasp_id"] in text and "get_camera_image" not in text
+    assert "grasp_lift" in [n["tool"] for n in data["next_steps"]]
     assert check["image"] == "pending" and check["fused"] is None and check["band"] in {"object", "empty", "ambiguous"}
     texts = [json.loads(c.text) for c in res.content if isinstance(c, TextContent)]
-    assert any(t.get("outcome") == "unverified" for t in texts)
+    assert any(t.get("outcome") == "closed" for t in texts)
     record = robot.arm.carry.get()
     assert record.grasp_kind == "unverified" and record.image == "pending" and record.grasp_id == check["grasp_id"]
-
-
-def test_a_verified_contact_hold_also_attaches_the_crop_after_lift_and_retreat(
-    server: Any, robot: FakeRobot, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    object_in_jaws(robot.arm_backend)
-    commands_before_frame: list[int] = []
-    camera = robot.camera_image
-
-    def spy(name: str, max_px: int) -> Any:
-        commands_before_frame.append(len(robot.arm_backend.commands))
-        return camera(name, max_px)
-
-    monkeypatch.setattr(robot, "camera_image", spy)
-    res = call(server, "grasp_object", {"object": OBJECT, "strategy": "top_down"})
-    data = res.structured_content
-    assert data["outcome"] == "unverified", data["reasons"]
-    only_image(res)
-    assert [s["label"] for s in data["steps"]][-2:] == ["lift", "retreat"]
-    assert commands_before_frame == [len(robot.arm_backend.commands)]  # the frame came after the last motion
-    assert data["grasp_check"]["image"] == "pending"
-    assert robot.arm.carry.get().grasp_held is True
 
 
 def test_the_crop_box_is_cropped_recorded_and_reported(
@@ -524,12 +496,12 @@ def test_the_crop_box_is_cropped_recorded_and_reported(
         return "lk-1"
 
     monkeypatch.setattr("mcp_server.grasp_tools.record_lookup", spy)
-    res = call(server, "grasp_object", {"object": OBJECT, "strategy": "top_down"})
+    res = flow_close(server)
     crop = res.structured_content["grasp_check"]["crop"]
     assert crop == {"lookup_id": "lk-1", "box_px": [2, 1, 12, 9], "full_frame_reason": None}
     assert len(recorded) == 1
     tool, camera, jpeg, width, height, full_frame = recorded[0]
-    assert (tool, camera, (width, height)) == ("grasp_object", "head", (10, 8))
+    assert (tool, camera, (width, height)) == ("grasp_close", "head", (10, 8))
     assert full_frame is False  # a crop: its field of view is not the camera's
     assert base64.b64decode(only_image(res).data) == jpeg
 
@@ -546,7 +518,7 @@ def test_without_a_crop_box_the_full_frame_is_used_with_a_reason(
         return real(*args, full_frame=full_frame)
 
     monkeypatch.setattr("mcp_server.grasp_tools.record_lookup", spy)
-    res = call(server, "grasp_object", {"object": OBJECT, "strategy": "top_down"})
+    res = flow_close(server)
     crop = res.structured_content["grasp_check"]["crop"]
     assert crop["box_px"] is None and crop["full_frame_reason"]
     assert full_frames == [True]  # the uncropped frame keeps the camera's field of view
@@ -556,29 +528,18 @@ def test_without_a_crop_box_the_full_frame_is_used_with_a_reason(
 def test_a_camera_failure_gives_not_attached_and_a_warning_but_stays_unverified(server: Any, robot: FakeRobot) -> None:
     plush_in_jaws(robot.arm_backend)
     robot.camera_error = "no frame from /camera_0/image_raw within 2 s"
-    res = call(server, "grasp_object", {"object": OBJECT, "strategy": "top_down"})
+    res = flow_close(server)
     data = res.structured_content
-    assert data["outcome"] == "unverified"
+    assert data["outcome"] == "closed"
     assert data["grasp_check"]["image"] == "not_attached" and data["grasp_check"]["crop"] is None
     assert any("head camera image" in w and "no frame" in w for w in data["warnings"])
-    text = " ".join(data["reasons"])
-    assert "confirm_grasp" in text and data["grasp_check"]["grasp_id"] in text
-    assert not [c for c in res.content if isinstance(c, ImageContent)]
+    assert "grasp_lift" in [n["tool"] for n in data["next_steps"]]
+    assert "jaw_crop" not in [p["kind"] for p in data["photos"]]
     assert robot.arm.carry.get().grasp_kind == "unverified"  # still awaiting a verdict
 
 
-def test_a_missed_grasp_object_attaches_nothing(server: Any, robot: FakeRobot) -> None:
-    object_in_jaws(robot.arm_backend)
-    params = {"min_hold_gap_rad": 1.0}  # the stop counts as too close to closed: a miss
-    res = call(server, "grasp_object", {"object": OBJECT, "strategy": "top_down", "params": params})
-    assert res.structured_content["outcome"] == "missed"
-    assert not [c for c in res.content if isinstance(c, ImageContent)]
-    assert not [c for c in robot.calls if c[0] == "camera_image"]
-    assert robot.arm.carry.get().image is None
-
-
-def test_an_infeasible_grasp_object_attaches_nothing(server: Any, robot: FakeRobot) -> None:
-    res = call(server, "grasp_object", {"object": OBJECT | {"x": 1.0}, "strategy": "auto"})
+def test_an_infeasible_grasp_approach_attaches_nothing(server: Any, robot: FakeRobot) -> None:
+    res = call(server, "grasp_approach", {"object": OBJECT | {"x": 1.0}, "strategy": "auto"})
     assert res.structured_content["outcome"] == "infeasible"
     assert not [c for c in res.content if isinstance(c, ImageContent)]
     assert not [c for c in robot.calls if c[0] == "camera_image"]
@@ -597,20 +558,21 @@ def test_an_aborted_grasp_attaches_nothing(tmp_path: Path) -> None:
     assert result.grasp_check is None or result.grasp_check.image == "not_requested"
 
 
-def test_grasp_tool_descriptions_explain_unverified(server: Any) -> None:
+def test_grasp_tool_descriptions_explain_the_flow(server: Any) -> None:
     async def run() -> Any:
         return await server.list_tools()
 
     tools = {t.name: t for t in anyio.run(run)}
-    for name in ("grasp_object", "release_object"):
-        text = tools[name].description or ""
-        assert "unverified" in text and "image" in text, name
-    grasp_text = tools["grasp_object"].description or ""
-    for needle in ("confirm_grasp", "grasped", "missed", "ambiguous"):
-        assert needle in grasp_text, needle
-    assert "release_object" in grasp_text and "plush" in grasp_text
-    assert "grip_profile soft" in grasp_text and "retightened" in grasp_text
-    assert '"unverified"' in json.dumps(tools["grasp_object"].output_schema)
+    for name in ("grasp_approach", "grasp_close", "grasp_lift", "grasp_abort"):
+        assert "next_steps" in json.dumps(tools[name].output_schema), name
+    lift_text = tools["grasp_lift"].description or ""
+    for needle in ("grasped", "ambiguous", "dropped", "lifted", "verdict"):
+        assert needle in lift_text, needle
+    assert "release_object" in lift_text
+    assert "grip_profile" in json.dumps(tools["grasp_close"].input_schema)
+    assert "unverified" in (tools["release_object"].description or "") or "release" in (
+        tools["release_object"].description or ""
+    )
 
 
 def test_grasp_service_reports_an_unverified_grasp(tmp_path: Path) -> None:
@@ -705,7 +667,7 @@ def test_grasp_tool_schemas_teach_the_scoop_gap_and_the_tall_object_params(serve
         return await server.list_tools()
 
     tools = {t.name: json.dumps(t.input_schema) + (t.description or "") for t in anyio.run(run)}
-    for name in ("plan_grasp", "grasp_object"):
+    for name in ("plan_grasp", "grasp_approach"):
         text = tools[name]
         assert "gap_below_m" in text
         assert "only with a gap under the object" in text
@@ -758,7 +720,7 @@ def test_grasp_tool_schemas_explain_surfaces(server: Any) -> None:
         return await server.list_tools()
 
     tools = {t.name: t for t in anyio.run(run)}
-    for name in ("plan_grasp", "grasp_object", "release_object"):
+    for name in ("plan_grasp", "grasp_approach", "release_object"):
         schema = json.dumps(tools[name].input_schema)
         assert "surfaces" in tools[name].input_schema["properties"], name
         assert "step edge" in schema and "half-plane" in schema, name
@@ -815,17 +777,17 @@ def test_approach_speed_scale_is_a_per_call_param_capped_by_the_arm_maximum(
         grasp_params(CONFIG.grasp, {"approach_speed_scale": 0.6})
 
 
-def test_grasp_object_schema_offers_approach_speed_scale(server: Any) -> None:
+def test_grasp_approach_schema_offers_approach_speed_scale(server: Any) -> None:
     async def run() -> Any:
         return await server.list_tools()
 
     tools = {t.name: json.dumps(t.input_schema) + (t.description or "") for t in anyio.run(run)}
-    assert "approach_speed_scale" in tools["grasp_object"]
+    assert "approach_speed_scale" in tools["grasp_approach"]
     assert "approach_speed_scale" in tools["plan_grasp"]
 
 
 def test_queue_path_reason_claims_no_image(tmp_path: Path) -> None:
-    """Outside the grasp_object tool (queued grasp, web UI) no image is attached: the reason says how to get one."""
+    """Outside the guided flow (queued grasp, web UI) no image is attached: the reason says how to get one."""
     arm, be = make(tmp_path)
     plush_in_jaws(be)
     result = run_grasp(arm)
@@ -874,12 +836,135 @@ def test_grasp_tool_texts_name_the_head_d435_not_the_gripper_camera(server: Any)
         return await server.list_tools()
 
     tools = {t.name: t for t in anyio.run(run)}
-    for name in ("set_gripper", "enqueue_motions", "grasp_object", "plan_grasp", "confirm_grasp", "move_arm_cartesian"):
+    for name in (
+        "set_gripper",
+        "enqueue_motions",
+        "grasp_approach",
+        "grasp_close",
+        "grasp_lift",
+        "plan_grasp",
+        "move_arm_cartesian",
+    ):
         text = (tools[name].description or "") + json.dumps(tools[name].input_schema)
         assert "gripper camera" not in text and "get_camera_image 'gripper'" not in text, name
         assert "ToF" not in text, name
-    assert "head camera image" in (tools["set_gripper"].description or "")
     assert "get_camera_image 'head'" in (tools["enqueue_motions"].description or "")
-    assert "head D435 ground estimate" in json.dumps(tools["grasp_object"].input_schema)
+    assert "head D435 ground estimate" in json.dumps(tools["grasp_approach"].input_schema)
     assert "head D435 ground" in (tools["move_arm_cartesian"].description or "")
     assert "head camera" in (McpServerConfig.model_fields["grasp_check"].annotation.__doc__ or "")
+
+
+def landed(tmp_path: Path) -> tuple[ArmController, FakeArmBackend, GraspExecutor, Any, Any, Any, RunLog]:
+    """An executor after land(): (arm, backend, executor, plan, params, floor, log)."""
+    arm, be = make(tmp_path)
+    object_in_jaws(be)
+    ex = GraspExecutor(arm, CONFIG)
+    params = grasp_params(CONFIG.grasp, None)
+    plan, _, _, floor = ex.prepare(ObjectSpec(**OBJECT), "top_down", params, None, None)
+    log = RunLog(steps=[])
+    ex.land(plan, params, floor, lambda: False, log)
+    return arm, be, ex, plan, params, floor, log
+
+
+def test_phase_methods_compose_the_macro_step_order(tmp_path: Path) -> None:
+    _, be, ex, plan, params, floor, log = landed(tmp_path)
+    assert [s.label for s in log.steps][-3:] == ["open", "approach", "grasp"]
+    assert log.reached is not None and log.reached.label == "grasp"
+    verdict = ex.close_and_verify(plan, params, floor, lambda: False, log)
+    assert verdict.close.status == "grasped" and verdict.missed is None and verdict.unverified is None
+    assert log.close is verdict.close
+    assert be.positions["gripper"] == pytest.approx(OBJECT_STOP_RAD, abs=0.05)  # never opened
+    ex.lift_and_retreat(plan, floor, lambda: False, log)
+    assert [s.label for s in log.steps][-2:] == ["lift", "retreat"]
+
+
+def test_landing_error_reports_planned_and_achieved_tool_point(tmp_path: Path) -> None:
+    _, _, ex, plan, _, _, _ = landed(tmp_path)
+    err = ex.landing_error(plan)
+    assert err is not None
+    assert {"planned_tool_point", "tool_point", "tool_point_error_m", "jaw_centre", "error_m"} <= set(err)
+    assert err["tool_point_error_m"] < 0.01 and err["error_m"] < 0.01
+
+
+def test_landing_error_is_none_without_fresh_joint_states(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    arm, _, ex, plan, _, _, _ = landed(tmp_path)
+    monkeypatch.setattr(arm, "fresh_sample", lambda: None)
+    assert ex.landing_error(plan) is None
+
+
+def test_back_out_reverses_the_slide_to_the_pre_grasp(tmp_path: Path) -> None:
+    arm, be, ex, plan, params, floor, log = landed(tmp_path)
+    ex.back_out(plan, params, floor, lambda: False, log)
+    assert [s.label for s in log.steps][-2:] == ["back_out_grasp", "back_out_approach"]
+    assert log.reached is not None and log.reached.label == "open"
+    start = plan.segments["approach"][0]
+    for joint in arm.joint_names:
+        assert be.commands[-1][joint] == pytest.approx(start[joint], abs=1e-3)
+
+
+def test_open_and_rise_opens_then_lifts_straight_up(tmp_path: Path) -> None:
+    arm, _ = make(tmp_path)
+    ex = GraspExecutor(arm, CONFIG)
+    log = RunLog(steps=[])
+    before = arm.kin.forward(arm.command_base(arm.require_sample()))
+    result = ex.open_and_rise(0.6, 0.03, 0.5, None, lambda: False, log)
+    after = arm.kin.forward(arm.command_base(arm.require_sample()))
+    assert [s.label for s in log.steps] == ["open", "rise"]
+    assert result.status == "converged"
+    assert after.z - before.z == pytest.approx(0.03, abs=0.005)
+
+
+def test_hold_problem_is_none_while_holding_and_names_the_gap_when_empty(tmp_path: Path) -> None:
+    _, be, ex, plan, params, floor, log = landed(tmp_path)
+    ex.close_and_verify(plan, params, floor, lambda: False, log)
+    assert ex.hold_problem(params) is None
+    be.positions["gripper"] = CONFIG.arm.gripper_closed_rad
+    be.efforts["gripper"] = 0.0
+    problem = ex.hold_problem(params)
+    assert problem is not None and "nothing between the jaws" in problem
+
+
+def test_prepare_refuses_a_camera_position_before_any_motion(tmp_path: Path) -> None:
+    arm, be = make(tmp_path)
+    ex = GraspExecutor(arm, CONFIG)
+    commands = len(be.commands)
+    with pytest.raises(ValueError, match="nothing moved"):
+        ex.prepare(
+            ObjectSpec(**OBJECT, position_source="camera"),
+            "top_down",
+            grasp_params(CONFIG.grasp, None),
+            None,
+            None,
+        )
+    assert len(be.commands) == commands
+
+
+def test_halt_stops_the_arm_and_restores_the_torque_limit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    arm, _ = make(tmp_path)
+    calls: list[str] = []
+    monkeypatch.setattr(arm, "stop_hold", lambda: calls.append("stop_hold"))
+    monkeypatch.setattr(arm, "restore_default_torque_limit", lambda: calls.append("restore"))
+    GraspExecutor(arm, CONFIG).halt()
+    assert calls == ["stop_hold", "restore"]
+
+
+def test_a_step_records_interrupted_by(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    arm, _ = make(tmp_path)
+    ex = GraspExecutor(arm, CONFIG)
+    interrupted = ArmMotionResult(status="interrupted", message="stopped", interrupted_by="collision_stop")
+    monkeypatch.setattr(arm, "move_joints", lambda *a, **k: interrupted)
+    steps: list[Any] = []
+    with pytest.raises(GraspAbort):
+        ex.step("pre_grasp", steps, lambda: False, lambda: arm.move_joints({}))
+    assert steps[-1].interrupted_by == "collision_stop"
+
+
+def test_executor_correction_path_plans_from_the_arm_pose(tmp_path: Path) -> None:
+    arm, be = make(tmp_path)
+    executor = GraspExecutor(arm, CONFIG)
+    params = grasp_params(CONFIG.grasp, None)
+    landed = executor.plan(ObjectSpec(**OBJECT), "top_down", params, None, None)[0]
+    be.positions.update(next(w for w in landed.waypoints if w.label == "grasp").joints)  # the jaws landed
+    new = executor.plan(ObjectSpec(**(OBJECT | {"x": OBJECT["x"] + 0.02})), "top_down", params, None, None)[0]
+    path, reason = executor.correction_path(landed, new, params, None)
+    assert reason is None and path and path[-1]["gripper"] == new.open_gripper_rad

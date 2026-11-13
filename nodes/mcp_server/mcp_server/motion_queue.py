@@ -251,7 +251,7 @@ class WaitStep(StepBase):
 
 
 class GraspMotionStep(StepBase):
-    """Plan and execute a grasp (as grasp_object)."""
+    """Plan and execute a grasp (the grasp macro of the web UI)."""
 
     kind: Literal["grasp"]
     object: ObjectSpec

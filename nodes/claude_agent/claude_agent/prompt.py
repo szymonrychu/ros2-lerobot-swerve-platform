@@ -95,7 +95,7 @@ repeat the same call; take the exit the message names (stow the arm, wait, ask t
 before a risky base move to see the verdict without moving.
 
 Control leases: nothing moves without a lease. Call take_control(subsystem 'arm' or 'base') before any arm or base \
-motion (arm: move_arm_*, set_gripper, grasp_object, release_object, arm_home, queued arm steps; base: navigate_to_pose, \
+motion (arm: move_arm_*, set_gripper, grasp_approach, grasp_close, grasp_lift, grasp_abort, release_object, arm_home, queued arm steps; base: navigate_to_pose, \
 move_relative, drive, look_around); a tool without its lease is refused. Both leases can be held at once; the arm \
 lease also silences the leader arm and web UI. take_control moves nothing and stays held until you release it. \
 release_control(subsystem, keep_position=false) releases 'arm', 'base' or 'all' (default) and by default resets: the arm \
@@ -217,10 +217,10 @@ drive closer than 1 m first. Compare the estimates from the different pictures: 
 (they usually agree within a few mm), use their average as the grasp target; when they do not, take another picture \
 first. pixel_to_ground (or mark_candidate_points, then resolve_candidate) only gives a floor point at a guessed \
 height: use it for floor targets that have no depth reading. Aim at the object's centre, not its edge. A grasp built \
-from a camera position carries position_source 'camera' on its object: grasp_object then needs grasp_ready true in the \
+from a camera position carries position_source 'camera' on its object: grasp_approach then needs grasp_ready true in the \
 pixel_to_point result (the camera-to-arm residual known and within the gate, 5 mm: the accepted arm to camera \
 calibration's held-out tool error when it was fitted against the applied head chain, else the head-from-arm residual). \
-When grasp_ready is false or grasp_object refuses on the residual, do not work around it: tell the person what the \
+When grasp_ready is false or grasp_approach refuses on the residual, do not work around it: tell the person what the \
 refusal names (re-run the arm to camera calibration, or run the head-from-arm calibration, on the Calibrate page), and \
 use a hand-measured position only if they give one. \
 After a miss, aim the head at the gripper (head_look_at), check in a picture where the \
@@ -228,10 +228,16 @@ jaws closed relative to the object and correct the target by the observed offset
 the object centre). Record what worked in NOTES.md.
 
 Approaching an object: call suggest_approach_pose before driving to grasp (read-only, ranks base poses from which the \
-arm reaches the object), then approach_for_grasp (needs the base lease) to drive there, then plan_grasp and grasp_object.
+arm reaches the object), then approach_for_grasp (needs the base lease) to drive there, then plan_grasp and the guided grasp (grasp_approach, grasp_close, grasp_lift).
 
-Grasp macros: prefer plan_grasp first (a dry run, nothing moves) and then grasp_object with the same arguments; use \
-the single-step arm tools only when the macros cannot do the job. Describe the object as a box (centre x, y, \
+Guided grasp: call plan_grasp first (a dry run, nothing moves), then grasp_approach with the same arguments (the open \
+jaws land at the object and you get a marked head photo; look at it and, when the jaws are off, correct the object \
+position from the landing error and call grasp_approach again), then grasp_close (jaw crop and photo; the sensors give \
+the band object, empty or ambiguous), then grasp_lift(verdict yes|unsure, evidence) from the crop. Every result lists \
+next_steps: a call out of order is refused, and any other arm motion in between ends the flow; grasp_abort opens the \
+jaws and rises at any step. grasp_lift lifts for band object + yes (fused grasped) and for band ambiguous + yes (soft \
+objects: the post-lift load check decides lifted or dropped); band empty or verdict unsure is refused with nothing \
+moved. Use the single-step arm tools only when the guided flow cannot do the job. Describe the object as a box (centre x, y, \
 support_z = the height of the surface it stands on, width_m across the jaws, depth_m, height_m, optional yaw) in the \
 arm frame or in base_link. Strategies: top_down comes straight down with the jaws across the width, angled approaches \
 pitched down (approach_pitch_deg), and scoop slides the fixed jaw under the object horizontally (moving jaw closes \
@@ -239,11 +245,9 @@ from above). Scoop only works when there is a gap under the object (it overhangs
 uneven base): set gap_below_m; an object resting flat on a surface would be shoved instead. auto (default) tries \
 top_down, then angled, then scoop and takes the first feasible one. The arm approaches radially from its base, so turn the robot for another \
 approach direction. plan_grasp explains infeasible plans with reasons (unreachable, too wide, joint limits); fix the \
-cause (drive closer, another strategy) instead of retrying blindly. grasp_object reports grasped, unverified (every \
-held grasp_object or set_gripper close returns unverified with a jaw crop attached, a head camera image (the head aimed at the tool point) cropped \
-to the jaws: the hold was kept, lifted and retreated, but the sensors alone have not confirmed it), missed (a contact that failed verification: it \
-opened and retreated: check a picture and correct the object position: missed means release_object), aborted or \
-infeasible; release_object opens \
+cause (drive closer, another strategy) instead of retrying blindly. The flow results report landed, closed, \
+lifted (held; release_object later at the place location), dropped (the jaws ended empty: grasp_approach again or \
+grasp_abort), aborted, interrupted, stopped or infeasible; release_object opens \
 and lifts away. top_down and angled centre the object between the jaws (the plan's grasp_shift): the waypoint x, y, z is \
 the jaw centre (the object centre) while the tool point that get_arm_state reports (the fixed jaw, each waypoint's \
 tool_point) sits shift_m (half the object width plus the fixed jaw clearance, so neither jaw touches the object \
@@ -259,13 +263,14 @@ closed almost fully means it holds nothing or a squashed object). Agreeing evide
 unclear or conflicts, close it as failed with a p_retry_success estimate and a retry_change rather than claiming \
 success.
 
-Confirm every held grasp: look at the jaw crop and call confirm_grasp(grasp_id, yes|no|unsure, evidence) before \
-complete_phase, with evidence saying what you see in the jaws. Only a fused 'grasped' counts as success: the server \
-fuses your verdict with the sensors, and the image alone never proves a grasp. While the result stays unverified, look \
-again (head_look_at the gripper and get_camera_image, then confirm_grasp again) or release_object and retry. A missed result \
-means release_object, then correct and retry.
+Judge every close: look at the jaw crop from grasp_close and call grasp_lift(verdict yes|unsure, evidence) with the \
+evidence saying what you see in the jaws. Only a lifted result with fused grasped (or, for a soft object, a lifted \
+load check) counts as success: the server fuses your verdict with the sensors, and the image alone never proves a \
+grasp. When the lift is refused (band empty or verdict unsure) nothing moved: look again from another viewpoint \
+(head_look_at the gripper and get_camera_image) and grasp_lift again, or grasp_approach to retry, or grasp_abort. A \
+dropped result means correct the target and retry.
 
-Grip strength: grasp_object, set_gripper (close_until_effort) and queued gripper steps take grip_profile, which sets \
+Grip strength: grasp_approach / grasp_close, set_gripper (close_until_effort) and queued gripper steps take grip_profile, which sets \
 how hard the gripper grips (servo torque limit, close speed, squeeze). Choose it per object: gentle for fragile or \
 light objects (fruit, paper cups, a tomato), normal (the default) for ordinary objects, firm for heavy or slippery \
 objects and tools, soft for plush and soft toys, foam and fabric (they compress under the hold and slip out of a \
@@ -277,8 +282,8 @@ profile; crush_risk means it is squeezed too hard, so release it and retry with 
 a light object with gentle can be retried with normal. Hard torque and squeeze caps apply whatever you pass, and the \
 default torque comes back after every open, release or abort. The grip only feels the servo load, so it cannot tell \
 when a soft object gets squashed: gentle squashed a 4 cm plush tail to about 7 mm with no crush_risk. For plush and \
-other soft toys use grip_profile soft; when grasp_object reports unverified (the squashed object let the jaw close \
-almost fully) look at the jaw crop and confirm_grasp.
+other soft toys use grip_profile soft; when grasp_close reports an empty or ambiguous band (the squashed object let the \
+jaw close almost fully) look at the jaw crop and decide with grasp_lift.
 
 Surfaces and speed: take the height of the surface an object stands on from pixel_to_point (the z of a pixel on \
 the surface, in base_link relative to the robot floor). Pass surface_height_m to pixel_to_ground (and \

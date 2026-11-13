@@ -277,7 +277,9 @@ def test_mcp_server_floor_guard_and_grasp_blocks_are_deployed() -> None:
     assert grasp["fixed_jaw_clearance_m"] == 0.0075 and grasp["jaw_open_margin_m"] == 0.015
     assert cfg["topics"]["grasp_command"] == "/grasp/command" and cfg["topics"]["grasp_result"] == "/grasp/result"
     agent = node_config("claude_agent")
-    assert {"grasp_object", "release_object"} <= set(agent["effector_tools"])
+    assert {"grasp_approach", "grasp_close", "grasp_lift", "grasp_abort", "release_object"} <= set(
+        agent["effector_tools"]
+    )
     assert "plan_grasp" in agent["sensor_tools"]
 
 
@@ -973,11 +975,13 @@ def test_follower_current_read_is_rolled_back() -> None:
     assert node_config("lerobot_follower")["publish_current_joints"] == []
 
 
-def test_claude_agent_confirm_grasp_is_a_sensor_tool() -> None:
-    """confirm_grasp records a verdict without moving, so it is a sensor tool and not an effector."""
+def test_claude_agent_grasp_flow_tools_are_effectors() -> None:
+    """The guided grasp flow moves the arm, so its tools are effectors; the removed macros are in neither list."""
     cfg = node_config("claude_agent")
-    assert "confirm_grasp" in cfg["sensor_tools"]
-    assert "confirm_grasp" not in cfg["effector_tools"]
+    for name in ("grasp_approach", "grasp_close", "grasp_lift", "grasp_abort"):
+        assert name in cfg["effector_tools"] and name not in cfg["sensor_tools"], name
+    for name in ("grasp_object", "confirm_grasp"):
+        assert name not in cfg["effector_tools"] and name not in cfg["sensor_tools"], name
 
 
 def test_mcp_server_readme_lookups_example_has_only_store_dir() -> None:

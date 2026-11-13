@@ -678,6 +678,9 @@ class ArmController:
         # grasp_id, band, image and fused across a restart).
         self.last_grasp_check: GraspCheck | None = None
         self.stop_requests = 0  # request_stop calls (a stop during release_control's park keeps the lease)
+        # Counts every motion entered (exclusive_motion, after the lock is taken) and every request_stop: a caller that
+        # remembers it after its own motion sees whether any foreign motion or stop happened since.
+        self.motion_epoch = 0
         # Home pose cache: ((mtime_ns, size, inode) of the file or None when missing, pose or the load error).
         self._home_cache: tuple[tuple[int, int, int] | None, dict[str, float] | None | HomeStoreError] | None = None
         # How the lease ended when this server did not release it itself (take-over, /arm/home); None otherwise.
@@ -879,7 +882,7 @@ class ArmController:
         Args:
             kind (GraspKind | None): grasped / unverified (an object is held), None (nothing held).
             check (GraspCheck | None): Grasp check of a close_until_effort; None for a plain close (forgets the last
-                grasp_id, so a confirm_grasp for it is refused).
+                grasp_id, so a verdict for it is refused).
         """
         self.last_grasp_check = check
         self.carry.update(
@@ -922,7 +925,7 @@ class ArmController:
             self.last_grasp_check = check.model_copy(update=changes)
 
     def mark_visual_pending(self, grasp_id: str) -> CarryRecord:
-        """A jaw crop of the close went to the agent: the hold is unverified until confirm_grasp records a verdict.
+        """A jaw crop of the close went to the agent: the hold is unverified until the grasp_lift verdict is recorded.
 
         Starts the unverified-hold relax timer (grip_profiles.unverified_hold_relax_s) unless it already runs.
 
@@ -1297,6 +1300,7 @@ class ArmController:
     def request_stop(self) -> None:
         """Ask the running motion (if any) to abort and hold."""
         self.stop_requests += 1
+        self.motion_epoch += 1
         self._stop.set()
 
     def hold(self) -> bool:
@@ -2310,7 +2314,7 @@ class ArmController:
     def hold_empty_close(self, grip_profile: GripChoice) -> str:
         """Keep a jaw that closed into the empty band (closed_no_contact) gripping as a grasp would.
 
-        grasp_object's 'unverified' hold: a soft object (a plush) squashes until the jaw is within
+        An unverified hold of the guided close: a soft object (a plush) squashes until the jaw is within
         gripper_empty_stall_rad of closed, so the close cannot tell it from empty jaws. The close restored the default
         torque limit; this writes the grip profile's (capped) torque limit again and holds the measured jaw plus the
         profile's squeeze_rad toward closed (never past closed), the arm joints staying at their intended targets.
@@ -3832,6 +3836,7 @@ class MotionGuard:
         except BaseException:
             self.controller._motion_lock.release()
             raise
+        self.controller.motion_epoch += 1
         self.controller._stop.clear()
         self.controller._interrupted_by = None
         self.controller._slow_zone = None

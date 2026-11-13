@@ -633,7 +633,7 @@ def register(ctx: ToolContext) -> None:
             "FAILED_TO_DETECT_DOCK 904) suggests prefer_mode='navigate'. dry_run=true sends nothing and publishes "
             "nothing: it returns the plan, the mode and reason, the goal it would send, the docking server readiness "
             "and, in servoed mode, one tracker step on a fresh frame. The grasp itself is a separate call "
-            f"(plan_grasp, grasp_object). {TARGET_HELP}"
+            f"(plan_grasp, grasp_approach). {TARGET_HELP}"
         )
     )
     def approach_for_grasp(

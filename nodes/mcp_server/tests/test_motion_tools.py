@@ -50,7 +50,7 @@ def test_queue_tools_are_registered_and_classified() -> None:
     assert "resume_motions" not in QUEUE_EXCLUSIVE_TOOLS
     assert {"get_motion_status", "cancel_motions", "wait_for_event"} <= ALWAYS_ALLOWED_TOOLS
     assert "enqueue_motions" not in QUEUE_EXCLUSIVE_TOOLS and "stop" not in QUEUE_EXCLUSIVE_TOOLS
-    assert {"move_arm_joints", "navigate_to_pose", "look_around", "grasp_object", "drive"} <= QUEUE_EXCLUSIVE_TOOLS
+    assert {"move_arm_joints", "navigate_to_pose", "look_around", "grasp_approach", "drive"} <= QUEUE_EXCLUSIVE_TOOLS
 
 
 def test_enqueue_returns_job_ids_and_wait_returns_events_and_state(server: Any, robot: GateRobot) -> None:

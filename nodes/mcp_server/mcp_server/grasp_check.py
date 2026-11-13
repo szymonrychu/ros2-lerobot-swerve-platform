@@ -1,5 +1,5 @@
 """Grasp verification fusion: the sensor band of a close (load delta, jaw gap, current) and its fusion with the visual
-verdict the agent records through confirm_grasp.
+verdict the agent records through grasp_lift.
 
 The image never decides on its own (visual judges are weakest on contact-only outcomes, FailBench arXiv 2609.03611):
 only a sensor band 'object' plus image 'yes' is 'grasped', only 'empty' plus 'no' is 'missed', everything else is
@@ -72,7 +72,7 @@ class GraspCheck(BaseModel):
     evidence: GripEvidence
     image: ImageState
     crop: CropInfo | None
-    fused: FusedOutcome | None  # None until confirm_grasp
+    fused: FusedOutcome | None  # None until the grasp_lift verdict
 
 
 def finite(value: float | None) -> float | None:

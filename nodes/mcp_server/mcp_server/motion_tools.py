@@ -32,7 +32,7 @@ TOOL_NAMES = ("enqueue_motions", "resume_motions", "get_motion_status", "cancel_
 
 
 def make_grasp_runner(robot: RobotApi, config: McpServerConfig) -> GraspRunner:
-    """Grasp step runner over GraspExecutor (plan + execute, same as grasp_object).
+    """Grasp step runner over GraspExecutor (plan + execute, same plan and execute as the guided flow).
 
     Args:
         robot (RobotApi): Robot.
@@ -81,7 +81,7 @@ def register(ctx: ToolContext) -> None:
             "surfaces?}; "
             "base_relative {dx, dy, dyaw, precise?, timeout_s?}; navigate_to_pose {x, y, yaw, frame?, precise?, "
             "timeout_s?}; wait_s {seconds}; grasp {object, strategy?, params? (params.grip_profile picks the grip), "
-            "approach_pitch_deg?, surfaces?} (as grasp_object; surfaces as for the arm motion tools: stair / table / "
+            "approach_pitch_deg?, surfaces?} (as grasp_approach; surfaces as for the arm motion tools: stair / table / "
             "hole regions with step edges; only outcome grasped succeeds: an 'unverified' grasp - jaw closed into the "
             "empty band, still holding - fails the step, so look with get_camera_image 'head'). "
             "BLENDING: consecutive arm steps run as ONE continuous trajectory through their targets (no stop between "

@@ -408,7 +408,7 @@ def gate_with_time_left(left: float, **kwargs) -> EffectorGate:
     return gate
 
 
-@pytest.mark.parametrize("name", ["drive", "grasp_object", "arm_home", "navigate_to_pose", "enqueue_motions"])
+@pytest.mark.parametrize("name", ["drive", "grasp_approach", "arm_home", "navigate_to_pose", "enqueue_motions"])
 async def test_effector_denied_below_the_minimum_instruction_time_left(name: str) -> None:
     denied: list[dict] = []
     gate = gate_with_time_left(59.0, on_denied=denied.append)

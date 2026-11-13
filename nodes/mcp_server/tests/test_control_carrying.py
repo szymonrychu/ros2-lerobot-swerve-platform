@@ -74,7 +74,7 @@ def server(robot: FakeRobot) -> Any:
 # --- H1: the lease generation ---------------------------------------------------------------------------------------
 
 
-def test_grasp_object_refused_when_lease_released_during_planning(
+def test_grasp_approach_refused_when_lease_released_during_planning(
     server: Any, robot: FakeRobot, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     robot.arm.set_home()
@@ -83,13 +83,13 @@ def test_grasp_object_refused_when_lease_released_during_planning(
 
     def plan_then_web_home(self: GraspExecutor, *args: Any, **kwargs: Any) -> Any:
         result = plan(self, *args, **kwargs)
-        ok, _ = robot.arm.home_service_call()  # the web UI Home button while grasp_object plans
+        ok, _ = robot.arm.home_service_call()  # the web UI Home button while grasp_approach plans
         assert ok
         return result
 
     monkeypatch.setattr(GraspExecutor, "plan", plan_then_web_home)
-    result = call(server, "grasp_object", {"object": OBJECT, "strategy": "top_down"}).structured_content
-    assert result["outcome"] == "aborted"
+    result = call(server, "grasp_approach", {"object": OBJECT, "strategy": "top_down"}).structured_content
+    assert result["outcome"] == "interrupted"
     text = " ".join(result["reasons"])
     assert "arm control not held (released by the /arm/home service" in text and "take_control" in text
     assert robot.arm.control_held is False  # not silently re-taken by the grasp or its abort hold
@@ -485,14 +485,14 @@ def delta_grasp(robot: FakeRobot) -> str:
     return res.grasp_check.grasp_id
 
 
-def test_carrying_reasons_say_awaiting_confirm_grasp_while_pending(robot: FakeRobot) -> None:
+def test_carrying_reasons_say_awaiting_the_grasp_lift_verdict_while_pending(robot: FakeRobot) -> None:
     ctl = manager(robot)
     ctl.take("arm")
     grasp_id = delta_grasp(robot)
     robot.arm.mark_visual_pending(grasp_id)
     carrying = ctl.state().arm.carrying
     assert carrying.carrying is True
-    assert any("awaiting confirm_grasp" in r and grasp_id in r for r in carrying.reasons), carrying.reasons
+    assert any("awaiting the grasp_lift verdict" in r and grasp_id in r for r in carrying.reasons), carrying.reasons
 
 
 @pytest.mark.parametrize(("verdict", "fused"), [("yes", "grasped"), ("no", "unverified")])
@@ -504,7 +504,7 @@ def test_carrying_reasons_name_the_fused_state(robot: FakeRobot, verdict: str, f
     robot.arm.record_visual_verdict(grasp_id, verdict)
     reasons = ctl.state().arm.carrying.reasons
     assert any(f"fused {fused}" in r for r in reasons), reasons
-    assert not any("awaiting confirm_grasp" in r for r in reasons)
+    assert not any("awaiting the grasp_lift verdict" in r for r in reasons)
 
 
 def test_a_missed_verdict_ends_carrying(robot: FakeRobot) -> None:

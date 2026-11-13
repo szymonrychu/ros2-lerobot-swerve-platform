@@ -507,3 +507,24 @@ def test_minimum_jaw_overlap_lowers_a_short_object_grasp_below_mid_height() -> N
     p = PLANNER.plan(obj, "top_down", PARAMS, surface, SEED)
     assert p.feasible, p.reasons
     assert waypoint(p, "grasp").z == pytest.approx(-0.08 + 0.012 - 0.008, abs=1e-6)
+
+
+def test_correction_path_is_a_straight_tool_line_with_open_jaws() -> None:
+    landed, new = plan(floor_object(x=0.26), "top_down"), plan(floor_object(x=0.28), "top_down")
+    assert landed.feasible and new.feasible
+    seed = waypoint(landed, "grasp").joints
+    samples, reason = PLANNER.correction_path(landed, new, seed, PARAMS, FLAT)
+    assert reason is None and samples
+    assert all(s["gripper"] == new.open_gripper_rad for s in samples)
+    end = KIN.forward(samples[-1], PLANNER.center_offset(new))
+    target = waypoint(new, "grasp")
+    assert math.dist((end.x, end.y, end.z), (target.x, target.y, target.z)) < 0.002
+
+
+def test_correction_path_reports_an_unreachable_target() -> None:
+    landed = plan(floor_object(x=0.26), "top_down")
+    new = landed.model_copy(deep=True)
+    far = waypoint(new, "grasp")
+    far.x = 0.9
+    samples, reason = PLANNER.correction_path(landed, new, waypoint(landed, "grasp").joints, PARAMS, FLAT)
+    assert samples == [] and reason

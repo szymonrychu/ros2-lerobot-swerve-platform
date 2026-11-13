@@ -1067,7 +1067,7 @@ ros2_node_type_defaults:
     src_extra_paths: [nodes/web_ui/urdf]
     # No quota (was 25%, then 100%): mcp_server serves the agent's interactive tool calls (single-threaded numpy bursts
     # for motion and grasp planning). Measured 2026-10-11 at 81-91% robot CPU under the 25% quota: plan_grasp took
-    # 52.6 s, grasp_object 205-259 s, and the agent instruction timed out. Agent-facing tier.
+    # 52.6 s, the macro grasp 205-259 s, and the agent instruction timed out. Agent-facing tier.
     # Working set MiB p50/24 h peak 177.9/383.4 (Mimir, 2026-10-11): MemoryLow ~ p50, MemoryMax >= 2x peak.
     memory_low: "184M"
     memory_max: "1G"
@@ -3670,7 +3670,7 @@ ros2_nodes:
             message: "Stretched pose (shoulder_lift above 1.85 rad with a negative elbow_flex) stalls the shoulder under load. Choose a target
               nearer the base or bend the elbow (elbow_flex at or above 0), or run arm_home first."
             applies_to:
-              arm_motion_from: [move_arm_joints, move_arm_cartesian, arm_joints, arm_cartesian, grasp_object, grasp]
+              arm_motion_from: [move_arm_joints, move_arm_cartesian, arm_joints, arm_cartesian, grasp_approach, grasp_lift, grasp]
             all:
               - {field: target.joint.shoulder_lift, op: gt, value: 1.85}
               - {field: target.joint.elbow_flex, op: lt, value: 0.0}
@@ -3768,7 +3768,7 @@ ros2_nodes:
         # Envelope cache: started at server start and reused across restarts unless the body, mount, limits, grid or
         # margins changed (first computation takes ~95 s on the RPi5 under the unit's CPU quota).
         reach_cache_file: /var/lib/ros2/arm/reach_envelope.json
-      # Grasp planner defaults (plan_grasp / grasp_object / release_object and /grasp/command); every value can be
+      # Grasp planner defaults (plan_grasp / grasp_approach / release_object and /grasp/command); every value can be
       # overridden per call through `params`. Lengths in m, the tool point is the fixed jaw's inner face (arm.tool_offset_m).
       # Validated in the MuJoCo sim with jaws calibrated to arm.tool_offset_m (sim/README.md, "Planner scenario matrix").
       grasp:
@@ -3809,12 +3809,12 @@ ros2_nodes:
           - {strategy: top_down}
           - {strategy: angled, approach_pitch_deg: 45}
           - {strategy: scoop}
-      # Per-object grip strength (nodes/mcp_server/README.md, "Grip profiles"): set_gripper / grasp_object /
+      # Per-object grip strength (nodes/mcp_server/README.md, "Grip profiles"): set_gripper / grasp_close /
       # the motion queue / the web UI pick a preset (or inline overrides) per object. Values in servo units, tune on
       # the real gripper: torque_limit is the gripper servo's Torque_Limit RAM register (0.1 % of max torque, written
       # before the close, default restored after every open, release, abort and at startup), loads are the decoded
       # gripper effort. Hard caps torque_limit_max / squeeze_max_rad apply to every profile, preset or inline.
-      # Post-lift visual grasp check (confirm_grasp): the gripper camera frame cropped to the region between the jaws.
+      # Visual grasp check (grasp_close jaw crop, judged in grasp_lift): the head camera frame cropped to the region between the jaws.
       grasp_check:
         crop_depth_m: 0.045           # how far into the jaws (toward gripper_link) the crop reaches
         crop_margin_px: 24            # added on every side of the projected jaw box
@@ -4042,8 +4042,11 @@ ros2_nodes:
         - set_gripper
         - arm_home
         - look_around
-        - grasp_object
         - release_object
+        - grasp_approach
+        - grasp_close
+        - grasp_lift
+        - grasp_abort
         - enqueue_motions
         - resume_motions
         - go_to_frontier
@@ -4107,7 +4110,6 @@ ros2_nodes:
         - plan_frontier_visit
         - get_exploration_status
         - mark_survey_spot
-        - confirm_grasp
   - name: marker_detector
     node_type: marker_detector
     present: true

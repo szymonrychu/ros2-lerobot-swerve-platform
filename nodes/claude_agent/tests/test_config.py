@@ -52,8 +52,9 @@ def test_defaults() -> None:
     assert not set(cfg.effector_tools) & set(cfg.sensor_tools)
     assert {"go_to_frontier", "look_toward_frontier"} <= set(cfg.effector_tools)
     assert {"list_frontiers", "plan_frontier_visit"} <= set(cfg.sensor_tools)
-    assert "confirm_grasp" in cfg.sensor_tools
-    assert "confirm_grasp" not in cfg.effector_tools
+    flow = {"grasp_approach", "grasp_close", "grasp_lift", "grasp_abort", "release_object"}
+    assert flow <= set(cfg.effector_tools) and not flow & set(cfg.sensor_tools)
+    assert "grasp_object" not in cfg.effector_tools and "confirm_grasp" not in cfg.sensor_tools
 
 
 def test_persistence_and_hardware_defaults() -> None:

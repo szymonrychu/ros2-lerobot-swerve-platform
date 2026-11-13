@@ -29,6 +29,7 @@ from . import (
     body_tools,
     camera_tools,
     frontier_tools,
+    grasp_flow_tools,
     grasp_tools,
     guard_tools,
     head_tools,
@@ -128,6 +129,7 @@ TOOL_NAMES = (
     *camera_tools.TOOL_NAMES,
     *perception_tools.TOOL_NAMES,
     *grasp_tools.TOOL_NAMES,
+    *grasp_flow_tools.TOOL_NAMES,
     *motion_tools.TOOL_NAMES,
     *guard_tools.TOOL_NAMES,
     *lookup_tools.TOOL_NAMES,
@@ -153,8 +155,11 @@ MOTION_TOOLS = frozenset(
         "arm_home",
         "arm_set_home",
         "look_around",
-        "grasp_object",
         "release_object",
+        "grasp_approach",
+        "grasp_close",
+        "grasp_lift",
+        "grasp_abort",
         "enqueue_motions",
         "resume_motions",
         "go_to_frontier",
@@ -178,8 +183,11 @@ TOOL_SERVO_GROUPS: dict[str, tuple[str, ...]] = {
     "arm_home": ("arm",),
     "arm_set_home": ("arm",),  # records the measured pose: meaningless while the arm is limp
     "look_around": ("base",),
-    "grasp_object": ("arm",),
     "release_object": ("arm",),
+    "grasp_approach": ("arm",),
+    "grasp_close": ("arm",),
+    "grasp_lift": ("arm",),
+    "grasp_abort": ("arm",),
     "enqueue_motions": ("arm", "base"),
     "resume_motions": ("arm", "base"),
     "go_to_frontier": ("base",),
@@ -204,7 +212,6 @@ ALWAYS_ALLOWED_TOOLS = frozenset(
         *camera_tools.TOOL_NAMES,
         *perception_tools.SENSOR_TOOL_NAMES,
         "plan_grasp",
-        "confirm_grasp",
         "get_motion_status",
         "cancel_motions",
         "wait_for_event",
@@ -230,8 +237,11 @@ TOOL_SUBSYSTEM: dict[str, LeaseNeed] = {
     "move_arm_cartesian": "arm",
     "set_gripper": "arm",
     "arm_home": "arm",
-    "grasp_object": "arm",
     "release_object": "arm",
+    "grasp_approach": "arm",
+    "grasp_close": "arm",
+    "grasp_lift": "arm",
+    "grasp_abort": "arm",
     "navigate_to_pose": "base",
     "move_relative": "base",
     "drive": "base",
@@ -308,9 +318,14 @@ Guard rules: a refusal whose text starts "guard rule '<name>' refused" names the
 (take the way out the text names) and do not retry the same call; check_guard_rules shows the verdicts without calling.
 Grasp approach: before driving to a grasp call suggest_approach_pose (read-only: ranked base poses from the arm's reach
 map and the costmap, checked with the current footprint), then approach_for_grasp (needs the base lease; dry_run=true
-shows the plan and mode first), then plan_grasp / grasp_object. approach_for_grasp servos on the camera when it sees
+shows the plan and mode first), then plan_grasp. approach_for_grasp servos on the camera when it sees
 the target, else navigates; status arrived_out_of_reach means the arm cannot reach the target from where the base
-stopped."""
+stopped.
+Grasping is a guided flow under the arm lease: plan_grasp stays the dry run; grasp_approach (the open jaws land at the
+object; photo), then grasp_close (photo and jaw crop), then grasp_lift with your verdict yes|unsure on that photo
+(band object + yes and band ambiguous + yes, the soft objects, lift; an empty band or unsure is refused with nothing
+moved), or grasp_abort at any step. Every result lists next_steps; a call out of order is refused naming the allowed
+tools; any other arm motion in between ends the flow."""
 
 
 class StaticTokenVerifier:
@@ -1064,7 +1079,7 @@ def register_core_tools(ctx: ToolContext) -> None:
         subsystem: Annotated[Subsystem, Field(description="'arm' (arm and gripper tools) or 'base' (base tools)")],
     ) -> ControlState:
         """Take a control lease; nothing moves. Every arm/gripper tool (move_arm_joints, move_arm_cartesian,
-        set_gripper, arm_home, grasp_object, release_object, queued arm/gripper/grasp steps) needs the arm lease and
+        set_gripper, arm_home, grasp_approach, grasp_close, grasp_lift, grasp_abort, release_object, queued arm/gripper/grasp steps) needs the arm lease and
         every base tool (navigate_to_pose, move_relative, drive, look_around, queued Nav2 steps) the base lease; a
         tool without it is refused. arm: the autonomy lease, taken by commanding the measured pose (needs fresh joint
         states); it is sticky: while it is held the leader arm and web UI are ignored, and it is not handed back
@@ -1262,7 +1277,7 @@ def register_core_tools(ctx: ToolContext) -> None:
         surfaces: Annotated[
             list[SurfaceRegion] | None, Field(max_length=MAX_REGIONS, description=SURFACES_DESC)
         ] = None,
-    ) -> Annotated[CallToolResult, ArmMotionResult]:
+    ) -> ArmMotionResult:
         """Open the gripper to a fraction, or close it until it grips something (status 'grasped' and the gripper
         holds that position; 'closed_no_contact' if it closed fully without touching anything). Closing (also
         open_fraction=0) reports 'grasped' too when the jaw stalls before the closed position: contact is inferred
@@ -1282,32 +1297,17 @@ def register_core_tools(ctx: ToolContext) -> None:
         its squeeze; a grasp reports grip_profile, holding_load, slipping, crush_risk and retightened (a hold that
         relaxed to about 0 load with the jaw short of closed is stepped once further toward closed, never beyond
         the squeeze cap from the contact or past closed). Any other close outcome, every open and release_control
-        restore the default torque limit. A close that grasps (status 'grasped') is not trusted on the sensors alone:
-        the result carries a fresh head camera image (the head D435 aimed at the tool point; only the head moves)
-        cropped to the jaws (grasp_check.crop) and the hold stays
-        unverified until confirm_grasp(grasp_check.grasp_id, yes|no|unsure, evidence) fuses your look with the sensor
-        band (grasp_check.band): band object + yes = grasped; band empty + no = missed (call release_object); anything
-        else, also unsure and every ambiguous band, stays unverified (look again or release_object and retry)."""
+        restore the default torque limit. A close reports the sensor band in grasp_check (image
+        'not_requested': no camera check); for a camera-checked pick use grasp_approach, grasp_close and grasp_lift."""
         battery_gate("set_gripper")
         with tool_errors():
-            result = robot.arm.set_gripper(
+            return robot.arm.set_gripper(
                 open_fraction,
                 close_until_effort,
                 effort_threshold,
                 floor_override(surface_z_m, tilt_override_deg, surfaces, use_ground_estimate),
                 grip_profile,
             )
-        image: ImageContent | None = None
-        if close_until_effort and result.status == "grasped" and result.grasp_check is not None:
-            image, check, warning = grasp_tools.attach_jaw_crop(ctx, "set_gripper", result.grasp_check)
-            notes = [warning] if warning else []
-            result = result.model_copy(
-                update={
-                    "grasp_check": check,
-                    "message": "; ".join([result.message, grasp_tools.awaiting_confirm(check), *notes]),
-                }
-            )
-        return grasp_tools.grasp_tool_result(result, image)
 
     @tool(
         description=(
@@ -1351,6 +1351,7 @@ TOOL_MODULES: tuple[Callable[[ToolContext], None], ...] = (
     camera_tools.register,
     perception_tools.register,
     grasp_tools.register,
+    grasp_flow_tools.register,
     motion_tools.register,
     guard_tools.register,
     lookup_tools.register,

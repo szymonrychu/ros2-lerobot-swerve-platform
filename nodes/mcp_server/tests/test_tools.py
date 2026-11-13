@@ -210,9 +210,11 @@ def test_registers_every_tool_with_a_real_description(server: Any) -> None:
         "clear_calibration_samples",
         *PERCEPTION_TOOLS,
         "plan_grasp",
-        "grasp_object",
         "release_object",
-        "confirm_grasp",
+        "grasp_approach",
+        "grasp_close",
+        "grasp_lift",
+        "grasp_abort",
         "enqueue_motions",
         "resume_motions",
         "check_guard_rules",
@@ -885,11 +887,18 @@ def test_frontier_motion_tools_refused_while_the_queue_runs(server: Any, robot: 
     assert not [c for c in robot.calls if c[0] in ("navigate", "move_relative", "camera_image")]
 
 
+def test_instructions_teach_the_grasp_flow() -> None:
+    for name in ("grasp_approach", "grasp_close", "grasp_lift", "grasp_abort", "next_steps", "plan_grasp"):
+        assert name in INSTRUCTIONS, name
+    assert INSTRUCTIONS.index("grasp_approach") < INSTRUCTIONS.index("grasp_close") < INSTRUCTIONS.index("grasp_lift")
+    assert "grasp_object" not in INSTRUCTIONS and "confirm_grasp" not in INSTRUCTIONS
+
+
 def test_instructions_point_to_the_frontier_tools() -> None:
     assert "list_frontiers" in INSTRUCTIONS and "look_toward_frontier" in INSTRUCTIONS
 
 
-# --- set_gripper close_until_effort: jaw crop and pending verdict -----------------------------------------------
+# --- set_gripper close_until_effort: the band only -----------------------------------------------
 
 
 def close_on_object(server: Any, robot: FakeRobot, **args: Any) -> Any:
@@ -902,37 +911,15 @@ def close_on_object(server: Any, robot: FakeRobot, **args: Any) -> Any:
     return call(server, "set_gripper", {"close_until_effort": True, **args})
 
 
-def test_set_gripper_close_attaches_the_jaw_crop_and_awaits_confirm_grasp(server: Any, robot: FakeRobot) -> None:
+def test_set_gripper_close_reports_the_band_only(server: Any, robot: FakeRobot) -> None:
     res = close_on_object(server, robot)
     data = res.structured_content
     assert data["status"] == "grasped", data["message"]
-    images = [c for c in res.content if c.type == "image"]
-    assert len(images) == 1 and images[0].mime_type == "image/jpeg"
-    check = data["grasp_check"]
-    assert check["image"] == "pending" and check["fused"] is None
-    assert check["crop"]["box_px"] is None and check["crop"]["full_frame_reason"]
-    assert "confirm_grasp" in data["message"] and check["grasp_id"] in data["message"]
-    record = robot.arm.carry.get()
-    assert record.grasp_kind == "unverified" and record.image == "pending" and record.grasp_id == check["grasp_id"]
-    assert ("camera_image", ("head", McpServerConfig().grasp_check.image_px)) in robot.calls
-    confirmed = call(
-        server,
-        "confirm_grasp",
-        {"grasp_id": check["grasp_id"], "object_between_fingers": "yes", "evidence": "block between the pads"},
-    ).structured_content
-    assert confirmed["image"] == "yes" and confirmed["fused"] in {"grasped", "unverified"}
-
-
-def test_set_gripper_close_without_a_camera_frame_is_not_attached_but_still_pending(
-    server: Any, robot: FakeRobot
-) -> None:
-    robot.camera_error = "no frame"
-    res = close_on_object(server, robot)
-    data = res.structured_content
-    assert data["grasp_check"]["image"] == "not_attached" and data["grasp_check"]["crop"] is None
-    assert "no frame" in data["message"] and "confirm_grasp" in data["message"]
     assert not [c for c in res.content if c.type == "image"]
-    assert robot.arm.carry.get().grasp_kind == "unverified"
+    check = data["grasp_check"]
+    assert check["image"] == "not_requested" and check["fused"] is None and check["crop"] is None
+    assert check["band"] in {"object", "empty", "ambiguous"}
+    assert not [c for c in robot.calls if c[0] == "camera_image"]
 
 
 def test_set_gripper_open_and_a_missed_close_attach_nothing(server: Any, robot: FakeRobot) -> None:
@@ -947,10 +934,11 @@ def test_set_gripper_open_and_a_missed_close_attach_nothing(server: Any, robot: 
     assert not [c for c in robot.calls if c[0] == "camera_image"]
 
 
-def test_set_gripper_description_explains_the_confirm_flow(server: Any) -> None:
+def test_set_gripper_description_points_to_the_guided_flow(server: Any) -> None:
     async def run() -> Any:
         return await server.list_tools()
 
     text = next(t for t in anyio.run(run) if t.name == "set_gripper").description or ""
-    for needle in ("confirm_grasp", "grasped", "unverified", "missed"):
+    for needle in ("grasp_close", "grasp_approach", "grasp_lift", "not_requested", "grasped"):
         assert needle in text, needle
+    assert "confirm_grasp" not in text

@@ -20,7 +20,17 @@ from .test_on_demand_subscriptions import Rig
 from .test_tools import TOKEN, FakeRobot, call, take
 
 GROUP_TOOLS = {
-    "arm": ["move_arm_joints", "move_arm_cartesian", "set_gripper", "arm_home", "arm_set_home", "grasp_object"],
+    "arm": [
+        "move_arm_joints",
+        "move_arm_cartesian",
+        "set_gripper",
+        "arm_home",
+        "arm_set_home",
+        "grasp_approach",
+        "grasp_close",
+        "grasp_lift",
+        "grasp_abort",
+    ],
     "base": ["navigate_to_pose", "move_relative", "drive", "look_around", "approach_for_grasp"],
     "head": ["set_head_angles", "head_look_at", "head_home"],
 }

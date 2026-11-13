@@ -40,7 +40,7 @@ Scalar = bool | float | str
 # Literal copy of config.ARM_JOINTS (config.py imports this module; a test asserts equality).
 ARM_JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper")
 # Recovery and read-only access must stay open (design C5): these can never be named by a rule.
-NEVER_GATED = frozenset({"stop", "cancel_motions", "release_control", "arm_home", "resume_motions"})
+NEVER_GATED = frozenset({"stop", "cancel_motions", "release_control", "arm_home", "resume_motions", "grasp_abort"})
 # tools.MOTION_TOOLS - {arm_set_home} | {take_control}, minus NEVER_GATED (arm_home is recovery). Literal copy: this
 # module must not import tools.py; a test asserts it against tools.MOTION_TOOLS. Every other tool is read-only.
 GUARDABLE_TOOLS = frozenset(
@@ -52,8 +52,10 @@ GUARDABLE_TOOLS = frozenset(
         "move_arm_cartesian",
         "set_gripper",
         "look_around",
-        "grasp_object",
         "release_object",
+        "grasp_approach",
+        "grasp_close",
+        "grasp_lift",
         "enqueue_motions",
         "go_to_frontier",
         "look_toward_frontier",
@@ -74,8 +76,10 @@ ARM_ORIGINS = frozenset(
         "move_arm_joints",
         "move_arm_cartesian",
         "set_gripper",
-        "grasp_object",
         "release_object",
+        "grasp_approach",
+        "grasp_close",
+        "grasp_lift",
         "arm_joints",
         "arm_cartesian",
         "gripper",

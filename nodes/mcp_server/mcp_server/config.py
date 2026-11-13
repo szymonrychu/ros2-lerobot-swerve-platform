@@ -1276,7 +1276,7 @@ def default_grip_presets() -> dict[str, GripProfile]:
 
 
 class GripProfileSettings(StrictModel):
-    """Per-object grip profiles (set_gripper close_until_effort, grasp_object, the motion queue and /grasp/command).
+    """Per-object grip profiles (set_gripper close_until_effort, grasp_close, the motion queue and /grasp/command).
 
     Hard caps apply to every profile, preset or inline: torque_limit <= torque_limit_max, squeeze_rad <= squeeze_max_rad
     (presets above a cap fail validation, inline overrides are clamped). The default preset's torque_limit is restored
@@ -1298,7 +1298,7 @@ class GripProfileSettings(StrictModel):
     # contact (never past closed, torque limit unchanged) and the hold is measured again; a re-tightened hold that then
     # shows crush_risk goes back to the hold before it. None = never re-tighten.
     retighten_load_below: float | None = Field(default=30.0, gt=0.0)
-    # An 'unverified' empty-band hold (grasp_object) keeps its profile's torque limit while the agent looks at the image;
+    # An 'unverified' empty-band hold (grasp_close) keeps its profile's torque limit while the agent looks at the image;
     # after this long (s) the default preset's torque limit is restored so the servo does not heat; None = never.
     unverified_hold_relax_s: float | None = Field(default=60.0, gt=0.0)
     # Load-delta contact (arXiv 2608.23983: N_warm 10, N_persist 3): the baseline is the mean of this many finite

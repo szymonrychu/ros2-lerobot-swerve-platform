@@ -7,7 +7,7 @@ restarted mcp_server still refuses to park the arm with the object in the jaws. 
 nothing carried (logged); a failed write keeps the in-memory record (logged).
 
 The record also keeps the grasp verification of the last close_until_effort (grasp_id, sensor band, image state and
-fused outcome, grasp_check.py), so a confirm_grasp pending before a restart still works afterwards. A file written
+fused outcome, grasp_check.py), so a grasp_lift verdict pending before a restart still works afterwards. A file written
 before these fields existed loads with them unset.
 """
 
@@ -41,8 +41,10 @@ class CarryRecord(BaseModel):
     since: float | None = None  # wall clock (s since the epoch) of the last change
     grasp_id: str | None = None  # grasp_id of the last close_until_effort; None after an open or a plain close
     band: Band | None = None  # sensor band of that close
-    image: ImageState | None = None  # visual check state (pending until confirm_grasp, not_requested without one)
-    fused: FusedOutcome | None = None  # fuse(band, image verdict); None until confirm_grasp
+    image: ImageState | None = (
+        None  # visual check state (pending until the grasp_lift verdict, not_requested without one)
+    )
+    fused: FusedOutcome | None = None  # fuse(band, image verdict); None until the grasp_lift verdict
 
 
 def carry_path(home_file: Path) -> Path:

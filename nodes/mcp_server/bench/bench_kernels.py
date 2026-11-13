@@ -140,15 +140,15 @@ class KernelSpec:
 
 
 CAMERA_TOOLS = ("get_camera_image", "get_annotated_camera_image", "pixel_to_ground", "mark_candidate_points")
-GRASP_TOOLS = ("plan_grasp", "grasp_object", "confirm_grasp")
-ARM_TOOLS = ("move_arm_cartesian", "move_arm_joints", "get_arm_reach", "plan_grasp", "grasp_object")
+GRASP_TOOLS = ("plan_grasp", "grasp_approach", "grasp_close")
+ARM_TOOLS = ("move_arm_cartesian", "move_arm_joints", "get_arm_reach", "plan_grasp", "grasp_approach")
 BODY_TOOLS = (
     "move_arm_cartesian",
     "move_arm_joints",
     "enqueue_motions",
     "get_body_state",
     "plan_grasp",
-    "grasp_object",
+    "grasp_approach",
 )
 FRONTIER_TOOLS = ("list_frontiers", "plan_frontier_visit", "go_to_frontier", "look_toward_frontier")
 MAP_TOOLS = ("get_map_summary", "get_topdown_view", "get_robot_state")
@@ -177,8 +177,8 @@ KERNELS: tuple[KernelSpec, ...] = (
     KernelSpec("perception.recompress_jpeg", "camera", ("get_camera_image",), lambda: inputs.image_call("recompress")),
     KernelSpec("grasp.plan_auto", "grasp", GRASP_TOOLS, lambda: inputs.grasp_plan_call(None), max_repetitions=3),
     KernelSpec("grasp.plan_scoop", "grasp", GRASP_TOOLS, lambda: inputs.grasp_plan_call("scoop"), max_repetitions=3),
-    KernelSpec("grasp_check.band_verdict", "grasp", ("confirm_grasp", "grasp_object"), inputs.band_verdict_call),
-    KernelSpec("jaw_crop.jaw_crop", "grasp", ("confirm_grasp", "grasp_object"), inputs.jaw_crop_call),
+    KernelSpec("grasp_check.band_verdict", "grasp", ("grasp_close",), inputs.band_verdict_call),
+    KernelSpec("jaw_crop.jaw_crop", "grasp", ("grasp_close",), inputs.jaw_crop_call),
     KernelSpec("ik.inverse", "ik_reach", ARM_TOOLS, lambda: inputs.ik_call("inverse")),
     KernelSpec("ik.inverse_flange", "ik_reach", ARM_TOOLS, lambda: inputs.ik_call("flange")),
     KernelSpec("ik.forward", "ik_reach", ARM_TOOLS, lambda: inputs.ik_call("forward")),
