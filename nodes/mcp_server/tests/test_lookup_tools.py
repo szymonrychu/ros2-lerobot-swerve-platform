@@ -355,7 +355,7 @@ def test_full_frame_false_leaves_hfov_unknown(tmp_path: Path) -> None:
     cfg = camera_config()
     rec = recorder(robot, cfg)
     rec.record("get_camera_image", "head", JPEG, 640, 480)
-    rec.record("grasp_object", "head", JPEG, 64, 48, full_frame=False)
+    rec.record("grasp_close", "head", JPEG, 64, 48, full_frame=False)
     full, crop = (add["view"] for add in photo_adds(robot))
     assert full["hfov"] == pytest.approx(math.radians(HFOV_DEG))
     assert crop["hfov"] is None and crop["source"] == "camera_mount"  # pose still known, FOV of a crop is not

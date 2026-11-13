@@ -60,7 +60,8 @@ NODE_CONTRACT_METRICS = {
     "lidar_scans_total", "lidar_scan_rate_hz", "lidar_scan_gap_seconds_max", "lidar_driver_restarts_total",
     # mcp_server
     "mcp_tool_calls_total", "mcp_motion_queue_depth", "mcp_motion_steps_total", "mcp_grasp_plans_total",
-    "mcp_grasp_attempts_total", "mcp_gripper_effort", "mcp_grip_profile_uses_total", "mcp_floor_guard_slowdowns_total",
+    "mcp_grasp_attempts_total", "mcp_grasp_flow_steps_total", "mcp_gripper_effort", "mcp_grip_profile_uses_total",
+    "mcp_floor_guard_slowdowns_total",
     "mcp_robot_events_total", "mcp_sample_age_seconds", "mcp_nav_goals_total",
     # poi_store
     "poi_commands_total", "poi_save_failures_total", "poi_count",
@@ -161,6 +162,7 @@ DASHBOARDS: dict[str, tuple[str, str, list[str]]] = {
         [
             "Grasp plans by mode and outcome",
             "Grasp attempts by mode and result",
+            "Grasp flow steps by tool and outcome",
             "Grasp success ratio",
             "Gripper effort",
             "Grip profile uses",
@@ -213,7 +215,9 @@ SLAM_UNITS = [
     "laser_filter",
     "rplidar_a1",
 ]
-GRASP_TOOLS = ["plan_grasp", "grasp_object", "release_object", "move_arm_cartesian"]
+GRASP_TOOLS = [
+    "plan_grasp", "grasp_approach", "grasp_close", "grasp_lift", "grasp_abort", "release_object", "move_arm_cartesian",
+]  # fmt: skip
 # Error counters the health dashboard must show per node.
 HEALTH_ERROR_METRICS = {
     "servo_bus_read_failures_total", "servo_set_register_failures_total", "imu_read_errors_total", "imu_reinits_total",
@@ -636,6 +640,7 @@ def test_grasping_dashboard_queries() -> None:
             assert joint in expr, (title, joint)
     ratio = panel_exprs(dashboard, "Grasp success ratio")
     assert "mcp_grasp_attempts_total" in ratio and "/" in ratio
+    assert "mcp_grasp_flow_steps_total" in panel_exprs(dashboard, "Grasp flow steps by tool and outcome")
     bus = panel_exprs(dashboard, "Servo bus failures")
     assert "servo_bus_read_failures_total" in bus and "servo_set_register_failures_total" in bus
     tools = panel_exprs(dashboard, "Grasp tool latency p50/p95")

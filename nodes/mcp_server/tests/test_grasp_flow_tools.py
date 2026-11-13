@@ -68,9 +68,9 @@ def test_aim_head_at_tool_point_is_unchanged(robot: FakeRobot, ctx: ToolContext)
     take(ctx.server, "arm")
     sample = robot.arm.fresh_sample()
     assert sample is not None
-    assert aim_head_at_tool_point(ctx, "grasp_object", robot.arm.measured(sample)) == (None, False)
+    assert aim_head_at_tool_point(ctx, "grasp_close", robot.arm.measured(sample)) == (None, False)
     assert robot.head_backend.commands[-1] == pytest.approx(aim_at_tool_point(robot))
-    assert aim_head_at_tool_point(ctx, "grasp_object", None)[0] == (
+    assert aim_head_at_tool_point(ctx, "grasp_close", None)[0] == (
         "no fresh arm joint states to place the tool point: the head was not aimed"
     )
 

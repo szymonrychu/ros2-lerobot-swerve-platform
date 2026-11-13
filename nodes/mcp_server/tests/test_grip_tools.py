@@ -152,12 +152,11 @@ def test_plan_grasp_tool_reports_the_resolved_profile(server: Any, robot: FakeRo
         call(server, "plan_grasp", {"object": OBJECT, "grip_profile": "crushing"})
 
 
-def test_grasp_object_tool_takes_a_grip_profile(server: Any, robot: FakeRobot) -> None:
+def test_grasp_close_takes_a_grip_profile(server: Any, robot: FakeRobot) -> None:
     object_in_jaws(robot.arm_backend)
-    data = call(
-        server, "grasp_object", {"object": OBJECT, "strategy": "top_down", "grip_profile": "firm"}
-    ).structured_content
-    assert data["outcome"] == "unverified", data["reasons"]  # a held close awaits confirm_grasp
+    call(server, "grasp_approach", {"object": OBJECT, "strategy": "top_down"})
+    data = call(server, "grasp_close", {"grip_profile": "firm"}).structured_content
+    assert data["outcome"] == "closed", data["reasons"]
     assert data["grasp_check"]["image"] == "pending"
     assert data["grip_profile"]["name"] == "firm"
     assert "holding_load" in data and "slipping" in data and "crush_risk" in data
@@ -205,11 +204,11 @@ def test_tool_descriptions_point_plush_toys_at_the_soft_profile(server: Any) -> 
         return await server.list_tools()
 
     tools = {t.name: json.dumps(t.input_schema) + (t.description or "") for t in anyio.run(run)}
-    for name in ("set_gripper", "grasp_object", "plan_grasp", "enqueue_motions"):
+    for name in ("set_gripper", "grasp_approach", "grasp_close", "plan_grasp", "enqueue_motions"):
         text = tools[name]
         assert "soft" in text, name
-    for name in ("set_gripper", "grasp_object"):
+    for name in ("set_gripper", "grasp_close"):
         assert "plush" in tools[name] and "retightened" in tools[name], name
     # The grip profile listing (params / grip_profile description) names soft with its values and use.
-    assert "soft: torque_limit 600, squeeze 0.08 rad" in tools["grasp_object"]
-    assert "soft for plush, foam or fabric" in tools["grasp_object"]
+    assert "soft: torque_limit 600, squeeze 0.08 rad" in tools["grasp_close"]
+    assert "soft for plush, foam or fabric" in tools["grasp_close"]

@@ -3,12 +3,13 @@
 Deterministic and based on tool_call / tool_result / phase_completed only, never on phase names:
 
 - navigate: navigate_to_pose / move_relative / drive calls; ok when the last one's result is not an error.
-- locate: perception calls before the first grasp_object; ok when a grasp_object call or a plan_grasp with outcome
+- locate: perception calls before the first grasp_approach; ok when a grasp_approach call or a plan_grasp with outcome
   ``planned`` follows.
-- grasp: grasp_object calls (attempts = their number); ok when the last outcome is grasped or unverified.
-- verify: a ``head`` image (the head D435 colour stream) or get_arm_state after the last grasp_object, followed by a phase_completed; ok when that
-  phase closed done and no release_object happened before it outside a place-stage phase.
-- place: release_object after the last grasp_object; ok when it released and its enclosing phase closed done.
+- grasp: the guided flow (grasp_approach / grasp_close / grasp_lift / grasp_abort); attempts = the grasp_close calls; ok
+  when the last grasp_lift outcome is ``lifted``.
+- verify: a ``head`` image (the head D435 colour stream) or get_arm_state after the last grasp_lift, followed by a
+  phase_completed; ok when that phase closed done and no release_object happened before it outside a place-stage phase.
+- place: release_object after the last grasp_lift; ok when it released and its enclosing phase closed done.
 
 Each phase is mapped to the stage whose tools it called most (a tie goes to the later stage); its attempts are the
 highest attempt of its phase_completed events. Tool calls the runner makes itself (events with a ``source``) are not
@@ -48,12 +49,15 @@ PERCEPTION_TOOLS = frozenset(
     }
 )
 IMAGE_TOOLS = frozenset({"get_camera_image", "get_annotated_camera_image"})
-GRASP_TOOL = "grasp_object"
+APPROACH_TOOL = "grasp_approach"
+CLOSE_TOOL = "grasp_close"
+LIFT_TOOL = "grasp_lift"
+FLOW_TOOLS = frozenset({APPROACH_TOOL, CLOSE_TOOL, LIFT_TOOL, "grasp_abort"})
 PLAN_GRASP_TOOL = "plan_grasp"
 RELEASE_TOOL = "release_object"
 ARM_STATE_TOOL = "get_arm_state"
 HEAD_CAMERA = "head"
-GRASP_OK_OUTCOMES = frozenset({"grasped", "unverified"})
+GRASP_OK_OUTCOMES = frozenset({"lifted"})
 PLANNED_OUTCOME = "planned"
 RELEASED_OUTCOME = "released"
 PHASE_DONE = "done"
@@ -193,15 +197,15 @@ def call_stage(call: ToolCall, pos: int, first_grasp: int | None, last_grasp: in
     Args:
         call (ToolCall): The call.
         pos (int): Its index among the trial's model calls.
-        first_grasp (int | None): Index of the first grasp_object call.
-        last_grasp (int | None): Index of the last grasp_object call.
+        first_grasp (int | None): Index of the first grasp_approach call.
+        last_grasp (int | None): Index of the last grasp_lift call.
 
     Returns:
         str | None: The stage, None for calls of no stage.
     """
     if call.name in NAV_TOOLS:
         return STAGE_NAVIGATE
-    if call.name == GRASP_TOOL:
+    if call.name in FLOW_TOOLS:
         return STAGE_GRASP
     if call.name == RELEASE_TOOL:
         return STAGE_PLACE
@@ -217,8 +221,8 @@ def map_phase_stages(calls: list[ToolCall], first_grasp: int | None, last_grasp:
 
     Args:
         calls (list[ToolCall]): Model calls in order.
-        first_grasp (int | None): Index of the first grasp_object call.
-        last_grasp (int | None): Index of the last grasp_object call.
+        first_grasp (int | None): Index of the first grasp_approach call.
+        last_grasp (int | None): Index of the last grasp_lift call.
 
     Returns:
         dict[str, str]: Phase id to stage, only for phases with stage tools.
@@ -251,7 +255,7 @@ def claim_locate(calls: list[ToolCall], first_grasp: int | None) -> str:
 
     Args:
         calls (list[ToolCall]): Model calls in order.
-        first_grasp (int | None): Index of the first grasp_object call.
+        first_grasp (int | None): Index of the first grasp_approach call.
 
     Returns:
         str: Stage status.
@@ -270,17 +274,17 @@ def claim_locate(calls: list[ToolCall], first_grasp: int | None) -> str:
 
 
 def claim_grasp(calls: list[ToolCall], last_grasp: int | None) -> str:
-    """Grasp claim: ok when the last grasp_object outcome is grasped or unverified.
+    """Grasp claim: ok when the last grasp_lift outcome is lifted.
 
     Args:
         calls (list[ToolCall]): Model calls in order.
-        last_grasp (int | None): Index of the last grasp_object call.
+        last_grasp (int | None): Index of the last grasp_lift call.
 
     Returns:
         str: Stage status.
     """
     if last_grasp is None:
-        return STATUS_NOT_REACHED
+        return STATUS_FAIL if any(c.name in FLOW_TOOLS for c in calls) else STATUS_NOT_REACHED
     outcome = result_outcome(calls[last_grasp].result or {})
     return STATUS_OK if outcome in GRASP_OK_OUTCOMES else STATUS_FAIL
 
@@ -292,7 +296,7 @@ def claim_verify(
 
     Args:
         calls (list[ToolCall]): Model calls in order.
-        last_grasp (int | None): Index of the last grasp_object call.
+        last_grasp (int | None): Index of the last grasp_lift call.
         closes (list[PhaseClose]): phase_completed events in order.
         stages (dict[str, str]): Phase id to stage.
 
@@ -319,7 +323,7 @@ def claim_place(calls: list[ToolCall], last_grasp: int | None, closes: list[Phas
 
     Args:
         calls (list[ToolCall]): Model calls in order.
-        last_grasp (int | None): Index of the last grasp_object call.
+        last_grasp (int | None): Index of the last grasp_lift call.
         closes (list[PhaseClose]): phase_completed events in order.
 
     Returns:
@@ -421,9 +425,10 @@ def derive(events: list[dict[str, Any]]) -> Derivation:
         elif kind == "turn_end":
             turn_end = {k: v for k, v in event.items() if k not in ("seq", "ts", "type")}
             instruction_id = event.get("instruction_id") or instruction_id
-    grasps = [pos for pos, c in enumerate(calls) if c.name == GRASP_TOOL]
-    first_grasp = grasps[0] if grasps else None
-    last_grasp = grasps[-1] if grasps else None
+    approaches = [pos for pos, c in enumerate(calls) if c.name == APPROACH_TOOL]
+    lifts = [pos for pos, c in enumerate(calls) if c.name == LIFT_TOOL]
+    first_grasp = approaches[0] if approaches else None
+    last_grasp = lifts[-1] if lifts else None
     stages = map_phase_stages(calls, first_grasp, last_grasp)
     claimed = {
         STAGE_NAVIGATE: claim_navigate(calls),
@@ -434,7 +439,7 @@ def derive(events: list[dict[str, Any]]) -> Derivation:
     }
     return Derivation(
         claimed=claimed,
-        grasp_attempts=len(grasps),
+        grasp_attempts=sum(c.name == CLOSE_TOOL for c in calls),
         phases=build_phases(phase_order, started_attempts, closes, stages),
         lookup_ids=lookup_ids,
         instruction_id=instruction_id,

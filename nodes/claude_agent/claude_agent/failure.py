@@ -62,8 +62,22 @@ OUTCOME_KEY = "outcome"
 LOOKUP_ID_PATTERN = re.compile(r"[0-9a-f]{32}")
 LOOKUP_ID_TEXT_PATTERN = re.compile(r'"lookup_id"\s*:\s*"([0-9a-f]{32})"')
 OUTCOME_TEXT_PATTERN = re.compile(r'"outcome"\s*:\s*"([a-z_]+)"')
-GRASP_TOOLS = ("grasp_object", "release_object")
-GRASP_OUTCOMES = ("planned", "infeasible", "grasped", "unverified", "missed", "aborted", "released")
+GRASP_TOOLS = ("grasp_approach", "grasp_close", "grasp_lift", "grasp_abort", "release_object")
+GRASP_OUTCOMES = (
+    "planned",
+    "infeasible",
+    "grasped",
+    "unverified",
+    "missed",
+    "aborted",
+    "released",
+    "landed",
+    "closed",
+    "lifted",
+    "dropped",
+    "interrupted",
+    "stopped",
+)
 EVIDENCE_SEVERITIES = ("warning", "critical")
 SEVERITY_CRITICAL = "critical"
 EVENT_TOOL_CALL = "tool_call"
@@ -80,7 +94,7 @@ class ToolCallEvidence(BaseModel):
         name (str): Short tool name.
         kind (str): sensor, effector or uncapped.
         is_error (bool): Whether its result was an error (False until the result arrives).
-        outcome (str | None): GraspResult outcome of grasp_object / release_object; None otherwise.
+        outcome (str | None): GraspResult outcome of a grasp flow tool / release_object; None otherwise.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -230,7 +244,7 @@ def extract_lookup_ids(result_event: dict[str, Any]) -> list[str]:
 
 
 def extract_grasp_outcome(result_event: dict[str, Any]) -> str | None:
-    """Extract the GraspResult outcome from a grasp_object / release_object tool_result event.
+    """Extract the GraspResult outcome from a grasp flow or release_object tool_result event.
 
     Args:
         result_event (dict[str, Any]): A tool_result event.

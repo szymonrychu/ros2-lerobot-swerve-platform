@@ -1,4 +1,4 @@
-"""Regression tests of the 2026-10-10 grip tuning session: the full grasp_object sequence on a fake follower that sags
+"""Regression tests of the 2026-10-10 grip tuning session: the full grasp sequence on a fake follower that sags
 under gravity (and, in one case, gets its shoulder_pan pushed off target while the jaws squeeze). Every arm joint must
 stay commanded at its intended target through approach, close, lift and hold (sag compensation never touches
 shoulder_pan), any joint off its intent by more than its converge tolerance must show up in the result's
@@ -90,7 +90,7 @@ def object_in_jaws(be: FakeArmBackend, pan_push: float = 0.0) -> None:
 def run(
     arm: ArmController, cfg: McpServerConfig, monkeypatch: pytest.MonkeyPatch, grip: str | None = None
 ) -> tuple[GraspResult, GraspPlan, dict]:
-    """Run grasp_object's executor; returns the result, the executed plan and the command index each step started at."""
+    """Run the grasp executor; returns the result, the executed plan and the command index each step started at."""
     executor = GraspExecutor(arm, cfg)
     captured: dict[str, Any] = {}
     marks: dict[str, int] = {}

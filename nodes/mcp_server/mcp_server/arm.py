@@ -882,7 +882,7 @@ class ArmController:
         Args:
             kind (GraspKind | None): grasped / unverified (an object is held), None (nothing held).
             check (GraspCheck | None): Grasp check of a close_until_effort; None for a plain close (forgets the last
-                grasp_id, so a confirm_grasp for it is refused).
+                grasp_id, so a verdict for it is refused).
         """
         self.last_grasp_check = check
         self.carry.update(
@@ -925,7 +925,7 @@ class ArmController:
             self.last_grasp_check = check.model_copy(update=changes)
 
     def mark_visual_pending(self, grasp_id: str) -> CarryRecord:
-        """A jaw crop of the close went to the agent: the hold is unverified until confirm_grasp records a verdict.
+        """A jaw crop of the close went to the agent: the hold is unverified until the grasp_lift verdict is recorded.
 
         Starts the unverified-hold relax timer (grip_profiles.unverified_hold_relax_s) unless it already runs.
 
@@ -2314,7 +2314,7 @@ class ArmController:
     def hold_empty_close(self, grip_profile: GripChoice) -> str:
         """Keep a jaw that closed into the empty band (closed_no_contact) gripping as a grasp would.
 
-        grasp_object's 'unverified' hold: a soft object (a plush) squashes until the jaw is within
+        An unverified hold of the guided close: a soft object (a plush) squashes until the jaw is within
         gripper_empty_stall_rad of closed, so the close cannot tell it from empty jaws. The close restored the default
         torque limit; this writes the grip profile's (capped) torque limit again and holds the measured jaw plus the
         profile's squeeze_rad toward closed (never past closed), the arm joints staying at their intended targets.

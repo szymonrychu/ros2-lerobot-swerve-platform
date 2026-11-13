@@ -367,7 +367,7 @@ async def test_the_carrying_field_wins_over_a_stale_footprint_radius(tmp_path: P
 async def test_tool_result_text_no_longer_decides_carrying(tmp_path: Path) -> None:
     """A grasp result alone does not make the runner claim carrying: only get_control_state does."""
     script = [
-        tool_call("g1", "grasp_object"),
+        tool_call("g1", "grasp_lift"),
         tool_result("g1", '{"outcome": "grasped", "reasons": []}'),
         tool_call("r1", "release_control"),
         tool_result("r1", f"Error: {CARRYING_REFUSAL}", is_error=True),

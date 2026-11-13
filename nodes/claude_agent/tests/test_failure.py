@@ -150,6 +150,8 @@ def test_extract_lookup_ids_from_truncated_json() -> None:
 
 def test_extract_grasp_outcome() -> None:
     assert extract_grasp_outcome(grasp_result("g1", "missed")) == "missed"
+    assert extract_grasp_outcome(grasp_result("g1", "dropped")) == "dropped"
+    assert extract_grasp_outcome(grasp_result("g1", "lifted")) == "lifted"
     assert extract_grasp_outcome(grasp_result("g1", "grasped")) == "grasped"
     assert extract_grasp_outcome(grasp_result("g1", "teleported")) is None
     assert extract_grasp_outcome(camera_result("c1", LOOKUP_A)) is None
@@ -166,8 +168,8 @@ def test_collector_attributes_only_events_of_the_active_entry() -> None:
     collector.start_entry("pick", 1, 10.0)
     collector.add_event(tool_call("c1"))
     collector.add_event(camera_result("c1", LOOKUP_B))
-    collector.add_event(tool_call("g1", "grasp_object", "effector"))
-    collector.add_event(grasp_result("g1", "missed"))
+    collector.add_event(tool_call("g1", "grasp_lift", "effector"))
+    collector.add_event(grasp_result("g1", "dropped"))
     collector.add_event(tool_call("c2"))
     collector.add_event(camera_result("c2", LOOKUP_C))
     collector.add_event(denied("d1"))
@@ -176,9 +178,9 @@ def test_collector_attributes_only_events_of_the_active_entry() -> None:
     evidence = collector.snapshot()
     assert [call.id for call in evidence.tool_calls] == ["c1", "g1", "c2"]
     assert evidence.tool_calls[1] == ToolCallEvidence(
-        id="g1", name="grasp_object", kind="effector", is_error=False, outcome="missed"
+        id="g1", name="grasp_lift", kind="effector", is_error=False, outcome="dropped"
     )
-    assert evidence.tool_calls[0].outcome is None, "only grasp_object/release_object carry an outcome"
+    assert evidence.tool_calls[0].outcome is None, "only the grasp flow tools and release_object carry an outcome"
     assert evidence.tool_calls_total == 3 and evidence.denied == 1
     assert evidence.robot_events == [
         RobotEventEvidence(event_type="servo_overload", severity="critical", message="elbow overload", ts=3.5)
@@ -263,7 +265,7 @@ def test_summarize_evidence_is_short_and_names_the_signals() -> None:
     assert summarize_evidence(PhaseEvidence()) == "no tool calls or robot events recorded"
     evidence = PhaseEvidence(
         tool_calls=[
-            ToolCallEvidence(id="g1", name="grasp_object", kind="effector", is_error=False, outcome="missed"),
+            ToolCallEvidence(id="g1", name="grasp_lift", kind="effector", is_error=False, outcome="dropped"),
             ToolCallEvidence(id="m1", name="move_arm", kind="effector", is_error=True),
         ],
         tool_calls_total=5,
@@ -276,11 +278,11 @@ def test_summarize_evidence_is_short_and_names_the_signals() -> None:
     )
     text = summarize_evidence(evidence)
     assert "5 tool calls" in text and "1 error" in text and "1 denied" in text
-    assert "grasp_object=missed" in text and "critical servo_overload" in text
+    assert "grasp_lift=dropped" in text and "critical servo_overload" in text
     assert LOOKUP_A in text and LOOKUP_B in text
     huge = PhaseEvidence(
         tool_calls=[
-            ToolCallEvidence(id=str(n), name="grasp_object", kind="effector", is_error=True, outcome="aborted")
+            ToolCallEvidence(id=str(n), name="grasp_lift", kind="effector", is_error=True, outcome="aborted")
             for n in range(12)
         ],
         tool_calls_total=99,

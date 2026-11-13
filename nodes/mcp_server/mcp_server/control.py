@@ -207,7 +207,7 @@ class LeaderActivity:
 
 
 def grasp_reason(record: CarryRecord) -> str:
-    """Carrying reason of a held grasp: its verification state (pending confirm_grasp, the fused outcome) or kind.
+    """Carrying reason of a held grasp: its verification state (pending the grasp_lift verdict, the fused outcome) or kind.
 
     Args:
         record (CarryRecord): Carry record with grasp_held set.
@@ -217,7 +217,7 @@ def grasp_reason(record: CarryRecord) -> str:
     """
     if record.image == "pending":
         return (
-            f"the last grasp is an unverified hold awaiting confirm_grasp (grasp_id {record.grasp_id}, band "
+            f"the last grasp is an unverified hold awaiting the grasp_lift verdict (grasp_id {record.grasp_id}, band "
             f"{record.band})"
         )
     if record.fused == "grasped":

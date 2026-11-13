@@ -272,7 +272,6 @@ def test_tool_subsystem_table() -> None:
         "move_arm_cartesian",
         "set_gripper",
         "arm_home",
-        "grasp_object",
         "release_object",
         "grasp_approach",
         "grasp_close",

@@ -81,8 +81,10 @@ def test_scopes_match_the_design() -> None:
         assert set(by_name[name].applies_to.tools) == base_tools
         assert by_name[name].applies_to.steps == base_steps
     assert by_name["no_arm_retake_from_human"].applies_to.tools == ["take_control"]
-    assert "grasp_object" not in by_name["wrist_roll_needs_lifted_arm"].applies_to.arm_motion_from
-    assert {"grasp_object", "grasp"} <= set(by_name["no_stretched_shoulder_overreach"].applies_to.arm_motion_from)
+    assert "grasp_approach" not in by_name["wrist_roll_needs_lifted_arm"].applies_to.arm_motion_from
+    assert {"grasp_approach", "grasp_lift", "grasp"} <= set(
+        by_name["no_stretched_shoulder_overreach"].applies_to.arm_motion_from
+    )
     assert by_name["no_arm_retake_from_human"].when_unknown == "allow"
     assert all(by_name[n].when_unknown == "reject" for n in EXPECTED_RULES if n != "no_arm_retake_from_human")
 

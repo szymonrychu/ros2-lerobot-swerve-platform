@@ -142,17 +142,24 @@ def locate(trace: Trace, lookup: str = LOOKUP_1) -> None:
     trace.tool("plan_grasp", {"outcome": "planned"}, x=0.25, y=0.0)
 
 
+def flow(t: Trace, outcome: str, image: bool = False) -> None:
+    """One guided grasp attempt: grasp_approach (landed), grasp_close (closed), grasp_lift (outcome)."""
+    t.tool("grasp_approach", {"outcome": "landed"})
+    t.tool("grasp_close", {"outcome": "closed"})
+    t.tool("grasp_lift", {"outcome": outcome}, image=image)
+
+
 def happy_trace() -> Trace:
-    """Locate, grasp missed then grasped (with a retry), verify, place."""
+    """Locate, grasp dropped then lifted (with a retry), verify, place."""
     t = Trace()
     t.phase("find")
     locate(t)
     t.close("find")
     t.phase("grasp")
-    t.tool("grasp_object", {"outcome": "missed", "reasons": ["no contact"]}, image=True)
+    flow(t, "dropped", image=True)
     t.close("grasp", "failed", failure=FAILURE)
     t.phase("grasp", attempt=2)
-    t.tool("grasp_object", {"outcome": "grasped"}, image=True)
+    flow(t, "lifted", image=True)
     t.close("grasp", attempt=2)
     t.phase("check")
     t.tool("get_camera_image", {"camera": "head", "lookup_id": LOOKUP_2}, image=True, camera="head")
@@ -202,7 +209,7 @@ def test_phase_names_are_ignored() -> None:
     """A phase called 'navigate' that only grasps maps to grasp; claims never read names."""
     t = Trace()
     t.add("phase_started", id="p1", name="navigate to the kitchen", status="active", attempt=1)
-    t.tool("grasp_object", {"outcome": "grasped"})
+    flow(t, "lifted")
     t.close("p1")
     d = derive(t.end())
     assert d.phases[0].stage == STAGE_GRASP
@@ -266,16 +273,16 @@ def test_locate_ok_with_planned_plan_and_no_grasp() -> None:
 def test_locate_not_reached_when_grasp_without_perception() -> None:
     t = Trace()
     t.phase("p")
-    t.tool("grasp_object", {"outcome": "grasped"})
+    flow(t, "lifted")
     t.close("p")
     assert derive(t.end()).claimed[STAGE_LOCATE] == STATUS_NOT_REACHED
 
 
-def test_grasp_unverified_is_ok_and_missed_last_fails() -> None:
+def test_grasp_lifted_is_ok_and_dropped_last_fails() -> None:
     t = Trace()
     t.phase("p")
     locate(t)
-    t.tool("grasp_object", {"outcome": "unverified"}, image=True)
+    flow(t, "lifted", image=True)
     t.close("p")
     d = derive(t.end())
     assert d.claimed[STAGE_GRASP] == STATUS_OK
@@ -284,8 +291,8 @@ def test_grasp_unverified_is_ok_and_missed_last_fails() -> None:
     t = Trace()
     t.phase("p")
     locate(t)
-    t.tool("grasp_object", {"outcome": "grasped"}, image=True)
-    t.tool("grasp_object", {"outcome": "missed"}, image=True)
+    flow(t, "lifted", image=True)
+    flow(t, "dropped", image=True)
     t.close("p", "failed", failure=FAILURE)
     d = derive(t.end())
     assert d.claimed[STAGE_GRASP] == STATUS_FAIL
@@ -295,7 +302,7 @@ def test_grasp_unverified_is_ok_and_missed_last_fails() -> None:
 def test_grasp_error_result_fails() -> None:
     t = Trace()
     t.phase("p")
-    t.tool("grasp_object", None, is_error=True)
+    t.tool("grasp_lift", None, is_error=True)
     t.close("p", "failed", failure=FAILURE)
     assert derive(t.end()).claimed[STAGE_GRASP] == STATUS_FAIL
 
@@ -304,16 +311,16 @@ def test_verify_needs_check_after_last_grasp_and_phase_close() -> None:
     # head image before the last grasp does not count
     t = Trace()
     t.phase("p")
-    t.tool("grasp_object", {"outcome": "missed"})
+    flow(t, "dropped")
     t.tool("get_camera_image", {"camera": "head"}, image=True, camera="head")
-    t.tool("grasp_object", {"outcome": "grasped"})
+    flow(t, "lifted")
     t.close("p")
     assert derive(t.end()).claimed[STAGE_VERIFY] == STATUS_NOT_REACHED
 
     # check after the last grasp but the instruction ended before any phase_completed
     t = Trace()
     t.phase("p")
-    t.tool("grasp_object", {"outcome": "grasped"})
+    flow(t, "lifted")
     t.tool("get_arm_state", {"joints": {}})
     assert derive(t.end("interrupted")).claimed[STAGE_VERIFY] == STATUS_NOT_REACHED
 
@@ -323,7 +330,7 @@ def test_verify_stage_accepts_a_head_image_after_grasp() -> None:
     for tool in ("get_camera_image", "get_annotated_camera_image"):
         t = Trace()
         t.phase("p")
-        t.tool("grasp_object", {"outcome": "grasped"})
+        flow(t, "lifted")
         t.tool(tool, {"camera": "head"}, image=True, camera="head")
         t.close("p")
         assert derive(t.end()).claimed[STAGE_VERIFY] == STATUS_OK
@@ -334,7 +341,7 @@ def test_verify_stage_ignores_front_and_back_images() -> None:
     for camera in ("front", "back"):
         t = Trace()
         t.phase("p")
-        t.tool("grasp_object", {"outcome": "grasped"})
+        flow(t, "lifted")
         t.tool("get_camera_image", {"camera": camera}, image=True, camera=camera)
         t.close("p")
         assert derive(t.end()).claimed[STAGE_VERIFY] == STATUS_NOT_REACHED, camera
@@ -343,7 +350,7 @@ def test_verify_stage_ignores_front_and_back_images() -> None:
 def test_verify_phase_closed_failed_is_fail() -> None:
     t = Trace()
     t.phase("g")
-    t.tool("grasp_object", {"outcome": "unverified"})
+    flow(t, "lifted")
     t.close("g")
     t.phase("v")
     t.tool("get_camera_image", {"camera": "head"}, image=True, camera="head")
@@ -355,7 +362,7 @@ def test_verify_release_before_place_stage_fails() -> None:
     """A release in the verify phase (a verify-mapped phase, not a place phase) means the object was dropped."""
     t = Trace()
     t.phase("g")
-    t.tool("grasp_object", {"outcome": "grasped"})
+    flow(t, "lifted")
     t.close("g")
     t.phase("v")
     t.tool("get_camera_image", {"camera": "head"}, image=True, camera="head")
@@ -371,7 +378,7 @@ def test_verify_and_place_in_one_phase_is_ok() -> None:
     """Check and release in one phase: the tie goes to place, so the release is in the place stage."""
     t = Trace()
     t.phase("g")
-    t.tool("grasp_object", {"outcome": "grasped"})
+    flow(t, "lifted")
     t.close("g")
     t.phase("vp")
     t.tool("get_camera_image", {"camera": "head"}, image=True, camera="head")
@@ -386,7 +393,7 @@ def test_verify_and_place_in_one_phase_is_ok() -> None:
 def test_release_then_done_gives_place_ok() -> None:
     t = Trace()
     t.phase("g")
-    t.tool("grasp_object", {"outcome": "grasped"})
+    flow(t, "lifted")
     t.close("g")
     t.phase("drop")
     t.tool("release_object", {"outcome": "released"})
@@ -397,14 +404,14 @@ def test_release_then_done_gives_place_ok() -> None:
 def test_release_with_phase_failed_or_open_fails() -> None:
     t = Trace()
     t.phase("drop")
-    t.tool("grasp_object", {"outcome": "grasped"})
+    flow(t, "lifted")
     t.tool("release_object", {"outcome": "released"})
     t.close("drop", "failed", failure=FAILURE)
     assert derive(t.end()).claimed[STAGE_PLACE] == STATUS_FAIL
 
     t = Trace()
     t.phase("drop")
-    t.tool("grasp_object", {"outcome": "grasped"})
+    flow(t, "lifted")
     t.tool("release_object", {"outcome": "released"})
     assert derive(t.end("timeout")).claimed[STAGE_PLACE] == STATUS_FAIL
 
@@ -412,7 +419,7 @@ def test_release_with_phase_failed_or_open_fails() -> None:
 def test_release_error_fails_place() -> None:
     t = Trace()
     t.phase("drop")
-    t.tool("grasp_object", {"outcome": "grasped"})
+    flow(t, "lifted")
     t.tool("release_object", {"outcome": "aborted"}, is_error=True)
     t.close("drop")
     assert derive(t.end()).claimed[STAGE_PLACE] == STATUS_FAIL
@@ -421,9 +428,9 @@ def test_release_error_fails_place() -> None:
 def test_retry_release_before_last_grasp_is_not_place() -> None:
     t = Trace()
     t.phase("g")
-    t.tool("grasp_object", {"outcome": "unverified"})
+    flow(t, "lifted")
     t.tool("release_object", {"outcome": "released"})
-    t.tool("grasp_object", {"outcome": "grasped"})
+    flow(t, "lifted")
     t.close("g")
     assert derive(t.end()).claimed[STAGE_PLACE] == STATUS_NOT_REACHED
 
@@ -432,12 +439,12 @@ def test_stage_mapping_tie_goes_to_later_stage() -> None:
     t = Trace()
     t.phase("mixed")
     t.tool("look_around", {"lookup_id": LOOKUP_1})
-    t.tool("grasp_object", {"outcome": "grasped"})
+    flow(t, "lifted")
     t.close("mixed")
     t.phase("navgrasp")
     t.tool("drive", {"ok": True})
     t.tool("drive", {"ok": True})
-    t.tool("grasp_object", {"outcome": "missed"})
+    t.tool("grasp_lift", {"outcome": "dropped"})
     t.close("navgrasp")
     t.phase("talk")
     t.tool("get_battery_state", {"percent": 80})
@@ -453,7 +460,7 @@ def test_loop_reentry_keeps_max_attempt_per_phase_id() -> None:
     t = Trace()
     for attempt in (1, 2, 1):
         t.phase("g", attempt=attempt)
-        t.tool("grasp_object", {"outcome": "missed"})
+        flow(t, "dropped")
         t.close("g", "failed", attempt=attempt, failure=FAILURE if attempt != 2 else None)
     d = derive(t.end())
     assert len(d.phases) == 1
@@ -489,7 +496,7 @@ def test_events_are_sorted_by_seq_and_turn_end_matches_instruction() -> None:
 
 def test_no_turn_end_and_no_phases() -> None:
     t = Trace()
-    t.tool("grasp_object", {"outcome": "grasped"})
+    flow(t, "lifted")
     d = derive(t.events)
     assert d.turn_end is None
     assert d.phases == []

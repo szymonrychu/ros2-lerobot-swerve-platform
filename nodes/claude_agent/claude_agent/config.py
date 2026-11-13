@@ -20,7 +20,6 @@ DEFAULT_EFFECTOR_TOOLS = [
     "set_gripper",
     "arm_home",
     "look_around",
-    "grasp_object",
     "release_object",
     "grasp_approach",
     "grasp_close",
@@ -84,7 +83,6 @@ DEFAULT_SENSOR_TOOLS = [
     "plan_frontier_visit",
     "get_exploration_status",
     "mark_survey_spot",
-    "confirm_grasp",
 ]
 # Approximate maximum horizontal reach of the SO-101 from the shoulder_lift axis, in cm: the straight-line sum of the link
 # offsets in nodes/web_ui/urdf/so101_arm.urdf (shoulder_lift -> elbow_flex 11.6 + elbow_flex -> wrist_flex 13.5 +

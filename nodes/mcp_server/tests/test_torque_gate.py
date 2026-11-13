@@ -26,7 +26,6 @@ GROUP_TOOLS = {
         "set_gripper",
         "arm_home",
         "arm_set_home",
-        "grasp_object",
         "grasp_approach",
         "grasp_close",
         "grasp_lift",

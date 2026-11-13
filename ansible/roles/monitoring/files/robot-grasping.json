@@ -58,7 +58,7 @@
         "type": "prometheus",
         "uid": "prometheus-robot"
       },
-      "description": "plan_grasp / grasp_object plans per 15 min by strategy mode and feasibility.",
+      "description": "plan_grasp dry runs per 15 min by strategy mode and feasibility.",
       "gridPos": {
         "h": 8,
         "w": 9,
@@ -155,6 +155,58 @@
       ]
     },
     {
+      "type": "timeseries",
+      "title": "Grasp flow steps by tool and outcome",
+      "id": 18,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-robot"
+      },
+      "description": "Guided grasp flow steps per 15 min by tool (grasp_approach, grasp_close, grasp_lift, grasp_abort) and outcome.",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "min": 0,
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-robot"
+          },
+          "refId": "A",
+          "expr": "sum by (tool, outcome) (increase(mcp_grasp_flow_steps_total{host=\"client\"}[15m]))",
+          "legendFormat": "{{tool}} {{outcome}}"
+        }
+      ]
+    },
+    {
       "type": "stat",
       "title": "Grasp success ratio",
       "id": 4,
@@ -234,7 +286,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 9
+        "y": 17
       },
       "fieldConfig": {
         "defaults": {
@@ -278,7 +330,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 9
+        "y": 17
       },
       "fieldConfig": {
         "defaults": {
@@ -330,7 +382,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 9
+        "y": 17
       },
       "fieldConfig": {
         "defaults": {
@@ -379,7 +431,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 17
+        "y": 25
       }
     },
     {
@@ -395,7 +447,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 18
+        "y": 26
       },
       "fieldConfig": {
         "defaults": {
@@ -447,7 +499,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 18
+        "y": 26
       },
       "fieldConfig": {
         "defaults": {
@@ -495,12 +547,12 @@
         "type": "prometheus",
         "uid": "prometheus-robot"
       },
-      "description": "Duration quantiles of the grasp-related MCP tools (plan_grasp, grasp_object, release_object, move_arm_cartesian, set_gripper), 15 min window.",
+      "description": "Duration quantiles of the grasp-related MCP tools (plan_grasp, grasp_approach, grasp_close, grasp_lift, grasp_abort, release_object, move_arm_cartesian, set_gripper), 15 min window.",
       "gridPos": {
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 26
+        "y": 34
       },
       "fieldConfig": {
         "defaults": {
@@ -526,7 +578,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "A",
-          "expr": "histogram_quantile(0.5, sum by (le, tool) (rate(mcp_tool_duration_seconds_bucket{host=\"client\", tool=~\"plan_grasp|grasp_object|release_object|move_arm_cartesian|set_gripper\"}[15m])))",
+          "expr": "histogram_quantile(0.5, sum by (le, tool) (rate(mcp_tool_duration_seconds_bucket{host=\"client\", tool=~\"plan_grasp|grasp_approach|grasp_close|grasp_lift|grasp_abort|release_object|move_arm_cartesian|set_gripper\"}[15m])))",
           "legendFormat": "p50 {{tool}}"
         },
         {
@@ -535,7 +587,7 @@
             "uid": "prometheus-robot"
           },
           "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by (le, tool) (rate(mcp_tool_duration_seconds_bucket{host=\"client\", tool=~\"plan_grasp|grasp_object|release_object|move_arm_cartesian|set_gripper\"}[15m])))",
+          "expr": "histogram_quantile(0.95, sum by (le, tool) (rate(mcp_tool_duration_seconds_bucket{host=\"client\", tool=~\"plan_grasp|grasp_approach|grasp_close|grasp_lift|grasp_abort|release_object|move_arm_cartesian|set_gripper\"}[15m])))",
           "legendFormat": "p95 {{tool}}"
         }
       ]
@@ -550,7 +602,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 34
+        "y": 42
       }
     },
     {
@@ -566,7 +618,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 35
+        "y": 43
       },
       "fieldConfig": {
         "defaults": {
@@ -610,7 +662,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 35
+        "y": 43
       },
       "fieldConfig": {
         "defaults": {
@@ -654,7 +706,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 35
+        "y": 43
       },
       "fieldConfig": {
         "defaults": {
@@ -726,7 +778,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 43
+        "y": 51
       },
       "fieldConfig": {
         "defaults": {
@@ -796,7 +848,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 43
+        "y": 51
       },
       "fieldConfig": {
         "defaults": {

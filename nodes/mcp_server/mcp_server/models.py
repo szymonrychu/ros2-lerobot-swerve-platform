@@ -635,7 +635,7 @@ class ArmMotionResult(BaseModel):
         description="Grasp verification of a close_until_effort: {grasp_id (minted per close), band (sensor verdict: "
         "object / empty / ambiguous), evidence (baseline load and its source, which contact ended the close, load and "
         "current deltas, jaw gap, empty band), image (visual check: not_requested here, pending once a jaw crop was "
-        "attached, then the confirm_grasp verdict), crop, fused (null until confirm_grasp)}; null for other motions",
+        "attached, then the grasp_lift verdict), crop, fused (null until the verdict)}; null for other motions",
     )
     self_collision: dict[str, Any] | None = Field(
         default=None,

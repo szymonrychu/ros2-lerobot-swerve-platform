@@ -60,7 +60,7 @@ GRASP_ATTEMPTS = Counter(
 )
 GRASP_VERDICTS = Counter(
     "mcp_grasp_verdicts_total",
-    "grasp_lift and confirm_grasp verdicts by sensor band, the agent's image verdict and the fused outcome",
+    "grasp_lift verdicts by sensor band, the agent's image verdict and the fused outcome",
     ["band", "image", "fused"],
 )
 GRASP_FLOW_STEPS = Counter(

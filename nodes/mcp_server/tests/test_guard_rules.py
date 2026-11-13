@@ -128,7 +128,6 @@ def test_arm_origins_are_the_arm_tools_and_arm_step_kinds() -> None:
         "move_arm_joints",
         "move_arm_cartesian",
         "set_gripper",
-        "grasp_object",
         "release_object",
         "grasp_approach",
         "grasp_close",
@@ -269,7 +268,7 @@ def test_phase_mismatch_is_rejected(applies_to: dict[str, Any], field: str, erro
     ("applies_to", "field"),
     [
         ({"tools": ["move_relative"], "steps": ["base_relative"]}, "args.dx"),
-        ({"arm_motion_from": ["arm_joints", "grasp_object"]}, "target.joint.shoulder_lift"),
+        ({"arm_motion_from": ["arm_joints", "grasp_approach"]}, "target.joint.shoulder_lift"),
         ({"arm_motion_from": ["move_arm_cartesian"]}, "motion.abs_delta.wrist_roll"),
         ({"tools": ["drive"], "steps": ["base_relative"], "arm_motion_from": ["arm_joints"]}, "arm.tool_height_m"),
     ],
