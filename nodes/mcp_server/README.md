@@ -2174,6 +2174,11 @@ ambiguous + yes (fused `unverified`); an empty band (any verdict) and `unsure` (
 and the flow stays `closed`. After the lift `hold_problem` decides `lifted` (the carry stays held; next
 `release_object`) or `dropped` (carry cleared). Metric: `mcp_grasp_flow_steps_total{tool,outcome}`.
 
+A camera-sourced object (`position_source: 'camera'`) grasped while the arm re-zero stale marker lists
+`joint_offsets` (an unreadable marker counts) still runs, with the warning "the arm was re-zeroed after the accepted arm
+to camera calibration was captured: re-run the arm to camera calibration" in `warnings` of `grasp_object`, the queued
+`grasp` step, the web UI result and `grasp_approach`, and in the notes of `plan_grasp` (T-273 decision 593: warn only).
+
 ### Web-UI contract (`/grasp/command` -> `/grasp/result`)
 
 The web UI (or any ROS client) publishes a JSON request as `std_msgs/String` on `topics.grasp_command`

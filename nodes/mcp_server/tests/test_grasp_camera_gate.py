@@ -12,11 +12,12 @@ from ros2_common.head_rgbd_calibration.urdf_text import ChainResidual
 
 from mcp_server.config import McpServerConfig
 from mcp_server.grasp import ObjectSpec, grasp_params
-from mcp_server.grasp_tools import GraspExecutor, GraspService
+from mcp_server.grasp_tools import REZERO_WARNING, GraspExecutor, GraspService
 from mcp_server.head import AppliedHeadKinematics, HeadController
 from mcp_server.tools import build_mcp_server
 
 from .fakes import FakeHeadBackend
+from .test_calibration_marker import marker_doc
 from .test_grasp_tools import OBJECT, object_in_jaws
 from .test_tools import TOKEN, FakeRobot, call, take
 
@@ -200,3 +201,65 @@ def test_an_executor_without_a_calibration_source_refuses_a_camera_position(robo
             None,
             lambda: False,
         )
+
+
+def rezeroed_robot(robot: FakeRobot, tmp_path: Path, stale: list[str] | None = None) -> Any:
+    """A server whose arm re-zero marker lists `stale` (both items when None) and whose camera calibration passes."""
+    with_arm_calibration(robot, tmp_path / "applied", 2.67)
+    marker = tmp_path / "marker.json"
+    marker.write_text(json.dumps(marker_doc(stale)))
+    robot.arm.cfg.arm.calibration_stale_marker = marker
+    return server_for(robot)
+
+
+def test_a_camera_grasp_after_an_arm_rezero_warns_and_still_runs(robot: FakeRobot, tmp_path: Path) -> None:
+    server = rezeroed_robot(robot, tmp_path)
+    object_in_jaws(robot.arm_backend)
+    commands_before = len(robot.arm_backend.commands)
+    data = call(server, "grasp_object", {"object": CAMERA_OBJECT, "strategy": "top_down"}).structured_content
+    assert data["outcome"] != "infeasible" and len(robot.arm_backend.commands) > commands_before
+    assert REZERO_WARNING in data["warnings"]
+
+
+def test_grasp_approach_after_an_arm_rezero_warns_and_still_lands(robot: FakeRobot, tmp_path: Path) -> None:
+    server = rezeroed_robot(robot, tmp_path)
+    data = call(server, "grasp_approach", {"object": CAMERA_OBJECT, "strategy": "top_down"}).structured_content
+    assert data["outcome"] == "landed" and REZERO_WARNING in data["warnings"]
+
+
+def test_plan_grasp_after_an_arm_rezero_notes_the_warning(robot: FakeRobot, tmp_path: Path) -> None:
+    server = rezeroed_robot(robot, tmp_path)
+    data = call(server, "plan_grasp", {"object": CAMERA_OBJECT, "strategy": "top_down"}).structured_content
+    assert data["outcome"] == "planned" and REZERO_WARNING in data["reasons"]
+
+
+def test_a_manual_position_gets_no_rezero_warning(robot: FakeRobot, tmp_path: Path) -> None:
+    server = rezeroed_robot(robot, tmp_path)
+    assert (
+        REZERO_WARNING
+        not in call(server, "grasp_approach", {"object": OBJECT, "strategy": "top_down"}).structured_content["warnings"]
+    )
+    assert (
+        REZERO_WARNING
+        not in call(server, "plan_grasp", {"object": OBJECT, "strategy": "top_down"}).structured_content["reasons"]
+    )
+
+
+def test_a_camera_position_without_a_rezero_marker_or_with_home_only_stale_gets_no_warning(
+    robot: FakeRobot, tmp_path: Path
+) -> None:
+    server = rezeroed_robot(robot, tmp_path, stale=["home"])
+    data = call(server, "grasp_approach", {"object": CAMERA_OBJECT, "strategy": "top_down"}).structured_content
+    assert REZERO_WARNING not in data["warnings"]
+    executor = GraspExecutor(robot.arm, McpServerConfig())
+    assert executor.rezero_warning(ObjectSpec(**CAMERA_OBJECT)) is None
+    robot.arm.cfg.arm.calibration_stale_marker = tmp_path / "absent.json"
+    assert executor.rezero_warning(ObjectSpec(**CAMERA_OBJECT)) is None
+
+
+def test_an_unreadable_rezero_marker_counts_as_stale(robot: FakeRobot, tmp_path: Path) -> None:
+    server = rezeroed_robot(robot, tmp_path)
+    assert robot.arm.cfg.arm.calibration_stale_marker is not None
+    robot.arm.cfg.arm.calibration_stale_marker.write_text("not json")
+    data = call(server, "grasp_approach", {"object": CAMERA_OBJECT, "strategy": "top_down"}).structured_content
+    assert REZERO_WARNING in data["warnings"]

@@ -23,7 +23,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import CallToolResult, ContentBlock, ImageContent, TextContent
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from .arm import ROLL_JOINT, ArmController, ArmError, finite_effort
+from .arm import ROLL_JOINT, STALE_OFFSETS_ITEM, ArmController, ArmError, finite_effort
 from .camera_point import gate_refusal
 from .camera_scene import build_scene, camera_setup, head_parent_transform
 from .config import HARD_MAX_IMAGE_PX, GripProfileOverride, McpServerConfig
@@ -49,6 +49,11 @@ CLOSE_OK = frozenset({"grasped", "closed_no_contact", "blocked"})
 # Executor outcomes of a close that holds something: the agent tools turn them into 'unverified' until confirm_grasp.
 HELD_OUTCOMES = frozenset({"grasped", "unverified"})
 LOGGER = logging.getLogger("mcp_server.grasp")
+# Warning of a camera-sourced grasp after an arm re-zero (T-273 decision 593: warn only, the grasp is still allowed).
+REZERO_WARNING = (
+    "the arm was re-zeroed after the accepted arm to camera calibration was captured: "
+    "re-run the arm to camera calibration"
+)
 # How the fuse of the sensor band and the agent's image verdict reads (shared by the tool descriptions).
 FUSE_NOTE = (
     "The result's grasp_check.band is the sensors' verdict (object: contact, load and jaw gap say an object is held; "
@@ -410,6 +415,21 @@ class GraspExecutor:
             return "no head calibration is available to check against the camera-to-arm residual gate"
         return gate_refusal(self.calibration(), self.cfg.camera_arm.max_residual_mm)
 
+    def rezero_warning(self, obj: ObjectSpec) -> str | None:
+        """Warning for a camera-sourced position while the arm re-zero marker lists joint_offsets (never a refusal).
+
+        Args:
+            obj (ObjectSpec): Object.
+
+        Returns:
+            str | None: REZERO_WARNING when the object's position_source is 'camera' and the stale marker lists
+                joint_offsets (an unreadable marker counts as stale, as in ArmController.home); None otherwise.
+        """
+        if obj.position_source != "camera":
+            return None
+        marker = self.arm.stale_marker()
+        return REZERO_WARNING if marker is not None and STALE_OFFSETS_ITEM in marker.stale else None
+
     def prepare(
         self,
         obj: ObjectSpec,
@@ -441,6 +461,9 @@ class GraspExecutor:
             raise ValueError(f"grasp refused (nothing moved): the object position comes from the camera and {refusal}")
         floor = with_object_surfaces(floor, obj)
         plan, notes = self.plan(obj, strategy, params, approach_pitch_deg, floor)
+        warning = self.rezero_warning(obj)
+        if warning is not None:
+            notes.append(warning)
         return plan, notes, grip, floor
 
     def grasp(
@@ -470,9 +493,12 @@ class GraspExecutor:
                 refuses (nothing moved).
         """
         plan, notes, grip, floor = self.prepare(obj, strategy, params, approach_pitch_deg, floor)
+        rezero = [n for n in notes if n == REZERO_WARNING]
+        notes = [n for n in notes if n != REZERO_WARNING]
         result = (
             plan_result(plan, notes, grip) if not plan.feasible else self.execute(plan, params, floor, stop_requested)
         )
+        result.warnings = [*rezero, *result.warnings]
         GRASP_ATTEMPTS.labels(strategy, GRASP_RESULT_BY_OUTCOME[result.outcome]).inc()
         return result
 
@@ -1701,6 +1727,9 @@ def register(ctx: ToolContext) -> None:
             refusal = executor.camera_refusal(object)
             if refusal is not None:
                 notes = [*notes, f"grasp_object will refuse this camera position: {refusal}"]
+            rezero = executor.rezero_warning(object)
+            if rezero is not None:
+                notes = [*notes, rezero]
             GRASP_PLANS.labels(strategy, "feasible" if plan.feasible else "infeasible").inc()
             return plan_result(plan, notes, grip)
 
