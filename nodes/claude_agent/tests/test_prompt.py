@@ -347,8 +347,14 @@ def test_prompt_says_the_arm_is_fast_by_default() -> None:
 
 def test_prompt_explains_grasp_macros_and_the_slow_zone() -> None:
     lower = prompt_lower()
-    assert lower.index("plan_grasp") < lower.index("grasp_object")
+    flow = lower[lower.index("guided grasp:") :]
+    assert (
+        flow.index("plan_grasp") < flow.index("grasp_approach") < flow.index("grasp_close") < flow.index("grasp_lift")
+    )
     assert "plan_grasp first" in lower
+    for word in ("next_steps", "grasp_abort", "verdict"):
+        assert word in flow, word
+    assert "confirm_grasp" not in lower and "grasp_object" not in lower
     for word in ("scoop", "angled", "top_down", "auto", "release_object", "missed", "infeasible"):
         assert word in lower
     assert "surface_z_m" in lower and "stair" in lower and "hole" in lower
@@ -388,7 +394,7 @@ def test_prompt_explains_grip_profiles_and_when_to_choose_them() -> None:
         assert word in para
     assert "holding_load" in para and "slipping" in para and "crush_risk" in para
     assert "firmer" in para and "gentler" in para and "retry" in para
-    assert "set_gripper" in para and "grasp_object" in para
+    assert "set_gripper" in para and "grasp_close" in para
 
 
 def test_prompt_sends_plush_and_soft_toys_to_the_soft_profile() -> None:
@@ -402,7 +408,7 @@ def test_prompt_sends_plush_and_soft_toys_to_the_soft_profile() -> None:
 
 def test_default_tool_lists_include_the_grasp_tools() -> None:
     cfg = ClaudeAgentConfig()
-    assert {"grasp_object", "release_object"} <= set(cfg.effector_tools)
+    assert {"grasp_approach", "grasp_close", "grasp_lift", "grasp_abort", "release_object"} <= set(cfg.effector_tools)
     assert "plan_grasp" in cfg.sensor_tools and "plan_grasp" not in cfg.effector_tools
     assert "approach_for_grasp" in cfg.effector_tools and "approach_for_grasp" not in cfg.sensor_tools
     assert "suggest_approach_pose" in cfg.sensor_tools and "suggest_approach_pose" not in cfg.effector_tools
@@ -411,7 +417,7 @@ def test_default_tool_lists_include_the_grasp_tools() -> None:
 def test_prompt_orders_the_approach_tools_before_the_grasp_macros() -> None:
     lower = prompt_lower()
     line = lower[lower.index("suggest_approach_pose before") :]
-    line = line[: line.index("grasp_object") + len("grasp_object")]
+    line = line[: line.index("grasp_approach") + len("grasp_approach")]
     assert line.index("suggest_approach_pose") < line.index("approach_for_grasp") < line.index("plan_grasp")
     assert "base lease" in line
 
@@ -502,9 +508,9 @@ def test_prompt_reads_detail_by_aiming_the_head() -> None:
 
 
 def test_prompt_explains_the_centred_grasp_shift_and_residual_reports() -> None:
-    """2026-10-10: the centring shift of grasp_object was read as a sideways drift."""
+    """2026-10-10: the centring shift of the grasp was read as a sideways drift."""
     lower = prompt_lower()
-    para = lower[lower.index("grasp macros:") :]
+    para = lower[lower.index("guided grasp:") :]
     para = para[: para.index("grip strength:")]
     assert "grasp_shift" in para and "tool_point" in para and "jaw centre" in para
     assert "not a drift" in para
@@ -522,25 +528,23 @@ def test_prompt_states_soft_objects_get_squashed_whatever_the_load() -> None:
     assert "squash" in para and "plush" in para
 
 
-def test_prompt_explains_the_unverified_grasp_outcome() -> None:
-    """E1: every held close returns 'unverified' with a jaw crop; the agent confirms it with confirm_grasp."""
+def test_prompt_explains_the_lift_verdict_and_the_soft_object_rule() -> None:
+    """D9: grasp_lift lifts for band object + yes and band ambiguous + yes; band empty or unsure is refused."""
     lower = prompt_lower()
-    macros = lower[lower.index("grasp_object reports") :]
+    macros = lower[lower.index("guided grasp:") :]
     macros = macros[: macros.index("grip strength:")]
-    assert "unverified" in macros and "jaw crop" in macros
-    assert "confirm_grasp(grasp_id, yes|no|unsure, evidence)" in macros
-    assert "before complete_phase" in macros
-    assert "only a fused 'grasped'" in macros
-    assert "a head camera image (the head aimed at the tool point) cropped to the jaws" in macros
+    assert "jaw crop" in macros and "grasp_lift(verdict yes|unsure, evidence)" in macros
+    assert "band object + yes" in macros and "band ambiguous + yes" in macros
+    assert "soft objects" in macros and "lifted or dropped" in macros
+    assert "band empty or verdict unsure is refused with nothing moved" in macros
+    assert "cannot be lifted" not in lower
+    assert "only a lifted result with fused grasped" in macros
     assert "head_look_at the gripper and get_camera_image" in macros
-    assert "another wrist roll" not in macros
-    assert "missed means release_object" in macros
     assert "image alone never proves" in macros
-    assert "means look and decide" not in lower
-    assert "treat it as held" not in lower
+    assert "dropped result means" in macros
     para = lower[lower.index("grip strength:") :]
     para = para[: para.index("surfaces and speed:")]
-    assert "unverified" in para and "plush" in para
+    assert "grasp_lift" in para and "plush" in para
     assert "grip_profile soft" in para  # 2026-10-11 12:18: plush slipped out of a normal hold
     assert "an empty close (nothing between the jaws) is reported as missed" not in para
 
