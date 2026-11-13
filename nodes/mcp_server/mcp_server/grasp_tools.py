@@ -369,6 +369,27 @@ class GraspExecutor:
         surface = self.arm.floor_surface(floor)
         return self.planner.plan(obj, strategy, params, surface, seed, approach_pitch_deg), notes
 
+    def correction_path(
+        self, landed: GraspPlan, new: GraspPlan, params: GraspParams, floor: FloorOverride | None
+    ) -> tuple[list[dict[str, float]], str | None]:
+        """Straight, jaws-open tool line from the landed grasp point to a nearby new one (planned from the arm now).
+
+        Args:
+            landed (GraspPlan): Plan the jaws landed with.
+            new (GraspPlan): Feasible plan of the corrected object position.
+            params (GraspParams): Step, jump and surface clearance thresholds.
+            floor (FloorOverride | None): Slow-zone overrides (the surface the line is checked against).
+
+        Returns:
+            tuple[list[dict[str, float]], str | None]: Joint samples and None, or ([], reason) (also when there are
+                no fresh joint states).
+        """
+        try:
+            seed = self.arm.command_base(self.arm.require_sample())
+        except ArmError as exc:
+            return [], str(exc)
+        return self.planner.correction_path(landed, new, seed, params, self.arm.floor_surface(floor))
+
     def camera_refusal(self, obj: ObjectSpec) -> str | None:
         """Why a camera-derived position may not be grasped (the one gate every execute path goes through).
 

@@ -990,3 +990,14 @@ def test_a_step_records_interrupted_by(tmp_path: Path, monkeypatch: pytest.Monke
     with pytest.raises(GraspAbort):
         ex.step("pre_grasp", steps, lambda: False, lambda: arm.move_joints({}))
     assert steps[-1].interrupted_by == "collision_stop"
+
+
+def test_executor_correction_path_plans_from_the_arm_pose(tmp_path: Path) -> None:
+    arm, be = make(tmp_path)
+    executor = GraspExecutor(arm, CONFIG)
+    params = grasp_params(CONFIG.grasp, None)
+    landed = executor.plan(ObjectSpec(**OBJECT), "top_down", params, None, None)[0]
+    be.positions.update(next(w for w in landed.waypoints if w.label == "grasp").joints)  # the jaws landed
+    new = executor.plan(ObjectSpec(**(OBJECT | {"x": OBJECT["x"] + 0.02})), "top_down", params, None, None)[0]
+    path, reason = executor.correction_path(landed, new, params, None)
+    assert reason is None and path and path[-1]["gripper"] == new.open_gripper_rad
