@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { CANVAS_BG, CONTROL_PX, MONO_FONT, PANEL_BG, TOKENS, TOUCH_TARGET_PX, theme } from './theme'
+import { CANVAS_BG, CONTROL_PX, IOS_NO_ZOOM_INPUT_PX, MONO_FONT, PANEL_BG, TOKENS, TOUCH_TARGET_PX, theme } from './theme'
 
 const channels = (hex: string): number[] => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -98,6 +98,26 @@ describe('component overrides', () => {
     const css = comp.MuiCssBaseline.styleOverrides
     expect(css.body.fontVariantNumeric).toBe('tabular-nums')
     expect(css.body.backgroundColor).toBe(TOKENS.bgCanvas)
+  })
+})
+
+describe('iOS input zoom', () => {
+  it('IOS_NO_ZOOM_INPUT_PX is 16, the smallest size iOS Safari does not zoom into on focus', () => {
+    expect(IOS_NO_ZOOM_INPUT_PX).toBe(16)
+  })
+
+  it('InputBase root and input are 16 px on coarse pointers and keep the theme size otherwise', () => {
+    const { root, input } = comp.MuiInputBase.styleOverrides
+    for (const slot of [root, input]) {
+      expect(slot[COARSE]).toEqual({ fontSize: IOS_NO_ZOOM_INPUT_PX })
+      expect(slot.fontSize).toBeUndefined()
+    }
+  })
+
+  it('CssBaseline makes raw input, textarea and select 16 px on coarse pointers only', () => {
+    const css = comp.MuiCssBaseline.styleOverrides
+    expect(css[COARSE]).toEqual({ 'input, textarea, select': { fontSize: IOS_NO_ZOOM_INPUT_PX } })
+    expect(css['input, textarea, select']).toBeUndefined()
   })
 })
 
