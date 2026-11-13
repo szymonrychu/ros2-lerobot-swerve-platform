@@ -1,4 +1,5 @@
-"""Direct grasps from a camera-derived position are gated on the applied calibration's arm-frame residual."""
+"""Direct grasps from a camera-derived position are gated on the camera-to-arm residual: the accepted arm to camera
+calibration's held-out tool error when it was fitted against the applied head chain, else the head-from-arm residual."""
 
 import json
 from pathlib import Path
@@ -19,7 +20,7 @@ from .fakes import FakeHeadBackend
 from .test_grasp_tools import OBJECT, object_in_jaws
 from .test_tools import TOKEN, FakeRobot, call, take
 
-from .depth_helpers import write_applied  # isort: skip
+from .depth_helpers import write_applied, write_arm_calibration  # isort: skip
 
 CAMERA_OBJECT = {**OBJECT, "position_source": "camera"}
 
@@ -27,6 +28,16 @@ CAMERA_OBJECT = {**OBJECT, "position_source": "camera"}
 def with_calibration(robot: FakeRobot, directory: Path, residual: ChainResidual | None) -> None:
     """Put an applied head chain (with or without an arm-frame residual) behind the fake robot's head."""
     applied = write_applied(directory, residual, source="head_arm" if residual else "floor")
+    cfg = McpServerConfig()
+    robot.head = HeadController(FakeHeadBackend(), AppliedHeadKinematics(cfg.head.urdf_path, applied), cfg.head)
+
+
+def with_arm_calibration(
+    robot: FakeRobot, directory: Path, tool_mm: float, head_chain: tuple[str, str] = ("calib-1", "r-1")
+) -> None:
+    """A ground-board head chain (no residual of its own) plus an accepted fake arm to camera calibration."""
+    applied = write_applied(directory, None, source="ground_board")
+    write_arm_calibration(applied, tool_mm, head_chain)
     cfg = McpServerConfig()
     robot.head = HeadController(FakeHeadBackend(), AppliedHeadKinematics(cfg.head.urdf_path, applied), cfg.head)
 
@@ -79,6 +90,40 @@ def test_camera_grasp_within_the_gate_runs(robot: FakeRobot, tmp_path: Path) -> 
     object_in_jaws(robot.arm_backend)
     data = call(server, "grasp_object", {"object": CAMERA_OBJECT, "strategy": "top_down"}).structured_content
     assert data["outcome"] != "infeasible" and len(robot.arm_backend.commands) > commands_before
+
+
+def test_camera_grasp_with_a_matching_arm_calibration_within_the_gate_runs(robot: FakeRobot, tmp_path: Path) -> None:
+    """The robot's case: a ground-board head chain and an arm calibration fitted against it (2.67 mm)."""
+    with_arm_calibration(robot, tmp_path / "applied", 2.67)
+    server = server_for(robot)
+    commands_before = len(robot.arm_backend.commands)
+    object_in_jaws(robot.arm_backend)
+    data = call(server, "grasp_object", {"object": CAMERA_OBJECT, "strategy": "top_down"}).structured_content
+    assert data["outcome"] != "infeasible" and len(robot.arm_backend.commands) > commands_before
+
+
+def test_camera_grasp_with_a_matching_arm_calibration_above_the_gate_is_refused(
+    robot: FakeRobot, tmp_path: Path
+) -> None:
+    with_arm_calibration(robot, tmp_path / "applied", 6.5)
+    server = server_for(robot)
+    commands_before = len(robot.arm_backend.commands)
+    with pytest.raises(
+        ToolError, match=r"arm to camera calibration's camera-to-arm residual 6\.5 mm is above the 5 mm"
+    ):
+        call(server, "grasp_object", {"object": CAMERA_OBJECT, "strategy": "top_down"})
+    assert len(robot.arm_backend.commands) == commands_before
+
+
+def test_camera_grasp_with_an_arm_calibration_of_another_head_chain_is_refused_as_stale(
+    robot: FakeRobot, tmp_path: Path
+) -> None:
+    with_arm_calibration(robot, tmp_path / "applied", 2.0, ("fake-other-ground-1", "fake-other-r-1"))
+    server = server_for(robot)
+    commands_before = len(robot.arm_backend.commands)
+    with pytest.raises(ToolError, match=r"arm to camera calibration is stale for the applied head chain"):
+        call(server, "grasp_object", {"object": CAMERA_OBJECT, "strategy": "top_down"})
+    assert len(robot.arm_backend.commands) == commands_before
 
 
 def test_the_gate_threshold_is_configurable(robot: FakeRobot, tmp_path: Path) -> None:

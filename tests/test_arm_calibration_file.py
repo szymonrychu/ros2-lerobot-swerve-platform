@@ -79,11 +79,47 @@ def test_the_accept_body_validates_and_ignores_the_report_fields() -> None:
         {"base_in_base_link": {"x": 0.06, "y": -0.05, "z": 0.1}},
         {"captured_from": "2026-11-09T12:01:00"},
         {"session": ""},
+        {"score": {"heldout_tool_mm": -1.0}},
+        {"score": {"heldout_tool_mm": math.nan}},
+        {"head_chain": {"source": "head_arm", "session": "calib-1"}},
     ],
 )
 def test_an_invalid_body_is_refused(changes: dict[str, Any]) -> None:
     with pytest.raises(ValidationError):
         ArmCalibrationFile.model_validate(body(**changes))
+
+
+def test_the_score_and_the_head_chain_are_read() -> None:
+    """The held-out tool error and the head chain the fit held fixed (the grasp gate checks both)."""
+    cal = ArmCalibrationFile.model_validate(
+        body(
+            score={"rms_px": 0.9, "heldout_rms_px": 1.1, "heldout_tool_mm": 2.5, "views": 10, "poses": 4},
+            head_chain={"source": "ground_board", "session": "fake-ground-1", "result": "fake-r-1"},
+        )
+    )
+    assert cal.score.heldout_tool_mm == 2.5
+    assert cal.head_chain is not None
+    assert (cal.head_chain.source, cal.head_chain.session, cal.head_chain.result) == (
+        "ground_board",
+        "fake-ground-1",
+        "fake-r-1",
+    )
+
+
+def test_a_null_tool_error_a_urdf_chain_and_no_chain_are_read() -> None:
+    """The accept writes null for a non-finite tool error and null session/result for the repo URDF chain."""
+    cal = ArmCalibrationFile.model_validate(
+        body(
+            score={"rms_px": 0.9, "heldout_tool_mm": None},
+            head_chain={"source": "urdf", "session": None, "result": None},
+        )
+    )
+    assert cal.score.heldout_tool_mm is None
+    assert cal.head_chain is not None and (cal.head_chain.session, cal.head_chain.result) == (None, None)
+    without = body(score={"rms_px": 0.9})
+    del without["head_chain"]
+    cal = ArmCalibrationFile.model_validate(without)
+    assert cal.score.heldout_tool_mm is None and cal.head_chain is None
 
 
 def test_arm_settings_update_names_exactly_the_overridden_fields() -> None:

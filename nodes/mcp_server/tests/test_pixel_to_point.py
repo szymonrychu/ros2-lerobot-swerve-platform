@@ -37,6 +37,7 @@ from .depth_helpers import (
     object_depth,
     project_arm_point,
     write_applied,
+    write_arm_calibration,
 )
 from .test_camera_arm_chain import ARM_BASE, calibration_chain
 from .test_tools import TOKEN, call
@@ -114,9 +115,23 @@ def test_calibration_block_names_the_residual_and_the_gate(tmp_path: Path) -> No
     data = pixel_call(server, u, v)
     cal = data["calibration"]
     assert cal["applied"] is True and cal["source"] == "head_arm" and cal["residual_mm"] == 2.9
+    assert cal["residual_source"] == "head_from_arm"
     assert (cal["session"], cal["result"]) == ("calib-1", "r-1") and cal["gate_mm"] == 5.0
     assert cal["within_gate"] is True and data["grasp_ready"] is True
     assert data["error_budget_mm"] == pytest.approx(math.hypot(2.9, d435_sigma_m(z) * 1000), abs=0.01)
+
+
+def test_calibration_block_names_the_arm_calibration_as_the_residual_source(tmp_path: Path) -> None:
+    server, robot, _, applied = make(tmp_path, None, source="ground_board")
+    write_arm_calibration(applied, 2.67)
+    u, v, z = project_arm_point(applied, POINT_ARM, PAN, TILT)
+    robot.depth_frame = depth_frame(object_depth(u, v, z))
+    data = pixel_call(server, u, v)
+    cal = data["calibration"]
+    assert cal["residual_source"] == "arm_calibration" and cal["residual_mm"] == 2.67
+    assert cal["within_gate"] is True and data["grasp_ready"] is True
+    assert "accepted arm to camera calibration" in cal["description"]
+    assert data["error_budget_mm"] == pytest.approx(math.hypot(2.67, d435_sigma_m(z) * 1000), abs=0.01)
 
 
 def test_residual_above_the_gate_is_reported_and_blocks_grasp_ready(tmp_path: Path) -> None:

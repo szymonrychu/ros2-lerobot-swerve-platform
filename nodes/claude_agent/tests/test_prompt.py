@@ -82,6 +82,7 @@ def test_prompt_measures_object_positions_with_the_depth_tools() -> None:
     assert "interior" in para and "outline" in para and "arm frame" in para and "height" in para
     assert "grasp_ready" in section and "position_source" in section and "'camera'" in section
     assert "calibrate page" in lower and "head-from-arm" in lower
+    assert "arm to camera calibration" in lower and "fitted against the applied head chain" in lower
     spatial = lower[lower.index("spatial perception:") :]
     spatial = spatial[: spatial.index("3d map:")]
     assert "pixel_to_point" in spatial and "guess" in spatial

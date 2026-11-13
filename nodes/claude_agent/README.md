@@ -296,9 +296,10 @@ closer than 1 m: it returns the arm-frame position and the height, so `support_z
 with `surface_height_m`), average the estimates when they agree within about 1 cm (otherwise take another picture; with
 depth they usually agree within a few mm), use `pixel_to_ground` (or `mark_candidate_points` + `resolve_candidate`) only for
 a floor target without a depth reading, aim at the object centre and not its edge, set `position_source: camera` on the
-`ObjectSpec` of a grasp built from a camera position (`grasp_object` then needs `grasp_ready` true: the applied head
-calibration's camera-to-arm residual within the 5 mm gate; otherwise report that the head-from-arm calibration must be run
-on the Calibrate page), correct the target by the observed offset after a
+`ObjectSpec` of a grasp built from a camera position (`grasp_object` then needs `grasp_ready` true: the camera-to-arm
+residual within the 5 mm gate, the accepted arm to camera calibration's held-out tool error when it was fitted against
+the applied head chain, else the head-from-arm residual; otherwise report what the refusal names: re-run the arm to
+camera calibration, or run the head-from-arm calibration, on the Calibrate page), correct the target by the observed offset after a
 miss (seen with the head aimed at the gripper) and record what worked in `NOTES.md`. `Surfaces and speed:` takes the surface height from `pixel_to_point` and tells it to pass `surface_height_m` to `pixel_to_ground` only for a known height of objects above or below
 the robot's floor, that the arm reaches somewhat below floor level within its joint limits, and that the arm is fast by default
 (a lower `speed_scale` only for the last centimetres of a grasp or near obstacles). Each is asserted in `tests/test_prompt.py`.

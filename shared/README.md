@@ -531,7 +531,11 @@ the head_rgbd_calibration accept and applied at runtime by mcp_server, filter_no
 3D arm view. It imports no OpenCV (`ARM_JOINT_NAMES` is defined here; `config` takes it from here), so the light
 consumers can use it. `ArmCalibrationFile` (pydantic, report fields
 ignored) holds `session`, `result`, `accepted_at`, `captured_from` (the session's earliest still, timezone aware),
-`joint_offsets_rad` (exactly the five arm joints, finite) and `base_in_base_link` (`x`, `y`, `z`, `yaw`, finite).
+`joint_offsets_rad` (exactly the five arm joints, finite), `base_in_base_link` (`x`, `y`, `z`, `yaw`, finite),
+`score` (`ArmCalibrationScore`: `heldout_tool_mm`, finite and >= 0, None when null or absent; other score keys ignored)
+and `head_chain` (`ArmCalibrationHeadChain`: `source`, `session`, `result` of the applied head chain the fit held fixed,
+each nullable; None when the file names none). mcp_server's camera grasp gate takes `score.heldout_tool_mm` as the
+camera-to-arm residual only while that head chain is still the applied one.
 `arm_settings_update()` gives the mcp_server `arm:` values it overrides, exactly `ARM_SETTINGS_FIELDS`
 (`joint_offsets_rad`, `arm_base_height_m` = base z, `base_in_base_link`), the same keys as the reviewed snippet.
 `read_arm_calibration(applied_dir)` returns the calibration the `applied.json` `arm_calibration` record names, None when

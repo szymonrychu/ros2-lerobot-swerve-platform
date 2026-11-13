@@ -69,6 +69,49 @@ def write_applied(
     return directory
 
 
+FAKE_ARM_SESSION = "fake-arm-cal-1"
+FAKE_ARM_RESULT = "fake-arm-r-1"
+
+
+def write_arm_calibration(
+    directory: Path,
+    heldout_tool_mm: float | None,
+    head_chain: tuple[str | None, str | None] | None = ("calib-1", "r-1"),
+) -> None:
+    """Accept a fake arm to camera calibration into an applied dir: arm_calibration.json, then its applied.json record.
+
+    Args:
+        directory (Path): Applied dir (applied.json may already hold a head_chain record, which is kept).
+        heldout_tool_mm (float | None): score.heldout_tool_mm of the fake fit.
+        head_chain (tuple[str | None, str | None] | None): (session, result) of the head chain the fit held fixed;
+            write_applied's chain is ("calib-1", "r-1"); None writes no head_chain key.
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+    body: dict[str, object] = {
+        "session": FAKE_ARM_SESSION,
+        "result": FAKE_ARM_RESULT,
+        "accepted_at": "2026-11-01T10:00:00+00:00",
+        "captured_from": "2026-11-01T09:00:00+00:00",
+        "score": {"rms_px": 1.0, "heldout_tool_mm": heldout_tool_mm},
+        "joint_offsets_rad": {
+            j: 0.0 for j in ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll")
+        },
+        "base_in_base_link": {"x": 0.0, "y": 0.0, "z": 0.1, "yaw": 0.0},
+    }
+    if head_chain is not None:
+        body["head_chain"] = {"source": "ground_board", "session": head_chain[0], "result": head_chain[1]}
+    (directory / "arm_calibration.json").write_text(json.dumps(body))
+    marker_path = directory / "applied.json"
+    marker = json.loads(marker_path.read_text()) if marker_path.exists() else {}
+    marker["arm_calibration"] = {
+        "session": FAKE_ARM_SESSION,
+        "result": FAKE_ARM_RESULT,
+        "accepted_at": "2026-11-01T10:00:00+00:00",
+        "score": body["score"],
+    }
+    marker_path.write_text(json.dumps(marker))
+
+
 def install_head(
     robot: CameraRobot, cfg: McpServerConfig, applied: Path | None, pan: float, tilt: float
 ) -> HeadController:

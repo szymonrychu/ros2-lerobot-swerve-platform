@@ -16,7 +16,7 @@ from typing import Any
 import numpy as np
 
 from .camera_scene import transform_point
-from .head import CalibrationInfo, HeadPoseAtStamp
+from .head import RESIDUAL_SOURCE_ARM_CALIBRATION, RESIDUAL_SOURCE_HEAD_FROM_ARM, CalibrationInfo, HeadPoseAtStamp
 
 COLOR_OPTICAL_FRAME = "d435_color_optical_frame"
 DEPTH_OPTICAL_FRAME = "d435_depth_optical_frame"
@@ -82,14 +82,15 @@ def position(frame: str, point: np.ndarray | None) -> dict[str, Any] | None:
 
 
 def gate_state(info: CalibrationInfo, gate_mm: float) -> bool | None:
-    """Whether the applied calibration's arm-frame residual is within the grasp gate.
+    """Whether the camera-to-arm residual (CalibrationInfo.residual_source) is within the grasp gate.
 
     Args:
-        info (CalibrationInfo): The applied head calibration.
+        info (CalibrationInfo): The applied head calibration with the accepted arm to camera calibration.
         gate_mm (float): camera_arm.max_residual_mm.
 
     Returns:
-        bool | None: True/False for a known residual; None when the applied chain carries none.
+        bool | None: True/False for a known residual; None when neither a current arm to camera calibration nor the
+            applied chain gives one.
     """
     residual = info.residual_mm
     return None if residual is None else residual <= gate_mm
@@ -99,47 +100,78 @@ def gate_refusal(info: CalibrationInfo, gate_mm: float) -> str | None:
     """Why a camera-derived grasp position is not allowed, None when it is.
 
     Args:
-        info (CalibrationInfo): The applied head calibration.
+        info (CalibrationInfo): The applied head calibration with the accepted arm to camera calibration.
         gate_mm (float): camera_arm.max_residual_mm.
 
     Returns:
-        str | None: Refusal text naming the residual and the gate, None when the residual is within the gate.
+        str | None: Refusal text naming the residual, where it came from, the gate and what to re-run; None when the
+            residual is within the gate.
     """
     state = gate_state(info, gate_mm)
     if state is True:
         return None
-    if state is None:
-        return (
-            f"no arm-frame residual to check against the {gate_mm:g} mm gate ({info.describe()}); "
-            "run the head-from-arm calibration on the web UI Calibrate page and Apply it"
-        )
-    return (
-        f"the applied head calibration's camera-to-arm residual {info.residual_mm:.1f} mm is above the {gate_mm:g} mm "
-        "gate; improve the head-from-arm calibration on the web UI Calibrate page (more arm poses, a better board "
-        "mount) and Apply it"
+    stale = (
+        "; the arm to camera calibration is stale for the applied head chain: re-run the arm to camera calibration on "
+        "the web UI Calibrate page and accept it"
     )
+    if state is None:
+        return f"no arm-frame residual to check against the {gate_mm:g} mm gate ({info.describe()})" + (
+            stale
+            if info.arm_fit_stale
+            else "; run the arm to camera calibration on the web UI Calibrate page and accept it, or run the "
+            "head-from-arm calibration there and Apply it"
+        )
+    if info.residual_source == RESIDUAL_SOURCE_ARM_CALIBRATION and info.arm_fit is not None:
+        return (
+            f"the accepted arm to camera calibration's camera-to-arm residual {info.residual_mm:.1f} mm is above the "
+            f"{gate_mm:g} mm gate (held-out tool error of fit {info.arm_fit.name()}, fitted against the applied head "
+            "chain); re-run the arm to camera calibration on the web UI Calibrate page (more arm poses and views) and "
+            "accept it"
+        )
+    text = (
+        f"the applied head calibration's camera-to-arm residual {info.residual_mm:.1f} mm is above the {gate_mm:g} mm "
+        "gate (held-out board error of the head-from-arm fit); improve the head-from-arm calibration on the web UI "
+        "Calibrate page (more arm poses, a better board mount) and Apply it"
+    )
+    return text + stale if info.arm_fit_stale else text
 
 
 def calibration_block(info: CalibrationInfo, gate_mm: float) -> dict[str, Any]:
     """The calibration part of a camera-to-arm report.
 
     Args:
-        info (CalibrationInfo): The applied head calibration.
+        info (CalibrationInfo): The applied head calibration with the accepted arm to camera calibration.
         gate_mm (float): camera_arm.max_residual_mm.
 
     Returns:
-        dict[str, Any]: applied, source, session, result, applied_at, residual_mm (null when unknown),
-            holdout_rms_px, gate_mm, within_gate (null when the residual is unknown) and description.
+        dict[str, Any]: applied, source (the head chain's fit), session, result, applied_at, residual_mm (null when
+            unknown), residual_source ("arm_calibration", "head_from_arm" or null), holdout_rms_px (head-from-arm
+            residual only), arm_calibration ({session, result, heldout_tool_mm, head_chain_session,
+            head_chain_result, current} or null), gate_mm, within_gate (null when the residual is unknown) and
+            description.
     """
-    residual = info.residual
+    residual_mm = info.residual_mm
+    fit = info.arm_fit
+    chain_residual = info.residual if info.residual_source == RESIDUAL_SOURCE_HEAD_FROM_ARM else None
     return {
         "applied": info.applied,
         "source": info.source,
         "session": info.session,
         "result": info.result,
         "applied_at": info.applied_at,
-        "residual_mm": None if residual is None else round(residual.holdout_board_mm, 2),
-        "holdout_rms_px": None if residual is None else round(residual.holdout_rms_px, 2),
+        "residual_mm": None if residual_mm is None else round(residual_mm, 2),
+        "residual_source": info.residual_source,
+        "holdout_rms_px": None if chain_residual is None else round(chain_residual.holdout_rms_px, 2),
+        "arm_calibration": None
+        if fit is None
+        else {
+            "session": fit.session,
+            "result": fit.result,
+            "heldout_tool_mm": fit.heldout_tool_mm,
+            "head_chain_session": fit.head_chain_session,
+            "head_chain_result": fit.head_chain_result,
+            "current": fit.current,
+        },
         "gate_mm": gate_mm,
         "within_gate": gate_state(info, gate_mm),
         "description": info.describe(),

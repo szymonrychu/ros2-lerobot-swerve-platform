@@ -799,8 +799,9 @@ class CameraArmSettings(StrictModel):
     min_valid_fraction: float = Field(default=0.5, gt=0.0, le=1.0)  # kept pixels / window pixels needed
     baseline_m: float = Field(default=0.05, gt=0.0)  # D435 stereo baseline of the z^2 error model
     subpixel_px: float = Field(default=0.08, gt=0.0)  # D435 subpixel disparity error of the z^2 error model
-    # Direct grasps whose position came from the camera (ObjectSpec.position_source "camera") need the applied head
-    # calibration's arm-frame residual (held-out board error of the head-from-arm fit) at or below this.
+    # Direct grasps whose position came from the camera (ObjectSpec.position_source "camera") need the camera-to-arm
+    # residual at or below this: the accepted arm to camera calibration's held-out tool error when it was fitted against
+    # the applied head chain, else the head-from-arm chain fit's held-out board error.
     max_residual_mm: float = Field(default=5.0, gt=0.0)
 
     @model_validator(mode="after")
