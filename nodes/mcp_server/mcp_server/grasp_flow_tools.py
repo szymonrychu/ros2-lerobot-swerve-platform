@@ -392,7 +392,9 @@ def register(ctx: ToolContext) -> None:
                     f"{tool} refused (nothing moved): the jaws carry an object; put it down with {RELEASE_TOOL} first"
                 )
             old_plan, old_params, old_floor = flow.plan, flow.params, flow.floor
-            if phase == "lifted" and executor.hold_problem(old_params or config.grasp) is None:
+            if (
+                phase == "lifted" and arm.grasp_held
+            ):  # the same record grasp_lift left: lifted keeps it, dropped clears it
                 raise ToolError(
                     f"{tool} refused (nothing moved): the jaws still hold the object; put it down with "
                     f"{RELEASE_TOOL} first"

@@ -1067,7 +1067,7 @@ ros2_node_type_defaults:
     src_extra_paths: [nodes/web_ui/urdf]
     # No quota (was 25%, then 100%): mcp_server serves the agent's interactive tool calls (single-threaded numpy bursts
     # for motion and grasp planning). Measured 2026-10-11 at 81-91% robot CPU under the 25% quota: plan_grasp took
-    # 52.6 s, grasp_object 205-259 s, and the agent instruction timed out. Agent-facing tier.
+    # 52.6 s, the macro grasp 205-259 s, and the agent instruction timed out. Agent-facing tier.
     # Working set MiB p50/24 h peak 177.9/383.4 (Mimir, 2026-10-11): MemoryLow ~ p50, MemoryMax >= 2x peak.
     memory_low: "184M"
     memory_max: "1G"

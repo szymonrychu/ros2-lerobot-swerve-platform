@@ -608,3 +608,16 @@ def test_the_lift_verdict_is_counted(server: Any, robot: FakeRobot) -> None:
     before = counter._value.get()
     lift(server)
     assert counter._value.get() == before + 1
+
+
+def test_approach_after_a_soft_object_lift_is_refused_and_keeps_the_carry(server: Any, robot: FakeRobot) -> None:
+    plush_in_jaws(robot.arm_backend, short_rad=0.02, load=150.0)  # gap under min_hold_gap_rad: only the load holds
+    approach(server)
+    close(server)
+    robot.arm.carry.update(band="ambiguous")
+    assert lift(server).structured_content["outcome"] == "lifted"
+    before = len(robot.arm_backend.commands)
+    with pytest.raises(ToolError, match="release_object"):
+        approach(server)
+    assert len(robot.arm_backend.commands) == before
+    assert robot.arm.grasp_held

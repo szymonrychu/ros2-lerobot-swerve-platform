@@ -76,6 +76,11 @@ NEXT_STEPS: dict[str, list[tuple[str, str]]] = {
         ("get_arm_state", "check where the arm and jaws stopped"),
         ("grasp_abort", "then open the jaws and back straight up"),
     ],
+    "interrupted_holding": [
+        ("get_body_state", "read the event in interrupted_by first"),
+        ("get_arm_state", "check where the arm and jaws stopped"),
+        ("release_object", "the jaws carry an object: put it down (grasp_abort is refused while holding)"),
+    ],
 }
 
 
@@ -168,12 +173,12 @@ def next_steps(phase: FlowPhase, holding: bool) -> list[NextStep]:
 
     Args:
         phase (FlowPhase): Flow phase.
-        holding (bool): The jaws carry the object (only matters in the lifted phase).
+        holding (bool): The jaws carry the object (only matters in the lifted and interrupted phases).
 
     Returns:
         list[NextStep]: Tools with when to use them.
     """
-    key = "lifted_holding" if phase == "lifted" and holding else phase
+    key = f"{phase}_holding" if phase in ("lifted", "interrupted") and holding else phase
     return [NextStep(tool=tool, when=when) for tool, when in NEXT_STEPS[key]]
 
 

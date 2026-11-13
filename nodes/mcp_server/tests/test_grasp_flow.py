@@ -128,3 +128,9 @@ def test_reapproach_route(dx: float, strategy: str, route: str) -> None:
     new = plan(floor_object(x=0.36 if strategy == "angled" else 0.26 + dx), strategy)
     assert landed.feasible and new.feasible, (landed.reasons, new.reasons)
     assert reapproach_route(landed, new) == route
+
+
+def test_interrupted_next_steps_name_release_object_only_while_holding() -> None:
+    assert "release_object" in [s.tool for s in next_steps("interrupted", True)]
+    assert "grasp_abort" not in [s.tool for s in next_steps("interrupted", True)]
+    assert [s.tool for s in next_steps("interrupted", False)][-1] == "grasp_abort"
