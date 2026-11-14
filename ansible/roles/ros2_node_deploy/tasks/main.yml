@@ -183,7 +183,7 @@
       tags: [apt]
 
     # A node type may purge packages from its workspace on deploy too (nav2_bringup with nav2_mppi_overlay false:
-    # the overlay leaves /opt/ros2-ws, which stays sourced for the arm wait BT plugin).
+    # the overlay leaves /opt/ros2-ws on rollback) and to remove retired packages (arm_drive_wait_bt_cpp).
     - name: Purge colcon output and stamps of packages the node type no longer builds
       ansible.builtin.include_tasks:
         file: colcon_purge.yml

@@ -440,7 +440,6 @@ export default function MapNavTab({
     />
   )
   const mapText = mapStatusText(mapsStatus)
-  // The arm lift while driving, read-only here: its controls live on the Arm tab.
   const statusItems = [...hintItems, poseItem, ...(mapText ? [mapText] : [])]
 
   // POI list, POI editor, photo panel and photo list. Phone: a column spanning the map, so the panels' bottom

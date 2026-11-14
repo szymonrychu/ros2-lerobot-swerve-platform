@@ -33,8 +33,8 @@ ros2_user_slice_io_weight: 50
 # memory_low protects about the measured typical working set, memory_max is a safety net at >= 2x the 24 h peak.
 # Nav2 MPPI overlay: nav2_mppi_controller 1.3.13 + the model_delay patch (PR #6154 ported to xtensor), built into
 # /opt/ros2-ws by the colcon_source machinery and picked up because the launcher sources that workspace after
-# /opt/ros/jazzy. Rollback: set nav2_mppi_overlay to false and deploy nav2_bringup: the launcher still sources
-# /opt/ros2-ws, so nav2_bringup's colcon_purge removes the overlay from it and the apt MPPI is used again (no rebuild).
+# /opt/ros/jazzy. Rollback: set nav2_mppi_overlay to false and deploy nav2_bringup: nav2_bringup's colcon_purge removes
+# the overlay from /opt/ros2-ws, the launcher then sources only /opt/ros/jazzy and the apt MPPI is used again (no rebuild).
 nav2_mppi_overlay: true
 nav2_mppi_overlay_source:
   repo: https://github.com/ros-navigation/navigation2.git

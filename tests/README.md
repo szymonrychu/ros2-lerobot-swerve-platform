@@ -1925,12 +1925,23 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   line; the description says arm-target rules are evaluated at motion start
 - spin (`test_base_motion.py`): `run_spin` turns the measured angle with marks in order at the right rotation and ends
   with a zero twist, clamps the yaw rate, ends on stop, a critical event, a refused mark, a lost pose or the timeout,
-  rejects a zero angle or rate
+  rejects a zero angle or rate; `test_spin_measures_rotation_from_odometry`: with no map -> base_link transform
+  (stale SLAM) `RosRobot.spin` reads the yaw from odom -> base_link only, turns the requested pi, fires the mark at
+  its angle and ends with a zero twist
 - look_around spin mode (`test_look_around.py`, `test_perception_tools.py`): spin mode captures the same tiles, labels
   and heading summaries as steps mode with one spin and no Nav2 rotation; steps mode without return skips the closing
   rotation; return_to_start spins the full circle (and corrects a final heading error with one precise rotation);
   an obstacle at a heading ends the spin; an interruption never triggers a corrective rotation; the tool defaults to
-  one spin without returning
+  one spin without returning; without a map pose (`test_look_around_spin_without_map_pose_completes_with_note`) a
+  spin run completes with one spin, the `NO_MAP_POSE_NOTE` note, all four tiles with no map heading, the rotation
+  measured from odometry, no corrective move and `returned_to_start` false;
+  `test_look_around_steps_without_map_pose_refused` refuses steps mode naming map->base_link and Nav2 before any
+  move, camera frame or head levelling; `test_look_around_without_map_pose_renders_topdown_without_map_layers`
+  (spin and head) still renders the top-down view with `layers_missing` holding `map` and lidar present;
+  `test_look_around_description_says_spin_runs_without_the_map_pose` checks the tool description names odometry and
+  the map pose
+- mcp_server frames (`test_config.py`): `test_frames_default_to_map_odom_and_base_link` pins the `topics` frame
+  defaults `map`, `odom` and `base_link`
 - link frames (`test_ik.py`): `link_frames` returns every chain link from one FK pass
 - grasp planner (`test_grasp.py`, real URDF; floor objects clear of the measured body: top_down at arm x 0.26, angled
   at 0.36 for 45 deg and 0.32 for 60 deg): strategy registry and unknown names, scoop into a tight gap skims the
