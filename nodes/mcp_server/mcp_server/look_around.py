@@ -424,6 +424,7 @@ def run_look_around(
         raise RobotError("robot pose (map->base_link) unavailable; look_around needs it to verify the turn")
     started = time.monotonic()
     stop_mark = robot.stop_count()
+    event_mark = robot.event_seq()  # both marks precede the head move, which can block: a stop during it still counts
     result = LookAroundResult(
         status="completed",
         expected={
@@ -439,10 +440,32 @@ def run_look_around(
     try:
         if mode == "spin":
             return run_spin_mode(
-                robot, settings, plan, required, camera, start, run, return_to_start, yaw_tolerance_deg, started
+                robot,
+                settings,
+                plan,
+                required,
+                camera,
+                start,
+                run,
+                return_to_start,
+                yaw_tolerance_deg,
+                started,
+                stop_mark,
+                event_mark,
             )
         return run_steps_mode(
-            robot, settings, plan, required, camera, start, run, return_to_start, yaw_tolerance_deg, started
+            robot,
+            settings,
+            plan,
+            required,
+            camera,
+            start,
+            run,
+            return_to_start,
+            yaw_tolerance_deg,
+            started,
+            stop_mark,
+            event_mark,
         )
     finally:
         if settings.level_head:
@@ -469,6 +492,8 @@ def run_steps_mode(
     return_to_start: bool,
     yaw_tolerance_deg: float,
     started: float,
+    stop_mark: int,
+    event_mark: int,
 ) -> LookAroundRun:
     """look_around 'steps' mode: one precise Nav2 rotation per heading with a frame and the lidar at every stop.
 
@@ -486,13 +511,13 @@ def run_steps_mode(
         return_to_start (bool): Turn back to the start heading at the end.
         yaw_tolerance_deg (float): Heading tolerance for returned_to_start.
         started (float): Monotonic start time (s).
+        stop_mark (int): robot.stop_count() taken before the head was levelled.
+        event_mark (int): robot.event_seq() taken before the head was levelled.
 
     Returns:
         LookAroundRun: The filled run.
     """
     result = run.result
-    stop_mark = robot.stop_count()
-    event_mark = robot.event_seq()
     last_yaw = start.yaw
     rotated_deg = 0.0
     closed = False  # the closing (or corrective) rotation succeeded
@@ -621,6 +646,8 @@ def run_spin_mode(
     return_to_start: bool,
     yaw_tolerance_deg: float,
     started: float,
+    stop_mark: int,
+    event_mark: int,
 ) -> LookAroundRun:
     """look_around 'spin' mode: capture at the start heading, then one continuous slow rotation (RobotApi.spin, base
     path with stop, critical events and a timeout) capturing a frame and the lidar at every further heading.
@@ -640,13 +667,13 @@ def run_spin_mode(
         return_to_start (bool): Turn the full circle back to the start heading.
         yaw_tolerance_deg (float): Heading tolerance for returned_to_start.
         started (float): Monotonic start time (s).
+        stop_mark (int): robot.stop_count() taken before the head was levelled.
+        event_mark (int): robot.event_seq() taken before the head was levelled.
 
     Returns:
         LookAroundRun: The filled run.
     """
     result = run.result
-    stop_mark = robot.stop_count()
-    event_mark = robot.event_seq()
 
     def capture(index: int) -> bool:
         """Frame + lidar at heading `index`; False (and status aborted_obstacle) when the rotation must not go on."""

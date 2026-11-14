@@ -1325,7 +1325,14 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   circumscribed radius + margin, refusal on a close obstacle or a missing lidar (robot not moved), the rotate-capture
   loop (3 rotations between 4 stops plus the closing step, camera and lidar at every stop, expected vs achieved
   rotation and heading error), interrupted / failed steps end the sequence with `interrupted_by` and no return
-  rotation, `stop` between steps, an obstacle appearing mid-turn, a camera failure recorded (not fabricated), montage
+  rotation, `stop` between steps, an obstacle appearing mid-turn, a camera failure recorded (not fabricated), montage and
+  head levelling (both modes; the camera test is `test_look_around_uses_the_head_d435`): the D435 head is levelled
+  before the first capture (`test_look_around_levels_the_head_before_the_first_capture`), steps mode re-levels before
+  each later capture because the head re-homes after every Nav2 goal, the previous aim is restored at the end and
+  reported in `head` (home with a note when the aim was unknown, a timeout or missing head feedback is a note), a
+  clearance refusal never touches the head, `level_head: false` never moves it, a stop leaves the head where it is,
+  and a stop or critical event raised while the levelling move blocks (a mark taken before the move) ends the run
+  with no base motion (`test_look_around_keeps_a_stop_or_event_raised_while_the_head_levels`)
 - POI client (`test_poi_client.py`): request published with op, poi and a fresh `request_id`; the result is matched by
   id (other ids ignored, answer from another thread), timeout, store not running (nothing published), store rejection,
   malformed results dropped, `/poi/list` parsing, `clear(created_by)` (publishes `op: clear` + `created_by`, returns the
@@ -1339,7 +1346,8 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   origin, rotated by the mount yaw; base_link origin without a mount), layer selection and validation, POI/object layers (each POI drawn once: `pois` without objects, `objects` only object POIs; both missing with the reason when poi_store is down), object tools round trip and merge as object POIs (`list_objects` only objects, `list_pois` states `kind`), legacy `objects.json` import through the server, POI tools
   (point defaults to the robot position, area polygon, `created_by` agent, argument errors, store not running),
   `list_pois` distance/bearing/status/near, `look_around` (montage + top-down images, summary, config default
-  captures, argument validation, refusal does not move)
+  captures, argument validation, refusal does not move, the result reports the restored head aim, the tool description
+  says the head is levelled)
 - executor hardening and camera frame cache (`test_spin.py`): `spin_forever` survives a stale-handle error and
   re-raises others; `run_or_exit` exits the process when the executor thread dies or stops while ROS runs (systemd
   restarts the node) and stays quiet on shutdown; `FrameCache.wait_newer` returns the first frame newer than the
@@ -2405,7 +2413,7 @@ fake `ssh`; no ROS needed).
 | `test_playbooks_create_tile_cache_before_deploying_web_ui` | `deploy_nodes_client.yml` includes the tile cache task before deploying web_ui. |
 | `test_mcp_server_perception_topics_match_their_producers` | mcp_server `topics` `local_costmap` `/local_costmap/costmap`, `plan` `/plan` and `poi_list` / `poi_command` / `poi_result` equal the poi_store entry's topics. |
 | `test_mcp_server_depth_points_is_the_d435_cloud` | mcp_server `topics.depth_points` (get_map_summary `obstacles_3d`) is the self-filtered head D435 cloud `/head/d435/points_filtered`; no `tof_points` key is left. |
-| `test_mcp_server_perception_config_sections` | mcp_server config carries `objects` (`/var/lib/ros2/objects/objects.json`, merge radius 0.25 m), `footprint` 0.47 x 0.386 m, `look_around` defaults (4 captures, positive clearance margin), `topdown` defaults and `poi.request_timeout_s` 3 s. |
+| `test_mcp_server_perception_config_sections` | mcp_server config carries `objects` (`/var/lib/ros2/objects/objects.json`, merge radius 0.25 m), `footprint` 0.47 x 0.386 m, `look_around` defaults (4 captures, positive clearance margin, `level_head` true), `topdown` defaults and `poi.request_timeout_s` 3 s. |
 | `test_mcp_server_readme_documents_perception_tools` | `nodes/mcp_server/README.md` documents get_topdown_view, the object memory tools, look_around, the POI tools, the objects file, the robot-up convention, `layers_missing` and the `MOTION_TOOLS` classification. |
 | `test_mcp_server_readme_lookups_example_has_only_store_dir` | The README config reference `lookups:` example lists only `store_dir` (no removed `max_records`/`max_bytes`/`max_age_days`). |
 | `test_client_yml_lookups_comment_points_to_an_existing_readme_section` | The README section quoted in the client.yml mcp_server `lookups:` comment exists as a `##` heading in `nodes/mcp_server/README.md`. |

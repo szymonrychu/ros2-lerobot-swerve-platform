@@ -77,6 +77,8 @@ class ScriptRobot:
         self.obstacles = list(obstacles or [])
         self.calls: list[tuple] = []
         self.stops = 0
+        self.event_no = 0  # event sequence number; raise_event bumps it
+        self.raised_event: str | None = None
         self.precise_flags: list[bool] = []  # the precise argument of every move_relative call
         self.stop_after_moves: int | None = None
         self.camera_fail_at: set[int] = set()
@@ -85,6 +87,10 @@ class ScriptRobot:
         self.move_errors: dict[int, RobotError] = {}  # 1-based move_relative call number -> raised error
         self.yaw_error_rad = 0.0  # added to every successful rotation (a controller that stops short or long)
 
+    def raise_event(self, event_type: str) -> None:
+        self.raised_event = event_type
+        self.event_no += 1
+
     def robot_pose(self) -> BasePose | None:
         return self.pose
 
@@ -92,10 +98,11 @@ class ScriptRobot:
         return self.stops
 
     def event_seq(self) -> int:
-        return 0
+        return self.event_no
 
     def interrupt_since(self, seq: int) -> str | None:
-        assert seq == 0
+        if self.raised_event is not None and self.event_no > seq:
+            return self.raised_event
         if self.event_after_cameras is not None and self.frames >= self.event_after_cameras[0]:
             return self.event_after_cameras[1]
         return None
@@ -585,3 +592,30 @@ def test_look_around_stop_leaves_the_head_where_it_is() -> None:
     assert run.result.status == "stopped"
     assert robot.head_backend.commands == [LEVEL]  # levelled, never restored after the stop
     assert run.result.head is not None and run.result.head.restored is False
+
+
+@pytest.mark.parametrize("mode", ["spin", "steps"])
+@pytest.mark.parametrize("kind", ["stop", "event"])
+def test_look_around_keeps_a_stop_or_event_raised_while_the_head_levels(
+    mode: str, kind: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    robot = make_robot(mode, head_positions=dict(AIMED))
+    publish = robot.head_backend.publish_head_command
+
+    def publish_then_signal(positions: dict[str, float]) -> None:
+        publish(positions)
+        if kind == "stop":
+            robot.stops += 1
+        else:
+            robot.raise_event("collision_stop")
+
+    monkeypatch.setattr(robot.head_backend, "publish_head_command", publish_then_signal)
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, 4, "head", mode=mode)  # type: ignore[arg-type]
+    assert not any(c[0] == "move" for c in robot.calls)
+    assert not getattr(robot, "spins", [])
+    assert run.result.status == ("stopped" if kind == "stop" else "interrupted")
+    if kind == "event":
+        assert robot.head_backend.commands == [LEVEL, pytest.approx(AIMED)]  # only a stop skips the restore
+    else:
+        assert robot.head_backend.commands == [LEVEL]  # the head stays where it is after a stop
+        assert run.result.head is not None and run.result.head.restored is False
