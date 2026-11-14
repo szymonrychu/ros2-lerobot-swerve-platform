@@ -41,6 +41,11 @@ def test_default_topics_follow_the_robot_graph() -> None:
     assert t.navigate_action == "/navigate_to_pose"
 
 
+def test_frames_default_to_map_odom_and_base_link() -> None:
+    t = McpServerConfig().topics
+    assert (t.map_frame, t.odom_frame, t.base_frame) == ("map", "odom", "base_link")
+
+
 @pytest.mark.parametrize(
     "section, key, yaml_text",
     [

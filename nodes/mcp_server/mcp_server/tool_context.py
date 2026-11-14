@@ -182,7 +182,8 @@ class RobotApi(Protocol):
     def spin(
         self, wz: float, angle_rad: float, marks_rad: list[float], on_mark: Callable[[int], bool], timeout_s: float
     ) -> SpinOutcome:
-        """Continuous in-place rotation (base motion lock, stop, critical events, timeout; zero at the end)."""
+        """Continuous in-place rotation (base motion lock, stop, critical events, timeout; zero at the end), measured
+        from odometry (odom -> base_link), so it runs without a map pose."""
         ...
 
     def stop(self) -> StopResult:

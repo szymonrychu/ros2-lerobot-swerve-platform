@@ -197,6 +197,9 @@ class TopicSettings(StrictModel):
     poi_command: str = "/poi/command"
     poi_result: str = "/poi/result"
     map_frame: str = "map"
+    # odometry frame (odom -> base_link stays continuous when localization stalls): look_around's spin measures its
+    # rotation here, so a stale map -> base_link does not end the turn
+    odom_frame: str = "odom"
     base_frame: str = "base_link"
     home_service: str = "/arm/home"
     # std_srvs/Trigger (web UI Calibrate page): every arm joint but the gripper to 0.0 measured via the home routing;

@@ -26,6 +26,8 @@ SCAN_PNG_PX = 32
 DEFAULT_YAW_TOLERANCE_DEG = 5.0  # nav.goal_yaw_tolerance_deg default
 LEVEL_PAN_RAD = 0.0  # head aim for the base turn: straight ahead ...
 LEVEL_TILT_RAD = 0.0  # ... and level (tilt + is down)
+# spin mode without a map pose (localization stalled): the turn runs on odometry, the tiles are relative to the start
+NO_MAP_POSE_NOTE = "robot pose (map) unavailable: tiles have no map heading; rotation measured from odometry"
 
 BaseLookMode = Literal["spin", "steps"]  # the modes that turn the base
 LookMode = Literal["spin", "steps", "head"]  # 'head' pans the D435 head, the base never moves
@@ -410,6 +412,9 @@ def run_look_around(
     (nothing is sent against it). Before every rotation the lidar is checked against the footprint's circumscribed
     radius plus a margin; a stop() issued while the tool runs ends it before the next rotation.
 
+    Without a fresh map pose (map->base_link stale, localization stalled) 'steps' is refused (its Nav2 goals need it)
+    and 'spin' runs anyway with NO_MAP_POSE_NOTE: its rotation is measured from odometry.
+
     With settings.level_head the D435 head is levelled (pan 0, tilt 0, level_head) once the turn is allowed, before the
     first capture, and its previous aim is restored when the run ends (restore_head; home when that aim was unknown),
     except after a stop() (the head stays where it is). Head problems are notes in result.notes, never errors.
@@ -428,7 +433,8 @@ def run_look_around(
         yaw_tolerance_deg (float): Largest final heading error still counted as back at the start (nav.goal_yaw_tolerance_deg).
 
     Returns:
-        LookAroundRun: Result and frames. RobotError is raised (robot untouched) when rotation is not safe.
+        LookAroundRun: Result and frames. RobotError is raised (robot untouched) when rotation is not safe or, in
+            'steps' mode, without a map pose.
     """
     plan = plan_look_around(captures, settings.min_captures, settings.max_captures)
     required = required_clearance_m(footprint.length_m, footprint.width_m, settings.clearance_margin_m)
@@ -437,8 +443,14 @@ def run_look_around(
     if refusal is not None:
         raise RobotError(f"look_around refused: {refusal}")
     start = robot.robot_pose()
-    if start is None:
-        raise RobotError("robot pose (map->base_link) unavailable; look_around needs it to verify the turn")
+    if start is None and mode == "steps":
+        raise RobotError(
+            "robot pose (map->base_link) unavailable; look_around mode 'steps' needs it for its Nav2 rotations "
+            "(mode 'spin' turns on odometry, mode 'head' does not move the base)"
+        )
+    final_yaw = None  # no map heading without the map pose
+    if start is not None:
+        final_yaw = start.yaw if return_to_start else normalize_angle(start.yaw + plan.headings_rad[-1])
     started = time.monotonic()
     stop_mark = robot.stop_count()
     event_mark = robot.event_seq()  # both marks precede the head move, which can block: a stop during it still counts
@@ -449,9 +461,11 @@ def run_look_around(
             "rotation_deg": 360 if return_to_start else round(math.degrees(plan.headings_rad[-1])),
             "stops": captures,
             "step_deg": round(math.degrees(plan.step_rad), 3),
-            "final_yaw_rad": start.yaw if return_to_start else normalize_angle(start.yaw + plan.headings_rad[-1]),
+            "final_yaw_rad": final_yaw,
         },
     )
+    if start is None:
+        result.notes.append(NO_MAP_POSE_NOTE)
     run = LookAroundRun(result=result)
     before = level_head(robot.head, LEVEL_PAN_RAD, LEVEL_TILT_RAD, result.notes) if settings.level_head else None
     try:
@@ -470,6 +484,7 @@ def run_look_around(
                 stop_mark,
                 event_mark,
             )
+        assert start is not None  # steps mode is refused above without the map pose
         return run_steps_mode(
             robot,
             settings,
@@ -658,7 +673,7 @@ def run_spin_mode(
     plan: LookPlan,
     required: float,
     camera: Camera,
-    start: BasePose,
+    start: BasePose | None,
     run: LookAroundRun,
     return_to_start: bool,
     yaw_tolerance_deg: float,
@@ -673,13 +688,17 @@ def run_spin_mode(
     removes a final heading error beyond the tolerance). An obstacle inside the rotation circle at a heading ends the
     spin there ('aborted_obstacle'); a critical event, a stop or a failure ends it without any corrective rotation.
 
+    The spin measures its rotation from odometry, so it also runs without a map pose (start None, NO_MAP_POSE_NOTE):
+    the tiles keep their headings relative to the start, but the steps carry no map yaws, there is no corrective
+    rotation and returned_to_start stays false (the map heading is not verified).
+
     Args:
         robot (RobotApi): Robot.
         settings (LookAroundSettings): Spin speed, rate, timeout margin and frame size.
         plan (LookPlan): Headings.
         required (float): Free radius needed for the rotation (m).
         camera (Camera): 'head', the D435 colour camera on the pan/tilt head.
-        start (BasePose): Start pose.
+        start (BasePose | None): Start map pose, None when it is unavailable (the turn runs on odometry).
         run (LookAroundRun): Result and frames to fill.
         return_to_start (bool): Turn the full circle back to the start heading.
         yaw_tolerance_deg (float): Heading tolerance for returned_to_start.
@@ -706,13 +725,13 @@ def run_spin_mode(
         result.headings.append(sector_summary(index, heading, obstacles, run.frames[-1][1] is not None))
         if obstacles is None:
             result.notes.append(f"{label}: lidar scan missing or stale")
-        pose = robot.robot_pose()
+        pose = None if start is None else robot.robot_pose()  # map yaws only with a map start heading
         result.steps.append(
             StepRecord(
                 index=index,
                 heading_deg=round(math.degrees(heading)) % 360,
                 status="captured",
-                expected_yaw=normalize_angle(start.yaw + heading),
+                expected_yaw=None if start is None else normalize_angle(start.yaw + heading),
                 achieved_yaw=None if pose is None else pose.yaw,
             )
         )
@@ -757,9 +776,10 @@ def run_spin_mode(
                     )
                 elif outcome.status == "completed" and return_to_start:
                     closed = True
-                    rotated_deg += correct_heading(robot, settings, start, yaw_tolerance_deg, result)
+                    if start is not None:
+                        rotated_deg += correct_heading(robot, settings, start, yaw_tolerance_deg, result)
     end = robot.robot_pose()
-    heading_error = None if end is None else yaw_delta_deg(start.yaw, end.yaw)
+    heading_error = None if end is None or start is None else yaw_delta_deg(start.yaw, end.yaw)
     result.returned_to_start = closed and heading_error is not None and abs(heading_error) <= yaw_tolerance_deg
     result.achieved = {
         "rotation_deg": round(rotated_deg, 3),

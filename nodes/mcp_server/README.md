@@ -769,12 +769,23 @@ vs `achieved` (`rotation_deg`, `final_pose`, `heading_error_deg`), `returned_to_
 (median 35 s for 4 captures plus the return). The spin mode captures heading 0, then turns once at
 `look_around.spin_speed_rps` (0.4 rad/s) through `RobotApi.spin` (`base_motion.run_spin`: `/cmd_vel_nav` at
 `spin_rate_hz` through the velocity smoother and collision monitor, the base motion lock, the stop flag, critical body
-events, a lost pose and a timeout of angle / speed + `spin_timeout_margin_s` all end it, a zero twist always follows).
-The rotation is integrated from the measured heading, and a frame plus the lidar summary is taken each time it passes
+events, a lost odometry pose and a timeout of angle / speed + `spin_timeout_margin_s` all end it, a zero twist always
+follows). The rotation is integrated from the odometry heading (`RosRobot.odom_pose`: fresh `topics.odom_frame`
+(`odom`) -> `base_link` from TF, same `timeouts.state_stale_s` rule as the map pose), and a frame plus the lidar summary is taken each time it passes
 the next heading (frames are taken while turning slowly). An obstacle inside the rotation circle at a heading ends the
 spin (`aborted_obstacle`). With `return_to_start` the spin covers the full circle and one precise corrective
 `move_relative` removes a final heading error beyond the tolerance (never after an interruption, a stop or a failure).
 Tests check that both modes give the same tiles, labels and heading summaries (`test_look_around.py`).
+
+**Without the map pose.** When localization stalls (SLAM/AMCL lost, `map -> odom` no longer updated) the
+`map -> base_link` transform goes stale although the base can turn. `steps` mode is then refused (its Nav2 goals need
+the map pose), but `spin` runs anyway with the note `robot pose (map) unavailable: tiles have no map heading; rotation
+measured from odometry`: the tiles keep their headings relative to the start, `steps[].expected_yaw` /
+`achieved_yaw` and `expected.final_yaw_rad` are null, no corrective rotation is made and `returned_to_start` stays
+false (the map heading is not verified). Head mode never needs the map pose. Without a map pose the tool skips the
+top-down view with the note `top-down view skipped: robot pose (map) unavailable` (all modes). Tests:
+`test_look_around.py` (spin completes with the note, steps refused), `test_perception_tools.py` (top-down skipped),
+`test_base_motion.py` (`odom_pose`, `RosRobot.spin` measured from odometry).
 
 #### look_around head mode
 

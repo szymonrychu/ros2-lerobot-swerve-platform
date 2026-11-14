@@ -583,6 +583,25 @@ def test_topdown_frontier_compute_is_measured_once_per_map_version(server: Any, 
     assert frontier_metric_samples()[0] == after
 
 
+@pytest.mark.parametrize("mode, lease", [("spin", "base"), ("head", "arm")])
+def test_look_around_without_map_pose_skips_topdown_with_note(tmp_path: Path, mode: str, lease: str) -> None:
+    robot = RotatingRobot(tmp_path)
+    robot.robot_pose = lambda: None  # type: ignore[method-assign]
+    server = build_mcp_server(robot, McpServerConfig(), TOKEN)
+    take(server, lease)
+    res = call(server, "look_around", {"mode": mode})
+    sc = res.structured_content
+    assert sc["status"] == "completed"
+    assert sc["topdown"] is None
+    assert "top-down view skipped: robot pose (map) unavailable" in sc["notes"]
+    assert [c.mime_type for c in res.content if c.type == "image"] == ["image/jpeg"]
+
+
+def test_look_around_description_says_spin_runs_without_the_map_pose(server: Any) -> None:
+    text = tool_descriptions(server)["look_around"]
+    assert "odometry" in text and "map pose" in text
+
+
 # --- look_around head mode ------------------------------------------------------------------------------------------
 
 

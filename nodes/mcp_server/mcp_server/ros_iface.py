@@ -1589,6 +1589,17 @@ class RosRobot:
             return None
         return pose
 
+    def odom_pose(self) -> BasePose | None:
+        """Fresh odom -> base_link pose (topics.odom_frame), continuous even while localization (map -> odom) stalls.
+
+        Returns:
+            BasePose | None: Pose or None when missing or older than timeouts.state_stale_s.
+        """
+        pose = self.lookup_pose(self.cfg.topics.odom_frame, self.cfg.topics.base_frame)
+        if pose is None or (pose.age_s or 0.0) > self.cfg.timeouts.state_stale_s:
+            return None
+        return pose
+
     # --- ArmBackend ---------------------------------------------------------------------------------------------
 
     def joint_sample(self) -> JointSample | None:
@@ -2969,7 +2980,8 @@ class RosRobot:
         """Continuous in-place rotation on cmd_vel_nav (smoother + collision monitor downstream), then zero.
 
         Holds the base motion lock like drive/navigate; the stop tool, a critical event, a lost pose or the timeout
-        end it (run_spin).
+        end it (run_spin). The rotation is measured from the odometry pose (odom_pose), not the map pose: a stale
+        map -> base_link (localization stalled) does not stop a turn the base can make.
 
         Args:
             wz (float): Yaw rate (rad/s, clamped to limits.max_angular_rps).
@@ -2990,7 +3002,7 @@ class RosRobot:
                 watch = self.monitor.watch(BASE_INTERRUPTS)
 
                 def yaw() -> float | None:
-                    pose = self.robot_pose()
+                    pose = self.odom_pose()
                     return None if pose is None else pose.yaw
 
                 return run_spin(

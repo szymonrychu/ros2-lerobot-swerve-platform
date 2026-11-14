@@ -487,6 +487,40 @@ def test_spin_mode_interrupted_by_a_critical_event() -> None:
     assert not any(c[0] == "move" for c in robot.calls)  # never a corrective rotation after a critical event
 
 
+# --- without the map pose (localization lost): spin turns on odometry, steps is refused ---------------------------
+
+
+def test_look_around_spin_without_map_pose_completes_with_note() -> None:
+    robot = SpinScriptRobot()
+    robot.robot_pose = lambda: None  # type: ignore[method-assign]
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, 4, "head", mode="spin", return_to_start=True)
+    result = run.result
+    assert result.status == "completed" and len(robot.spins) == 1
+    assert look_around.NO_MAP_POSE_NOTE in result.notes
+    assert look_around.NO_MAP_POSE_NOTE == (
+        "robot pose (map) unavailable: tiles have no map heading; rotation measured from odometry"
+    )
+    assert [label for label, _ in run.frames] == ["0 deg (start)", "+90 deg", "+180 deg", "+270 deg"]
+    assert all(data is not None for _, data in run.frames)
+    assert [h.heading_deg for h in result.headings] == [0, 90, 180, 270]
+    assert all(s.expected_yaw is None and s.achieved_yaw is None for s in result.steps)
+    assert result.expected["final_yaw_rad"] is None
+    assert result.achieved["rotation_deg"] == pytest.approx(360.0)
+    assert result.achieved["final_pose"] is None and result.achieved["heading_error_deg"] is None
+    assert not result.returned_to_start  # the full turn is measured on odometry, the map heading is unverified
+    assert not any(c[0] == "move" for c in robot.calls)  # no map heading to correct towards
+
+
+def test_look_around_steps_without_map_pose_refused() -> None:
+    robot = ScriptRobot()
+    robot.pose = None  # type: ignore[assignment]
+    with pytest.raises(RobotError, match="steps") as refused:
+        run_look_around(robot, SETTINGS, FOOTPRINT, 4, "head", mode="steps")
+    assert "map->base_link" in str(refused.value) and "Nav2" in str(refused.value)
+    assert not any(c[0] in ("move", "camera") for c in robot.calls)
+    assert robot.head_backend.commands == []  # refused before the head is levelled
+
+
 # --- camera: the D435 head camera only -------------------------------------------------------------------------
 
 

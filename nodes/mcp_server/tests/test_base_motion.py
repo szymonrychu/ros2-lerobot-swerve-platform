@@ -1,10 +1,17 @@
-"""Tests for mcp_server.base_motion.run_drive (timed, clamped velocity streaming)."""
+"""Tests for mcp_server.base_motion.run_drive (timed, clamped velocity streaming) and run_spin, plus the RosRobot
+spin and odom_pose wiring (the rotation is measured from odom -> base_link, so a stale map pose does not end a spin)."""
 
+import contextlib
 import math
+import threading
+from types import ModuleType, SimpleNamespace
+from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
 from mcp_server.base_motion import DriveError, SpinOutcome, run_drive, run_spin
+from mcp_server.config import McpServerConfig
 
 
 class Clock:
@@ -172,3 +179,79 @@ def test_spin_rejects_bad_arguments() -> None:
         spin(SpinRig(), 0.0, [])
     with pytest.raises(DriveError):
         spin(SpinRig(), 1.0, [], wz=0.0)
+
+
+# --- RosRobot.spin and odom_pose: the rotation comes from odometry, not from the map pose ---------------------------
+
+
+class TfError(Exception):
+    """Stands in for tf2_ros.TransformException (mocked away in these tests)."""
+
+
+def tf_msg(yaw: float, sec: int = 0) -> Any:
+    """geometry_msgs TransformStamped stand-in: a planar transform with the given yaw."""
+    return SimpleNamespace(
+        header=SimpleNamespace(stamp=SimpleNamespace(sec=sec, nanosec=0)),
+        transform=SimpleNamespace(
+            translation=SimpleNamespace(x=0.5, y=-0.25, z=0.0),
+            rotation=SimpleNamespace(x=0.0, y=0.0, z=math.sin(yaw / 2), w=math.cos(yaw / 2)),
+        ),
+    )
+
+
+def tf_robot(ros_iface: ModuleType, transforms: dict[str, Any], age_s: float = 0.0) -> Any:
+    """RosRobot without __init__ whose TF lookups answer from `transforms` (parent frame -> message or callable)."""
+    ros_iface.TransformException = TfError
+    robot = ros_iface.RosRobot.__new__(ros_iface.RosRobot)
+    robot.cfg = McpServerConfig()
+    robot.lookups = []
+
+    def tf_lookup(frame: str, child: str, stamp: Any = None) -> Any:
+        robot.lookups.append((frame, child))
+        found = transforms.get(frame)
+        if found is None:
+            raise TfError(f"no {frame} -> {child}")
+        return found() if callable(found) else found
+
+    robot.tf_lookup = tf_lookup
+    robot.ros_age = lambda stamp: age_s
+    return robot
+
+
+def test_odom_pose_is_the_fresh_odom_to_base_link_transform(ros_iface: ModuleType) -> None:
+    robot = tf_robot(ros_iface, {"odom": tf_msg(0.5, sec=10)})
+    pose = robot.odom_pose()
+    assert pose is not None and pose.frame == "odom"
+    assert (pose.x, pose.y, pose.yaw) == pytest.approx((0.5, -0.25, 0.5))
+    assert robot.lookups == [("odom", "base_link")]
+    assert robot.robot_pose() is None  # no map -> base_link: the map pose is unavailable, the odom pose is not
+
+
+def test_odom_pose_is_none_when_missing_or_stale(ros_iface: ModuleType) -> None:
+    assert tf_robot(ros_iface, {}).odom_pose() is None
+    stale_s = McpServerConfig().timeouts.state_stale_s + 0.5
+    assert tf_robot(ros_iface, {"odom": tf_msg(0.5, sec=10)}, age_s=stale_s).odom_pose() is None
+
+
+def test_odom_pose_uses_the_configured_odom_frame(ros_iface: ModuleType) -> None:
+    robot = tf_robot(ros_iface, {"odom_wheels": tf_msg(0.1, sec=1)})
+    robot.cfg = McpServerConfig(topics={"odom_frame": "odom_wheels"})
+    assert robot.odom_pose() is not None and robot.lookups == [("odom_wheels", "base_link")]
+
+
+def test_spin_measures_rotation_from_odometry(ros_iface: ModuleType, monkeypatch: pytest.MonkeyPatch) -> None:
+    rig = SpinRig()
+    robot = tf_robot(ros_iface, {"odom": lambda: tf_msg(rig.yaw)})  # map -> base_link is missing (stale SLAM)
+    robot.base_motion = threading.Lock()
+    robot.base_stop = threading.Event()
+    robot.monitor = MagicMock()
+    robot.monitor.watch.return_value.check.return_value = None
+    robot.motion_rate = lambda *subsystems: contextlib.nullcontext()
+    robot.publish_twist = rig.publish
+    monkeypatch.setattr(ros_iface, "time", SimpleNamespace(monotonic=rig.now, sleep=rig.sleep))
+    out = robot.spin(0.4, math.pi, [math.pi / 2], rig.on_mark, 30.0)
+    assert out.status == "completed", out.message
+    assert out.rotated_rad == pytest.approx(math.pi, abs=0.05)
+    assert [i for i, _ in rig.marks] == [0]
+    assert rig.sent[-1] == (0.0, 0.0, 0.0)
+    assert set(robot.lookups) == {("odom", "base_link")}
