@@ -309,15 +309,15 @@
 - **Known limit, not changed**: in a scene half upper, half 5 cm lower floor the RANSAC plane tilts 2 deg to catch both (inlier ratio 0.83) and the drop reads 27 mm; 10 cm drops are fine. The drop test limits `fit.max_normal_angle_deg` to 1 deg.
 - **Evidence is synthetic**: `test_d435_sweep.cpp` (factory K, z^2 noise, holes, mixed pixels, edge mask, 15 Hz). Live checks still open: `record-d435-ground-replay-fi` (three scenes, head only) and `tune-ground-estimator-on-d43`; `scripts/ground_noise_report.py` still and panning; state >= 1.8 Hz; ground_estimator CPU p95 within 0.10 core; the real camera-to-joint stamp offset and the gate rate limit; floor band (Q4).
 
-## Arm lifts to a drive pose during navigation (2026-11-01)
+## Arm drive pose removed (2026-11-14)
 
-- **Decision**: while a NavigateToPose goal runs, the arm lifts from home to a drive pose out of the head D435's view and lowers 3 s after the last goal (`arm.drive_pose`, ships `enabled: true`, toggled on the web UI ARM tab). mcp_server owns it (`drive_pose.py`, `/arm/drive_pose/state`); the Nav2 BT step `WaitForArmDriveReady` (`arm_drive_wait_bt_cpp`, deleted; its build is purged from `/opt/ros2-ws` by nav2_bringup's `colcon_purge`) holds each goal up to 8 s for the lift and never blocks or fails a goal otherwise. Details: `nodes/mcp_server/README.md` ("Drive pose"), `nodes/nav2_bringup/README.md` ("Arm drive pose wait").
+- 2026-11-14: drive pose removed (T-277): it slowed every nav goal with arm lift/lower; nav uses the static parked footprint.
 
 ## Arm self-collision guard in filter_node (2026-11-01)
 
 - **Decision**: every follower command (leader, web UI, autonomy) passes `filter_node`'s guard before `/follower/joint_commands`; it clamps to the furthest safe sample short of the body (nothing published when that is the start). The follower bridge's `set_register` refuses `goal_position`, `goal_speed` and `goal_time` (`set_register_motion_blocked`), so nothing bypasses it. Rollback: `self_collision_guard.enabled: false` and redeploy filter_node.
 - **One body**: `shared/arm_collision/arm_collision/robot_body.yaml` is the only body definition (mcp_server, filter_node, the head_rgbd_calibration pose check, the Nav2 footprint); the copies in `client.yml` are gone. The rclpy-free collision code moved to `shared/arm_collision`, the gripper range mapping to `shared/feetech_mapping`.
-- **Body**: wheels reach z 0.15 (3 cm above the tyre top, was 0.12); the head post and arm are fixed body; the D435 head is posed from `/head/joint_states` and the full envelope is checked when that state is older than 0.5 s. One 0.005 m keep-away for every part (was 0.03 soft / 0.002 hard); the drive pose and `reach_map.npz` were regenerated for it.
+- **Body**: wheels reach z 0.15 (3 cm above the tyre top, was 0.12); the head post and arm are fixed body; the D435 head is posed from `/head/joint_states` and the full envelope is checked when that state is older than 0.5 s. One 0.005 m keep-away for every part (was 0.03 soft / 0.002 hard); `reach_map.npz` was regenerated for it.
 - **State**: `/filter/guard_state` (latched JSON), clear 2 s after the last block; the web UI ARM tab shows `Blocked by <obstacle>`.
 - Details: `nodes/filter_node/README.md` ("Self-collision guard"), `shared/arm_collision/README.md`.
 

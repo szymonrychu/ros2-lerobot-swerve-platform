@@ -655,76 +655,17 @@ def test_head_applied_dir_default_null_and_matches_head_state_publisher() -> Non
     assert McpServerConfig.model_validate({"head": {"applied_dir": None}}).head.applied_dir is None
 
 
-DRIVE_JOINTS = {
-    "shoulder_pan": -0.003,
-    "shoulder_lift": -1.35,
-    "elbow_flex": 1.578,
-    "wrist_flex": -0.1,
-    "wrist_roll": -1.637,
-    "gripper": 0.1,
-}
-
-
-def test_drive_pose_defaults() -> None:
-    """arm.drive_pose ships off; its stored pose lives next to the home file."""
-    drive = McpServerConfig().arm.drive_pose
-    assert drive.enabled is False
-    assert (drive.lower_delay_s, drive.speed_scale, drive.tolerance_rad, drive.lift_timeout_s) == (3.0, 0.3, 0.05, 15.0)
-    assert drive.joints is None
-    assert drive.stored_file == Path("/var/lib/ros2/arm/drive_pose.yaml")
-    moved = McpServerConfig.model_validate({"arm": {"home_file": "/tmp/arm/home.yaml"}}).arm.drive_pose
-    assert moved.stored_file == Path("/tmp/arm/drive_pose.yaml")
-    explicit = {"arm": {"drive_pose": {"stored_file": "/x/pose.yaml"}}}
-    assert McpServerConfig.model_validate(explicit).arm.drive_pose.stored_file == Path("/x/pose.yaml")
-    assert McpServerConfig.model_validate({"arm": {"drive_pose": {"joints": DRIVE_JOINTS}}}).arm.drive_pose.joints == (
-        DRIVE_JOINTS
-    )
-
-
-@pytest.mark.parametrize(
-    "drive_pose",
-    [
-        {"joints": {k: v for k, v in DRIVE_JOINTS.items() if k != "gripper"}},
-        {"joints": {**DRIVE_JOINTS, "elbow": 0.0}},
-        {"joints": {**DRIVE_JOINTS, "wrist_flex": float("nan")}},
-        {"joints": {**DRIVE_JOINTS, "wrist_flex": float("inf")}},
-        {"speed_scale": 0.0},
-        {"speed_scale": 1.01},
-        {"lower_delay_s": -0.1},
-        {"tolerance_rad": 0.0},
-        {"lift_timeout_s": 0.0},
-        {"nope": 1},
-    ],
-    ids=[
-        "missing-joint",
-        "unknown-joint",
-        "nan-joint",
-        "inf-joint",
-        "speed-zero",
-        "speed-above-one",
-        "negative-delay",
-        "zero-tolerance",
-        "zero-lift-timeout",
-        "unknown-key",
-    ],
-)
-def test_drive_pose_rejects_bad_values(drive_pose: dict) -> None:
-    with pytest.raises(ValidationError):
-        McpServerConfig.model_validate({"arm": {"drive_pose": drive_pose}})
-
-
-def test_drive_pose_speed_scale_one_and_zero_delay_are_valid() -> None:
-    drive = McpServerConfig.model_validate({"arm": {"drive_pose": {"speed_scale": 1.0, "lower_delay_s": 0.0}}})
-    assert (drive.arm.drive_pose.speed_scale, drive.arm.drive_pose.lower_delay_s) == (1.0, 0.0)
-
-
-def test_deployed_config_has_an_enabled_drive_pose_naming_every_joint() -> None:
+def test_deployed_config_has_no_drive_pose() -> None:
+    """The arm drive pose is removed (T-277): the deployed mcp_server config has no arm.drive_pose."""
     nodes = yaml.safe_load((REPO_ROOT / "ansible" / "group_vars" / "client.yml").read_text())["ros2_nodes"]
     entry = next(n for n in nodes if n["name"] == "mcp_server")
-    assert "drive_pose" in yaml.safe_load(entry["config"])["arm"]
-    drive = McpServerConfig.model_validate(yaml.safe_load(entry["config"])).arm.drive_pose
-    assert drive.enabled is True
-    assert drive.joints is not None and set(drive.joints) == set(DRIVE_JOINTS)
+    assert "drive_pose" not in yaml.safe_load(entry["config"])["arm"]
+
+
+def test_arm_drive_pose_is_an_unknown_key() -> None:
+    """A config still carrying arm.drive_pose is refused as an unknown key."""
+    with pytest.raises(ValidationError, match="drive_pose"):
+        McpServerConfig.model_validate({"arm": {"drive_pose": {"enabled": True}}})
 
 
 def test_body_defaults_to_the_packaged_robot_body() -> None:

@@ -19,7 +19,7 @@ from ros2_common.head_rgbd_calibration.urdf_text import APPLIED_MARKER_FILE
 
 from filter_node.arm_calibration import GuardCalibration, swap_checker_calibration
 
-from .arm_fixture import ARM, DRIVE_POSE, HARD_MARGIN_M, PARKED_HOME, WHEEL_FR_INSIDE
+from .arm_fixture import ARM, HARD_MARGIN_M, PARKED_HOME, RAISED_POSE, WHEEL_FR_INSIDE
 
 SESSION = "calib-20261109-120000"
 OFFSETS = {"shoulder_pan": 0.03, "shoulder_lift": -0.02, "elbow_flex": -0.09, "wrist_flex": 0.08, "wrist_roll": -0.07}
@@ -262,7 +262,7 @@ def test_an_unexpected_read_error_keeps_the_values_in_use_and_never_raises(
 # --- swap_checker_calibration -------------------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("pose", [PARKED_HOME, DRIVE_POSE, WHEEL_FR_INSIDE], ids=["home", "drive", "wheel"])
+@pytest.mark.parametrize("pose", [PARKED_HOME, RAISED_POSE, WHEEL_FR_INSIDE], ids=["home", "raised", "wheel"])
 def test_the_swapped_checker_checks_like_one_built_with_the_calibration(pose: dict[str, float]) -> None:
     checker = checker_for(ARM)
     swap_checker_calibration(checker, accepted_arm())

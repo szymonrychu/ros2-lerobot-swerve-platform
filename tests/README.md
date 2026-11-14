@@ -1001,7 +1001,7 @@ accept after startup, or a newer one, is applied once; a head chain apply alone 
 removed record goes back to the configured arm; a swap that raises is logged once, keeps the values in use and is not
 retried until `applied.json` changes; an unexpected read error (any exception) is logged, keeps the values in use and
 never raises; `swap_checker_calibration` gives the clearances of a checker built with the new
-calibration (home, drive pose, a pose by the wheel) and maps no mount to the mount height above base_link; importing
+calibration (home, a raised pose, a pose by the wheel) and maps no mount to the mount height above base_link; importing
 the module loads no cv2. Wiring (`test_guard_calibration_wiring.py`, the `test_guard_wiring.py` harness): the guard is
 built on an accepted calibration; an accept while running reaches the guard on the next calibration timer tick and the
 following web UI command is checked with it; no `applied_dir` creates no calibration timer and keeps the configured
@@ -2269,28 +2269,21 @@ in the mcp_server uv environment, cached per client.yml content) and the check t
 | `test_head_aim_equals_the_generator_output` | `head_aim.yaml` and the client.yml entry equal the generator's head_aim_box region. |
 | `test_rerunning_the_generator_is_a_no_op` | A second generator run changes no file. |
 
-### Arm drive pose (arm-lift-while-driving)
+### Removed arm drive pose (T-277)
 
-New or changed tests of the drive pose feature. Root tests are in the tables above (`test_nav_footprint.py`,
-`test_head_aim_deploy.py`, `test_nav2_mppi_overlay.py`, `test_nav_stack_config.py`). The drive footprint and the
-`StopBoxDrive` switching are gone (StopBox is permanently on). Per-node files
-(run in the node directory, `uv run --frozen pytest tests/ -q`, `npm test`, or `./scripts/cpp-node-test.sh <package>`):
+Regression guards for the removed arm drive pose (the arm no longer lifts during navigation; Nav2 uses the static
+parked footprint). Root tests are in the tables above (`test_nav_footprint.py`, `test_head_aim_deploy.py`,
+`test_nav2_mppi_overlay.py`, `test_nav_stack_config.py`). Per-node files (run in the node directory,
+`uv run --frozen pytest tests/ -q` or `./scripts/cpp-node-test.sh <package>`):
 
 | File | What it covers |
 |---|---|
-| `nodes/mcp_server/tests/test_config.py` | `ArmSettings.drive_pose` defaults, rejected values (joints, `speed_scale`, `lower_delay_s`, unknown keys), and the deployed client.yml block (enabled, every joint named). |
-| `nodes/mcp_server/tests/test_drive_pose_check.py` | The drive pose check on synthetic poses: `body`, `floor`, `stretched`, `roll`, `footprint` and `view` failures, every `home_routes` leg in both directions, the D435 frustum and floor-region geometry, the search ranking. |
-| `nodes/mcp_server/tests/test_drive_pose_config.py` | The client.yml `drive_pose.joints` pass every check from the parked home. |
-| `nodes/mcp_server/tests/test_drive_pose.py` | The controller with fake arm, control, clock and worker: lift on the goal edge, every skip reason, lowering after `lower_delay_s`, chained goals, lease or moved arm means no lower, non-converged motions, `request_lift`, abort, runtime enable, `store_pose` / `load_pose`, `at_drive_pose`. |
-| `nodes/mcp_server/tests/test_ros_iface_drive_pose.py` | The 5 Hz tick, the latched state topic (on change and at 1 Hz, nothing before the controller), `/arm/set_drive_pose`, `/arm/drive_pose/enable`, and `navigate` requesting the lift before it sends its goal (never refusing). |
-| `nodes/mcp_server/tests/test_control.py` | `get_control_state` reports `arm.drive_pose`, the `stop` tool aborts a drive-pose motion, the control manager's drive pose gates. |
+| `nodes/mcp_server/tests/test_config.py` | `test_deployed_config_has_no_drive_pose`: the deployed client.yml mcp_server `arm` block has no `drive_pose` key; `test_arm_drive_pose_is_an_unknown_key`: a config with `arm.drive_pose` is refused. |
+| `nodes/mcp_server/tests/test_control.py` | `test_get_control_state_and_release_tool`: the `get_control_state` arm block is exactly `held, held_since, held_by, carrying, at_home, home_stored, active_source, lost`. |
 | `nodes/mcp_server/tests/test_footprint.py`, `test_ros_iface_footprint.py` | No drive footprint: the kinds are `static`, `dynamic` and `conservative` only, `nav_footprint` rejects a `drive_arm_shadow` key, the footprint never sends `StopBox.enabled`, and `bind_control` binds no drive hook into the footprint (the tick goes dynamic and back to static). |
 | `nodes/mcp_server/tests/test_guard_rules.py` | `footprint.kind` choices are `static`, `dynamic`, `conservative`. |
-| `nodes/web_ui/tests/test_arm_api.py`, `test_config.py`, `test_map_nav.py` | The two drive pose endpoints (service call, message, 404 / 500 / 503), the state role for ARM and MAP tabs, the SetBool bridge client, the config keys and their defaults. |
-| `nodes/web_ui/frontend/src/arm/ArmActions.test.tsx`, `armControls.test.ts`, `src/tabs/ArmTab.test.tsx` | Set drive pose (two clicks), the lift toggle with the live `enabled`, the disabled reasons; a Set home refused while the arm zero is stale shows the mcp_server message as an error alert. |
-| `nodes/web_ui/frontend/src/map/MapStatusLine.test.tsx`, `mapActions.test.ts`, `src/tabs/MapNavTab.toolbar.test.tsx` | The read-only drive pose state in the MAP status line (no button). |
 | `nodes/head_aim_cpp/test/core/test_aim.cpp`, `test_config.cpp` | The regenerated footprint box values. |
-| `nodes/claude_agent/tests/test_prompt.py` | `test_prompt_explains_the_arm_drive_pose_during_navigation`: the prompt says the arm lifts by itself while a navigation goal runs, lowers after it, and that `get_control_state` `arm.drive_pose` says why. |
+| `nodes/claude_agent/tests/test_prompt.py` | `test_prompt_has_no_drive_pose`: the prompt does not describe the arm lifting by itself during navigation. |
 
 ### test_poi_store_config.py
 

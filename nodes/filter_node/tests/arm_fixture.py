@@ -39,7 +39,8 @@ FK_TOLERANCE_M = 1e-3
 # Top of the physical wheel_fr (60 mm radius on a 60 mm axle height) and its steer axis in base_link.
 WHEEL_TOP_Z_M = 0.12
 WHEEL_FR_XY = (0.1525, -0.1333)
-# Parked home (scripts/gen_nav_footprint.yaml parked_arm_joints) and the drive pose (client.yml arm.drive_pose.joints).
+# Parked home (scripts/gen_nav_footprint.yaml parked_arm_joints) and a raised pose (upper arm laid back, forearm folded
+# over the crossbar) that clears the body.
 PARKED_HOME = {
     "shoulder_pan": -0.003,
     "shoulder_lift": -1.35,
@@ -69,7 +70,7 @@ WHEEL_FR_INSIDE = {
     "gripper": 0.0,
 }
 WHEEL_FR_INSIDE_TOOL_Z_M = WHEEL_TOP_Z_M + 0.01
-DRIVE_POSE = {
+RAISED_POSE = {
     "shoulder_pan": -0.003,
     "shoulder_lift": -1.711,
     "elbow_flex": -1.483,
