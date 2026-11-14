@@ -50,7 +50,7 @@ params (notably collision_monitor and docking_server) fails to configure and abo
 
 | Server | Configuration |
 |---|---|
-| bt_navigator | `global_frame: map`, `robot_base_frame: base_link`, `odom_topic: /odometry/filtered`; NavigateToPose runs the repo tree `behavior_trees/navigate_to_pose_arm_wait.xml` and `plugin_lib_names: [arm_drive_wait_bt_node]` adds the arm wait plugin. See [Arm drive pose wait](#arm-drive-pose-wait). |
+| bt_navigator | `global_frame: map`, `robot_base_frame: base_link`, `odom_topic: /odometry/filtered`; NavigateToPose runs the stock `navigate_w_recovery_and_replanning_only_if_path_becomes_invalid.xml` (`default_nav_to_pose_bt_xml`, no extra BT plugins). |
 | controller_server | MPPI, `motion_model: Omni`, `vx` 0..0.25 (no reverse, head-aim plan: travel stays within the head pan reach; BackUp recovery still drives backwards, lidar-only), `vy_max` 0.25 (symmetric in Jazzy), `wz_max` 0.5 rad/s, 10 Hz, `model_dt` 0.1, 30 steps, 1000 samples; holonomic critics (PathAngleCritic mode 1, TwirlingCritic, no PreferForwardCritic). |
 | planner_server | `GridBased` = Smac state lattice (`nav2_smac_planner::SmacPlannerLattice`), omni primitives at 2.5 cm, footprint-aware; `allow_unknown: true` (plans into unexplored space while mapping), tolerance 0.5 m, `max_planning_time` 2 s. See [Global planner](#global-planner-smac-lattice). |
 | global_costmap | `map` frame, 2.5 cm cells (= the SLAM map); static layer on `/map` (`map_subscribe_transient_local: true`), obstacle layer from `/scan_filtered` (footprint clearing off), inflation 0.325 m / `cost_scaling_factor` 24.3 (see [Penalty zone](#penalty-zone-inflation); mcp_server sets both at runtime for its footprint), no footprint padding, `initial_transform_timeout` 300 s (a deploy restarts nav2 before the gradual ramp brings up odom). |
@@ -319,8 +319,8 @@ the patch, the probe and the overlay source from `client.yml`, keep the `model_d
 `config/nav2_params.yaml`, and the apt `nav2_mppi_controller` reads them natively.
 
 **Rollback.** Set `nav2_mppi_overlay: false` in `ansible/group_vars/client.yml` and deploy
-(`./scripts/deploy-nodes.sh client nav2_bringup`). The nav2_bringup `colcon_source` then holds only the arm wait BT
-plugin, so the launcher keeps sourcing `/opt/ros2-ws`; its `colcon_purge` lists `nav2_mppi_controller`, which the deploy
+(`./scripts/deploy-nodes.sh client nav2_bringup`). The nav2_bringup `colcon_source` is then empty, the launcher still
+sources `/opt/ros2-ws`, and its `colcon_purge` lists `nav2_mppi_controller` (next to the retired `arm_drive_wait_bt_cpp`), which the deploy
 removes from that workspace (source, build, install directory and stamps), and pluginlib loads the apt
 `ros-jazzy-nav2-mppi-controller` again (which is installed either way). The apt plugin does not declare `model_delay_*`, so those params-file values are ignored. The overlay's build is synchronous and
 stops every `ros2-*` unit (claude_agent and mcp_server included) while it runs; do not deploy during an agent session.
@@ -348,36 +348,15 @@ Re-enable with `nav2_mppi_overlay: true`; the purge removed the stamp, so the ov
 
 ## Goal tolerance
 
-Goals finish within 2 cm and 5 deg (`xy_goal_tolerance` 0.02, `yaw_goal_tolerance` 0.087, stateful; loosened from 1 cm / 2 deg on 2026-11-13 because MPPI and the rotation shim spent a long time on cm-scale corrections at the end of every path). This needs three things together: the BT `navigate_w_recovery_and_replanning_only_if_path_becomes_invalid.xml` (behind the arm wait in the repo copy, see below; mid-route replanning only on an invalid path, so the latch holds), `PoseProgressChecker` (rotation counts as progress; radius 0.05 m, angle 0.3 rad, 20 s allowance), and the shim settings above. Short sideways goals (a few cm) rotate 90 deg toward the path first (front leading) and then turn back to the goal heading.
+Goals finish within 2 cm and 5 deg (`xy_goal_tolerance` 0.02, `yaw_goal_tolerance` 0.087, stateful; loosened from 1 cm / 2 deg on 2026-11-13 because MPPI and the rotation shim spent a long time on cm-scale corrections at the end of every path). This needs three things together: the BT `navigate_w_recovery_and_replanning_only_if_path_becomes_invalid.xml` (mid-route replanning only on an invalid path, so the latch holds), `PoseProgressChecker` (rotation counts as progress; radius 0.05 m, angle 0.3 rad, 20 s allowance), and the shim settings above. Short sideways goals (a few cm) rotate 90 deg toward the path first (front leading) and then turn back to the goal heading.
 
-## Arm drive pose wait
+## StopBoxDrive
 
-`config/nav2_params.yaml` points `default_nav_to_pose_bt_xml` at
-`/opt/ros2-lerobot-swerve-platform/nodes/nav2_bringup/behavior_trees/navigate_to_pose_arm_wait.xml` (the robot checkout,
-like the Smac `lattice_filepath`). That tree is the stock Jazzy (nav2_bt_navigator 1.3.13)
-`navigate_w_recovery_and_replanning_only_if_path_becomes_invalid.xml`, unchanged, as the second child of a root
-`Sequence` whose first child is `WaitForArmDriveReady` (`topic` `/arm/drive_pose/state`, `timeout_s` 8.0, from
-[nodes/arm_drive_wait_bt_cpp](../arm_drive_wait_bt_cpp/README.md)). Each NavigateToPose goal, from the web UI
-`/goal_pose` as well as from mcp_server, first waits while mcp_server reports the arm lifting, lowering or not yet
-started (idle with the drive pose enabled); replans and recoveries run inside `NavigateRecovery` and never wait again.
-Fallback: it goes at once on lifted, a skipped lift, the drive pose disabled or no fresh state (mcp_server down), and
-drives on with today's view after the 8 s timeout; the wait never fails a goal. `navigate_through_poses` keeps the stock tree.
-
-Freshness rule of the `WaitForArmDriveReady` BT step: it waits only while a fresh state (at most 2.5 s old) is
-`lifting`, `lowering` or `idle` with the drive pose enabled, for at most 8 s (`timeout_s`). It never blocks when the
-drive pose is disabled, the lift was skipped, the arm is lifted or there is no fresh state, and it never fails a goal.
-
-**StopBoxDrive.** `nav2_params.yaml` has a second collision_monitor `velocity_polygon`, `StopBoxDrive` (`enabled:
+`nav2_params.yaml` has a second collision_monitor `velocity_polygon`, `StopBoxDrive` (`enabled:
 false`, the same sectors and `sources_names` as `StopBox`, built from the drive outline: body plus the generated
 `drive_arm_shadow`, generated by `scripts/gen_nav_footprint.py`). mcp_server switches it on and `StopBox` off while
 the arm holds the drive pose and reverses that on leaving ([mcp_server Drive pose](../mcp_server/README.md#drive-pose)),
 so one of them is always enabled.
-
-`plugin_lib_names: ["arm_drive_wait_bt_node"]`: Jazzy's bt_navigator loads its built-in BT plugins and appends this
-list, so only the repo plugin is named. ansible builds `libarm_drive_wait_bt_node.so` into `/opt/ros2-ws` with
-nav2_bringup (`arm_drive_wait_bt_source`, ansible/README.md). `./scripts/cpp-node-test.sh arm_drive_wait_bt_cpp` loads
-this XML with the nav2 built-in plugins and checks it against the stock tree; `tests/test_nav_stack_config.py` pins the
-params and the tree shape.
 
 ## Keepout and speed zones
 
