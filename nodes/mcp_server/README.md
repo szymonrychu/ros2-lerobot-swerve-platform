@@ -75,7 +75,7 @@ on the feeds node (`dual_rate_topic(node=feeds_node)`). Config `feeds_executor: 
 | `head_look_at(x, y, z, frame='base_link'\|'map')` | Aim the RGB camera axis once at a point (`HeadKinematics.look_at`, no tracking) and move there. `map` points are converted with the current robot map pose (refused when unknown). Unreachable points are refused with the pan/tilt they would need and nothing is published. Same lease/battery rules; also returns the target in base_link. |
 | `head_home()` | Move to the configured head home (`head.home_pan_rad` / `head.home_tilt_rad`, forward and down). Same lease/battery rules. |
 | `remember_object` / `list_objects` / `forget_object` | Object memory in map coordinates, stored as object POIs in poi_store (merge, distance/bearing from the robot). Sensor. |
-| `look_around(captures=4, camera='head', mode=None, return_to_start=None)` | Effector, ONE motion call: in-place turn through equal headings with a camera frame and lidar summary per heading. `mode` `spin` (default, `look_around.mode`): one continuous slow rotation; `steps`: one precise Nav2 rotation per heading. Ends facing the last heading unless `return_to_start=true` (default `look_around.return_to_start`, false). The D435 head is levelled for the turn and its previous aim restored afterwards (`look_around.level_head`). |
+| `look_around(captures=None, camera='head', mode=None, return_to_start=None, pan_deg=None)` | Effector, ONE motion call: in-place turn through equal headings (`captures`, default `look_around.default_captures` 4) with a camera frame and lidar summary per heading. `mode` `spin` (default, `look_around.mode`): one continuous slow rotation; `steps`: one precise Nav2 rotation per heading. Ends facing the last heading unless `return_to_start=true` (default `look_around.return_to_start`, false). The D435 head is levelled for the turn and its previous aim restored afterwards (`look_around.level_head`). `mode='head'`: no base motion, the head pans through `pan_deg` (default `look_around.head_pans_deg`, +-90 deg) with a frame per pan; needs either lease, see [Head mode](#look_around-head-mode). |
 | `enqueue_motions(steps, replace=false, watch_constraints=None)` | Effector: queue motion steps and return at once (job ids, queue length, blend groups); `watch_constraints` abort or pause the queue on a sensor condition. See [Motion queue](#motion-queue). |
 | `resume_motions` | Effector (battery gate): continue a queue paused by a watch constraint; refused while a watch of the pending steps still violates; a no-op message when not paused. |
 | `check_guard_rules(tool, arguments={})` | Sensor, read-only: the tool-phase guard rule verdicts (`pass` / `reject` / `skip`, basis, message, observed values) a call would get now; no counters, no logs, nothing moves. Arm-target rules are evaluated at motion start, so they are not predicted. |
@@ -737,7 +737,7 @@ POIs (`created_by: "agent"`, sighting fields and confidence kept) and the file i
 poi_store is down the file is left untouched and imported later. An unreadable file is moved to
 `objects.json.corrupt-<ts>`.
 
-**`look_around(captures=4, camera='head')`.** Counts as ONE motion call and is in `MOTION_TOOLS` (battery gate;
+**`look_around(captures=4, camera='head')`.** (The base modes `spin` and `steps`; `mode='head'` is below.) Counts as ONE motion call and is in `MOTION_TOOLS` (battery gate;
 early return). It checks the lidar first and is **refused without moving** when the nearest return is closer than the
 footprint circumscribed radius plus `look_around.clearance_margin_m` (10 cm), or when there is no fresh scan. Then it
 rotates the base in place in `captures` equal steps (3 to 12; steps of 360 / captures degrees through
@@ -775,6 +775,32 @@ the next heading (frames are taken while turning slowly). An obstacle inside the
 spin (`aborted_obstacle`). With `return_to_start` the spin covers the full circle and one precise corrective
 `move_relative` removes a final heading error beyond the tolerance (never after an interruption, a stop or a failure).
 Tests check that both modes give the same tiles, labels and heading summaries (`test_look_around.py`).
+
+#### look_around head mode
+
+**`look_around(mode='head', pan_deg=None)`** looks around without moving the base: `look_around.run_head_mode` pans
+the D435 head through `pan_deg` (default `look_around.head_pans_deg` `[90, 45, 0, -45, -90]`: five pans cover +-90 deg
+with the ~69 deg colour FOV; + is left) at `look_around.head_tilt_deg` (0, + down). Per pan: `HeadController.move`,
+wait `look_around.head_settle_s` (0.2 s), take the frame, then read the head pose at the frame stamp
+(`head.pose_at`): a frame taken while the head was still moving is retaken once (after another settle), a second moving
+frame is kept with a note. The tile label is the measured pan at the stamp (`head_pan_label`: `pan +45 deg (left)`,
+`pan 0 deg (ahead)`, `pan -45 deg (right)`), `headings[].heading_deg` is that signed pan (the commanded pan with a
+note when the joint-state history does not cover the stamp), and `steps[]` carries each head move status. The aim
+before the run is restored at the end (home with a note when unknown), except after a `stop`. The stop and event marks
+are taken before the first head move and checked before every pan and before every frame: a stop ends the run
+`stopped` (no further pan or capture, head left where it is), a critical event `interrupted` (head restored). A head
+move that times out or has no feedback is a note; a missing frame is a grey tile. `expected` is
+`{mode: head, rotation_deg: 0, pans_deg}`, `achieved` `{pans_deg}` (measured, null when unknown). `captures` and
+`return_to_start` are ignored with a note.
+
+Gates resolve the effective mode (`tools.effective_look_mode`: the `mode` argument, else `look_around.mode`): the lease
+is `"any"` (`tools.lease_need`; the static `TOOL_SUBSYSTEM` entry stays `base` for the base modes), the torque gate
+checks the `head` group instead of `base`, no full-rate joint states are switched (`RATE_SUBSYSTEMS` skipped), the tilt
+guard does not refuse it, and guard rules see the resolved `mode` in `args` (an omitted mode is never unknown). There
+is no lidar clearance check and no map pose is needed; the battery gate applies. `pan_deg` must be a non-empty list
+within [-90, 90] (refused before any motion), and is refused in the base modes. Config (`LookAroundSettings`):
+`head_pans_deg` (non-empty, each within [-90, 90]), `head_tilt_deg` ([-30, 45]), `head_settle_s` (>= 0); `mode` may also
+be `head` to make it the default.
 
 **POI tools** (`poi_store`, see `nodes/poi_store/README.md`). `list_pois(status, near)` reads the latched `/poi/list`
 and adds `distance_m`, `bearing_deg` (areas: centroid, plus `inside`); `near=true` keeps POIs within
@@ -1015,7 +1041,7 @@ that does not match the contract is logged and dropped.
 
 | Level change | Robot event | Nav2 goals | Tools |
 |---|---|---|---|
-| -> `warning` | `tilt_warning`, critical (claude_agent interrupts the running instruction at once): roll/pitch vs limits and "automatic navigation is disabled; drive back to level ground manually with short base moves (the drive tool ...), then wait for the guard to clear". From `error` the message says the base drive is enabled again, or, when `base_drive_inhibited` stays true (the inhibit can outlast the error), that the base drive is still inhibited and no base motion tools work yet | every goal cancelled (`cancel_all_goals` from a worker thread, retried `monitor.tilt_cancel_attempts` (3) times `monitor.tilt_cancel_retry_s` (1 s) apart; never answered: a critical `tilt_nav_cancel_failed` event telling the agent to call `stop`), a running `navigate_to_pose` / `move_relative` / `drive` / `look_around` / `approach_for_grasp` ends `interrupted` (`BASE_INTERRUPTS`) | `navigate_to_pose`, `move_relative`, `look_around`, `approach_for_grasp` and `enqueue_motions` with a base step refused; queued base steps fail at dispatch (status `tilt_guard`); `drive` allowed unless `base_drive_inhibited` is still true (then refused like at `error`) |
+| -> `warning` | `tilt_warning`, critical (claude_agent interrupts the running instruction at once): roll/pitch vs limits and "automatic navigation is disabled; drive back to level ground manually with short base moves (the drive tool ...), then wait for the guard to clear". From `error` the message says the base drive is enabled again, or, when `base_drive_inhibited` stays true (the inhibit can outlast the error), that the base drive is still inhibited and no base motion tools work yet | every goal cancelled (`cancel_all_goals` from a worker thread, retried `monitor.tilt_cancel_attempts` (3) times `monitor.tilt_cancel_retry_s` (1 s) apart; never answered: a critical `tilt_nav_cancel_failed` event telling the agent to call `stop`), a running `navigate_to_pose` / `move_relative` / `drive` / `look_around` / `approach_for_grasp` ends `interrupted` (`BASE_INTERRUPTS`) | `navigate_to_pose`, `move_relative`, `look_around` (base modes; `mode='head'` is never refused), `approach_for_grasp` and `enqueue_motions` with a base step refused; queued base steps fail at dispatch (status `tilt_guard`); `drive` allowed unless `base_drive_inhibited` is still true (then refused like at `error`) |
 | -> `error` | `tilt_error`, critical: "base drive is inhibited until the IMU is back within limits; no base motion tools work" | every goal cancelled | every base motion tool refused (`base inhibited by the tilt guard`) |
 | `warning`, `base_drive_inhibited` true -> false | `tilt_drive_enabled`, info: "base drive enabled again" plus the manual drive-back instruction | - | `drive` allowed again (navigation still refused) |
 | -> `ok` | `tilt_clear`, info | - | everything allowed again |
@@ -1027,7 +1053,7 @@ affected. Refusals are MCP tool errors, e.g. `drive refused: base inhibited by t
 (limits 8/15), pitch 1.0 deg (limits 12/20)): no base motion until the IMU is back within limits`. A state older than
 `monitor.tilt_guard_stale_s` (3 s) is stale: its last level stays enforced (the refusal and `get_body_state` say so) and
 the IMU fallback `tilt` warning runs again. A dead guard is never trusted as level: at level `ok`, a stale state or
-`imu_ok: false` refuses navigation (`navigate_to_pose`, `move_relative`, `look_around`, queued base steps: "automatic
+`imu_ok: false` refuses navigation (`navigate_to_pose`, `move_relative`, `look_around` base modes, queued base steps: "automatic
 navigation is refused until the tilt guard reports a fresh state with its IMU"), while short manual `drive` moves stay
 allowed; `navigation_allowed` is false then too. `get_body_state` reports `tilt_guard` (`level`, `roll_deg`, `pitch_deg`,
 `limits`, `since`, `base_drive_inhibited`, `imu_ok`, `age_s`, `stale`, `navigation_allowed`, `manual_drive_allowed`;
@@ -1122,7 +1148,7 @@ is the backstop). `RosRobot.servo_released(group)` returns `True`, `False` or `N
 Tool mapping (`tools.TOOL_SERVO_GROUPS`, one entry per `MOTION_TOOLS` tool): arm tools (`move_arm_joints`,
 `move_arm_cartesian`, `set_gripper`, `arm_home`, `arm_set_home`, `release_object`, `grasp_approach`, `grasp_close`, `grasp_lift`, `grasp_abort`) -> arm; base
 tools (`navigate_to_pose`, `move_relative`, `drive`, `look_around`, `go_to_frontier`, `look_toward_frontier`,
-`approach_for_grasp`) -> base; head tools -> head; `enqueue_motions` -> the groups of its step kinds;
+`approach_for_grasp`) -> base (`look_around(mode='head')` -> head instead); head tools -> head; `enqueue_motions` -> the groups of its step kinds;
 `resume_motions` -> arm and base.
 
 Behaviour while a group is released:
@@ -1160,10 +1186,10 @@ body: so before the battery and tilt gates, and a tool without its lease is refu
 | Lease | Tools |
 |---|---|
 | arm | `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `release_object`, `grasp_approach`, `grasp_close`, `grasp_lift`, `grasp_abort` |
-| base | `navigate_to_pose`, `move_relative`, `drive`, `look_around` (base-only spin), `approach_for_grasp` |
+| base | `navigate_to_pose`, `move_relative`, `drive`, `look_around` (modes `spin` / `steps`), `approach_for_grasp` |
 | per step | `enqueue_motions`: `arm_joints` / `arm_cartesian` / `gripper` / `grasp` steps need arm, `base_relative` / `navigate_to_pose` (`motion_queue.BASE_KINDS`) need base; checked first inside the tool, naming every missing lease |
 | none | `stop`, `cancel_motions`, `wait_for_event`, `get_motion_status`, `take_control` / `release_control` / `get_control_state`, `plan_grasp`, `suggest_approach_pose`, `arm_set_home`, camera, perception and POI tools |
-| any | `set_head_angles`, `head_look_at`, `head_home`: `LeaseNeed` `"any"` is satisfied by either lease (`ControlManager.refusal(name, "any")`), so a hand-over from one lease to the other never moves the head |
+| any | `set_head_angles`, `head_look_at`, `head_home`, and `look_around(mode='head')` (`tools.lease_need` resolves the mode): `LeaseNeed` `"any"` is satisfied by either lease (`ControlManager.refusal(name, "any")`), so a hand-over from one lease to the other never moves the head |
 
 - **Arm lease** = the filter_node autonomy lease (the hardware arbitration). `take_control('arm')` is
   `ArmController.acquire()` (or adopts an arm mcp_server already holds implicitly) and records the lease generation
@@ -2749,12 +2775,15 @@ an unruled tool and < 500 us with five rules over fake providers.
 
 ### Deployed rule set
 
-`ansible/group_vars/client.yml` deploys five rules, all `mode: dry_run` (`test_guard_rules_deployed.py` validates them
+`ansible/group_vars/client.yml` deploys seven rules, all `mode: dry_run` (`test_guard_rules_deployed.py` validates them
 with `GuardRuleSettings`): `base_motion_arm_outside_footprint` (static footprint and the arm more than 0.03 m outside
 it), `base_motion_carrying_without_object_footprint` (carrying with no carried-object radius), `no_arm_retake_from_human`
 (take_control arm while the web UI holds the arm or a human took it under 30 s ago), `wrist_roll_needs_lifted_arm`
-(wrist roll over 0.1 rad with the tool under 0.12 m) and `no_stretched_shoulder_overreach` (shoulder_lift over 1.85 rad
-with a negative elbow_flex). Each message names its way out. `motion_queue.watch_rate_hz: 10` and `watch_max_per_call: 8`
+(wrist roll over 0.1 rad with the tool under 0.12 m), `no_stretched_shoulder_overreach` (shoulder_lift over 1.85 rad
+with a negative elbow_flex), and the look_around twins of the first two, `look_around_arm_outside_footprint` and
+`look_around_carrying_without_object_footprint` (same conditions plus `args.mode ne head`: only the base modes turn the
+base, so `look_around(mode='head')` passes; the first two rules no longer list `look_around`). Each message names its
+way out. `motion_queue.watch_rate_hz: 10` and `watch_max_per_call: 8`
 sit beside them. Flip a rule to `enforce` only after about a week of `mcp_guard_rule_hits_total` counters: see
 `ansible/README.md` "mcp_server guard rules".
 
@@ -3131,7 +3160,8 @@ footprint: {length_m: 0.47, width_m: 0.386}
 topdown: {default_radius_m: 2.5, default_px: 480, arm_reach_m: 0.41, plan_max_age_s: 30}
 objects: {store_path: /var/lib/ros2/objects/objects.json, merge_radius_m: 0.25}  # store_path: legacy file, imported once into poi_store
 look_around: {default_captures: 4, clearance_margin_m: 0.10, step_timeout_s: 30, mode: spin, spin_speed_rps: 0.4,
-              spin_rate_hz: 20, spin_timeout_margin_s: 10, return_to_start: false}
+              spin_rate_hz: 20, spin_timeout_margin_s: 10, return_to_start: false, level_head: true,
+              head_pans_deg: [90.0, 45.0, 0.0, -45.0, -90.0], head_tilt_deg: 0.0, head_settle_s: 0.2}
 frontiers:                # frontier tools (see Frontiers); all optional, defaults shown
   min_length_m: 0.30             # smaller clusters are dropped (12 cells at 2.5 cm)
   map_max_age_s: 60.0            # older /map is unavailable

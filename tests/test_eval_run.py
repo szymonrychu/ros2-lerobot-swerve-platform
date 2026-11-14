@@ -284,7 +284,8 @@ def test_successful_trial_is_recorded_with_events_report_and_deny_tools(tmp_path
     assert record.timed_out is False
     assert record.lookup_ids
     message = agent.posted("/message")[0]
-    assert message["deny_tools"] == ["navigate_to_pose", "move_relative", "drive", "look_around", "take_control:base"]
+    # look_around(mode='head') needs no base lease; its base modes stay refused through take_control:base
+    assert message["deny_tools"] == ["navigate_to_pose", "move_relative", "drive", "take_control:base"]
     assert "plush tomato" in message["text"]
     assert len(agent.posted("/reset")) == 1
     run_dir = tmp_path / "eval" / "r1"
@@ -485,7 +486,6 @@ def test_run_config_defaults_and_validation(tmp_path: Path) -> None:
         "navigate_to_pose",
         "move_relative",
         "drive",
-        "look_around",
         "take_control:base",
     ]
     assert config.k == 3
@@ -499,6 +499,7 @@ def test_run_config_defaults_and_validation(tmp_path: Path) -> None:
 def test_shipped_run_yaml_loads() -> None:
     config = load_config(Path("scripts/eval/run.yaml"))
     assert config.mode == "arm_only"
+    assert config.arm_only_deny_tools == ["navigate_to_pose", "move_relative", "drive", "take_control:base"]
     assert config.output_dir == ".logs/eval"
     assert config.testset == "scripts/eval/testset_v1.yaml"
     assert config.cases is None

@@ -1,4 +1,5 @@
-"""look_around: rotate in place in equal steps, capture a camera frame and the lidar summary at every stop (no ROS)."""
+"""look_around: rotate in place in equal steps, capture a camera frame and the lidar summary at every stop, or pan the
+D435 head without moving the base (head mode) (no ROS)."""
 
 import math
 import time
@@ -11,7 +12,7 @@ import numpy as np
 from .camera_scene import Camera
 from .config import FootprintSettings, LookAroundSettings
 from .geometry import normalize_angle
-from .head import HeadController, HeadError, HeadMoveResult
+from .head import HeadController, HeadError, HeadHistoryError, HeadMoveResult
 from .models import BaseMotionBusyError, BasePose, MapSummary, NavigationResult, RobotError, SectorObstacle
 from .perception import encode_jpeg
 from .perception_models import HeadingSummary, LookAroundResult, LookHeadAim, StepRecord
@@ -26,7 +27,8 @@ DEFAULT_YAW_TOLERANCE_DEG = 5.0  # nav.goal_yaw_tolerance_deg default
 LEVEL_PAN_RAD = 0.0  # head aim for the base turn: straight ahead ...
 LEVEL_TILT_RAD = 0.0  # ... and level (tilt + is down)
 
-LookMode = Literal["spin", "steps"]
+BaseLookMode = Literal["spin", "steps"]  # the modes that turn the base
+LookMode = Literal["spin", "steps", "head"]  # 'head' pans the D435 head, the base never moves
 
 
 @dataclass(frozen=True)
@@ -151,6 +153,21 @@ def heading_label(heading_rad: float) -> str:
     """
     deg = round(math.degrees(heading_rad)) % 360
     return "0 deg (start)" if deg == 0 else f"+{deg} deg"
+
+
+def head_pan_label(pan_deg: float) -> str:
+    """Label of a head mode tile: the signed head pan, + left (counter-clockwise), rounded to whole degrees.
+
+    Args:
+        pan_deg (float): Head pan (deg, + left).
+
+    Returns:
+        str: "pan +90 deg (left)", "pan 0 deg (ahead)" or "pan -45 deg (right)".
+    """
+    deg = round(pan_deg)
+    if deg == 0:
+        return "pan 0 deg (ahead)"
+    return f"pan {deg:+d} deg ({'left' if deg > 0 else 'right'})"
 
 
 def sector_summary(
@@ -375,13 +392,13 @@ def run_look_around(
     captures: int,
     camera: Camera,
     yaw_tolerance_deg: float = DEFAULT_YAW_TOLERANCE_DEG,
-    mode: LookMode = "steps",
+    mode: BaseLookMode = "steps",
     return_to_start: bool = True,
 ) -> LookAroundRun:
     """Turn in place through `captures` equal headings, capturing at each one, optionally returning to the start.
 
     mode 'spin' turns once continuously (RobotApi.spin, see run_spin_mode); mode 'steps' (described below) makes one
-    precise Nav2 rotation per heading. Both capture the same headings and labels (the same montage). Without
+    precise Nav2 rotation per heading (head mode, which never moves the base, is run_head_mode). Both capture the same headings and labels (the same montage). Without
     return_to_start the turn ends at the last heading (no closing rotation, no corrective rotation after a failure).
 
     Uses the robot's normal base motion (move_relative with only dyaw), so early return on critical events applies
@@ -401,7 +418,7 @@ def run_look_around(
     heading is within `yaw_tolerance_deg` of the start heading; `achieved.heading_error_deg` always carries the error.
 
     Args:
-        mode (LookMode): 'spin' (continuous) or 'steps' (one Nav2 rotation per heading).
+        mode (BaseLookMode): 'spin' (continuous) or 'steps' (one Nav2 rotation per heading).
         return_to_start (bool): Turn back to the start heading at the end.
         robot (RobotApi): Robot.
         settings (LookAroundSettings): Step timeout, frame size, margins and capture limits.
@@ -783,3 +800,160 @@ def correct_heading(
     if nav.status != "succeeded":
         result.notes.append(f"corrective rotation ended with status {nav.status}: {nav.message}")
     return math.degrees(delta)
+
+
+def run_head_mode(
+    robot: RobotApi, settings: LookAroundSettings, pans_deg: list[float], tilt_deg: float, camera: Camera
+) -> LookAroundRun:
+    """look_around 'head' mode: pan the D435 head through pans_deg at tilt_deg with a frame at every pan; the base
+    never moves (no lidar clearance check, no robot pose needed).
+
+    The aim before the run is recorded and restored in the end (home with a note when it was unknown), except after a
+    stop() (the head stays where it is). The stop and event marks are taken before the first head move and checked
+    before every pan and again before every frame: a stop ends the run as 'stopped', a critical event as 'interrupted',
+    with no further pan or capture. After each pan the head settles for settings.head_settle_s, then a frame is taken;
+    the head pose at the frame stamp (head.pose_at) labels the tile. A frame taken while the head was still moving is
+    retaken once, a second moving frame is kept with a note. A head move that times out, has no feedback or is refused
+    is a note, never an error; a missing frame is a grey tile with a note. Each pan also records the lidar sectors.
+
+    Args:
+        robot (RobotApi): Robot.
+        settings (LookAroundSettings): frame_max_px and head_settle_s.
+        pans_deg (list[float]): Head pans to visit in order (deg, + left), validated by the caller.
+        tilt_deg (float): Head tilt held while panning (deg, + down).
+        camera (Camera): 'head', the D435 colour camera on the pan/tilt head.
+
+    Returns:
+        LookAroundRun: Result and frames; result.headings[i].heading_deg is the signed pan measured at the frame (the
+            commanded pan when the joint-state history does not cover the frame stamp).
+    """
+    head = robot.head
+    started = time.monotonic()
+    stop_mark = robot.stop_count()
+    event_mark = robot.event_seq()  # both marks precede the first head move, which blocks
+    result = LookAroundResult(
+        status="completed", expected={"mode": "head", "rotation_deg": 0, "pans_deg": list(pans_deg)}
+    )
+    run = LookAroundRun(result=result)
+    measured_pans: list[float | None] = []
+    before = head_aim(head)
+
+    def halted(what: str) -> bool:
+        """End the run on a critical event or a stop raised since the marks."""
+        interrupt = robot.interrupt_since(event_mark)
+        if interrupt is not None:
+            result.status, result.interrupted_by = "interrupted", interrupt
+            result.message = f"critical event {interrupt} raised {what}; look_around ended without panning further"
+            return True
+        if robot.stop_count() != stop_mark:
+            result.status, result.message = "stopped", f"stop was called; look_around ended {what}"
+            return True
+        return False
+
+    try:
+        for index, pan_deg in enumerate(pans_deg):
+            if halted(f"before pan {index}"):
+                break
+            commanded = head_pan_label(pan_deg)
+            try:
+                outcome = head.move(math.radians(pan_deg), math.radians(tilt_deg))
+            except HeadError as exc:
+                result.steps.append(
+                    StepRecord(index=index, heading_deg=round(pan_deg), status="refused", message=str(exc))
+                )
+                result.notes.append(f"{commanded}: head move refused ({exc}); no frame")
+                run.frames.append((commanded, None))
+                result.headings.append(head_heading_summary(index, pan_deg, commanded, None, False))
+                measured_pans.append(None)
+                continue
+            note = head_move_note(commanded, outcome)
+            result.steps.append(
+                StepRecord(index=index, heading_deg=round(pan_deg), status=outcome.status, message=note or "")
+            )
+            if note is not None:
+                result.notes.append(note)
+            head.backend.sleep(settings.head_settle_s)
+            if halted(f"before the frame at pan {index}"):
+                break
+            jpeg, measured = capture_head_frame(robot, settings, camera, commanded, result.notes)
+            label = commanded if measured is None else head_pan_label(math.degrees(measured))
+            run.frames.append((label, jpeg))
+            measured_pans.append(None if measured is None else round(math.degrees(measured), 2))
+            try:
+                obstacles, _ = read_sectors(robot)
+            except RobotError as exc:
+                obstacles = None
+                result.notes.append(f"{label}: lidar summary unavailable ({exc})")
+            heading = pan_deg if measured is None else math.degrees(measured)
+            result.headings.append(head_heading_summary(index, heading, label, obstacles, jpeg is not None))
+    finally:
+        stopped = robot.stop_count() != stop_mark
+        if stopped:
+            result.notes.append("stop was called: the head was left where it is (aim not restored)")
+        result.head = LookHeadAim(
+            before_deg=None
+            if before is None
+            else (round(math.degrees(before[0]), 2), round(math.degrees(before[1]), 2)),
+            restored=not stopped and restore_head(head, before, result.notes),
+        )
+        result.achieved = {"pans_deg": measured_pans}
+        result.duration_s = round(time.monotonic() - started, 3)
+    return run
+
+
+def head_heading_summary(
+    index: int, pan_deg: float, label: str, obstacles: list[SectorObstacle] | None, captured: bool
+) -> HeadingSummary:
+    """Per-pan summary of head mode: the signed pan as heading_deg and the lidar sectors (the base does not turn).
+
+    Args:
+        index (int): Pan number.
+        pan_deg (float): Head pan at the frame (deg, + left).
+        label (str): Tile label (head_pan_label).
+        obstacles (list[SectorObstacle] | None): Sector returns, None when unavailable.
+        captured (bool): Whether a camera frame was taken.
+
+    Returns:
+        HeadingSummary: The summary.
+    """
+    summary = sector_summary(index, 0.0, obstacles, captured)
+    return summary.model_copy(update={"heading_deg": round(pan_deg), "label": label})
+
+
+def capture_head_frame(
+    robot: RobotApi, settings: LookAroundSettings, camera: Camera, label: str, notes: list[str]
+) -> tuple[bytes | None, float | None]:
+    """Take the frame of one pan, retaking it once when the head was still moving at its stamp.
+
+    Args:
+        robot (RobotApi): Robot.
+        settings (LookAroundSettings): frame_max_px and head_settle_s (waited again before the retake).
+        camera (Camera): 'head'.
+        label (str): Commanded pan label, starts the notes.
+        notes (list[str]): Notes are appended here.
+
+    Returns:
+        tuple[bytes | None, float | None]: The JPEG (None when the camera failed, noted) and the head pan at its stamp
+            (rad; None without a frame or when the joint-state history does not cover the stamp, noted).
+    """
+    for attempt in range(2):
+        try:
+            frame = robot.camera_image(camera, settings.frame_max_px)
+        except RobotError as exc:
+            notes.append(f"{label}: no camera frame ({exc})")
+            return None, None
+        try:
+            pose = robot.head.pose_at(frame.stamp_s)
+        except HeadHistoryError as exc:
+            notes.append(f"{label}: head pan at the frame unknown ({exc}); labelled with the commanded pan")
+            return frame.jpeg, None
+        if not pose.moving:
+            break
+        if attempt == 0:
+            robot.head.backend.sleep(settings.head_settle_s)
+        else:
+            notes.append(
+                f"{label}: the head was still moving at the retaken frame ({math.degrees(pose.window_motion_rad):.1f} "
+                "deg around its stamp): the tile may be blurred"
+            )
+    return frame.jpeg, pose.pan

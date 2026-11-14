@@ -933,7 +933,7 @@ class TiltGuardVitals(TiltGuardState):
     age_s: float = Field(description="Seconds since the last /tilt_guard/state message")
     stale: bool = Field(description="No state within monitor.tilt_guard_stale_s (the last level is still enforced)")
     navigation_allowed: bool = Field(
-        description="Nav2 goal tools and look_around allowed (level ok, base drive not inhibited)"
+        description="Nav2 goal tools and look_around (base modes) allowed (level ok, base drive not inhibited)"
     )
     manual_drive_allowed: bool = Field(
         description="The drive tool allowed (level ok or warning and base drive not inhibited)"

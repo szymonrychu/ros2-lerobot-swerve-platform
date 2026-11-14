@@ -250,3 +250,19 @@ def test_base_release_does_not_suppress_arm_publish(ros_iface: ModuleType) -> No
     robot.on_torque_state("base", torque_msg(True))
     robot.publish_command({"elbow_flex": 0.1})
     robot.cmd_pub.publish.assert_called_once()
+
+
+def test_look_around_head_mode_checks_the_head_group_not_the_base(tmp_path: Path) -> None:
+    robot = FakeRobot(tmp_path)
+    server = make_server(robot)
+    release(robot, "base")
+    res = call(server, "look_around", {"mode": "head"})
+    assert res.structured_content["status"] == "completed"
+    with pytest.raises(ToolError, match="base servo torque is off"):
+        call(server, "look_around", {"mode": "spin"})
+    release(robot, "base", False)
+    release(robot, "head")
+    commands = len(robot.head_backend.commands)
+    with pytest.raises(ToolError, match="head servo torque is off"):
+        call(server, "look_around", {"mode": "head"})
+    assert len(robot.head_backend.commands) == commands

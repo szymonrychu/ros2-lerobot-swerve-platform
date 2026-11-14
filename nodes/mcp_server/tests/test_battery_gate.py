@@ -209,3 +209,11 @@ def test_battery_config_validated(tmp_path: Path) -> None:
     path.write_text("battery:\n  cutoff_cell_v: 3.0\n  resume_cell_v: 2.9\n")
     with pytest.raises(ValueError):
         load_config(path)
+
+
+def test_look_around_head_mode_refused_in_cutoff(tmp_path: Path) -> None:
+    robot = FakeRobot(tmp_path)
+    server = make_server(robot, make_guard(LOW_V))
+    with pytest.raises(ToolError, match="battery below cut-off"):
+        call(server, "look_around", {"mode": "head"})
+    assert robot.calls == [] and robot.head_backend.commands == []

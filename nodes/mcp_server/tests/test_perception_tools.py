@@ -581,3 +581,71 @@ def test_topdown_frontier_compute_is_measured_once_per_map_version(server: Any, 
     assert after == before + 1 and gauge > 0
     call(server, "list_frontiers", {})
     assert frontier_metric_samples()[0] == after
+
+
+# --- look_around head mode ------------------------------------------------------------------------------------------
+
+
+def test_look_around_head_mode_tool_pans_the_head_and_never_the_base(tmp_path: Path) -> None:
+    robot = RotatingRobot(tmp_path)
+    server = build_mcp_server(robot, McpServerConfig(), TOKEN)
+    take(server, "arm")
+    res = call(server, "look_around", {"mode": "head", "pan_deg": [30.0, -30.0]})
+    sc = res.structured_content
+    assert sc["status"] == "completed"
+    assert sc["expected"] == {"mode": "head", "rotation_deg": 0, "pans_deg": [30.0, -30.0]}
+    assert [h["label"] for h in sc["headings"]] == ["pan +30 deg (left)", "pan -30 deg (right)"]
+    assert [round(math.degrees(c["head_pan"])) for c in robot.head_backend.commands[:2]] == [30, -30]
+    assert not [c for c in robot.calls if c[0] in ("move_relative", "spin")]
+    assert [c[1][0] for c in robot.calls if c[0] == "camera_image"] == ["head", "head"]
+    assert [c.mime_type for c in res.content if c.type == "image"] == ["image/jpeg", "image/png"]
+    assert sc["head"]["restored"] is True
+
+
+def test_look_around_head_mode_uses_the_configured_pans(tmp_path: Path) -> None:
+    robot = RotatingRobot(tmp_path)
+    config = McpServerConfig(look_around={"head_pans_deg": [60.0, 0.0, -60.0], "head_tilt_deg": 15.0})
+    server = build_mcp_server(robot, config, TOKEN)
+    take(server, "arm")
+    sc = call(server, "look_around", {"mode": "head"}).structured_content
+    assert sc["expected"]["pans_deg"] == [60.0, 0.0, -60.0]
+    commands = robot.head_backend.commands[:3]
+    assert [round(math.degrees(c["head_pan"])) for c in commands] == [60, 0, -60]
+    assert all(c["head_tilt"] == pytest.approx(math.radians(15.0)) for c in commands)
+
+
+@pytest.mark.parametrize("pans", [[120.0], [45.0, -91.0], []])
+def test_look_around_pan_deg_out_of_range_refused_before_motion(tmp_path: Path, pans: list[float]) -> None:
+    robot = RotatingRobot(tmp_path)
+    server = build_mcp_server(robot, McpServerConfig(), TOKEN)
+    take(server)
+    with pytest.raises(ToolError, match="pan_deg"):
+        call(server, "look_around", {"mode": "head", "pan_deg": pans})
+    assert robot.head_backend.commands == []
+    assert not [c for c in robot.calls if c[0] in ("camera_image", "move_relative", "spin")]
+
+
+def test_look_around_pan_deg_refused_in_the_base_modes(tmp_path: Path) -> None:
+    robot = RotatingRobot(tmp_path)
+    server = build_mcp_server(robot, McpServerConfig(), TOKEN)
+    take(server)
+    with pytest.raises(ToolError, match="pan_deg"):
+        call(server, "look_around", {"mode": "spin", "pan_deg": [30.0]})
+    assert robot.head_backend.commands == []
+    assert not [c for c in robot.calls if c[0] in ("camera_image", "move_relative", "spin")]
+
+
+def test_look_around_head_mode_ignores_captures_and_return_to_start_with_a_note(tmp_path: Path) -> None:
+    robot = RotatingRobot(tmp_path)
+    server = build_mcp_server(robot, McpServerConfig(), TOKEN)
+    take(server, "arm")
+    sc = call(server, "look_around", {"mode": "head", "captures": 6, "return_to_start": True}).structured_content
+    assert len(sc["headings"]) == 5
+    assert any("captures" in n and "return_to_start" in n and "ignored" in n for n in sc["notes"])
+    plain = call(server, "look_around", {"mode": "head"}).structured_content
+    assert not any("ignored" in n for n in plain["notes"])
+
+
+def test_look_around_description_documents_head_mode(server: Any) -> None:
+    text = tool_descriptions(server)["look_around"]
+    assert "mode 'head'" in text and "without moving the base" in text and "either lease" in text

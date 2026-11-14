@@ -182,7 +182,7 @@ TOOL_SERVO_GROUPS: dict[str, tuple[str, ...]] = {
     "set_gripper": ("arm",),
     "arm_home": ("arm",),
     "arm_set_home": ("arm",),  # records the measured pose: meaningless while the arm is limp
-    "look_around": ("base",),
+    "look_around": ("base",),  # head mode drives the head group instead (RobotMCPServer.torque_gate)
     "release_object": ("arm",),
     "grasp_approach": ("arm",),
     "grasp_close": ("arm",),
@@ -245,7 +245,7 @@ TOOL_SUBSYSTEM: dict[str, LeaseNeed] = {
     "navigate_to_pose": "base",
     "move_relative": "base",
     "drive": "base",
-    "look_around": "base",  # base-only spin (look_around never moves the arm)
+    "look_around": "base",  # the base modes (spin, steps); head mode needs "any" (lease_need)
     "go_to_frontier": "base",
     "look_toward_frontier": "base",  # base-only turn (the arm never moves)
     "approach_for_grasp": "base",  # drives to the grasp pose (suggest_approach_pose is read-only and needs none)
@@ -268,6 +268,9 @@ RATE_SUBSYSTEMS: dict[str, tuple[Subsystem, ...]] = {
     },
     **{name: ("arm", "base") for name in PARKING_TOOLS},
 }
+LOOK_AROUND = "look_around"
+LOOK_HEAD_MODE = "head"  # look_around mode that pans the head: no base motion, either lease, head servo group
+LOOK_HEAD_GROUPS = ("head",)
 DIGEST_EVENTS_KEY = "robot_events_since_last_call"
 DIGEST_VITALS_KEY = "vitals"
 # Base motion tools whose structured result is a NavigationResult: status "aborted" means Nav2 aborted the goal, which
@@ -291,7 +294,7 @@ Look before moving: call get_robot_state, get_map_summary and get_camera_image f
 move_relative (Nav2 plans around obstacles) over drive. Arm motions are slow, clamped to joint limits and abort on
 stale feedback or tracking error. Control leases: call take_control(subsystem='arm') before any arm or gripper tool
 and take_control(subsystem='base') before any base tool (navigate_to_pose, move_relative, drive, look_around,
-approach_for_grasp); a tool without its lease is refused and nothing moves. Both may be held at once. The head tools (set_head_angles, head_look_at, head_home; degrees, the head looks forward and down at home) need either lease, and releasing the controlling lease sends the head home. The arm
+approach_for_grasp); a tool without its lease is refused and nothing moves. Both may be held at once. The head tools (set_head_angles, head_look_at, head_home; degrees, the head looks forward and down at home) need either lease, and releasing the controlling lease sends the head home. look_around(mode='head') pans the head over +-90 deg without moving the base and works under the arm or the base lease (the tilt guard does not refuse it); its base modes level the head for the turn and restore it. The arm
 lease is sticky: while held the leader arm and web UI are ignored. When done call release_control(subsystem='arm'|'base'|'all'): by default it parks
 (the arm drives to its stored home pose, the base stops and its steering straightens) and always releases, reporting
 a failed park; keep_position=true releases without moving. get_control_state shows both leases and whether the arm
@@ -301,8 +304,8 @@ rank them yourself, look_toward_frontier first (turn and photo, no travel), then
 robot_events_since_last_call (body events such as overheat, collision_stop, stall, bump, battery_low raised since the
 previous tool call) and a vitals one-liner (battery V, hottest servo C, CPU C, tilt guard level with roll/pitch vs
 limits, leases as 'ctl arm=H@home base=-': H held, - not held); get_body_state gives the full picture.
-Tilt guard: at tilt_warning (critical event) Nav2 goals are cancelled and navigate_to_pose, move_relative, look_around,
-approach_for_grasp and queued base steps are refused; drive back to level ground manually with short drive moves,
+Tilt guard: at tilt_warning (critical event) Nav2 goals are cancelled and navigate_to_pose, move_relative, look_around
+(base modes), approach_for_grasp and queued base steps are refused; drive back to level ground manually with short drive moves,
 then wait for tilt_clear. At tilt_error the base drive is inhibited and every base motion tool is refused (arm tools still work);
 the inhibit can outlast the error (back at warning with the base still inhibited): drive works again only after the
 info event tilt_drive_enabled (or tilt_clear).
@@ -438,6 +441,48 @@ def session_key(context: Any) -> str:
     return (headers.get(MCP_SESSION_ID_HEADER) if headers else None) or DIGEST_DEFAULT_SESSION
 
 
+def effective_look_mode(arguments: dict[str, Any], config: McpServerConfig) -> str:
+    """The look_around mode a call runs in: its `mode` argument, else the configured default.
+
+    Args:
+        arguments (dict[str, Any]): Raw tool arguments.
+        config (McpServerConfig): Node configuration (look_around.mode).
+
+    Returns:
+        str: 'spin', 'steps' or 'head' (an invalid argument is returned as given; the tool's validation refuses it).
+    """
+    mode = arguments.get("mode")
+    return config.look_around.mode if mode is None else str(mode)
+
+
+def is_head_look(name: str, arguments: dict[str, Any], config: McpServerConfig) -> bool:
+    """Whether a call is look_around in head mode (pans the head, the base never moves).
+
+    Args:
+        name (str): Tool name.
+        arguments (dict[str, Any]): Raw tool arguments.
+        config (McpServerConfig): Node configuration.
+
+    Returns:
+        bool: True for look_around resolving to mode 'head'.
+    """
+    return name == LOOK_AROUND and effective_look_mode(arguments, config) == LOOK_HEAD_MODE
+
+
+def lease_need(name: str, arguments: dict[str, Any], config: McpServerConfig) -> LeaseNeed | None:
+    """Control lease a call needs: "any" for look_around in head mode, else TOOL_SUBSYSTEM.
+
+    Args:
+        name (str): Tool name.
+        arguments (dict[str, Any]): Raw tool arguments.
+        config (McpServerConfig): Node configuration.
+
+    Returns:
+        LeaseNeed | None: The lease need, None when the tool needs none.
+    """
+    return "any" if is_head_look(name, arguments, config) else TOOL_SUBSYSTEM.get(name)
+
+
 class RobotMCPServer(MCPServer):
     """MCPServer that appends the robot event digest and vitals to the result of EVERY tool call.
 
@@ -447,16 +492,18 @@ class RobotMCPServer(MCPServer):
     one cursor) and a one-line vitals summary.
     """
 
-    def __init__(self, *args: Any, monitor: RobotMonitor, **kwargs: Any) -> None:
+    def __init__(self, *args: Any, monitor: RobotMonitor, config: McpServerConfig, **kwargs: Any) -> None:
         """Create the server.
 
         Args:
             *args (Any): MCPServer positional arguments.
             monitor (RobotMonitor): Source of the digest.
+            config (McpServerConfig): Node configuration (look_around mode resolution for the gates).
             **kwargs (Any): MCPServer keyword arguments.
         """
         super().__init__(*args, **kwargs)
         self.monitor = monitor
+        self.config = config
         self.motion_queue: MotionQueue | None = None
         self.control: ControlManager | None = None
         self.guard_engine: GuardEngine | None = None
@@ -530,12 +577,13 @@ class RobotMCPServer(MCPServer):
 
         Args:
             name (str): Tool name.
-            arguments (dict[str, Any]): Tool arguments (enqueue_motions: the step kinds narrow the groups).
+            arguments (dict[str, Any]): Tool arguments (enqueue_motions: the step kinds narrow the groups; look_around
+                in head mode drives the head group only).
 
         Raises:
             ToolError: A group the tool drives is released.
         """
-        groups = TOOL_SERVO_GROUPS.get(name)
+        groups = LOOK_HEAD_GROUPS if is_head_look(name, arguments, self.config) else TOOL_SERVO_GROUPS.get(name)
         if groups is None or self.servo_released is None:
             return
         if name == "enqueue_motions":
@@ -577,7 +625,8 @@ class RobotMCPServer(MCPServer):
             Any: The tool result with robot_events_since_last_call and vitals added.
         """
         exclusive = name in QUEUE_EXCLUSIVE_TOOLS
-        need = TOOL_SUBSYSTEM.get(name)
+        need = lease_need(name, arguments, self.config)
+        head_look = is_head_look(name, arguments, self.config)
         try:
             self.reject_unknown_arguments(name, arguments)
             refusal = None if need is None or self.control is None else self.control.refusal(name, need)
@@ -592,8 +641,14 @@ class RobotMCPServer(MCPServer):
                 )
             engine = self.guard_engine
             if engine is not None and engine.has_rules("tool", name):
+                # look_around rules see the resolved mode (args.mode is never unknown for an omitted argument)
+                guard_args = (
+                    {**arguments, "mode": effective_look_mode(arguments, self.config)}
+                    if name == LOOK_AROUND
+                    else arguments
+                )
                 try:  # threadpool: the field providers take the footprint / monitor locks
-                    await run_in_threadpool(engine.check_tool, name, arguments)
+                    await run_in_threadpool(engine.check_tool, name, guard_args)
                 except GuardRejection as rejection:
                     logging.getLogger("mcp_server.tools").warning("%s", rejection.text)
                     raise ToolError(rejection.text) from rejection
@@ -603,7 +658,8 @@ class RobotMCPServer(MCPServer):
             session = lookup_tools.CURRENT_SESSION.set(session_key(context))
             origin = GUARD_ORIGIN.set(name)  # the guard rule arm phase checks this tool's arm motions by its name
             begin, end = self.begin_motion, self.end_motion
-            rate = RATE_SUBSYSTEMS.get(name) if begin is not None and end is not None else None
+            # look_around in head mode moves neither the arm nor the base: no full-rate joint states
+            rate = RATE_SUBSYSTEMS.get(name) if begin is not None and end is not None and not head_look else None
             try:
                 with self.lease_scope(need):
                     if rate is not None and begin is not None:
@@ -680,6 +736,7 @@ def build_mcp_server(
         token_verifier=StaticTokenVerifier(token),
         auth=auth,
         monitor=monitor,
+        config=config,
     )
     register_tools(server, robot, config, guard, monitor, extra_modules)
     return server
@@ -1076,7 +1133,7 @@ def register_core_tools(ctx: ToolContext) -> None:
     ) -> ControlState:
         """Take a control lease; nothing moves. Every arm/gripper tool (move_arm_joints, move_arm_cartesian,
         set_gripper, arm_home, grasp_approach, grasp_close, grasp_lift, grasp_abort, release_object, queued arm/gripper/grasp steps) needs the arm lease and
-        every base tool (navigate_to_pose, move_relative, drive, look_around, queued Nav2 steps) the base lease; a
+        every base tool (navigate_to_pose, move_relative, drive, look_around except mode 'head', queued Nav2 steps) the base lease; a
         tool without it is refused. arm: the autonomy lease, taken by commanding the measured pose (needs fresh joint
         states); it is sticky: while it is held the leader arm and web UI are ignored, and it is not handed back
         automatically - release it explicitly with release_control when done. A human can still end it (web UI Home

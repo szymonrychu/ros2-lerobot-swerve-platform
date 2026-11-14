@@ -3,7 +3,7 @@
 import math
 import os
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 import yaml
 from arm_collision.settings import (
@@ -49,6 +49,10 @@ HARD_MAX_ANGULAR_RPS = 0.5
 HARD_MAX_DRIVE_S = 2.0
 HARD_MAX_SPEED_SCALE = 0.5
 HARD_MAX_IMAGE_PX = 1024
+# look_around head mode bounds (deg, inside the head URDF limits: pan +-90, tilt -30..45 with + down)
+HEAD_PAN_LIMIT_DEG = 90.0
+HEAD_TILT_MIN_DEG = -30.0
+HEAD_TILT_MAX_DEG = 45.0
 # Gripper Torque_Limit register range (0.1 % of max torque); below the minimum the jaw cannot close reliably.
 HARD_MAX_GRIP_TORQUE_LIMIT = 1000
 HARD_MIN_GRIP_TORQUE_LIMIT = 50
@@ -908,13 +912,21 @@ class LookAroundSettings(StrictModel):
     frame_max_px: int = Field(default=320, ge=32, le=HARD_MAX_IMAGE_PX)  # camera frame size per montage tile
     # 'spin': one continuous slow rotation (cmd_vel through the base path: stop, critical events, timeout) with a frame
     # at every heading; 'steps': one precise Nav2 rotation per heading. Same montage either way; spin is faster.
-    mode: Literal["spin", "steps"] = "spin"
+    # 'head': no base motion, the D435 head pans through head_pans_deg (either lease suffices).
+    mode: Literal["spin", "steps", "head"] = "spin"
     spin_speed_rps: float = Field(default=0.4, gt=0.0, le=HARD_MAX_ANGULAR_RPS)
     spin_rate_hz: float = Field(default=20.0, gt=0.0, le=50.0)
     spin_timeout_margin_s: float = Field(default=10.0, gt=0.0)  # spin timeout = angle / speed + this
     return_to_start: bool = False  # tool default: end facing the last heading instead of turning back
     # Level the D435 head (pan 0, tilt 0) for the base turn and restore its previous aim afterwards (not after stop).
     level_head: bool = True
+    # Head mode: pan angles (deg, + left; 5 pans cover +-90 deg with the ~69 deg D435 colour FOV), the tilt held while
+    # panning (deg, + down) and the settle time after each pan before the frame is taken.
+    head_pans_deg: list[Annotated[float, Field(ge=-HEAD_PAN_LIMIT_DEG, le=HEAD_PAN_LIMIT_DEG)]] = Field(
+        default_factory=lambda: [90.0, 45.0, 0.0, -45.0, -90.0], min_length=1
+    )
+    head_tilt_deg: float = Field(default=0.0, ge=HEAD_TILT_MIN_DEG, le=HEAD_TILT_MAX_DEG)
+    head_settle_s: float = Field(default=0.2, ge=0.0)
 
     @model_validator(mode="after")
     def captures_in_range(self) -> "LookAroundSettings":

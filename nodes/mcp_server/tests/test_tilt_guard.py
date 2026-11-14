@@ -449,3 +449,12 @@ def test_queued_base_step_refused_at_dispatch(tmp_path: Path) -> None:
     failed = [e for e in result.events if e.type == "step_failed"]
     assert failed and "tilt guard" in failed[0].message
     assert not [c for c in robot.calls if c[0] == "navigate"]
+
+
+@pytest.mark.parametrize("level", ["warning", "error"])
+def test_look_around_head_mode_is_not_refused_by_the_tilt_guard(tmp_path: Path, level: str) -> None:
+    robot, server, _ = guarded(tmp_path, level)
+    res = call(server, "look_around", {"mode": "head"})
+    assert res.structured_content["status"] == "completed"
+    assert robot.head_backend.commands  # the head panned
+    assert not [c for c in robot.calls if c[0] in ("navigate", "move_relative", "spin")]

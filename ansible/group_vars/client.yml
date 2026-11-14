@@ -3525,6 +3525,9 @@ ros2_nodes:
       # one continuous slow rotation (frames while turning), steps: one precise Nav2 rotation per heading. The turn
       # ends facing the last heading unless the agent passes return_to_start=true. level_head: the D435 head is levelled
       # (pan 0, tilt 0) for the turn (again before each steps-mode capture) and its previous aim restored afterwards.
+      # mode head (agent's choice, mode stays spin by default): no base motion, the head pans through head_pans_deg
+      # (deg, + left; 5 pans cover +-90 deg with the ~69 deg D435 colour FOV) at head_tilt_deg (+ down) and settles
+      # head_settle_s before each frame; it needs either lease.
       look_around:
         default_captures: 4
         clearance_margin_m: 0.10
@@ -3533,6 +3536,9 @@ ros2_nodes:
         spin_speed_rps: 0.4
         return_to_start: false
         level_head: true
+        head_pans_deg: [90.0, 45.0, 0.0, -45.0, -90.0]
+        head_tilt_deg: 0.0
+        head_settle_s: 0.2
       # Non-blocking motion queue (enqueue_motions / wait_for_event, nodes/mcp_server/README.md "Motion queue"):
       # pending-step cap, wait bounds and the precondition thresholds (base_still, gripper_holding).
       motion_queue:
@@ -3559,7 +3565,7 @@ ros2_nodes:
               the outline), or call release_control with keep_position=true to hand the base back holding its pose, then repeat
               the base move."
             applies_to:
-              tools: [navigate_to_pose, move_relative, drive, look_around, go_to_frontier, look_toward_frontier, approach_for_grasp]
+              tools: [navigate_to_pose, move_relative, drive, go_to_frontier, look_toward_frontier, approach_for_grasp]
               steps: [base_relative, navigate_to_pose]
             all:
               - {field: footprint.kind, op: eq, value: static}
@@ -3571,7 +3577,7 @@ ros2_nodes:
             message: "An object is carried but the footprint does not include it. Call release_control with carried_object_radius_m set to the
               object radius (or put the object down with release_object), then repeat the base move."
             applies_to:
-              tools: [navigate_to_pose, move_relative, drive, look_around, go_to_frontier, look_toward_frontier, approach_for_grasp]
+              tools: [navigate_to_pose, move_relative, drive, go_to_frontier, look_toward_frontier, approach_for_grasp]
               steps: [base_relative, navigate_to_pose]
             all:
               - {field: arm.carrying, op: eq, value: true}
@@ -3613,6 +3619,32 @@ ros2_nodes:
             all:
               - {field: target.joint.shoulder_lift, op: gt, value: 1.85}
               - {field: target.joint.elbow_flex, op: lt, value: 0.0}
+            when_unknown: reject
+          # R1 and R2 for look_around: only its base modes turn the base. The engine sees the resolved mode (an omitted
+          # mode is the configured default), so look_around(mode='head'), which never moves the base, passes.
+          - name: look_around_arm_outside_footprint
+            mode: dry_run
+            message: "The arm sticks out of the footprint, so obstacle avoidance cannot see it while the base turns. Use
+              look_around(mode='head') (the base stays), or run arm_home, or call release_control with keep_position=true,
+              then repeat look_around."
+            applies_to:
+              tools: [look_around]
+            all:
+              - {field: footprint.kind, op: eq, value: static}
+              - {field: arm.outside_footprint_m, op: gt, value: 0.03}
+              - {field: args.mode, op: ne, value: head}
+            when_unknown: reject
+          - name: look_around_carrying_without_object_footprint
+            mode: dry_run
+            message: "An object is carried but the footprint does not include it. Use look_around(mode='head') (the base
+              stays), or call release_control with carried_object_radius_m set to the object radius (or release_object), then
+              repeat look_around."
+            applies_to:
+              tools: [look_around]
+            all:
+              - {field: arm.carrying, op: eq, value: true}
+              - {field: footprint.carried_radius_m, op: le, value: 0.0}
+              - {field: args.mode, op: ne, value: head}
             when_unknown: reject
       poi:
         request_timeout_s: 3.0

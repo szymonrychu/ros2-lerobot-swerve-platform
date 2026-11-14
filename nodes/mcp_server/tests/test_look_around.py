@@ -10,6 +10,7 @@ import cv2
 import numpy as np
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
+from pydantic import ValidationError
 
 from mcp_server import camera_scene, look_around, perception_tools
 from mcp_server.base_motion import SpinOutcome
@@ -18,9 +19,11 @@ from mcp_server.head import AppliedHeadKinematics, HeadController
 from mcp_server.look_around import (
     build_montage,
     check_clearance,
+    head_pan_label,
     heading_label,
     plan_look_around,
     required_clearance_m,
+    run_head_mode,
     run_look_around,
 )
 from mcp_server.models import (
@@ -619,3 +622,184 @@ def test_look_around_keeps_a_stop_or_event_raised_while_the_head_levels(
     else:
         assert robot.head_backend.commands == [LEVEL]  # the head stays where it is after a stop
         assert run.result.head is not None and run.result.head.restored is False
+
+
+# --- head mode: pan the D435 head, the base never moves -----------------------------------------------------------
+
+DEFAULT_PANS = [90.0, 45.0, 0.0, -45.0, -90.0]
+
+
+class HeadScriptRobot(ScriptRobot):
+    """ScriptRobot whose frames carry the head clock as their stamp and feed the head joint-state history."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.moving_frames: set[int] = set()  # camera calls whose frame shows the head still moving
+
+    def camera_image(self, camera: str, max_px: int) -> CameraFrame:
+        index = self.frames
+        frame = super().camera_image(camera, max_px)
+        stamp = self.head_backend.t
+        positions = dict(self.head_backend.positions)
+        if index in self.moving_frames:  # a sample just before the frame with another pan: the head was moving
+            self.head.history.add(stamp - 0.05, {**positions, "head_pan": positions["head_pan"] - 0.1})
+        self.head.history.add(stamp, positions)
+        return frame.model_copy(update={"stamp_s": stamp})
+
+
+def commanded_pans_deg(robot: ScriptRobot) -> list[float]:
+    return [round(math.degrees(c["head_pan"]), 6) for c in robot.head_backend.commands]
+
+
+@pytest.mark.parametrize(
+    ("pan", "label"),
+    [
+        (90.0, "pan +90 deg (left)"),
+        (45.4, "pan +45 deg (left)"),
+        (0.0, "pan 0 deg (ahead)"),
+        (-0.3, "pan 0 deg (ahead)"),
+        (-45.0, "pan -45 deg (right)"),
+        (-89.6, "pan -90 deg (right)"),
+    ],
+)
+def test_head_pan_label(pan: float, label: str) -> None:
+    assert head_pan_label(pan) == label
+
+
+def test_head_mode_pans_without_base_motion() -> None:
+    robot = HeadScriptRobot(head_positions=dict(AIMED))
+    run = run_head_mode(robot, SETTINGS, SETTINGS.head_pans_deg, SETTINGS.head_tilt_deg, "head")
+    res = run.result
+    assert res.status == "completed"
+    assert not [c for c in robot.calls if c[0] == "move"] and robot.precise_flags == []
+    assert not hasattr(robot, "spins")
+    assert commanded_pans_deg(robot)[:5] == pytest.approx(DEFAULT_PANS)
+    assert all(c["head_tilt"] == pytest.approx(0.0) for c in robot.head_backend.commands[:5])
+    assert robot.head_commands_at_capture == [1, 2, 3, 4, 5]  # one pan command before each frame
+    assert [label for label, _ in run.frames] == [head_pan_label(p) for p in DEFAULT_PANS]
+    assert all(data is not None for _, data in run.frames)
+    assert [h.heading_deg for h in res.headings] == [90, 45, 0, -45, -90]
+    assert [h.label for h in res.headings] == [head_pan_label(p) for p in DEFAULT_PANS]
+    assert res.expected == {"mode": "head", "rotation_deg": 0, "pans_deg": DEFAULT_PANS}
+    assert res.achieved["pans_deg"] == pytest.approx(DEFAULT_PANS)
+    assert res.returned_to_start is False
+
+
+def test_head_mode_settles_before_each_frame() -> None:
+    robot = HeadScriptRobot()
+    settings = LookAroundSettings(head_settle_s=0.5)
+    start = robot.head_backend.t
+    run_head_mode(robot, settings, [30.0], 0.0, "head")
+    assert robot.head_backend.t - start >= 0.5
+
+
+def test_head_mode_restores_aim_and_reports_head() -> None:
+    robot = HeadScriptRobot(head_positions=dict(AIMED))
+    run = run_head_mode(robot, SETTINGS, [45.0, -45.0], 10.0, "head")
+    assert robot.head_backend.commands[-1] == pytest.approx(AIMED)
+    assert robot.head_backend.positions == pytest.approx(AIMED)
+    head = run.result.head
+    assert head is not None and head.restored is True
+    assert head.before_deg == pytest.approx((math.degrees(0.3), math.degrees(0.5)), abs=0.01)
+    assert [c["head_tilt"] for c in robot.head_backend.commands[:2]] == pytest.approx([math.radians(10.0)] * 2)
+
+
+def test_head_mode_without_head_sample_sends_the_head_home() -> None:
+    robot = HeadScriptRobot()
+    robot.head_backend.no_samples = True
+    run = run_head_mode(robot, SETTINGS, [45.0], 0.0, "head")
+    assert robot.head_backend.commands[-1] == pytest.approx(
+        {"head_pan": HEAD_SETTINGS.home_pan_rad, "head_tilt": HEAD_SETTINGS.home_tilt_rad}
+    )
+    assert run.result.head is not None and run.result.head.before_deg is None
+
+
+@pytest.mark.parametrize("kind", ["stop", "event"])
+def test_head_mode_stop_stops_panning_and_leaves_head(kind: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    robot = HeadScriptRobot(head_positions=dict(AIMED))
+    publish = robot.head_backend.publish_head_command
+
+    def publish_then_signal(positions: dict[str, float]) -> None:
+        publish(positions)
+        if len(robot.head_backend.commands) == 2:  # while the head pans to the second angle
+            if kind == "stop":
+                robot.stops += 1
+            else:
+                robot.raise_event("collision_stop")
+
+    monkeypatch.setattr(robot.head_backend, "publish_head_command", publish_then_signal)
+    run = run_head_mode(robot, SETTINGS, DEFAULT_PANS, 0.0, "head")
+    res = run.result
+    assert len(run.frames) == 1  # no capture after the stop / event
+    assert robot.frames == 1
+    if kind == "stop":
+        assert res.status == "stopped"
+        assert commanded_pans_deg(robot) == pytest.approx([90.0, 45.0])  # no further pan, no restore
+        assert res.head is not None and res.head.restored is False
+        assert any("stop" in n for n in res.notes)
+    else:
+        assert res.status == "interrupted" and res.interrupted_by == "collision_stop"
+        assert robot.head_backend.commands[-1] == pytest.approx(AIMED)  # only a stop skips the restore
+        assert len(robot.head_backend.commands) == 3
+
+
+def test_head_mode_retakes_a_frame_taken_while_moving() -> None:
+    robot = HeadScriptRobot()
+    robot.moving_frames = {0}
+    run = run_head_mode(robot, SETTINGS, [45.0, -45.0], 0.0, "head")
+    assert robot.frames == 3  # the first pan was retaken once
+    assert [label for label, _ in run.frames] == ["pan +45 deg (left)", "pan -45 deg (right)"]
+    assert not any("moving" in n for n in run.result.notes)
+    still = HeadScriptRobot()
+    still.moving_frames = {0, 1}
+    run = run_head_mode(still, SETTINGS, [45.0], 0.0, "head")
+    assert still.frames == 2  # retaken once only
+    assert len(run.frames) == 1 and run.frames[0][1] is not None
+    assert any("moving" in n for n in run.result.notes)
+
+
+def test_head_mode_head_timeout_is_a_note() -> None:
+    robot = HeadScriptRobot(head_positions=dict(AIMED), head_speed=0.0)  # a stuck head follower
+    run = run_head_mode(robot, SETTINGS, DEFAULT_PANS, 0.0, "head")
+    res = run.result
+    assert res.status == "completed"
+    assert len(run.frames) == 5 and all(data is not None for _, data in run.frames)
+    assert any("timeout" in n for n in res.notes)
+    stuck = head_pan_label(math.degrees(0.3))  # the tiles say where the head really pointed at each frame
+    assert [label for label, _ in run.frames] == [stuck] * 5
+    assert [s.status for s in res.steps] == ["timeout"] * 5
+
+
+def test_head_mode_camera_failure_is_a_missing_tile() -> None:
+    robot = HeadScriptRobot()
+    robot.camera_fail_at = {1}
+    run = run_head_mode(robot, SETTINGS, [45.0, 0.0, -45.0], 0.0, "head")
+    assert run.result.status == "completed"
+    assert [data is None for _, data in run.frames] == [False, True, False]
+    assert run.result.headings[1].image_captured is False
+    assert any("no camera frame" in n for n in run.result.notes)
+
+
+def test_head_mode_unknown_pan_at_the_frame_uses_the_commanded_pan_with_a_note() -> None:
+    robot = ScriptRobot()  # frames that no head joint-state sample covers
+    run = run_head_mode(robot, SETTINGS, [45.0], 0.0, "head")
+    assert run.frames[0][0] == "pan +45 deg (left)"
+    assert any("commanded" in n for n in run.result.notes)
+    assert run.result.achieved["pans_deg"] == [None]
+
+
+def test_look_around_settings_head_keys() -> None:
+    settings = LookAroundSettings()
+    assert settings.head_pans_deg == DEFAULT_PANS
+    assert settings.head_tilt_deg == 0.0 and settings.head_settle_s == 0.2
+    assert LookAroundSettings(mode="head").mode == "head"
+    for bad in (
+        {"head_pans_deg": []},
+        {"head_pans_deg": [91.0]},
+        {"head_pans_deg": [-90.5]},
+        {"head_tilt_deg": -31.0},
+        {"head_tilt_deg": 46.0},
+        {"head_settle_s": -0.1},
+    ):
+        with pytest.raises(ValidationError):
+            LookAroundSettings.model_validate(bad)

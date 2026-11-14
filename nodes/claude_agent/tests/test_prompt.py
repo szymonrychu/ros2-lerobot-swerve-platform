@@ -477,6 +477,14 @@ def test_prompt_mentions_the_fast_look_around() -> None:
     assert "return_to_start" in lower
 
 
+def test_prompt_mentions_the_head_look_around() -> None:
+    """look_around(mode='head') pans the head without moving the base and works under either lease."""
+    lower = " ".join(build_system_prompt(ClaudeAgentConfig()).lower().split())
+    assert "look_around(mode='head')" in lower
+    assert "without moving the base" in lower
+    assert "arm or the base lease" in lower
+
+
 def test_prompt_tells_the_agent_to_refine_poi_positions_with_better_estimates() -> None:
     """remember_object averages comparable sightings; a clearly better estimate or a moved object replaces the position."""
     lower = prompt_lower()

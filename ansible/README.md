@@ -706,10 +706,12 @@ The leader arm (server) has no block; after an arm calibration teleop needs the 
 
 The `guard_rules:` block of the mcp_server `config:` in `group_vars/client.yml` holds the deployed safety rules (R1
 `base_motion_arm_outside_footprint`, R2 `base_motion_carrying_without_object_footprint`, R3 `no_arm_retake_from_human`,
-R4 `wrist_roll_needs_lifted_arm`, R5 `no_stretched_shoulder_overreach`); each carries a one-line hazard comment. Schema
+R4 `wrist_roll_needs_lifted_arm`, R5 `no_stretched_shoulder_overreach`, and the look_around twins of R1 / R2,
+`look_around_arm_outside_footprint` and `look_around_carrying_without_object_footprint`, which add `args.mode ne head`
+so `look_around(mode='head')`, which never moves the base, passes); each carries a one-line hazard comment. Schema
 and semantics: `nodes/mcp_server/README.md` "Guard rules". Next to it, `motion_queue.watch_rate_hz: 10` and
 `watch_max_per_call: 8` configure `watch_constraints`. A node test (`test_guard_rules_deployed.py`) validates the block
-with the node's own pydantic models and a root test (`test_mcp_server_config.py`) pins the five names and `dry_run`.
+with the node's own pydantic models and a root test (`test_mcp_server_config.py`) pins the seven names and `dry_run`.
 
 **dry_run -> enforce.** Every rule ships as `mode: dry_run`: a hit is logged (`guard_rule_would_refuse`) and counted in
 `mcp_guard_rule_hits_total{rule,mode,phase,basis}`, nothing is refused. After about a week of counters, review each rule
