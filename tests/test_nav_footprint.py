@@ -20,10 +20,8 @@ from scripts.gen_nav_footprint import (
     Body,
     Generated,
     Settings,
-    body_outline,
     circumscribed_radius,
     cost_scaling_factor,
-    drive_pose_joints,
     footprint_polygon,
     generate,
     inflation_radius,
@@ -242,11 +240,9 @@ def test_parked_arm_shadow_needs_the_mcp_server_arm_config(tmp_path: Path) -> No
     settings = load_settings(cfg)
     gen = generate(settings, REPO_ROOT)
     assert gen.mcp_nav_footprint["parked_arm_shadow"] == []
-    assert gen.mcp_nav_footprint["drive_arm_shadow"] == []
     assert gen.footprint == footprint_polygon(
         settings.body, settings.circle_segments, settings.close_gap_m, settings.decimals
     )
-    assert gen.drive_footprint == gen.footprint
 
 
 def test_footprint_hugs_the_body_parts() -> None:
@@ -567,7 +563,6 @@ def test_mcp_nav_footprint_numbers_come_from_the_generator_config() -> None:
         "costmap_resolution": settings.costmap_resolution,
         "max_cost_scaling_factor": settings.max_cost_scaling_factor,
         "parked_arm_shadow": generated().mcp_nav_footprint["parked_arm_shadow"],
-        "drive_arm_shadow": generated().mcp_nav_footprint["drive_arm_shadow"],
     }
 
 
@@ -651,91 +646,28 @@ def test_mcp_nav_footprint_lines_fit_the_yaml_lint_limit() -> None:
     assert yaml.safe_load("\n".join(lines))["parked_arm_shadow"] == gen.mcp_nav_footprint["parked_arm_shadow"]
 
 
-# --- drive pose footprint (arm lifted while driving) -----------------------------------------------------------
+# --- no drive outline: StopBox is permanently on ---------------------------------------------------------------
 
 
-def test_drive_pose_is_read_from_the_client_vars_mcp_server_arm() -> None:
-    """The generator takes the drive pose from client.yml mcp_server `arm.drive_pose.joints` (one source)."""
-    settings = load_settings(DEFAULT_CONFIG)
-    assert drive_pose_joints(settings, REPO_ROOT) == mcp_server_vars()["arm"]["drive_pose"]["joints"]
-
-
-def test_drive_pose_needs_the_mcp_server_arm_config(tmp_path: Path) -> None:
-    client = tmp_path / "ansible" / "group_vars" / "client.yml"
-    client.parent.mkdir(parents=True)
-    write_client_vars(client, {"server": {"port": 1}})
-    assert drive_pose_joints(load_settings(DEFAULT_CONFIG), tmp_path) == {}
-
-
-def test_drive_arm_shadow_lands_in_the_mcp_nav_footprint_region() -> None:
+def test_generator_writes_no_drive_outline() -> None:
+    """The generator builds only the static outline: no drive shadow, drive outline or StopBoxDrive."""
     gen = generated()
-    shadow = gen.mcp_nav_footprint["drive_arm_shadow"]
-    assert len(shadow) >= MIN_POLYGON_POINTS and Polygon(shadow).is_valid
-    assert mcp_nav_footprint()["drive_arm_shadow"] == shadow
-    lines = region_lines("mcp_nav_footprint", gen)
-    assert max(len(line) for line in lines) <= 100
-    assert yaml.safe_load("\n".join(lines))["drive_arm_shadow"] == shadow
+    assert "drive_arm_shadow" not in gen.mcp_nav_footprint
+    assert not {"drive_footprint", "stopbox_drive"} & set(type(gen).model_fields)
+    assert "drive_arm_shadow" not in mcp_nav_footprint()
+    with pytest.raises(ValueError, match="stopbox_drive"):
+        region_lines("stopbox_drive", gen)
 
 
-def test_drive_outline_is_the_body_and_the_drive_shadow() -> None:
-    settings, body = settings_and_body()
-    gen = generated()
-    outline = body_outline(body.boxes, body.cylinders, settings.circle_segments, settings.close_gap_m)
-    drive = Polygon(gen.drive_footprint)
-    assert LinearRing(gen.drive_footprint).is_simple and LinearRing(gen.drive_footprint).is_ccw
-    assert drive.buffer(TOL).contains(outline)
-    assert drive.buffer(TOL).contains(Polygon(gen.mcp_nav_footprint["drive_arm_shadow"]))
-
-
-def drive_tolerance_m() -> float:
-    """How far the drive outline may reach past the static one: the drive pose check (mcp_server drive_pose_check,
-    like the footprint tick) holds the raw arm shadow to the static outline + simplify_m, and the written shadow is
-    grown by simplify_m like the parked one.
-
-    Returns:
-        float: Tolerance (m).
-    """
-    return 2 * load_settings(DEFAULT_CONFIG).dynamic_simplify_m + TOL
-
-
-def test_drive_outline_lies_inside_the_static_one_with_the_front_edge_behind() -> None:
-    """The lifted arm drops the parked gripper overhang: the drive outline is inside the static outline (the arm over
-    the crossbar rear edge reaches into the rear notch by the grow margin only) and its front edge is behind the static
-    front edge."""
-    gen = generated()
-    static, drive = Polygon(gen.footprint), Polygon(gen.drive_footprint)
-    assert static.buffer(drive_tolerance_m()).contains(drive)
-    assert drive.difference(static).area < 2e-4, "only a grow-margin sliver lies outside"
-    assert drive.bounds[2] < static.bounds[2] - 0.05
-    assert drive.area < static.area
-
-
-def test_stopbox_drive_is_the_stopbox_of_the_drive_outline() -> None:
-    settings = load_settings(DEFAULT_CONFIG)
-    gen = generated()
-    assert gen.stopbox_drive == stopbox_polygons(gen.drive_footprint, settings.stopbox_margin_m, settings.decimals)
-    assert list(gen.stopbox_drive) == list(gen.stopbox)
-    for name, sub in gen.stopbox_drive.items():
-        assert len(sub["points"]) >= MIN_POLYGON_POINTS, name
-        assert Polygon(gen.stopbox[name]["points"]).buffer(drive_tolerance_m()).contains(Polygon(sub["points"])), name
-
-
-def test_nav2_stopbox_drive_is_wired_disabled_and_listed() -> None:
-    """mcp_server enables StopBoxDrive before disabling StopBox while the arm is at the drive pose (the velocity
-    polygons are static parameters): same sectors, kind and sources as StopBox, off at start."""
-    params = yaml.safe_load(NAV2_PARAMS.read_text())["collision_monitor"]["ros__parameters"]
-    stop, drive = params["StopBox"], params["StopBoxDrive"]
-    assert "StopBoxDrive" in params["polygons"]
-    assert drive["enabled"] is False
-    for key in ("type", "action_type", "min_points", "visualize", "holonomic", "sources_names", "velocity_polygons"):
-        assert drive[key] == stop[key], key
-    gen = generated()
-    for name, sub in gen.stopbox_drive.items():
-        points = yaml.safe_load(drive[name]["points"])
-        assert len(points) >= MIN_POLYGON_POINTS, name
-        assert [tuple(p) for p in points] == sub["points"], name
-        for key in SUB_POLYGON_KEYS:
-            assert drive[name][key] == stop[name][key], f"{name}.{key}"
+def test_collision_monitor_has_stop_box_always_on_and_no_stop_box_drive() -> None:
+    """collision_monitor polygons are StopBox, ArmStop and CliffStop; StopBox is enabled and no StopBoxDrive (or its
+    generated region) is left in nav2_params.yaml."""
+    text = NAV2_PARAMS.read_text()
+    params = yaml.safe_load(text)["collision_monitor"]["ros__parameters"]
+    assert params["polygons"] == ["StopBox", "ArmStop", "CliffStop"]
+    assert params["StopBox"]["enabled"] is True
+    assert "StopBoxDrive" not in params
+    assert "StopBoxDrive" not in text and "stopbox_drive" not in text
 
 
 def test_head_aim_box_region_is_the_static_outline_bounding_box() -> None:

@@ -15,16 +15,13 @@ derives:
   radius; the formula lives in footprint_geometry, mcp_server applies it to the dynamic footprint),
 - the collision_monitor StopBox: per direction sector, the footprint swept stopbox_margin_m toward the motion, plus
   the footprint + stopbox_margin_m for rotation in place and zero twist,
-- the drive outline: body outline + the ground shadow of the arm lifted to its drive pose (client.yml mcp_server
-  `arm.drive_pose.joints`, held while a navigation goal runs), and StopBoxDrive, the same StopBox sectors built from
-  it (disabled at start; mcp_server swaps it for StopBox while the arm is at the drive pose),
 - the collision_monitor CliffStop: the footprint + cliff_margin_m for every command with a forward or sideways
   component, the footprint alone for rotation, zero twist and while backing away,
 - the laser_filter self polygon (footprint + laser_filter_margin_m),
 - the mcp_server nav_footprint numbers (circle segments, gap closing, margins, simplification, decimals, costmap
-  resolution, maximum cost scaling, parked-arm and drive-pose shadows), so the footprint mcp_server publishes uses the
+  resolution, maximum cost scaling, parked-arm shadow), so the footprint mcp_server publishes uses the
   same geometry (mcp_server/footprint.py),
-- the head_aim_cpp footprint box: the bounding box of the outline (static, the larger one, so it holds for both modes),
+- the head_aim_cpp footprint box: the bounding box of the outline,
 
 and rewrites the regions between `# >>> gen_nav_footprint: <name>` and `# <<< gen_nav_footprint: <name>` markers in
 nodes/nav2_bringup/config/nav2_params.yaml, nodes/laser_filter/config/footprint_filter.yaml,
@@ -168,8 +165,6 @@ class Generated(BaseModel):
     inflation_radius: float
     cost_scaling_factor: float
     stopbox: dict[str, dict]
-    drive_footprint: list[Point2]
-    stopbox_drive: dict[str, dict]
     laser_polygon: list[Point2]
     cliff_polygon: list[Point2]
     cliffstop: dict[str, dict]
@@ -235,22 +230,6 @@ def run_arm_shadow(client_vars: str, content: str, joints: str, segments: int, s
     if result.returncode != 0:
         raise RuntimeError(f"arm shadow failed: {result.stderr.strip()[-2000:]}")
     return result.stdout
-
-
-def drive_pose_joints(settings: Settings, repo_root: Path) -> dict[str, float]:
-    """The arm drive pose (held while a navigation goal runs): client.yml mcp_server `arm.drive_pose.joints`; empty
-    without client.yml, an mcp_server entry or a drive pose.
-
-    Args:
-        settings (Settings): Generator settings.
-        repo_root (Path): Base of relative paths.
-
-    Returns:
-        dict[str, float]: Joint name -> rad (measured space).
-    """
-    config = mcp_server_config(settings, repo_root) or {}
-    drive_pose = (config.get("arm") or {}).get("drive_pose") or {}
-    return {name: float(value) for name, value in (drive_pose.get("joints") or {}).items()}
 
 
 def arm_pose_shadow(settings: Settings, repo_root: Path, joints: dict[str, float]) -> list[list[float]]:
@@ -433,15 +412,12 @@ def generate(settings: Settings, repo_root: Path) -> Generated:
         repo_root (Path): Base of relative paths.
 
     Returns:
-        Generated: Footprint, inflation, StopBox, drive outline and StopBoxDrive, CliffStop (polygon and
-            sub-polygons) and laser polygon.
+        Generated: Footprint, inflation, StopBox, CliffStop (polygon and sub-polygons) and laser polygon.
     """
     body, source = resolve_body(settings, repo_root)
     shadow = arm_pose_shadow(settings, repo_root, settings.parked_arm_joints)
-    drive_shadow = arm_pose_shadow(settings, repo_root, drive_pose_joints(settings, repo_root))
     outline = body_outline(body.boxes, body.cylinders, settings.circle_segments, settings.close_gap_m)
     footprint = to_points(static_outline(outline, shadow), settings.decimals)
-    drive_footprint = to_points(static_outline(outline, drive_shadow), settings.decimals)
     cliff_polygon = offset_polygon(footprint, settings.cliff_margin_m, settings.decimals)
     costmap_footprint = shrink_polygon(footprint, settings.footprint_tolerance_m, settings.decimals)
     return Generated(
@@ -451,8 +427,6 @@ def generate(settings: Settings, repo_root: Path) -> Generated:
         inflation_radius=inflation_radius(costmap_footprint, settings.costmap_resolution),
         cost_scaling_factor=cost_scaling_factor(costmap_footprint, settings.max_cost_scaling_factor),
         stopbox=stopbox_polygons(footprint, settings.stopbox_margin_m, settings.decimals),
-        drive_footprint=drive_footprint,
-        stopbox_drive=stopbox_polygons(drive_footprint, settings.stopbox_margin_m, settings.decimals),
         laser_polygon=offset_polygon(footprint, settings.laser_filter_margin_m, settings.decimals),
         cliff_polygon=cliff_polygon,
         cliffstop=cliffstop_polygons(footprint, cliff_polygon),
@@ -467,7 +441,6 @@ def generate(settings: Settings, repo_root: Path) -> Generated:
             "costmap_resolution": settings.costmap_resolution,
             "max_cost_scaling_factor": settings.max_cost_scaling_factor,
             "parked_arm_shadow": shadow,
-            "drive_arm_shadow": drive_shadow,
         },
     )
 
@@ -541,8 +514,6 @@ def region_lines(name: str, gen: Generated) -> list[str]:
         return lines
     if name == "stopbox":
         return velocity_polygon_lines(gen.stopbox)
-    if name == "stopbox_drive":
-        return velocity_polygon_lines(gen.stopbox_drive)
     if name == "head_aim_box":
         xs, ys = [x for x, _y in gen.footprint], [y for _x, y in gen.footprint]
         return [
@@ -594,7 +565,7 @@ def render_regions(text: str, gen: Generated, expected: set[str]) -> str:
 
 
 def render_nav2(text: str, gen: Generated) -> str:
-    """nav2_params.yaml with its footprint, inflation, StopBox, StopBoxDrive and CliffStop regions regenerated.
+    """nav2_params.yaml with its footprint, inflation, StopBox and CliffStop regions regenerated.
 
     Args:
         text (str): Current file content.
@@ -603,7 +574,7 @@ def render_nav2(text: str, gen: Generated) -> str:
     Returns:
         str: New content.
     """
-    return render_regions(text, gen, {"footprint", "inflation", "stopbox", "stopbox_drive", "cliffstop"})
+    return render_regions(text, gen, {"footprint", "inflation", "stopbox", "cliffstop"})
 
 
 def render_laser_filter(text: str, gen: Generated) -> str:

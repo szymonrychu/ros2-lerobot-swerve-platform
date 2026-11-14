@@ -7,7 +7,7 @@ for the costmap inflation; `<costmap>/published_footprint` polygons are kept per
 up (unavailable -> ready edge) calls the consumer-ready callback once; the arm pose accessors; a successful
 /arm/home (and /arm/move_to_neutral) runs the footprint tick at once (back to static) and a failed one does not; with
 the real arm and NavFootprint a converged home goes from the dynamic to the static footprint (the single home
-footprint hook); bind_control wires the drive pose controller into the footprint (drive mode at the drive pose, static publish).
+footprint hook); bind_control gives the footprint no drive mode (the tick only follows the arm: static or dynamic).
 """
 
 from collections.abc import Callable
@@ -257,19 +257,19 @@ def test_converged_home_service_ends_with_the_static_footprint(ros_iface: Module
     assert response.success is True and nav.state().kind == "static"
 
 
-def test_bind_control_wires_the_drive_pose_into_the_footprint(ros_iface: ModuleType, tmp_path: Path) -> None:
-    """The footprint tick asks DrivePose.at_drive_pose; the lowering path publishes static through the footprint."""
+def test_bind_control_gives_the_footprint_no_drive_mode(ros_iface: ModuleType, tmp_path: Path) -> None:
+    """bind_control binds no drive hook into the footprint: the tick follows the released arm (dynamic out, static
+    parked) and never publishes a drive kind."""
     robot = make_robot(ros_iface, tmp_path, [0.0])
     robot.leader = MagicMock()
     robot.leader.moving.return_value = False
     nav = NavFootprint(settings(), robot.cfg.body, robot)
     robot.bind_control(ControlManager(robot.arm, robot, robot.cfg, footprint=nav))
-    assert nav.drive_ready == robot.drive_pose.at_drive_pose
-    assert robot.drive_pose.publish_static == nav.publish_static
-    move_arm(robot, robot.cfg.arm.drive_pose.joints)
+    assert not hasattr(nav, "drive_ready")
+    move_arm(robot, SIDEWAYS)
     nav.start()
     nav.tick()
-    assert nav.state().kind == "drive"
+    assert nav.state().kind == "dynamic"
     move_arm(robot, HOME)
     nav.tick()
     assert nav.state().kind == "static"

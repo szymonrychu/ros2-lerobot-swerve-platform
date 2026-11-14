@@ -2263,13 +2263,8 @@ in the mcp_server uv environment, cached per client.yml content) and the check t
 | `test_cliffstop_selects_by_command_direction` | Every 5 deg at 0.1 m/s, first-match selection picks `forward` within +-90 deg (sideways included) and `back` beyond. |
 | `test_nav2_cliffstop_polygon_is_wired_and_listed` | `CliffStop` block in nav2_params (holonomic velocity_polygon, approach, 1.2 s, enabled, `depth_cliff`, >= 4 points per sub-polygon) exists and is listed in `polygons`. |
 | `test_main_writes_the_files_and_is_idempotent` | With bigger wheels in a temp config (and no client.yml, whose region is then skipped), `main` rewrites copies of both files (footprint now contains the bigger wheel), a second run changes nothing, and sections outside the generated regions are untouched. |
-| `test_drive_pose_is_read_from_the_client_vars_mcp_server_arm` | The generator reads the drive pose from the client.yml mcp_server `arm.drive_pose.joints`. |
-| `test_drive_pose_needs_the_mcp_server_arm_config` | Without the mcp_server arm config the drive shadow is empty. |
-| `test_drive_arm_shadow_lands_in_the_mcp_nav_footprint_region` | `drive_arm_shadow` is written into the `mcp_nav_footprint` region of client.yml. |
-| `test_drive_outline_is_the_body_and_the_drive_shadow` | The drive outline is the body outline united with the drive shadow. |
-| `test_drive_outline_lies_inside_the_static_one_with_the_front_edge_behind` | The drive outline is inside the static outline (within the drive tolerance) and its front edge is behind the static one. |
-| `test_stopbox_drive_is_the_stopbox_of_the_drive_outline` | `StopBoxDrive` has the StopBox sectors built from the drive outline. |
-| `test_nav2_stopbox_drive_is_wired_disabled_and_listed` | `StopBoxDrive` in nav2_params.yaml is `enabled: false`, has the StopBox `sources_names`, 4+ points per sub-polygon and is listed in `polygons`. |
+| `test_generator_writes_no_drive_outline` | The generator writes no drive shadow, drive outline or `StopBoxDrive` (no `drive_arm_shadow` in the mcp_server `nav_footprint` region, no `stopbox_drive` region). |
+| `test_collision_monitor_has_stop_box_always_on_and_no_stop_box_drive` | collision_monitor `polygons` is exactly `StopBox, ArmStop, CliffStop`, `StopBox` is `enabled: true` and nav2_params.yaml holds no `StopBoxDrive` block or region. |
 | `test_head_aim_box_region_is_the_static_outline_bounding_box` | The `head_aim_box` region holds the bounding box of the static outline. |
 | `test_head_aim_equals_the_generator_output` | `head_aim.yaml` and the client.yml entry equal the generator's head_aim_box region. |
 | `test_rerunning_the_generator_is_a_no_op` | A second generator run changes no file. |
@@ -2277,8 +2272,8 @@ in the mcp_server uv environment, cached per client.yml content) and the check t
 ### Arm drive pose (arm-lift-while-driving)
 
 New or changed tests of the drive pose feature. Root tests are in the tables above (`test_nav_footprint.py`,
-`test_head_aim_deploy.py`, `test_nav2_mppi_overlay.py`, `test_nav_stack_config.py`); `test_nav_depth_collision.py` now
-lists `StopBoxDrive` among the collision_monitor polygons with the `scan` and `depth_obstacles` sources. Per-node files
+`test_head_aim_deploy.py`, `test_nav2_mppi_overlay.py`, `test_nav_stack_config.py`). The drive footprint and the
+`StopBoxDrive` switching are gone (StopBox is permanently on). Per-node files
 (run in the node directory, `uv run --frozen pytest tests/ -q`, `npm test`, or `./scripts/cpp-node-test.sh <package>`):
 
 | File | What it covers |
@@ -2289,8 +2284,8 @@ lists `StopBoxDrive` among the collision_monitor polygons with the `scan` and `d
 | `nodes/mcp_server/tests/test_drive_pose.py` | The controller with fake arm, control, clock and worker: lift on the goal edge, every skip reason, lowering after `lower_delay_s`, chained goals, lease or moved arm means no lower, non-converged motions, `request_lift`, abort, runtime enable, `store_pose` / `load_pose`, `at_drive_pose`. |
 | `nodes/mcp_server/tests/test_ros_iface_drive_pose.py` | The 5 Hz tick, the latched state topic (on change and at 1 Hz, nothing before the controller), `/arm/set_drive_pose`, `/arm/drive_pose/enable`, and `navigate` requesting the lift before it sends its goal (never refusing). |
 | `nodes/mcp_server/tests/test_control.py` | `get_control_state` reports `arm.drive_pose`, the `stop` tool aborts a drive-pose motion, the control manager's drive pose gates. |
-| `nodes/mcp_server/tests/test_footprint.py`, `test_ros_iface_footprint.py` | The drive footprint mode: generated drive shadow, drive outline, costmap / laser / inflation publish, StopBoxDrive and StopBox switching order, failed set keeps StopBox, lease and tolerance exits, empty shadow, mode `drive`, controller wiring. |
-| `nodes/mcp_server/tests/test_guard_rules.py` | Guard rule expectations updated for the changed control state. |
+| `nodes/mcp_server/tests/test_footprint.py`, `test_ros_iface_footprint.py` | No drive footprint: the kinds are `static`, `dynamic` and `conservative` only, `nav_footprint` rejects a `drive_arm_shadow` key, the footprint never sends `StopBox.enabled`, and `bind_control` binds no drive hook into the footprint (the tick goes dynamic and back to static). |
+| `nodes/mcp_server/tests/test_guard_rules.py` | `footprint.kind` choices are `static`, `dynamic`, `conservative`. |
 | `nodes/web_ui/tests/test_arm_api.py`, `test_config.py`, `test_map_nav.py` | The two drive pose endpoints (service call, message, 404 / 500 / 503), the state role for ARM and MAP tabs, the SetBool bridge client, the config keys and their defaults. |
 | `nodes/web_ui/frontend/src/arm/ArmActions.test.tsx`, `armControls.test.ts`, `src/tabs/ArmTab.test.tsx` | Set drive pose (two clicks), the lift toggle with the live `enabled`, the disabled reasons; a Set home refused while the arm zero is stale shows the mcp_server message as an error alert. |
 | `nodes/web_ui/frontend/src/map/MapStatusLine.test.tsx`, `mapActions.test.ts`, `src/tabs/MapNavTab.toolbar.test.tsx` | The read-only drive pose state in the MAP status line (no button). |

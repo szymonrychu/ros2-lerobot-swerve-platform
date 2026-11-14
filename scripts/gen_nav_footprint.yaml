@@ -1,7 +1,6 @@
 # Config for scripts/gen_nav_footprint.py (validated by its pydantic Settings model).
 # The script derives the Nav2 costmap footprint (top-view H outline of the body + the parked arm), the inflation radius, the
-# collision_monitor StopBox sub-polygons, the drive outline (body + the arm at its drive pose, client.yml mcp_server
-# arm.drive_pose.joints) with its StopBoxDrive, the laser_filter self polygon and the head_aim_cpp footprint box, and
+# collision_monitor StopBox sub-polygons, the laser_filter self polygon and the head_aim_cpp footprint box, and
 # writes them into the marked regions of nav2_params.yaml, footprint_filter.yaml, head_aim.yaml and client.yml.
 # tests/test_nav_footprint.py fails when the files and the output differ.
 #

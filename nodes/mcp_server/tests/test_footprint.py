@@ -8,6 +8,7 @@ the per-consumer outcome in FootprintState.consumers. No ROS."""
 import math
 import threading
 import time
+import typing
 from pathlib import Path
 from typing import Any
 
@@ -17,12 +18,14 @@ import yaml
 from arm_collision.ik import ArmKinematics, load_joint_limits
 from arm_collision.settings import footprint_body
 from mcp.server.mcpserver.exceptions import ToolError
+from pydantic import ValidationError
 from shapely.geometry import Point, Polygon
 
 from mcp_server.arm import ArmController
 from mcp_server.config import McpServerConfig, NavFootprintSettings
 from mcp_server.control import ControlManager
 from mcp_server.footprint import (
+    FootprintKind,
     NavFootprint,
     arm_extension,
     arm_shadow,
@@ -42,6 +45,7 @@ from mcp_server.footprint_geometry import (
     to_points,
     union_outline,
 )
+from mcp_server.models import FootprintState
 from mcp_server.tools import build_mcp_server
 
 from .test_tools import TOKEN, FakeRobot, call
@@ -232,16 +236,6 @@ def test_generated_parked_shadow_is_the_home_pose_shadow() -> None:
     config.arm.urdf_path = McpServerConfig().arm.urdf_path
     shadow = parked_arm_shadow(config, joints, cfg.circle_segments, cfg.simplify_m, cfg.decimals)
     assert [tuple(p) for p in cfg.parked_arm_shadow] == shadow
-
-
-def test_generated_drive_shadow_is_the_drive_pose_shadow() -> None:
-    """client.yml drive_arm_shadow (scripts/gen_nav_footprint.py) is mcp_server's own shadow of arm.drive_pose."""
-    cfg = settings()
-    config = deployed_config()
-    config.arm.urdf_path = McpServerConfig().arm.urdf_path
-    joints = config.arm.drive_pose.joints
-    shadow = parked_arm_shadow(config, joints, cfg.circle_segments, cfg.simplify_m, cfg.decimals)
-    assert shadow and [tuple(p) for p in cfg.drive_arm_shadow] == shadow
 
 
 def test_simplified_arm_extension_contains_the_raw_shadow(tmp_path: Path) -> None:
@@ -882,127 +876,44 @@ def test_shrink_polygon_rejects_a_tolerance_that_splits_or_removes_the_polygon()
         shrink_polygon(waist, 0.06, 4)
 
 
-# --- drive footprint (the arm lifted to its drive pose, drive_pose.DrivePose.at_drive_pose) --------------------------
-
-STOP_BOX = "StopBox.enabled"
-STOP_BOX_DRIVE = "StopBoxDrive.enabled"
+# --- no drive footprint: StopBox stays on, its enabled parameter is never sent -------------------------------------
 
 
-def drive_joints() -> dict[str, float]:
-    joints = deployed_config().arm.drive_pose.joints
-    assert joints is not None, "client.yml pins the drive pose"
-    return dict(joints)
+def stop_box_sends(robot: FakeRobot) -> list[tuple[str, Any]]:
+    return [(k, v) for n, k, v in robot.node_params if n == "/collision_monitor" and k.startswith("StopBox")]
 
 
-def stop_box_sends(robot: FakeRobot, since: int = 0) -> list[tuple[str, Any]]:
-    return [(k, v) for n, k, v in robot.node_params[since:] if n == "/collision_monitor" and k.startswith("StopBox")]
+def test_footprint_kinds_are_static_dynamic_and_conservative() -> None:
+    """No drive kind: the footprint follows the arm only through the static, dynamic and conservative outlines."""
+    assert typing.get_args(FootprintKind) == ("static", "dynamic", "conservative")
+    assert set(typing.get_args(FootprintState.model_fields["kind"].annotation)) == {"static", "dynamic", "conservative"}
+    with pytest.raises(ValidationError):
+        FootprintState(kind="drive", vertices=4)
 
 
-def drive_rig(tmp_path: Path, ready: bool = True) -> tuple[FakeRobot, NavFootprint, list[bool]]:
-    """Arm released at the drive pose, the footprint started; ready[0] is what drive_ready answers."""
+def test_nav_footprint_settings_reject_a_drive_arm_shadow() -> None:
+    """nav_footprint has no drive_arm_shadow (StrictModel rejects the stale client.yml key)."""
+    data = settings().model_dump()
+    with pytest.raises(ValidationError, match="drive_arm_shadow"):
+        NavFootprintSettings.model_validate({**data, "drive_arm_shadow": []})
+
+
+def test_footprint_never_switches_the_stop_box(tmp_path: Path) -> None:
+    """Whatever the arm does (parked, released out, leased), mcp_server never touches StopBox.enabled: StopBox is
+    permanently on in nav2_params.yaml."""
     robot = footprint_robot(tmp_path)
-    move_arm(robot, drive_joints())
+    move_arm(robot, HOME)
     nav = nav_for(robot)
-    flag = [ready]
-    nav.drive_ready = lambda: flag[0]
     nav.start()
-    return robot, nav, flag
-
-
-def test_drive_outline_is_the_body_and_the_drive_shadow_inside_the_static_one(tmp_path: Path) -> None:
-    robot = footprint_robot(tmp_path)
-    cfg = settings()
-    nav = nav_for(robot)
-    floor = footprint_body(robot.arm.cfg.body)
-    body = body_outline(floor.boxes, floor.cylinders, cfg.circle_segments, cfg.close_gap_m)
-    drive = union_outline(body, Polygon(cfg.drive_arm_shadow))
-    assert nav.drive_points == to_points(drive, cfg.decimals)
-    assert Polygon(nav.static_points).buffer(2 * cfg.simplify_m).contains(Polygon(nav.drive_points))
-    assert max(x for x, _ in nav.drive_points) < max(x for x, _ in nav.static_points)
-
-
-def test_tick_publishes_the_drive_footprint_to_costmaps_laser_and_inflation(tmp_path: Path) -> None:
-    robot, nav, _flag = drive_rig(tmp_path)
-    cfg = settings()
+    kinds = {nav.current.kind}
+    for joints in (SIDEWAYS, RIGHT, HOME):
+        move_arm(robot, joints)
+        nav.tick()
+        kinds.add(nav.current.kind)
+    robot.arm.acquire()
     nav.tick()
-    fp = nav.current
-    assert fp.kind == "drive" and nav.state().kind == "drive"
-    assert fp.points == shrink_polygon(nav.drive_points, cfg.footprint_tolerance_m, cfg.decimals)
-    for topic in COSTMAP_TOPICS:
-        assert last_polygon(robot, topic) == fp.points
-    assert last_param(robot, "/laser_filter", "polygon") == polygon_text(
-        offset_polygon(nav.drive_points, cfg.laser_filter_margin_m, cfg.decimals)
-    )
-    for node in COSTMAP_NODES:
-        assert last_param(robot, node, INFLATION_RADIUS) == fp.inflation_radius
-        assert last_param(robot, node, COST_SCALING) == fp.cost_scaling_factor
-    assert fp.inflation_radius <= static_inflation()[0]
-    assert last_param(robot, "/collision_monitor", "ArmStop.enabled") is False
-
-
-def test_entering_drive_enables_stop_box_drive_before_disabling_stop_box_and_back(tmp_path: Path) -> None:
-    robot, nav, flag = drive_rig(tmp_path)
-    sent = len(robot.node_params)
-    nav.tick()
-    assert stop_box_sends(robot, sent) == [(STOP_BOX_DRIVE, True), (STOP_BOX, False)]
-    sent = len(robot.node_params)
-    flag[0] = False  # the arm left the drive pose tolerance
-    nav.tick()
-    assert nav.current.kind == "static"
-    assert stop_box_sends(robot, sent) == [(STOP_BOX, True), (STOP_BOX_DRIVE, False)]
-
-
-def test_a_failed_stop_box_drive_set_keeps_stop_box_enabled(tmp_path: Path) -> None:
-    robot, nav, _flag = drive_rig(tmp_path)
-    robot.param_outcomes["/collision_monitor"] = "refused: StopBoxDrive.enabled: parameter not declared"
-    sent = len(robot.node_params)
-    nav.tick()
-    assert nav.current.kind == "drive"
-    assert stop_box_sends(robot, sent) == [(STOP_BOX_DRIVE, True)], "StopBox stays on"
-    assert "refused" in nav.state().consumers["collision_monitor"]
-
-
-def test_a_taken_lease_leaves_drive_mode_at_once(tmp_path: Path) -> None:
-    robot, nav, _flag = drive_rig(tmp_path)
-    nav.tick()
-    assert nav.current.kind == "drive"
-    robot.arm.acquire()  # web UI, agent or a lowering motion
-    sent = len(robot.node_params)
-    nav.tick()
-    assert nav.current.kind == "static"
-    assert last_polygon(robot, COSTMAP_TOPICS[0]) == static_points()
-    assert stop_box_sends(robot, sent)[:2] == [(STOP_BOX, True), (STOP_BOX_DRIVE, False)]
-
-
-def test_leaving_the_drive_pose_goes_dynamic_when_the_arm_sticks_out(tmp_path: Path) -> None:
-    robot, nav, flag = drive_rig(tmp_path)
-    nav.tick()
-    flag[0] = False
-    move_arm(robot, SIDEWAYS)
-    nav.tick()
-    assert nav.current.kind == "dynamic"
-
-
-def test_drive_mode_needs_the_controller_to_report_the_drive_pose(tmp_path: Path) -> None:
-    robot, nav, _flag = drive_rig(tmp_path, ready=False)
-    sent = len(robot.node_params)
-    nav.tick()
-    assert nav.current.kind == "static"
-    assert (STOP_BOX, False) not in stop_box_sends(robot, sent)
-
-
-def test_an_empty_drive_shadow_disables_drive_mode(tmp_path: Path) -> None:
-    robot = footprint_robot(tmp_path)
-    move_arm(robot, drive_joints())
-    nav = NavFootprint(settings().model_copy(update={"drive_arm_shadow": []}), robot.arm.cfg.body, robot)
-    nav.drive_ready = lambda: True
-    nav.start()
-    nav.tick()
-    assert nav.drive_points is None and nav.current.kind == "static"
-    assert stop_box_sends(robot) == [], "StopBox switching only with a drive outline"
-
-
-def test_publish_drive_reports_drive(tmp_path: Path) -> None:
-    _robot, nav, _flag = drive_rig(tmp_path)
-    assert nav.publish_drive().kind == "drive"
-    assert nav.publish_static().kind == "static"
+    nav.consumer_ready("/collision_monitor")
+    kinds.add(nav.current.kind)
+    assert kinds <= {"static", "dynamic"} and "dynamic" in kinds
+    assert stop_box_sends(robot) == []
+    assert not hasattr(nav, "drive_ready")
