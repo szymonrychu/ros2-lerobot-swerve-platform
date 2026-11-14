@@ -22,9 +22,9 @@ from ros2_common.poi_categories import (
 )
 
 from .camera_scene import Camera
-from .config import HARD_MAX_IMAGE_PX, McpServerConfig
+from .config import HARD_MAX_IMAGE_PX, HEAD_PAN_LIMIT_DEG, McpServerConfig
 from .frontiers import FrontierTracker, cells_to_map, frontier_keepout, update_recorded
-from .look_around import LookMode, montage_jpeg, run_look_around
+from .look_around import LookMode, montage_jpeg, run_head_mode, run_look_around
 from .models import RobotError
 from .object_memory import OBJECT_KIND, ObjectMemory, describe_objects, record_from_poi
 from .perception_models import (
@@ -446,7 +446,14 @@ def register(ctx: ToolContext) -> None:
         structured_output=False,
         description=(
             "Look around: turn the base in place through `captures` equal headings covering 360 degrees and grab a "
-            "camera frame and a lidar summary at every heading. mode 'spin' (default "
+            "camera frame and a lidar summary at every heading. "
+            + (
+                "The D435 head is levelled (pan 0, tilt 0) for the turn and its previous aim restored afterwards "
+                "(`head`: before_deg, restored; not restored after stop). "
+                if la.level_head
+                else ""
+            )
+            + "mode 'spin' (default "
             f"{la.mode!r}) turns in ONE continuous slow rotation ({la.spin_speed_rps:g} rad/s, frames taken while "
             "turning; stop, critical events and a timeout end it), 'steps' makes one precise Nav2 rotation per "
             "heading (slower). The turn ends facing the last heading unless return_to_start=true (default "
@@ -457,35 +464,70 @@ def register(ctx: ToolContext) -> None:
             "rotation and heading error, status ('interrupted' with interrupted_by when a critical event ended it "
             "early, 'stopped', 'failed'). Refused without moving when the lidar shows an obstacle inside the "
             f"rotation circle (footprint circumscribed radius + {la.clearance_margin_m * 100:g} cm) or no fresh scan. "
-            "Needs the base lease (take_control(subsystem='base'))."
+            "The base modes need the base lease (take_control(subsystem='base')). "
+            "Without a map pose (localization lost) mode 'spin' still turns, measuring the rotation from odometry "
+            "(a note says so; tiles keep their headings from the start, no map yaws, returned_to_start false = not verified; "
+            "the top-down view is still rendered without its map layers, see layers_missing); mode 'steps' is refused. "
+            "mode 'head' looks around without moving the base: it pans the D435 head through pan_deg (default "
+            f"{[round(p) for p in la.head_pans_deg]} deg, + left, at tilt {la.head_tilt_deg:g} deg, within "
+            f"+-{HEAD_PAN_LIMIT_DEG:g} deg) with a frame at each pan, tiles labelled with the measured pan "
+            "('pan +45 deg (left)'), heading_deg = the signed pan; it needs either lease (arm or base), no rotation "
+            "clearance and no map pose, ignores captures and return_to_start, restores the head aim afterwards (not "
+            "after stop) and is not blocked by the tilt guard."
         ),
     )
     def look_around(
         captures: Annotated[
-            int, Field(ge=la.min_captures, le=la.max_captures, description="Number of stops (equal steps)")
-        ] = la.default_captures,
+            int | None,
+            Field(
+                ge=la.min_captures,
+                le=la.max_captures,
+                description=f"Number of stops (equal steps), default {la.default_captures}; base modes only",
+            ),
+        ] = None,
         camera: Annotated[
             Camera, Field(description="'head': the D435 colour camera on the pan/tilt head (the only camera)")
         ] = "head",
         mode: Annotated[
-            LookMode | None, Field(description="'spin' (continuous, fast) or 'steps' (Nav2 per heading)")
+            LookMode | None,
+            Field(
+                description="'spin' (continuous base turn, fast), 'steps' (Nav2 per heading) or 'head' (pan the head, "
+                "no base motion)"
+            ),
         ] = None,
-        return_to_start: Annotated[bool | None, Field(description="Turn back to the start heading at the end")] = None,
+        return_to_start: Annotated[
+            bool | None, Field(description="Turn back to the start heading at the end (base modes only)")
+        ] = None,
+        pan_deg: Annotated[
+            list[Annotated[float, Field(ge=-HEAD_PAN_LIMIT_DEG, le=HEAD_PAN_LIMIT_DEG)]] | None,
+            Field(min_length=1, description="Head pans in order (deg, + left); mode 'head' only"),
+        ] = None,
     ) -> CallToolResult:
-        """Rotate through captures stops; the tool description is passed to the decorator."""
+        """Rotate through captures stops, or pan the head in head mode; the tool description is passed to the decorator."""
+        resolved = la.mode if mode is None else mode
+        if pan_deg is not None and resolved != "head":
+            raise ToolError(f"look_around refused: pan_deg is for mode 'head' only (mode is {resolved!r})")
         ctx.battery_gate("look_around")
-        ctx.tilt_gate("look_around")
+        if resolved != "head":
+            ctx.tilt_gate("look_around")
         with tool_errors():
-            run = run_look_around(
-                robot,
-                la,
-                config.footprint,
-                captures,
-                camera,
-                config.nav.goal_yaw_tolerance_deg,
-                la.mode if mode is None else mode,
-                la.return_to_start if return_to_start is None else return_to_start,
-            )
+            if resolved == "head":
+                run = run_head_mode(
+                    robot, la, la.head_pans_deg if pan_deg is None else pan_deg, la.head_tilt_deg, camera
+                )
+                if captures is not None or return_to_start is not None:
+                    run.result.notes.append("mode 'head': captures and return_to_start are ignored")
+            else:
+                run = run_look_around(
+                    robot,
+                    la,
+                    config.footprint,
+                    la.default_captures if captures is None else captures,
+                    camera,
+                    config.nav.goal_yaw_tolerance_deg,
+                    resolved,
+                    la.return_to_start if return_to_start is None else return_to_start,
+                )
             result: LookAroundResult = run.result
             montage = montage_jpeg(run.frames, la.frame_max_px)
             content: list[TextContent | ImageContent] = [image_block(montage, "image/jpeg")]

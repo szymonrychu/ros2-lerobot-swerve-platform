@@ -47,7 +47,8 @@ WHEEL_TOP_Z_M = 0.12
 WHEEL_FR_XY = (0.1525, -0.1333)
 HEAD_POST_XY = (0.09, 0.10)
 HEAD_POST_RADIUS_M = 0.012
-# Parked home (scripts/gen_nav_footprint.yaml parked_arm_joints) and the drive pose (client.yml arm.drive_pose.joints).
+# Parked home (scripts/gen_nav_footprint.yaml parked_arm_joints) and a raised pose (upper arm laid back, forearm folded
+# over the crossbar) that clears the body.
 PARKED_HOME = {
     "shoulder_pan": -0.003,
     "shoulder_lift": -1.35,
@@ -56,7 +57,7 @@ PARKED_HOME = {
     "wrist_roll": -1.637,
     "gripper": 0.1,
 }
-DRIVE_POSE = {
+RAISED_POSE = {
     "shoulder_pan": -0.003,
     "shoulder_lift": -1.711,
     "elbow_flex": -1.483,
@@ -146,9 +147,9 @@ def test_touching_the_head_post_at_z_0_2_is_rejected() -> None:
     assert check.per_obstacle["head_post"][0] < CHECK.hard_margin_m
 
 
-@pytest.mark.parametrize("joints", [PARKED_HOME, DRIVE_POSE], ids=["parked_home", "drive_pose"])
-def test_parked_home_and_drive_pose_clear_the_hard_margin(joints: dict[str, float]) -> None:
-    """The parked home and the drive pose stay clear of every obstacle by more than the hard margin."""
+@pytest.mark.parametrize("joints", [PARKED_HOME, RAISED_POSE], ids=["parked_home", "raised_pose"])
+def test_parked_home_and_raised_pose_clear_the_hard_margin(joints: dict[str, float]) -> None:
+    """The parked home and the raised pose stay clear of every obstacle by more than the hard margin."""
     assert tool_base_link(joints)[2] > WHEEL_TOP_Z_M  # FK check: both keep the tool above the wheels
     check = CHECKER.pose(joints)
     assert check.min_clearance > CHECK.hard_margin_m, (check.obstacle, check.part, check.min_clearance)

@@ -96,7 +96,8 @@ before a risky base move to see the verdict without moving.
 
 Control leases: nothing moves without a lease. Call take_control(subsystem 'arm' or 'base') before any arm or base \
 motion (arm: move_arm_*, set_gripper, grasp_approach, grasp_close, grasp_lift, grasp_abort, release_object, arm_home, queued arm steps; base: navigate_to_pose, \
-move_relative, drive, look_around); a tool without its lease is refused. Both leases can be held at once; the arm \
+move_relative, drive, look_around); a tool without its lease is refused (look_around(mode='head') needs either lease). Both \
+leases can be held at once; the arm \
 lease also silences the leader arm and web UI. take_control moves nothing and stays held until you release it. \
 release_control(subsystem, keep_position=false) releases 'arm', 'base' or 'all' (default) and by default resets: the arm \
 is driven to its home pose (arm homed), the base stops and its steering returns to neutral (base steering neutral); a \
@@ -114,12 +115,6 @@ collision monitor and lidar filter use the body plus the arm shadow plus a carri
 tool point (omit the radius when holding nothing). Taking arm control back reverts to the static footprint \
 (take_control arm), and so does a parking release. Parking (keep_position=false, also subsystem='all') is refused while you carry \
 an object: put it down first with release_object. The arm cannot park with an object in the gripper.
-
-Drive pose: while a navigation goal runs and you hold no arm lease, the arm lifts by itself out of the head camera's \
-view and lowers back home a few seconds after the last goal ends; you do nothing for it and it never blocks a goal. \
-get_control_state arm.drive_pose says why: state idle, lifting, lifted, lowering, disabled, or 'skipped: <reason>' \
-(for example you hold the arm, the arm is not at home or you carry an object); a skipped lift only means the camera \
-view stays as it is.
 
 Working method, in this order:
 1. First get a top-level view of what is happening: robot state, the map summary and the head camera.
@@ -165,7 +160,9 @@ robot, low beside a wheel or near the lidar, call get_arm_reach (points in base_
 point is reachable without touching the body and which pitches work.
 
 Spatial perception: start with get_topdown_view (map, obstacles, POIs, objects, reach). When the surroundings are \
-unknown use look_around (one motion call). Use the head camera with get_annotated_camera_image (floor grid, \
+unknown use look_around (one motion call): look_around(mode='head') pans the head over +-90 deg without moving the base \
+(works under the arm or the base lease, e.g. while holding only the arm); the base modes (spin, steps) turn the base, \
+level the head for the turn and restore it. Use the head camera with get_annotated_camera_image (floor grid, \
 reach envelope, planned gripper marker) to judge distances. To pick a precise floor target use mark_candidate_points \
 then resolve_candidate by number instead of guessing coordinates; pixel_to_ground converts a pixel to floor \
 coordinates at a GUESSED height (surface_height_m). To pick something up, measure it instead: pixel_to_point reads the \

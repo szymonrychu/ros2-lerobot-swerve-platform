@@ -10,7 +10,7 @@ Apply the poi-categories skill for every record. Stay inside what you can see fr
 ## Full survey
 
 1. `get_topdown_view()` to see the map, your pose, POIs and zones around you.
-2. Turn the base with `look_around()` (all directions), or `look_toward_frontier(frontier_id)` for each frontier you can see from here.
+2. Turn the base with `look_around()` (all directions; it levels the head for the turn and restores it), or pan only the head with `look_around(mode='head')` (+-90 deg, the base stays; works under the arm or the base lease) when the base must not turn, or `look_toward_frontier(frontier_id)` for each frontier you can see from here.
 3. Inspect each image: `get_camera_image(camera='head')` for a plain view (`front` / `back` add the fixed body views ahead and behind, without pixel tools), `get_annotated_camera_image()` when you need grid or POI overlays, and `pixel_to_point(...)` to turn a pixel in the interior of a thing into a measured position (map, base_link, arm frame) and height for each thing worth recording. Object positions come only from `pixel_to_point` (or, without a depth reading, `pixel_to_ground` or `mark_candidate_points` at a guessed height) on a fresh `get_camera_image(camera='head')` picture of the object taken from the robot's current pose (after `look_around`, turn the head or the base toward it and take a new picture); never estimate a position from a montage tile. When the camera answers "not calibrated", say the position is rough and give that reason.
 4. Record every finding with `add_poi(..., category=..., survey=true)` (objects with `remember_object(..., survey=true)`):
    - target: things the current job or a person's request is about.

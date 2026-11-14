@@ -41,7 +41,7 @@ from ros2_common.maps import MapResult, MapStatus
 from scipy.spatial.transform import Rotation
 from sensor_msgs.msg import BatteryState, CameraInfo, CompressedImage, Image, Imu, JointState, LaserScan, PointCloud2
 from std_msgs.msg import Bool, String
-from std_srvs.srv import SetBool, Trigger
+from std_srvs.srv import Trigger
 from tf2_msgs.msg import TFMessage
 from tf2_ros import Buffer, TransformException
 
@@ -70,8 +70,6 @@ from .camera_scene import CameraInfoData
 from .config import McpServerConfig
 from .control import HOME_SERVICE_NOT_READY, ControlManager, LeaderActivity, NavGoalRegistry, wait_steering_neutral
 from .depth_source import DepthFrame, DepthSource
-from .drive_pose import DISABLED, LIFTED, SKIPPED_PREFIX, DrivePose
-from .drive_pose_check import check_drive_pose
 from .feeds import FeedsSpinner
 from .floor_guard import monitor_tilt_sample
 from .footprint import costmap_node, published_footprint_topic
@@ -90,7 +88,6 @@ from .models import (
     CameraFrame,
     CollisionMonitorInfo,
     DepthPoints,
-    DrivePoseState,
     GroundState,
     Map3dCloud,
     MapSummary,
@@ -219,16 +216,6 @@ DUAL_RATE_TOPICS = tuple(DUAL_RATE_SUBSYSTEM)
 # Dual-rate topic fields with a consumer that needs full rate while its subsystem is idle (README joint-state consumer
 # audit): read at full rate permanently. The audit found none.
 FULL_RATE_AT_REST: tuple[str, ...] = ()
-# /arm/drive_pose/state: latched (reliable + transient_local, depth 1), so a late subscriber (the Nav2 BT wait) gets
-# the current state at once.
-DRIVE_POSE_STATE_QOS = QoSProfile(
-    reliability=ReliabilityPolicy.RELIABLE,
-    durability=DurabilityPolicy.TRANSIENT_LOCAL,
-    history=HistoryPolicy.KEEP_LAST,
-    depth=1,
-)
-DRIVE_POSE_TICK_S = 0.2  # 5 Hz drive pose controller tick (publishes the state on a change)
-DRIVE_POSE_REPUBLISH_S = 1.0  # the state is republished at 1 Hz
 # A refused turn suggests a translation away from the nearest return that clears the rotation circle by this much.
 ESCAPE_EXTRA_M = 0.05
 
@@ -971,7 +958,6 @@ class RosRobot:
             STARTUP_TORQUE_PERIOD_S, self.startup_torque_limit, callback_group=self.group
         )
         self.init_footprint_io(config)
-        self.init_drive_pose_io(config)
         self.orphan_started = time.monotonic()
         self.orphan_timer = self.node.create_timer(
             ORPHAN_CHECK_PERIOD_S, self.check_orphan_lease, callback_group=self.group
@@ -1021,91 +1007,6 @@ class RosRobot:
                 SetParameters, f"{name}/set_parameters", callback_group=self.group
             )
         self.node.create_timer(nav.consumer_poll_s, self.poll_consumers, callback_group=self.group)
-
-    # --- drive pose (drive_pose.DrivePose, created by bind_control) -----------------------------------------------
-
-    def init_drive_pose_io(self, config: McpServerConfig) -> None:
-        """The /arm/drive_pose/state publisher, the 5 Hz controller tick, the 1 Hz state republish (both publish
-        nothing until bind_control created the controller) and the /arm/set_drive_pose and /arm/drive_pose/enable
-        services.
-
-        Args:
-            config (McpServerConfig): Node configuration.
-        """
-        self.drive_pose: DrivePose | None = None
-        self.drive_pose_published: DrivePoseState | None = None
-        self.drive_pose_pub = self.node.create_publisher(String, config.topics.drive_pose_state, DRIVE_POSE_STATE_QOS)
-        self.node.create_timer(DRIVE_POSE_TICK_S, self.on_drive_pose_tick, callback_group=self.group)
-        self.node.create_timer(DRIVE_POSE_REPUBLISH_S, self.republish_drive_pose_state, callback_group=self.group)
-        t = config.topics
-        self.node.create_service(Trigger, t.set_drive_pose_service, self.on_set_drive_pose, callback_group=self.group)
-        self.node.create_service(
-            SetBool, t.drive_pose_enable_service, self.on_drive_pose_enable, callback_group=self.group
-        )
-
-    def on_drive_pose_tick(self) -> None:
-        """Timer: tick the controller with the navigation state and publish its state when it changed."""
-        drive = self.drive_pose
-        if drive is None:
-            return
-        drive.tick(time.monotonic(), self.nav_active())
-        state = drive.state()
-        if state != self.drive_pose_published:
-            self.publish_drive_pose_state(state)
-
-    def republish_drive_pose_state(self) -> None:
-        """Timer: republish the controller state (1 Hz)."""
-        if self.drive_pose is not None:
-            self.publish_drive_pose_state(self.drive_pose.state())
-
-    def publish_drive_pose_state(self, state: DrivePoseState) -> None:
-        """Publish a controller state as JSON on /arm/drive_pose/state.
-
-        Args:
-            state (DrivePoseState): The state.
-        """
-        self.drive_pose_published = state
-        self.drive_pose_pub.publish(String(data=state.model_dump_json()))
-
-    def on_set_drive_pose(self, _request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
-        """/arm/set_drive_pose: store the measured pose as the drive pose when the drive pose check from the stored
-        home passes (DrivePose.store_pose).
-
-        Args:
-            _request (Trigger.Request): Empty request.
-            response (Trigger.Response): Response to fill.
-
-        Returns:
-            Trigger.Response: success and message (the failed checks when refused).
-        """
-        if self.drive_pose is None:
-            response.success, response.message = False, "set drive pose refused: mcp_server is not ready"
-            return response
-        response.success, response.message = self.drive_pose.store_pose(
-            lambda home, pose: check_drive_pose(self.cfg, home, pose)
-        )
-        return response
-
-    def on_drive_pose_enable(self, request: SetBool.Request, response: SetBool.Response) -> SetBool.Response:
-        """/arm/drive_pose/enable: allow or block new lifts at runtime (not persisted). A lifted arm still lowers at
-        goal end.
-
-        Args:
-            request (SetBool.Request): data: enable.
-            response (SetBool.Response): Response to fill.
-
-        Returns:
-            SetBool.Response: success and message; refused without fresh joint states.
-        """
-        if self.drive_pose is None:
-            response.success, response.message = False, "drive pose enable refused: mcp_server is not ready"
-        elif self.arm.fresh_sample() is None:
-            response.success, response.message = False, "drive pose enable refused: no fresh joint states"
-        else:
-            enabled = bool(request.data)
-            self.drive_pose.set_enabled(enabled)
-            response.success, response.message = True, f"drive pose {'enabled' if enabled else 'disabled'}"
-        return response
 
     def store_published_footprint(self, topic: str, msg: PolygonStamped) -> None:
         """Keep the footprint a costmap reports using (`<costmap>/published_footprint`, its global frame).
@@ -1688,6 +1589,17 @@ class RosRobot:
             return None
         return pose
 
+    def odom_pose(self) -> BasePose | None:
+        """Fresh odom -> base_link pose (topics.odom_frame), continuous even while localization (map -> odom) stalls.
+
+        Returns:
+            BasePose | None: Pose or None when missing or older than timeouts.state_stale_s.
+        """
+        pose = self.lookup_pose(self.cfg.topics.odom_frame, self.cfg.topics.base_frame)
+        if pose is None or (pose.age_s or 0.0) > self.cfg.timeouts.state_stale_s:
+            return None
+        return pose
+
     # --- ArmBackend ---------------------------------------------------------------------------------------------
 
     def joint_sample(self) -> JointSample | None:
@@ -1995,24 +1907,14 @@ class RosRobot:
         return response
 
     def bind_control(self, control: ControlManager) -> None:
-        """Serve /arm/take_control and /arm/release_control through the tool server's ControlManager, and create the
-        drive pose controller on its lease, carry, leader and battery predicates (ticked by on_drive_pose_tick).
+        """Serve /arm/take_control and /arm/release_control through the tool server's ControlManager and give it the
+        leader activity and navigation predicates.
 
         Args:
             control (ControlManager): Lease manager (shared with the agent's take_control / release_control).
         """
         control.leader_moving = lambda: self.leader.moving(time.monotonic())
         control.nav_active = self.nav_active
-        footprint = control.footprint
-        self.drive_pose = DrivePose(
-            self.cfg.arm.drive_pose,
-            self.arm,
-            control,
-            publish_static=footprint.publish_static if footprint is not None else lambda: None,
-        )
-        control.drive_pose = self.drive_pose
-        if footprint is not None:
-            footprint.drive_ready = self.drive_pose.at_drive_pose  # the drive footprint while at the drive pose
         self.control = control
 
     def on_leader_joints(self, msg: JointState) -> None:
@@ -2822,8 +2724,6 @@ class RosRobot:
 
         Returns:
             NavigationResult: Outcome (status 'interrupted' + interrupted_by on a critical event) and final pose.
-
-        The arm is lifted to its drive pose first (lift_for_navigation); the goal is sent whatever the lift's outcome.
         """
         if not all(math.isfinite(v) for v in (x, y, yaw)):
             raise RobotError("goal must be finite")
@@ -2831,7 +2731,6 @@ class RosRobot:
             raise BaseMotionBusyError("another base motion is running; call stop first")
         try:
             self.base_stop.clear()
-            self.lift_for_navigation()
             with self.monitor.base_motion(), self.motion_rate("base"):
                 watch = self.monitor.watch(BASE_INTERRUPTS)
                 return run_nav(
@@ -2848,18 +2747,6 @@ class RosRobot:
                 )
         finally:
             self.base_motion.release()
-
-    def lift_for_navigation(self) -> None:
-        """Before this server sends a NavigateToPose goal: ask the drive pose controller for the lift (the goal edge)
-        and wait for lifted, skipped or disabled, at most arm.drive_pose.lift_timeout_s. Never refuses the goal."""
-        drive = self.drive_pose
-        if drive is None:
-            return
-        timeout = self.cfg.arm.drive_pose.lift_timeout_s
-        outcome = drive.request_lift(timeout)
-        if outcome.state in (LIFTED, DISABLED) or outcome.state.startswith(SKIPPED_PREFIX):
-            return
-        self.log.warning(f"navigate: drive pose still {outcome.state} after {timeout:g} s; sending the goal anyway")
 
     def dock(self, goal: DockGoal, timeout_s: float) -> DockResult:
         """Send a DockRobot goal to the grasp docking server and block until it finishes, times out, stop is called or a
@@ -3093,7 +2980,8 @@ class RosRobot:
         """Continuous in-place rotation on cmd_vel_nav (smoother + collision monitor downstream), then zero.
 
         Holds the base motion lock like drive/navigate; the stop tool, a critical event, a lost pose or the timeout
-        end it (run_spin).
+        end it (run_spin). The rotation is measured from the odometry pose (odom_pose), not the map pose: a stale
+        map -> base_link (localization stalled) does not stop a turn the base can make.
 
         Args:
             wz (float): Yaw rate (rad/s, clamped to limits.max_angular_rps).
@@ -3114,7 +3002,7 @@ class RosRobot:
                 watch = self.monitor.watch(BASE_INTERRUPTS)
 
                 def yaw() -> float | None:
-                    pose = self.robot_pose()
+                    pose = self.odom_pose()
                     return None if pose is None else pose.yaw
 
                 return run_spin(

@@ -51,7 +51,7 @@ cached posed checker only while it stands on the current mount.
 |---|---|
 | `tests/test_import_closure.py` | `import arm_collision.self_collision` loads no rclpy, cv2, mcp_server or ros2_common |
 | `tests/test_robot_body.py` | The packaged YAML loads to the deployed boxes and cylinders; the footprint body is the floor-level body without the head |
-| `tests/test_body_poses.py` | Gripper 2 cm above a wheel top is rejected and 4 cm clears; touching the head post is rejected; parked home and drive pose clear the margin; a measured head pose replaces the envelope; the posed checker is reused |
+| `tests/test_body_poses.py` | Gripper 2 cm above a wheel top is rejected and 4 cm clears; touching the head post is rejected; parked home and raised pose clear the margin; a measured head pose replaces the envelope; the posed checker is reused |
 | `tests/test_head_pose.py` | Head parts at pan/tilt from the URDF, inside the envelope heights, `posed_body` keeps every other obstacle, `head_pose` needs both finite angles |
 | `tests/test_runtime_calibration.py` | Runtime calibration swap: `ArmKinematics.set_offsets` gives the FK and IK of kinematics built with the new offsets, keeps the offsets dict object, defaults missing joints to 0, rejects a non-chain joint without changing anything, clears the IK caches; `SelfCollisionChecker.set_mount` gives the clearances of a checker built on the new mount and forgets the posed checker; a posed checker of the old mount stored late by a concurrent `posed()` is not reused |
 

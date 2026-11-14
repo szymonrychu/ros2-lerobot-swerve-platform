@@ -477,6 +477,14 @@ def test_prompt_mentions_the_fast_look_around() -> None:
     assert "return_to_start" in lower
 
 
+def test_prompt_mentions_the_head_look_around() -> None:
+    """look_around(mode='head') pans the head without moving the base and works under either lease."""
+    lower = " ".join(build_system_prompt(ClaudeAgentConfig()).lower().split())
+    assert "look_around(mode='head')" in lower
+    assert "without moving the base" in lower
+    assert "arm or the base lease" in lower
+
+
 def test_prompt_tells_the_agent_to_refine_poi_positions_with_better_estimates() -> None:
     """remember_object averages comparable sightings; a clearly better estimate or a moved object replaces the position."""
     lower = prompt_lower()
@@ -928,9 +936,9 @@ def test_prompt_has_no_retired_camera() -> None:
     assert "realsense d435" in lower and "640x360" in lower
 
 
-def test_prompt_explains_the_arm_drive_pose_during_navigation() -> None:
+def test_prompt_has_no_drive_pose() -> None:
+    """The drive pose (arm lifting out of the head camera view during navigation) is removed: the prompt must not describe it."""
     text = " ".join(build_system_prompt(ClaudeAgentConfig()).split())
     lower = text.lower()
-    assert "lifts by itself" in lower and "navigation goal" in lower and "lowers" in lower
-    assert "arm.drive_pose" in text and "get_control_state" in text
-    assert "skipped" in lower
+    for retired in ("drive pose", "drive_pose", "lifts by itself", "lowers back home"):
+        assert retired not in lower, retired

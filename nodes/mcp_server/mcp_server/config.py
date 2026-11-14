@@ -3,7 +3,7 @@
 import math
 import os
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 import yaml
 from arm_collision.settings import (
@@ -14,7 +14,7 @@ from arm_collision.settings import (
     StrictModel,
     load_robot_body,
 )
-from pydantic import Field, PositiveFloat, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 from ros2_common.battery import BatteryConfig
 from ros2_common.camera_geometry import MountPose
 from ros2_common.head_rgbd_calibration.board_lattice import MIN_SPACING_M
@@ -30,7 +30,6 @@ DEFAULT_CONFIG_PATH = Path("/etc/ros2/mcp_server/config.yaml")
 # mcp_server/config.py -> nodes/mcp_server/mcp_server -> repo root is three levels above the package.
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_HOME_FILE = Path("/var/lib/ros2/arm/home.yaml")
-DRIVE_POSE_FILE_NAME = "drive_pose.yaml"  # stored drive pose, next to the home file
 DEFAULT_CALIBRATION_STALE_MARKER = Path("/var/lib/ros2/arm/calibration_stale.json")
 # Board record head_rgbd_calibration writes on Board attached and removes on a successful park (<state_dir>/
 # head_arm_board.json): the calibration board is on the gripper.
@@ -50,6 +49,10 @@ HARD_MAX_ANGULAR_RPS = 0.5
 HARD_MAX_DRIVE_S = 2.0
 HARD_MAX_SPEED_SCALE = 0.5
 HARD_MAX_IMAGE_PX = 1024
+# look_around head mode bounds (deg, inside the head URDF limits: pan +-90, tilt -30..45 with + down)
+HEAD_PAN_LIMIT_DEG = 90.0
+HEAD_TILT_MIN_DEG = -30.0
+HEAD_TILT_MAX_DEG = 45.0
 # Gripper Torque_Limit register range (0.1 % of max torque); below the minimum the jaw cannot close reliably.
 HARD_MAX_GRIP_TORQUE_LIMIT = 1000
 HARD_MIN_GRIP_TORQUE_LIMIT = 50
@@ -194,6 +197,9 @@ class TopicSettings(StrictModel):
     poi_command: str = "/poi/command"
     poi_result: str = "/poi/result"
     map_frame: str = "map"
+    # odometry frame (odom -> base_link stays continuous when localization stalls): look_around's spin measures its
+    # rotation here, so a stale map -> base_link does not end the turn
+    odom_frame: str = "odom"
     base_frame: str = "base_link"
     home_service: str = "/arm/home"
     # std_srvs/Trigger (web UI Calibrate page): every arm joint but the gripper to 0.0 measured via the home routing;
@@ -216,12 +222,6 @@ class TopicSettings(StrictModel):
     set_home_service: str = "/arm/set_home"
     # std_srvs/Trigger: store the arm home from the latest servo calibration record (allowed while joint_offsets is stale).
     set_home_from_calibration_service: str = "/arm/set_home_from_calibration"
-    # Drive pose controller state (std_msgs/String JSON {state, reason, enabled, stamp_ns}, latched).
-    drive_pose_state: str = "/arm/drive_pose/state"
-    # std_srvs/Trigger: store the measured arm pose as the drive pose (after the drive pose check).
-    set_drive_pose_service: str = "/arm/set_drive_pose"
-    # std_srvs/SetBool: runtime on/off of the drive pose lift (not persisted; arm.drive_pose.enabled is the boot value).
-    drive_pose_enable_service: str = "/arm/drive_pose/enable"
     # std_srvs/Trigger services of the web UI Arm tab (ControlManager.take_web_ui / release_web_ui).
     take_control_service: str = "/arm/take_control"
     release_control_service: str = "/arm/release_control"
@@ -463,45 +463,6 @@ class SagCompensationSettings(StrictModel):
         return v
 
 
-class DrivePoseSettings(StrictModel):
-    """Arm pose held while a NavigateToPose goal is active (lifted out of the head camera's view)."""
-
-    enabled: bool = False
-    # Measured-space joint targets (rad) naming every arm joint; None = no configured pose (a stored one may exist).
-    joints: dict[str, float] | None = None
-    # Seconds without an active navigation goal before the arm returns home (chained goals do not cycle the arm).
-    lower_delay_s: float = Field(default=3.0, ge=0.0)
-    speed_scale: float = Field(default=0.3, gt=0.0, le=1.0)
-    # Largest per-joint distance (rad) from the drive pose at which the arm still counts as at the drive pose.
-    tolerance_rad: PositiveFloat = 0.05
-    # Longest wait (s) of a navigation request for the lift before it sends its goal anyway.
-    lift_timeout_s: PositiveFloat = 15.0
-    # Pose stored by /arm/set_drive_pose; wins over joints. None = drive_pose.yaml next to arm.home_file.
-    stored_file: Path | None = None
-
-    @field_validator("joints")
-    @classmethod
-    def every_joint_finite(cls, v: dict[str, float] | None) -> dict[str, float] | None:
-        """Require every arm joint, no other name, and finite values.
-
-        Args:
-            v (dict[str, float] | None): Joint name -> measured angle (rad).
-
-        Returns:
-            dict[str, float] | None: The validated joints.
-        """
-        if v is None:
-            return v
-        if set(v) != set(ARM_JOINTS):
-            raise ValueError(
-                f"arm.drive_pose.joints must name exactly the arm joints {list(ARM_JOINTS)}, got {list(v)}"
-            )
-        bad = [name for name, value in v.items() if not math.isfinite(value)]
-        if bad:
-            raise ValueError(f"arm.drive_pose.joints must be finite: {bad}")
-        return v
-
-
 class ArmSettings(ArmModelSettings):
     """Arm model (ArmModelSettings: URDF, mount, calibration, jaw), home pose storage and gripper mapping."""
 
@@ -529,19 +490,6 @@ class ArmSettings(ArmModelSettings):
     reach_inner_m: float = Field(default=0.05, ge=0.0)
     # Gravity sag compensation of arm joint targets and holds (off by default).
     sag_compensation: SagCompensationSettings = Field(default_factory=SagCompensationSettings)
-    # Drive pose held during navigation (mcp_server drive_pose.py; off by default).
-    drive_pose: DrivePoseSettings = Field(default_factory=DrivePoseSettings)
-
-    @model_validator(mode="after")
-    def drive_pose_file_next_to_home(self) -> "ArmSettings":
-        """Default the stored drive pose file to drive_pose.yaml in the home file's directory.
-
-        Returns:
-            ArmSettings: The validated settings.
-        """
-        if self.drive_pose.stored_file is None:
-            self.drive_pose.stored_file = self.home_file.parent / DRIVE_POSE_FILE_NAME
-        return self
 
     @model_validator(mode="after")
     def reach_ordered(self) -> "ArmSettings":
@@ -875,7 +823,7 @@ class NavFootprintSettings(StrictModel):
     while the arm is released out of it, the outline grown by the measured arm's ground shadow and an optional carried
     object (a max-reach disc around the arm mount while the arm pose is unknown).
 
-    The geometry numbers (circle_segments .. drive_arm_shadow) are generated into client.yml by
+    The geometry numbers (circle_segments .. parked_arm_shadow) are generated into client.yml by
     scripts/gen_nav_footprint.py from scripts/gen_nav_footprint.yaml, the same values the static Nav2 / laser_filter
     polygons were built with.
     """
@@ -892,9 +840,6 @@ class NavFootprintSettings(StrictModel):
     max_cost_scaling_factor: float = Field(gt=0.0)  # steepest inflation falloff (1/m), lowered to keep cost >= 1
     # Ground shadow of the arm parked at its stored home ([x, y] vertices, base_link): part of the static footprint.
     parked_arm_shadow: list[tuple[float, float]]
-    # Ground shadow of the arm at its drive pose (arm.drive_pose.joints, lifted while a navigation goal runs): the drive
-    # footprint is the body outline + this; empty without a drive pose.
-    drive_arm_shadow: list[tuple[float, float]]
     # geometry_msgs/Polygon footprint inputs of the Nav2 costmaps (Costmap2DROS subscribes `<costmap>/footprint`).
     # The costmap node is `<ns>/<last ns segment>` (/local_costmap/local_costmap) and what it uses comes back on
     # `<ns>/published_footprint`.
@@ -970,11 +915,21 @@ class LookAroundSettings(StrictModel):
     frame_max_px: int = Field(default=320, ge=32, le=HARD_MAX_IMAGE_PX)  # camera frame size per montage tile
     # 'spin': one continuous slow rotation (cmd_vel through the base path: stop, critical events, timeout) with a frame
     # at every heading; 'steps': one precise Nav2 rotation per heading. Same montage either way; spin is faster.
-    mode: Literal["spin", "steps"] = "spin"
+    # 'head': no base motion, the D435 head pans through head_pans_deg (either lease suffices).
+    mode: Literal["spin", "steps", "head"] = "spin"
     spin_speed_rps: float = Field(default=0.4, gt=0.0, le=HARD_MAX_ANGULAR_RPS)
     spin_rate_hz: float = Field(default=20.0, gt=0.0, le=50.0)
     spin_timeout_margin_s: float = Field(default=10.0, gt=0.0)  # spin timeout = angle / speed + this
     return_to_start: bool = False  # tool default: end facing the last heading instead of turning back
+    # Level the D435 head (pan 0, tilt 0) for the base turn and restore its previous aim afterwards (not after stop).
+    level_head: bool = True
+    # Head mode: pan angles (deg, + left; 5 pans cover +-90 deg with the ~69 deg D435 colour FOV), the tilt held while
+    # panning (deg, + down) and the settle time after each pan before the frame is taken.
+    head_pans_deg: list[Annotated[float, Field(ge=-HEAD_PAN_LIMIT_DEG, le=HEAD_PAN_LIMIT_DEG)]] = Field(
+        default_factory=lambda: [90.0, 45.0, 0.0, -45.0, -90.0], min_length=1
+    )
+    head_tilt_deg: float = Field(default=0.0, ge=HEAD_TILT_MIN_DEG, le=HEAD_TILT_MAX_DEG)
+    head_settle_s: float = Field(default=0.2, ge=0.0)
 
     @model_validator(mode="after")
     def captures_in_range(self) -> "LookAroundSettings":

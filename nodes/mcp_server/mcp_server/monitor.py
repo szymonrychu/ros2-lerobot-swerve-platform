@@ -115,17 +115,17 @@ TILT_NAV_UNVERIFIED = (
 )
 TILT_MANUAL_HINT = (
     "automatic navigation is disabled; drive back to level ground manually with short base moves (the drive tool; "
-    "navigate_to_pose, move_relative, look_around and queued base steps are refused), then wait for the guard to clear"
+    "navigate_to_pose, move_relative, look_around (base modes) and queued base steps are refused), then wait for the guard to clear"
 )
 TILT_INHIBITED = "base inhibited by the tilt guard"
 TILT_STILL_INHIBITED = (
     "base drive still inhibited until the IMU is back within limits; no base motion tools work yet (drive, "
-    "move_relative, navigate_to_pose, look_around and queued base steps are refused). Wait for the guard to release "
+    "move_relative, navigate_to_pose, look_around (base modes) and queued base steps are refused). Wait for the guard to release "
     "the base drive, then drive back to level ground manually with short base moves"
 )
 TILT_ERROR_NOTE = (
     "base drive is inhibited until the IMU is back within limits; no base motion tools work (drive, move_relative, "
-    "navigate_to_pose, look_around and queued base steps are refused). Keep the arm still and compact"
+    "navigate_to_pose, look_around (base modes) and queued base steps are refused). Keep the arm still and compact"
 )
 
 BaseUse = Literal["nav", "manual"]  # nav: Nav2 goals / autonomous turns; manual: the drive tool

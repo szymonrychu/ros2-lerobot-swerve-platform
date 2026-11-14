@@ -14,10 +14,10 @@ from filter_node.guard import UNKNOWN_POSE, ArmGuard, follower_to_leader, leader
 
 from .arm_fixture import (
     CHECKER,
-    DRIVE_POSE,
     FK_TOLERANCE_M,
     HARD_MARGIN_M,
     PARKED_HOME,
+    RAISED_POSE,
     WHEEL_FR_INSIDE,
     WHEEL_FR_INSIDE_TOOL_Z_M,
     WHEEL_FR_PRESSED,
@@ -124,11 +124,11 @@ def test_a_blocked_request_from_the_clamp_publishes_nothing() -> None:
     assert second.blocked and second.positions is None
 
 
-def test_home_to_drive_pose_publishes_the_request() -> None:
-    """The parked home to the drive pose stays clear of the body: the request goes out unchanged."""
-    result = real_guard(PARKED_HOME).admit(SOURCE, ARM_NAMES, ordered(DRIVE_POSE))
+def test_home_to_raised_pose_publishes_the_request() -> None:
+    """The parked home to the raised pose stays clear of the body: the request goes out unchanged."""
+    result = real_guard(PARKED_HOME).admit(SOURCE, ARM_NAMES, ordered(RAISED_POSE))
     assert not result.blocked
-    assert result.positions == ordered(DRIVE_POSE)
+    assert result.positions == ordered(RAISED_POSE)
 
 
 def test_a_start_inside_the_margin_may_move_away_but_not_deeper() -> None:
@@ -152,13 +152,13 @@ def test_a_request_missing_joints_takes_them_from_the_last_published_pose() -> N
     checker = FakeChecker()
     guard = ArmGuard(checker, MAX_STEP_RAD, enabled=True)
     guard.seed(ARM_NAMES, ordered(PARKED_HOME))
-    guard.admit(SOURCE, ARM_NAMES, ordered(DRIVE_POSE))
+    guard.admit(SOURCE, ARM_NAMES, ordered(RAISED_POSE))
     result = guard.admit(SOURCE, ["gripper"], [0.3])
     assert result.positions == [0.3]
     samples, allow_escape = checker.paths[-1]
     assert allow_escape
-    assert samples[0] == DRIVE_POSE
-    assert samples[-1] == {**DRIVE_POSE, "gripper": 0.3}
+    assert samples[0] == RAISED_POSE
+    assert samples[-1] == {**RAISED_POSE, "gripper": 0.3}
 
 
 def test_follower_feedback_replaces_the_start_pose() -> None:
@@ -166,18 +166,18 @@ def test_follower_feedback_replaces_the_start_pose() -> None:
     checker = FakeChecker()
     guard = ArmGuard(checker, MAX_STEP_RAD, enabled=True)
     guard.seed(ARM_NAMES, ordered(PARKED_HOME))
-    guard.admit(SOURCE, ARM_NAMES, ordered(DRIVE_POSE))
+    guard.admit(SOURCE, ARM_NAMES, ordered(RAISED_POSE))
     guard.seed(ARM_NAMES, ordered(PARKED_HOME))
-    guard.admit(SOURCE, ARM_NAMES, ordered(DRIVE_POSE))
+    guard.admit(SOURCE, ARM_NAMES, ordered(RAISED_POSE))
     assert checker.paths[-1][0][0] == PARKED_HOME
 
 
 def test_without_a_prior_pose_only_the_end_pose_is_checked() -> None:
     """No published command and no feedback yet: the request alone is checked, held to the hard margin."""
     checker = FakeChecker()
-    result = ArmGuard(checker, MAX_STEP_RAD, enabled=True).admit(SOURCE, ARM_NAMES, ordered(DRIVE_POSE))
-    assert result.positions == ordered(DRIVE_POSE)
-    assert checker.paths == [([DRIVE_POSE], False)]
+    result = ArmGuard(checker, MAX_STEP_RAD, enabled=True).admit(SOURCE, ARM_NAMES, ordered(RAISED_POSE))
+    assert result.positions == ordered(RAISED_POSE)
+    assert checker.paths == [([RAISED_POSE], False)]
 
 
 def test_without_a_prior_pose_a_request_inside_the_body_publishes_nothing() -> None:
@@ -199,7 +199,7 @@ def test_a_raising_checker_publishes_nothing_and_counts_an_error() -> None:
     """A checker exception refuses the command (fail closed) and is counted."""
     guard = ArmGuard(FakeChecker(RuntimeError("kernel gone")), MAX_STEP_RAD, enabled=True)
     guard.seed(ARM_NAMES, ordered(PARKED_HOME))
-    result = guard.admit(SOURCE, ARM_NAMES, ordered(DRIVE_POSE))
+    result = guard.admit(SOURCE, ARM_NAMES, ordered(RAISED_POSE))
     assert result.positions is None and not result.blocked
     assert "kernel gone" in result.error
     assert guard.errors == 1
@@ -219,7 +219,7 @@ def test_the_head_pose_poses_the_body() -> None:
     checker = FakeChecker()
     head = HeadPose(pan=0.2, tilt=0.5)
     guard = ArmGuard(checker, MAX_STEP_RAD, enabled=True, head_source=lambda: head)
-    guard.admit(SOURCE, ARM_NAMES, ordered(DRIVE_POSE))
+    guard.admit(SOURCE, ARM_NAMES, ordered(RAISED_POSE))
     assert checker.heads == [head]
 
 
@@ -260,7 +260,7 @@ def test_a_leader_gripper_command_is_judged_in_follower_units() -> None:
     assert bridge_follower_rad(0.0) < GRIPPER_FLOOR_RAD
     checker = GripperFloorChecker()
     guard = ArmGuard(checker, MAX_STEP_RAD, enabled=True, leader_gripper=LEADER_GRIPPER)
-    request = {**DRIVE_POSE, "gripper": 0.0}
+    request = {**RAISED_POSE, "gripper": 0.0}
     result = guard.admit("leader", ARM_NAMES, ordered(request))
     assert result.blocked
     assert checker.paths[-1][0][-1]["gripper"] == pytest.approx(bridge_follower_rad(0.0))
@@ -270,7 +270,7 @@ def test_a_direct_gripper_command_is_judged_as_sent() -> None:
     """Web UI and autonomy positions already are follower radians: the same 0.0 rad is checked as 0.0 and goes out."""
     checker = GripperFloorChecker()
     guard = ArmGuard(checker, MAX_STEP_RAD, enabled=True, leader_gripper=LEADER_GRIPPER)
-    request = {**DRIVE_POSE, "gripper": 0.0}
+    request = {**RAISED_POSE, "gripper": 0.0}
     for source in ("web_ui", "autonomy"):
         result = guard.admit(source, ARM_NAMES, ordered(request))
         assert not result.blocked and result.positions == ordered(request)
@@ -281,7 +281,7 @@ def test_a_clean_leader_command_goes_out_in_leader_units() -> None:
     """A clear leader command is published unchanged (leader units: the bridge maps it)."""
     checker = GripperFloorChecker()
     guard = ArmGuard(checker, MAX_STEP_RAD, enabled=True, leader_gripper=LEADER_GRIPPER)
-    request = {**DRIVE_POSE, "gripper": 1.0}
+    request = {**RAISED_POSE, "gripper": 1.0}
     result = guard.admit("leader", ARM_NAMES, ordered(request))
     assert result.positions == ordered(request)
     assert checker.paths[-1][0][-1]["gripper"] == pytest.approx(bridge_follower_rad(1.0))
@@ -291,8 +291,8 @@ def test_a_clamped_leader_gripper_goes_out_in_leader_units() -> None:
     """The clamp of a leader command is converted back: the bridge maps the published gripper onto the safe sample."""
     checker = GripperFloorChecker()
     guard = ArmGuard(checker, MAX_STEP_RAD, enabled=True, leader_gripper=LEADER_GRIPPER)
-    guard.seed(ARM_NAMES, ordered({**DRIVE_POSE, "gripper": 0.5}))
-    result = guard.admit("leader", ARM_NAMES, ordered({**DRIVE_POSE, "gripper": 0.0}))
+    guard.seed(ARM_NAMES, ordered({**RAISED_POSE, "gripper": 0.5}))
+    result = guard.admit("leader", ARM_NAMES, ordered({**RAISED_POSE, "gripper": 0.0}))
     assert result.blocked and result.positions is not None
     samples = checker.paths[-1][0]
     first_bad = next(i for i, s in enumerate(samples) if s["gripper"] < GRIPPER_FLOOR_RAD)
@@ -328,7 +328,7 @@ def test_a_non_finite_position_is_refused_without_raising(source: str, bad: floa
         ),
     )
     guard.seed(ARM_NAMES, ordered(PARKED_HOME))
-    request = {**DRIVE_POSE, joint: bad}
+    request = {**RAISED_POSE, joint: bad}
     result = guard.admit(source, ARM_NAMES, ordered(request))
     assert result.positions is None and not result.blocked
     assert result.error

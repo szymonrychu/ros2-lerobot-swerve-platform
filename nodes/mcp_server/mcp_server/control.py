@@ -51,7 +51,6 @@ from .arm import EXPECTED_LEASE, SOURCE_NONE, ArmController, ArmError, finite_ef
 from .calibration_board import BoardPark
 from .carry import CarryRecord
 from .config import McpServerConfig
-from .drive_pose import DrivePose
 from .footprint import NavFootprint
 from .head import HeadController
 from .models import (
@@ -414,8 +413,6 @@ class ControlManager:
         # Whether the base moves or a NavigateToPose goal is active (ros_iface binds RosInterface.nav_active);
         # release_head then leaves the head to the head_aim node instead of homing it.
         self.nav_active: Callable[[], bool] = lambda: False
-        # The drive pose controller (ros_iface binds it): reported in state().arm.drive_pose, aborted by the stop tool.
-        self.drive_pose: DrivePose | None = None
 
     @property
     def web_ui_held(self) -> bool:
@@ -787,38 +784,6 @@ class ControlManager:
                 reasons.append(f"{HOLDING_LOAD_PREFIX}: {why}")
         return CarryingState(carrying=bool(reasons), reasons=reasons, radius_m=record.radius_m)
 
-    def carrying(self) -> bool:
-        """Whether the gripper carries an object (drive_pose.DriveGates).
-
-        Returns:
-            bool: carrying_state().carrying.
-        """
-        return self.carrying_state().carrying
-
-    def agent_lease_held(self) -> bool:
-        """Whether the agent holds the arm lease (drive_pose.DriveGates).
-
-        Returns:
-            bool: arm_held.
-        """
-        return self.arm_held
-
-    def web_ui_lease_held(self) -> bool:
-        """Whether the web UI holds the arm lease (drive_pose.DriveGates).
-
-        Returns:
-            bool: web_ui_held.
-        """
-        return self.web_ui_held
-
-    def battery_cutoff(self) -> bool:
-        """Whether the battery is under its cut-off (drive_pose.DriveGates).
-
-        Returns:
-            bool: False without a battery guard.
-        """
-        return self.guard is not None and self.guard.is_cutoff()
-
     def release_arm(
         self, keep_position: bool, carried_object_radius_m: float | None = None, board: BoardPark | None = None
     ) -> str:
@@ -960,7 +925,6 @@ class ControlManager:
             home_stored=self.arm.home_stored(),
             active_source=None if src is None else src.value,
             lost=self.arm.lost_note,
-            drive_pose=None if self.drive_pose is None else self.drive_pose.state(),
         )
         base = BaseControlState(
             held=self.base_held,

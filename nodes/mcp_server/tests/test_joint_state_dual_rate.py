@@ -550,3 +550,11 @@ def test_client_yml_sets_the_joint_state_rate() -> None:
     )
     for source in (FOLLOWER, SWERVE):
         assert f"{source} 10.0 {source}{deployed['throttled_suffix']}" in commands
+
+
+def test_look_around_head_mode_switches_no_joint_state_rate(rate_server: tuple[Any, RateRobot]) -> None:
+    server, robot = rate_server
+    call(server, "look_around", {"mode": "head"})
+    assert not any(c[0] in ("begin_motion", "end_motion") for c in robot.calls)
+    call(server, "look_around", {"mode": "spin"})
+    assert ("begin_motion", ("base",)) in robot.calls

@@ -1,18 +1,16 @@
 import type { ServoGroupsState } from '../calibrate/servoApi'
-import type { DrivePoseState, GuardState, TabConfig } from '../types'
+import type { GuardState, TabConfig } from '../types'
 
 /** filter_node reports `autonomy` while the mcp_server lease taken by Take control (or the agent) is held. */
 export const HELD_SOURCE = 'autonomy'
 const DEFAULT_SOURCE_TOPIC = '/filter/active_source'
 const DEFAULT_GUARD_TOPIC = '/filter/guard_state'
-const DEFAULT_DRIVE_POSE_TOPIC = '/arm/drive_pose/state'
 export const HELD_REASON = 'Arm held by the agent or Take control - Release to drag'
 export const BUSY_REASON = 'Arm action in flight'
 export const WAITING_REASON = 'Waiting for arm joint states'
-export const DRIVE_POSE_WAITING_REASON = 'Waiting for the drive pose state'
 const RELEASED_SUFFIX = '(Calibrate page)'
 
-export type ArmControl = 'drag' | 'armHome' | 'setHome' | 'setDrivePose' | 'drivePose' | 'grasp'
+export type ArmControl = 'drag' | 'armHome' | 'setHome' | 'grasp'
 
 export interface ArmControlInput {
   /** Arm torque state is fresh and released. */
@@ -27,8 +25,6 @@ export interface ArmControlInput {
   activeSource: string | undefined
   /** A grasp plan or execute is running. */
   graspBusy: boolean
-  /** The drive pose state has arrived, so the toggle knows whether the lift is enabled. */
-  drivePoseKnown: boolean
 }
 
 export interface ControlState {
@@ -56,17 +52,6 @@ export function releasedReason(joints: string[]): string {
  */
 export function activeSourceOf(tab: TabConfig, topicData: Record<string, unknown>): string | undefined {
   return (topicData[tab.active_source_topic ?? DEFAULT_SOURCE_TOPIC] as { data?: string } | null | undefined)?.data
-}
-
-/**
- * The mcp_server drive pose state on the tab's drive_pose_state_topic.
- *
- * @param tab - arm or map_nav tab config (drive_pose_state_topic)
- * @param topicData - latest payload per topic
- * @returns the state, undefined before the first message or after the cache was cleared
- */
-export function drivePoseOf(tab: TabConfig, topicData: Record<string, unknown>): DrivePoseState | undefined {
-  return (topicData[tab.drive_pose_state_topic ?? DEFAULT_DRIVE_POSE_TOPIC] as DrivePoseState | null | undefined) ?? undefined
 }
 
 /**
@@ -98,7 +83,7 @@ export function releasedJoints(servo: ServoGroupsState, groupId: string): string
 /**
  * Enabled state and visible reason of every arm control. Released wins over every other reason.
  *
- * @param input - released state, in-flight flags, readiness, the active command source and the drive pose state
+ * @param input - released state, in-flight flags, readiness, and the active command source
  * @returns per control `{ disabled, reason }`; reason is '' while enabled
  */
 export function armControlState(input: ArmControlInput): Record<ArmControl, ControlState> {
@@ -114,8 +99,6 @@ export function armControlState(input: ArmControlInput): Record<ArmControl, Cont
     drag,
     armHome: released ?? busy ?? on,
     setHome: released ?? busy ?? on,
-    setDrivePose: released ?? busy ?? on,
-    drivePose: released ?? busy ?? (input.drivePoseKnown ? on : off(DRIVE_POSE_WAITING_REASON)),
     grasp: released ?? busy ?? (input.graspBusy ? off(BUSY_REASON) : on),
   }
 }

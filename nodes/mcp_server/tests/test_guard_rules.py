@@ -194,7 +194,7 @@ def test_field_registry_args_pattern() -> None:
 
 def test_field_registry_types_and_phases() -> None:
     assert FIELDS["footprint.kind"].kind == "str"
-    assert FIELDS["footprint.kind"].choices == {"static", "dynamic", "conservative", "drive"}
+    assert FIELDS["footprint.kind"].choices == {"static", "dynamic", "conservative"}
     assert FIELDS["footprint.kind"].choices == set(typing.get_args(FootprintState.model_fields["kind"].annotation))
     assert FIELDS["tilt.level"].choices == {"ok", "warning", "error"}
     assert FIELDS["arm.active_source"].choices == {"leader", "web_ui", "autonomy", "none"}

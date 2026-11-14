@@ -809,7 +809,7 @@ Unit tests for the evaluation driver (`scripts/eval/client.py`, `labels.py`, `ru
 | `test_client_message_deny_tools_and_errors` | `deny_tools` sent only when given; 503 raises BatteryBlockError with the agent message, 409 AgentBusyError, other statuses AgentError. |
 | `test_client_history_since_pages_back_to_the_seq` | History polling pages backwards to the seq (1200 events) and returns nothing when up to date. |
 | `test_client_state_stop_and_bounded_timeouts` | State and stop calls; connect and read timeouts are set. |
-| `test_successful_trial_is_recorded_with_events_report_and_deny_tools` | A full trial: deny_tools in arm-only, reset, raw events file, TrialRecord line, claimed stages and lookup ids printed, report.json, stop_on_success. |
+| `test_successful_trial_is_recorded_with_events_report_and_deny_tools` | A full trial: deny_tools in arm-only (navigate_to_pose, move_relative, drive, take_control:base; `look_around(mode='head')` stays allowed), reset, raw events file, TrialRecord line, claimed stages and lookup ids printed, report.json, stop_on_success. |
 | `test_full_mode_sends_no_deny_tools` | Full mode sends no `deny_tools`. |
 | `test_failed_trials_run_k_times_without_stop` | Failed trials run all k times with first failed stage and note recorded. |
 | `test_stop_on_success_false_keeps_running` | Without stop_on_success every trial runs. |
@@ -824,8 +824,8 @@ Unit tests for the evaluation driver (`scripts/eval/client.py`, `labels.py`, `ru
 | `test_trial_without_turn_end_after_stop_is_still_recorded` | No turn_end 60 s after stop: the trial is recorded with status None and `timed_out` true. |
 | `test_resume_continues_with_remaining_trials` | `--resume` skips recorded trials and continues with the rest. |
 | `test_resume_unknown_run_id_fails` | Resuming a missing run raises. |
-| `test_run_config_defaults_and_validation` | RunConfig defaults (arm_only, `.logs/eval`, deny tools, k, timeout) and validation. |
-| `test_shipped_run_yaml_loads` | `scripts/eval/run.yaml` loads. |
+| `test_run_config_defaults_and_validation` | RunConfig defaults (arm_only, `.logs/eval`, deny tools without `look_around`, k, timeout) and validation. |
+| `test_shipped_run_yaml_loads` | `scripts/eval/run.yaml` loads; its arm-only deny list no longer has `look_around` (base modes stay refused through `take_control:base`). |
 | `test_unknown_case_in_subset_is_rejected` | A subset case the mode does not run is rejected. |
 | `test_main_rejects_missing_config` | `main` rejects an invalid config file. |
 
@@ -1001,7 +1001,7 @@ accept after startup, or a newer one, is applied once; a head chain apply alone 
 removed record goes back to the configured arm; a swap that raises is logged once, keeps the values in use and is not
 retried until `applied.json` changes; an unexpected read error (any exception) is logged, keeps the values in use and
 never raises; `swap_checker_calibration` gives the clearances of a checker built with the new
-calibration (home, drive pose, a pose by the wheel) and maps no mount to the mount height above base_link; importing
+calibration (home, a raised pose, a pose by the wheel) and maps no mount to the mount height above base_link; importing
 the module loads no cv2. Wiring (`test_guard_calibration_wiring.py`, the `test_guard_wiring.py` harness): the guard is
 built on an accepted calibration; an accept while running reaches the guard on the next calibration timer tick and the
 following web UI command is checked with it; no `applied_dir` creates no calibration timer and keeps the configured
@@ -1161,7 +1161,8 @@ Covers:
 - motion queue prompt (`test_prompt.py`): the queue pattern (`enqueue_motions` with preconditions and `on_fail`,
   blending, queue at least 2 steps deep, `wait_for_event` instead of polling, `get_motion_status`, `cancel_motions` /
   `replace=true` on surprises, checkpoints only), the safety rules restated for queued motions (roll guard, negative
-  elbow_flex stretches the arm, slow zone, stop), `look_around` `return_to_start`
+  elbow_flex stretches the arm, slow zone, stop), `look_around` `return_to_start`; `test_prompt_mentions_the_head_look_around`
+  (`look_around(mode='head')` pans the head without moving the base, under the arm or the base lease)
 - instruction time budget (`test_tools.py`, `test_runner.py`, `test_config.py`, `test_prompt.py`): `min_effector_time_left_s` default 60 and not
   negative; effector calls denied below the minimum with the explicit reason (time left, minimum, report and end the instruction) and not
   counted as rw; allowed at the minimum; stop, cancel_motions, release_object, acquire/release_control and an opening `set_gripper`
@@ -1325,7 +1326,28 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   circumscribed radius + margin, refusal on a close obstacle or a missing lidar (robot not moved), the rotate-capture
   loop (3 rotations between 4 stops plus the closing step, camera and lidar at every stop, expected vs achieved
   rotation and heading error), interrupted / failed steps end the sequence with `interrupted_by` and no return
-  rotation, `stop` between steps, an obstacle appearing mid-turn, a camera failure recorded (not fabricated), montage
+  rotation, `stop` between steps, an obstacle appearing mid-turn, a camera failure recorded (not fabricated), montage and
+  head levelling (both modes; the camera test is `test_look_around_uses_the_head_d435`): the D435 head is levelled
+  before the first capture (`test_look_around_levels_the_head_before_the_first_capture`), steps mode re-levels before
+  each later capture because the head re-homes after every Nav2 goal, the previous aim is restored at the end and
+  reported in `head` (home with a note when the aim was unknown, a timeout or missing head feedback is a note), a
+  clearance refusal never touches the head, `level_head: false` never moves it, a stop leaves the head where it is,
+  and a stop or critical event raised while the levelling move blocks (a mark taken before the move) ends the run
+  with no base motion (`test_look_around_keeps_a_stop_or_event_raised_while_the_head_levels`)
+- look_around head mode (`test_look_around.py`, `HeadScriptRobot` stamps frames with the fake head clock and feeds the
+  head joint-state history): `test_head_pan_label` (signed whole degrees, `pan +90 deg (left)`, `pan 0 deg (ahead)`,
+  `pan -45 deg (right)`), `test_head_mode_pans_without_base_motion` (no move_relative or spin, the head follows the 5
+  default pans at tilt 0 with one command before each frame, 5 tiles and headings labelled by the measured pan,
+  `expected` `{mode: head, rotation_deg: 0, pans_deg}`), `test_head_mode_settles_before_each_frame`
+  (`head_settle_s` waited on the head clock), `test_head_mode_restores_aim_and_reports_head` (previous aim restored,
+  `head.before_deg` / `restored`, the configured tilt held), `test_head_mode_without_head_sample_sends_the_head_home`,
+  `test_head_mode_stop_stops_panning_and_leaves_head` (a stop raised during the second pan: no frame after it, no
+  further pan, no restore; a critical event: `interrupted`, head restored), `test_head_mode_retakes_a_frame_taken_while_moving`
+  (one retake, a second moving frame kept with a note), `test_head_mode_head_timeout_is_a_note` (stuck head: status
+  completed, 5 frames, timeout notes, tiles labelled with the real pan), `test_head_mode_camera_failure_is_a_missing_tile`,
+  `test_head_mode_unknown_pan_at_the_frame_uses_the_commanded_pan_with_a_note`, `test_look_around_settings_head_keys`
+  (defaults `head_pans_deg` [90, 45, 0, -45, -90], tilt 0, settle 0.2 s, `mode: head` accepted; empty pans, a pan
+  outside [-90, 90], a tilt outside [-30, 45] and a negative settle rejected)
 - POI client (`test_poi_client.py`): request published with op, poi and a fresh `request_id`; the result is matched by
   id (other ids ignored, answer from another thread), timeout, store not running (nothing published), store rejection,
   malformed results dropped, `/poi/list` parsing, `clear(created_by)` (publishes `op: clear` + `created_by`, returns the
@@ -1339,7 +1361,14 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   origin, rotated by the mount yaw; base_link origin without a mount), layer selection and validation, POI/object layers (each POI drawn once: `pois` without objects, `objects` only object POIs; both missing with the reason when poi_store is down), object tools round trip and merge as object POIs (`list_objects` only objects, `list_pois` states `kind`), legacy `objects.json` import through the server, POI tools
   (point defaults to the robot position, area polygon, `created_by` agent, argument errors, store not running),
   `list_pois` distance/bearing/status/near, `look_around` (montage + top-down images, summary, config default
-  captures, argument validation, refusal does not move)
+  captures, argument validation, refusal does not move, the result reports the restored head aim, the tool description
+  says the head is levelled); head mode through the server: `test_look_around_head_mode_tool_pans_the_head_and_never_the_base`
+  (arm lease only, `pan_deg` [30, -30], labels, montage + top-down, head restored),
+  `test_look_around_head_mode_uses_the_configured_pans` (`head_pans_deg` / `head_tilt_deg`),
+  `test_look_around_pan_deg_out_of_range_refused_before_motion` (120, -91 and an empty list: refused, the head and base
+  never move, no frame), `test_look_around_pan_deg_refused_in_the_base_modes`,
+  `test_look_around_head_mode_ignores_captures_and_return_to_start_with_a_note`,
+  `test_look_around_description_documents_head_mode`
 - executor hardening and camera frame cache (`test_spin.py`): `spin_forever` survives a stale-handle error and
   re-raises others; `run_or_exit` exits the process when the executor thread dies or stops while ROS runs (systemd
   restarts the node) and stays quiet on shutdown; `FrameCache.wait_newer` returns the first frame newer than the
@@ -1396,7 +1425,8 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
 - battery gate (`test_battery_gate.py`): `MOTION_TOOLS` and `ALWAYS_ALLOWED_TOOLS` partition all tools; each motion tool
   is refused in cut-off with the exact message, a logged warning and no robot call (both leases held, so the battery
   gate is what refuses); `stop`, sensor, state and take/release/get_control_state still work in cut-off; motion works with a good or unknown battery, without a guard and after
-  recovery; optional `battery` config section (absent = off, validated)
+  recovery; optional `battery` config section (absent = off, validated); `test_look_around_head_mode_refused_in_cutoff`
+  (head mode keeps the battery gate: no robot call, no head command)
 - monitor (`test_monitor.py`): servo overheat warning/critical with hysteresis, debounce and `_cleared` info events, status
   error bits decoded (critical), battery low/cut-off from the shared guard, IMU bump (baseline removed, debounce,
   warning/critical) and tilt, wheel slip from the swerve twist covariance (parked = no residual), base stall (needs a
@@ -1423,7 +1453,8 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   reason in warning and error without touching the robot, `drive` allowed in warning, refused in warning while the base stays inhibited and refused in error, arm tools
   unaffected in error, `enqueue_motions` with a base step refused (arm/wait-only steps allowed), digest vitals carry the
   guard, a queued base step fails at dispatch (status `tilt_guard`); the tool tests hold both leases so the tilt guard
-  is what refuses
+  is what refuses; `test_look_around_head_mode_is_not_refused_by_the_tilt_guard` (warning and error: head mode pans
+  the head, no base motion)
 - control leases (`test_control.py`, `control.py`): `steering_neutral` per steer joint (missing joint or no data = None);
   the steering waiter succeeds once the wheels recenter and times out naming the worst joint (or no fresh joint
   states); `take_control` is idempotent (held_since kept, the hold not re-published) for arm and base; default
@@ -1442,7 +1473,13 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   `take_control` allowed in battery cut-off and `release_control` then skips the arm reset;
   `get_control_state` / `release_control(all)` payloads; the vitals carry `ctl arm=-@home base=-` /
   `ctl arm=H@away base=H`; the `any` need is satisfied by either lease; a queued gripper step fails at dispatch when
-  the arm lease is not held
+  the arm lease is not held; look_around modes (`tools.lease_need`, `tools.effective_look_mode`):
+  `test_lease_need_head_mode_any_lease` (head mode needs "any" and runs under the arm lease or the base lease without
+  base motion; other tools keep `TOOL_SUBSYSTEM`, the static `look_around` entry stays `base`),
+  `test_look_around_base_modes_need_base_lease` (omitted, `spin` and `steps` refused under the arm lease only, nothing
+  moves), `test_omitted_mode_resolves_to_config_mode` (with `look_around.mode: head` an omitted mode needs either
+  lease and an enforce rule `args.mode ne head` with `when_unknown: reject` does not trip, because the guard sees the
+  resolved mode; with the default `spin` the same rule refuses and names `args.mode=spin`)
 - park with the calibration board on (`nodes/mcp_server/tests/test_control_board_park.py`, `control.py` / `arm.py` / `tools.py`): the agent-facing `release_control` schema has no board argument and still refuses the holding load; `ControlManager.park_calibration_board` (behind `POST /admin/park_calibration_board`, its own board-park token: the shared MCP token answers 401, a missing token file 503; the request names only a mount within 30 mm / 10 deg of the configured one, outline and margins are config) parks through a holding-load refusal at speed_scale 0.1, still refuses a last grasp held and a carried radius (naming only those reasons), refuses an offset or tiny mount, a stale or missing measurement and a drifted arm (measured far from commanded or from home), refuses when a home leg puts the board under the floor height or inside the body margin, or when the arm is not at its rest pose, always leaving the arm holding
 - calibration board park config (`tests/test_board_park_config.py`): mcp_server's `calibration_board` block equals head_rgbd_calibration's ARM fit board, mount, margins and floor height (and its code defaults), the mcp_server board is the ARM board (6x5, 28 mm; `test_mcp_server_board_is_the_arm_board`), the generated points equal the node's `board_points_local` plus `handle_box_points_local` (the handle post, gusset and tab), the grip squeeze stays below the mcp_server gripper converge tolerance (`test_grip_squeeze_stays_inside_the_mcp_converge_tolerance`), the node's `grip_converge_tolerance_rad` slack-grip limit equals the mcp_server gripper converge tolerance in client.yml and in the code defaults (`test_grip_slack_check_uses_the_mcp_gripper_converge_tolerance`), the node's `arm_home_file` is mcp_server's `arm.home_file` (`test_the_calibration_home_targets_the_home_mcp_server_stores`), and the board-park token is its own file/group (`board-park`) held by the calibration service and not by claude_agent; `box_lattice` itself is pinned in `tests/test_board_lattice.py`, and the mcp_server `lattice_spacing_m` equals head_rgbd_calibration's `pose_check.board_spacing_m` (`test_mcp_server_board_equals_the_calibration_fit_board_and_mount`; the park clearance threshold adds `lattice_miss_bound`, see below)
 - control leases and the carrying signal (`test_control_carrying.py`, `control.py` / `arm.py` / `carry.py`): lease
@@ -1556,7 +1593,9 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   and a gripper close begin full rate before their first command and the rest baseline; the base and arm MCP tools
   begin before the command and end after it, `release_control` switches both, sensor tools none; a tool cancelled
   while `begin_motion` waits still calls `end_motion` (no leaked active count); the
-  `JointStateRateSettings` defaults and validation and the `client.yml` block matching the throttle node commands
+  `JointStateRateSettings` defaults and validation and the `client.yml` block matching the throttle node commands;
+  `test_look_around_head_mode_switches_no_joint_state_rate` (head mode calls no begin/end_motion, spin mode switches
+  the base)
 - rclpy isolation (`test_rclpy_isolation.py`): only `ros_iface.py` / `__main__.py` import ROS packages
 - lazy swerve joint states (`test_ros_iface_steer.py`, the `conftest.py` `ros_iface` fixture imports `ros_iface` against
   mocked ROS packages): `RosRobot` does not subscribe `/swerve_drive/joint_states` at startup; the first
@@ -1623,10 +1662,14 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   `test_odom_speed_is_planar_speed_fresh_within_odom_fresh_s`), `test_footprint.py` (`test_arm_outside_static_m_*`: 0
   for the parked arm and inside, equals the farthest shadow vertex distance, a 5 cm protrusion measures 0.05 within 5 mm)
 - deployed guard rules (`test_guard_rules_deployed.py`, reads `ansible/group_vars/client.yml`):
-  `test_guard_rules_section_validates_with_the_five_rules_in_order` (GuardRuleSettings, names R1-R5),
-  `test_every_deployed_rule_starts_in_dry_run`, `test_every_message_names_a_way_out`, `test_scopes_match_the_design`
-  (tools/steps/arm origins, grasp excluded from the roll rule, when_unknown), `test_thresholds_match_the_design`
-  (0.03 m, 1.85 / 0.0 rad), `test_motion_queue_watch_settings_validate` (MotionQueueSettings, 10 Hz / 8 per call)
+  `test_guard_rules_section_validates_with_the_seven_rules_in_order` (GuardRuleSettings, names R1-R5 plus the two
+  look_around twins), `test_every_deployed_rule_starts_in_dry_run`, `test_every_message_names_a_way_out`,
+  `test_scopes_match_the_design` (tools/steps/arm origins; R1 / R2 cover every base tool but `look_around`, whose
+  twins `look_around_arm_outside_footprint` / `look_around_carrying_without_object_footprint` apply to look_around only
+  with the R1 / R2 conditions plus `args.mode ne head`; grasp excluded from the roll rule, when_unknown),
+  `test_thresholds_match_the_design` (0.03 m, 1.85 / 0.0 rad), `test_motion_queue_watch_settings_validate`
+  (MotionQueueSettings, 10 Hz / 8 per call), `test_look_around_twins_refuse_the_base_modes_only` (each twin in enforce
+  with every hazard present passes `mode: head` and refuses `spin` / `steps`, naming `look_around(mode='head')`)
 - guard rule wiring (`test_guard_wiring.py`, fake robot through `RobotMCPServer.call_tool`, no base motion): tool entry -
   `test_enforce_rule_refuses_navigate_to_pose_and_the_base_receives_nothing` (rejection text, digest appended, enforce
   counter, refused before the blocking counter), `test_dry_run_rule_lets_navigate_through_and_counts` (dry_run counter
@@ -1882,12 +1925,23 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   line; the description says arm-target rules are evaluated at motion start
 - spin (`test_base_motion.py`): `run_spin` turns the measured angle with marks in order at the right rotation and ends
   with a zero twist, clamps the yaw rate, ends on stop, a critical event, a refused mark, a lost pose or the timeout,
-  rejects a zero angle or rate
+  rejects a zero angle or rate; `test_spin_measures_rotation_from_odometry`: with no map -> base_link transform
+  (stale SLAM) `RosRobot.spin` reads the yaw from odom -> base_link only, turns the requested pi, fires the mark at
+  its angle and ends with a zero twist
 - look_around spin mode (`test_look_around.py`, `test_perception_tools.py`): spin mode captures the same tiles, labels
   and heading summaries as steps mode with one spin and no Nav2 rotation; steps mode without return skips the closing
   rotation; return_to_start spins the full circle (and corrects a final heading error with one precise rotation);
   an obstacle at a heading ends the spin; an interruption never triggers a corrective rotation; the tool defaults to
-  one spin without returning
+  one spin without returning; without a map pose (`test_look_around_spin_without_map_pose_completes_with_note`) a
+  spin run completes with one spin, the `NO_MAP_POSE_NOTE` note, all four tiles with no map heading, the rotation
+  measured from odometry, no corrective move and `returned_to_start` false;
+  `test_look_around_steps_without_map_pose_refused` refuses steps mode naming map->base_link and Nav2 before any
+  move, camera frame or head levelling; `test_look_around_without_map_pose_renders_topdown_without_map_layers`
+  (spin and head) still renders the top-down view with `layers_missing` holding `map` and lidar present;
+  `test_look_around_description_says_spin_runs_without_the_map_pose` checks the tool description names odometry and
+  the map pose
+- mcp_server frames (`test_config.py`): `test_frames_default_to_map_odom_and_base_link` pins the `topics` frame
+  defaults `map`, `odom` and `base_link`
 - link frames (`test_ik.py`): `link_frames` returns every chain link from one FK pass
 - grasp planner (`test_grasp.py`, real URDF; floor objects clear of the measured body: top_down at arm x 0.26, angled
   at 0.36 for 45 deg and 0.32 for 60 deg): strategy registry and unknown names, scoop into a tight gap skims the
@@ -2053,7 +2107,7 @@ The **mcp_server** node has tests under `nodes/mcp_server/tests/` (no ROS needed
   (200 Prometheus text without a token for 127.0.0.1 and ::1, 403 for other clients, the MCP path stays 401)
 
 - Calibration marker (`nodes/mcp_server/tests/test_calibration_marker.py`): absent marker loads as none, a valid one loads, an invalid one reports everything stale; clearing one item keeps the other, clearing the last deletes the file, clearing an absent file is a no-op (False), `only_if_saved_at` clears only while the marker names that re-zero, an unreadable marker is deleted when everything is cleared; `arm_home` is refused while home is stale and allowed after set-home with only home stale, which deletes the marker (and when only offsets are stale); `set_home` is refused while `joint_offsets` is stale, with or without home (`test_set_home_refused_while_joint_offsets_stale`), and on an unreadable marker (`test_set_home_refused_while_marker_unreadable`), storing nothing and keeping the marker; state reports stale items, with and without a marker; a null path disables the marker.
-- Torque gate (`nodes/mcp_server/tests/test_torque_gate.py`): every motion tool is mapped to servo groups; a tool of a released group is refused and publishes nothing while other groups keep working; unknown or enabled state refuses nothing; `enqueue_motions` checks only the groups of its steps; robot and control state list released groups; the arm lease is dropped without publishing when the arm is released; a filter_node released source is torque off, not a takeover; `take_control` arm and the web_ui take are refused while released; torque state config defaults, the ROS robot subscribes to the three torque topics, a servo is not released without a sample or when stale, a malformed payload is ignored, and publish is suppressed for a released arm and head but not for a base release.
+- Torque gate (`nodes/mcp_server/tests/test_torque_gate.py`): every motion tool is mapped to servo groups; a tool of a released group is refused and publishes nothing while other groups keep working; unknown or enabled state refuses nothing; `enqueue_motions` checks only the groups of its steps; robot and control state list released groups; the arm lease is dropped without publishing when the arm is released; a filter_node released source is torque off, not a takeover; `take_control` arm and the web_ui take are refused while released; torque state config defaults, the ROS robot subscribes to the three torque topics, a servo is not released without a sample or when stale, a malformed payload is ignored, and publish is suppressed for a released arm and head but not for a base release; `test_look_around_head_mode_checks_the_head_group_not_the_base` (head mode runs with the base released and is refused with the head released, spin mode is refused with the base released).
 
 ### Per-node tests (gps_rtk)
 
@@ -2168,10 +2222,7 @@ Static checks of the mapping/navigation stack from the repo files (YAML via `yam
 | `test_stopbox_stops_toward_an_obstacle_and_lets_the_robot_escape` | Per side (ahead of a front wheel, x 0.23; ahead of the lidar dome in the front notch, x 0.202 (dome front 0.187); behind a rear wheel; beside each side frame, y +-0.1658 with the measured 35 mm frames), a return 1.5 cm outside the H footprint (just outside the self-filter polygon) stops motion toward it (straight and diagonal) and rotation in place, but not motion away from it or along it. Simulates Nav2's sub-polygon selection and ray-cast point-in-polygon. |
 | `test_stopbox_ignores_notch_obstacles_unless_moving_into_them` | A return deep in the rear notch stops no translation (only rotation in place); one 1.5 cm behind the crossbar stops only backward motion; front notch returns (under the parked gripper, inside the footprint) stop every motion. |
 | `test_nav2_goal_tolerance_is_2cm_5deg` | Goal checker tolerances 0.02 m / 0.087 rad (2 cm / 5 deg; loosened from 1 cm / 2 deg on 2026-11-13 because the robot crept for a long time at the end of every path), stateful: the latch only holds because the BT no longer replans periodically. |
-| `test_nav2_replans_only_when_path_invalid` | The repo NavigateToPose BT keeps the stock "replanning only if path becomes invalid" planning branch (`CheckIfNewPathNeeded`: not `GlobalUpdatedGoal` and `IsPathValid`, else `ComputePathToPose`): periodic replans reset the goal checker latch and the rotation shim position check. |
-| `test_nav2_to_pose_bt_is_the_repo_arm_wait_tree` | `default_nav_to_pose_bt_xml` is `<ros2_repo_dest>/nodes/nav2_bringup/behavior_trees/navigate_to_pose_arm_wait.xml` (the file exists in the repo); `navigate_through_poses` keeps the stock tree (no `default_nav_through_poses_bt_xml`). |
-| `test_nav2_bt_plugins_add_the_arm_drive_wait_node` | `plugin_lib_names` is `[arm_drive_wait_bt_node]` (Jazzy appends it to the built-in plugins). |
-| `test_nav2_arm_wait_runs_once_per_goal_before_the_stock_recovery` | The tree root is a `Sequence` of one `WaitForArmDriveReady` (topic `/arm/drive_pose/state`, `timeout_s` 8) and the stock `NavigateRecovery` RecoveryNode, so it waits once per goal and never on replans or recoveries. |
+| `test_nav2_replans_only_when_path_invalid` | bt_navigator's `default_nav_to_pose_bt_xml` ends with the stock `navigate_w_recovery_and_replanning_only_if_path_becomes_invalid.xml` (periodic replanning would reset the goal checker latch); no `plugin_lib_names`, no `default_nav_through_poses_bt_xml`. |
 | `test_nav2_progress_checker_counts_rotation` | `progress_checker` is `PoseProgressChecker` (counts rotation), movement radius <= 0.05 m and a required angle set. |
 | `test_costmaps_add_no_margin_beyond_the_footprint` | Both costmaps: `footprint_padding` 0, inflation only to the H footprint's circumscribed radius rounded up to one cell (0.275 m), `cost_scaling_factor` 20-30, identical inflation on both. |
 | `test_safety_polygons_hug_the_footprint` | The laser_filter polygon reaches at most 1.5 cm beyond the footprint, each directional StopBox sub-polygon at most its 2 cm sweep (2.45 cm on a diagonal sector), and `rotate` is the footprint bounding box + 2 cm. |
@@ -2266,41 +2317,27 @@ in the mcp_server uv environment, cached per client.yml content) and the check t
 | `test_cliffstop_selects_by_command_direction` | Every 5 deg at 0.1 m/s, first-match selection picks `forward` within +-90 deg (sideways included) and `back` beyond. |
 | `test_nav2_cliffstop_polygon_is_wired_and_listed` | `CliffStop` block in nav2_params (holonomic velocity_polygon, approach, 1.2 s, enabled, `depth_cliff`, >= 4 points per sub-polygon) exists and is listed in `polygons`. |
 | `test_main_writes_the_files_and_is_idempotent` | With bigger wheels in a temp config (and no client.yml, whose region is then skipped), `main` rewrites copies of both files (footprint now contains the bigger wheel), a second run changes nothing, and sections outside the generated regions are untouched. |
-| `test_drive_pose_is_read_from_the_client_vars_mcp_server_arm` | The generator reads the drive pose from the client.yml mcp_server `arm.drive_pose.joints`. |
-| `test_drive_pose_needs_the_mcp_server_arm_config` | Without the mcp_server arm config the drive shadow is empty. |
-| `test_drive_arm_shadow_lands_in_the_mcp_nav_footprint_region` | `drive_arm_shadow` is written into the `mcp_nav_footprint` region of client.yml. |
-| `test_drive_outline_is_the_body_and_the_drive_shadow` | The drive outline is the body outline united with the drive shadow. |
-| `test_drive_outline_lies_inside_the_static_one_with_the_front_edge_behind` | The drive outline is inside the static outline (within the drive tolerance) and its front edge is behind the static one. |
-| `test_stopbox_drive_is_the_stopbox_of_the_drive_outline` | `StopBoxDrive` has the StopBox sectors built from the drive outline. |
-| `test_nav2_stopbox_drive_is_wired_disabled_and_listed` | `StopBoxDrive` in nav2_params.yaml is `enabled: false`, has the StopBox `sources_names`, 4+ points per sub-polygon and is listed in `polygons`. |
+| `test_generator_writes_no_drive_outline` | The generator writes no drive shadow, drive outline or `StopBoxDrive` (no `drive_arm_shadow` in the mcp_server `nav_footprint` region, no `stopbox_drive` region). |
+| `test_collision_monitor_has_stop_box_always_on_and_no_stop_box_drive` | collision_monitor `polygons` is exactly `StopBox, ArmStop, CliffStop`, `StopBox` is `enabled: true` and nav2_params.yaml holds no `StopBoxDrive` block or region. |
 | `test_head_aim_box_region_is_the_static_outline_bounding_box` | The `head_aim_box` region holds the bounding box of the static outline. |
 | `test_head_aim_equals_the_generator_output` | `head_aim.yaml` and the client.yml entry equal the generator's head_aim_box region. |
 | `test_rerunning_the_generator_is_a_no_op` | A second generator run changes no file. |
 
-### Arm drive pose (arm-lift-while-driving)
+### Removed arm drive pose (T-277)
 
-New or changed tests of the drive pose feature. Root tests are in the tables above (`test_nav_footprint.py`,
-`test_head_aim_deploy.py`, `test_nav2_mppi_overlay.py`, `test_nav_stack_config.py`); `test_nav_depth_collision.py` now
-lists `StopBoxDrive` among the collision_monitor polygons with the `scan` and `depth_obstacles` sources. Per-node files
-(run in the node directory, `uv run --frozen pytest tests/ -q`, `npm test`, or `./scripts/cpp-node-test.sh <package>`):
+Regression guards for the removed arm drive pose (the arm no longer lifts during navigation; Nav2 uses the static
+parked footprint). Root tests are in the tables above (`test_nav_footprint.py`, `test_head_aim_deploy.py`,
+`test_nav2_mppi_overlay.py`, `test_nav_stack_config.py`). Per-node files (run in the node directory,
+`uv run --frozen pytest tests/ -q` or `./scripts/cpp-node-test.sh <package>`):
 
 | File | What it covers |
 |---|---|
-| `nodes/mcp_server/tests/test_config.py` | `ArmSettings.drive_pose` defaults, rejected values (joints, `speed_scale`, `lower_delay_s`, unknown keys), and the deployed client.yml block (enabled, every joint named). |
-| `nodes/mcp_server/tests/test_drive_pose_check.py` | The drive pose check on synthetic poses: `body`, `floor`, `stretched`, `roll`, `footprint` and `view` failures, every `home_routes` leg in both directions, the D435 frustum and floor-region geometry, the search ranking. |
-| `nodes/mcp_server/tests/test_drive_pose_config.py` | The client.yml `drive_pose.joints` pass every check from the parked home. |
-| `nodes/mcp_server/tests/test_drive_pose.py` | The controller with fake arm, control, clock and worker: lift on the goal edge, every skip reason, lowering after `lower_delay_s`, chained goals, lease or moved arm means no lower, non-converged motions, `request_lift`, abort, runtime enable, `store_pose` / `load_pose`, `at_drive_pose`. |
-| `nodes/mcp_server/tests/test_ros_iface_drive_pose.py` | The 5 Hz tick, the latched state topic (on change and at 1 Hz, nothing before the controller), `/arm/set_drive_pose`, `/arm/drive_pose/enable`, and `navigate` requesting the lift before it sends its goal (never refusing). |
-| `nodes/mcp_server/tests/test_control.py` | `get_control_state` reports `arm.drive_pose`, the `stop` tool aborts a drive-pose motion, the control manager's drive pose gates. |
-| `nodes/mcp_server/tests/test_footprint.py`, `test_ros_iface_footprint.py` | The drive footprint mode: generated drive shadow, drive outline, costmap / laser / inflation publish, StopBoxDrive and StopBox switching order, failed set keeps StopBox, lease and tolerance exits, empty shadow, mode `drive`, controller wiring. |
-| `nodes/mcp_server/tests/test_guard_rules.py` | Guard rule expectations updated for the changed control state. |
-| `nodes/web_ui/tests/test_arm_api.py`, `test_config.py`, `test_map_nav.py` | The two drive pose endpoints (service call, message, 404 / 500 / 503), the state role for ARM and MAP tabs, the SetBool bridge client, the config keys and their defaults. |
-| `nodes/web_ui/frontend/src/arm/ArmActions.test.tsx`, `armControls.test.ts`, `src/tabs/ArmTab.test.tsx` | Set drive pose (two clicks), the lift toggle with the live `enabled`, the disabled reasons; a Set home refused while the arm zero is stale shows the mcp_server message as an error alert. |
-| `nodes/web_ui/frontend/src/map/MapStatusLine.test.tsx`, `mapActions.test.ts`, `src/tabs/MapNavTab.toolbar.test.tsx` | The read-only drive pose state in the MAP status line (no button). |
-| `nodes/arm_drive_wait_bt_cpp/test/core/test_readiness.cpp` | State JSON parsing, which states wait, the 2.5 s freshness boundary, no state or a stale one never waits, the timeout. |
-| `nodes/arm_drive_wait_bt_cpp/test/test_bt_node.cpp` | The BT node against a test publisher (RUNNING while lifting, lowering or enabled idle, SUCCESS otherwise and on timeout, never FAILURE) and the `navigate_to_pose_arm_wait.xml` load check with the nav2 plugins. |
+| `nodes/mcp_server/tests/test_config.py` | `test_deployed_config_has_no_drive_pose`: the deployed client.yml mcp_server `arm` block has no `drive_pose` key; `test_arm_drive_pose_is_an_unknown_key`: a config with `arm.drive_pose` is refused. |
+| `nodes/mcp_server/tests/test_control.py` | `test_get_control_state_and_release_tool`: the `get_control_state` arm block is exactly `held, held_since, held_by, carrying, at_home, home_stored, active_source, lost`. |
+| `nodes/mcp_server/tests/test_footprint.py`, `test_ros_iface_footprint.py` | No drive footprint: the kinds are `static`, `dynamic` and `conservative` only, `nav_footprint` rejects a `drive_arm_shadow` key, the footprint never sends `StopBox.enabled`, and `bind_control` binds no drive hook into the footprint (the tick goes dynamic and back to static). |
+| `nodes/mcp_server/tests/test_guard_rules.py` | `footprint.kind` choices are `static`, `dynamic`, `conservative`. |
 | `nodes/head_aim_cpp/test/core/test_aim.cpp`, `test_config.cpp` | The regenerated footprint box values. |
-| `nodes/claude_agent/tests/test_prompt.py` | `test_prompt_explains_the_arm_drive_pose_during_navigation`: the prompt says the arm lifts by itself while a navigation goal runs, lowers after it, and that `get_control_state` `arm.drive_pose` says why. |
+| `nodes/claude_agent/tests/test_prompt.py` | `test_prompt_has_no_drive_pose`: the prompt does not describe the arm lifting by itself during navigation. |
 
 ### test_poi_store_config.py
 
@@ -2422,7 +2459,7 @@ fake `ssh`; no ROS needed).
 | `test_playbooks_create_tile_cache_before_deploying_web_ui` | `deploy_nodes_client.yml` includes the tile cache task before deploying web_ui. |
 | `test_mcp_server_perception_topics_match_their_producers` | mcp_server `topics` `local_costmap` `/local_costmap/costmap`, `plan` `/plan` and `poi_list` / `poi_command` / `poi_result` equal the poi_store entry's topics. |
 | `test_mcp_server_depth_points_is_the_d435_cloud` | mcp_server `topics.depth_points` (get_map_summary `obstacles_3d`) is the self-filtered head D435 cloud `/head/d435/points_filtered`; no `tof_points` key is left. |
-| `test_mcp_server_perception_config_sections` | mcp_server config carries `objects` (`/var/lib/ros2/objects/objects.json`, merge radius 0.25 m), `footprint` 0.47 x 0.386 m, `look_around` defaults (4 captures, positive clearance margin), `topdown` defaults and `poi.request_timeout_s` 3 s. |
+| `test_mcp_server_perception_config_sections` | mcp_server config carries `objects` (`/var/lib/ros2/objects/objects.json`, merge radius 0.25 m), `footprint` 0.47 x 0.386 m, `look_around` defaults (4 captures, positive clearance margin, `level_head` true, `mode: spin`, `head_pans_deg` [90, 45, 0, -45, -90], `head_tilt_deg` 0, `head_settle_s` 0.2), `topdown` defaults and `poi.request_timeout_s` 3 s. |
 | `test_mcp_server_readme_documents_perception_tools` | `nodes/mcp_server/README.md` documents get_topdown_view, the object memory tools, look_around, the POI tools, the objects file, the robot-up convention, `layers_missing` and the `MOTION_TOOLS` classification. |
 | `test_mcp_server_readme_lookups_example_has_only_store_dir` | The README config reference `lookups:` example lists only `store_dir` (no removed `max_records`/`max_bytes`/`max_age_days`). |
 | `test_client_yml_lookups_comment_points_to_an_existing_readme_section` | The README section quoted in the client.yml mcp_server `lookups:` comment exists as a `##` heading in `nodes/mcp_server/README.md`. |
@@ -2430,8 +2467,8 @@ fake `ssh`; no ROS needed).
 | `test_mcp_server_setup_tasks_create_lookups_dir_owned_by_node_user` | `tasks/mcp_server_setup.yml` creates `/var/lib/ros2/poi` and then `/var/lib/ros2/poi/lookups` (camera lookup store), both directories owned by `ansible_user`, mode `0755`. |
 | `test_mcp_server_config_lazy_steer_states` | The client.yml mcp_server `control:` block sets the lazy `/swerve_drive/joint_states` subscription: `steer_states_wait_s` 0.5 (first-message wait) and `steer_states_idle_s` 30.0 (destroyed once unread that long). |
 | `test_mcp_server_auto_poi_block_is_deployed` | The client.yml mcp_server config has an `auto_poi` block (enabled, `merge_radius_m` 0.5, event types collision_stop and nav_abort, `max_pose_age_s` 2.0, `hint_after_images` 3) that validates with `McpServerConfig`. |
-| `test_mcp_server_config_renders_guard_rules_in_dry_run` | The client.yml mcp_server config renders `guard_rules:` with exactly the five rules (R1-R5 names, in order), every one `mode: dry_run`, and `motion_queue` `watch_rate_hz: 10` / `watch_max_per_call: 8` (YAML only; the node test validates the schema). |
-| `test_base_guard_rules_cover_every_base_moving_tool` | Every guard rule that applies to a base tool applies to all of them: the base set is read from mcp_server `tools.py` `TOOL_SUBSYSTEM` (AST, no import), so a new base-moving tool such as `go_to_frontier` / `look_toward_frontier` cannot slip past the base rules. |
+| `test_mcp_server_config_renders_guard_rules_in_dry_run` | The client.yml mcp_server config renders `guard_rules:` with exactly the seven rules (R1-R5 names, then the look_around twins `look_around_arm_outside_footprint` and `look_around_carrying_without_object_footprint`, in order), every one `mode: dry_run`, and `motion_queue` `watch_rate_hz: 10` / `watch_max_per_call: 8` (YAML only; the node test validates the schema). |
+| `test_base_guard_rules_cover_every_base_moving_tool` | Every guard rule that applies to a base tool applies to all of them: the base set is read from mcp_server `tools.py` `TOOL_SUBSYSTEM` (AST, no import), so a new base-moving tool such as `go_to_frontier` / `look_toward_frontier` cannot slip past the base rules; `look_around` (base only in its base modes) may instead be covered by a look_around-only twin with the same `all` conditions plus `args.mode ne head`. |
 | `test_mcp_server_config_pins_auto_poi_block` | The client.yml mcp_server `auto_poi:` block pins every `AutoPoiSettings` key (enabled, merge_radius_m 0.5, max_pose_age_s 2.0, event_types collision_stop and nav_abort) and the config validates with `McpServerConfig`. |
 | `test_mcp_server_config_lookups_block_is_only_the_store_dir` | The client.yml mcp_server `lookups:` block is exactly `{store_dir: /var/lib/ros2/poi/lookups}` (poi_store owns retention) and the config validates with `McpServerConfig`. |
 | `test_client_yml_pins_the_agent_poi_settings` | The client.yml mcp_server `auto_poi:` block pins every `AutoPoiSettings` key (hint_after_images 3) and validates; claude_agent pins `poi_review_followup: true`, `poi_hint_radius_m: 0.5`, and has no `agent_poi_reset` key. |
@@ -3067,12 +3104,11 @@ Static checks of the Nav2 MPPI overlay (patched `nav2_mppi_controller` built int
 | `test_overlay_source_is_pinned_to_the_apt_tag_with_the_patch` | `nav2_mppi_overlay` is true and `nav2_mppi_overlay_source` is exactly the navigation2 repo, the full 1.3.13 SHA, package, `/opt/ros2-ws`, the E9 patch under `ros2_repo_dest`, Release + `BUILD_TESTING=OFF`, `stamp_apt_packages` and `jobs: 2`. |
 | `test_overlay_patch_exists_and_only_touches_the_mppi_package` | The patch file exists and every file it touches is under `nav2_mppi_controller/`. |
 | `test_probe_pin_equals_the_client_commit` | `PIN` in `scripts/probe-mppi-overlay-docker.sh` equals the overlay commit in `client.yml`. |
-| `test_nav2_colcon_source_builds_the_plugin_whatever_the_rollback_flag` | The nav2_bringup `colcon_source` is a list: the arm wait plugin source always, first (the launcher sources its workspace `/opt/ros2-ws`), the MPPI overlay only with `nav2_mppi_overlay` (replaces the old single-source gate test, no longer accurate). |
-| `test_arm_drive_wait_bt_source_is_the_local_plugin_package` | `arm_drive_wait_bt_source` is the local `nodes/arm_drive_wait_bt_cpp`, `/opt/ros2-ws`, Release, `BUILD_TESTING` off, jobs 2. |
-| `test_nav2_apt_packages_cover_the_plugin_package_xml` | nav2_bringup `apt_packages` include `ros-jazzy-nav2-behavior-tree` and `ros-jazzy-behaviortree-cpp`. |
-| `test_nav2_rollback_purges_the_overlay` | With the flag false, nav2_bringup `colcon_purge` lists `nav2_mppi_controller` in `/opt/ros2-ws`. |
+| `test_nav2_colcon_source_is_the_overlay_only_when_on` | nav2_bringup `colcon_source` is `[nav2_mppi_overlay_source]` (workspace `/opt/ros2-ws`) with the flag on and `[]` with it off. |
+| `test_nav2_purges_the_retired_arm_wait_plugin_and_the_overlay_on_rollback` | `colcon_purge` always lists `arm_drive_wait_bt_cpp` in `/opt/ros2-ws` (the deploy removes the old plugin build); with the flag off it also lists `nav2_mppi_controller`; `arm_drive_wait_bt_source` is gone. |
+| `test_nav2_apt_packages_drop_the_plugin_only_packages` | nav2_bringup `apt_packages` no longer carry rsync, ament-cmake, rclcpp, std-msgs, nav2-behavior-tree, behaviortree-cpp or nlohmann-json3-dev (added only for the plugin). |
 | `test_role_runs_colcon_purge_on_the_deploy_path_before_the_build` | The ros2_node_deploy role runs `colcon_purge.yml` on deploy (not only uninstall), before the build. |
-| `test_ansible_readme_describes_the_plugin_build_and_the_rollback_purge` | ansible/README.md documents the plugin build and the rollback purge. |
+| `test_ansible_readme_describes_the_overlay_build_and_the_purges` | ansible/README.md documents the overlay build and the `colcon_purge` entries, and no longer mentions `arm_drive_wait_bt_source`. |
 | `test_nav2_apt_packages_carry_the_overlay_build_dependencies` | nav2_bringup `apt_packages` include the toolchain, colcon, xtensor/xsimd/benchmark/openmp dev packages, the ament/nav2 deps and the apt MPPI. |
 | `test_apt_version_feeds_the_stamp_key_only_for_a_non_empty_list` | `dpkg-query -W -f='${Version}'` (never changed, runs in check mode) loops over `stamp_apt_packages`; its output joins the stamp key only under a `length > 0` condition and the original key formula is intact (rf2o/libcamera/camera_ros keys unchanged). |
 | `test_build_jobs_default_to_ros2_build_jobs` | The build `MAKEFLAGS` is `-j{{ colcon_src.jobs \| default(ros2_build_jobs) }}`. |

@@ -61,8 +61,10 @@ class RunConfig(BaseModel):
     base_url: str
     testset: str = "scripts/eval/testset_v1.yaml"
     mode: Mode = "arm_only"
+    # take_control:base keeps every base motion out of reach (look_around's base modes too); look_around(mode='head')
+    # pans the head under the arm lease and stays allowed.
     arm_only_deny_tools: list[str] = Field(
-        default_factory=lambda: ["navigate_to_pose", "move_relative", "drive", "look_around", "take_control:base"]
+        default_factory=lambda: ["navigate_to_pose", "move_relative", "drive", "take_control:base"]
     )
     k: int = Field(default=3, ge=1)
     stop_on_success: bool = True

@@ -5,8 +5,7 @@
 #      in-repo C++ package; tagged by a hash of the Dockerfile and all package.xml files; build output streamed with
 #      --progress=plain; on GitHub Actions (GITHUB_ACTIONS=true) with the Azure Ubuntu apt mirror of the runners as
 #      build args UBUNTU_MIRROR and UBUNTU_SECURITY_MIRROR, elsewhere with the Dockerfile's default archive mirrors);
-#   2. mount the repo read-only and copy shared/ros2_common_cpp, nodes/*_cpp, .clang-format and the Nav2 BT XMLs
-#      (nodes/nav2_bringup/behavior_trees) into /ws/src,
+#   2. mount the repo read-only and copy shared/ros2_common_cpp, nodes/*_cpp and .clang-format into /ws/src,
 #      keeping the repo layout (packages find the root .clang-format at ../../.clang-format);
 #   3. rosdep install, colcon build --packages-up-to <pkg> (BUILD_TESTING=ON, Release);
 #   4. colcon test --packages-select <pkg> (--lint-only: only the ament linters, ctest label "linter"), then
@@ -111,9 +110,6 @@ for dir in $PKG_DIRS; do
   cp -r "/repo/$dir" "/ws/src/$dir"
   rm -rf "/ws/src/$dir/build" "/ws/src/$dir/install" "/ws/src/$dir/log"
 done
-# Nav2 BT XMLs a package test loads (arm_drive_wait_bt_cpp); no package.xml, so colcon does not build it.
-mkdir -p /ws/src/nodes/nav2_bringup
-cp -r /repo/nodes/nav2_bringup/behavior_trees /ws/src/nodes/nav2_bringup/behavior_trees
 cd /ws
 echo "== rosdep install"
 rosdep install -y -q --from-paths src --ignore-src --rosdistro "$ROS_DISTRO"

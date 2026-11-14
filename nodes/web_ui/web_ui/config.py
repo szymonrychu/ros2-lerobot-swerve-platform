@@ -110,7 +110,6 @@ MAP_NAV_DEFAULTS: dict[str, str] = {
     "lookups_dir": "/var/lib/ros2/poi/lookups",
     "head_urdf": "head.urdf",
     "head_joint_states_topic": HEAD_TAB_DEFAULT_JOINT_STATES_TOPIC,
-    "drive_pose_state_topic": "/arm/drive_pose/state",
 }
 # Topics a poi tab reads (defaults filled for unset fields; same values as the map_nav defaults).
 POI_TAB_DEFAULTS: dict[str, str] = {key: MAP_NAV_DEFAULTS[key] for key in ("poi_list_topic", "poi_photos_topic")}
@@ -127,9 +126,6 @@ ARM_TAB_DEFAULTS: dict[str, str] = {
     "arm_set_home_service": MAP_NAV_DEFAULTS["arm_set_home_service"],
     "arm_take_control_service": "/arm/take_control",
     "arm_release_control_service": "/arm/release_control",
-    "arm_set_drive_pose_service": "/arm/set_drive_pose",
-    "arm_drive_pose_enable_service": "/arm/drive_pose/enable",
-    "drive_pose_state_topic": MAP_NAV_DEFAULTS["drive_pose_state_topic"],
     "guard_state_topic": "/filter/guard_state",
 }
 # Default disk cache cap for proxied map tiles (MiB).
@@ -157,7 +153,6 @@ RGBD_CLOUD_ROLE = "rgbd_cloud"  # coloured point cloud of head_rgbd_cpp, drawn i
 GROUND_CLOUD_ROLE = "ground_cloud"  # labelled cloud (XYZ rgb label) of ground_estimator_cpp, drawn in the map frame
 GROUND_STATE_ROLE = "ground_state"  # std_msgs/String JSON state of ground_estimator_cpp (latched)
 GUARD_STATE_ROLE = "guard_state"  # std_msgs/String JSON self-collision guard state of filter_node (latched)
-DRIVE_POSE_STATE_ROLE = "drive_pose_state"  # std_msgs/String JSON drive pose state of mcp_server (latched)
 # Seconds without a ground state message after which the backend marks the cached state "stale": true.
 GROUND_STALE_S_DEFAULT = 2.0
 
@@ -200,7 +195,6 @@ MAP_NAV_TOPIC_ROLES: tuple[tuple[str, str], ...] = (
     ("poi_result_topic", "poi_result"),
     ("poi_photos_topic", "poi_photos"),
     ("grasp_result_topic", "grasp_result"),
-    ("drive_pose_state_topic", DRIVE_POSE_STATE_ROLE),
 )
 
 
@@ -306,10 +300,6 @@ class TabConfig(BaseModel):
     active_source_topic: str | None = None  # arm: std_msgs/String of the filter_node command source in control
     arm_take_control_service: str | None = None  # arm: std_srvs/Trigger taking the arm lease for the web UI
     arm_release_control_service: str | None = None  # arm: std_srvs/Trigger releasing the lease to the leader
-    arm_set_drive_pose_service: str | None = None  # arm: std_srvs/Trigger storing the current arm pose as drive pose
-    arm_drive_pose_enable_service: str | None = None  # arm: std_srvs/SetBool switching the drive pose lift on or off
-    # map_nav, arm: std_msgs/String JSON drive pose state of mcp_server (latched), shown read-only on the map.
-    drive_pose_state_topic: str | None = None
     # arm: std_msgs/String JSON self-collision guard state of filter_node (latched), shown as "Blocked by <obstacle>".
     guard_state_topic: str | None = None
     rgb_camera_topic: str | None = None  # head: sensor_msgs/CompressedImage of the head RGB camera
@@ -981,8 +971,7 @@ class AppConfig(BaseModel):
         """Return the std_srvs/Trigger arm services of all map_nav and arm tabs.
 
         Returns:
-            list[str]: Sorted unique service names (home, set home and, on arm tabs, take / release control and set
-                drive pose; the calibration IMU, servo group and General section services).
+            list[str]: Sorted unique service names (home, set home and, on arm tabs, take / release control; the calibration IMU, servo group and General section services).
         """
         services: set[str] = set()
         for tab in self.tabs:
@@ -995,7 +984,6 @@ class AppConfig(BaseModel):
                     tab.arm_set_home_service,
                     tab.arm_take_control_service,
                     tab.arm_release_control_service,
-                    tab.arm_set_drive_pose_service,
                 )
                 if s
             )
@@ -1011,16 +999,6 @@ class AppConfig(BaseModel):
             if general is not None:
                 services.update(s for s in (general.service(a) for a in general.offered()) if s)
         return sorted(services)
-
-    def set_bool_services(self) -> list[str]:
-        """Return the std_srvs/SetBool services of all arm tabs (the drive pose enable switch).
-
-        Returns:
-            list[str]: Sorted unique service names.
-        """
-        return sorted(
-            {tab.arm_drive_pose_enable_service for tab in self.arm_tabs() if tab.arm_drive_pose_enable_service}
-        )
 
     def servo_state_topics(self) -> dict[str, str]:
         """Return namespace -> torque_state topic of the configured servo groups (empty without any)."""
@@ -1067,7 +1045,7 @@ class AppConfig(BaseModel):
         """Map each map_nav topic to its bridge subscription role.
 
         Roles are "map" and "costmap" (OccupancyGrid), "cloud" and "map3d_cloud" (PointCloud2) and "scan_points" (LaserScan), "map3d_status" and "map3d_result" (std_msgs/String JSON), "path" (Path), "goal" (PoseStamped), "footprint"
-        (PolygonStamped), "gps" (NavSatFix), "poi_list", "poi_photos", "poi_result" and "grasp_result" (std_msgs/String JSON), "active_source" (arm tab, std_msgs/String), "head_rgb" and "head_rgbd_rgb" (CompressedImage), "head_depth" and "head_rgbd_depth" (Image) of head tabs, "rgbd_cloud" and "ground_cloud" (PointCloud2), "ground_state" and "drive_pose_state" (std_msgs/String JSON, map_nav and arm tabs), "guard_state" (std_msgs/String JSON, arm tab) and "battery" (BatteryState) and "gps_status" (std_msgs/String JSON); the bridge derives message types from these instead of
+        (PolygonStamped), "gps" (NavSatFix), "poi_list", "poi_photos", "poi_result" and "grasp_result" (std_msgs/String JSON), "active_source" (arm tab, std_msgs/String), "head_rgb" and "head_rgbd_rgb" (CompressedImage), "head_depth" and "head_rgbd_depth" (Image) of head tabs, "rgbd_cloud" and "ground_cloud" (PointCloud2), "ground_state" (std_msgs/String JSON, map_nav tabs), "guard_state" (std_msgs/String JSON, arm tab) and "battery" (BatteryState) and "gps_status" (std_msgs/String JSON); the bridge derives message types from these instead of
         TOPIC_TYPE_HINTS.
 
         Returns:
@@ -1095,8 +1073,6 @@ class AppConfig(BaseModel):
                 roles[tab.active_source_topic] = ACTIVE_SOURCE_ROLE
             if tab.grasp_result_topic:
                 roles[tab.grasp_result_topic] = GRASP_RESULT_ROLE
-            if tab.drive_pose_state_topic:
-                roles[tab.drive_pose_state_topic] = DRIVE_POSE_STATE_ROLE
             if tab.guard_state_topic:
                 roles[tab.guard_state_topic] = GUARD_STATE_ROLE
         if self.battery is not None:

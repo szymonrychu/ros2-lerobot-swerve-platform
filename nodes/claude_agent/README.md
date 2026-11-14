@@ -107,7 +107,9 @@ precondition ends a blend), give steps preconditions (`gripper_holding`, `grippe
 `wait_for_event` instead of polling (it returns events plus a state digest), verify only at checkpoints, and
 `cancel_motions` or `replace=true` on surprises. It restates that every safety rule holds for queued motions (roll
 guard, negative elbow_flex stretches the arm, slow zone, stop on errors; stop clears the queue) and that `look_around`
-spins once and ends facing its last heading unless `return_to_start=true`.
+spins once and ends facing its last heading unless `return_to_start=true`. The leases and spatial perception paragraphs
+say that `look_around(mode='head')` pans the head over +-90 deg without moving the base and works under the arm or the
+base lease, while the base modes level the head for the turn and restore it (`test_prompt.py`).
 
 ## Task plan (per-phase budgets)
 
@@ -118,7 +120,7 @@ used up) and only counted (`ro_used`, per instruction and per active phase) for 
 
 | Counter | Counts | Instruction maximum (config) | Per-phase maximum (config) |
 |---|---|---|---|
-| `rw` (read-write) | robot effector calls (kind `effector`: `navigate_to_pose`, `move_relative`, `drive`, `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `look_around`, `grasp_approach`, `grasp_close`, `grasp_lift`, `grasp_abort`, `release_object`, `enqueue_motions` (one call however many steps it queues), `go_to_frontier`, `look_toward_frontier`, `approach_for_grasp` (drives the base to the best grasp pose, needs the base lease), `set_head_angles`, `head_look_at`, `head_home` (head tools, work under the arm or the base lease; releasing the last lease homes the head); a robot tool in no list counts as an effector, so a new motion tool is safe by default) | `max_rw_cap` (400) | `max_phase_rw_cap` (100) |
+| `rw` (read-write) | robot effector calls (kind `effector`: `navigate_to_pose`, `move_relative`, `drive`, `move_arm_joints`, `move_arm_cartesian`, `set_gripper`, `arm_home`, `look_around` (also `mode='head'`, which pans only the head under either lease), `grasp_approach`, `grasp_close`, `grasp_lift`, `grasp_abort`, `release_object`, `enqueue_motions` (one call however many steps it queues), `go_to_frontier`, `look_toward_frontier`, `approach_for_grasp` (drives the base to the best grasp pose, needs the base lease), `set_head_angles`, `head_look_at`, `head_home` (head tools, work under the arm or the base lease; releasing the last lease homes the head); a robot tool in no list counts as an effector, so a new motion tool is safe by default) | `max_rw_cap` (400) | `max_phase_rw_cap` (100) |
 | turns | model turns (one `AssistantMessage`, its tool calls included) | `max_turn_cap` (500) | `max_phase_turn_cap` (100) |
 
 Sensor calls (kind `sensor`: `suggest_approach_pose` (read-only ranked base poses for a grasp), `plan_grasp` (dry run, no motion), `get_robot_state`, `get_camera_image`, `get_map_summary`, `get_arm_state`, `get_body_state`, `get_arm_reach`, `pixel_to_ground`, `get_annotated_camera_image`, `mark_candidate_points`, `resolve_candidate`, the calibration tools, `get_topdown_view`, the 3D map tools (`get_3d_map_status`, `query_3d_map_at`, `get_3d_free_space`), the object memory tools, the POI tools, the named map tools (`save_map`, `list_maps`, `load_map`, `delete_map`, `clear_pois`), `list_frontiers`, `plan_frontier_visit`, `get_motion_status`, `wait_for_event` and `get_control_state`) must be listed in `sensor_tools`, because an unlisted robot tool counts as an effector.
@@ -360,6 +362,7 @@ loads them on demand under the qualified name `robot-skills:<name>`. `claude_age
 - **Optional tools section.** Head, zoom and 3D-map tools (`set_head_angles`, `head_look_at`, `head_home`,
   `get_3d_map_status`, `query_3d_map_at`, `get_3d_free_space`, zoom) may be named only under
   `## When extra perception tools exist`, and that section must also give the base-rotation fallback (`look_around`).
+  `look_around(mode='head')` (head pan, no base motion) is part of `look_around` and may be named anywhere.
   Everything outside it works on the base-rotation tools alone.
 - **Shipped skills.** `planning` (start of every job: picks the workflow), `survey` (look all around at one spot),
   `sightseeing` (explore, map or look around the whole place), `approach-and-verify` (drive to a target and confirm
@@ -811,7 +814,7 @@ The web UI's Agent tab (`agent_chat`, see `nodes/web_ui/README.md`) reaches this
 
 ### Arm-only evaluation mode
 
-`POST /api/message` accepts an optional `deny_tools` list (for example `["navigate_to_pose", "move_relative", "drive", "look_around", "take_control:base"]`; the `take_control:base` entry refuses only `take_control(subsystem="base")`, so without a base lease mcp_server refuses every base motion, including base steps inside `enqueue_motions`)
+`POST /api/message` accepts an optional `deny_tools` list (for example `["navigate_to_pose", "move_relative", "drive", "take_control:base"]`; the `take_control:base` entry refuses only `take_control(subsystem="base")`, so without a base lease mcp_server refuses every base motion, including base steps inside `enqueue_motions` and the base modes of `look_around`, while `look_around(mode='head')` pans the head under the arm lease)
 that the permission gate refuses for that one instruction: the call is denied through the normal `tool_denied` path with
 the reason `<tool> is disabled for this instruction (evaluation arm-only mode)` and is not counted against the phase
 budget. The list is cleared at every instruction start, so it never carries over, and the `user_message` event records

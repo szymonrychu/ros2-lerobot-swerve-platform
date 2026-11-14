@@ -7,19 +7,17 @@ from typing import Any
 import pytest
 from mcp.server.mcpserver.exceptions import ToolError
 
-from mcp_server.config import DrivePoseSettings, McpServerConfig
+from mcp_server.config import McpServerConfig
 from mcp_server.control import (
     ControlManager,
     LeaderActivity,
     steering_neutral,
     wait_steering_neutral,
 )
-from mcp_server.drive_pose import DrivePose
 from mcp_server.monitor import RobotMonitor
-from mcp_server.tools import TOOL_SUBSYSTEM, build_mcp_server
+from mcp_server.tools import TOOL_SUBSYSTEM, build_mcp_server, effective_look_mode, lease_need
 
 from .test_battery_gate import LOW_V, make_guard
-from .test_drive_pose import DRIVE, FakeArm, FakeGates, FakeWorker
 from .test_motion_queue import WAIT, GateRobot, make_queue, steps
 from .test_tilt_guard import state
 from .test_tools import TOKEN, FakeRobot, call
@@ -413,7 +411,6 @@ def test_get_control_state_and_release_tool(server: Any, robot: FakeRobot) -> No
         "lost": None,
         "held_by": None,
         "carrying": {"carrying": False, "reasons": [], "radius_m": None},
-        "drive_pose": None,
     }
     assert state["base"] == {"held": False, "held_since": None, "steering_neutral": True}
     call(server, "take_control", {"subsystem": "arm"})
@@ -595,46 +592,65 @@ def test_ros_services_take_and_release_through_the_control_manager(ros_iface: An
     assert response.success is False and "not ready" in response.message
 
 
-# --- drive pose (drive_pose.DrivePose bound by ros_iface) ----------------------------------------------------------
+# --- look_around: head mode pans the head only (either lease), the base modes need the base lease ---------------
+
+LOOK_MODE_RULE = {
+    "name": "no_base_look_around",
+    "mode": "enforce",
+    "message": "no_base_look_around test rule; use look_around(mode='head') instead",
+    "applies_to": {"tools": ["look_around"]},
+    "all": [{"field": "args.mode", "op": "ne", "value": "head"}],
+    "when_unknown": "reject",
+}
 
 
-def drive_pose_rig(server: Any) -> tuple[DrivePose, FakeArm, FakeWorker]:
-    arm, worker = FakeArm(), FakeWorker()
-    drive = DrivePose(
-        DrivePoseSettings(enabled=True, joints=DRIVE),
-        arm,
-        FakeGates(),
-        publish_static=lambda: None,
-        submit=worker.submit,
-        clock=lambda: 10.0,
-        clock_ns=lambda: 42,
-    )
-    server.control.drive_pose = drive
-    return drive, arm, worker
-
-
-def test_get_control_state_reports_the_drive_pose(server: Any) -> None:
-    drive, _arm, _worker = drive_pose_rig(server)
-    drive.tick(10.0, True)
-    state = call(server, "get_control_state", {}).structured_content
-    assert state["arm"]["drive_pose"] == {"state": "lifting", "reason": "", "enabled": True, "stamp_ns": 42}
-
-
-def test_stop_tool_aborts_a_running_drive_pose_motion(server: Any) -> None:
-    drive, arm, worker = drive_pose_rig(server)
-    drive.tick(10.0, True)
-    assert drive.state().state == "lifting"
-    call(server, "stop", {})
-    assert ("request_stop",) in arm.calls
-    worker.run()
-    assert drive.state().state == "skipped: stopped"
-
-
-def test_control_manager_exposes_the_drive_pose_gates(tmp_path: Path) -> None:
+def test_lease_need_head_mode_any_lease(tmp_path: Path) -> None:
+    config = McpServerConfig()
+    assert lease_need("look_around", {"mode": "head"}, config) == "any"
+    assert lease_need("drive", {"mode": "head"}, config) == "base"
+    assert lease_need("set_head_angles", {}, config) == "any"
+    assert lease_need("get_robot_state", {}, config) is None
     robot = FakeRobot(tmp_path)
-    ctl = manager(robot, guard=make_guard(LOW_V))
-    assert ctl.agent_lease_held() is False and ctl.web_ui_lease_held() is False
-    assert ctl.carrying() is False and ctl.battery_cutoff() is True
-    ctl.take("arm")
-    assert ctl.agent_lease_held() is True and ctl.web_ui_lease_held() is False
-    assert manager(robot).battery_cutoff() is False
+    server = build_mcp_server(robot, config, TOKEN)
+    call(server, "take_control", {"subsystem": "arm"})
+    res = call(server, "look_around", {"mode": "head"})
+    assert res.structured_content["status"] == "completed"
+    assert robot.head_backend.commands
+    assert not [c for c in robot.calls if c[0] in ("move_relative", "spin", "navigate")]
+    call(server, "release_control", {"subsystem": "arm", "keep_position": True})
+    call(server, "take_control", {"subsystem": "base"})
+    assert call(server, "look_around", {"mode": "head"}).structured_content["status"] == "completed"
+
+
+@pytest.mark.parametrize("args", [{}, {"mode": "spin"}, {"mode": "steps"}])
+def test_look_around_base_modes_need_base_lease(tmp_path: Path, args: dict[str, Any]) -> None:
+    config = McpServerConfig()
+    assert lease_need("look_around", args, config) == "base"
+    robot = FakeRobot(tmp_path)
+    server = build_mcp_server(robot, config, TOKEN)
+    call(server, "take_control", {"subsystem": "arm"})
+    with pytest.raises(ToolError, match="base"):
+        call(server, "look_around", args)
+    assert robot.head_backend.commands == []
+    assert not [c for c in robot.calls if c[0] in ("move_relative", "spin", "camera_image")]
+
+
+def test_omitted_mode_resolves_to_config_mode(tmp_path: Path) -> None:
+    head_config = McpServerConfig(look_around={"mode": "head"}, guard_rules={"rules": [LOOK_MODE_RULE]})
+    assert effective_look_mode({}, head_config) == "head"
+    assert effective_look_mode({"mode": "steps"}, head_config) == "steps"
+    assert effective_look_mode({"mode": None}, head_config) == "head"
+    assert lease_need("look_around", {}, head_config) == "any"
+    robot = FakeRobot(tmp_path)
+    server = build_mcp_server(robot, head_config, TOKEN)
+    call(server, "take_control", {"subsystem": "arm"})
+    # the guard sees the resolved mode: when_unknown=reject does not trip on the omitted argument
+    res = call(server, "look_around", {})
+    assert res.structured_content["status"] == "completed" and res.structured_content["expected"]["mode"] == "head"
+    spin_config = McpServerConfig(guard_rules={"rules": [LOOK_MODE_RULE]})
+    assert effective_look_mode({}, spin_config) == "spin"
+    spin_server = build_mcp_server(FakeRobot(tmp_path), spin_config, TOKEN)
+    call(spin_server, "take_control", {"subsystem": "base"})
+    with pytest.raises(ToolError, match="guard rule 'no_base_look_around' refused look_around") as exc:
+        call(spin_server, "look_around", {})
+    assert "args.mode=spin" in str(exc.value)

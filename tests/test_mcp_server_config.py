@@ -402,12 +402,16 @@ def test_mcp_server_perception_config_sections() -> None:
     assert cfg["footprint"] == {"length_m": 0.47, "width_m": 0.386}
     assert cfg["look_around"]["default_captures"] == 4
     assert cfg["look_around"]["clearance_margin_m"] > 0
+    assert cfg["look_around"]["level_head"] is True
+    assert cfg["look_around"]["mode"] == "spin"  # head mode is the agent's choice per call
+    assert cfg["look_around"]["head_pans_deg"] == [90.0, 45.0, 0.0, -45.0, -90.0]
+    assert cfg["look_around"]["head_tilt_deg"] == 0.0 and cfg["look_around"]["head_settle_s"] == 0.2
     assert cfg["topdown"]["default_radius_m"] == 2.5 and cfg["topdown"]["default_px"] == 480
     assert cfg["poi"]["request_timeout_s"] == 3.0
 
 
 def test_mcp_server_config_renders_guard_rules_in_dry_run() -> None:
-    """client.yml renders the five guard rules, every one in dry_run, and the watch settings."""
+    """client.yml renders the seven guard rules, every one in dry_run, and the watch settings."""
     cfg = node_config("mcp_server")
     assert cfg["guard_rules"]["enabled"] is True
     assert [r["name"] for r in cfg["guard_rules"]["rules"]] == [
@@ -416,6 +420,8 @@ def test_mcp_server_config_renders_guard_rules_in_dry_run() -> None:
         "no_arm_retake_from_human",
         "wrist_roll_needs_lifted_arm",
         "no_stretched_shoulder_overreach",
+        "look_around_arm_outside_footprint",
+        "look_around_carrying_without_object_footprint",
     ]
     assert {r["mode"] for r in cfg["guard_rules"]["rules"]} == {"dry_run"}
     assert cfg["motion_queue"]["watch_rate_hz"] == 10
@@ -441,13 +447,26 @@ def mcp_base_tools() -> set[str]:
 
 
 def test_base_guard_rules_cover_every_base_moving_tool() -> None:
-    """A guard rule about base motion must apply to every tool that moves the base (incl. the frontier tools)."""
+    """A guard rule about base motion must apply to every tool that moves the base (incl. the frontier tools).
+
+    look_around turns the base only in its base modes, so a base motion rule covers it through a look_around-only twin
+    with the same conditions plus args.mode ne head (look_around(mode='head') never moves the base).
+    """
     base = mcp_base_tools()
     assert {"navigate_to_pose", "go_to_frontier", "look_toward_frontier"} <= base
-    for rule in node_config("mcp_server")["guard_rules"]["rules"]:
+    rules = node_config("mcp_server")["guard_rules"]["rules"]
+    not_head = {"field": "args.mode", "op": "ne", "value": "head"}
+    for rule in rules:
         tools = set(rule["applies_to"].get("tools", []))
-        if tools & base:
-            assert base <= tools, f"{rule['name']} misses base tools {sorted(base - tools)}"
+        if not tools & base or tools == {"look_around"}:
+            continue
+        assert base - {"look_around"} <= tools, f"{rule['name']} misses base tools {sorted(base - tools)}"
+        twins = [
+            r["name"]
+            for r in rules
+            if r["applies_to"].get("tools") == ["look_around"] and r["all"] == [*rule["all"], not_head]
+        ]
+        assert "look_around" in tools or twins, f"{rule['name']} has no look_around twin"
 
 
 def test_mcp_server_config_lazy_steer_states() -> None:

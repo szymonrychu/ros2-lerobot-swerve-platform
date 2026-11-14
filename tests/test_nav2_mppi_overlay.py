@@ -12,8 +12,6 @@ from typing import Any
 import jinja2
 import yaml
 
-from tests.test_cpp_node_deploy import package_xml_apt_names
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ANSIBLE_DIR = REPO_ROOT / "ansible"
 CLIENT_VARS = ANSIBLE_DIR / "group_vars" / "client.yml"
@@ -24,22 +22,7 @@ PROBE = REPO_ROOT / "scripts" / "probe-mppi-overlay-docker.sh"
 ROLE_MAIN = ANSIBLE_DIR / "roles" / "ros2_node_deploy" / "tasks" / "main.yml"
 ANSIBLE_README = ANSIBLE_DIR / "README.md"
 WORKSPACE = "/opt/ros2-ws"
-ARM_WAIT_DIR = "nodes/arm_drive_wait_bt_cpp"
-ARM_WAIT_SOURCE = {
-    "local": ARM_WAIT_DIR,
-    "package": "arm_drive_wait_bt_cpp",
-    "workspace": WORKSPACE,
-    "cmake_args": ["-DCMAKE_BUILD_TYPE=Release", "-DBUILD_TESTING=OFF"],
-    "base_paths": ["."],
-    "jobs": 2,
-    "stamp_apt_packages": [
-        "ros-jazzy-nav2-behavior-tree",
-        "ros-jazzy-behaviortree-cpp",
-        "ros-jazzy-rclcpp",
-        "ros-jazzy-std-msgs",
-        "nlohmann-json3-dev",
-    ],
-}
+ARM_WAIT_PURGE = {"package": "arm_drive_wait_bt_cpp", "workspace": WORKSPACE}
 MPPI_PURGE = [{"package": "nav2_mppi_controller", "workspace": WORKSPACE}]
 
 PIN = "f4108e5b1c2bce804a1aa0c7be6673a8eb4a1501"
@@ -135,40 +118,38 @@ def test_probe_pin_equals_the_client_commit() -> None:
     assert pin.group(1) == client_vars()["nav2_mppi_overlay_source"]["commit"]
 
 
-def test_nav2_colcon_source_builds_the_plugin_whatever_the_rollback_flag() -> None:
-    """The WaitForArmDriveReady plugin builds whatever the flag; the MPPI overlay only with nav2_mppi_overlay. Both
-    sources use /opt/ros2-ws, the workspace the launcher sources (the first source's). The overlay comes first: a
-    later source's stamp chains the earlier ones (_colcon_chain_key), so a plugin change rebuilds only the small
-    plugin, never the xtensor MPPI build that stops every node."""
+def test_nav2_colcon_source_is_the_overlay_only_when_on() -> None:
+    """The MPPI overlay builds only with nav2_mppi_overlay and uses /opt/ros2-ws, the workspace the launcher sources;
+    with the flag off nothing is built."""
     expression = nav2_type()["colcon_source"]
     overlay = client_vars()["nav2_mppi_overlay_source"]
-    assert render(expression, True) == [overlay, ARM_WAIT_SOURCE]
-    assert render(expression, False) == [ARM_WAIT_SOURCE]
-    for flag in (True, False):
-        assert render(expression, flag)[0]["workspace"] == WORKSPACE
+    assert render(expression, True) == [overlay]
+    assert render(expression, False) == []
+    assert overlay["workspace"] == WORKSPACE
 
 
-def test_arm_drive_wait_bt_source_is_the_local_plugin_package() -> None:
-    assert client_vars()["arm_drive_wait_bt_source"] == ARM_WAIT_SOURCE
-    package_xml = REPO_ROOT / ARM_WAIT_DIR / "package.xml"
-    assert f"<name>{ARM_WAIT_SOURCE['package']}</name>" in package_xml.read_text()
-    assert set(ARM_WAIT_SOURCE["stamp_apt_packages"]) <= set(nav2_type()["apt_packages"])
-
-
-def test_nav2_apt_packages_cover_the_plugin_package_xml() -> None:
-    """apt_packages installs ros-jazzy-nav2-behavior-tree, ros-jazzy-behaviortree-cpp and every other build or run
-    dependency of the plugin's package.xml."""
-    apt = set(nav2_type()["apt_packages"])
-    assert {"ros-jazzy-nav2-behavior-tree", "ros-jazzy-behaviortree-cpp", "rsync"} <= apt
-    needed = package_xml_apt_names(REPO_ROOT / ARM_WAIT_DIR / "package.xml", {ARM_WAIT_SOURCE["package"]})
-    assert needed <= apt, sorted(needed - apt)
-
-
-def test_nav2_rollback_purges_the_overlay() -> None:
-    """With the flag off the launcher still sources /opt/ros2-ws (the plugin), so the overlay is purged from it."""
+def test_nav2_purges_the_retired_arm_wait_plugin_and_the_overlay_on_rollback() -> None:
+    """The retired arm_drive_wait_bt_cpp build is purged from /opt/ros2-ws on every deploy; with the flag off the
+    launcher still sources /opt/ros2-ws, so the overlay is purged too."""
     expression = nav2_type()["colcon_purge"]
-    assert render(expression, True) == []
-    assert render(expression, False) == MPPI_PURGE
+    assert render(expression, True) == [ARM_WAIT_PURGE]
+    assert render(expression, False) == [ARM_WAIT_PURGE, *MPPI_PURGE]
+    assert "arm_drive_wait_bt_source" not in client_vars()
+
+
+def test_nav2_apt_packages_drop_the_plugin_only_packages() -> None:
+    """rsync (local-source builds), ament_cmake, rclcpp, std_msgs, the BT libraries and nlohmann-json were added only
+    for the arm wait plugin; the overlay builds from a git checkout and needs none of them."""
+    apt = set(nav2_type()["apt_packages"])
+    assert not apt & {
+        "rsync",
+        "ros-jazzy-ament-cmake",
+        "ros-jazzy-rclcpp",
+        "ros-jazzy-std-msgs",
+        "ros-jazzy-nav2-behavior-tree",
+        "ros-jazzy-behaviortree-cpp",
+        "nlohmann-json3-dev",
+    }
 
 
 def test_role_runs_colcon_purge_on_the_deploy_path_before_the_build() -> None:
@@ -181,10 +162,11 @@ def test_role_runs_colcon_purge_on_the_deploy_path_before_the_build() -> None:
     assert names.index(include["name"]) < names.index("Build the source workspace (colcon, pinned or local)")
 
 
-def test_ansible_readme_describes_the_plugin_build_and_the_rollback_purge() -> None:
+def test_ansible_readme_describes_the_overlay_build_and_the_purges() -> None:
     text = ANSIBLE_README.read_text()
-    for needle in ("arm_drive_wait_bt_source", "arm_drive_wait_bt_cpp", "colcon_purge", "nav2_mppi_overlay"):
+    for needle in ("arm_drive_wait_bt_cpp", "colcon_purge", "nav2_mppi_overlay"):
         assert needle in text, needle
+    assert "arm_drive_wait_bt_source" not in text
 
 
 def test_nav2_apt_packages_carry_the_overlay_build_dependencies() -> None:

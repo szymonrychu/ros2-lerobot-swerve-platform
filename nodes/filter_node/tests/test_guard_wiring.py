@@ -15,7 +15,7 @@ from arm_collision.head import HeadPose
 from filter_node.config import FilterConfig, GuardSettings, LeaderGripperSettings
 from filter_node.guard import ArmGuard
 
-from .arm_fixture import ARM, CHECKER, DRIVE_POSE, HARD_MARGIN_M, PARKED_HOME, WHEEL_FR_PRESSED
+from .arm_fixture import ARM, CHECKER, HARD_MARGIN_M, PARKED_HOME, RAISED_POSE, WHEEL_FR_PRESSED
 from .ros_stubs import FakeRclpy, install_ros_stubs
 
 install_ros_stubs("sensor_msgs", "sensor_msgs.msg", "std_msgs", "std_msgs.msg")
@@ -211,14 +211,14 @@ def test_a_blocked_command_publishes_the_guard_state_and_a_clear_one_unblocks_it
 
 
 def test_a_clear_command_publishes_the_request(harness: Harness) -> None:
-    """Home to the drive pose is clear: the web UI command goes out unchanged."""
+    """Home to the raised pose is clear: the web UI command goes out unchanged."""
     harness.steps = [
         harness.at(0.1, FEEDBACK, joint_msg(PARKED_HOME)),
-        harness.at(0.2, WEB_UI, joint_msg(DRIVE_POSE)),
+        harness.at(0.2, WEB_UI, joint_msg(RAISED_POSE)),
         harness.at(0.3),
     ]
     harness.run()
-    assert harness.published == [("web_ui", DRIVE_POSE)]
+    assert harness.published == [("web_ui", RAISED_POSE)]
 
 
 def test_a_blocked_leader_prediction_publishes_the_clamp(harness: Harness) -> None:
@@ -269,9 +269,9 @@ def test_a_guard_exception_publishes_nothing_and_logs_an_error_once_per_5_s(harn
     harness.steps = [
         harness.at(0.1, FEEDBACK, joint_msg(PARKED_HOME)),
         harness.call(0.15, broken),
-        harness.at(0.2, WEB_UI, joint_msg(DRIVE_POSE)),
-        harness.at(0.3, WEB_UI, joint_msg(DRIVE_POSE)),
-        harness.at(0.2 + GUARD_LOG_PERIOD_S + 0.1, WEB_UI, joint_msg(DRIVE_POSE)),
+        harness.at(0.2, WEB_UI, joint_msg(RAISED_POSE)),
+        harness.at(0.3, WEB_UI, joint_msg(RAISED_POSE)),
+        harness.at(0.2 + GUARD_LOG_PERIOD_S + 0.1, WEB_UI, joint_msg(RAISED_POSE)),
         harness.at(6.0),
     ]
     harness.run()
@@ -306,7 +306,7 @@ def test_build_arm_guard_maps_leader_grippers_with_the_configured_mapping() -> N
 @pytest.mark.parametrize("bad", [math.nan, math.inf])
 def test_a_non_finite_command_publishes_nothing_and_the_node_keeps_publishing(harness: Harness, bad: float) -> None:
     """NaN or inf from web_ui is refused without raising out of the publish path; the next good command goes out."""
-    poisoned = {**DRIVE_POSE, "elbow_flex": bad}
+    poisoned = {**RAISED_POSE, "elbow_flex": bad}
     harness.steps = [
         harness.at(0.1, FEEDBACK, joint_msg(PARKED_HOME)),
         harness.at(0.2, WEB_UI, joint_msg(poisoned)),
