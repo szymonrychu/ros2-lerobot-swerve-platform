@@ -27,7 +27,10 @@ DEFAULT_YAW_TOLERANCE_DEG = 5.0  # nav.goal_yaw_tolerance_deg default
 LEVEL_PAN_RAD = 0.0  # head aim for the base turn: straight ahead ...
 LEVEL_TILT_RAD = 0.0  # ... and level (tilt + is down)
 # spin mode without a map pose (localization stalled): the turn runs on odometry, the tiles are relative to the start
-NO_MAP_POSE_NOTE = "robot pose (map) unavailable: tiles have no map heading; rotation measured from odometry"
+NO_MAP_POSE_NOTE = (
+    "robot pose (map) unavailable: tiles have no map heading; rotation measured from odometry; "
+    "returned_to_start not verified"
+)
 
 BaseLookMode = Literal["spin", "steps"]  # the modes that turn the base
 LookMode = Literal["spin", "steps", "head"]  # 'head' pans the D435 head, the base never moves

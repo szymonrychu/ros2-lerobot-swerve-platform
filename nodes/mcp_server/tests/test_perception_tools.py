@@ -584,7 +584,7 @@ def test_topdown_frontier_compute_is_measured_once_per_map_version(server: Any, 
 
 
 @pytest.mark.parametrize("mode, lease", [("spin", "base"), ("head", "arm")])
-def test_look_around_without_map_pose_skips_topdown_with_note(tmp_path: Path, mode: str, lease: str) -> None:
+def test_look_around_without_map_pose_renders_topdown_without_map_layers(tmp_path: Path, mode: str, lease: str) -> None:
     robot = RotatingRobot(tmp_path)
     robot.robot_pose = lambda: None  # type: ignore[method-assign]
     server = build_mcp_server(robot, McpServerConfig(), TOKEN)
@@ -592,9 +592,11 @@ def test_look_around_without_map_pose_skips_topdown_with_note(tmp_path: Path, mo
     res = call(server, "look_around", {"mode": mode})
     sc = res.structured_content
     assert sc["status"] == "completed"
-    assert sc["topdown"] is None
-    assert "top-down view skipped: robot pose (map) unavailable" in sc["notes"]
-    assert [c.mime_type for c in res.content if c.type == "image"] == ["image/jpeg"]
+    assert sc["topdown"] is not None
+    assert "map" in sc["topdown"]["layers_missing"]
+    assert "lidar" in sc["topdown"]["layers_present"]
+    assert not any("top-down" in note for note in sc["notes"])
+    assert [c.mime_type for c in res.content if c.type == "image"] == ["image/jpeg", "image/png"]
 
 
 def test_look_around_description_says_spin_runs_without_the_map_pose(server: Any) -> None:

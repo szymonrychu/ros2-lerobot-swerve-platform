@@ -498,7 +498,8 @@ def test_look_around_spin_without_map_pose_completes_with_note() -> None:
     assert result.status == "completed" and len(robot.spins) == 1
     assert look_around.NO_MAP_POSE_NOTE in result.notes
     assert look_around.NO_MAP_POSE_NOTE == (
-        "robot pose (map) unavailable: tiles have no map heading; rotation measured from odometry"
+        "robot pose (map) unavailable: tiles have no map heading; rotation measured from odometry; "
+        "returned_to_start not verified"
     )
     assert [label for label, _ in run.frames] == ["0 deg (start)", "+90 deg", "+180 deg", "+270 deg"]
     assert all(data is not None for _, data in run.frames)

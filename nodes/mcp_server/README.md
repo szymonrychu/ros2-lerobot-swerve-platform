@@ -782,9 +782,10 @@ Tests check that both modes give the same tiles, labels and heading summaries (`
 the map pose), but `spin` runs anyway with the note `robot pose (map) unavailable: tiles have no map heading; rotation
 measured from odometry`: the tiles keep their headings relative to the start, `steps[].expected_yaw` /
 `achieved_yaw` and `expected.final_yaw_rad` are null, no corrective rotation is made and `returned_to_start` stays
-false (the map heading is not verified). Head mode never needs the map pose. Without a map pose the tool skips the
-top-down view with the note `top-down view skipped: robot pose (map) unavailable` (all modes). Tests:
-`test_look_around.py` (spin completes with the note, steps refused), `test_perception_tools.py` (top-down skipped),
+false (the map heading is not verified; the note says `returned_to_start not verified`). Head mode never needs the map
+pose. Without a map pose the top-down view is still rendered (all modes): lidar, footprint and reach are drawn, the
+map-frame layers are listed in `layers_missing` with the reason. Tests:
+`test_look_around.py` (spin completes with the note, steps refused), `test_perception_tools.py` (top-down rendered without map layers),
 `test_base_motion.py` (`odom_pose`, `RosRobot.spin` measured from odometry).
 
 #### look_around head mode

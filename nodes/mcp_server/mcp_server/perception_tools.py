@@ -142,7 +142,6 @@ PoiStatus = Literal["open", "done", "cancelled"]
 MIN_POLYGON_VERTICES = 3
 POI_CREATED_BY = "agent"
 POI_FRAME = "map"
-TOPDOWN_NO_MAP_POSE_NOTE = "top-down view skipped: robot pose (map) unavailable"
 
 
 @contextmanager
@@ -467,8 +466,8 @@ def register(ctx: ToolContext) -> None:
             f"rotation circle (footprint circumscribed radius + {la.clearance_margin_m * 100:g} cm) or no fresh scan. "
             "The base modes need the base lease (take_control(subsystem='base')). "
             "Without a map pose (localization lost) mode 'spin' still turns, measuring the rotation from odometry "
-            "(a note says so; tiles keep their headings from the start, no map yaws, no top-down view, "
-            "returned_to_start false); mode 'steps' is refused. "
+            "(a note says so; tiles keep their headings from the start, no map yaws, returned_to_start false = not verified; "
+            "the top-down view is still rendered without its map layers, see layers_missing); mode 'steps' is refused. "
             "mode 'head' looks around without moving the base: it pans the D435 head through pan_deg (default "
             f"{[round(p) for p in la.head_pans_deg]} deg, + left, at tilt {la.head_tilt_deg:g} deg, within "
             f"+-{HEAD_PAN_LIMIT_DEG:g} deg) with a frame at each pan, tiles labelled with the measured pan "
@@ -532,17 +531,14 @@ def register(ctx: ToolContext) -> None:
             result: LookAroundResult = run.result
             montage = montage_jpeg(run.frames, la.frame_max_px)
             content: list[TextContent | ImageContent] = [image_block(montage, "image/jpeg")]
-            if robot.robot_pose() is None:
-                result.notes.append(TOPDOWN_NO_MAP_POSE_NOTE)
-            else:
-                try:
-                    png, meta = render_view(
-                        robot, config, list(ALL_LAYERS), td.default_radius_m, td.default_px, ctx.frontiers
-                    )
-                    result.topdown = meta.model_dump(mode="json")
-                    content.append(image_block(png, "image/png"))
-                except (RobotError, ValueError) as exc:
-                    result.notes.append(f"top-down view unavailable: {exc}")
+            try:
+                png, meta = render_view(
+                    robot, config, list(ALL_LAYERS), td.default_radius_m, td.default_px, ctx.frontiers
+                )
+                result.topdown = meta.model_dump(mode="json")
+                content.append(image_block(png, "image/png"))
+            except (RobotError, ValueError) as exc:
+                result.notes.append(f"top-down view unavailable: {exc}")
         content.insert(0, TextContent(type="text", text=json.dumps(result.model_dump(mode="json"))))
         return CallToolResult(content=content, structured_content=result.model_dump(mode="json"))
 
