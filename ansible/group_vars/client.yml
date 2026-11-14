@@ -3075,8 +3075,6 @@ ros2_nodes:
           # Home / Set home buttons: std_srvs/Trigger services served by mcp_server.
           arm_home_service: /arm/home
           arm_set_home_service: /arm/set_home
-          # mcp_server drive pose state (latched JSON), shown read-only in the map status line.
-          drive_pose_state_topic: /arm/drive_pose/state
           # Points of interest from poi_store (list is latched; edits go through POST /api/poi).
           poi_list_topic: /poi/list
           poi_command_topic: /poi/command
@@ -3134,10 +3132,6 @@ ros2_nodes:
           arm_joint_states_topic: /follower/joint_states
           # Where the draggable arm publishes (filter_node web_ui input).
           arm_command_topic: /filter/web_ui_joint_commands
-          # Set drive pose (std_srvs/Trigger), drive pose toggle (std_srvs/SetBool) and its latched JSON state (mcp_server).
-          arm_set_drive_pose_service: /arm/set_drive_pose
-          arm_drive_pose_enable_service: /arm/drive_pose/enable
-          drive_pose_state_topic: /arm/drive_pose/state
           # filter_node self-collision guard state (latched JSON): the arm tab shows "Blocked by <obstacle>".
           guard_state_topic: /filter/guard_state
         # Head tab: the RealSense D435 on the pan/tilt head (realsense_d435, live topics pinned in

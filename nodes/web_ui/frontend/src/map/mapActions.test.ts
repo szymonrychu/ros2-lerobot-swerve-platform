@@ -56,8 +56,8 @@ describe('postTabAction', () => {
   it('appends further query parameters after the tab id', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ status: 200, json: async () => ({ ok: true, message: 'on' }) })
     vi.stubGlobal('fetch', fetchMock)
-    await postTabAction('/api/arm/drive_pose/enable', 'arm', { enabled: 'true' })
-    expect(fetchMock).toHaveBeenCalledWith('/api/arm/drive_pose/enable?tab=arm&enabled=true', { method: 'POST' })
+    await postTabAction('/api/arm/jog', 'arm', { enabled: 'true' })
+    expect(fetchMock).toHaveBeenCalledWith('/api/arm/jog?tab=arm&enabled=true', { method: 'POST' })
   })
 
   it('turns a network failure into an error result', async () => {

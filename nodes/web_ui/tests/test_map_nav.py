@@ -214,7 +214,6 @@ def test_topic_roles_from_map_nav_tabs() -> None:
         "/poi/photos": "poi_photos",
         "/poi/result": "poi_result",
         "/grasp/result": "grasp_result",
-        "/arm/drive_pose/state": "drive_pose_state",
     }
 
 

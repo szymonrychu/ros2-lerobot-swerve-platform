@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ServoGroup, ServoGroupsState } from '../calibrate/servoApi'
-import { armControlState, ArmControlInput, DRIVE_POSE_WAITING_REASON, drivePoseOf, HELD_REASON, releasedJoints } from './armControls'
-import type { TabConfig } from '../types'
+import { armControlState, ArmControlInput, HELD_REASON, releasedJoints } from './armControls'
 
 function servo(group: Partial<ServoGroup> | null, joints: Record<string, number> = {}): ServoGroupsState {
   const full: ServoGroup | null = group && {
@@ -21,7 +20,7 @@ function servo(group: Partial<ServoGroup> | null, joints: Record<string, number>
   return { groups: full ? [full] : [], notConfigured: !full, error: null, loading: false }
 }
 
-const OK: ArmControlInput = { released: false, releasedJoints: [], busy: false, armReady: true, activeSource: 'filter', graspBusy: false, drivePoseKnown: true }
+const OK: ArmControlInput = { released: false, releasedJoints: [], busy: false, armReady: true, activeSource: 'filter', graspBusy: false }
 
 describe('releasedJoints', () => {
   it('lists the joints whose torque reading is 0', () => {
@@ -39,12 +38,12 @@ describe('releasedJoints', () => {
 describe('armControlState', () => {
   it('enables everything with an empty reason when nothing blocks', () => {
     const s = armControlState(OK)
-    for (const key of ['drag', 'armHome', 'setHome', 'setDrivePose', 'drivePose', 'grasp'] as const) expect(s[key]).toEqual({ disabled: false, reason: '' })
+    for (const key of ['drag', 'armHome', 'setHome', 'grasp'] as const) expect(s[key]).toEqual({ disabled: false, reason: '' })
   })
 
   it('released wins for every control and names the joints', () => {
     const s = armControlState({ ...OK, released: true, releasedJoints: ['elbow_flex', 'gripper'], busy: true, activeSource: 'autonomy', armReady: false })
-    for (const key of ['drag', 'armHome', 'setHome', 'setDrivePose', 'drivePose', 'grasp'] as const) {
+    for (const key of ['drag', 'armHome', 'setHome', 'grasp'] as const) {
       expect(s[key]).toEqual({ disabled: true, reason: 'Arm torque is off: elbow_flex, gripper released (Calibrate page)' })
     }
   })
@@ -56,7 +55,7 @@ describe('armControlState', () => {
   it('busy disables home, set home and grasp but not drag', () => {
     const s = armControlState({ ...OK, busy: true })
     expect(s.drag.disabled).toBe(false)
-    for (const key of ['armHome', 'setHome', 'setDrivePose', 'drivePose', 'grasp'] as const) expect(s[key]).toEqual({ disabled: true, reason: 'Arm action in flight' })
+    for (const key of ['armHome', 'setHome', 'grasp'] as const) expect(s[key]).toEqual({ disabled: true, reason: 'Arm action in flight' })
   })
 
   it('a running plan or execute disables only grasp', () => {
@@ -82,20 +81,5 @@ describe('armControlState', () => {
 
   it('the lease reason comes before the waiting reason', () => {
     expect(armControlState({ ...OK, activeSource: 'autonomy', armReady: false }).drag.reason).toBe(HELD_REASON)
-  })
-})
-
-describe('drive pose controls', () => {
-  it('the toggle waits for the first drive pose state; Set drive pose does not', () => {
-    const s = armControlState({ ...OK, drivePoseKnown: false })
-    expect(s.drivePose).toEqual({ disabled: true, reason: DRIVE_POSE_WAITING_REASON })
-    expect(s.setDrivePose).toEqual({ disabled: false, reason: '' })
-  })
-
-  it('drivePoseOf reads the tab topic, falling back to /arm/drive_pose/state', () => {
-    const state = { state: 'lifted', reason: '', enabled: true, stamp_ns: 1 }
-    expect(drivePoseOf({ id: 'a', type: 'arm', label: 'A' } as TabConfig, { '/arm/drive_pose/state': state })).toEqual(state)
-    expect(drivePoseOf({ id: 'a', type: 'arm', label: 'A', drive_pose_state_topic: '/x' } as TabConfig, { '/x': state })).toEqual(state)
-    expect(drivePoseOf({ id: 'a', type: 'arm', label: 'A' } as TabConfig, { '/arm/drive_pose/state': null })).toBeUndefined()
   })
 })

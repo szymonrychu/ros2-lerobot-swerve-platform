@@ -377,8 +377,7 @@ describe('ArmTab grasp', () => {
   })
 
   it('the grasp button is disabled with the in-flight reason while a grasp executes', () => {
-    const drivePose = { '/arm/drive_pose/state': { state: 'idle', reason: '', enabled: false, stamp_ns: 1 } }
-    renderTab({ [STREAM]: { request_id: 'r', action: 'execute', state: 'running' }, ...drivePose })
+    renderTab({ [STREAM]: { request_id: 'r', action: 'execute', state: 'running' } })
     expect((screen.getByRole('button', { name: 'Grasp' }) as HTMLButtonElement).disabled).toBe(true)
     expect(screen.getByTestId('arm-actions-reason').textContent).toBe('Arm action in flight')
   })
@@ -393,34 +392,13 @@ describe('ArmTab grasp', () => {
   })
 })
 
-describe('ArmTab drive pose', () => {
-  const STATE = '/arm/drive_pose/state'
-  const lifted = (enabled: boolean) => ({ [STATE]: { state: 'lifted', reason: '', enabled, stamp_ns: 1 } })
-  const slotButton = (name: string) => within(screen.getByTestId('arm-actions-slot')).getByRole('button', { name }) as HTMLButtonElement
-
+describe('ArmTab guard state', () => {
   beforeEach(() => {
     setViewport(1400)
     setServo('arm', 'enabled')
   })
   afterEach(() => {
     vi.unstubAllGlobals()
-  })
-
-  it('puts Set drive pose and the drive pose toggle next to Set home', () => {
-    renderTab(lifted(true))
-    expect(slotButton('Set drive pose').disabled).toBe(false)
-    expect(slotButton('Drive pose lift').getAttribute('aria-pressed')).toBe('true')
-  })
-
-  it('the toggle follows the live enabled of the state topic and posts the enable endpoint', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ status: 200, json: async () => ({ ok: true, message: 'drive pose on' }) })
-    vi.stubGlobal('fetch', fetchMock)
-    renderTab(lifted(false))
-    expect(slotButton('Drive pose lift').getAttribute('aria-pressed')).toBe('false')
-    await act(async () => fireEvent.click(slotButton('Drive pose lift')))
-    expect(fetchMock.mock.calls.map(([url, init]) => `${init?.method} ${url}`)).toEqual([
-      'POST /api/arm/drive_pose/enable?tab=arm&enabled=true',
-    ])
   })
 
   it('shows "Blocked by <obstacle>" while the guard state is blocked and hides it when cleared', () => {
@@ -443,22 +421,5 @@ describe('ArmTab drive pose', () => {
     )
     expect(screen.getByTestId('guard-blocked-banner').textContent).toContain('Blocked by crossbar')
     expect(tabTopics({ ...TAB, guard_state_topic: '/x/guard' })).toContain('/x/guard')
-  })
-
-  it('reads the tab drive_pose_state_topic', () => {
-    render(
-      <ThemeProvider theme={theme}>
-        <ArmTab tab={{ ...TAB, drive_pose_state_topic: '/x/state' }} topicData={{ '/x/state': { state: 'idle', reason: '', enabled: true, stamp_ns: 1 } }} publish={vi.fn()} />
-      </ThemeProvider>,
-    )
-    expect(slotButton('Drive pose lift').getAttribute('aria-pressed')).toBe('true')
-    expect(tabTopics({ ...TAB, drive_pose_state_topic: '/x/state' })).toContain('/x/state')
-  })
-
-  it('disables Set drive pose and the toggle while the arm is released', () => {
-    setServo('arm', 'released')
-    renderTab(lifted(true))
-    expect(slotButton('Set drive pose').disabled).toBe(true)
-    expect(slotButton('Drive pose lift').disabled).toBe(true)
   })
 })
