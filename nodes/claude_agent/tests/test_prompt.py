@@ -928,9 +928,9 @@ def test_prompt_has_no_retired_camera() -> None:
     assert "realsense d435" in lower and "640x360" in lower
 
 
-def test_prompt_explains_the_arm_drive_pose_during_navigation() -> None:
+def test_prompt_has_no_drive_pose() -> None:
+    """The drive pose (arm lifting out of the head camera view during navigation) is removed: the prompt must not describe it."""
     text = " ".join(build_system_prompt(ClaudeAgentConfig()).split())
     lower = text.lower()
-    assert "lifts by itself" in lower and "navigation goal" in lower and "lowers" in lower
-    assert "arm.drive_pose" in text and "get_control_state" in text
-    assert "skipped" in lower
+    for retired in ("drive pose", "drive_pose", "lifts by itself", "lowers back home"):
+        assert retired not in lower, retired
