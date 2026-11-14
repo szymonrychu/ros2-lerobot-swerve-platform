@@ -75,7 +75,7 @@ on the feeds node (`dual_rate_topic(node=feeds_node)`). Config `feeds_executor: 
 | `head_look_at(x, y, z, frame='base_link'\|'map')` | Aim the RGB camera axis once at a point (`HeadKinematics.look_at`, no tracking) and move there. `map` points are converted with the current robot map pose (refused when unknown). Unreachable points are refused with the pan/tilt they would need and nothing is published. Same lease/battery rules; also returns the target in base_link. |
 | `head_home()` | Move to the configured head home (`head.home_pan_rad` / `head.home_tilt_rad`, forward and down). Same lease/battery rules. |
 | `remember_object` / `list_objects` / `forget_object` | Object memory in map coordinates, stored as object POIs in poi_store (merge, distance/bearing from the robot). Sensor. |
-| `look_around(captures=4, camera='head', mode=None, return_to_start=None)` | Effector, ONE motion call: in-place turn through equal headings with a camera frame and lidar summary per heading. `mode` `spin` (default, `look_around.mode`): one continuous slow rotation; `steps`: one precise Nav2 rotation per heading. Ends facing the last heading unless `return_to_start=true` (default `look_around.return_to_start`, false). |
+| `look_around(captures=4, camera='head', mode=None, return_to_start=None)` | Effector, ONE motion call: in-place turn through equal headings with a camera frame and lidar summary per heading. `mode` `spin` (default, `look_around.mode`): one continuous slow rotation; `steps`: one precise Nav2 rotation per heading. Ends facing the last heading unless `return_to_start=true` (default `look_around.return_to_start`, false). The D435 head is levelled for the turn and its previous aim restored afterwards (`look_around.level_head`). |
 | `enqueue_motions(steps, replace=false, watch_constraints=None)` | Effector: queue motion steps and return at once (job ids, queue length, blend groups); `watch_constraints` abort or pause the queue on a sensor condition. See [Motion queue](#motion-queue). |
 | `resume_motions` | Effector (battery gate): continue a queue paused by a watch constraint; refused while a watch of the pending steps still violates; a no-op message when not paused. |
 | `check_guard_rules(tool, arguments={})` | Sensor, read-only: the tool-phase guard rule verdicts (`pass` / `reject` / `skip`, basis, message, observed values) a call would get now; no counters, no logs, nothing moves. Arm-target rules are evaluated at motion start, so they are not predicted. |
@@ -752,6 +752,14 @@ A `RobotError` from a step (stale map pose, ...) no longer escapes: status `fail
 far, and one corrective rotation back to the start heading is attempted unless the error was that another base motion is
 running. `returned_to_start` is true only when the closing rotation succeeded and the measured final heading is within
 `nav.goal_yaw_tolerance_deg` (5 deg) of the start heading; otherwise a note reports the heading error.
+**Head levelling** (`look_around.level_head`, default true): once the turn is allowed (never on a refusal) the D435
+head is levelled (pan 0, tilt 0, `level_head`) before the first capture, so the frames look straight out instead of at
+the floor; in `steps` mode it is levelled again before every capture because `head_aim` homes the head when each Nav2
+goal ends. When the run ends (completed, interrupted, failed or aborted) `restore_head` aims it back at the measured
+aim from before, or homes it with a note when there was no fresh head joint state; after a `stop` the head stays where
+it is. A head move that times out, has no feedback or is refused is a note, never an error (the captures go on).
+`head` in the result: `before_deg` (pan, tilt in degrees, null when unknown) and `restored`; null with
+`level_head: false`.
 Result: a montage JPEG (tiles labelled
 with the heading in degrees counter-clockwise from the start; a missing frame is a grey "no frame" tile), a top-down PNG,
 and structured `headings` (nearest obstacle overall and per sector at each stop), `steps`, `expected` (360 deg, stops)

@@ -446,7 +446,14 @@ def register(ctx: ToolContext) -> None:
         structured_output=False,
         description=(
             "Look around: turn the base in place through `captures` equal headings covering 360 degrees and grab a "
-            "camera frame and a lidar summary at every heading. mode 'spin' (default "
+            "camera frame and a lidar summary at every heading. "
+            + (
+                "The D435 head is levelled (pan 0, tilt 0) for the turn and its previous aim restored afterwards "
+                "(`head`: before_deg, restored; not restored after stop). "
+                if la.level_head
+                else ""
+            )
+            + "mode 'spin' (default "
             f"{la.mode!r}) turns in ONE continuous slow rotation ({la.spin_speed_rps:g} rad/s, frames taken while "
             "turning; stop, critical events and a timeout end it), 'steps' makes one precise Nav2 rotation per "
             "heading (slower). The turn ends facing the last heading unless return_to_start=true (default "

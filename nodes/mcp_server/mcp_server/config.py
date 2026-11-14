@@ -913,6 +913,8 @@ class LookAroundSettings(StrictModel):
     spin_rate_hz: float = Field(default=20.0, gt=0.0, le=50.0)
     spin_timeout_margin_s: float = Field(default=10.0, gt=0.0)  # spin timeout = angle / speed + this
     return_to_start: bool = False  # tool default: end facing the last heading instead of turning back
+    # Level the D435 head (pan 0, tilt 0) for the base turn and restore its previous aim afterwards (not after stop).
+    level_head: bool = True
 
     @model_validator(mode="after")
     def captures_in_range(self) -> "LookAroundSettings":

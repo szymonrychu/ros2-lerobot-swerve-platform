@@ -1,6 +1,7 @@
 """Tool-level tests of the perception/memory/POI module: get_topdown_view, object memory, look_around, POI tools."""
 
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -416,6 +417,23 @@ def test_look_around_tool_returns_montage_summary_and_topdown(tmp_path: Path) ->
     assert len(moves) == 4
     cams = [c[1][0] for c in robot.calls if c[0] == "camera_image"]
     assert cams == ["head"] * 4
+
+
+def test_look_around_tool_reports_the_restored_head_aim(tmp_path: Path) -> None:
+    robot = RotatingRobot(tmp_path)
+    robot.head_backend.positions.update({"head_pan": 0.2, "head_tilt": 0.4})
+    server = build_mcp_server(robot, McpServerConfig(), TOKEN)
+    take(server, "base")
+    sc = call(server, "look_around", {"captures": 4}).structured_content
+    assert robot.head_backend.commands[0] == {"head_pan": 0.0, "head_tilt": 0.0}
+    assert robot.head_backend.commands[-1] == pytest.approx({"head_pan": 0.2, "head_tilt": 0.4})
+    assert sc["head"]["restored"] is True
+    assert sc["head"]["before_deg"] == pytest.approx([math.degrees(0.2), math.degrees(0.4)], abs=0.01)
+
+
+def test_look_around_description_says_the_head_is_levelled(server: Any) -> None:
+    text = tool_descriptions(server)["look_around"]
+    assert "level" in text and "restore" in text
 
 
 def test_look_around_tool_defaults_to_one_spin_without_returning(tmp_path: Path) -> None:

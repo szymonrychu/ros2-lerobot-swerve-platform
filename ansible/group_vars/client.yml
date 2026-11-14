@@ -3523,7 +3523,8 @@ ros2_nodes:
         merge_radius_m: 0.25
       # look_around: equal in-place headings; refused when an obstacle is inside footprint radius + margin. mode spin:
       # one continuous slow rotation (frames while turning), steps: one precise Nav2 rotation per heading. The turn
-      # ends facing the last heading unless the agent passes return_to_start=true.
+      # ends facing the last heading unless the agent passes return_to_start=true. level_head: the D435 head is levelled
+      # (pan 0, tilt 0) for the turn (again before each steps-mode capture) and its previous aim restored afterwards.
       look_around:
         default_captures: 4
         clearance_margin_m: 0.10
@@ -3531,6 +3532,7 @@ ros2_nodes:
         mode: spin
         spin_speed_rps: 0.4
         return_to_start: false
+        level_head: true
       # Non-blocking motion queue (enqueue_motions / wait_for_event, nodes/mcp_server/README.md "Motion queue"):
       # pending-step cap, wait bounds and the precondition thresholds (base_still, gripper_holding).
       motion_queue:

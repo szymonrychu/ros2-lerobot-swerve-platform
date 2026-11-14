@@ -402,6 +402,7 @@ def test_mcp_server_perception_config_sections() -> None:
     assert cfg["footprint"] == {"length_m": 0.47, "width_m": 0.386}
     assert cfg["look_around"]["default_captures"] == 4
     assert cfg["look_around"]["clearance_margin_m"] > 0
+    assert cfg["look_around"]["level_head"] is True
     assert cfg["topdown"]["default_radius_m"] == 2.5 and cfg["topdown"]["default_px"] == 480
     assert cfg["poi"]["request_timeout_s"] == 3.0
 

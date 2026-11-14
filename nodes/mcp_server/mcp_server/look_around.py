@@ -11,9 +11,10 @@ import numpy as np
 from .camera_scene import Camera
 from .config import FootprintSettings, LookAroundSettings
 from .geometry import normalize_angle
+from .head import HeadController, HeadError, HeadMoveResult
 from .models import BaseMotionBusyError, BasePose, MapSummary, NavigationResult, RobotError, SectorObstacle
 from .perception import encode_jpeg
-from .perception_models import HeadingSummary, LookAroundResult, StepRecord
+from .perception_models import HeadingSummary, LookAroundResult, LookHeadAim, StepRecord
 from .tool_context import RobotApi
 
 TILE_BG = 90
@@ -22,6 +23,8 @@ TILE_TEXT_COLOR = (255, 255, 255)
 SCAN_RADIUS_M = 1.0  # the PNG crop is not requested; the radius is a required argument only
 SCAN_PNG_PX = 32
 DEFAULT_YAW_TOLERANCE_DEG = 5.0  # nav.goal_yaw_tolerance_deg default
+LEVEL_PAN_RAD = 0.0  # head aim for the base turn: straight ahead ...
+LEVEL_TILT_RAD = 0.0  # ... and level (tilt + is down)
 
 LookMode = Literal["spin", "steps"]
 
@@ -259,6 +262,112 @@ def yaw_delta_deg(previous: float, current: float) -> float:
     return math.degrees(normalize_angle(current - previous))
 
 
+def head_aim(head: HeadController) -> tuple[float, float] | None:
+    """Measured (pan, tilt) of the head from a fresh joint state.
+
+    Args:
+        head (HeadController): Head.
+
+    Returns:
+        tuple[float, float] | None: (pan, tilt) in rad, None when there is no fresh sample.
+    """
+    measured = head.measured()
+    if measured is None:
+        return None
+    pan, tilt = (measured[name] for name in head.settings.joint_names)
+    return pan, tilt
+
+
+def head_at(head: HeadController, aim: tuple[float, float] | None, pan_rad: float, tilt_rad: float) -> bool:
+    """Whether a measured aim is within the head tolerance of (pan_rad, tilt_rad).
+
+    Args:
+        head (HeadController): Head (its settings carry the tolerance).
+        aim (tuple[float, float] | None): Measured (pan, tilt) in rad, None when unknown.
+        pan_rad (float): Target pan (rad).
+        tilt_rad (float): Target tilt (rad).
+
+    Returns:
+        bool: True when both joints are within tolerance_rad; False when the aim is unknown.
+    """
+    tolerance = head.settings.tolerance_rad
+    return aim is not None and abs(aim[0] - pan_rad) <= tolerance and abs(aim[1] - tilt_rad) <= tolerance
+
+
+def head_move_note(what: str, outcome: HeadMoveResult) -> str | None:
+    """Note for a head move that did not converge.
+
+    Args:
+        what (str): What the move was for (starts the note).
+        outcome (HeadMoveResult): Result of HeadController.move / home.
+
+    Returns:
+        str | None: The note, None when the move converged.
+    """
+    if outcome.status == "converged":
+        return None
+    reason = "no fresh head joint state" if outcome.status == "no_feedback" else "the head did not reach the target"
+    return f"{what}: head move ended with status {outcome.status} ({reason})"
+
+
+def level_head(head: HeadController, pan_rad: float, tilt_rad: float, notes: list[str]) -> tuple[float, float] | None:
+    """Aim the head at (pan_rad, tilt_rad) for the base turn, remembering where it pointed before.
+
+    No command is sent when the measured aim is already within the head tolerance. A move that times out, has no
+    feedback or is refused (outside the limits) is a note, never an error: look_around goes on with the head where it is.
+
+    Args:
+        head (HeadController): Head.
+        pan_rad (float): Target pan (rad, + left).
+        tilt_rad (float): Target tilt (rad, + down).
+        notes (list[str]): Notes are appended here.
+
+    Returns:
+        tuple[float, float] | None: The measured (pan, tilt) before the move (rad), also when no move was needed; None
+            when there was no fresh joint state.
+    """
+    before = head_aim(head)
+    if head_at(head, before, pan_rad, tilt_rad):
+        return before
+    try:
+        outcome = head.move(pan_rad, tilt_rad)
+    except HeadError as exc:
+        notes.append(f"head not levelled for the turn: {exc}")
+        return before
+    note = head_move_note("head levelling for the turn", outcome)
+    if note is not None:
+        notes.append(note)
+    return before
+
+
+def restore_head(head: HeadController, before: tuple[float, float] | None, notes: list[str]) -> bool:
+    """Aim the head back where level_head found it, or home it (with a note) when that aim was unknown.
+
+    Args:
+        head (HeadController): Head.
+        before (tuple[float, float] | None): Aim returned by level_head (rad), None when unknown.
+        notes (list[str]): Notes are appended here.
+
+    Returns:
+        bool: True when the head converged on the restored aim.
+    """
+    try:
+        if before is None:
+            notes.append("head aim before look_around unknown (no fresh joint state): head sent home instead")
+            outcome = head.home()
+        elif head_at(head, head_aim(head), *before):
+            return True
+        else:
+            outcome = head.move(*before)
+    except HeadError as exc:
+        notes.append(f"head aim not restored: {exc}")
+        return False
+    note = head_move_note("head aim restore", outcome)
+    if note is not None:
+        notes.append(note)
+    return note is None
+
+
 def run_look_around(
     robot: RobotApi,
     settings: LookAroundSettings,
@@ -283,6 +392,10 @@ def run_look_around(
     corrective rotation back to the start heading is then attempted, except when another base motion was running
     (nothing is sent against it). Before every rotation the lidar is checked against the footprint's circumscribed
     radius plus a margin; a stop() issued while the tool runs ends it before the next rotation.
+
+    With settings.level_head the D435 head is levelled (pan 0, tilt 0, level_head) once the turn is allowed, before the
+    first capture, and its previous aim is restored when the run ends (restore_head; home when that aim was unknown),
+    except after a stop() (the head stays where it is). Head problems are notes in result.notes, never errors.
 
     `returned_to_start` is true only when the closing rotation (or the corrective one) succeeded and the measured final
     heading is within `yaw_tolerance_deg` of the start heading; `achieved.heading_error_deg` always carries the error.
@@ -311,7 +424,6 @@ def run_look_around(
         raise RobotError("robot pose (map->base_link) unavailable; look_around needs it to verify the turn")
     started = time.monotonic()
     stop_mark = robot.stop_count()
-    event_mark = robot.event_seq()
     result = LookAroundResult(
         status="completed",
         expected={
@@ -323,10 +435,64 @@ def run_look_around(
         },
     )
     run = LookAroundRun(result=result)
-    if mode == "spin":
-        return run_spin_mode(
+    before = level_head(robot.head, LEVEL_PAN_RAD, LEVEL_TILT_RAD, result.notes) if settings.level_head else None
+    try:
+        if mode == "spin":
+            return run_spin_mode(
+                robot, settings, plan, required, camera, start, run, return_to_start, yaw_tolerance_deg, started
+            )
+        return run_steps_mode(
             robot, settings, plan, required, camera, start, run, return_to_start, yaw_tolerance_deg, started
         )
+    finally:
+        if settings.level_head:
+            stopped = robot.stop_count() != stop_mark
+            if stopped:
+                result.notes.append("stop was called: the head was left where it is (aim not restored)")
+            result.head = LookHeadAim(
+                before_deg=None
+                if before is None
+                else (round(math.degrees(before[0]), 2), round(math.degrees(before[1]), 2)),
+                restored=not stopped and restore_head(robot.head, before, result.notes),
+            )
+            result.duration_s = round(time.monotonic() - started, 3)
+
+
+def run_steps_mode(
+    robot: RobotApi,
+    settings: LookAroundSettings,
+    plan: LookPlan,
+    required: float,
+    camera: Camera,
+    start: BasePose,
+    run: LookAroundRun,
+    return_to_start: bool,
+    yaw_tolerance_deg: float,
+    started: float,
+) -> LookAroundRun:
+    """look_around 'steps' mode: one precise Nav2 rotation per heading with a frame and the lidar at every stop.
+
+    With settings.level_head the head is levelled again before every capture after the first (head_aim homes the head
+    when each Nav2 goal ends). See run_look_around for the stop, event, failure and return_to_start rules.
+
+    Args:
+        robot (RobotApi): Robot.
+        settings (LookAroundSettings): Step timeout, frame size and level_head.
+        plan (LookPlan): Headings.
+        required (float): Free radius needed for the rotation (m).
+        camera (Camera): 'head', the D435 colour camera on the pan/tilt head.
+        start (BasePose): Start pose.
+        run (LookAroundRun): Result and frames to fill.
+        return_to_start (bool): Turn back to the start heading at the end.
+        yaw_tolerance_deg (float): Heading tolerance for returned_to_start.
+        started (float): Monotonic start time (s).
+
+    Returns:
+        LookAroundRun: The filled run.
+    """
+    result = run.result
+    stop_mark = robot.stop_count()
+    event_mark = robot.event_seq()
     last_yaw = start.yaw
     rotated_deg = 0.0
     closed = False  # the closing (or corrective) rotation succeeded
@@ -404,6 +570,8 @@ def run_look_around(
     for index, heading in enumerate(plan.headings_rad):
         if index > 0 and rotate(index, heading) is None:
             break
+        if index > 0 and settings.level_head:
+            level_head(robot.head, LEVEL_PAN_RAD, LEVEL_TILT_RAD, result.notes)
         label = heading_label(heading)
         try:
             frame = robot.camera_image(camera, settings.frame_max_px)

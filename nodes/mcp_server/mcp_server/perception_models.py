@@ -158,6 +158,15 @@ class StepRecord(BaseModel):
     message: str = ""
 
 
+class LookHeadAim(BaseModel):
+    """The head aim look_around levelled away from for the base turn and whether it was restored."""
+
+    before_deg: tuple[float, float] | None = Field(
+        description="Measured (pan, tilt) before levelling (deg, tilt + down); null without a fresh joint state"
+    )
+    restored: bool = Field(description="Back at before_deg (home when unknown) within the head tolerance")
+
+
 class LookAroundResult(BaseModel):
     """look_around result (the images travel as content blocks)."""
 
@@ -171,6 +180,7 @@ class LookAroundResult(BaseModel):
     steps: list[StepRecord] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
     topdown: dict[str, Any] | None = None
+    head: LookHeadAim | None = Field(default=None, description="Head levelled for the turn; null when not levelled")
     duration_s: float = 0.0
 
 

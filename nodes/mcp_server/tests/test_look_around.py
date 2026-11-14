@@ -14,6 +14,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp_server import camera_scene, look_around, perception_tools
 from mcp_server.base_motion import SpinOutcome
 from mcp_server.config import FootprintSettings, LookAroundSettings, McpServerConfig
+from mcp_server.head import AppliedHeadKinematics, HeadController
 from mcp_server.look_around import (
     build_montage,
     check_clearance,
@@ -33,11 +34,14 @@ from mcp_server.models import (
 )
 from mcp_server.tools import build_mcp_server
 
+from .fakes import FakeHeadBackend
 from .test_perception_tools import RotatingRobot
 from .test_tools import TOKEN, call, take
 
 FOOTPRINT = FootprintSettings()
 SETTINGS = LookAroundSettings()
+HEAD_SETTINGS = McpServerConfig().head
+LEVEL = {"head_pan": 0.0, "head_tilt": 0.0}
 
 
 def sectors(front: float | None = 2.0, **others: float | None) -> list[SectorObstacle]:
@@ -55,7 +59,19 @@ def jpeg(color: int = 128, size: tuple[int, int] = (64, 48)) -> bytes:
 class ScriptRobot:
     """Minimal RobotApi for run_look_around: records calls, scripted rotation results."""
 
-    def __init__(self, statuses: list[str] | None = None, obstacles: list[list[SectorObstacle] | None] | None = None):
+    def __init__(
+        self,
+        statuses: list[str] | None = None,
+        obstacles: list[list[SectorObstacle] | None] | None = None,
+        head_positions: dict[str, float] | None = None,
+        head_speed: float | None = None,
+    ):
+        self.head_backend = FakeHeadBackend(head_positions, head_speed)
+        self.head = HeadController(
+            self.head_backend, AppliedHeadKinematics(HEAD_SETTINGS.urdf_path, None), HEAD_SETTINGS
+        )
+        self.head_commands_at_capture: list[int] = []  # head commands sent before each camera_image call
+        self.rehome_head_after_moves = False  # head_aim homes the head when a Nav2 goal ends
         self.pose = BasePose(frame="map", x=1.0, y=2.0, yaw=0.3)
         self.statuses = list(statuses or [])
         self.obstacles = list(obstacles or [])
@@ -92,6 +108,7 @@ class ScriptRobot:
     def camera_image(self, camera: str, max_px: int) -> CameraFrame:
         index = self.frames
         self.frames += 1
+        self.head_commands_at_capture.append(len(self.head_backend.commands))
         self.calls.append(("camera", camera, max_px))
         if index in self.camera_fail_at:
             raise RobotError("no frame")
@@ -112,6 +129,10 @@ class ScriptRobot:
             self.stops += 1
         if status == "succeeded":
             self.pose = BasePose(frame="map", x=1.0, y=2.0, yaw=self.pose.yaw + dyaw + self.yaw_error_rad)
+        if self.rehome_head_after_moves:
+            home = {"head_pan": HEAD_SETTINGS.home_pan_rad, "head_tilt": HEAD_SETTINGS.home_tilt_rad}
+            self.head_backend.positions.update(home)
+            self.head_backend.target.update(home)
         interrupted_by = "collision_stop" if status == "interrupted" else None
         return NavigationResult(status=status, final_pose=self.pose, interrupted_by=interrupted_by)
 
@@ -459,7 +480,7 @@ def test_spin_mode_interrupted_by_a_critical_event() -> None:
 # --- camera: the D435 head camera only -------------------------------------------------------------------------
 
 
-def test_look_around_uses_the_front_camera(tmp_path: Path) -> None:
+def test_look_around_uses_the_head_d435(tmp_path: Path) -> None:
     assert look_around.Camera is camera_scene.Camera and perception_tools.Camera is camera_scene.Camera
     robot = RotatingRobot(tmp_path)
     server = build_mcp_server(robot, McpServerConfig(), TOKEN)
@@ -476,3 +497,91 @@ def test_look_around_uses_the_front_camera(tmp_path: Path) -> None:
         call(server, "look_around", {"captures": 4, "camera": "gripper"})
     call(server, "look_around", {"captures": 4, "mode": "steps"})
     assert [c[1][0] for c in robot.calls if c[0] == "camera_image"] == ["head"] * 4
+
+
+# --- the head is levelled for the base turn and its aim restored afterwards -----------------------------------------
+
+AIMED = {"head_pan": 0.3, "head_tilt": 0.5}
+
+
+def make_robot(mode: str, **kwargs: Any) -> ScriptRobot:
+    return SpinScriptRobot(**kwargs) if mode == "spin" else ScriptRobot(**kwargs)
+
+
+@pytest.mark.parametrize("mode", ["spin", "steps"])
+def test_look_around_levels_the_head_before_the_first_capture(mode: str) -> None:
+    robot = make_robot(mode, head_positions=dict(AIMED))
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, 4, "head", mode=mode)  # type: ignore[arg-type]
+    assert run.result.status == "completed"
+    assert robot.head_backend.commands[0] == LEVEL
+    assert robot.head_commands_at_capture[0] == 1  # the level command went out before the first frame
+
+
+@pytest.mark.parametrize("mode", ["spin", "steps"])
+def test_look_around_restores_the_previous_head_aim(mode: str) -> None:
+    robot = make_robot(mode, head_positions=dict(AIMED))
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, 4, "head", mode=mode)  # type: ignore[arg-type]
+    assert robot.head_backend.commands[-1] == pytest.approx(AIMED)
+    assert robot.head_backend.positions == pytest.approx(AIMED)
+    head = run.result.head
+    assert head is not None and head.restored is True
+    assert head.before_deg == pytest.approx((math.degrees(0.3), math.degrees(0.5)), abs=0.01)
+
+
+def test_look_around_without_head_sample_restores_home() -> None:
+    robot = SpinScriptRobot()
+    robot.head_backend.no_samples = True
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, 4, "head", mode="spin")
+    res = run.result
+    assert res.status == "completed" and len(run.frames) == 4
+    assert robot.head_backend.commands[0] == LEVEL
+    assert robot.head_backend.commands[-1] == pytest.approx(
+        {"head_pan": HEAD_SETTINGS.home_pan_rad, "head_tilt": HEAD_SETTINGS.home_tilt_rad}
+    )
+    assert any("home" in n for n in res.notes)
+    assert res.head is not None and res.head.before_deg is None and res.head.restored is False
+
+
+def test_look_around_head_timeout_is_a_note() -> None:
+    robot = SpinScriptRobot(head_positions=dict(AIMED), head_speed=0.0)  # a stuck head follower
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, 4, "head", mode="spin")
+    res = run.result
+    assert res.status == "completed"
+    assert len(run.frames) == 4 and all(data is not None for _, data in run.frames)
+    assert any("head" in n and "timeout" in n for n in res.notes)
+
+
+def test_look_around_steps_mode_relevels_before_each_capture() -> None:
+    robot = ScriptRobot(head_positions=dict(AIMED))
+    robot.rehome_head_after_moves = True  # head_aim homes the head after every Nav2 rotation
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, 4, "head", mode="steps", return_to_start=False)
+    assert run.result.status == "completed"
+    assert robot.head_commands_at_capture == [1, 2, 3, 4]  # one level command before each of the 4 captures
+    assert robot.head_backend.commands[:4] == [LEVEL] * 4
+    assert robot.head_backend.commands[-1] == pytest.approx(AIMED)
+
+
+def test_look_around_clearance_refusal_leaves_the_head_alone() -> None:
+    robot = ScriptRobot(obstacles=[sectors(2.0, left=0.3)], head_positions=dict(AIMED))
+    with pytest.raises(RobotError, match="rotation"):
+        run_look_around(robot, SETTINGS, FOOTPRINT, captures=4, camera="head")
+    assert robot.head_backend.commands == []
+
+
+@pytest.mark.parametrize("mode", ["spin", "steps"])
+def test_look_around_level_head_false_never_moves_the_head(mode: str) -> None:
+    robot = make_robot(mode, head_positions=dict(AIMED))
+    settings = LookAroundSettings(level_head=False)
+    run = run_look_around(robot, settings, FOOTPRINT, 4, "head", mode=mode)  # type: ignore[arg-type]
+    assert run.result.status == "completed"
+    assert robot.head_backend.commands == []
+    assert run.result.head is None
+
+
+def test_look_around_stop_leaves_the_head_where_it_is() -> None:
+    robot = ScriptRobot(head_positions=dict(AIMED))
+    robot.stop_after_moves = 1
+    run = run_look_around(robot, SETTINGS, FOOTPRINT, 4, "head", mode="steps")
+    assert run.result.status == "stopped"
+    assert robot.head_backend.commands == [LEVEL]  # levelled, never restored after the stop
+    assert run.result.head is not None and run.result.head.restored is False
