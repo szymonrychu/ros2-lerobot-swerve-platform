@@ -9,6 +9,7 @@
 #include <cmath>
 #include <memory>
 #include <mutex>
+#include <nlohmann/json.hpp>
 #include <string>
 #include <thread>
 #include <vector>
@@ -184,6 +185,27 @@ double gauge(ros2_common_cpp::Metrics & metrics, const std::string & name)
   return -1.0;
 }
 
+// Every /map_guard/state message a subscription received, parsed.
+struct StateLog
+{
+  std::vector<nlohmann::json> messages() const
+  {
+    std::lock_guard<std::mutex> lock(mutex);
+    return received;
+  }
+  mutable std::mutex mutex;
+  std::vector<nlohmann::json> received;
+};
+
+rclcpp::SubscriptionBase::SharedPtr subscribe_state(rclcpp::Node & io, const std::shared_ptr<StateLog> & log)
+{
+  return io.create_subscription<std_msgs::msg::String>(
+    "/map_guard/state", mg::state_qos(), [log](std_msgs::msg::String::ConstSharedPtr msg) {
+      std::lock_guard<std::mutex> lock(log->mutex);
+      log->received.push_back(nlohmann::json::parse(msg->data));
+    });
+}
+
 template <typename Pred>
 bool wait_for(Pred pred, std::chrono::milliseconds timeout = 5000ms)
 {
@@ -229,6 +251,10 @@ TEST(Node, QosMatchesThePythonNode)
   EXPECT_EQ(map.reliability, RMW_QOS_POLICY_RELIABILITY_RELIABLE);
   EXPECT_EQ(map.durability, RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL);
   EXPECT_EQ(map.depth, 1u);
+  const auto state = mg::state_qos().get_rmw_qos_profile();
+  EXPECT_EQ(state.reliability, RMW_QOS_POLICY_RELIABILITY_RELIABLE);
+  EXPECT_EQ(state.durability, RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL);
+  EXPECT_EQ(state.depth, 1u);
 }
 
 TEST_F(RosTest, QueryPausedReadsTheParameter)
@@ -322,6 +348,8 @@ TEST_F(RosTest, NodeScoresScansAndDetectsACarriedRobotInDryRun)
   auto events = std::make_shared<std::atomic<int>>(0);
   auto events_sub = io->create_subscription<std_msgs::msg::String>(
     "/robot_events", 10, [events](std_msgs::msg::String::ConstSharedPtr) { ++*events; });
+  auto states = std::make_shared<StateLog>();
+  auto state_sub = subscribe_state(*io, states);
   map_pub->publish(room_map());
 
   const auto scan = room_scan();
@@ -345,6 +373,55 @@ TEST_F(RosTest, NodeScoresScansAndDetectsACarriedRobotInDryRun)
   }));
   EXPECT_EQ(fake_->pause_calls.load(), 0);  // dry run: no slam_toolbox call
   EXPECT_EQ(events->load(), 0);             // agent unreachable: no event
+  // The state topic announced the transition with its reason and the measured agreement.
+  EXPECT_TRUE(wait_for([&]() {
+    for (const auto & msg : states->messages()) {
+      if (msg.at("state") == "disturbed") {
+        return true;
+      }
+    }
+    return false;
+  }));
+  for (const auto & msg : states->messages()) {
+    if (msg.at("state") == "disturbed") {
+      EXPECT_EQ(msg.at("reasons").get<std::vector<std::string>>(), std::vector<std::string>{"carried"});
+      EXPECT_GT(msg.at("agreement_ratio").get<double>(), 0.95);
+      EXPECT_TRUE(msg.at("dry_run").get<bool>());
+      EXPECT_DOUBLE_EQ(msg.at("healthy_ratio").get<double>(), 0.6);
+      break;
+    }
+  }
+  executor_->remove_node(node);
+  executor_->remove_node(io);
+}
+
+TEST_F(RosTest, NodePublishesALatchedStateWithoutSensorData)
+{
+  mg::Config config;
+  config.dry_run = false;
+  config.state_publish_hz = 5.0;
+  config.agent_state_url = "http://127.0.0.1:1/api/state";  // unreachable: no events
+  auto node = std::make_shared<mg::MapGuardNode>(rclcpp::NodeOptions(), config, false);
+  executor_->add_node(node);
+  // Subscribe only after the first publish: transient_local delivers the latest state to the late subscriber.
+  std::this_thread::sleep_for(500ms);
+  auto io = std::make_shared<rclcpp::Node>("map_guard_test_state_io");
+  auto states = std::make_shared<StateLog>();
+  auto state_sub = subscribe_state(*io, states);
+  executor_->add_node(io);
+  EXPECT_TRUE(wait_for([&]() { return !states->messages().empty(); }));
+  const auto first = states->messages().front();
+  EXPECT_EQ(first.at("state"), "ok");
+  EXPECT_TRUE(first.at("reasons").empty());
+  EXPECT_TRUE(first.at("agreement_ratio").is_null());  // no map, no scan: no ratio is invented
+  EXPECT_TRUE(first.at("ratio_age_s").is_null());
+  EXPECT_TRUE(first.at("median_ratio").is_null());
+  EXPECT_FALSE(first.at("dry_run").get<bool>());
+  EXPECT_FALSE(first.at("held").get<bool>());
+  EXPECT_GT(first.at("stamp").get<double>(), 1.0e9);
+  // Periodic: more messages follow at state_publish_hz without a transition.
+  EXPECT_TRUE(wait_for([&]() { return states->messages().size() >= 3; }));
+  EXPECT_EQ(fake_->pause_calls.load(), 0);  // nothing happened: no slam_toolbox call
   executor_->remove_node(node);
   executor_->remove_node(io);
 }

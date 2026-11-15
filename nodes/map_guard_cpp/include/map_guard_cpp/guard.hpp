@@ -138,6 +138,8 @@ public:
   bool held() const { return held_; }
 
   State state() const { return state_; }
+  // Reasons of the current episode, sorted (empty in OK).
+  std::vector<std::string> reasons() const { return {episode_reasons_.begin(), episode_reasons_.end()}; }
   // Tracked pause state of slam_toolbox (none until the first pause request).
   std::optional<bool> paused() const { return paused_; }
   // map_manager's answer to the pending relocalise request; answers to other ids (or with none pending) are ignored.

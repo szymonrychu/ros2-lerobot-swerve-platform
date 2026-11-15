@@ -26,6 +26,7 @@
 #include "map_guard_cpp/detectors.hpp"
 #include "map_guard_cpp/guard.hpp"
 #include "map_guard_cpp/relocalise_wire.hpp"
+#include "map_guard_cpp/state_wire.hpp"
 #include "map_guard_cpp/timing.hpp"
 #include "nav_msgs/msg/occupancy_grid.hpp"
 #include "nav_msgs/msg/odometry.hpp"
@@ -62,6 +63,8 @@ constexpr std::size_t COMMAND_QOS_DEPTH = 10;
 rclcpp::QoS sensor_qos();
 // slam_toolbox publishes /map reliable + transient_local with depth 1: match it to receive the latched map.
 rclcpp::QoS map_qos();
+// The guard state topic is latched the same way (reliable + transient_local, depth 1): a late subscriber gets the last.
+rclcpp::QoS state_qos();
 
 // Seconds of the steady (monotonic) clock.
 double monotonic_s();
@@ -118,6 +121,8 @@ private:
   void on_localised(const std_msgs::msg::Bool::ConstSharedPtr & msg);
   void on_result(const std_msgs::msg::String::ConstSharedPtr & msg);
   void request_relocalise(const std::string & request_id, double since);
+  // Publish the guard state on state_topic when it changed since the last publish or state_publish_hz is due.
+  void publish_state(double now);
   void run_guard();
 
   Config config_;
@@ -136,6 +141,12 @@ private:
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr events_pub_;
   rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr reset_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr command_pub_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr state_pub_;
+  // Worker-thread only: the periodic state publish, the last published state and the latest agreement sample.
+  RateLimiter state_limiter_;
+  std::optional<State> published_state_;
+  std::optional<double> latest_ratio_;
+  double latest_ratio_at_ = 0.0;
   std::unique_ptr<EventNotifier> notifier_;
   std::unique_ptr<SlamServices> slam_;
   std::unique_ptr<MapGuard> guard_;
