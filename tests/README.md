@@ -3153,7 +3153,7 @@ Static invariants of the cut-over to the C++ nodes (`ansible/group_vars/client.y
 | `test_cpp_node_is_live` | `map_guard_cpp` is `present: true`, `enabled: true`. |
 | `test_python_node_stays_present_and_disabled_for_rollback` | `map_guard` stays `present: true`, `enabled: false` (rollback). |
 | `test_cpp_config_block_equals_the_python_block` | The parsed `_cpp` config equals the Python node's and keeps its metrics port (19110). |
-| `test_map_guard_cpp_keeps_dry_run` | The map_guard_cpp config still has `dry_run: true`. |
+| `test_map_guard_cpp_is_live` | The map_guard_cpp config has `dry_run: false` (live since T-395: it pauses, relocalises and resets for real). |
 | `test_background_tier_holds_only_throttles_and_previews` | Among running nodes the background tier (100/100/0) holds exactly `front_camera`, `head_rgbd_calibration`, the two joint-state throttle nodes and `map3d_uplink` (`head_camera_cpp` is retired). |
 | `test_only_the_running_node_of_each_pair_is_scraped` | `monitoring_agent_node_targets` lists the `_cpp` names and not the disabled Python ones. |
 | `test_readme_documents_cutover_and_rollback` | `ansible/README.md` has a "Cut-over and rollback" section naming both nodes, `enabled: false` and `scripts/deploy-nodes.sh`. |

@@ -64,8 +64,9 @@ def test_cpp_config_block_equals_the_python_block(python: str) -> None:
     assert cpp_config["metrics_port"] == METRICS_PORTS[python]
 
 
-def test_map_guard_cpp_keeps_dry_run() -> None:
-    assert yaml.safe_load(nodes()["map_guard_cpp"]["config"])["dry_run"] is True
+def test_map_guard_cpp_is_live() -> None:
+    """T-395: the dry-run guard only logged a kidnap; it now pauses, relocalises and resets for real."""
+    assert yaml.safe_load(nodes()["map_guard_cpp"]["config"])["dry_run"] is False
 
 
 def test_background_tier_holds_only_throttles_and_previews() -> None:

@@ -389,7 +389,7 @@ Packages missing from the Jazzy apt distribution are built from a pinned git com
 
 ## Cut-over and rollback
 
-`map_guard_cpp` is `present: true`, `enabled: true`; `map_guard` stays `present: true`, `enabled: false` (installed, stopped, disabled) so the rollback is one line. The `_cpp` config block equals the Python one (`map_guard_cpp` keeps `dry_run: true`), and `monitoring_agent_node_targets` scrapes the `_cpp` name on the shared port (19110). `stereo_depth` and `stereo_depth_cpp` have no rollback: they are retired (D7, `present: false`, uninstalled when those names are deployed). `tests/test_cpp_cutover.py` and `tests/test_stereo_depth_config.py` pin all of this.
+`map_guard_cpp` is `present: true`, `enabled: true`; `map_guard` stays `present: true`, `enabled: false` (installed, stopped, disabled) so the rollback is one line. The `_cpp` config block equals the Python one (both `dry_run: false` since T-395: the guard is live and relocalises after a kidnap; the C++-only `localised_topic`, `state_topic` and `state_publish_hz` stay at their defaults), and `monitoring_agent_node_targets` scrapes the `_cpp` name on the shared port (19110). `stereo_depth` and `stereo_depth_cpp` have no rollback: they are retired (D7, `present: false`, uninstalled when those names are deployed). `tests/test_cpp_cutover.py` and `tests/test_stereo_depth_config.py` pin all of this.
 
 Deploy the cut-over (first deploy builds the packages on the Pi at nice 19 without stopping the robot):
 
