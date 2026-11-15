@@ -151,6 +151,8 @@ TILT_GUARD_QOS = QoSProfile(
     history=HistoryPolicy.KEEP_LAST,
     depth=1,
 )
+# map_guard_cpp latches /map_guard/state (reliable + transient_local, depth 1): the current state arrives at subscription.
+MAP_GUARD_STATE_QOS = TILT_GUARD_QOS
 # The bridges latch their torque_state (reliable + transient_local, depth 1): the current state arrives at subscription.
 TORQUE_STATE_QOS = TILT_GUARD_QOS
 # Servo group -> RosRobot.torque_released key and the TopicSettings field of its bridge torque_state.
@@ -886,6 +888,10 @@ class RosRobot:
         )
         # After the cancel client: a latched warning/error cancels Nav2 goals as soon as it arrives.
         self.subscribe(String, t.tilt_guard_state, lambda msg: self.monitor.on_tilt_guard(msg.data), TILT_GUARD_QOS)
+        # Localisation health (get_robot_state) and the map_guard state of the tilt evidence.
+        self.subscribe(
+            String, t.map_guard_state, lambda msg: self.monitor.on_map_guard_state(msg.data), MAP_GUARD_STATE_QOS
+        )
         # Servo torque-off gate: the released flag of each bridge group with its receipt time.
         self.torque_released: dict[str, Stamped[bool]] = {}
         for group, field_name in TORQUE_STATE_TOPIC_FIELDS.items():
@@ -2044,6 +2050,8 @@ class RosRobot:
             state.notes.append("arm joint states missing or stale")
         state.head = self.head.angles_deg()
         state.servos_released = released_groups(self.servo_released)
+        state.localisation, localisation_notes = self.monitor.localisation()
+        state.notes.extend(localisation_notes)
         return state
 
     def camera_image(self, camera: str, max_px: int) -> CameraFrame:

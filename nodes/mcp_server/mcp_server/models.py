@@ -507,6 +507,27 @@ class HeadAngles(BaseModel):
     tilt_deg: float
 
 
+class LocalisationHealth(BaseModel):
+    """How far the map pose can be trusted, from map_guard_cpp's /map_guard/state (never invented: no fresh state, no
+    object)."""
+
+    state: str = Field(description="map_guard state: ok, disturbed, settling, evaluating, relocalising, resumed, reset")
+    reasons: list[str] = Field(default_factory=list, description="Reasons of the current map_guard episode")
+    agreement_ratio: float | None = Field(
+        default=None, description="Latest scan-to-map agreement 0..1 (null before the first sample)"
+    )
+    median_ratio: float | None = Field(default=None, description="Rolling median of the agreement (null without one)")
+    healthy_ratio: float = Field(description="Agreement at or above which the map pose counts as healthy")
+    dry_run: bool = Field(description="map_guard only logs (no automatic pause, relocalise or reset)")
+    held: bool = Field(description="map_manager reports the loaded map as not localised")
+    age_s: float = Field(description="Seconds since the /map_guard/state message was received")
+    reliable: bool = Field(
+        description="Fresh, settled (not disturbed/settling/evaluating/relocalising, not held) and the agreement "
+        "(median, else latest) is at least healthy_ratio: navigate_to_pose / move_relative can trust the map pose"
+    )
+    note: str | None = Field(default=None, description="Why it is not reliable and what to do; null when reliable")
+
+
 class RobotState(BaseModel):
     """Snapshot of the robot; any source older than its staleness limit is omitted and listed in notes."""
 
@@ -516,6 +537,10 @@ class RobotState(BaseModel):
     collision_monitor: CollisionMonitorInfo | None = None
     arm: ArmState | None = None
     head: HeadAngles | None = Field(default=None, description="Measured head pan/tilt; absent without a fresh sample")
+    localisation: LocalisationHealth | None = Field(
+        default=None,
+        description="Map pose health from map_guard; null when /map_guard/state is missing or stale (see notes)",
+    )
     data_age_s: dict[str, float] = Field(default_factory=dict)
     notes: list[str] = Field(default_factory=list)
     # Servo groups (arm, base, head) whose torque is released (limp) on the web UI Calibrate page; their motion tools
