@@ -15,7 +15,7 @@ from mcp_server.tools import ALWAYS_ALLOWED_TOOLS, TOOL_NAMES, build_mcp_server
 
 from .test_tools import TOKEN, FakeRobot, call
 
-MAP_TOOLS = {"save_map", "list_maps", "load_map", "delete_map"}
+MAP_TOOLS = {"save_map", "list_maps", "load_map", "delete_map", "relocalise"}
 VERDICT = {"state": "localised", "ratio": 0.82, "pose": {"x": 1.0, "y": 2.0, "yaw": 0.3}, "reason": ""}
 
 
@@ -169,6 +169,64 @@ def test_descriptions_state_the_consequences(server: Any) -> None:
     assert "replaces the current map and POIs" in tools["load_map"] and "autosave" in tools["load_map"]
     assert "do not navigate" in tools["load_map"] and "pose hint" in tools["load_map"]
     assert "POIs" in tools["delete_map"] and "cannot be undone" in tools["delete_map"]
+
+
+RELOCALISED = {
+    "state": "localised",
+    "ratio": 0.88,
+    "hint": {"x": 1.0, "y": 2.0, "yaw": 0.0},
+    "pose": {"x": 1.1, "y": 2.0, "yaw": 1.4},
+    "slam_pose": {"x": 1.1, "y": 2.0, "yaw": 1.4},
+    "ambiguous": False,
+    "discarded_pois": 0,
+}
+
+
+def test_relocalise_sends_the_command_without_stopping(server: Any, robot: FakeRobot) -> None:
+    robot.map_script = lambda cmd: {"ok": True, "message": "relocalise: localised (ok)", "data": RELOCALISED}
+    body = payload(call(server, "relocalise", {}))
+    (sent,) = robot.map_commands
+    assert sent["op"] == "relocalise" and sent["request_id"] and sent["name"] == ""
+    assert sent["since"] is None and sent["discard_on_fail"] is False and sent["pose"] is None
+    assert robot.stops == 0
+    assert body["ok"] is True and body["state"] == "localised" and body["ratio"] == 0.88
+    assert body["pose"] == RELOCALISED["slam_pose"] and body["hint"] == RELOCALISED["hint"]
+    assert body["ambiguous"] is False and body["message"] == "relocalise: localised (ok)"
+
+
+def test_relocalise_failure_is_an_error_with_the_next_step(server: Any, robot: FakeRobot) -> None:
+    robot.map_script = lambda cmd: {
+        "ok": False,
+        "message": "relocalise: not_localised (agreement 0.21 below 0.6)",
+        "data": {**RELOCALISED, "state": "not_localised", "slam_pose": None},
+    }
+    with pytest.raises(ToolError) as err:
+        call(server, "relocalise", {})
+    text = str(err.value)
+    assert "agreement 0.21 below 0.6" in text
+    for phrase in ("1 m", "ask a person", "load_map", "pose hint"):
+        assert phrase in text, phrase
+
+
+def test_relocalise_timeout_is_an_error_with_the_next_step(server: Any, robot: FakeRobot) -> None:
+    robot.map_script = lambda cmd: None
+    with pytest.raises(ToolError) as err:
+        call(server, "relocalise", {})
+    assert "did not answer the relocalise" in str(err.value) and "ask a person" in str(err.value)
+
+
+def test_relocalise_without_map_manager_sends_nothing(server: Any, robot: FakeRobot) -> None:
+    robot.map_up = False
+    with pytest.raises(ToolError, match="map_manager is not running"):
+        call(server, "relocalise", {})
+    assert robot.map_commands == []
+
+
+def test_relocalise_description_says_when_and_what_next(server: Any) -> None:
+    tools = {t.name: t.description for t in __import__("anyio").run(server.list_tools)}
+    text = tools["relocalise"]
+    for phrase in ("localisation.reliable", "camera", "moves nothing", "no lease", "1 m", "ask a person", "pose hint"):
+        assert phrase in text, phrase
 
 
 class Wire:

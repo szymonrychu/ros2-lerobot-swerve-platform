@@ -90,6 +90,7 @@ ALLOWED_ARGS: dict[str, dict[str, Any]] = {
     "list_maps": {},
     "load_map": {"name": "m"},
     "delete_map": {"name": "m", "confirm": True},
+    "relocalise": {},
     "list_lookups": {},
     "get_lookup_image": {"lookup_id": "0" * 32},
     "annotate_lookup": {"lookup_id": "0" * 32, "note": "n"},

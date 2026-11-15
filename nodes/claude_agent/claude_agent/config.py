@@ -74,6 +74,7 @@ DEFAULT_SENSOR_TOOLS = [
     "list_maps",
     "load_map",
     "delete_map",
+    "relocalise",
     "clear_pois",
     "list_lookups",
     "get_lookup_image",

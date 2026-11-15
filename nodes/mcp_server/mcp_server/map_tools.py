@@ -1,6 +1,7 @@
-"""Named map tools: save_map, list_maps, load_map, delete_map (talk to map_manager, design D11).
+"""Named map tools: save_map, list_maps, load_map, delete_map, plus relocalise (talk to map_manager, design D11, D13).
 
 None of them moves a servo or drives the base; load_map stops the robot first because the map under it is replaced.
+relocalise re-finds the robot on the current map (SLAM only) and stops nothing.
 """
 
 from typing import Annotated, Any
@@ -8,11 +9,39 @@ from typing import Annotated, Any
 from pydantic import BaseModel, Field, ValidationError
 from ros2_common.maps import MAP_NAME_RULE, Localisation, MapCommand, MapSummary
 
+from .models import RobotError
 from .perception_tools import tool_errors
 from .tool_context import ToolContext
 
-TOOL_NAMES = ("save_map", "list_maps", "load_map", "delete_map")
+TOOL_NAMES = ("save_map", "list_maps", "load_map", "delete_map", "relocalise")
 NAME_DESC = f"Map name ({MAP_NAME_RULE})"
+# map_manager's relocalise searches +-1 m and the full turn around the last good pose (map_manager search settings).
+RELOCALISE_NEXT_STEP = (
+    "relocalise searches only +-1 m and a full turn around the last good pose: after a longer carry ask a person "
+    "where the robot is (or to place it back), or call load_map with a pose hint (x, y, yaw). Do not navigate until "
+    "get_robot_state localisation.reliable is true."
+)
+RELOCALISE_DESC = (
+    "Re-find the robot on the CURRENT map (map_manager relocalise: SLAM only, it moves nothing and needs no lease; "
+    "the map and POIs are kept). It pauses SLAM, searches +-1 m and a full turn around the last good pose for the "
+    "scan's best fit, restarts SLAM there and checks the scan-to-map agreement. Use it when get_robot_state "
+    "localisation.reliable is false (or null), or when the camera view disagrees with the map pose, before "
+    "navigate_to_pose / move_relative. Returns the verdict (state 'localised', ratio, pose, hint, ambiguous). A "
+    "failure is an error with map_manager's reason; then the robot is probably more than 1 m from the last good "
+    "pose: ask a person where it is, or call load_map with a pose hint (x, y, yaw). Waits up to the load timeout."
+)
+
+
+class RelocaliseVerdict(BaseModel):
+    """relocalise result: the robot was found on the current map."""
+
+    ok: bool
+    state: str
+    ratio: float | None = None
+    pose: dict[str, float] | None = None  # the pose slam_toolbox confirmed (map frame)
+    hint: dict[str, float] | None = None  # the last good pose the search started from
+    ambiguous: bool = False
+    message: str = ""
 
 
 class MapOpResult(BaseModel):
@@ -133,6 +162,26 @@ def register(ctx: ToolContext) -> None:
             ratio=data.get("ratio"),
             pose=data.get("pose"),
             reason=str(data.get("reason") or ""),
+            message=result.message,
+        )
+
+    @server.tool(description=RELOCALISE_DESC)
+    def relocalise() -> RelocaliseVerdict:
+        """Relocalise on the current map and return the verdict."""
+        with tool_errors():
+            command = build_command(op="relocalise")
+            try:
+                result = robot.map_request(command)
+            except RobotError as exc:
+                raise RobotError(f"{exc}. {RELOCALISE_NEXT_STEP}") from exc
+        data = result.data or {}
+        return RelocaliseVerdict(
+            ok=result.ok,
+            state=str(data.get("state", "unknown")),
+            ratio=data.get("ratio"),
+            pose=data.get("slam_pose"),
+            hint=data.get("hint"),
+            ambiguous=bool(data.get("ambiguous", False)),
             message=result.message,
         )
 
