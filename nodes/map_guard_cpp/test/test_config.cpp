@@ -8,6 +8,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
+#include <initializer_list>
 #include <string>
 #include <vector>
 
@@ -150,6 +151,20 @@ TEST(Config, DefaultsMatchTheDocumentedValues)
   EXPECT_EQ(config.serialize_service, "/slam_toolbox/serialize_map");
   EXPECT_EQ(config.reset_topic, "/map_guard/map_reset");
   EXPECT_EQ(config.events_topic, "/robot_events");
+  EXPECT_EQ(config.state_topic, "/map_guard/state");
+  EXPECT_EQ(config.state_publish_hz, 1.0);
+}
+
+TEST(Config, StateTopicKeysParseAndValidate)
+{
+  ros2_common_cpp::Errors errors;
+  const auto config = parse("state_topic: /guard/state\nstate_publish_hz: 2.5\n", errors);
+  EXPECT_TRUE(errors.empty());
+  EXPECT_EQ(config.state_topic, "/guard/state");
+  EXPECT_EQ(config.state_publish_hz, 2.5);
+  for (const std::string yaml : {"state_publish_hz: 0.0", "state_publish_hz: -1.0", "state_publish_hz: fast"}) {
+    EXPECT_FALSE(valid(yaml)) << yaml;
+  }
 }
 
 TEST(Config, InvalidValuesAreRejected)
@@ -223,8 +238,11 @@ TEST(ConfigFixture, DefaultsMatchPython)
     keys.push_back(key);
   }
   std::vector<std::string> ours = mg::config_keys();
-  // localised_topic is C++-only (the hold follows map_manager; the Python guard has no such setting).
-  ours.erase(std::remove(ours.begin(), ours.end(), "localised_topic"), ours.end());
+  // C++-only keys: localised_topic (the hold follows map_manager; the Python guard has no such setting) and the state
+  // topic (/map_guard/state, read by mcp_server).
+  for (const char * cpp_only : {"localised_topic", "state_topic", "state_publish_hz"}) {
+    ours.erase(std::remove(ours.begin(), ours.end(), cpp_only), ours.end());
+  }
   std::sort(ours.begin(), ours.end());
   EXPECT_EQ(ours, keys);
 }

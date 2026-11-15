@@ -190,6 +190,31 @@ TEST(LoadHold, NoMessageBehavesAsBefore)
   EXPECT_EQ(h.count_logs(HOLD_LOG), 0);
 }
 
+TEST(LoadHold, FailedOwnRelocaliseResetsThenTheLocalisedFreshMapRearmsTheGuard)
+{
+  Harness h;
+  h.run(1.0, {}, HEALTHY);
+  h.run(0.1, LIFTED, HEALTHY);
+  h.run(2.1, {}, BAD);
+  h.run(3.4, {}, BAD);
+  h.run(4.3, {}, BAD);
+  ASSERT_EQ(h.guard->state(), mg::State::RELOCALISING);
+  // map_manager reports not localised while it relocalises, then answers not localised: the guard resets the map.
+  h.guard->set_hold(true);
+  h.guard->on_relocalise_result("map_guard-1", false, "not_localised", 2);
+  EXPECT_EQ(h.guard->state(), mg::State::RESET);
+  EXPECT_EQ(h.resets_published, 1);
+  // Still held: a new disturbance is ignored (the disarmed guard of finding 1 without map_manager's reset handling).
+  h.run(0.5, LIFTED, HEALTHY);
+  EXPECT_NE(h.guard->state(), mg::State::DISTURBED);
+  // map_manager marks the fresh map localised on /map_guard/map_reset: the guard is re-armed and detects again.
+  h.guard->set_hold(false);
+  EXPECT_EQ(h.guard->state(), mg::State::OK);
+  EXPECT_EQ(h.count_logs(RELEASE_LOG), 1);
+  h.run(0.1, LIFTED, HEALTHY);
+  EXPECT_EQ(h.guard->state(), mg::State::DISTURBED);
+}
+
 TEST(LoadHoldConfig, DefaultAndExplicitValue)
 {
   EXPECT_EQ(mg::Config().localised_topic, "/map_manager/localised");

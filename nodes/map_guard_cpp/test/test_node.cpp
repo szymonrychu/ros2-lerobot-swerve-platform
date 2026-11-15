@@ -1,7 +1,8 @@
 // Port of nodes/map_guard/tests/test_node.py (grid conversion, slam_toolbox service calls with the pause parameter
 // read, unavailable and timed-out services, result codes) against a fake slam_toolbox node, plus an end-to-end run
 // of MapGuardNode: a latched map, a static TF and scans give an agreement ratio, odometry of a carried robot moves the
-// guard to DISTURBED, and in dry run no slam_toolbox service is ever called.
+// guard to DISTURBED, and in dry run no slam_toolbox service is ever called. Plus the /map_guard/state publishing: a
+// held change at once, the latched state without sensor data and the count of scans too sparse to score.
 #include <gtest/gtest.h>
 
 #include <atomic>
@@ -9,6 +10,7 @@
 #include <cmath>
 #include <memory>
 #include <mutex>
+#include <nlohmann/json.hpp>
 #include <string>
 #include <thread>
 #include <vector>
@@ -184,6 +186,27 @@ double gauge(ros2_common_cpp::Metrics & metrics, const std::string & name)
   return -1.0;
 }
 
+// Every /map_guard/state message a subscription received, parsed.
+struct StateLog
+{
+  std::vector<nlohmann::json> messages() const
+  {
+    std::lock_guard<std::mutex> lock(mutex);
+    return received;
+  }
+  mutable std::mutex mutex;
+  std::vector<nlohmann::json> received;
+};
+
+rclcpp::SubscriptionBase::SharedPtr subscribe_state(rclcpp::Node & io, const std::shared_ptr<StateLog> & log)
+{
+  return io.create_subscription<std_msgs::msg::String>(
+    "/map_guard/state", mg::state_qos(), [log](std_msgs::msg::String::ConstSharedPtr msg) {
+      std::lock_guard<std::mutex> lock(log->mutex);
+      log->received.push_back(nlohmann::json::parse(msg->data));
+    });
+}
+
 template <typename Pred>
 bool wait_for(Pred pred, std::chrono::milliseconds timeout = 5000ms)
 {
@@ -229,6 +252,10 @@ TEST(Node, QosMatchesThePythonNode)
   EXPECT_EQ(map.reliability, RMW_QOS_POLICY_RELIABILITY_RELIABLE);
   EXPECT_EQ(map.durability, RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL);
   EXPECT_EQ(map.depth, 1u);
+  const auto state = mg::state_qos().get_rmw_qos_profile();
+  EXPECT_EQ(state.reliability, RMW_QOS_POLICY_RELIABILITY_RELIABLE);
+  EXPECT_EQ(state.durability, RMW_QOS_POLICY_DURABILITY_TRANSIENT_LOCAL);
+  EXPECT_EQ(state.depth, 1u);
 }
 
 TEST_F(RosTest, QueryPausedReadsTheParameter)
@@ -322,6 +349,8 @@ TEST_F(RosTest, NodeScoresScansAndDetectsACarriedRobotInDryRun)
   auto events = std::make_shared<std::atomic<int>>(0);
   auto events_sub = io->create_subscription<std_msgs::msg::String>(
     "/robot_events", 10, [events](std_msgs::msg::String::ConstSharedPtr) { ++*events; });
+  auto states = std::make_shared<StateLog>();
+  auto state_sub = subscribe_state(*io, states);
   map_pub->publish(room_map());
 
   const auto scan = room_scan();
@@ -345,6 +374,136 @@ TEST_F(RosTest, NodeScoresScansAndDetectsACarriedRobotInDryRun)
   }));
   EXPECT_EQ(fake_->pause_calls.load(), 0);  // dry run: no slam_toolbox call
   EXPECT_EQ(events->load(), 0);             // agent unreachable: no event
+  // The state topic announced the transition with its reason and the measured agreement.
+  EXPECT_TRUE(wait_for([&]() {
+    for (const auto & msg : states->messages()) {
+      if (msg.at("state") == "disturbed") {
+        return true;
+      }
+    }
+    return false;
+  }));
+  for (const auto & msg : states->messages()) {
+    if (msg.at("state") == "disturbed") {
+      EXPECT_EQ(msg.at("reasons").get<std::vector<std::string>>(), std::vector<std::string>{"carried"});
+      EXPECT_GT(msg.at("agreement_ratio").get<double>(), 0.95);
+      EXPECT_TRUE(msg.at("dry_run").get<bool>());
+      EXPECT_DOUBLE_EQ(msg.at("healthy_ratio").get<double>(), 0.6);
+      break;
+    }
+  }
+  executor_->remove_node(node);
+  executor_->remove_node(io);
+}
+
+TEST_F(RosTest, NodePublishesALatchedStateWithoutSensorData)
+{
+  mg::Config config;
+  config.dry_run = false;
+  config.state_publish_hz = 5.0;
+  config.agent_state_url = "http://127.0.0.1:1/api/state";  // unreachable: no events
+  auto node = std::make_shared<mg::MapGuardNode>(rclcpp::NodeOptions(), config, false);
+  executor_->add_node(node);
+  // Subscribe only after the first publish: transient_local delivers the latest state to the late subscriber.
+  std::this_thread::sleep_for(500ms);
+  auto io = std::make_shared<rclcpp::Node>("map_guard_test_state_io");
+  auto states = std::make_shared<StateLog>();
+  auto state_sub = subscribe_state(*io, states);
+  executor_->add_node(io);
+  EXPECT_TRUE(wait_for([&]() { return !states->messages().empty(); }));
+  const auto first = states->messages().front();
+  EXPECT_EQ(first.at("state"), "ok");
+  EXPECT_TRUE(first.at("reasons").empty());
+  EXPECT_TRUE(first.at("agreement_ratio").is_null());  // no map, no scan: no ratio is invented
+  EXPECT_TRUE(first.at("ratio_age_s").is_null());
+  EXPECT_TRUE(first.at("median_ratio").is_null());
+  EXPECT_FALSE(first.at("dry_run").get<bool>());
+  EXPECT_FALSE(first.at("held").get<bool>());
+  EXPECT_GT(first.at("stamp").get<double>(), 1.0e9);
+  // Periodic: more messages follow at state_publish_hz without a transition.
+  EXPECT_TRUE(wait_for([&]() { return states->messages().size() >= 3; }));
+  EXPECT_EQ(fake_->pause_calls.load(), 0);  // nothing happened: no slam_toolbox call
+  executor_->remove_node(node);
+  executor_->remove_node(io);
+}
+
+TEST_F(RosTest, NodePublishesAHeldChangeAtOnceNotOnlyAtTheRate)
+{
+  mg::Config config;
+  config.dry_run = false;
+  config.state_publish_hz = 0.05;  // one periodic publish every 20 s: the held message must not wait for it
+  config.agent_state_url = "http://127.0.0.1:1/api/state";  // unreachable: no events
+  auto node = std::make_shared<mg::MapGuardNode>(rclcpp::NodeOptions(), config, false);
+  auto io = std::make_shared<rclcpp::Node>("map_guard_test_held_io");
+  auto states = std::make_shared<StateLog>();
+  auto state_sub = subscribe_state(*io, states);
+  auto localised_pub = io->create_publisher<std_msgs::msg::Bool>("/map_manager/localised", mg::map_qos());
+  executor_->add_node(node);
+  executor_->add_node(io);
+  EXPECT_TRUE(wait_for([&]() { return !states->messages().empty(); }));
+  EXPECT_FALSE(states->messages().front().at("held").get<bool>());
+  std_msgs::msg::Bool localised;
+  localised.data = false;
+  localised_pub->publish(localised);
+  EXPECT_TRUE(wait_for(
+    [&]() {
+      const auto messages = states->messages();
+      return !messages.empty() && messages.back().at("held").get<bool>();
+    },
+    3000ms));
+  executor_->remove_node(node);
+  executor_->remove_node(io);
+}
+
+TEST_F(RosTest, NodeCountsScansTooSparseToScore)
+{
+  mg::Config config;
+  config.dry_run = true;
+  config.min_map_cells_known = 0;
+  config.state_publish_hz = 5.0;
+  config.agent_state_url = "http://127.0.0.1:1/api/state";  // unreachable: no events
+  auto node = std::make_shared<mg::MapGuardNode>(rclcpp::NodeOptions(), config, false);
+  auto io = std::make_shared<rclcpp::Node>("map_guard_test_unscored_io");
+  executor_->add_node(node);
+  executor_->add_node(io);
+  tf2_ros::StaticTransformBroadcaster tf(io);
+  geometry_msgs::msg::TransformStamped transform;
+  transform.header.stamp = io->now();
+  transform.header.frame_id = "map";
+  transform.child_frame_id = "laser";
+  transform.transform.rotation.w = 1.0;
+  tf.sendTransform(transform);
+  auto map_pub = io->create_publisher<nav_msgs::msg::OccupancyGrid>("/map", mg::map_qos());
+  auto scan_pub = io->create_publisher<sensor_msgs::msg::LaserScan>("/scan_filtered", mg::sensor_qos());
+  auto states = std::make_shared<StateLog>();
+  auto state_sub = subscribe_state(*io, states);
+  map_pub->publish(room_map());
+  // Open space: every beam is beyond range_max, so no endpoint lands on a known cell and no ratio is measured.
+  auto scan = room_scan();
+  for (auto & range : scan.ranges) {
+    range = 20.0f;
+  }
+  EXPECT_TRUE(wait_for([&]() {
+    scan_pub->publish(scan);
+    for (const auto & msg : states->messages()) {
+      if (msg.at("unscored_scans").get<int>() >= 2) {
+        return true;
+      }
+    }
+    return false;
+  }));
+  for (const auto & msg : states->messages()) {
+    EXPECT_TRUE(msg.at("agreement_ratio").is_null());  // nothing scored: no ratio is invented
+  }
+  // A scorable scan resets the count.
+  const auto room = room_scan();
+  EXPECT_TRUE(wait_for([&]() {
+    scan_pub->publish(room);
+    const auto messages = states->messages();
+    return !messages.empty() && !messages.back().at("agreement_ratio").is_null() &&
+           messages.back().at("unscored_scans").get<int>() == 0;
+  }));
+  EXPECT_EQ(fake_->pause_calls.load(), 0);
   executor_->remove_node(node);
   executor_->remove_node(io);
 }

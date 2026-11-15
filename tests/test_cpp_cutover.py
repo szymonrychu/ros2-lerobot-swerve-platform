@@ -12,6 +12,10 @@ CPP_SUFFIX = "_cpp"
 PAIRS = ["map_guard"]
 BACKGROUND_TIER = (100, 100, 0)
 METRICS_PORTS = {"map_guard": 19110}
+# Keys allowed to differ between a _cpp block and its Python rollback. dry_run: the C++ guard is live (T-395), but the
+# Python map_guard has no localisation hold and could reset the map in the middle of a named-map load, so its rollback
+# block stays in dry run.
+ROLLBACK_EXEMPT_KEYS = frozenset({"dry_run"})
 
 
 def client() -> dict:
@@ -60,12 +64,22 @@ def test_python_node_stays_present_and_disabled_for_rollback(python: str) -> Non
 def test_cpp_config_block_equals_the_python_block(python: str) -> None:
     all_nodes = nodes()
     cpp_config = yaml.safe_load(all_nodes[python + CPP_SUFFIX]["config"])
-    assert cpp_config == yaml.safe_load(all_nodes[python]["config"])
+    python_config = yaml.safe_load(all_nodes[python]["config"])
+    assert {k: v for k, v in cpp_config.items() if k not in ROLLBACK_EXEMPT_KEYS} == {
+        k: v for k, v in python_config.items() if k not in ROLLBACK_EXEMPT_KEYS
+    }
+    assert set(cpp_config) == set(python_config)
     assert cpp_config["metrics_port"] == METRICS_PORTS[python]
 
 
-def test_map_guard_cpp_keeps_dry_run() -> None:
-    assert yaml.safe_load(nodes()["map_guard_cpp"]["config"])["dry_run"] is True
+def test_python_map_guard_rollback_stays_in_dry_run() -> None:
+    """The Python guard has no localisation hold: live, it could reset the map during a named-map load."""
+    assert yaml.safe_load(nodes()["map_guard"]["config"])["dry_run"] is True
+
+
+def test_map_guard_cpp_is_live() -> None:
+    """T-395: the dry-run guard only logged a kidnap; it now pauses, relocalises and resets for real."""
+    assert yaml.safe_load(nodes()["map_guard_cpp"]["config"])["dry_run"] is False
 
 
 def test_background_tier_holds_only_throttles_and_previews() -> None:

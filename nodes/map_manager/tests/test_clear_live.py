@@ -122,3 +122,17 @@ def test_recovered_relocalise_touches_nothing(tmp_path: Path) -> None:
     assert result.data["discarded_photos"] == 0
     assert result.data["active_map"] == "home"
     assert "poi.replace" not in rig.log.names()
+
+
+def test_clear_live_marks_the_fresh_map_localised(rig: Rig) -> None:
+    rig.manager.set_localisation(rig.manager.status().localisation, False)
+    assert clear(rig).ok
+    assert rig.manager.localised() is True
+    assert rig.manager.status().localisation.message == "fresh SLAM map after a web UI reset"
+
+
+def test_clear_live_marks_the_fresh_map_localised_even_when_the_replace_fails(rig: Rig) -> None:
+    rig.manager.set_localisation(rig.manager.status().localisation, False)
+    rig.poi.replace_ok = False
+    assert not clear(rig).ok
+    assert rig.manager.localised() is True

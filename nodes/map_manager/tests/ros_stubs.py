@@ -392,6 +392,7 @@ def install_ros_stubs() -> None:
     sys.modules["sensor_msgs.msg"].LaserScan = type("LaserScan", (Msg,), {})
     sys.modules["std_msgs.msg"].String = type("String", (Msg,), {})
     sys.modules["std_msgs.msg"].Bool = type("Bool", (Msg,), {})
+    sys.modules["std_msgs.msg"].Empty = type("Empty", (Msg,), {})
     sys.modules["rcl_interfaces.msg"].ParameterType = Msg(PARAMETER_BOOL=1)
     sys.modules["rcl_interfaces.srv"].GetParameters = srv_type("GetParameters")
     slam = sys.modules["slam_toolbox.srv"]

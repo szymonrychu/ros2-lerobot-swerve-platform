@@ -20,6 +20,19 @@ class MapTimeout(RobotError):
     """map_manager did not answer a command in time."""
 
 
+class MapRejected(RobotError):
+    """map_manager answered ok false; ``result`` carries its answer (message and data).
+
+    Args:
+        message (str): Error text.
+        result (MapResult): map_manager's answer.
+    """
+
+    def __init__(self, message: str, result: MapResult) -> None:
+        super().__init__(message)
+        self.result = result
+
+
 class MapRequests:
     """Publishes /map_manager/command messages and matches /map_manager/result answers by request_id."""
 
@@ -82,7 +95,7 @@ class MapRequests:
         Raises:
             MapManagerDown: Nothing listens on the command topic.
             MapTimeout: No answer within the op's timeout.
-            RobotError: map_manager answered ok false (its message is carried).
+            MapRejected: map_manager answered ok false (its message is carried, its answer in ``result``).
         """
         op = str(command["op"])
         if not self.manager_running():
@@ -102,5 +115,5 @@ class MapRequests:
                 self.pending.pop(request_id, None)
         result = answers[0]
         if not result.ok:
-            raise RobotError(f"map_manager rejected the {op}: {result.message or 'no reason given'}")
+            raise MapRejected(f"map_manager rejected the {op}: {result.message or 'no reason given'}", result)
         return result

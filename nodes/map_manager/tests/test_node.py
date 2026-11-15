@@ -31,7 +31,8 @@ from tests.ros_stubs import (
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 NOW_NS = 1_000_000_000_000
 HEAVY_TOPICS = {"/map", "/scan_filtered", "/pose"}
-IDLE_TOPICS = {COMMAND_TOPIC, "/poi/list", "/poi/result"}
+MAP_RESET_TOPIC = "/map_guard/map_reset"
+IDLE_TOPICS = {COMMAND_TOPIC, "/poi/list", "/poi/result", MAP_RESET_TOPIC}
 POI_LIST = {"pois": [{"id": "p1", "name": "sofa"}], "revision": 4}
 SERVICES = {
     "/slam_toolbox/serialize_map",
@@ -227,6 +228,18 @@ def test_pose_older_than_max_age_is_not_recorded(node: MapManagerNode) -> None:
     node.timers[0].callback()
     assert not node.manager.pose_ring
     node.sensors.end_operation()
+
+
+def test_map_guard_reset_publishes_localised_true(node: MapManagerNode) -> None:
+    subscription = node.subscription_on(MAP_RESET_TOPIC)
+    assert subscription.qos.reliability.name == "RELIABLE"
+    assert subscription.qos.durability.name == "VOLATILE"
+    node.manager.set_localisation(node.manager.status().localisation, False)
+    subscription.callback(Msg())
+    assert node.publisher_on(LOCALISED_TOPIC).published[-1].data is True
+    assert MapStatus.model_validate_json(node.publisher_on(STATUS_TOPIC).published[-1].data).localisation.state == (
+        "localised"
+    )
 
 
 def test_relocalise_is_routed_to_the_manager_and_answered_with_the_request_id(node: MapManagerNode) -> None:

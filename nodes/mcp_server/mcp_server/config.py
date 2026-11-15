@@ -173,6 +173,8 @@ class TopicSettings(StrictModel):
     base_servo_registers: str = "/swerve_drive/servo_registers"
     robot_events: str = "/robot_events"
     tilt_guard_state: str = "/tilt_guard/state"
+    # map_guard_cpp state JSON (std_msgs/String, latched): get_robot_state localisation and the tilt evidence
+    map_guard_state: str = "/map_guard/state"
     scan: str = "/scan_filtered"
     map: str = "/map"
     collision_monitor_state: str = "/collision_monitor_state"
@@ -582,6 +584,9 @@ class MonitorSettings(StrictModel):
         Path("/sys/devices/platform/soc/soc:firmware/raspberrypi-hwmon/get_throttled"),
     )
     battery_warn_margin_cell_v: float = Field(default=0.2, gt=0.0)  # warning below cells * (cutoff_cell_v + this)
+    # /map_guard/state (published about 1 Hz) older than this is unknown localisation; also the oldest agreement
+    # sample inside it that still counts.
+    map_guard_state_stale_s: float = Field(default=3.0, gt=0.0)
     stall_s: float = Field(default=1.0, gt=0.0)
     stall_cmd_min_mps: float = Field(default=0.05, gt=0.0)  # commanded linear speed that must be moving
     stall_cmd_min_rps: float = Field(default=0.1, gt=0.0)
@@ -965,6 +970,9 @@ class MapSettings(StrictModel):
     save_timeout_s: float = Field(default=30.0, gt=0.0)  # wait for the save result
     load_timeout_s: float = Field(default=120.0, gt=0.0)  # wait for the load result (after the relocalisation verdict)
     delete_timeout_s: float = Field(default=10.0, gt=0.0)
+    # relocalise sends the last wall time get_robot_state's localisation was reliable as map_manager's `since` only
+    # when it is younger than this; keep it below map_manager's pose_ring_s (120 s), whose ring has no older pose.
+    relocalise_since_max_age_s: float = Field(default=110.0, gt=0.0)
 
     def timeout_for(self, op: str) -> float:
         """Seconds to wait for the result of a map_manager op.

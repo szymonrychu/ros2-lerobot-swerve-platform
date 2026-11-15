@@ -46,6 +46,8 @@ const std::vector<std::string> & config_keys()
     "localised_topic",
     "command_topic",
     "result_topic",
+    "state_topic",
+    "state_publish_hz",
     "pause_service",
     "reset_service",
     "serialize_service",
@@ -140,6 +142,7 @@ Config parse_config(const YAML::Node & node, ros2_common_cpp::Errors & errors)
          {"localised_topic", &c.localised_topic},
          {"command_topic", &c.command_topic},
          {"result_topic", &c.result_topic},
+         {"state_topic", &c.state_topic},
          {"pause_service", &c.pause_service},
          {"reset_service", &c.reset_service},
          {"serialize_service", &c.serialize_service},
@@ -181,7 +184,8 @@ Config parse_config(const YAML::Node & node, ros2_common_cpp::Errors & errors)
          {"settle_s", &c.settle_s},
          {"evaluate_s", &c.evaluate_s},
          {"cooldown_s", &c.cooldown_s},
-         {"relocalise_timeout_s", &c.relocalise_timeout_s}}) {
+         {"relocalise_timeout_s", &c.relocalise_timeout_s},
+         {"state_publish_hz", &c.state_publish_hz}}) {
     *field = ros2_common_cpp::get_or<double>(node, key, *field, errors, lax);
     ros2_common_cpp::gt(key, *field, 0.0, errors);
   }

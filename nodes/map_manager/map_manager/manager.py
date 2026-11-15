@@ -56,6 +56,8 @@ NO_POSE_REASON = "no last known pose"
 SCRATCH_DIR = ".relocalise"
 ACTIVE_MAP_FILE = ".active_map.json"
 UNPAUSE_FAILED_REASON = "unpausing new measurements failed, slam_toolbox stays paused"
+RELOCALISE_RESUMED_REASON = "SLAM resumed mapping from the unverified pose"
+FRESH_MAP_MESSAGE = "fresh SLAM map after a {source} reset"
 
 LOGGER = logging.getLogger(__name__)
 
@@ -343,6 +345,21 @@ class MapManager:
             self.load_seq += 1
             self.before_load = None
         self.set_localisation(localisation, localisation.state == "localised")
+
+    def on_map_reset(self, source: str) -> None:
+        """Mark the fresh SLAM map after a map reset as localised (a new map is localised by definition).
+
+        Without this a reset that follows a failed load or relocalise would leave ``/map_manager/localised`` false,
+        and map_guard (which holds while it is false) would stay disarmed on a perfectly fine new map.
+
+        Args:
+            source (str): Who reset the map, for the status message (e.g. ``map_guard``, ``web UI``).
+        """
+        LOGGER.info("map_manager: map reset by %s, fresh map localised", source)
+        self.set_localisation(
+            Localisation(state="localised", message=FRESH_MAP_MESSAGE.format(source=source), updated_at=self.clock()),
+            True,
+        )
 
     # ------------------------------------------------------------------ dispatch
 
@@ -793,7 +810,8 @@ class MapManager:
             command (MapCommand): ``op: relocalise`` with optional since and discard_on_fail.
 
         Returns:
-            MapResult: ok when localised; else the reason, with ``data.discarded_pois`` the count emptied.
+            MapResult: ok when localised; else the reason, with ``data.discarded_pois`` the count emptied. ``data``
+            also carries ``slam_paused`` and ``localised`` (the state the robot is left in).
         """
         hint = self.ring_hint(command.since)
         if hint is None:
@@ -816,6 +834,11 @@ class MapManager:
     def run_relocalise(self, command: MapCommand, hint: Pose2D, scratch: Path) -> MapResult:
         """Serialize, pause, search, deserialize, confirm, verify and apply the verdict.
 
+        SLAM is unpaused whatever the verdict (``data.slam_paused`` is true only when the unpause failed). On a
+        failure ``/map_manager/localised`` goes back to its value before the relocalise (None, no named map loaded,
+        becomes true), so a false alarm neither stops mapping nor holds map_guard; the status keeps the failed
+        verdict and mapping resumes from the unverified pose slam_toolbox was restarted at.
+
         Args:
             command (MapCommand): The relocalise command.
             hint (Pose2D): Last known pose from the ring.
@@ -836,6 +859,7 @@ class MapManager:
             raise OperationFailed("cannot relocalise: slam_toolbox serialize_map failed")
         with self.state_lock:
             self.before_load = (self.localisation, self.localised_value)
+            prior_localised = self.localised_value
         self.set_localisation(
             Localisation(state="loading", message="relocalising on the current map", updated_at=self.clock()), False
         )
@@ -867,8 +891,14 @@ class MapManager:
             LOGGER.exception("map_manager relocalise failed after the pause")
             state, reason = "not_localised", f"relocalise failed: {exc}"
         notes = [reason]
-        if state == "localised" and not self.set_paused(False):
+        unpaused = self.set_paused(False)
+        if not unpaused:
             notes.append(UNPAUSE_FAILED_REASON)
+        elif state != "localised":
+            notes.append(RELOCALISE_RESUMED_REASON)
+        # A failed relocalise keeps the prior flag so a false alarm neither stops mapping nor disarms map_guard; no
+        # named map loaded (None) is true, the live map being SLAM's own.
+        localised = True if state == "localised" else prior_localised is not False
         discarded = discarded_photos = 0
         if state != "localised" and command.discard_on_fail:
             discarded, discarded_photos, message = self.discard_live_pois()
@@ -881,10 +911,12 @@ class MapManager:
             self.before_load = None
         self.set_localisation(
             Localisation(state=state, ratio=ratio, pose=confirmed, message=reason, updated_at=self.clock()),
-            state == "localised",
+            localised,
         )
         data = {
             "state": state,
+            "slam_paused": not unpaused,
+            "localised": localised,
             "ratio": ratio,
             "hint": hint.model_dump(),
             "pose": target.model_dump(),
@@ -921,6 +953,9 @@ class MapManager:
     def clear_live(self, command: MapCommand) -> MapResult:
         """Empty the live POIs and photos (web UI Reset map); saved maps stay and the live owner is cleared.
 
+        web_ui sends it only after slam_toolbox reset the map, so the fresh map is marked localised first (as on
+        map_guard's reset), whatever the POI outcome.
+
         Args:
             command (MapCommand): ``op: clear_live``.
 
@@ -928,6 +963,7 @@ class MapManager:
             MapResult: ok when emptied; ``data`` has pois_removed, photos_removed and active_map (None). A failed
             replace is not ok, names poi_store's reason and keeps ``active_map``.
         """
+        self.on_map_reset("web UI")  # web_ui sends clear_live only after slam_toolbox reset the map
         listing = self.poi.latest_list()
         entries = listing[0] if listing is not None else []
         photos = sum(1 for entry in entries if entry.get("kind") == PHOTO_KIND)

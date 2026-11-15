@@ -2755,7 +2755,10 @@ ros2_nodes:
     config: |
       # Prometheus /metrics on 127.0.0.1.
       metrics_port: 19110
-      # true: never call slam_toolbox services or publish /map_guard/map_reset; set false once tuned in Grafana.
+      # true: log and export metrics only (no slam_toolbox call, no relocalise, no /map_guard/map_reset).
+      # The map_guard and map_guard_cpp blocks are equal (rollback) except dry_run: this Python guard has no
+      # localisation hold (it never reads /map_manager/localised) and could reset the map in the middle of a
+      # named-map load, so it stays in dry run; set false only knowingly after a rollback.
       dry_run: true
       reasons: [mismatch, lifted, carried, rotated]
       scan_topic: /scan_filtered
@@ -2826,8 +2829,13 @@ ros2_nodes:
     config: |
       # Prometheus /metrics on 127.0.0.1.
       metrics_port: 19110
-      # true: never call slam_toolbox services or publish /map_guard/map_reset; set false once tuned in Grafana.
-      dry_run: true
+      # Live (T-395): pauses SLAM on a kidnap, asks map_manager to relocalise, resets the map only when that fails.
+      # true: log and export metrics only (no slam_toolbox call, no relocalise, no /map_guard/map_reset).
+      # The map_guard and map_guard_cpp blocks are equal (rollback) except dry_run (the Python guard has no
+      # localisation hold and stays in dry run); map_guard_cpp's C++-only keys stay at their defaults:
+      # localised_topic /map_manager/localised, state_topic /map_guard/state (latched JSON read by mcp_server) and
+      # state_publish_hz 1.0.
+      dry_run: false
       reasons: [mismatch, lifted, carried, rotated]
       scan_topic: /scan_filtered
       map_topic: /map
@@ -3213,6 +3221,8 @@ ros2_nodes:
         rf2o_twist: /odom_rf2o_twist
         imu: /imu/data
         robot_events: /robot_events
+        # map_guard_cpp state_topic (latched JSON): get_robot_state localisation (reliable, agreement_ratio, note).
+        map_guard_state: /map_guard/state
         # Gripper Present_Current (A) from the follower bridge (publish_current_joints there): the grasp band's current vote.
         follower_joint_currents: /follower/joint_currents
         # get_topdown_view: local costmap (subscribed lazily, latest message only) and the current Nav2 plan.
@@ -3447,6 +3457,8 @@ ros2_nodes:
         stale_s: 5.0
       # Body monitor thresholds: events on /robot_events, get_body_state, digest on every tool result, early-return motion.
       monitor:
+        # /map_guard/state (map_guard_cpp state_publish_hz 1.0) older than this reads as unknown localisation.
+        map_guard_state_stale_s: 3.0
         servo_temp_warn_c: 60
         servo_temp_critical_c: 70
         cpu_temp_warn_c: 75
@@ -3649,8 +3661,9 @@ ros2_nodes:
       poi:
         request_timeout_s: 3.0
         near_radius_m: 5.0
-      # Named map tools (save_map, list_maps, load_map, delete_map; nodes/mcp_server/README.md, "Named maps"): topics equal
-      # the map_manager entry's command_topic, result_topic and status_topic (tests/test_mcp_server_config.py checks it).
+      # Named map tools (save_map, list_maps, load_map, delete_map, relocalise; nodes/mcp_server/README.md, "Named
+      # maps"): topics equal the map_manager entry's command_topic, result_topic and status_topic
+      # (tests/test_mcp_server_config.py checks it).
       maps:
         command: /map_manager/command
         result: /map_manager/result
@@ -3658,6 +3671,9 @@ ros2_nodes:
         save_timeout_s: 30.0
         load_timeout_s: 120.0
         delete_timeout_s: 10.0
+        # relocalise sends the last reliable localisation time as map_manager's `since` only when younger than this
+        # (below map_manager's pose_ring_s 120 s); otherwise map_manager starts from its newest pose.
+        relocalise_since_max_age_s: 110.0
       # Auto stuck points (nodes/mcp_server/README.md, "Auto stuck points" and "poi_hint nudge"): collision_stop and Nav2
       # aborts drop a point POI at the robot pose; hint_after_images camera / look_around results without a POI write
       # add a poi_hint to the result.
@@ -4072,6 +4088,7 @@ ros2_nodes:
         - list_maps
         - load_map
         - delete_map
+        - relocalise
         - clear_pois
         - list_lookups
         - get_lookup_image
@@ -4142,6 +4159,8 @@ ros2_nodes:
       result_topic: /map_manager/result
       status_topic: /map_manager/status
       localised_topic: /map_manager/localised
+      # map_guard's reset notice (std_msgs/Empty): the fresh map is marked localised so map_guard re-arms.
+      map_reset_topic: /map_guard/map_reset
       # poi_store topics (a load replaces the POI set).
       poi_list_topic: /poi/list
       poi_command_topic: /poi/command

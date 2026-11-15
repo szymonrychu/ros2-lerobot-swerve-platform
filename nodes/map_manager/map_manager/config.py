@@ -27,6 +27,7 @@ class MapManagerConfig(BaseModel):
         result_topic: std_msgs/String result topic.
         status_topic: Latched std_msgs/String status topic.
         localised_topic: Latched std_msgs/Bool localised topic.
+        map_reset_topic: std_msgs/Empty published by map_guard after it reset the map (the fresh map is localised).
         poi_list_topic: poi_store's latched list topic.
         poi_command_topic: poi_store's command topic (replace op).
         poi_result_topic: poi_store's result topic.
@@ -62,6 +63,7 @@ class MapManagerConfig(BaseModel):
     result_topic: str = RESULT_TOPIC
     status_topic: str = STATUS_TOPIC
     localised_topic: str = LOCALISED_TOPIC
+    map_reset_topic: str = "/map_guard/map_reset"
     poi_list_topic: str = "/poi/list"
     poi_command_topic: str = "/poi/command"
     poi_result_topic: str = "/poi/result"

@@ -40,6 +40,7 @@ The two nodes are separate node types and run side by side. The Python `map_guar
 | `/robot_events` (`events_topic`) | `std_msgs/String` (JSON) | Only while claude_agent is busy (see below) |
 | `/map_guard/map_reset` (`reset_topic`) | `std_msgs/Empty` | After a real map reset; never in dry run |
 | `/map_manager/command` (`command_topic`) | `std_msgs/String` (JSON) | `{"op":"relocalise","request_id":"map_guard-<n>","since","discard_on_fail":true}`; never in dry run |
+| `/map_guard/state` (`state_topic`) | `std_msgs/String` (JSON), reliable, transient local, depth 1 (latched) | On every change of state, reasons or held and at `state_publish_hz` (default 1.0 Hz); also in dry run. See [Guard state](#guard-state) |
 
 It also subscribes to `/map_manager/result` (`result_topic`, `std_msgs/String` JSON) and acts on the answer to its own request id.
 
@@ -80,12 +81,37 @@ value is `false` the guard holds: pending agreement samples are dropped, no samp
 neither toggles the slam_toolbox pause nor resets a map it would otherwise judge as a mismatch (map_manager keeps
 new measurements paused itself). On `false` -> `true` it re-arms the mismatch monitor for the new map and, unless its own
 relocalise is pending (the answer to that request decides the episode), returns to OK. With no message yet it behaves as
-before the feature. The Python `map_guard` (the disabled rollback) has no `localised_topic` and never holds: do not run
-it next to named-map loads.
+before the feature. A map reset makes a fresh map that is localised by definition: map_manager subscribes to the
+guard's `/map_guard/map_reset` (and handles the web UI reset through `clear_live`) and publishes `true`, so a reset
+after a failed relocalise or load never leaves the guard held. A failed relocalise also restores map_manager's
+previous value (and unpauses SLAM). The Python `map_guard` (the disabled rollback) has no `localised_topic` and never
+holds: do not run it live next to named-map loads.
+
+### Guard state
+
+`/map_guard/state` (`state_topic`, C++-only like `localised_topic`) carries one JSON object, published from the guard
+worker thread after a tick whenever the state, the reasons or `held` differ from the last published message, and
+otherwise every 1 / `state_publish_hz` s (the ratios, ages and counts alone wait for the periodic publish). The topic is latched, so a late subscriber gets the latest state at once. mcp_server reads
+it for the `localisation` health of `get_robot_state` (`nodes/mcp_server/README.md`).
+
+| Key | Type | Meaning |
+|---|---|---|
+| `state` | str | `ok`, `disturbed`, `settling`, `evaluating`, `relocalising`, `resumed` or `reset` |
+| `reasons` | list of str | The current episode's reasons, sorted (`carried`, `lifted`, `mismatch`, `rotated`); empty in `ok` |
+| `agreement_ratio` | float or null | Latest scan-to-map agreement sample; null before the first sample |
+| `ratio_age_s` | float or null | Seconds since that sample (it ages while no scan is scored: no map, no TF, held, or too few endpoints on known cells) |
+| `unscored_scans` | int | Rate-limited scans since the last scored one with fewer than `min_points` endpoints on known map cells (open or unmapped space); 0 after every scored scan. With an aging ratio it says the pose is merely unscorable here, not wrong |
+| `median_ratio` | float or null | Rolling median of the mismatch monitor (`median_window` samples); null without samples |
+| `healthy_ratio` | float | The configured `healthy_ratio` |
+| `dry_run` | bool | The configured `dry_run` |
+| `held` | bool | map_manager reports the loaded map as not localised (see below) |
+| `stamp` | float | Wall clock of the snapshot, epoch s |
+
+No value is invented: a ratio that was never measured is null.
 
 ### Dry run
 
-In dry run (`dry_run: true`, the default) the state machine, logs, events and metrics run as normal, but:
+In dry run (`dry_run: true`, the code default) the state machine, logs, events and metrics run as normal, but:
 
 - No slam_toolbox service is ever called.
 - The reset topic is never published.
@@ -93,6 +119,13 @@ In dry run (`dry_run: true`, the default) the state machine, logs, events and me
 - No backup is written.
 
 Every log line starts with `[dry run] `.
+
+The deployed config (`ansible/group_vars/client.yml`) sets `dry_run: false`: the guard is live. It went live after a
+hand-carried, rotated robot left slam_toolbox about 80 deg off while the dry-run guard only logged the kidnap
+(agreement 0.03 against a healthy 0.6) and resumed. Live, it pauses SLAM, asks map_manager to relocalise and resets the
+map only when that fails. Evidence from the dry run, about 11 h on 2026-11-14/15: the physical triggers were
+carried 3, rotated 2 and lifted 1, and every one coincided with a real hand move (07:43, 08:32 and 08:50 local). All
+165 mismatch triggers came after the 08:50 kidnap, while the pose really was wrong. No false positive was observed.
 
 ### Agent events
 
@@ -140,7 +173,9 @@ Ansible tasks of the C++ nodes plan. Its config file is `/etc/ros2/map_guard_cpp
 
 ## Config
 
-The config has the same fields, defaults and rejections as the pydantic `MapGuardConfig`. The
+The config has the same fields, defaults and rejections as the pydantic `MapGuardConfig`, plus three C++-only keys:
+`localised_topic`, `state_topic` (default `/map_guard/state`) and `state_publish_hz` (default 1.0, `> 0`). The deployed
+block leaves those at their defaults, so it stays equal to the Python block. The
 [Python README](../map_guard/README.md) documents what every field does. `src/config.cpp` validates the file as
 follows:
 
@@ -211,12 +246,13 @@ uv run --frozen python ../map_guard_cpp/test/gen_fixtures.py --check  # exit 1 w
 | `tests/test_agreement.py` | `test/test_agreement.cpp` | `agreement.json`: room grid, dilation, endpoints, transform, every scored scan (ratio, evaluated and agreeing counts on the Python points and on the C++ points), MismatchMonitor sequences |
 | `tests/test_detectors.py` | `test/test_detectors.cpp` | `detectors.json`: helper outputs, and the reasons at every 20 Hz step of all 23 scenarios, including a 40 s re-baseline |
 | `tests/test_guard.py` | `test/test_guard.cpp` | `guard.json`, for 32 scenarios (including the relocalise flow): per-tick states, slam_toolbox calls, events, exact log lines, reset publishes, metric counts, backups left on disk |
+| none (wire contract with mcp_server) | `test/test_state_wire.cpp` | No fixture. The `/map_guard/state` JSON: every key in order (with `unscored_scans`), null for missing values, every state name; a change of state, held or reasons is published at once, measurements alone are not |
 | none (wire contract with map_manager) | `test/test_relocalise_wire.cpp` | No fixture. The relocalise command keys and the result parsing (request_id, ok, data.state, data.discarded_pois, invalid input) |
 | `tests/test_timing.py` | `test/test_timing.cpp` | `timing.json`: HoldTimer and RateLimiter sequences |
 | `tests/test_backup.py` | `test/test_backup.cpp` | `backup.json`: names, prune deleted and remaining files |
 | `tests/test_agent.py` | `test/test_agent.cpp` | `agent.json`: busy parsing, severities, built events. Also a real cpp-httplib GET against a local server (busy, 404, timeout, unreachable) |
 | `tests/test_config.py` | `test/test_config.cpp` | `config.json`: defaults, and the pydantic verdict and parsed values for 102 YAML documents. Also exit 78 |
-| `tests/test_node.py` | `test/test_node.cpp` | No fixture. Covers grid conversion and QoS, and the service calls against a fake slam_toolbox (parameter read, toggle status, result codes, unavailable, timeout). Ends with an end-to-end dry run: map, TF and scans give an agreement ratio, and a carried robot reaches DISTURBED with no service call |
+| `tests/test_node.py` | `test/test_node.cpp` | No fixture. Covers grid conversion and QoS, and the service calls against a fake slam_toolbox (parameter read, toggle status, result codes, unavailable, timeout). Ends with an end-to-end dry run: map, TF and scans give an agreement ratio, and a carried robot reaches DISTURBED with no service call and announces it on `/map_guard/state` (reason `carried`, the measured ratio). A late subscriber receives the latched state (null ratios without sensor data) and periodic republishes; a held change (localised false) is published at once even at a 20 s periodic rate; scans beyond range count as `unscored_scans` (no ratio invented) until a scorable scan resets the count |
 | none (prometheus_client's ProcessCollector) | `shared/ros2_common_cpp/test/test_metrics.cpp` | The `process_*` series live in `ros2_common_cpp::Metrics` and are tested there; `test/test_node.cpp` checks the node exports them |
 | `tests/test_shutdown.py` | none | rclpy-specific shutdown race. The C++ worker stops on node destruction |
 
@@ -225,10 +261,15 @@ The core library is compiled with `-ffp-contract=off`, so no fused multiply-add 
 ## Rollback
 
 Cutting over means enabling `map_guard_cpp` and disabling `map_guard` in `ansible/group_vars/client.yml`. Both keep
-the same config block. To roll back, reverse it:
+the same config block except `dry_run`: the Python block stays `true` (no localisation hold, see below). To roll back, reverse it:
 
 1. Set `map_guard_cpp` to `enabled: false`.
 2. Set `map_guard` to `enabled: true`.
 3. Run `./scripts/deploy-nodes.sh client map_guard map_guard_cpp 2>&1 | tee .logs/deploy-client-map_guard.log`.
 
 The Python package stays installed, so rolling back needs no build.
+
+The Python node publishes no `/map_guard/state` and has no localisation hold: after a rollback mcp_server reports
+`localisation: null` (with a note) in `get_robot_state`. Its config block therefore stays at `dry_run: true`: live,
+the Python guard could reset the map in the middle of a named-map load. Set it to `false` only knowingly after a
+rollback.

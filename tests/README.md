@@ -443,7 +443,7 @@ In-repo C++ node deploy: the local-source colcon build of `ansible/roles/ros2_no
 | `test_package_xml_apt_names_maps_ros_system_and_local_keys` | `package_xml_apt_names` maps ROS keys to `ros-jazzy-<dashed>`, system rosdep keys via `ROSDEP_APT`, keeps `lib*-dev` names, drops in-tree local packages and `test_depend`. |
 | `test_cpp_node_apt_packages_cover_every_in_tree_package_xml` | (per C++ type, `front_camera` included; only `local` sources' package.xml are read, the pinned libcamera counts as a local package) every build/run dependency of each local source's `package.xml` that is in the tree (`ros2_common_cpp` and the `head_camera_cpp` node package) is in the type's `apt_packages`. |
 | `test_ros2_common_cpp_is_a_discovered_cpp_package` | The chained `shared/ros2_common_cpp` is a C++ package found by `discover_cpp_package_dirs`. |
-| `test_cpp_node_entry_is_live_with_the_python_config` | (per `_cpp` type) the `ros2_nodes` entry follows the Python node's, `present: true`, `enabled: true` (since the cut-over), the same `config: |` block (metrics port 19110). |
+| `test_cpp_node_entry_is_live_with_the_python_config` | (per `_cpp` type) the `ros2_nodes` entry follows the Python node's, `present: true`, `enabled: true` (since the cut-over), the same parsed config except `dry_run` (the Python rollback stays in dry run: no localisation hold) (metrics port 19110). |
 | `test_client_playbook_deploys_the_cpp_node_after_its_python_counterpart` | The `Deploy <name>_cpp` include follows the Python node's, with the node, build and config tags and the node tag applied. |
 | `test_server_cpp_node_builds_two_local_sources_and_covers_their_package_xml` | (per server `_cpp` type, `map3d_manager_cpp`) `group_vars/server.yml` builds `ros2_common_cpp` then the node as local sources, and `apt_packages` covers every in-tree `package.xml` dependency. |
 | `test_docs_describe_the_local_source_build_and_the_cpp_nodes` | `ansible/README.md`, `nodes/README.md` and the ansible-deploy skill describe the local build and both node types. |
@@ -3152,8 +3152,9 @@ Static invariants of the cut-over to the C++ nodes (`ansible/group_vars/client.y
 |---|---|
 | `test_cpp_node_is_live` | `map_guard_cpp` is `present: true`, `enabled: true`. |
 | `test_python_node_stays_present_and_disabled_for_rollback` | `map_guard` stays `present: true`, `enabled: false` (rollback). |
-| `test_cpp_config_block_equals_the_python_block` | The parsed `_cpp` config equals the Python node's and keeps its metrics port (19110). |
-| `test_map_guard_cpp_keeps_dry_run` | The map_guard_cpp config still has `dry_run: true`. |
+| `test_cpp_config_block_equals_the_python_block` | The parsed `_cpp` config equals the Python node's, except `dry_run` (`ROLLBACK_EXEMPT_KEYS`), has the same keys and keeps its metrics port (19110). |
+| `test_python_map_guard_rollback_stays_in_dry_run` | The Python `map_guard` rollback block keeps `dry_run: true`: it has no localisation hold and could reset the map during a named-map load. |
+| `test_map_guard_cpp_is_live` | The map_guard_cpp config has `dry_run: false` (live since T-395: it pauses, relocalises and resets for real). |
 | `test_background_tier_holds_only_throttles_and_previews` | Among running nodes the background tier (100/100/0) holds exactly `front_camera`, `head_rgbd_calibration`, the two joint-state throttle nodes and `map3d_uplink` (`head_camera_cpp` is retired). |
 | `test_only_the_running_node_of_each_pair_is_scraped` | `monitoring_agent_node_targets` lists the `_cpp` names and not the disabled Python ones. |
 | `test_readme_documents_cutover_and_rollback` | `ansible/README.md` has a "Cut-over and rollback" section naming both nodes, `enabled: false` and `scripts/deploy-nodes.sh`. |

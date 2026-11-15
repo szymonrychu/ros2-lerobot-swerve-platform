@@ -25,6 +25,13 @@ from ros2_common.battery import BatteryGuard
 
 from .config import MonitorSettings
 from .frontiers import EpochChange
+from .localisation import (
+    MapGuardStatus,
+    localisation_health,
+    message_age,
+    parse_map_guard_state,
+    reliable_since,
+)
 from .metrics import ROBOT_EVENTS
 from .models import (
     BaseSpeed,
@@ -38,6 +45,7 @@ from .models import (
     GroundState,
     HottestServo,
     ImuVitals,
+    LocalisationHealth,
     MeasuredSpeed,
     RobotEvent,
     ServoVitals,
@@ -361,6 +369,9 @@ class RobotMonitor:
         self.tilt_guard: tuple[float, TiltGuardState] | None = None  # (receive time, last /tilt_guard/state)
         self.ground: tuple[float, GroundState] | None = None  # (receive time, last /ground/state)
         self.map_guard_state: str | None = None  # latest map_guard state announced on /robot_events
+        self.map_guard: tuple[float, MapGuardStatus] | None = None  # (receive time, last /map_guard/state)
+        # Wall time (epoch s) of the agreement sample of the latest reliable /map_guard/state; relocalise's `since`.
+        self.reliable_wall: float | None = None
         self.tilt_over_since: float | None = None  # monitor time the tilt guard first left ok (None while ok)
         self.nav_canceller: Callable[[], bool] | None = None
         # Whether a queued job (motion queue) runs; set by register_tools. A map reset during one is critical.
@@ -791,7 +802,7 @@ class RobotMonitor:
             "ground_pitch_deg": ground_pitch,
             "ground_roll_deg": ground_roll,
             "ground_age_s": ground_age,
-            "map_guard_state": self.map_guard_state,
+            "map_guard_state": self.current_map_guard_state(now),
         }
 
     def cancel_nav(self) -> None:
@@ -954,6 +965,60 @@ class RobotMonitor:
             state (GroundState): Parsed /ground/state.
         """
         self.ground = (self.clock(), state)
+
+    def on_map_guard_state(self, payload: str) -> None:
+        """Store one /map_guard/state JSON message with its receive time, and the wall time of its agreement sample
+        when it is reliable; an off-contract payload is logged and dropped.
+
+        Args:
+            payload (str): std_msgs/String data from map_guard_cpp.
+        """
+        status = parse_map_guard_state(payload)
+        if status is None:
+            return
+        age = message_age(0.0, status.stamp, self.wall())
+        good = reliable_since(status, age, self.cfg.map_guard_state_stale_s)
+        with self.lock:
+            self.map_guard = (self.clock(), status)
+            if good is not None:
+                self.reliable_wall = good
+
+    def last_reliable_wall(self) -> float | None:
+        """Wall time of the latest agreement sample that made the localisation reliable.
+
+        Returns:
+            float | None: Epoch seconds, None when localisation was never reliable since start.
+        """
+        with self.lock:
+            return self.reliable_wall
+
+    def current_map_guard_state(self, now: float) -> str | None:
+        """The map_guard state for the tilt evidence: the fresh /map_guard/state, else the last one announced on
+        /robot_events. Lock held.
+
+        Args:
+            now (float): Monitor time.
+
+        Returns:
+            str | None: The state name, None when neither source has one.
+        """
+        if self.map_guard is not None and now - self.map_guard[0] <= self.cfg.map_guard_state_stale_s:
+            return self.map_guard[1].state
+        return self.map_guard_state
+
+    def localisation(self) -> tuple[LocalisationHealth | None, list[str]]:
+        """Localisation health for get_robot_state from the latest /map_guard/state.
+
+        Returns:
+            tuple[LocalisationHealth | None, list[str]]: The health (None when missing or stale) and its notes.
+        """
+        with self.lock:
+            entry = self.map_guard
+            now = self.clock()
+        if entry is None:
+            return localisation_health(None, None, self.cfg.map_guard_state_stale_s)
+        age = message_age(now - entry[0], entry[1].stamp, self.wall())
+        return localisation_health(entry[1], age, self.cfg.map_guard_state_stale_s)
 
     def on_robot_event(self, raw: str) -> None:
         """Record a map_reset / map_guard_reset event from /robot_events as a candidate cause of a map epoch reset,

@@ -39,6 +39,8 @@ rclcpp::QoS sensor_qos() { return rclcpp::QoS(rclcpp::KeepLast(SENSOR_QOS_DEPTH)
 
 rclcpp::QoS map_qos() { return rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local(); }
 
+rclcpp::QoS state_qos() { return rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local(); }
+
 double monotonic_s()
 {
   return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -134,7 +136,8 @@ MapGuardNode::MapGuardNode(const rclcpp::NodeOptions & options, const Config & c
   metrics_(METRICS_NODE),
   guard_metrics_(metrics_),
   detectors_(config_),
-  agreement_limiter_(config_.agreement_hz)
+  agreement_limiter_(config_.agreement_hz),
+  state_limiter_(config_.state_publish_hz)
 {
   if (serve_metrics) {
     std::optional<int> port;
@@ -160,6 +163,7 @@ MapGuardNode::MapGuardNode(const rclcpp::NodeOptions & options, const Config & c
     config_.dry_run);
   slam_ = std::make_unique<SlamServices>(*this, config_);
   command_pub_ = create_publisher<std_msgs::msg::String>(config_.command_topic, COMMAND_QOS_DEPTH);
+  state_pub_ = create_publisher<std_msgs::msg::String>(config_.state_topic, state_qos());
   guard_ = std::make_unique<MapGuard>(
     config_, *slam_, *notifier_, [this]() { reset_pub_->publish(std_msgs::msg::Empty()); },
     [this](const std::string & request_id, double since) { request_relocalise(request_id, since); },
@@ -273,10 +277,12 @@ void MapGuardNode::on_scan(const std::shared_ptr<const rclcpp::SerializedMessage
   const auto result = agreement(
     transform_points(points, {t.x, t.y, t.z}, {r.x, r.y, r.z, r.w}), prepared.get(),
     static_cast<int>(config_.min_points));
+  std::lock_guard<std::mutex> lock(lock_);
   if (!result) {
+    ++unscored_scans_;  // too few endpoints on known cells: open or unmapped space, not a bad pose
     return;
   }
-  std::lock_guard<std::mutex> lock(lock_);
+  unscored_scans_ = 0;
   if (held_) {
     return;
   }
@@ -320,6 +326,31 @@ void MapGuardNode::on_cmd(const geometry_msgs::msg::Twist::ConstSharedPtr & msg)
   detectors_.on_cmd(monotonic_s(), std::hypot(msg->linear.x, msg->linear.y), msg->angular.z);
 }
 
+void MapGuardNode::publish_state(double now, int unscored_scans)
+{
+  GuardStatus status;
+  status.state = guard_->state();
+  status.reasons = guard_->reasons();
+  status.held = guard_->held();
+  const bool due = state_limiter_.ready(now);
+  if (published_ && !due && !status_changed(*published_, status)) {
+    return;
+  }
+  status.agreement_ratio = latest_ratio_;
+  if (latest_ratio_) {
+    status.ratio_age_s = now - latest_ratio_at_;
+  }
+  status.unscored_scans = unscored_scans;
+  status.median_ratio = guard_->ratio();
+  status.healthy_ratio = config_.healthy_ratio;
+  status.dry_run = config_.dry_run;
+  status.stamp = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
+  std_msgs::msg::String msg;
+  msg.data = state_json(status);
+  state_pub_->publish(msg);
+  published_ = status;
+}
+
 void MapGuardNode::run_guard()
 {
   const auto period = seconds(1.0 / config_.tick_hz);
@@ -329,13 +360,19 @@ void MapGuardNode::run_guard()
     std::vector<MapGuard::Sample> samples;
     std::vector<RelocaliseResult> results;
     bool held = false;
+    int unscored_scans = 0;
     {
       std::lock_guard<std::mutex> lock(lock_);
       held = held_;
+      unscored_scans = unscored_scans_;
       now = monotonic_s();
       report = detectors_.evaluate(now);
       samples.swap(pending_);
       results.swap(results_);
+    }
+    if (!samples.empty()) {
+      latest_ratio_ = samples.back().first;
+      latest_ratio_at_ = now;
     }
     try {
       guard_->set_hold(held);
@@ -343,6 +380,7 @@ void MapGuardNode::run_guard()
         guard_->on_relocalise_result(result.request_id, result.ok, result.state, result.discarded_pois);
       }
       guard_->tick(now, report, samples);
+      publish_state(now, unscored_scans);
     } catch (const std::exception & exc) {  // keep guarding after an unexpected error
       RCLCPP_ERROR(get_logger(), "map_guard tick failed: %s", exc.what());
     }

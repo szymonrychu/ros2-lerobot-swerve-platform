@@ -291,7 +291,10 @@ POI_HINT = (
 INSTRUCTIONS = """Controls a swerve-drive mobile robot with an SO101 5-DOF arm and gripper (ROS 2 Jazzy, Nav2, SLAM).
 Frames: 'map' is the SLAM map (x/y metres, yaw radians CCW); 'base_link' is the robot (x forward, y left).
 Look before moving: call get_robot_state, get_map_summary and get_camera_image first. Prefer navigate_to_pose /
-move_relative (Nav2 plans around obstacles) over drive. Arm motions are slow, clamped to joint limits and abort on
+move_relative (Nav2 plans around obstacles) over drive. Check get_robot_state localisation.reliable before
+navigate_to_pose / move_relative: when it is false (the robot was carried or turned, the scan disagrees with the map)
+or the camera view disagrees with the map pose, call relocalise (SLAM only, nothing moves) or ask a person first; null
+means unmapped or open space where the scan cannot be scored, not a wrong pose. Arm motions are slow, clamped to joint limits and abort on
 stale feedback or tracking error. Control leases: call take_control(subsystem='arm') before any arm or gripper tool
 and take_control(subsystem='base') before any base tool (navigate_to_pose, move_relative, drive, look_around,
 approach_for_grasp); a tool without its lease is refused and nothing moves. Both may be held at once. The head tools (set_head_angles, head_look_at, head_home; degrees, the head looks forward and down at home) need either lease, and releasing the controlling lease sends the head home. look_around(mode='head') pans the head over +-90 deg without moving the base and works under the arm or the base lease (the tilt guard does not refuse it); its base modes level the head for the turn and restore it. The arm
@@ -941,8 +944,12 @@ def register_core_tools(ctx: ToolContext) -> None:
         """Snapshot of the whole robot: base pose in the map (TF map->base_link), odometry velocity, the latest Nav2
         navigation goal status, the collision monitor action (if published), arm joint positions/efforts, gripper
         effort, which arm source filter_node has active (leader, web_ui or autonomy), whether this server holds the
-        arm autonomy lease, and the age in seconds of every data source. Stale sources are omitted (never invented)
-        and listed in `notes`. Call this first, then at checkpoints (phase boundaries, before an irreversible action such as
+        arm autonomy lease, the age in seconds of every data source, and `localisation`: the map pose health from
+        map_guard (state, reasons, agreement_ratio = scan-to-map agreement 0..1, healthy_ratio, dry_run, age_s and
+        `reliable`). When localisation.reliable is false do not use navigate_to_pose or move_relative: read
+        localisation.note, call relocalise (moves nothing) or ask a person; while map_guard is relocalising, wait.
+        reliable null means map_guard cannot score the scan here (unmapped or open space): unknown, not a wrong pose.
+        A null localisation (map_guard silent) is unknown too: compare the camera view with the map. Stale sources are omitted (never invented) and listed in `notes`. Call this first, then at checkpoints (phase boundaries, before an irreversible action such as
         closing the gripper, and when a tool reports a problem); a motion tool's own result already reports
         expected vs achieved, so it needs no routine check afterwards."""
         with tool_errors():

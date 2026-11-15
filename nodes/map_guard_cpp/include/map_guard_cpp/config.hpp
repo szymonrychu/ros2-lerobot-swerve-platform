@@ -45,6 +45,9 @@ struct Config
   // std_msgs/String JSON: the relocalise command goes to command_topic, the answer comes on result_topic.
   std::string command_topic = "/map_manager/command";
   std::string result_topic = "/map_manager/result";
+  // std_msgs/String JSON of the guard state (latched), on every transition and at state_publish_hz. C++-only.
+  std::string state_topic = "/map_guard/state";
+  double state_publish_hz = 1.0;
 
   std::string pause_service = "/slam_toolbox/pause_new_measurements";
   std::string reset_service = "/slam_toolbox/reset";

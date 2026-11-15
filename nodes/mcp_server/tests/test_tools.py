@@ -222,6 +222,7 @@ def test_registers_every_tool_with_a_real_description(server: Any) -> None:
         "list_maps",
         "load_map",
         "delete_map",
+        "relocalise",
         "get_motion_status",
         "cancel_motions",
         "wait_for_event",
