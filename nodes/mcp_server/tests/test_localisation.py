@@ -15,7 +15,7 @@ from mcp_server.localisation import (
     localisation_health,
     parse_map_guard_state,
 )
-from mcp_server.models import ArmState
+from mcp_server.models import ArmState, LocalisationHealth
 
 from .test_tilt_guard import make, state
 
@@ -29,6 +29,7 @@ def guard_state(**overrides: Any) -> dict[str, Any]:
         "reasons": [],
         "agreement_ratio": 0.92,
         "ratio_age_s": 0.3,
+        "unscored_scans": 0,
         "median_ratio": 0.9,
         "healthy_ratio": 0.6,
         "dry_run": False,
@@ -51,6 +52,7 @@ def test_parse_reads_every_field() -> None:
     assert parsed.state == "disturbed" and parsed.reasons == ["carried", "rotated"]
     assert parsed.agreement_ratio == 0.03 and parsed.median_ratio == 0.9 and parsed.healthy_ratio == 0.6
     assert parsed.dry_run is False and parsed.held is False and parsed.ratio_age_s == 0.3
+    assert parsed.unscored_scans == 0
 
 
 @pytest.mark.parametrize(
@@ -61,6 +63,8 @@ def test_parse_reads_every_field() -> None:
         json.dumps(guard_state(state="lost")),
         json.dumps(guard_state(agreement_ratio=1.5)),
         json.dumps({k: v for k, v in guard_state().items() if k != "healthy_ratio"}),
+        json.dumps({k: v for k, v in guard_state().items() if k != "unscored_scans"}),
+        json.dumps(guard_state(unscored_scans=-1)),
     ],
 )
 def test_parse_rejects_anything_off_contract(payload: str) -> None:
@@ -72,6 +76,7 @@ def test_fresh_healthy_state_is_reliable_without_notes() -> None:
     assert health is not None and health.reliable is True and notes == []
     assert health.state == "ok" and health.agreement_ratio == 0.92 and health.median_ratio == 0.9
     assert health.healthy_ratio == 0.6 and health.dry_run is False and health.age_s == 0.5
+    assert health.ratio_age_s == pytest.approx(0.8) and health.unscored_scans == 0
     assert health.note is None
 
 
@@ -112,23 +117,59 @@ def test_relocalising_tells_the_agent_to_wait() -> None:
     assert health is not None and health.note is not None and "wait" in health.note
 
 
-def test_median_is_judged_before_the_latest_sample() -> None:
-    noisy, _ = localisation_health(status(agreement_ratio=0.4, median_ratio=0.8), 0.2, STALE_S)
-    assert noisy is not None and noisy.reliable is True
+@pytest.mark.parametrize(("latest", "median"), [(0.4, 0.8), (0.8, 0.4)])
+def test_both_the_latest_sample_and_the_median_must_be_healthy(latest: float, median: float) -> None:
+    health, notes = localisation_health(status(agreement_ratio=latest, median_ratio=median), 0.2, STALE_S)
+    assert health is not None and health.reliable is False
+    assert health.note is not None and "0.40" in health.note and "relocalise" in health.note
+    assert notes == [health.note]
+
+
+def test_latest_sample_alone_is_judged_without_a_median() -> None:
     fallback, _ = localisation_health(status(agreement_ratio=0.8, median_ratio=None), 0.2, STALE_S)
     assert fallback is not None and fallback.reliable is True
 
 
-def test_no_ratio_is_unreliable_not_invented() -> None:
-    health, notes = localisation_health(status(agreement_ratio=None, ratio_age_s=None, median_ratio=None), 0.2, STALE_S)
-    assert health is not None and health.reliable is False and health.agreement_ratio is None
-    assert health.note is not None and "no scan-to-map agreement" in health.note
+def assert_unknown_without_relocalise_advice(health: LocalisationHealth | None, notes: list[str]) -> str:
+    """reliable is null (unknown), the note says it is no evidence of a wrong pose and advises no relocalise."""
+    assert health is not None and health.reliable is None
+    assert health.note is not None and "not evidence of a wrong pose" in health.note
+    assert "call relocalise" not in health.note and "ask a person" not in health.note
+    assert notes == [health.note]
+    return health.note
 
 
-def test_old_ratio_is_unreliable() -> None:
-    health, _ = localisation_health(status(ratio_age_s=STALE_S + 5.0), 0.2, STALE_S)
-    assert health is not None and health.reliable is False
-    assert health.note is not None and "old" in health.note
+def test_no_ratio_in_ok_is_unknown_not_invented() -> None:
+    health, notes = localisation_health(
+        status(agreement_ratio=None, ratio_age_s=None, median_ratio=None, unscored_scans=0), 0.2, STALE_S
+    )
+    note = assert_unknown_without_relocalise_advice(health, notes)
+    assert health is not None and health.agreement_ratio is None and health.ratio_age_s is None
+    assert "no scan scored" in note
+
+
+def test_unscorable_open_space_is_unknown_not_bad() -> None:
+    """Exploring: the robot faces unmapped or open space, map_guard cannot score agreement, the pose is fine."""
+    health, notes = localisation_health(status(ratio_age_s=STALE_S + 5.0, unscored_scans=12), 0.2, STALE_S)
+    note = assert_unknown_without_relocalise_advice(health, notes)
+    assert "map agreement not scorable here (unmapped/open space), not evidence of a wrong pose" in note
+    assert health is not None and health.unscored_scans == 12
+
+
+def test_old_low_ratio_in_ok_is_still_unknown() -> None:
+    health, notes = localisation_health(
+        status(agreement_ratio=0.1, median_ratio=0.1, ratio_age_s=STALE_S + 5.0, unscored_scans=3), 0.2, STALE_S
+    )
+    assert_unknown_without_relocalise_advice(health, notes)
+
+
+def test_ratio_age_counts_the_message_age() -> None:
+    """A 2 s old sample in a 1.5 s old message is 3.5 s old: past the 3 s limit."""
+    health, notes = localisation_health(status(ratio_age_s=2.0, unscored_scans=4), 1.5, STALE_S)
+    assert_unknown_without_relocalise_advice(health, notes)
+    assert health is not None and health.ratio_age_s == pytest.approx(3.5)
+    fresh, _ = localisation_health(status(ratio_age_s=1.0), 1.5, STALE_S)
+    assert fresh is not None and fresh.reliable is True
 
 
 def test_held_is_unreliable() -> None:
@@ -149,13 +190,41 @@ def test_monitor_localisation_follows_the_topic_and_ages() -> None:
     mon, clock, _, _ = make()
     health, notes = mon.localisation()
     assert health is None and notes
-    mon.on_map_guard_state(json.dumps(guard_state()))
+    mon.on_map_guard_state(json.dumps(guard_state(stamp=clock.wall())))
     clock.t += 1.0
     health, notes = mon.localisation()
     assert health is not None and health.reliable is True and health.age_s == pytest.approx(1.0) and notes == []
     clock.t += MonitorSettings().map_guard_state_stale_s
     health, notes = mon.localisation()
     assert health is None and "stale" in notes[0]
+
+
+def test_monitor_age_is_the_older_of_receipt_and_stamp() -> None:
+    """A latched stale sample delivered late (old stamp, same host clock) is not treated as fresh."""
+    mon, clock, _, _ = make()
+    mon.on_map_guard_state(json.dumps(guard_state(stamp=clock.wall() - 10.0)))
+    health, notes = mon.localisation()
+    assert health is None and "stale" in notes[0] and "10.0 s" in notes[0]
+    mon.on_map_guard_state(json.dumps(guard_state(stamp=clock.wall() - 1.0)))
+    health, _ = mon.localisation()
+    assert health is not None and health.age_s == pytest.approx(1.0)
+
+
+def test_monitor_tracks_the_last_reliable_wall_time() -> None:
+    mon, clock, _, _ = make()
+    assert mon.last_reliable_wall() is None
+    good = clock.wall()
+    mon.on_map_guard_state(json.dumps(guard_state(stamp=good, ratio_age_s=0.3)))
+    assert mon.last_reliable_wall() == pytest.approx(good - 0.3)
+    clock.t += 5.0
+    mon.on_map_guard_state(json.dumps(guard_state(state="disturbed", reasons=["carried"], stamp=clock.wall())))
+    clock.t += 5.0
+    mon.on_map_guard_state(json.dumps(guard_state(agreement_ratio=0.05, median_ratio=0.05, stamp=clock.wall())))
+    clock.t += 5.0
+    mon.on_map_guard_state(json.dumps(guard_state(ratio_age_s=30.0, unscored_scans=9, stamp=clock.wall())))
+    assert mon.last_reliable_wall() == pytest.approx(good - 0.3)  # unreliable and unknown states do not move it
+    mon.on_map_guard_state(json.dumps(guard_state(stamp=clock.wall() - 60.0)))
+    assert mon.last_reliable_wall() == pytest.approx(good - 0.3)  # a stale message is not evidence
 
 
 def test_monitor_drops_an_unreadable_state() -> None:

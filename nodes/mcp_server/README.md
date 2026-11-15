@@ -87,7 +87,7 @@ on the feeds node (`dual_rate_topic(node=feeds_node)`). Config `feeds_executor: 
 | `list_maps` | Saved maps (name, saved_at, note, poi_count, last_pose, valid), the active map and the localisation (state, ratio, pose). Sensor, read-only; errors until map_manager has published a status. |
 | `load_map(name, x=None, y=None, yaw=None)` | Loads the named map (the current map and POIs are first kept as `autosave`) and relocalises; returns the verdict (state, ratio, pose, reason). Calls stop first (halts the motion queue and zeroes the base); that is the only motion, no servo moves. Pose hint needs x, y and yaw together. Not navigable unless the state is `localised`. Consent default: none needed, but the load replaces the live map and POIs, so do it only when asked. |
 | `delete_map(name, confirm=false)` | Deletes a saved map and its POIs for good. Consent default: `confirm=false`, nothing is sent until the person agreed and the call repeats with `confirm=true`. No motion. |
-| `relocalise()` | Re-finds the robot on the current map through `map_manager` (`{"op":"relocalise"}`): pauses SLAM, searches +-1 m and a full turn around the last good pose, restarts SLAM at the best fit and verifies it. Returns the verdict (ok, state, ratio, pose, hint, ambiguous, message); a failed or timed-out relocalise is an error with map_manager's reason and the next step (ask a person, or `load_map` with a pose hint). Use it when `get_robot_state` `localisation.reliable` is false or the camera view disagrees with the map pose. SLAM only: moves nothing, no lease, no stop. |
+| `relocalise()` | Re-finds the robot on the current map through `map_manager` (`{"op":"relocalise","since":...}`): pauses SLAM, searches +-1 m and a full turn around map_manager's pose at the last reliable localisation (`since`, when within `maps.relocalise_since_max_age_s`) or else its newest pose, restarts SLAM at the best fit and verifies it. Returns the verdict (ok, state, ratio, pose, hint, ambiguous, since, hint_from, message). A failure is an error with map_manager's reason, the state the robot is left in (SLAM running again or still paused, `/map_manager/localised`) and the next step (ask a person, or `load_map` with a pose hint); `busy` (map_guard's own relocalise) says to wait and re-check `get_robot_state`; a refusal before SLAM was touched says nothing changed. Use it when `get_robot_state` `localisation.reliable` is false or the camera view disagrees with the map pose. SLAM only: moves nothing, no lease, no stop. |
 | `list_pois` / `add_poi` / `update_poi` / `delete_poi` | Points and areas of interest through `poi_store` (`/poi/*`). Sensor. Areas can carry a Nav2 zone: `add_poi` / `update_poi` take `zone` (`none` / `keepout` / `slow`, `none` removes it) and `speed_limit_pct` (int 10..100, required for `slow`, refused for any other zone); `list_pois` returns both on every view and never lists photos (`list_lookups` does); `list_pois(marker_kind=...)` keeps only marker POIs of that kind. **Marker POIs** (kind `marker`: fixed places from printed markers - base, charger, drop-off, button, switch, tool station; the pose is owned by the marker detector, `add_poi` stays point/area only) are listed with the others; their views carry `z` (height, m), `marker` (`kind`, `id`, `size_mm`, `params`, `times_seen`, `last_seen`, `confidence`), `facing_yaw_deg` (map yaw of the marker's +z axis projected on the floor; null when that axis is within 45 deg of vertical, a marker lying flat or on a ceiling) and `approach_pose` (`x`, `y`, `yaw_deg`: the marker position plus `markers.standoff_m` (default 0.6, 0.2..2.0) along the facing, yaw facing the marker; null without facing); all null for other kinds. As approach targets (`suggest_approach_pose`, `approach_for_grasp`) a marker `poi_id` takes its own `z` when `z_m` is omitted (`z_m` still overrides); point/area `poi_id` still requires `z_m`. `delete_poi` with a photo id deletes that photo and its image, deleting a POI keeps the photos linked to it. `keepout`: Nav2 will not plan or drive into the area (the robot can leave if it is inside; never set a goal inside). `slow`: MPPI speed cap while the robot centre is inside. A zone is active only while the POI status is `open`. A zone on a point, `slow` without a percentage, or a percentage with another zone is refused before the request. Agent zones are session-scoped (agent POIs are cleared at each new session). See [POI zones](#poi-zones). |
 | `get_3d_map_status` | Sensor, read-only: the latest `/map3d/status` JSON (mapping state, node count, alignment) plus the local cloud's `voxel_count`, `bounds` (map frame, m), `age_s` and `alignment_agreement` (0..1, the share of measured walls at the lidar plane that lie on the slam_toolbox `/map` walls; low means the 3D map is shifted). Fields are null with a note when nothing was received, never a guess; a result older than `map3d.max_age_s` carries a stale note. |
 | `query_3d_map_at(x, y, radius_m=0.3)` | Sensor, read-only. Map-frame x, y and radius in m (0.05..2). The highest measured obstacle within the radius (`height_m` above the floor in m, `highest_point`, median colour), floor and below-floor voxel counts and the lidar `/map` cells. `source`: `depth_3d`, `lidar_2d` (a `/map` wall depth never measured: `height_m` is null, `lidar_min_height_m` is only a lower bound), `both`, or `unknown` (nothing observed there, which is not free). Errors when no 3D map was received yet. |
@@ -3345,6 +3345,7 @@ maps:
   save_timeout_s: 30.0     # wait for the save result
   load_timeout_s: 120.0    # wait for the load result (after the relocalisation verdict)
   delete_timeout_s: 10.0
+  relocalise_since_max_age_s: 110.0  # oldest last-reliable time sent as `since` (below map_manager's pose_ring_s 120)
 ```
 
 - A named map bundles the slam_toolbox graph, the POIs and the last robot pose. `clear_pois` (above) empties the POI set
@@ -3356,16 +3357,25 @@ maps:
   the person asked for more.
 - After `load_map`, navigate only when the verdict state is `localised`; otherwise retry with a pose hint or tell the
   person.
-- `relocalise` sends `{"op":"relocalise"}` with no `since` (map_manager starts from its newest ring pose) and
-  `discard_on_fail: false` (a failure keeps the live POIs; map_guard's own relocalise discards them). It does not stop
-  the robot and needs no lease. map_manager's relocalise takes no pose hint (only `since` and `discard_on_fail`), so
-  the tool has none: the search window is +-1 m and the full turn around the last good pose, and after a longer carry
-  the way out is a person or `load_map` with a pose hint. The wait is `maps.load_timeout_s`.
+- `relocalise` sends `{"op":"relocalise"}` with `since` and `discard_on_fail: false` (a failure keeps the live POIs;
+  map_guard's own relocalise discards them). `since` is `RobotMonitor.last_reliable_wall()`: the wall time (epoch s)
+  of the agreement sample of the latest `/map_guard/state` judged reliable (`stamp - ratio_age_s`). map_manager then
+  starts the search from the newest pose of its ring taken at or before it, so a kidnap that moved the pose does not
+  centre the search on the wrong pose. A `since` older than `maps.relocalise_since_max_age_s` (default 110 s, below
+  map_manager's 120 s `pose_ring_s`) or none at all is not sent, and map_manager starts from its newest ring pose
+  (which may be the wrong one); `since` and `hint_from` in the result say which. map_manager records ring poses only
+  while one of its operations runs (`nodes/map_manager/README.md`), so without a recent operation it refuses with "no
+  last known pose". It does not stop the robot and needs no lease. map_manager's relocalise takes no pose hint, so the
+  tool has none: the search window is +-1 m and the full turn around that pose, and after a longer carry the way out
+  is a person or `load_map` with a pose hint. A failed relocalise leaves SLAM running again (unless the unpause
+  failed) from the unverified pose, with `/map_manager/localised` back at its value before the call; the error says
+  which (`MapRejected` carries map_manager's `data.slam_paused` and `data.localised`). The wait is
+  `maps.load_timeout_s`.
 
 ## Localisation health
 
 map_guard_cpp publishes its state on `/map_guard/state` (`topics.map_guard_state`; latched JSON: `state`, `reasons`,
-`agreement_ratio`, `ratio_age_s`, `median_ratio`, `healthy_ratio`, `dry_run`, `held`, `stamp`; see
+`agreement_ratio`, `ratio_age_s`, `unscored_scans`, `median_ratio`, `healthy_ratio`, `dry_run`, `held`, `stamp`; see
 `nodes/map_guard_cpp/README.md`). `RobotMonitor.on_map_guard_state` keeps the latest with its receive time and
 `localisation.py` turns it into `get_robot_state.localisation`:
 
@@ -3374,12 +3384,15 @@ map_guard_cpp publishes its state on `/map_guard/state` (`topics.map_guard_state
 | `state`, `reasons` | map_guard state and the reasons of its episode |
 | `agreement_ratio`, `median_ratio` | Latest scan-to-map agreement and its rolling median (null when not measured) |
 | `healthy_ratio`, `dry_run`, `held` | map_guard's healthy threshold, whether it only logs, whether map_manager holds it (map not localised) |
-| `age_s` | Seconds since the message arrived |
-| `reliable` | true only when the state is fresh, not `disturbed` / `settling` / `evaluating` / `relocalising`, not held, the agreement sample is at most `monitor.map_guard_state_stale_s` old and the agreement (median, else latest) is at least `healthy_ratio` |
-| `note` | Why it is not reliable and what to do (also appended to `notes`); null when reliable |
+| `age_s` | Age of the message: the older of its receipt and its `stamp` (same host clock), so a latched stale sample is not fresh |
+| `ratio_age_s` | Age of the latest agreement sample: map_guard's `ratio_age_s` plus `age_s` (null without a sample) |
+| `unscored_scans` | Scans since the last scored one with too few endpoints on known map cells (open or unmapped space) |
+| `reliable` | `true` only when the state is fresh, not `disturbed` / `settling` / `evaluating` / `relocalising`, not held, the agreement sample (`ratio_age_s`) is at most `monitor.map_guard_state_stale_s` old and both the latest agreement and its median are at least `healthy_ratio`. `false` only on positive evidence: one of those states, held, or a fresh agreement below `healthy_ratio`. `null` (unknown) when map_guard is settled but has no fresh sample: "map agreement not scorable here (unmapped/open space), not evidence of a wrong pose"; no relocalise advice |
+| `note` | Why it is not reliable or unknown and what to do (also appended to `notes`); null when reliable |
 
 When the state is older than `monitor.map_guard_state_stale_s` (default 3 s; map_guard publishes about 1 Hz) or none
 has arrived, `localisation` is null and `notes` says the localisation is unknown: nothing is invented. A note on an
 unreliable pose tells the agent not to use `navigate_to_pose` / `move_relative` and to call `relocalise` or ask a
-person; while map_guard is `relocalising` it says to wait. The server instructions tell the agent to check
+person; while map_guard is `relocalising` it says to wait. `RobotMonitor` also keeps the wall time of the latest
+reliable sample for `relocalise`'s `since`. The server instructions tell the agent to check
 `localisation.reliable` before navigating. The tilt evidence `map_guard_state` uses the fresh topic state too.

@@ -9,26 +9,38 @@ from typing import Annotated, Any
 from pydantic import BaseModel, Field, ValidationError
 from ros2_common.maps import MAP_NAME_RULE, Localisation, MapCommand, MapSummary
 
+from .map_client import MapRejected
 from .models import RobotError
 from .perception_tools import tool_errors
 from .tool_context import ToolContext
 
 TOOL_NAMES = ("save_map", "list_maps", "load_map", "delete_map", "relocalise")
 NAME_DESC = f"Map name ({MAP_NAME_RULE})"
-# map_manager's relocalise searches +-1 m and the full turn around the last good pose (map_manager search settings).
+# map_manager's relocalise searches +-1 m and the full turn around its pose hint (map_manager search settings): the
+# newest pose of its pose ring taken at or before `since`, or its newest pose without `since`.
 RELOCALISE_NEXT_STEP = (
-    "relocalise searches only +-1 m and a full turn around the last good pose: after a longer carry ask a person "
+    "relocalise searches only +-1 m and a full turn around its starting pose: after a longer carry ask a person "
     "where the robot is (or to place it back), or call load_map with a pose hint (x, y, yaw). Do not navigate until "
     "get_robot_state localisation.reliable is true."
 )
+RELOCALISE_BUSY = (
+    "map_manager is busy with another map operation (most likely map_guard's own relocalise after a disturbance): "
+    "wait (wait_for_event or a few seconds), then call get_robot_state and check localisation before calling "
+    "relocalise again."
+)
+RELOCALISE_UNTOUCHED = "nothing changed: SLAM and the map pose are as before the call."
 RELOCALISE_DESC = (
     "Re-find the robot on the CURRENT map (map_manager relocalise: SLAM only, it moves nothing and needs no lease; "
-    "the map and POIs are kept). It pauses SLAM, searches +-1 m and a full turn around the last good pose for the "
-    "scan's best fit, restarts SLAM there and checks the scan-to-map agreement. Use it when get_robot_state "
-    "localisation.reliable is false (or null), or when the camera view disagrees with the map pose, before "
-    "navigate_to_pose / move_relative. Returns the verdict (state 'localised', ratio, pose, hint, ambiguous). A "
-    "failure is an error with map_manager's reason; then the robot is probably more than 1 m from the last good "
-    "pose: ask a person where it is, or call load_map with a pose hint (x, y, yaw). Waits up to the load timeout."
+    "the map and POIs are kept). It pauses SLAM, searches +-1 m and a full turn around a starting pose for the scan's "
+    "best fit, restarts SLAM there and checks the scan-to-map agreement. The starting pose is the one map_manager "
+    "recorded at the last reliable localisation (the last time get_robot_state localisation.reliable was true, "
+    "sent as since) when that is recent, else its newest recorded pose (which may be the wrong one); the result "
+    "names it (since, hint_from, hint). Use it when get_robot_state localisation.reliable is false, or when the "
+    "camera view disagrees with the map pose, before navigate_to_pose / move_relative (reliable null means unmapped "
+    "or open space, not a wrong pose). Returns the verdict (state 'localised', ratio, pose, hint, ambiguous). A "
+    "failure is an error with map_manager's reason and the state the robot is left in (SLAM running again or "
+    "paused); then the robot is probably more than 1 m from the starting pose: ask a person where it is, or call "
+    "load_map with a pose hint (x, y, yaw). Waits up to the load timeout."
 )
 
 
@@ -39,8 +51,10 @@ class RelocaliseVerdict(BaseModel):
     state: str
     ratio: float | None = None
     pose: dict[str, float] | None = None  # the pose slam_toolbox confirmed (map frame)
-    hint: dict[str, float] | None = None  # the last good pose the search started from
+    hint: dict[str, float] | None = None  # the ring pose the search started from (see hint_from)
     ambiguous: bool = False
+    since: float | None = None  # the `since` sent (epoch s of the last reliable localisation), None when not sent
+    hint_from: str = ""  # where the search started (the pose at `since`, or map_manager's newest pose)
     message: str = ""
 
 
@@ -90,13 +104,43 @@ def build_command(**fields: Any) -> dict[str, Any]:
         raise ValueError("; ".join(str(e["msg"]).removeprefix("Value error, ") for e in exc.errors())) from exc
 
 
+def relocalise_failure(exc: MapRejected) -> str:
+    """Error text of a rejected relocalise: map_manager's reason, the state the robot is left in, the next step.
+
+    Args:
+        exc (MapRejected): The rejection with map_manager's answer.
+
+    Returns:
+        str: The text for the agent.
+    """
+    if exc.result.message.startswith("busy"):
+        return f"{exc}. {RELOCALISE_BUSY}"
+    data = exc.result.data
+    if not data or "slam_paused" not in data:
+        return f"{exc}. {RELOCALISE_UNTOUCHED} {RELOCALISE_NEXT_STEP}"
+    slam = (
+        "SLAM stays PAUSED (the unpause failed): the map does not grow until it is resumed (load_map, or a person "
+        "restarts slam_toolbox)"
+        if data["slam_paused"]
+        else "SLAM is running again: mapping continues from the unverified pose the search ended at"
+    )
+    localised = bool(data.get("localised"))
+    flag = (
+        "/map_manager/localised is true (map_guard is armed and will relocalise or reset on a lasting mismatch)"
+        if localised
+        else "/map_manager/localised is false (map_guard is held until a load localises or the map is reset)"
+    )
+    return f"{exc}. Left in this state: {slam}; {flag}. {RELOCALISE_NEXT_STEP}"
+
+
 def register(ctx: ToolContext) -> None:
     """Register the named map tools on the context's server.
 
     Args:
         ctx (ToolContext): Shared registration context.
     """
-    server, robot = ctx.server, ctx.robot
+    server, robot, monitor = ctx.server, ctx.robot, ctx.monitor
+    since_max_age_s = ctx.config.maps.relocalise_since_max_age_s
 
     @server.tool(
         description=(
@@ -167,11 +211,22 @@ def register(ctx: ToolContext) -> None:
 
     @server.tool(description=RELOCALISE_DESC)
     def relocalise() -> RelocaliseVerdict:
-        """Relocalise on the current map and return the verdict."""
+        """Relocalise on the current map, starting from the pose at the last reliable localisation, and return the
+        verdict."""
         with tool_errors():
-            command = build_command(op="relocalise")
+            since = monitor.last_reliable_wall()
+            if since is not None and monitor.wall() - since > since_max_age_s:
+                since = None
+            hint_from = (
+                "map_manager's pose at the last reliable localisation (since)"
+                if since is not None
+                else f"map_manager's newest pose (no reliable localisation within {since_max_age_s:g} s)"
+            )
+            command = build_command(op="relocalise", since=since)
             try:
                 result = robot.map_request(command)
+            except MapRejected as exc:
+                raise RobotError(relocalise_failure(exc)) from exc
             except RobotError as exc:
                 raise RobotError(f"{exc}. {RELOCALISE_NEXT_STEP}") from exc
         data = result.data or {}
@@ -182,6 +237,8 @@ def register(ctx: ToolContext) -> None:
             pose=data.get("slam_pose"),
             hint=data.get("hint"),
             ambiguous=bool(data.get("ambiguous", False)),
+            since=since,
+            hint_from=hint_from,
             message=result.message,
         )
 

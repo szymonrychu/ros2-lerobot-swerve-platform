@@ -520,12 +520,23 @@ class LocalisationHealth(BaseModel):
     healthy_ratio: float = Field(description="Agreement at or above which the map pose counts as healthy")
     dry_run: bool = Field(description="map_guard only logs (no automatic pause, relocalise or reset)")
     held: bool = Field(description="map_manager reports the loaded map as not localised")
-    age_s: float = Field(description="Seconds since the /map_guard/state message was received")
-    reliable: bool = Field(
-        description="Fresh, settled (not disturbed/settling/evaluating/relocalising, not held) and the agreement "
-        "(median, else latest) is at least healthy_ratio: navigate_to_pose / move_relative can trust the map pose"
+    age_s: float = Field(description="Age of the /map_guard/state message, s (the older of its receipt and its stamp)")
+    ratio_age_s: float | None = Field(
+        default=None, description="Age of the latest agreement sample including the message age, s (null without one)"
     )
-    note: str | None = Field(default=None, description="Why it is not reliable and what to do; null when reliable")
+    unscored_scans: int = Field(
+        description="Scans since the last scored one with too few endpoints on known map cells (open or unmapped space)"
+    )
+    reliable: bool | None = Field(
+        description="true: fresh, settled (not disturbed/settling/evaluating/relocalising, not held) and both the "
+        "latest agreement and its median are at least healthy_ratio, so navigate_to_pose / move_relative can trust "
+        "the map pose. false: positive evidence of a wrong pose (low agreement, a disturbance, a relocalise or a "
+        "held map); relocalise first. null: map_guard is settled but has no fresh agreement sample (unmapped or "
+        "open space), unknown, not evidence of a wrong pose"
+    )
+    note: str | None = Field(
+        default=None, description="Why it is not reliable or unknown and what to do; null when reliable"
+    )
 
 
 class RobotState(BaseModel):

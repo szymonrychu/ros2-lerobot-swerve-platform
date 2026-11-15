@@ -3671,6 +3671,9 @@ ros2_nodes:
         save_timeout_s: 30.0
         load_timeout_s: 120.0
         delete_timeout_s: 10.0
+        # relocalise sends the last reliable localisation time as map_manager's `since` only when younger than this
+        # (below map_manager's pose_ring_s 120 s); otherwise map_manager starts from its newest pose.
+        relocalise_since_max_age_s: 110.0
       # Auto stuck points (nodes/mcp_server/README.md, "Auto stuck points" and "poi_hint nudge"): collision_stop and Nav2
       # aborts drop a point POI at the robot pose; hint_after_images camera / look_around results without a POI write
       # add a poi_hint to the result.

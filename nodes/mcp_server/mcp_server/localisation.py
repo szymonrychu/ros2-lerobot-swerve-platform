@@ -2,7 +2,9 @@
 
 The guard publishes its state on every transition and about once a second. get_robot_state reports it as the
 ``localisation`` object with a ``reliable`` verdict, so the agent sees a bad map pose (a robot carried or turned by hand)
-before it navigates. A missing or stale state is never invented: the object is null and a note says why.
+before it navigates. reliable is null (unknown) when map_guard is settled but cannot score the scan (unmapped or open
+space): that is no evidence of a wrong pose. A missing or stale state is never invented: the object is null and a note
+says why.
 """
 
 import logging
@@ -22,6 +24,16 @@ NAV_ADVICE = (
 )
 MISSING_NOTE = "no /map_guard/state received (map_guard_cpp not running?): localisation unknown"
 STALE_NOTE = "/map_guard/state stale ({age:.1f} s): localisation unknown"
+# A settled guard without a fresh agreement sample: unknown, not bad; no relocalise advice.
+UNSCORABLE_NOTE = (
+    "map agreement not scorable here (unmapped/open space), not evidence of a wrong pose: {count} recent scans had too "
+    "few endpoints on mapped cells. The map pose is unchecked until the scan sees mapped walls again; compare the "
+    "camera view with the map if in doubt."
+)
+NO_SCORE_NOTE = (
+    "no scan scored against the map lately (no fresh agreement sample), not evidence of a wrong pose: the map pose is "
+    "unchecked; compare the camera view with the map if in doubt."
+)
 
 
 class MapGuardStatus(BaseModel):
@@ -33,6 +45,7 @@ class MapGuardStatus(BaseModel):
     reasons: list[str] = Field(default_factory=list)
     agreement_ratio: float | None = Field(default=None, ge=0.0, le=1.0)
     ratio_age_s: float | None = Field(default=None, ge=0.0)
+    unscored_scans: int = Field(ge=0)
     median_ratio: float | None = Field(default=None, ge=0.0, le=1.0)
     healthy_ratio: float = Field(ge=0.0, le=1.0)
     dry_run: bool
@@ -56,37 +69,76 @@ def parse_map_guard_state(payload: str) -> MapGuardStatus | None:
         return None
 
 
-def unreliable_reason(status: MapGuardStatus, stale_s: float) -> str | None:
-    """Why the map pose of a fresh guard state cannot be trusted.
+def judge(status: MapGuardStatus, age_s: float, stale_s: float) -> tuple[bool | None, str | None]:
+    """How far the map pose of a fresh guard state can be trusted.
+
+    Only positive evidence makes it false: a disturbed, settling, evaluating or relocalising guard, a held map, or a
+    fresh agreement (the latest sample or its median, whichever is lower) below healthy. A settled guard without a
+    fresh sample (the robot faces unmapped or open space, too few endpoints on known cells) is unknown, not bad.
 
     Args:
         status (MapGuardStatus): The guard state.
-        stale_s (float): Oldest agreement sample still judged, s.
+        age_s (float): Age of the message, s.
+        stale_s (float): Oldest agreement sample (its ratio_age_s plus the message age) still judged, s.
 
     Returns:
-        str | None: The reason with the next step, None when the pose is reliable.
+        tuple[bool | None, str | None]: reliable (None when unknown) and the note with the next step (None when
+            reliable).
     """
     if status.state == "relocalising":
-        return (
+        return False, (
             "map_guard is relocalising the robot on the map: wait (wait_for_event or get_robot_state again) before "
             "navigate_to_pose or move_relative."
         )
     if status.state in UNRELIABLE_STATES:
         reasons = ", ".join(status.reasons) or "unknown"
-        return f"map_guard is {status.state} (reasons: {reasons}): the map pose is in doubt. {NAV_ADVICE}"
+        return False, f"map_guard is {status.state} (reasons: {reasons}): the map pose is in doubt. {NAV_ADVICE}"
     if status.held:
-        return f"map_manager reports the loaded map as not localised. {NAV_ADVICE}"
-    ratio = status.median_ratio if status.median_ratio is not None else status.agreement_ratio
-    if ratio is None:
-        return f"no scan-to-map agreement measured yet: the map pose is unchecked. {NAV_ADVICE}"
-    if status.ratio_age_s is not None and status.ratio_age_s > stale_s:
-        return f"the scan-to-map agreement is {status.ratio_age_s:.1f} s old: the map pose is unchecked. {NAV_ADVICE}"
+        return False, f"map_manager reports the loaded map as not localised. {NAV_ADVICE}"
+    sample_age = None if status.ratio_age_s is None else status.ratio_age_s + age_s
+    if status.agreement_ratio is None or sample_age is None or sample_age > stale_s:
+        if status.unscored_scans > 0:
+            return None, UNSCORABLE_NOTE.format(count=status.unscored_scans)
+        return None, NO_SCORE_NOTE
+    ratio = min(r for r in (status.agreement_ratio, status.median_ratio) if r is not None)
     if ratio < status.healthy_ratio:
-        return (
-            f"scan-to-map agreement {ratio:.2f} is below the healthy {status.healthy_ratio:.2f}: the map pose is "
-            f"probably wrong (robot moved by hand?). {NAV_ADVICE}"
+        median = "none" if status.median_ratio is None else f"{status.median_ratio:.2f}"
+        return False, (
+            f"scan-to-map agreement {ratio:.2f} (latest {status.agreement_ratio:.2f}, median {median}) is below the "
+            f"healthy {status.healthy_ratio:.2f}: the map pose is probably wrong (robot moved by hand?). {NAV_ADVICE}"
         )
-    return None
+    return True, None
+
+
+def message_age(receive_age_s: float, stamp: float, wall_now: float) -> float:
+    """Age of a /map_guard/state message: the older of its receipt and its stamp (same host clock), so a latched
+    sample delivered late is not treated as fresh.
+
+    Args:
+        receive_age_s (float): Seconds since it was received.
+        stamp (float): Its stamp, epoch s.
+        wall_now (float): Wall clock now, epoch s.
+
+    Returns:
+        float: The age, s.
+    """
+    return max(receive_age_s, wall_now - stamp)
+
+
+def reliable_since(status: MapGuardStatus, age_s: float, stale_s: float) -> float | None:
+    """Wall time of the agreement sample that made a fresh state reliable (for relocalise's ``since``).
+
+    Args:
+        status (MapGuardStatus): The guard state.
+        age_s (float): Age of the message, s.
+        stale_s (float): Older messages are not judged, s.
+
+    Returns:
+        float | None: Epoch seconds of the sample, None when the state is stale or not reliable.
+    """
+    if age_s > stale_s or judge(status, age_s, stale_s)[0] is not True:
+        return None
+    return status.stamp - (status.ratio_age_s or 0.0)
 
 
 def localisation_health(
@@ -96,8 +148,8 @@ def localisation_health(
 
     Args:
         status (MapGuardStatus | None): Latest guard state, None when none arrived.
-        age_s (float | None): Seconds since it was received, None without one.
-        stale_s (float): Older states (and older agreement samples inside a state) are not trusted, s.
+        age_s (float | None): Age of the message (message_age), None without one.
+        stale_s (float): Older states (and older agreement samples, ratio_age_s plus age_s) are not trusted, s.
 
     Returns:
         tuple[LocalisationHealth | None, list[str]]: The health (None when missing or stale) and the notes for
@@ -107,7 +159,7 @@ def localisation_health(
         return None, [MISSING_NOTE]
     if age_s > stale_s:
         return None, [STALE_NOTE.format(age=age_s)]
-    note = unreliable_reason(status, stale_s)
+    reliable, note = judge(status, age_s, stale_s)
     health = LocalisationHealth(
         state=status.state,
         reasons=status.reasons,
@@ -117,7 +169,9 @@ def localisation_health(
         dry_run=status.dry_run,
         held=status.held,
         age_s=round(age_s, 3),
-        reliable=note is None,
+        ratio_age_s=None if status.ratio_age_s is None else round(status.ratio_age_s + age_s, 3),
+        unscored_scans=status.unscored_scans,
+        reliable=reliable,
         note=note,
     )
     return health, [] if note is None else [note]

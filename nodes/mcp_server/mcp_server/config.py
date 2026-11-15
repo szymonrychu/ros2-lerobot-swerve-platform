@@ -970,6 +970,9 @@ class MapSettings(StrictModel):
     save_timeout_s: float = Field(default=30.0, gt=0.0)  # wait for the save result
     load_timeout_s: float = Field(default=120.0, gt=0.0)  # wait for the load result (after the relocalisation verdict)
     delete_timeout_s: float = Field(default=10.0, gt=0.0)
+    # relocalise sends the last wall time get_robot_state's localisation was reliable as map_manager's `since` only
+    # when it is younger than this; keep it below map_manager's pose_ring_s (120 s), whose ring has no older pose.
+    relocalise_since_max_age_s: float = Field(default=110.0, gt=0.0)
 
     def timeout_for(self, op: str) -> float:
         """Seconds to wait for the result of a map_manager op.
