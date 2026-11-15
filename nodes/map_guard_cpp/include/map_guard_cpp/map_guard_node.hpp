@@ -121,8 +121,9 @@ private:
   void on_localised(const std_msgs::msg::Bool::ConstSharedPtr & msg);
   void on_result(const std_msgs::msg::String::ConstSharedPtr & msg);
   void request_relocalise(const std::string & request_id, double since);
-  // Publish the guard state on state_topic when it changed since the last publish or state_publish_hz is due.
-  void publish_state(double now);
+  // Publish the guard state on state_topic when its state, held flag or reasons changed since the last publish
+  // (status_changed) or state_publish_hz is due. unscored_scans: the count of on_scan (see unscored_scans_).
+  void publish_state(double now, int unscored_scans);
   void run_guard();
 
   Config config_;
@@ -133,6 +134,9 @@ private:
   std::shared_ptr<const PreparedMap> prepared_;
   std::vector<MapGuard::Sample> pending_;
   bool held_ = false;  // not localised yet, from the localised topic; guarded by lock_
+  // Rate-limited scans since the last scored one that had too few endpoints on known map cells (open or unmapped
+  // space); reset by every scored scan. Guarded by lock_.
+  int unscored_scans_ = 0;
   RateLimiter agreement_limiter_;
   std::optional<PlanarStamp> lidar_pose_;
   rclcpp::Serialization<sensor_msgs::msg::LaserScan> scan_serialization_;
@@ -142,9 +146,9 @@ private:
   rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr reset_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr command_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr state_pub_;
-  // Worker-thread only: the periodic state publish, the last published state and the latest agreement sample.
+  // Worker-thread only: the periodic state publish, the last published status and the latest agreement sample.
   RateLimiter state_limiter_;
-  std::optional<State> published_state_;
+  std::optional<GuardStatus> published_;
   std::optional<double> latest_ratio_;
   double latest_ratio_at_ = 0.0;
   std::unique_ptr<EventNotifier> notifier_;

@@ -277,10 +277,12 @@ void MapGuardNode::on_scan(const std::shared_ptr<const rclcpp::SerializedMessage
   const auto result = agreement(
     transform_points(points, {t.x, t.y, t.z}, {r.x, r.y, r.z, r.w}), prepared.get(),
     static_cast<int>(config_.min_points));
+  std::lock_guard<std::mutex> lock(lock_);
   if (!result) {
+    ++unscored_scans_;  // too few endpoints on known cells: open or unmapped space, not a bad pose
     return;
   }
-  std::lock_guard<std::mutex> lock(lock_);
+  unscored_scans_ = 0;
   if (held_) {
     return;
   }
@@ -324,29 +326,29 @@ void MapGuardNode::on_cmd(const geometry_msgs::msg::Twist::ConstSharedPtr & msg)
   detectors_.on_cmd(monotonic_s(), std::hypot(msg->linear.x, msg->linear.y), msg->angular.z);
 }
 
-void MapGuardNode::publish_state(double now)
+void MapGuardNode::publish_state(double now, int unscored_scans)
 {
-  const State current = guard_->state();
+  GuardStatus status;
+  status.state = guard_->state();
+  status.reasons = guard_->reasons();
+  status.held = guard_->held();
   const bool due = state_limiter_.ready(now);
-  if (published_state_ == current && !due) {
+  if (published_ && !due && !status_changed(*published_, status)) {
     return;
   }
-  GuardStatus status;
-  status.state = current;
-  status.reasons = guard_->reasons();
   status.agreement_ratio = latest_ratio_;
   if (latest_ratio_) {
     status.ratio_age_s = now - latest_ratio_at_;
   }
+  status.unscored_scans = unscored_scans;
   status.median_ratio = guard_->ratio();
   status.healthy_ratio = config_.healthy_ratio;
   status.dry_run = config_.dry_run;
-  status.held = guard_->held();
   status.stamp = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
   std_msgs::msg::String msg;
   msg.data = state_json(status);
   state_pub_->publish(msg);
-  published_state_ = current;
+  published_ = status;
 }
 
 void MapGuardNode::run_guard()
@@ -358,9 +360,11 @@ void MapGuardNode::run_guard()
     std::vector<MapGuard::Sample> samples;
     std::vector<RelocaliseResult> results;
     bool held = false;
+    int unscored_scans = 0;
     {
       std::lock_guard<std::mutex> lock(lock_);
       held = held_;
+      unscored_scans = unscored_scans_;
       now = monotonic_s();
       report = detectors_.evaluate(now);
       samples.swap(pending_);
@@ -376,7 +380,7 @@ void MapGuardNode::run_guard()
         guard_->on_relocalise_result(result.request_id, result.ok, result.state, result.discarded_pois);
       }
       guard_->tick(now, report, samples);
-      publish_state(now);
+      publish_state(now, unscored_scans);
     } catch (const std::exception & exc) {  // keep guarding after an unexpected error
       RCLCPP_ERROR(get_logger(), "map_guard tick failed: %s", exc.what());
     }
