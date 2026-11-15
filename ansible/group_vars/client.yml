@@ -2755,12 +2755,11 @@ ros2_nodes:
     config: |
       # Prometheus /metrics on 127.0.0.1.
       metrics_port: 19110
-      # Live (T-395): pauses SLAM on a kidnap, asks map_manager to relocalise, resets the map only when that fails.
       # true: log and export metrics only (no slam_toolbox call, no relocalise, no /map_guard/map_reset).
-      # The map_guard and map_guard_cpp blocks are equal (rollback); map_guard_cpp's C++-only keys stay at their
-      # defaults: localised_topic /map_manager/localised, state_topic /map_guard/state (latched JSON read by
-      # mcp_server) and state_publish_hz 1.0.
-      dry_run: false
+      # The map_guard and map_guard_cpp blocks are equal (rollback) except dry_run: this Python guard has no
+      # localisation hold (it never reads /map_manager/localised) and could reset the map in the middle of a
+      # named-map load, so it stays in dry run; set false only knowingly after a rollback.
+      dry_run: true
       reasons: [mismatch, lifted, carried, rotated]
       scan_topic: /scan_filtered
       map_topic: /map
@@ -2832,9 +2831,10 @@ ros2_nodes:
       metrics_port: 19110
       # Live (T-395): pauses SLAM on a kidnap, asks map_manager to relocalise, resets the map only when that fails.
       # true: log and export metrics only (no slam_toolbox call, no relocalise, no /map_guard/map_reset).
-      # The map_guard and map_guard_cpp blocks are equal (rollback); map_guard_cpp's C++-only keys stay at their
-      # defaults: localised_topic /map_manager/localised, state_topic /map_guard/state (latched JSON read by
-      # mcp_server) and state_publish_hz 1.0.
+      # The map_guard and map_guard_cpp blocks are equal (rollback) except dry_run (the Python guard has no
+      # localisation hold and stays in dry run); map_guard_cpp's C++-only keys stay at their defaults:
+      # localised_topic /map_manager/localised, state_topic /map_guard/state (latched JSON read by mcp_server) and
+      # state_publish_hz 1.0.
       dry_run: false
       reasons: [mismatch, lifted, carried, rotated]
       scan_topic: /scan_filtered
@@ -3661,9 +3661,9 @@ ros2_nodes:
       poi:
         request_timeout_s: 3.0
         near_radius_m: 5.0
-      # Named map tools (save_map, list_maps, load_map, delete_map, relocalise; nodes/mcp_server/README.md, "Named maps"):
-      # topics equal
-      # the map_manager entry's command_topic, result_topic and status_topic (tests/test_mcp_server_config.py checks it).
+      # Named map tools (save_map, list_maps, load_map, delete_map, relocalise; nodes/mcp_server/README.md, "Named
+      # maps"): topics equal the map_manager entry's command_topic, result_topic and status_topic
+      # (tests/test_mcp_server_config.py checks it).
       maps:
         command: /map_manager/command
         result: /map_manager/result

@@ -515,7 +515,12 @@ def test_cpp_node_entry_is_live_with_the_python_config(cpp_type: str) -> None:
     entry, python = nodes[cpp_type], nodes[CPP_TYPES[cpp_type][0]]
     assert entry["node_type"] == cpp_type
     assert entry["present"] is True and entry["enabled"] is True
-    assert entry["config"] == python["config"]
+    # dry_run is exempt: map_guard_cpp is live (T-395) while the Python rollback has no localisation hold and stays in
+    # dry run, as it could reset the map in the middle of a named-map load (tests/test_cpp_cutover.py pins both).
+    cpp_config, python_config = yaml.safe_load(entry["config"]), yaml.safe_load(python["config"])
+    assert {k: v for k, v in cpp_config.items() if k != "dry_run"} == {
+        k: v for k, v in python_config.items() if k != "dry_run"
+    }
     assert yaml.safe_load(entry["config"])["metrics_port"] == METRICS_PORTS[cpp_type]
     names = list(nodes)
     assert names.index(cpp_type) == names.index(CPP_TYPES[cpp_type][0]) + 1

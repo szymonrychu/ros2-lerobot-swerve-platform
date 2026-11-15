@@ -545,7 +545,7 @@ ALLOWED_REFERENCES: tuple[tuple[str, str, str], ...] = (
     ("ansible/README.md", "^\\*\\*`jetson_bridge_cpp`\\ \\(retired\\ with\\ the\\ Jetso", "retirement-doc"),
     (
         "ansible/README.md",
-        "^`map_guard_cpp`\\ is\\ `present:\\ true`,\\ `enabled:\\ true`;\\ `map_guard`\\ stays\\ `present:\\ true`,\\ `enabled:\\ false`\\ \\(installed,\\ stopped,\\ disabled\\)\\ so\\ the\\ rollback\\ is\\ one\\ line\\.\\ The\\ `_cpp`\\ config\\ block\\ equals\\ the\\ Python\\ one\\ \\(both\\ `dry_run:\\ false`\\ since\\ T\\-395:\\ the\\ guard\\ is\\ live\\ and\\ relocalises\\ after\\ a\\ kidnap;\\ the\\ C\\+\\+\\-only\\ `localised_topic`,\\ `state_topic`\\ and\\ `state_publish_hz`\\ stay\\ at\\ their\\ defaults\\),\\ and\\ `monitoring_agent_node_targets`\\ scrapes\\ the\\ `_cpp`\\ name\\ on\\ the\\ shared\\ port\\ \\(19110\\)\\.\\ `stereo_depth`\\ and\\ ",
+        "^`map_guard_cpp`\\ is\\ `present:\\ true`,\\ `enabled:\\ true`;\\ `map_guard`\\ stays\\ `present:\\ true`,\\ `enabled:\\ false`\\ \\(installed,\\ stopped,\\ disabled\\)\\ so\\ the\\ rollback\\ is\\ one\\ line\\.\\ The\\ `_cpp`\\ config\\ block\\ equals\\ the\\ Python\\ one\\ except\\ `dry_run`\\ \\(`map_guard_cpp`\\ is\\ live\\ since\\ T\\-395\\ and\\ relocalises\\ after\\ a\\ kidnap;\\ the\\ Python\\ `map_guard`\\ keeps\\ `dry_run:\\ true`\\ because\\ it\\ has\\ no\\ localisation\\ hold\\ and\\ could\\ reset\\ the\\ map\\ during\\ a\\ named\\-map\\ load;\\ the\\ C\\+\\+\\-only\\ `localised_topic`,\\ `state_topic`\\ and\\ `state_publish_hz`\\ stay\\ at\\ their\\ defaults\\),\\ and\\ `monitoring_agent_node_targets`\\ scrapes\\ the\\ `_cpp`\\ name\\ on\\ the\\ shared\\ port\\ \\(19110\\)\\.\\ `stereo_depth`\\ and\\ ",
         "retirement-doc",
     ),
     (
