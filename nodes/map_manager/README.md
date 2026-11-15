@@ -68,7 +68,8 @@ load ends "not localised". `LocalisationJudge` turns live agreement samples into
 | `/map_manager/command` | std_msgs/String, reliable | in | `MapCommand` JSON: `save`, `load`, `delete`, `relocalise`, `clear_live` |
 | `/map_manager/result` | std_msgs/String, reliable, volatile | out | `MapResult` (`request_id`, `ok`, `message`, `data`); a load answers after the verdict |
 | `/map_manager/status` | std_msgs/String, reliable, latched | out | `MapStatus` (maps, active map, `load_seq`, `localisation`); published at start and after every change |
-| `/map_manager/localised` | std_msgs/Bool, reliable, latched | out | not published at start; false while loading or not localised, true when localised |
+| `/map_manager/localised` | std_msgs/Bool, reliable, latched | out | not published at start; false while loading or not localised, true when localised; true again after a map reset; a failed relocalise restores the value from before it |
+| `/map_guard/map_reset` | std_msgs/Empty, reliable | in | map_guard reset the map: the fresh map is marked localised (map_guard holds while localised is false) |
 | `/poi/list` | std_msgs/String, latched | in | live POIs and revision |
 | `/poi/command`, `/poi/result` | std_msgs/String | out / in | the `replace` op, matched by `request_id` within `poi_timeout_s` |
 | `/map`, `/scan_filtered`, `/pose` | OccupancyGrid (latched), LaserScan (sensor QoS), PoseWithCovarianceStamped | in, only during an operation | |
@@ -77,7 +78,7 @@ slam_toolbox service clients: `serialize_map` (`SerializePoseGraph`), `deseriali
 `match_type` 2 = `START_AT_GIVEN_POSE`, `initial_pose` Pose2D), `pause_new_measurements` (`Pause`, a toggle) and
 `get_parameters` (`paused_new_measurements`).
 
-Idle the node holds only the command, `/poi/list` and `/poi/result` subscriptions, the publishers, the service
+Idle the node holds only the command, `/map_guard/map_reset`, `/poi/list` and `/poi/result` subscriptions, the publishers, the service
 clients and a 1 Hz timer calling `MapManager.record_pose()` (one TF `map <- base_link` lookup, nothing recorded when
 TF is missing or older than `max_pose_age_s`). `start_operation` creates the TF buffer and listener and the `/map`,
 `/scan_filtered` and `/pose` subscriptions, `end_operation` destroys them; the first TF, map and scan are awaited for
@@ -98,16 +99,25 @@ are checked first and the load is confirmed by `/pose`, and the first scan after
 while new measurements are paused. `relocalise` (kidnap, design D13) runs the same steps on the live graph
 serialized to a scratch directory; with `discard_on_fail` it empties the live POIs and photos when the pose is not recovered, clears the live owner
 (`active_map`) and reports `discarded_pois` and `discarded_photos` in `data` and the message. Named bundles are never
-touched by it.
+touched by it. The search is centred on the newest ring pose taken at or before `since` (wall-clock epoch seconds;
+the newest pose without it; refused with "no last known pose" when the ring has none). Unlike a load, a relocalise
+unpauses SLAM whatever the verdict: on a failure mapping resumes from the unverified pose slam_toolbox was restarted
+at, the status keeps the failed verdict and `/map_manager/localised` goes back to its value before the relocalise
+(true when no named map was loaded), so a false alarm neither stops mapping nor holds map_guard. `data.slam_paused`
+(true only when the unpause failed) and `data.localised` report the state the robot is left in.
 
-`clear_live` (web UI Reset map) empties the live POIs and photos through poi_store's `replace`, clears and persists
+A map reset makes a fresh map that is localised by definition: on `/map_guard/map_reset` (map_guard's automatic
+reset) and on `clear_live` the status becomes `localised` ("fresh SLAM map after a map_guard / web UI reset") and
+`/map_manager/localised` true, so map_guard re-arms on the new map.
+
+`clear_live` (web UI Reset map, sent only after slam_toolbox reset the map) empties the live POIs and photos through poi_store's `replace`, clears and persists
 `active_map` and answers "live set cleared: removed N POIs and M photos; saved maps kept" with `data`
 `{pois_removed, photos_removed, active_map: null}`. A failed or unanswered replace is `ok: false` naming poi_store's
 reason and keeps `active_map`. It is refused with `busy` like any op while another runs; saved maps are kept.
 
 ## Config keys (`/etc/ros2/map_manager/config.yaml`)
 
-`maps_root`, `command_topic`, `result_topic`, `status_topic`, `localised_topic`, `poi_list_topic`,
+`maps_root`, `command_topic`, `result_topic`, `status_topic`, `localised_topic`, `map_reset_topic`, `poi_list_topic`,
 `poi_command_topic`, `poi_result_topic`, `map_topic`, `scan_topic`, `pose_topic`, `map_frame`, `base_frame`,
 `serialize_service`, `deserialize_service`, `pause_service`, `parameters_service`, `service_timeout_s`,
 `load_timeout_s`, `poi_timeout_s`, `sensor_wait_s`, `max_pose_age_s`, `autosave_before_load`, `autosave_name`,
@@ -122,7 +132,7 @@ window and acceptance rules), `metrics_port` (default 19113). Unknown keys are r
 
 Tests: `uv run --frozen pytest tests/ -v` (`tests/test_node.py` runs the node on stubbed rclpy from `tests/ros_stubs.py`:
 idle subscriptions, operation lifecycle, commands and results, status/localised at start, the pose timer, relocalise
-routing, POI replace, slam requests, numpy guard); lint: `uv run --frozen poe lint`.
+routing, the `/map_guard/map_reset` subscription (localised true), POI replace, slam requests, numpy guard); lint: `uv run --frozen poe lint`.
 
 ## Measured values (Pi 5, 2026-10-18, runbook `docs/runbooks/named-maps.md`)
 

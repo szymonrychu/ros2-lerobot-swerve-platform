@@ -10,11 +10,11 @@ from ros2_common.maps import MapCommand, Pose2D
 from ros2_common.scan_agreement import GridMap, agreement, prepare_map, transform_points, yaw_quaternion
 
 from map_manager.config import MapManagerConfig
-from map_manager.manager import ACTIVE_MAP_FILE
+from map_manager.manager import ACTIVE_MAP_FILE, RELOCALISE_RESUMED_REASON, UNPAUSE_FAILED_REASON
 from map_manager.relocalise import LocalisationJudge, SearchSettings, search_candidates, yaw_difference
 from tests.fakes import room_grid as fake_room_grid
 from tests.fakes import wall_points_base
-from tests.test_manager import SYMMETRIC_SEARCH, TRUE_POSE, Rig, make_rig
+from tests.test_manager import SYMMETRIC_SEARCH, TRUE_POSE, Rig, load, make_rig
 
 RESOLUTION = 0.05
 GRID_SIZE_M = 8.0
@@ -462,9 +462,10 @@ def test_unrecoverable_with_discard_empties_pois_once(tmp_path: Path) -> None:
     assert rig.manager.status().active_map is None
     assert rig.log.args_of("poi.replace") == [([],)]
     assert rig.poi.pois == []
-    assert rig.slam.paused is True
+    # A failed relocalise resumes SLAM and restores the flag (None before: no named map loaded, so true).
+    assert rig.slam.paused is False
     assert rig.manager.status().localisation.state == "not_localised"
-    assert rig.manager.localised() is False
+    assert rig.manager.localised() is True
 
 
 def test_unrecoverable_without_discard_keeps_pois(tmp_path: Path) -> None:
@@ -473,7 +474,7 @@ def test_unrecoverable_without_discard_keeps_pois(tmp_path: Path) -> None:
     assert result.data["discarded_pois"] == 0
     assert "poi.replace" not in rig.log.names()
     assert rig.poi.pois == LIVE_POIS
-    assert rig.slam.paused is True
+    assert rig.slam.paused is False
 
 
 def test_ambiguous_with_discard_empties_pois(tmp_path: Path) -> None:
@@ -555,3 +556,94 @@ def test_serialize_failure_changes_nothing(tmp_path: Path) -> None:
 
 def test_pose_ring_config_default() -> None:
     assert MapManagerConfig().pose_ring_s == 120.0
+
+
+def failed_relocalise(rig: Rig, clock: TickClock) -> object:
+    """Record a pose, make slam_toolbox never confirm the deserialize and relocalise."""
+    rig.manager.record_pose()
+    rig.slam.confirmed_pose = None
+    rig.log.calls.clear()
+    clock.now += 5
+    return relocalise(rig)
+
+
+def test_failed_relocalise_after_a_localised_load_resumes_slam_and_keeps_localised(tmp_path: Path) -> None:
+    rig, clock = relocalise_rig(tmp_path)
+    rig.save_map("home")
+    assert load(rig).ok
+    assert rig.manager.localised() is True
+    result = failed_relocalise(rig, clock)
+    assert not result.ok
+    assert rig.slam.paused is False
+    assert rig.manager.localised() is True
+    assert rig.manager.status().localisation.state == "not_localised"
+    assert result.data["slam_paused"] is False
+    assert result.data["localised"] is True
+    assert RELOCALISE_RESUMED_REASON in result.message
+    assert rig.log.args_of("status:not_localised") == [(True,)]
+
+
+def test_failed_relocalise_after_a_failed_load_restores_not_localised(tmp_path: Path) -> None:
+    rig, clock = relocalise_rig(tmp_path)
+    rig.save_map("home")
+    rig.slam.confirmed_pose = None
+    assert not load(rig).ok
+    assert rig.manager.localised() is False
+    rig.slam.confirmed_pose = TRUE_POSE
+    rig.slam.paused = False  # a person resumed mapping
+    result = failed_relocalise(rig, clock)
+    assert not result.ok
+    assert rig.slam.paused is False
+    assert rig.manager.localised() is False
+    assert result.data["localised"] is False
+
+
+def test_failed_relocalise_without_a_load_reports_localised_true(tmp_path: Path) -> None:
+    rig, clock = relocalise_rig(tmp_path)
+    assert rig.manager.localised() is None
+    result = failed_relocalise(rig, clock)
+    assert not result.ok
+    assert rig.manager.localised() is True
+    assert result.data["localised"] is True
+    assert result.data["slam_paused"] is False
+
+
+def test_failed_relocalise_reports_a_failed_unpause(tmp_path: Path) -> None:
+    rig, clock = relocalise_rig(tmp_path)
+
+    def break_toggle() -> None:
+        rig.slam.toggle_ok = False
+
+    rig.slam.on_deserialize = break_toggle
+    result = failed_relocalise(rig, clock)
+    assert not result.ok
+    assert rig.slam.paused is True
+    assert result.data["slam_paused"] is True
+    assert UNPAUSE_FAILED_REASON in result.message
+    assert RELOCALISE_RESUMED_REASON not in result.message
+
+
+def test_successful_relocalise_reports_slam_running_and_localised(tmp_path: Path) -> None:
+    rig, clock = relocalise_rig(tmp_path)
+    rig.manager.record_pose()
+    clock.now += 5
+    result = relocalise(rig)
+    assert result.ok, result.message
+    assert result.data["slam_paused"] is False
+    assert result.data["localised"] is True
+
+
+def test_map_reset_marks_the_fresh_map_localised(tmp_path: Path) -> None:
+    rig, clock = relocalise_rig(tmp_path)
+    rig.save_map("home")
+    rig.slam.confirmed_pose = None
+    assert not load(rig).ok
+    assert rig.manager.localised() is False
+    rig.log.calls.clear()
+    rig.manager.on_map_reset("map_guard")
+    assert rig.manager.localised() is True
+    localisation = rig.manager.status().localisation
+    assert localisation.state == "localised"
+    assert localisation.message == "fresh SLAM map after a map_guard reset"
+    assert localisation.updated_at == clock.now
+    assert rig.log.args_of("status:localised") == [(True,)]

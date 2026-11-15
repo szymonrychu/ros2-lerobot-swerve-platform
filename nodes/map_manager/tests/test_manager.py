@@ -128,6 +128,7 @@ def test_config_defaults() -> None:
     assert cfg.agreement_hz == 2.0
     assert cfg.localised_ratio == 0.6
     assert cfg.min_samples == 5
+    assert cfg.map_reset_topic == "/map_guard/map_reset"
     assert cfg.search == SearchSettings()
     assert cfg.metrics_port == 19113
     assert DEFAULT_CONFIG_PATH == Path("/etc/ros2/map_manager/config.yaml")

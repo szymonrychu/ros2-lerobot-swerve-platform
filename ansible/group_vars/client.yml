@@ -4156,6 +4156,8 @@ ros2_nodes:
       result_topic: /map_manager/result
       status_topic: /map_manager/status
       localised_topic: /map_manager/localised
+      # map_guard's reset notice (std_msgs/Empty): the fresh map is marked localised so map_guard re-arms.
+      map_reset_topic: /map_guard/map_reset
       # poi_store topics (a load replaces the POI set).
       poi_list_topic: /poi/list
       poi_command_topic: /poi/command

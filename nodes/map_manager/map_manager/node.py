@@ -42,7 +42,7 @@ from ros2_common.scan_agreement import (
 )
 from sensor_msgs.msg import LaserScan
 from slam_toolbox.srv import DeserializePoseGraph, Pause, SerializePoseGraph
-from std_msgs.msg import Bool, String
+from std_msgs.msg import Bool, Empty, String
 from tf2_ros import Buffer, TransformException, TransformListener
 
 from map_manager import metrics
@@ -658,6 +658,7 @@ class MapManagerNode(Node):
         store.cleanup_temp()
         self.manager = MapManager(config, store, self.slam, self.poi, self.sensors, on_change=self.publish_status)
         self.create_subscription(String, config.command_topic, self.on_command, VOLATILE_QOS, callback_group=group)
+        self.create_subscription(Empty, config.map_reset_topic, self.on_map_reset, VOLATILE_QOS, callback_group=group)
         self.create_timer(POSE_TIMER_S, self.manager.record_pose, callback_group=group)
         self.publish_status()
 
@@ -668,6 +669,15 @@ class MapManagerNode(Node):
             localised = self.manager.localised()
             if localised is not None:
                 self.localised_pub.publish(Bool(data=localised))
+
+    def on_map_reset(self, msg: Empty) -> None:
+        """map_guard reset the map: the fresh map is localised (publishes localised true and the status).
+
+        Args:
+            msg (Empty): The reset notice.
+        """
+        del msg
+        self.manager.on_map_reset("map_guard")
 
     def publish_result(self, result: MapResult) -> None:
         """Publish an answer on the result topic.
