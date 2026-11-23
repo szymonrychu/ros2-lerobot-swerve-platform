@@ -4,19 +4,21 @@ description: >
   Use when deploying ROS2 nodes to client/server RPis, redeploying after code changes,
   updating node configuration, or troubleshooting deployment failures.
   MANDATORY: always use this skill before running any Ansible deploy. Never run
-  ansible-playbook directly — always use scripts/deploy-nodes.sh.
+  ansible-playbook directly - always use scripts/deploy-nodes.sh.
 ---
 
 # Ansible Deploy
 
 **Never run `ansible-playbook` directly.** All deploys go through `scripts/deploy-nodes.sh`.
-Never SSH manually to restart services — Ansible handles everything.
+Never SSH manually to restart services - Ansible handles everything.
 
 ---
 
 ## Quick Reference
 
 **Always log deploy output to `.logs/`** (gitignored) instead of system temp dirs:
+
+`deploy-nodes.sh` calls `ansible-playbook`, which lives only in the repo venv (`.venv/bin`). Run `uv sync` at the root, then either `PATH=$PWD/.venv/bin:$PATH ./scripts/deploy-nodes.sh ...` or `uv run ./scripts/deploy-nodes.sh ...`.
 
 ```bash
 mkdir -p .logs
@@ -183,9 +185,13 @@ ssh server.ros2.lan "systemctl status ros2-<node>"
 # Check service logs
 ssh client.ros2.lan "journalctl -u ros2-<node> --no-pager -n 50"
 
-# Check ROS2 topic flow
-ros2 topic hz /controller/follower/joint_states
-ros2 topic echo /controller/imu/data --once
+# Check ROS2 topic flow: use topic_scraper_api (enable it in group_vars and deploy it first),
+# not raw ros2 topic echo/hz (an ad-hoc DDS participant has broken discovery before, see d435-diagnostics)
+python scripts/topic_scraper_collect.py \
+  --source client=http://client.ros2.lan:18100 \
+  --select /controller/follower/joint_states:.position \
+  --interval 0.1
+# Sensor-specific checks: scripts/bno055_diag.sh, scripts/rtk_diag.sh, teleop-diagnostics, d435-diagnostics skills
 ```
 
 ---
@@ -206,7 +212,9 @@ ros2 topic echo /controller/imu/data --once
 ## Lint and Test
 
 ```bash
-# From repo root
+# From repo root. Once per pod: install the ansible.posix collection, or test-ansible fails.
+# ansible/.ansible/ is gitignored; never force-add it.
+(cd ansible && ../.venv/bin/ansible-galaxy collection install -r requirements.yml)
 uv run poe lint-ansible      # ansible-lint
 uv run poe test-ansible      # lint + syntax-check all playbooks
 ```
