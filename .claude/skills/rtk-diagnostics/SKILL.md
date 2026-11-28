@@ -5,7 +5,7 @@ description: Use when checking GPS RTK status, debugging RTK fix issues, verifyi
 
 # RTK Diagnostics
 
-Run `scripts/rtk_diag.sh` for a complete one-command RTK diagnostic. Never SSH manually to check RTK status — the script handles everything and requires no approvals.
+Run `scripts/rtk_diag.sh` for a complete one-command RTK diagnostic. Never SSH manually to check RTK status - the script handles everything and requires no approvals.
 
 ## Quick Reference
 
@@ -29,7 +29,7 @@ Run `scripts/rtk_diag.sh` for a complete one-command RTK diagnostic. Never SSH m
 | Rover `[diag]` | `ntrip=UP` + `ntrip_rx=NB` > 0 = receiving corrections. `fix=RTK_Fixed(q4)` or `fix=RTK_Float(q5)` = RTK achieved. |
 | Topic scraper | `status=2 (RTK)` = success. `status=0 (GPS)` = no corrections reaching rover. |
 
-## Interpreting Results — Common Patterns
+## Interpreting Results - Common Patterns
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|

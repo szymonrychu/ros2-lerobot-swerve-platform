@@ -120,23 +120,26 @@ python scripts/topic_scraper_collect.py \
 
 2. **Commit** — Stage and commit with a semantic message (`feat:`, `fix:`, `docs:`, etc.). One logical change per commit. Create a commit after each phase/iteration that passes.
 
-3. **Push** — Push to the upstream repository. When only one agent works on the codebase, push to `main` (no feature branches).
+3. **Push** - Push to the upstream repository. Work on a feature branch (a worktree under `.worktrees/<name>/`, see `.claude/rules/superpowers-flow.md`), push to that branch, and reach `main` through a pull request.
 
 4. **Deploy** — When Ansible or any ROS2 node code changed, use `scripts/deploy-nodes.sh`.
    **Never run `ansible-playbook` directly — always use the script.**
    Always invoke the `ansible-deploy` skill before deploying to get the correct command.
-   **Log all deploy output** to `.logs/` (gitignored) instead of system temp dirs:
+   **Log all deploy output** to the per-improvement dir `.logs/<name>/` (gitignored) at the repository root instead of system temp dirs, where `<name>` is the improvement's kebab-case name:
 
    ```bash
-   mkdir -p .logs
+   mkdir -p .logs/<name>
 
-   # Single or multiple changed nodes (parallel)
-   ./scripts/deploy-nodes.sh client web_ui filter_node 2>&1 | tee .logs/deploy-client.log
-   ./scripts/deploy-nodes.sh server lerobot_leader 2>&1 | tee .logs/deploy-server.log
+   # Single node
+   ./scripts/deploy-nodes.sh client web_ui 2>&1 | tee .logs/<name>/deploy-client.log
+   ./scripts/deploy-nodes.sh server lerobot_leader 2>&1 | tee .logs/<name>/deploy-server.log
+
+   # Several nodes: ONE tag-filtered deploy-nodes.sh run per target (never parallel runs)
+   ./scripts/deploy-nodes.sh client web_ui filter_node bno055_imu 2>&1 | tee .logs/<name>/deploy-client.log
 
    # All nodes on a target
-   ./scripts/deploy-nodes.sh client --all 2>&1 | tee .logs/deploy-client-all.log
-   ./scripts/deploy-nodes.sh server --all 2>&1 | tee .logs/deploy-server-all.log
+   ./scripts/deploy-nodes.sh client --all 2>&1 | tee .logs/<name>/deploy-client-all.log
+   ./scripts/deploy-nodes.sh server --all 2>&1 | tee .logs/<name>/deploy-server-all.log
    ```
 
    so deployed services reflect the latest code.
@@ -222,4 +225,3 @@ For re-calibration (survey-in): `./scripts/rtk_calibrate.sh --accuracy 20`
 ## Memory and Decisions
 
 [`MEMORY.md`](MEMORY.md) records key project decisions and LLM context. Update it when making important decisions. Do not modify it during refactoring unless content is genuinely stale.
-

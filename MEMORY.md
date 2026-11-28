@@ -8,7 +8,7 @@
 * **ROS2 distro**: Jazzy on Ubuntu 24.04. Docker base images use `ros:jazzy-ros-base`; Ansible installs `ros-jazzy-*` packages.
 * **Layout**: All nodes live under **`nodes/`**; **`shared/`** holds shared Python libraries. No `client/` or `server/` directories; deployment is via Ansible (clone repo on node, build containers locally).
 * **Container registry**: Images are built and pushed to `https://harbor.szymonrichert.pl/containers/<node name>` (e.g. `harbor.szymonrichert.pl/containers/client-ros2-master:latest`). Ansible builds containers locally on each node from the cloned repo; image names use this registry path for consistency.
-* **Commits**: After each phase/iteration commit, push to upstream. When only one agent works on the codebase, push only to `main` (no feature branches).
+* **Commits**: After each phase/iteration commit, push to upstream. Work on a feature branch (a worktree under `.worktrees/<name>/` per `.claude/rules/superpowers-flow.md`), push to that branch, and reach `main` through a pull request.
 * **Leader/follower arms**: The **feetech_servos** node (configurable via YAML: namespace, joint_names as list of `{ name, id }` per joint—explicit servo ID, no assumption IDs start at 1) publishes `/<namespace>/joint_states` and subscribes `/<namespace>/joint_commands`. Use example configs `config/leader.yaml` and `config/follower.yaml` for leader (Server) and follower (Client). Topic layout remains `/leader/...` and `/follower/...` when so configured. Optional lerobot_teleop node on Client: subscribes `/leader/joint_states` (proxied by master2master), publishes `/follower/joint_commands`. master2master supports `type: JointState` for sensor_msgs/JointState relay.
 
 ## Linting and Python nodes

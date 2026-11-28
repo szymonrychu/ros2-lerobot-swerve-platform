@@ -5,7 +5,7 @@ description: Use when checking the leader-follower teleop pipeline health, debug
 
 # Teleop Pipeline Diagnostics
 
-Run `scripts/teleop_diag.sh` for a complete one-command teleop diagnostic. Never SSH manually to check service status — the script handles everything and requires no approvals.
+Run `scripts/teleop_diag.sh` for a complete one-command teleop diagnostic. Never SSH manually to check service status - the script handles everything and requires no approvals.
 
 ## Quick Reference
 
@@ -43,9 +43,9 @@ test_joint_api  →  REST POST  →  /filter/input_joint_updates
 | `[client] master2master relay` | `active` = relay running. Look for relay rules logged at startup: `/leader/joint_states -> /filter/input_joint_updates`. |
 | `[client] filter_node` | `active` = Kalman filter running. Look for `stale input` warnings if no data is flowing. |
 | `[client] lerobot_follower` | `active` = follower running and listening on `/follower/joint_commands`. |
-| Topic scraper | `/leader/joint_states`, `/filter/input_joint_updates`, `/follower/joint_commands` — all three must be PRESENT for end-to-end data flow. |
+| Topic scraper | `/leader/joint_states`, `/filter/input_joint_updates`, `/follower/joint_commands` - all three must be PRESENT for end-to-end data flow. |
 
-## Interpreting Results — Common Patterns
+## Interpreting Results - Common Patterns
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
