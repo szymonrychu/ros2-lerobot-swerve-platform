@@ -16,23 +16,23 @@ Never SSH manually to restart services - Ansible handles everything.
 
 ## Quick Reference
 
-**Always log deploy output to `.logs/`** (gitignored) instead of system temp dirs:
+**Always log deploy output to the per-improvement dir `.logs/<name>/`** (gitignored) at the repository root instead of system temp dirs, where `<name>` is the improvement's kebab-case name:
 
 `deploy-nodes.sh` calls `ansible-playbook`, which lives only in the repo venv (`.venv/bin`). Run `uv sync` at the root, then either `PATH=$PWD/.venv/bin:$PATH ./scripts/deploy-nodes.sh ...` or `uv run ./scripts/deploy-nodes.sh ...`.
 
 ```bash
-mkdir -p .logs
+mkdir -p .logs/<name>
 
 # Single node
-./scripts/deploy-nodes.sh client web_ui 2>&1 | tee .logs/deploy-client.log
-./scripts/deploy-nodes.sh server lerobot_leader 2>&1 | tee .logs/deploy-server.log
+./scripts/deploy-nodes.sh client web_ui 2>&1 | tee .logs/<name>/deploy-client.log
+./scripts/deploy-nodes.sh server lerobot_leader 2>&1 | tee .logs/<name>/deploy-server.log
 
 # Several nodes: ONE ansible run with --tags web_ui,filter_node,bno055_imu (never parallel runs)
-./scripts/deploy-nodes.sh client web_ui filter_node bno055_imu 2>&1 | tee .logs/deploy-client.log
+./scripts/deploy-nodes.sh client web_ui filter_node bno055_imu 2>&1 | tee .logs/<name>/deploy-client.log
 
 # All nodes on a target (includes full verify)
-./scripts/deploy-nodes.sh client --all 2>&1 | tee .logs/deploy-client-all.log
-./scripts/deploy-nodes.sh server --all 2>&1 | tee .logs/deploy-server-all.log
+./scripts/deploy-nodes.sh client --all 2>&1 | tee .logs/<name>/deploy-client-all.log
+./scripts/deploy-nodes.sh server --all 2>&1 | tee .logs/<name>/deploy-server-all.log
 
 # Partial runs by phase tag (--tags / --skip-tags pass through with --all)
 ./scripts/deploy-nodes.sh client --all --tags config,restart   # configs/units/launchers only, then restart
